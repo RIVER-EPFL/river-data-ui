@@ -1,26 +1,27 @@
-import { Layout, AppBar, TitlePortal, LayoutProps } from 'react-admin';
-import { CssBaseline, Button, Box } from '@mui/material';
-import DashboardIcon from '@mui/icons-material/Dashboard';
+import { Layout, AppBar, TitlePortal, Menu, LayoutProps } from 'react-admin';
+import { CssBaseline } from '@mui/material';
+import SettingsIcon from '@mui/icons-material/Settings';
 
 const CustomAppBar = () => (
   <AppBar>
     <TitlePortal />
-    <Box flex={1} />
-    <Button
-      color="inherit"
-      href="/dashboard"
-      startIcon={<DashboardIcon />}
-      sx={{ textTransform: 'none', mr: 2 }}
-    >
-      Go to Dashboard
-    </Button>
   </AppBar>
+);
+
+const CustomMenu = () => (
+  <Menu>
+    <Menu.DashboardItem />
+    <Menu.ResourceItem name="sites" />
+    <Menu.ResourceItem name="sensors" />
+    <Menu.ResourceItem name="derived_parameters" />
+    <Menu.Item to="/system" primaryText="System" leftIcon={<SettingsIcon />} />
+  </Menu>
 );
 
 const CustomLayout = ({ children }: LayoutProps) => (
   <>
     <CssBaseline />
-    <Layout appBar={CustomAppBar}>{children}</Layout>
+    <Layout appBar={CustomAppBar} menu={CustomMenu}>{children}</Layout>
   </>
 );
 

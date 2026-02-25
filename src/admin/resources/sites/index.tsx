@@ -5,17 +5,14 @@ import {
   NumberField,
   ReferenceField,
   DateField,
-  Show,
-  SimpleShowLayout,
   Edit,
   SimpleForm,
   TextInput,
   NumberInput,
   ReferenceInput,
   SelectInput,
-  TopToolbar,
-  EditButton,
 } from 'react-admin';
+import StationHub from './StationHub';
 
 const SiteList = () => (
   <List>
@@ -32,23 +29,6 @@ const SiteList = () => (
   </List>
 );
 
-const SiteShow = () => (
-  <Show actions={<TopToolbar><EditButton /></TopToolbar>}>
-    <SimpleShowLayout>
-      <TextField source="id" />
-      <TextField source="name" />
-      <ReferenceField source="project_id" reference="projects" link="show">
-        <TextField source="name" />
-      </ReferenceField>
-      <NumberField source="latitude" />
-      <NumberField source="longitude" />
-      <NumberField source="altitude_m" />
-      <DateField source="created_at" showTime />
-      <DateField source="discovered_at" showTime />
-    </SimpleShowLayout>
-  </Show>
-);
-
 const SiteEdit = () => (
   <Edit>
     <SimpleForm>
@@ -59,12 +39,13 @@ const SiteEdit = () => (
       <NumberInput source="latitude" />
       <NumberInput source="longitude" />
       <NumberInput source="altitude_m" />
+      <TextInput source="public_slug" helperText="URL-safe identifier for public API. Leave blank to exclude." />
     </SimpleForm>
   </Edit>
 );
 
 export default {
   list: SiteList,
-  show: SiteShow,
+  show: StationHub,
   edit: SiteEdit,
 };

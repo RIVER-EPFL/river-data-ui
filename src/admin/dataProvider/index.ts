@@ -18,7 +18,7 @@ export interface RiverDataProvider extends DataProvider {
   getSyncState: () => Promise<{ data: unknown }>;
   recalibrateCalibration: (id: string) => Promise<{ data: unknown }>;
   recomputeDerived: (id: string) => Promise<{ data: unknown }>;
-  uploadCsv: (file: File, params: Record<string, string>) => Promise<{ data: unknown }>;
+  invalidatePublicConfig: (slug: string) => Promise<{ data: unknown }>;
 }
 
 const dataProvider = (
@@ -56,13 +56,11 @@ const dataProvider = (
           `The ${countHeader} header is missing in the HTTP Response. The simple REST data provider expects responses for lists of resources to contain this header with the total number of results to build the pagination. If you are using CORS, did you declare ${countHeader} in the Access-Control-Expose-Headers header?`
         );
       }
-      return {
-        data: json,
-        total:
-          countHeader === 'Content-Range'
-            ? parseInt(headers.get('content-range')!.split('/').pop()!, 10)
-            : parseInt(headers.get(countHeader.toLowerCase())!),
-      };
+      const total =
+        countHeader === 'Content-Range'
+          ? parseInt(headers.get('content-range')?.split('/').pop() ?? '0', 10)
+          : parseInt(headers.get(countHeader.toLowerCase()) ?? '0');
+      return { data: json, total: isNaN(total) ? 0 : total };
     });
   },
 
@@ -113,13 +111,11 @@ const dataProvider = (
           `The ${countHeader} header is missing in the HTTP Response.`
         );
       }
-      return {
-        data: json,
-        total:
-          countHeader === 'Content-Range'
-            ? parseInt(headers.get('content-range')!.split('/').pop()!, 10)
-            : parseInt(headers.get(countHeader.toLowerCase())!),
-      };
+      const total =
+        countHeader === 'Content-Range'
+          ? parseInt(headers.get('content-range')?.split('/').pop() ?? '0', 10)
+          : parseInt(headers.get(countHeader.toLowerCase()) ?? '0');
+      return { data: json, total: isNaN(total) ? 0 : total };
     });
   },
 
@@ -131,10 +127,14 @@ const dataProvider = (
   },
 
   updateMany: (resource, params) => {
-    return httpClient(`${apiUrl}/${resource}/batch`, {
-      method: 'PUT',
-      body: JSON.stringify({ ids: params.ids, data: params.data }),
-    }).then(({ json }) => ({ data: json }));
+    return Promise.all(
+      params.ids.map((id) =>
+        httpClient(`${apiUrl}/${resource}/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify(params.data),
+        })
+      )
+    ).then((responses) => ({ data: responses.map(({ json }) => json.id) }));
   },
 
   create: (resource, params) => {
@@ -154,10 +154,14 @@ const dataProvider = (
     if (params.ids.length === 0) {
       return Promise.resolve({ data: [] });
     }
-    return httpClient(`${apiUrl}/${resource}/batch`, {
-      method: 'DELETE',
-      body: JSON.stringify(params.ids),
-    }).then(({ json }) => ({ data: json }));
+    return Promise.all(
+      params.ids.map((id) =>
+        httpClient(`${apiUrl}/${resource}/${id}`, {
+          method: 'DELETE',
+          headers: new Headers({ 'Content-Type': 'text/plain' }),
+        })
+      )
+    ).then((responses) => ({ data: responses.map(({ json }) => json.id) }));
   },
 
   // Custom methods for river-data
@@ -174,27 +178,20 @@ const dataProvider = (
   },
 
   recalibrateCalibration: (id: string) => {
-    return httpClient(`${apiUrl}/sensor_calibrations/${id}/recalculate`, {
+    return httpClient(`${apiUrl}/actions/sensor_calibrations/${id}/recalculate`, {
       method: 'POST',
     }).then(({ json }) => ({ data: json }));
   },
 
   recomputeDerived: (id: string) => {
-    return httpClient(`${apiUrl}/derived_parameters/${id}/recompute`, {
+    return httpClient(`${apiUrl}/actions/derived_parameters/${id}/recompute`, {
       method: 'POST',
     }).then(({ json }) => ({ data: json }));
   },
 
-  uploadCsv: (file: File, params: Record<string, string>) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    Object.entries(params).forEach(([key, value]) => {
-      formData.append(key, value);
-    });
-
-    return httpClient(`${apiUrl}/data_imports/upload`, {
+  invalidatePublicConfig: (slug: string) => {
+    return httpClient(`${apiUrl}/actions/invalidate_public_config/${slug}`, {
       method: 'POST',
-      body: formData,
     }).then(({ json }) => ({ data: json }));
   },
 });

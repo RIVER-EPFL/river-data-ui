@@ -22,8 +22,10 @@ export const keycloakAuthProvider = (
       redirectUri: options.logoutRedirectUri ?? window.location.origin,
     });
   },
-  async checkError() {
-    return Promise.resolve();
+  async checkError(error: { status?: number }) {
+    if (error.status === 401 || error.status === 403) {
+      throw new Error('Unauthorized');
+    }
   },
   async checkAuth() {
     if (!client.authenticated || !client.token) {

@@ -7,17 +7,20 @@ import {
   Edit,
   SimpleForm,
   TextInput,
-  useDataProvider,
+  ReferenceArrayInput,
+  AutocompleteArrayInput,
   useNotify,
   useRefresh,
   useRecordContext,
+  useGetList,
 } from 'react-admin';
 import { Button } from '@mui/material';
-import type { RiverDataProvider } from '../../dataProvider';
+import { useRiverDataProvider } from '../../useRiverDataProvider';
+import { FormulaBuilder } from '../../components/FormulaBuilder';
 
 const RecomputeButton = () => {
   const record = useRecordContext();
-  const dataProvider = useDataProvider() as RiverDataProvider;
+  const dataProvider = useRiverDataProvider();
   const notify = useNotify();
   const refresh = useRefresh();
 
@@ -40,10 +43,14 @@ const RecomputeButton = () => {
   );
 };
 
-const jsonParse = (v: string) => {
-  try { return JSON.parse(v); } catch { return v; }
+/** Fetch parameter type names for the formula builder variable palette */
+const useParameterTypeNames = (): string[] => {
+  const { data } = useGetList('parameter_types', {
+    pagination: { page: 1, perPage: 200 },
+    sort: { field: 'name', order: 'ASC' },
+  });
+  return data?.map((pt) => pt.name as string) ?? [];
 };
-const jsonFormat = (v: unknown) => typeof v === 'string' ? v : JSON.stringify(v, null, 2);
 
 const DerivedParameterList = () => (
   <List>
@@ -59,41 +66,47 @@ const DerivedParameterList = () => (
   </List>
 );
 
-const DerivedParameterCreate = () => (
-  <Create>
+const DerivedParameterCreateForm = () => {
+  const parameterTypes = useParameterTypeNames();
+  return (
     <SimpleForm>
       <TextInput source="name" isRequired />
       <TextInput source="display_name" />
       <TextInput source="units" />
-      <TextInput source="formula" isRequired helperText="Math expression, e.g. slope * x + intercept" />
+      <FormulaBuilder source="formula" isRequired parameterTypes={parameterTypes} />
       <TextInput source="description" multiline />
-      <TextInput
-        source="required_parameter_types"
-        multiline
-        parse={jsonParse}
-        format={jsonFormat}
-        helperText="JSON array of required parameter type names"
-      />
+      <ReferenceArrayInput source="required_parameter_types" reference="parameter_types">
+        <AutocompleteArrayInput optionText="display_name" helperText="Select required parameter types" />
+      </ReferenceArrayInput>
     </SimpleForm>
+  );
+};
+
+const DerivedParameterCreate = () => (
+  <Create>
+    <DerivedParameterCreateForm />
   </Create>
 );
 
-const DerivedParameterEdit = () => (
-  <Edit>
+const DerivedParameterEditForm = () => {
+  const parameterTypes = useParameterTypeNames();
+  return (
     <SimpleForm>
       <TextInput source="name" isRequired />
       <TextInput source="display_name" />
       <TextInput source="units" />
-      <TextInput source="formula" isRequired helperText="Math expression, e.g. slope * x + intercept" />
+      <FormulaBuilder source="formula" isRequired parameterTypes={parameterTypes} />
       <TextInput source="description" multiline />
-      <TextInput
-        source="required_parameter_types"
-        multiline
-        parse={jsonParse}
-        format={jsonFormat}
-        helperText="JSON array of required parameter type names"
-      />
+      <ReferenceArrayInput source="required_parameter_types" reference="parameter_types">
+        <AutocompleteArrayInput optionText="display_name" helperText="Select required parameter types" />
+      </ReferenceArrayInput>
     </SimpleForm>
+  );
+};
+
+const DerivedParameterEdit = () => (
+  <Edit>
+    <DerivedParameterEditForm />
   </Edit>
 );
 

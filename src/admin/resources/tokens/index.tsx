@@ -16,7 +16,10 @@ import {
   ReferenceInput,
   SelectInput,
   DateTimeInput,
+  RadioButtonGroupInput,
+  FormDataConsumer,
   useRedirect,
+  useGetIdentity,
   type RaRecord,
 } from 'react-admin';
 import {
@@ -29,29 +32,51 @@ import {
   Box,
   IconButton,
   Alert,
+  Chip,
+  Stack,
 } from '@mui/material';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 
-const jsonParse = (v: string) => {
-  try { return JSON.parse(v); } catch { return v; }
+// ---------- List ----------
+
+const PermissionsSummary = ({ record }: { record?: { permissions?: { read_metadata?: boolean; read_data?: boolean } } }) => {
+  if (!record?.permissions) return <>All</>;
+  const perms = record.permissions;
+  const parts: string[] = [];
+  if (perms.read_metadata) parts.push('Metadata');
+  if (perms.read_data) parts.push('Data');
+  return <>{parts.length ? parts.join(', ') : 'None'}</>;
 };
-const jsonFormat = (v: unknown) => typeof v === 'string' ? v : JSON.stringify(v, null, 2);
 
 const TokenList = () => (
   <List>
     <Datagrid rowClick="show">
       <TextField source="name" />
-      <ReferenceField source="project_scope" reference="projects" link="show" emptyText="-">
+      <ReferenceField source="project_scope" reference="projects" link="show" emptyText="All projects">
         <TextField source="name" />
       </ReferenceField>
+      <FunctionField
+        label="Permissions"
+        render={(record: { permissions?: { read_metadata?: boolean; read_data?: boolean } }) => (
+          <PermissionsSummary record={record} />
+        )}
+      />
       <BooleanField source="is_active" />
       <TextField source="created_by" />
-      <DateField source="expires_at" showTime />
+      <FunctionField
+        source="expires_at"
+        label="Expires"
+        render={(record: { expires_at?: string }) =>
+          record?.expires_at ? new Date(record.expires_at).toLocaleString() : 'Never'
+        }
+      />
       <DateField source="last_used_at" showTime />
       <DateField source="created_at" showTime />
     </Datagrid>
   </List>
 );
+
+// ---------- Show ----------
 
 const TokenShow = () => (
   <Show>
@@ -59,28 +84,51 @@ const TokenShow = () => (
       <TextField source="id" />
       <TextField source="name" />
       <TextField source="token_hash" label="Token Hash" />
-      <ReferenceField source="project_scope" reference="projects" link="show" emptyText="-">
+      <ReferenceField source="project_scope" reference="projects" link="show" emptyText="All projects">
         <TextField source="name" />
       </ReferenceField>
       <FunctionField
         label="Permissions"
-        render={(record: { permissions?: unknown }) =>
-          record?.permissions ? JSON.stringify(record.permissions) : '-'
-        }
+        render={(record: { permissions?: { read_metadata?: boolean; read_data?: boolean } }) => {
+          if (!record?.permissions) return '-';
+          const p = record.permissions;
+          return (
+            <Stack direction="row" spacing={1}>
+              {p.read_metadata && <Chip label="Read Metadata" size="small" color="primary" />}
+              {p.read_data && <Chip label="Read Data" size="small" color="primary" />}
+              {!p.read_metadata && !p.read_data && <Chip label="No permissions" size="small" color="default" />}
+            </Stack>
+          );
+        }}
       />
       <BooleanField source="is_active" />
       <DateField source="created_at" showTime />
-      <DateField source="expires_at" showTime />
+      <FunctionField
+        source="expires_at"
+        label="Expires"
+        render={(record: { expires_at?: string }) =>
+          record?.expires_at ? new Date(record.expires_at).toLocaleString() : 'Never'
+        }
+      />
       <DateField source="last_used_at" showTime />
       <TextField source="created_by" />
     </SimpleShowLayout>
   </Show>
 );
 
+// ---------- Create ----------
+
+const EXPIRY_CHOICES = [
+  { id: 'never', name: 'Never expires' },
+  { id: 'custom', name: 'Custom date' },
+];
+
 const TokenCreate = () => {
   const [rawToken, setRawToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [curlCopied, setCurlCopied] = useState(false);
   const redirect = useRedirect();
+  const { data: identity } = useGetIdentity();
 
   const handleCopy = async () => {
     if (!rawToken) return;
@@ -89,14 +137,46 @@ const TokenCreate = () => {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleCopyCurl = async () => {
+    if (!rawToken) return;
+    const cmd = `curl -H "Authorization: Bearer ${rawToken}" ${window.location.origin}/api/private/sites`;
+    await navigator.clipboard.writeText(cmd);
+    setCurlCopied(true);
+    setTimeout(() => setCurlCopied(false), 2000);
+  };
+
   const handleClose = () => {
     setRawToken(null);
     redirect('list', 'tokens');
   };
 
+  const transform = (data: Record<string, unknown>) => {
+    // Build structured permissions object
+    const permissions = {
+      read_metadata: data['permissions.read_metadata'] ?? true,
+      read_data: data['permissions.read_data'] ?? true,
+    };
+
+    // Handle expiry: "never" → null
+    const expiresAt = data._expiry_mode === 'never' ? null : data.expires_at;
+
+    // Auto-populate created_by from identity if empty
+    const createdBy = data.created_by || identity?.fullName || undefined;
+
+    // Remove internal fields and flatten
+    const { _expiry_mode, 'permissions.read_metadata': _rm, 'permissions.read_data': _rd, ...rest } = data;
+    return {
+      ...rest,
+      permissions,
+      expires_at: expiresAt,
+      created_by: createdBy,
+    };
+  };
+
   return (
     <>
       <Create
+        transform={transform}
         mutationOptions={{
           onSuccess: (data: RaRecord) => {
             if (data.raw_token) {
@@ -110,26 +190,58 @@ const TokenCreate = () => {
         <SimpleForm>
           <TextInput source="name" isRequired />
           <ReferenceInput source="project_scope" reference="projects">
-            <SelectInput optionText="name" emptyText="All projects" />
+            <SelectInput
+              optionText="name"
+              emptyText="All projects"
+              helperText="Restrict this token to a specific project. Leave empty for access to all projects."
+            />
           </ReferenceInput>
-          <TextInput
-            source="permissions"
-            multiline
-            parse={jsonParse}
-            format={jsonFormat}
-            helperText='JSON object, e.g. {"read": true, "write": false}'
+
+          <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>Permissions</Typography>
+          <BooleanInput
+            source="permissions.read_metadata"
+            label="Read Metadata (projects, sites, parameters)"
+            defaultValue={true}
           />
+          <BooleanInput
+            source="permissions.read_data"
+            label="Read Data (readings, aggregates, alarms)"
+            defaultValue={true}
+          />
+
           <BooleanInput source="is_active" defaultValue={true} />
-          <DateTimeInput source="expires_at" />
-          <TextInput source="created_by" />
+
+          <RadioButtonGroupInput
+            source="_expiry_mode"
+            label="Token Expiry"
+            choices={EXPIRY_CHOICES}
+            defaultValue="never"
+          />
+          <FormDataConsumer>
+            {({ formData }) =>
+              formData._expiry_mode === 'custom' ? (
+                <DateTimeInput source="expires_at" label="Expires at" />
+              ) : null
+            }
+          </FormDataConsumer>
+
+          <TextInput
+            source="created_by"
+            defaultValue={identity?.fullName ?? ''}
+            helperText="Auto-filled from your Keycloak username. Edit if needed."
+          />
         </SimpleForm>
       </Create>
+
       <Dialog open={!!rawToken} maxWidth="sm" fullWidth>
         <DialogTitle>API Token Created</DialogTitle>
         <DialogContent>
           <Alert severity="warning" sx={{ mb: 2 }}>
             Copy this token now. It will not be shown again.
           </Alert>
+
+          {/* Raw token */}
+          <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Token</Typography>
           <Box
             sx={{
               display: 'flex',
@@ -150,10 +262,33 @@ const TokenCreate = () => {
             </IconButton>
           </Box>
           {copied && (
-            <Typography variant="caption" color="success.main" sx={{ mt: 1, display: 'block' }}>
+            <Typography variant="caption" color="success.main" sx={{ mt: 0.5, display: 'block' }}>
               Copied to clipboard
             </Typography>
           )}
+
+          {/* Usage instructions */}
+          <Typography variant="subtitle2" sx={{ mt: 2, mb: 0.5 }}>How to use</Typography>
+          <Box
+            sx={{
+              bgcolor: 'grey.100',
+              p: 2,
+              borderRadius: 1,
+              fontFamily: 'monospace',
+              fontSize: '0.8rem',
+              wordBreak: 'break-all',
+            }}
+          >
+            curl -H &quot;Authorization: Bearer {'<token>'}&quot; {window.location.origin}/api/private/sites
+          </Box>
+          <Button
+            size="small"
+            startIcon={<ContentCopyIcon />}
+            onClick={handleCopyCurl}
+            sx={{ mt: 0.5 }}
+          >
+            {curlCopied ? 'Copied!' : 'Copy as curl command'}
+          </Button>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleClose} variant="contained">

@@ -13,17 +13,16 @@ import {
   ReferenceInput,
   SelectInput,
   DateTimeInput,
-  useDataProvider,
   useNotify,
   useRefresh,
   useRecordContext,
 } from 'react-admin';
 import { Button } from '@mui/material';
-import type { RiverDataProvider } from '../../dataProvider';
+import { useRiverDataProvider } from '../../useRiverDataProvider';
 
 const RecalculateButton = () => {
   const record = useRecordContext();
-  const dataProvider = useDataProvider() as RiverDataProvider;
+  const dataProvider = useRiverDataProvider();
   const notify = useNotify();
   const refresh = useRefresh();
 

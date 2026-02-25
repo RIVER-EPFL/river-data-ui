@@ -12,9 +12,9 @@ import {
 } from 'react-admin';
 
 const AlarmThresholdList = () => (
-  <List>
+  <List perPage={50}>
     <Datagrid rowClick="edit">
-      <ReferenceField source="parameter_id" reference="parameters" link="show">
+      <ReferenceField source="parameter_id" reference="parameters" link="show" emptyText="-">
         <TextField source="name" />
       </ReferenceField>
       <NumberField source="warning_min" />

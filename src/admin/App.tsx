@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
-import { Admin, Resource, defaultTheme } from 'react-admin';
+import { Admin, Resource, CustomRoutes, defaultTheme } from 'react-admin';
+import { Route } from 'react-router';
 import { fetchUtils } from 'ra-core';
 import Keycloak from 'keycloak-js';
 import { httpClient } from 'ra-keycloak';
@@ -7,14 +8,16 @@ import { keycloakAuthProvider } from './authProvider';
 import simpleRestProvider from './dataProvider';
 import CustomLayout from './Layout';
 import Dashboard from './Dashboard';
-import { resources } from './resources';
+import { resources, hiddenResources } from './resources';
+import { SystemPage } from './resources/system';
+import { KeycloakContext } from './KeycloakContext';
 
 const initOptions = {
   onLoad: 'login-required' as const,
   checkLoginIframe: false,
   enableLogging: true,
   silentCheckSsoRedirectUri: undefined,
-  pkceMethod: false as const,
+  pkceMethod: 'S256' as const,
 };
 
 const getPermissions = (decoded: { realm_access?: { roles?: string[] } }) => {
@@ -54,8 +57,7 @@ const AdminApp = () => {
         }
 
         const keycloakConfig = await response.json();
-        const browserKeycloakUrl = (import.meta as unknown as { env: Record<string, string> }).env
-          .VITE_KEYCLOAK_BROWSER_URL;
+        const browserKeycloakUrl = import.meta.env.VITE_KEYCLOAK_BROWSER_URL;
         if (browserKeycloakUrl) {
           keycloakConfig.url = browserKeycloakUrl;
         }
@@ -155,19 +157,27 @@ const AdminApp = () => {
   };
 
   return (
-    <Admin
-      authProvider={authProvider.current}
-      dataProvider={dataProviderRef.current!}
-      title="River Data: Admin"
-      layout={CustomLayout}
-      theme={theme}
-      dashboard={Dashboard}
-      basename="/admin"
-    >
-      {resources.map((r) => (
-        <Resource key={r.name} {...r} />
-      ))}
-    </Admin>
+    <KeycloakContext.Provider value={initState.status === 'keycloak' ? initState.keycloak : null}>
+      <Admin
+        authProvider={authProvider.current}
+        dataProvider={dataProviderRef.current as NonNullable<typeof dataProviderRef.current>}
+        title="River Data: Admin"
+        layout={CustomLayout}
+        theme={theme}
+        dashboard={Dashboard}
+        basename="/admin"
+      >
+        {resources.map((r) => (
+          <Resource key={r.name} {...r} />
+        ))}
+        {hiddenResources.map((r) => (
+          <Resource key={r.name} {...r} />
+        ))}
+        <CustomRoutes>
+          <Route path="/system" element={<SystemPage />} />
+        </CustomRoutes>
+      </Admin>
+    </KeycloakContext.Provider>
   );
 };
 

@@ -3,16 +3,13 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
+  base: '/admin/',
   server: {
     port: 5173,
     host: '0.0.0.0',
     proxy: {
       '/api': {
-        target: 'http://localhost:3005',
-        changeOrigin: true,
-      },
-      '/dashboard': {
-        target: 'http://localhost:3005',
+        target: 'http://river-db-api:3000',
         changeOrigin: true,
       },
     },

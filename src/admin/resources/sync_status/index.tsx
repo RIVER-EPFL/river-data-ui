@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useDataProvider, Title } from 'react-admin';
+import { Title, useNotify } from 'react-admin';
 import {
   Card,
   CardContent,
@@ -16,7 +16,7 @@ import {
   Alert,
 } from '@mui/material';
 import SyncIcon from '@mui/icons-material/Sync';
-import type { RiverDataProvider } from '../../dataProvider';
+import { useRiverDataProvider } from '../../useRiverDataProvider';
 
 interface SyncState {
   parameter_id: string;
@@ -29,7 +29,8 @@ interface SyncState {
 }
 
 const SyncStatusList = () => {
-  const dataProvider = useDataProvider() as RiverDataProvider;
+  const dataProvider = useRiverDataProvider();
+  const notify = useNotify();
   const [syncStates, setSyncStates] = useState<SyncState[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -39,9 +40,9 @@ const SyncStatusList = () => {
     dataProvider
       .getSyncState()
       .then((res: { data: unknown }) => setSyncStates(res.data as SyncState[]))
-      .catch(console.error)
+      .catch(() => notify('Failed to load sync status', { type: 'error' }))
       .finally(() => setLoading(false));
-  }, [dataProvider]);
+  }, [dataProvider, notify]);
 
   const handleTriggerSync = async () => {
     setSyncing(true);
