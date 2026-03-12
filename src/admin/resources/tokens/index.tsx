@@ -39,12 +39,14 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 
 // ---------- List ----------
 
-const PermissionsSummary = ({ record }: { record?: { permissions?: { read_metadata?: boolean; read_data?: boolean } } }) => {
+const PermissionsSummary = ({ record }: { record?: { permissions?: { read_metadata?: boolean; read_data?: boolean; write_metadata?: boolean; write_data?: boolean } } }) => {
   if (!record?.permissions) return <>All</>;
   const perms = record.permissions;
   const parts: string[] = [];
   if (perms.read_metadata) parts.push('Metadata');
   if (perms.read_data) parts.push('Data');
+  if (perms.write_metadata) parts.push('Write Metadata');
+  if (perms.write_data) parts.push('Write Data');
   return <>{parts.length ? parts.join(', ') : 'None'}</>;
 };
 
@@ -57,7 +59,7 @@ const TokenList = () => (
       </ReferenceField>
       <FunctionField
         label="Permissions"
-        render={(record: { permissions?: { read_metadata?: boolean; read_data?: boolean } }) => (
+        render={(record: { permissions?: { read_metadata?: boolean; read_data?: boolean; write_metadata?: boolean; write_data?: boolean } }) => (
           <PermissionsSummary record={record} />
         )}
       />
@@ -89,14 +91,16 @@ const TokenShow = () => (
       </ReferenceField>
       <FunctionField
         label="Permissions"
-        render={(record: { permissions?: { read_metadata?: boolean; read_data?: boolean } }) => {
+        render={(record: { permissions?: { read_metadata?: boolean; read_data?: boolean; write_metadata?: boolean; write_data?: boolean } }) => {
           if (!record?.permissions) return '-';
           const p = record.permissions;
           return (
             <Stack direction="row" spacing={1}>
               {p.read_metadata && <Chip label="Read Metadata" size="small" color="primary" />}
               {p.read_data && <Chip label="Read Data" size="small" color="primary" />}
-              {!p.read_metadata && !p.read_data && <Chip label="No permissions" size="small" color="default" />}
+              {p.write_metadata && <Chip label="Write Metadata" size="small" color="secondary" />}
+              {p.write_data && <Chip label="Write Data" size="small" color="secondary" />}
+              {!p.read_metadata && !p.read_data && !p.write_metadata && !p.write_data && <Chip label="No permissions" size="small" color="default" />}
             </Stack>
           );
         }}
@@ -139,7 +143,7 @@ const TokenCreate = () => {
 
   const handleCopyCurl = async () => {
     if (!rawToken) return;
-    const cmd = `curl -H "Authorization: Bearer ${rawToken}" ${window.location.origin}/api/private/sites`;
+    const cmd = `curl -H "Authorization: Bearer ${rawToken}" ${window.location.origin}/api/service/sites`;
     await navigator.clipboard.writeText(cmd);
     setCurlCopied(true);
     setTimeout(() => setCurlCopied(false), 2000);
@@ -155,6 +159,8 @@ const TokenCreate = () => {
     const permissions = {
       read_metadata: data['permissions.read_metadata'] ?? true,
       read_data: data['permissions.read_data'] ?? true,
+      write_metadata: data['permissions.write_metadata'] ?? false,
+      write_data: data['permissions.write_data'] ?? false,
     };
 
     // Handle expiry: "never" → null
@@ -164,7 +170,7 @@ const TokenCreate = () => {
     const createdBy = data.created_by || identity?.fullName || undefined;
 
     // Remove internal fields and flatten
-    const { _expiry_mode, 'permissions.read_metadata': _rm, 'permissions.read_data': _rd, ...rest } = data;
+    const { _expiry_mode, 'permissions.read_metadata': _rm, 'permissions.read_data': _rd, 'permissions.write_metadata': _wm, 'permissions.write_data': _wd, ...rest } = data;
     return {
       ...rest,
       permissions,
@@ -207,6 +213,16 @@ const TokenCreate = () => {
             source="permissions.read_data"
             label="Read Data (readings, aggregates, alarms)"
             defaultValue={true}
+          />
+          <BooleanInput
+            source="permissions.write_metadata"
+            label="Write Metadata (create/update entities)"
+            defaultValue={false}
+          />
+          <BooleanInput
+            source="permissions.write_data"
+            label="Write Data (push readings, trigger actions)"
+            defaultValue={false}
           />
 
           <BooleanInput source="is_active" defaultValue={true} />
@@ -279,7 +295,7 @@ const TokenCreate = () => {
               wordBreak: 'break-all',
             }}
           >
-            curl -H &quot;Authorization: Bearer {'<token>'}&quot; {window.location.origin}/api/private/sites
+            curl -H &quot;Authorization: Bearer {'<token>'}&quot; {window.location.origin}/api/service/sites
           </Box>
           <Button
             size="small"

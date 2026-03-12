@@ -9,12 +9,12 @@ import {
 
 const ListActions = () => (
   <TopToolbar>
-    <CreateButton resource="parameter_types" />
+    <CreateButton resource="parameters" />
   </TopToolbar>
 );
 
-export const ParameterTypesPanel = () => (
-  <List resource="parameter_types" actions={<ListActions />} title=" ">
+export const ParametersPanel = () => (
+  <List resource="parameters" actions={<ListActions />} title=" ">
     <Datagrid rowClick="edit">
       <TextField source="name" />
       <TextField source="display_name" />

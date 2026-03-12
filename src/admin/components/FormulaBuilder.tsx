@@ -11,11 +11,25 @@ import {
   Alert,
   Tooltip,
   Divider,
+  Collapse,
+  Table,
+  TableBody,
+  TableRow,
+  TableCell,
 } from '@mui/material';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 
 /* ------------------------------------------------------------------ */
 /*  Client-side formula evaluation (preview only, not production math) */
 /* ------------------------------------------------------------------ */
+
+const MATH_FUNCTIONS = new Set([
+  'sqrt', 'abs', 'ln', 'log', 'exp',
+  'sin', 'cos', 'tan',
+  'min', 'max',
+  'pi', 'e',
+]);
 
 function evaluateFormula(
   formula: string,
@@ -30,12 +44,20 @@ function evaluateFormula(
     for (const [name, value] of sorted) {
       expr = expr.replace(new RegExp(`\\b${name}\\b`, 'g'), String(value));
     }
+    // Replace constants
+    expr = expr.replace(/\bpi\b/g, String(Math.PI));
+    expr = expr.replace(/\be\b/g, String(Math.E));
     // Replace math functions
     expr = expr.replace(/\bsqrt\b/g, 'Math.sqrt');
     expr = expr.replace(/\babs\b/g, 'Math.abs');
     expr = expr.replace(/\bln\b/g, 'Math.log');
     expr = expr.replace(/\blog\b/g, 'Math.log10');
     expr = expr.replace(/\bexp\b/g, 'Math.exp');
+    expr = expr.replace(/\bsin\b/g, 'Math.sin');
+    expr = expr.replace(/\bcos\b/g, 'Math.cos');
+    expr = expr.replace(/\btan\b/g, 'Math.tan');
+    expr = expr.replace(/\bmin\b/g, 'Math.min');
+    expr = expr.replace(/\bmax\b/g, 'Math.max');
     expr = expr.replace(/\^/g, '**');
     // Safely evaluate
     const fn = new Function('return ' + expr);
@@ -51,26 +73,53 @@ function evaluateFormula(
 /*  Validation: check for unknown identifiers                         */
 /* ------------------------------------------------------------------ */
 
+function findClosestMatch(unknown: string, known: string[]): string | null {
+  let best: string | null = null;
+  let bestDist = Infinity;
+  const lower = unknown.toLowerCase();
+
+  for (const k of known) {
+    const kLower = k.toLowerCase();
+    // Simple substring check first
+    if (kLower.includes(lower) || lower.includes(kLower)) return k;
+    // Levenshtein-ish: just check edit distance for short strings
+    if (Math.abs(k.length - unknown.length) <= 2) {
+      let dist = 0;
+      const minLen = Math.min(k.length, unknown.length);
+      for (let i = 0; i < minLen; i++) {
+        if (kLower[i] !== lower[i]) dist++;
+      }
+      dist += Math.abs(k.length - unknown.length);
+      if (dist < bestDist && dist <= 3) {
+        bestDist = dist;
+        best = k;
+      }
+    }
+  }
+  return best;
+}
+
 function validateFormula(
   formula: string,
   knownVars: string[],
 ): string | null {
   if (!formula.trim()) return null;
 
-  const mathFunctions = new Set([
-    'sqrt', 'abs', 'ln', 'log', 'exp',
-  ]);
   const knownSet = new Set(knownVars);
 
   // Extract all word tokens from the formula
   const tokens = formula.match(/\b[a-zA-Z_]\w*\b/g) ?? [];
   const unknown = tokens.filter(
-    (t) => !mathFunctions.has(t) && !knownSet.has(t),
+    (t) => !MATH_FUNCTIONS.has(t) && !knownSet.has(t),
   );
 
   if (unknown.length > 0) {
     const unique = [...new Set(unknown)];
-    return `Unknown variable${unique.length > 1 ? 's' : ''}: ${unique.join(', ')}`;
+    const suggestions = unique.map((u) => {
+      const match = findClosestMatch(u, knownVars);
+      return match ? `'${u}' (did you mean '${match}'?)` : `'${u}'`;
+    });
+    return `Unknown variable${unique.length > 1 ? 's' : ''}: ${suggestions.join(', ')}`;
   }
 
   // Try a quick parse to detect syntax errors
@@ -86,39 +135,73 @@ function validateFormula(
 }
 
 /* ------------------------------------------------------------------ */
-/*  Operator definitions                                              */
+/*  Function reference definitions                                    */
 /* ------------------------------------------------------------------ */
 
-interface Operator {
+interface FunctionRef {
   label: string;
   insert: string;
-  tooltip: string;
+  description: string;
 }
 
-const OPERATORS: Operator[] = [
-  { label: '+', insert: ' + ', tooltip: 'Addition' },
-  { label: '-', insert: ' - ', tooltip: 'Subtraction' },
-  { label: '*', insert: ' * ', tooltip: 'Multiplication' },
-  { label: '/', insert: ' / ', tooltip: 'Division' },
-  { label: '^', insert: '^', tooltip: 'Power' },
-  { label: 'log', insert: 'log(', tooltip: 'Base-10 logarithm' },
-  { label: 'ln', insert: 'ln(', tooltip: 'Natural logarithm' },
-  { label: 'exp', insert: 'exp(', tooltip: 'Exponential (e^x)' },
-  { label: 'sqrt', insert: 'sqrt(', tooltip: 'Square root' },
-  { label: 'abs', insert: 'abs(', tooltip: 'Absolute value' },
+const FUNCTION_GROUPS: Array<{ category: string; items: FunctionRef[] }> = [
+  {
+    category: 'Arithmetic',
+    items: [
+      { label: '+', insert: ' + ', description: 'Addition' },
+      { label: '-', insert: ' - ', description: 'Subtraction' },
+      { label: '*', insert: ' * ', description: 'Multiplication' },
+      { label: '/', insert: ' / ', description: 'Division' },
+      { label: '^', insert: '^', description: 'Power (e.g. x^2)' },
+    ],
+  },
+  {
+    category: 'Functions',
+    items: [
+      { label: 'sqrt', insert: 'sqrt(', description: 'Square root' },
+      { label: 'abs', insert: 'abs(', description: 'Absolute value' },
+      { label: 'exp', insert: 'exp(', description: 'e raised to x' },
+      { label: 'ln', insert: 'ln(', description: 'Natural logarithm (base e)' },
+      { label: 'log', insert: 'log(', description: 'Common logarithm (base 10)' },
+      { label: 'sin', insert: 'sin(', description: 'Sine (radians)' },
+      { label: 'cos', insert: 'cos(', description: 'Cosine (radians)' },
+      { label: 'tan', insert: 'tan(', description: 'Tangent (radians)' },
+      { label: 'min', insert: 'min(', description: 'Minimum of two values' },
+      { label: 'max', insert: 'max(', description: 'Maximum of two values' },
+    ],
+  },
+  {
+    category: 'Constants',
+    items: [
+      { label: 'pi', insert: 'pi', description: '3.14159...' },
+      { label: 'e', insert: 'e', description: '2.71828...' },
+    ],
+  },
 ];
 
 /* ------------------------------------------------------------------ */
 /*  FormulaBuilder component                                          */
 /* ------------------------------------------------------------------ */
 
+export interface ParameterTypeInfo {
+  name: string;
+  display_name?: string;
+  default_units?: string;
+}
+
 export interface FormulaBuilderProps extends InputProps {
-  /** Available parameter type names that can be used as variables */
-  parameterTypes?: string[];
+  /** Available parameter types that can be used as variables */
+  parameterTypes?: Array<string | ParameterTypeInfo>;
 }
 
 export const FormulaBuilder: React.FC<FormulaBuilderProps> = (props) => {
   const { parameterTypes = [], ...rest } = props;
+
+  // Normalize to ParameterTypeInfo[]
+  const paramInfos: ParameterTypeInfo[] = parameterTypes.map((pt) =>
+    typeof pt === 'string' ? { name: pt } : pt,
+  );
+  const paramNames = paramInfos.map((p) => p.name);
 
   const {
     field,
@@ -130,8 +213,26 @@ export const FormulaBuilder: React.FC<FormulaBuilderProps> = (props) => {
   const [cursorPos, setCursorPos] = useState<number | null>(null);
   const [preview, setPreview] = useState<number | string>('');
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [showFunctions, setShowFunctions] = useState(false);
+  const [sampleValues, setSampleValues] = useState<Record<string, number>>({});
 
   const formulaValue: string = field.value ?? '';
+
+  // Extract used variables from formula
+  const usedVars = (formulaValue.match(/\b[a-zA-Z_]\w*\b/g) ?? [])
+    .filter((t) => !MATH_FUNCTIONS.has(t) && paramNames.includes(t));
+  const uniqueUsedVars = [...new Set(usedVars)];
+
+  // Initialize sample values for new variables
+  useEffect(() => {
+    setSampleValues((prev) => {
+      const next = { ...prev };
+      for (const v of uniqueUsedVars) {
+        if (!(v in next)) next[v] = 1.0;
+      }
+      return next;
+    });
+  }, [formulaValue]);
 
   // Re-validate and re-evaluate whenever formula or parameterTypes change
   useEffect(() => {
@@ -141,18 +242,18 @@ export const FormulaBuilder: React.FC<FormulaBuilderProps> = (props) => {
       return;
     }
 
-    const error = validateFormula(formulaValue, parameterTypes);
+    const error = validateFormula(formulaValue, paramNames);
     setValidationError(error);
 
     if (!error) {
-      const sampleVars = Object.fromEntries(
-        parameterTypes.map((v) => [v, 1.0]),
+      const vars = Object.fromEntries(
+        paramNames.map((v) => [v, sampleValues[v] ?? 1.0]),
       );
-      setPreview(evaluateFormula(formulaValue, sampleVars));
+      setPreview(evaluateFormula(formulaValue, vars));
     } else {
       setPreview('');
     }
-  }, [formulaValue, parameterTypes]);
+  }, [formulaValue, paramNames.join(','), sampleValues]);
 
   // Insert text at cursor position
   const insertAtCursor = useCallback(
@@ -163,7 +264,6 @@ export const FormulaBuilder: React.FC<FormulaBuilderProps> = (props) => {
       const after = formulaValue.slice(pos);
       const newValue = before + text + after;
       field.onChange(newValue);
-      // Restore cursor after React re-render
       const newPos = pos + text.length;
       setCursorPos(newPos);
     },
@@ -180,12 +280,19 @@ export const FormulaBuilder: React.FC<FormulaBuilderProps> = (props) => {
     }
   }, [cursorPos, formulaValue]);
 
+  const handleSampleValueChange = (varName: string, value: string) => {
+    const num = parseFloat(value);
+    if (!isNaN(num)) {
+      setSampleValues((prev) => ({ ...prev, [varName]: num }));
+    }
+  };
+
   const hasError = !!fieldState.error || !!validationError;
 
   return (
     <Paper
       variant="outlined"
-      sx={{ p: 2, mb: 2, width: '100%', maxWidth: 600 }}
+      sx={{ p: 2, mb: 2, width: '100%', maxWidth: 700 }}
     >
       <Typography variant="subtitle2" gutterBottom>
         Formula Builder
@@ -197,53 +304,76 @@ export const FormulaBuilder: React.FC<FormulaBuilderProps> = (props) => {
       </Typography>
 
       {/* Variable palette */}
-      {parameterTypes.length > 0 && (
+      {paramInfos.length > 0 && (
         <Box sx={{ mb: 1.5 }}>
           <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
             Variables (click to insert)
           </Typography>
           <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-            {parameterTypes.map((pt) => (
-              <Chip
-                key={pt}
-                label={pt}
-                size="small"
-                color="primary"
-                variant="outlined"
-                onClick={() => insertAtCursor(pt)}
-                clickable
-              />
+            {paramInfos.map((pt) => (
+              <Tooltip
+                key={pt.name}
+                title={
+                  pt.display_name || pt.default_units
+                    ? `${pt.display_name ?? pt.name}${pt.default_units ? ` (${pt.default_units})` : ''}`
+                    : pt.name
+                }
+                arrow
+              >
+                <Chip
+                  label={pt.name}
+                  size="small"
+                  color="primary"
+                  variant="outlined"
+                  onClick={() => insertAtCursor(pt.name)}
+                  clickable
+                />
+              </Tooltip>
             ))}
           </Stack>
         </Box>
       )}
 
-      {/* Operator bar */}
+      {/* Function reference panel */}
       <Box sx={{ mb: 1.5 }}>
-        <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
-          Operators
-        </Typography>
-        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-          {OPERATORS.map((op) => (
-            <Tooltip key={op.label} title={op.tooltip} arrow>
-              <Button
-                size="small"
-                variant="outlined"
-                onClick={() => insertAtCursor(op.insert)}
-                sx={{
-                  minWidth: 0,
-                  px: 1,
-                  py: 0.25,
-                  fontFamily: 'monospace',
-                  fontSize: '0.8rem',
-                  textTransform: 'none',
-                }}
-              >
-                {op.label}
-              </Button>
-            </Tooltip>
+        <Button
+          size="small"
+          onClick={() => setShowFunctions(!showFunctions)}
+          endIcon={showFunctions ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+          sx={{ textTransform: 'none', mb: 0.5 }}
+        >
+          Functions & Operators
+        </Button>
+        <Collapse in={showFunctions}>
+          {FUNCTION_GROUPS.map((group) => (
+            <Box key={group.category} sx={{ mb: 1 }}>
+              <Typography variant="caption" color="text.secondary" fontWeight="bold" sx={{ display: 'block', mb: 0.5 }}>
+                {group.category}
+              </Typography>
+              <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                {group.items.map((fn) => (
+                  <Tooltip key={fn.label} title={fn.description} arrow>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => insertAtCursor(fn.insert)}
+                      sx={{
+                        minWidth: 0,
+                        px: 1,
+                        py: 0.25,
+                        fontFamily: 'monospace',
+                        fontSize: '0.8rem',
+                        textTransform: 'none',
+                      }}
+                    >
+                      {fn.label}
+                    </Button>
+                  </Tooltip>
+                ))}
+              </Stack>
+            </Box>
           ))}
-        </Stack>
+        </Collapse>
       </Box>
 
       <Divider sx={{ mb: 1.5 }} />
@@ -280,14 +410,45 @@ export const FormulaBuilder: React.FC<FormulaBuilderProps> = (props) => {
         </Alert>
       )}
 
-      {/* Live preview */}
+      {/* Live preview with editable sample values */}
       {formulaValue.trim() && !validationError && (
-        <Alert severity="info" sx={{ mb: 0 }}>
-          <Typography variant="body2">
-            <strong>Preview</strong> (all variables = 1.0):{' '}
-            <code>{String(preview)}</code>
-          </Typography>
-        </Alert>
+        <Box sx={{ mb: 0 }}>
+          {uniqueUsedVars.length > 0 && (
+            <Table size="small" sx={{ mb: 1, maxWidth: 400 }}>
+              <TableBody>
+                {uniqueUsedVars.map((varName) => {
+                  const info = paramInfos.find((p) => p.name === varName);
+                  return (
+                    <TableRow key={varName}>
+                      <TableCell sx={{ border: 0, py: 0.5, pl: 0, fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                        {varName}
+                      </TableCell>
+                      <TableCell sx={{ border: 0, py: 0.5, width: 100 }}>
+                        <TextField
+                          size="small"
+                          type="number"
+                          value={sampleValues[varName] ?? 1}
+                          onChange={(e) => handleSampleValueChange(varName, e.target.value)}
+                          inputProps={{ step: 'any' }}
+                          sx={{ width: 100 }}
+                        />
+                      </TableCell>
+                      <TableCell sx={{ border: 0, py: 0.5, color: 'text.secondary', fontSize: '0.8rem' }}>
+                        {info?.default_units ?? ''}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+          <Alert severity="info" sx={{ mb: 0 }}>
+            <Typography variant="body2">
+              <strong>Result</strong>:{' '}
+              <code>{typeof preview === 'number' ? preview.toFixed(6).replace(/\.?0+$/, '') : String(preview)}</code>
+            </Typography>
+          </Alert>
+        </Box>
       )}
     </Paper>
   );

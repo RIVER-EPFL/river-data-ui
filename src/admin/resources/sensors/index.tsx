@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   List,
   Datagrid,
@@ -25,6 +25,8 @@ import {
   useRecordContext,
   useCreate,
   useUpdate,
+  useGetList,
+  useGetOne,
 } from 'react-admin';
 import {
   Button,
@@ -33,6 +35,7 @@ import {
   DialogContent,
   DialogActions,
   TextField as MuiTextField,
+  Typography,
 } from '@mui/material';
 import { useRiverDataProvider } from '../../useRiverDataProvider';
 
@@ -116,13 +119,13 @@ const DeployButton = ({ sensorId }: { sensorId: string }) => {
       <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
         <DialogTitle>New Deployment</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
-          <ReferenceInput source="parameter_id" reference="parameters">
+          <ReferenceInput source="parameter_id" reference="site_parameters">
             <SelectInput
               optionText="name"
               value={parameterId}
               onChange={(e) => setParameterId(e.target.value as string)}
               fullWidth
-              label="Parameter"
+              label="Site Parameter"
             />
           </ReferenceInput>
           <MuiTextField
@@ -197,14 +200,139 @@ const RecallButton = () => {
   );
 };
 
+// Show current deployment site inline
+const DeployedAtField = () => {
+  const record = useRecordContext();
+  const { data: deployments } = useGetList('sensor_deployments', {
+    filter: record ? { sensor_id: record.id } : {},
+    sort: { field: 'deployed_from', order: 'DESC' },
+    pagination: { page: 1, perPage: 1 },
+  }, { enabled: !!record });
+
+  const active = deployments?.find((d: { deployed_until: string | null }) => !d.deployed_until);
+  if (!active) return <Typography variant="body2" color="text.disabled">Not deployed</Typography>;
+
+  return (
+    <ReferenceField source="parameter_id" reference="site_parameters" record={active} link={false}>
+      <ReferenceField source="site_id" reference="sites" link="show">
+        <TextField source="name" />
+      </ReferenceField>
+    </ReferenceField>
+  );
+};
+
+// Format a timestamp as relative time (e.g., "2h ago", "3d ago")
+const formatRelativeTime = (isoTime: string): string => {
+  const diff = Date.now() - new Date(isoTime).getTime();
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+};
+
+interface ReadingsApiResponse {
+  times: string[];
+  parameters: Array<{
+    id: string;
+    name: string;
+    type: string;
+    units: string | null;
+    values: Array<number | null>;
+  }>;
+}
+
+// Show the latest reading value + relative time for a sensor
+const LastReadingField = (_props: { label?: string }) => {
+  const record = useRecordContext();
+  const [lastReading, setLastReading] = useState<{ value: number; time: string; units: string | null } | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  // Step 1: Find the sensor's active deployment
+  const { data: deployments } = useGetList('sensor_deployments', {
+    filter: record ? { sensor_id: record.id } : {},
+    sort: { field: 'deployed_from', order: 'DESC' },
+    pagination: { page: 1, perPage: 1 },
+  }, { enabled: !!record });
+
+  const active = deployments?.find((d: { deployed_until: string | null }) => !d.deployed_until);
+
+  // Step 2: Get the site_parameter to find site_id
+  const { data: siteParam } = useGetOne('site_parameters', {
+    id: active?.parameter_id,
+  }, { enabled: !!active?.parameter_id });
+
+  // Step 3: Fetch latest reading from the readings API
+  useEffect(() => {
+    if (!siteParam?.site_id || !active?.parameter_id) {
+      setLastReading(null);
+      return;
+    }
+
+    setLoading(true);
+    const now = new Date();
+    const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const url = `/api/private/sites/${siteParam.site_id}/readings?start=${start.toISOString()}&page_size=1000&format=json`;
+
+    fetch(url)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json() as Promise<ReadingsApiResponse>;
+      })
+      .then((data) => {
+        if (data.times?.length && data.parameters?.length) {
+          const param = data.parameters.find((p) => p.id === active.parameter_id);
+          if (param) {
+            // Walk backwards to find latest non-null value
+            for (let i = data.times.length - 1; i >= 0; i--) {
+              const val = param.values[i];
+              if (val != null) {
+                setLastReading({ value: val, time: data.times[i], units: param.units });
+                return;
+              }
+            }
+          }
+        }
+        setLastReading(null);
+      })
+      .catch((err) => {
+        console.error('Failed to fetch latest reading:', err);
+        setLastReading(null);
+      })
+      .finally(() => setLoading(false));
+  }, [siteParam?.site_id, active?.parameter_id]);
+
+  if (!record) return null;
+  if (!active) return <Typography variant="body2" color="text.disabled">&mdash;</Typography>;
+  if (loading) return <Typography variant="body2" color="text.secondary">...</Typography>;
+  if (!lastReading) return <Typography variant="body2" color="text.disabled">No data</Typography>;
+
+  const displayValue = lastReading.units
+    ? `${lastReading.value} ${lastReading.units}`
+    : `${lastReading.value}`;
+
+  return (
+    <Typography variant="body2">
+      {displayValue}{' '}
+      <Typography component="span" variant="caption" color="text.secondary">
+        {formatRelativeTime(lastReading.time)}
+      </Typography>
+    </Typography>
+  );
+};
+
 const SensorList = () => (
   <List>
     <Datagrid rowClick="show">
       <TextField source="serial_number" />
       <TextField source="name" />
-      <ReferenceField source="parameter_type_id" reference="parameter_types" link={false}>
+      <ReferenceField source="parameter_type_id" reference="parameters" link={false}>
         <TextField source="display_name" />
       </ReferenceField>
+      <FunctionField label="Deployed At" render={() => <DeployedAtField />} />
+      <FunctionField label="Last Reading" render={() => <LastReadingField />} />
       <TextField source="manufacturer" />
       <TextField source="model" />
       <BooleanField source="is_active" />
@@ -222,7 +350,7 @@ const DeploymentsTab = () => {
       <ReferenceManyField reference="sensor_deployments" target="sensor_id"
         sort={{ field: 'deployed_from', order: 'DESC' }} label={false}>
         <Datagrid bulkActionButtons={false}>
-          <ReferenceField source="parameter_id" reference="parameters" link="show">
+          <ReferenceField source="parameter_id" reference="site_parameters" link="show">
             <TextField source="name" />
           </ReferenceField>
           <DateField source="deployed_from" showTime />
@@ -242,7 +370,7 @@ const SensorShow = () => (
       <TabbedShowLayout.Tab label="Overview">
         <TextField source="serial_number" emptyText="N/A" />
         <TextField source="name" />
-        <ReferenceField source="parameter_type_id" reference="parameter_types" link={false}>
+        <ReferenceField source="parameter_type_id" reference="parameters" link={false}>
           <TextField source="display_name" />
         </ReferenceField>
         <TextField source="manufacturer" />
@@ -279,7 +407,7 @@ const SensorCreate = () => (
     <SimpleForm>
       <TextInput source="serial_number" isRequired />
       <TextInput source="name" />
-      <ReferenceInput source="parameter_type_id" reference="parameter_types">
+      <ReferenceInput source="parameter_type_id" reference="parameters">
         <SelectInput optionText="display_name" />
       </ReferenceInput>
       <TextInput source="manufacturer" />
@@ -295,7 +423,7 @@ const SensorEdit = () => (
     <SimpleForm>
       <TextInput source="serial_number" isRequired />
       <TextInput source="name" />
-      <ReferenceInput source="parameter_type_id" reference="parameter_types">
+      <ReferenceInput source="parameter_type_id" reference="parameters">
         <SelectInput optionText="display_name" />
       </ReferenceInput>
       <TextInput source="manufacturer" />

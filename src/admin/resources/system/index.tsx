@@ -3,7 +3,7 @@ import { Title } from 'react-admin';
 import { Box, Tab, Tabs, Paper } from '@mui/material';
 import { SyncStatusPanel } from './SyncStatusPanel';
 import { ApiTokensPanel } from './ApiTokensPanel';
-import { ParameterTypesPanel } from './ParameterTypesPanel';
+import { ParametersPanel } from './ParametersPanel';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -29,7 +29,7 @@ export const SystemPage = () => {
         <Tabs value={tab} onChange={(_, v) => setTab(v)}>
           <Tab label="Sync Status" />
           <Tab label="API Tokens" />
-          <Tab label="Parameter Types" />
+          <Tab label="Parameters" />
         </Tabs>
       </Paper>
       <TabPanel value={tab} index={0}>
@@ -39,7 +39,7 @@ export const SystemPage = () => {
         <ApiTokensPanel />
       </TabPanel>
       <TabPanel value={tab} index={2}>
-        <ParameterTypesPanel />
+        <ParametersPanel />
       </TabPanel>
     </Box>
   );

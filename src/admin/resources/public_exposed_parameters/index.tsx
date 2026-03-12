@@ -24,7 +24,7 @@ const PublicExposedParameterList = () => (
       </ReferenceField>
       <TextField source="public_name" />
       <TextField source="public_units" label="Units" />
-      <ReferenceField source="parameter_type_id" reference="parameter_types" link={false}>
+      <ReferenceField source="parameter_type_id" reference="parameters" link={false}>
         <TextField source="display_name" />
       </ReferenceField>
       <TextField source="description" />
@@ -41,7 +41,7 @@ const PublicExposedParameterCreate = () => (
       <ReferenceInput source="project_id" reference="projects">
         <SelectInput optionText="name" />
       </ReferenceInput>
-      <ReferenceInput source="parameter_type_id" reference="parameter_types">
+      <ReferenceInput source="parameter_type_id" reference="parameters">
         <SelectInput optionText="display_name" />
       </ReferenceInput>
       <TextInput source="public_name" isRequired helperText="Name shown in public API responses" />
@@ -59,7 +59,7 @@ const PublicExposedParameterEdit = () => (
       <ReferenceInput source="project_id" reference="projects">
         <SelectInput optionText="name" />
       </ReferenceInput>
-      <ReferenceInput source="parameter_type_id" reference="parameter_types">
+      <ReferenceInput source="parameter_type_id" reference="parameters">
         <SelectInput optionText="display_name" />
       </ReferenceInput>
       <TextInput source="public_name" isRequired helperText="Name shown in public API responses" />

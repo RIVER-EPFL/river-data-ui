@@ -13,13 +13,15 @@ import {
 const PermissionsSummary = ({
   record,
 }: {
-  record?: { permissions?: { read_metadata?: boolean; read_data?: boolean } };
+  record?: { permissions?: { read_metadata?: boolean; read_data?: boolean; write_metadata?: boolean; write_data?: boolean } };
 }) => {
   if (!record?.permissions) return <>All</>;
   const perms = record.permissions;
   const parts: string[] = [];
   if (perms.read_metadata) parts.push('Metadata');
   if (perms.read_data) parts.push('Data');
+  if (perms.write_metadata) parts.push('Write Meta');
+  if (perms.write_data) parts.push('Write Data');
   return <>{parts.length ? parts.join(', ') : 'None'}</>;
 };
 
@@ -38,7 +40,7 @@ export const ApiTokensPanel = () => (
       </ReferenceField>
       <FunctionField
         label="Permissions"
-        render={(record: { permissions?: { read_metadata?: boolean; read_data?: boolean } }) => (
+        render={(record: { permissions?: { read_metadata?: boolean; read_data?: boolean; write_metadata?: boolean; write_data?: boolean } }) => (
           <PermissionsSummary record={record} />
         )}
       />

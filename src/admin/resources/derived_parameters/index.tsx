@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   List,
   Datagrid,
@@ -14,9 +15,11 @@ import {
   useRecordContext,
   useGetList,
 } from 'react-admin';
-import { Button } from '@mui/material';
+import { Button, Box } from '@mui/material';
+import AddLocationIcon from '@mui/icons-material/AddLocation';
 import { useRiverDataProvider } from '../../useRiverDataProvider';
-import { FormulaBuilder } from '../../components/FormulaBuilder';
+import { FormulaBuilder, type ParameterTypeInfo } from '../../components/FormulaBuilder';
+import { AssignToSiteDialog } from './AssignToSiteDialog';
 
 const RecomputeButton = () => {
   const record = useRecordContext();
@@ -43,13 +46,49 @@ const RecomputeButton = () => {
   );
 };
 
-/** Fetch parameter type names for the formula builder variable palette */
-const useParameterTypeNames = (): string[] => {
-  const { data } = useGetList('parameter_types', {
+const AssignToSiteButton = () => {
+  const record = useRecordContext();
+  const [open, setOpen] = useState(false);
+
+  if (!record) return null;
+
+  return (
+    <>
+      <Button
+        onClick={(e) => { e.stopPropagation(); setOpen(true); }}
+        size="small"
+        color="secondary"
+        startIcon={<AddLocationIcon />}
+      >
+        Assign to Site
+      </Button>
+      <AssignToSiteDialog
+        open={open}
+        onClose={() => setOpen(false)}
+        definition={{
+          id: record.id as string,
+          name: record.name as string,
+          display_name: record.display_name as string | null,
+          formula: record.formula as string,
+          units: record.units as string | null,
+          required_parameter_types: (record.required_parameter_types ?? []) as string[],
+        }}
+      />
+    </>
+  );
+};
+
+/** Fetch parameter types for the formula builder variable palette */
+const useParameterTypes = (): ParameterTypeInfo[] => {
+  const { data } = useGetList('parameters', {
     pagination: { page: 1, perPage: 200 },
     sort: { field: 'name', order: 'ASC' },
   });
-  return data?.map((pt) => pt.name as string) ?? [];
+  return data?.map((pt) => ({
+    name: pt.name as string,
+    display_name: pt.display_name as string | undefined,
+    default_units: pt.default_units as string | undefined,
+  })) ?? [];
 };
 
 const DerivedParameterList = () => (
@@ -61,13 +100,16 @@ const DerivedParameterList = () => (
       <TextField source="formula" />
       <TextField source="description" />
       <DateField source="created_at" showTime />
-      <RecomputeButton />
+      <Box sx={{ display: 'flex', gap: 0.5 }}>
+        <RecomputeButton />
+        <AssignToSiteButton />
+      </Box>
     </Datagrid>
   </List>
 );
 
 const DerivedParameterCreateForm = () => {
-  const parameterTypes = useParameterTypeNames();
+  const parameterTypes = useParameterTypes();
   return (
     <SimpleForm>
       <TextInput source="name" isRequired />
@@ -75,7 +117,7 @@ const DerivedParameterCreateForm = () => {
       <TextInput source="units" />
       <FormulaBuilder source="formula" isRequired parameterTypes={parameterTypes} />
       <TextInput source="description" multiline />
-      <ReferenceArrayInput source="required_parameter_types" reference="parameter_types">
+      <ReferenceArrayInput source="required_parameter_types" reference="parameters">
         <AutocompleteArrayInput optionText="display_name" helperText="Select required parameter types" />
       </ReferenceArrayInput>
     </SimpleForm>
@@ -89,7 +131,7 @@ const DerivedParameterCreate = () => (
 );
 
 const DerivedParameterEditForm = () => {
-  const parameterTypes = useParameterTypeNames();
+  const parameterTypes = useParameterTypes();
   return (
     <SimpleForm>
       <TextInput source="name" isRequired />
@@ -97,7 +139,7 @@ const DerivedParameterEditForm = () => {
       <TextInput source="units" />
       <FormulaBuilder source="formula" isRequired parameterTypes={parameterTypes} />
       <TextInput source="description" multiline />
-      <ReferenceArrayInput source="required_parameter_types" reference="parameter_types">
+      <ReferenceArrayInput source="required_parameter_types" reference="parameters">
         <AutocompleteArrayInput optionText="display_name" helperText="Select required parameter types" />
       </ReferenceArrayInput>
     </SimpleForm>
