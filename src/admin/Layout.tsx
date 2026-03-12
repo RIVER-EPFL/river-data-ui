@@ -30,7 +30,7 @@ const CustomMenu = () => (
     <Menu.ResourceItem name="derived_parameters" />
     <Typography sx={sectionHeaderSx}>Admin</Typography>
     <Menu.ResourceItem name="projects" />
-    <Menu.Item to="/system" primaryText="System" leftIcon={<SettingsIcon />} />
+    <Menu.Item to="/admin/system" primaryText="System" leftIcon={<SettingsIcon />} />
   </Menu>
 );
 

@@ -8,8 +8,6 @@ import {
   Edit,
   SimpleForm,
   TextInput,
-  ReferenceArrayInput,
-  AutocompleteArrayInput,
   useNotify,
   useRefresh,
   useRecordContext,
@@ -117,9 +115,6 @@ const DerivedParameterCreateForm = () => {
       <TextInput source="units" />
       <FormulaBuilder source="formula" isRequired parameterTypes={parameterTypes} />
       <TextInput source="description" multiline />
-      <ReferenceArrayInput source="required_parameter_types" reference="parameters">
-        <AutocompleteArrayInput optionText="display_name" helperText="Select required parameter types" />
-      </ReferenceArrayInput>
     </SimpleForm>
   );
 };
@@ -139,9 +134,6 @@ const DerivedParameterEditForm = () => {
       <TextInput source="units" />
       <FormulaBuilder source="formula" isRequired parameterTypes={parameterTypes} />
       <TextInput source="description" multiline />
-      <ReferenceArrayInput source="required_parameter_types" reference="parameters">
-        <AutocompleteArrayInput optionText="display_name" helperText="Select required parameter types" />
-      </ReferenceArrayInput>
     </SimpleForm>
   );
 };

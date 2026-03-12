@@ -19,7 +19,7 @@ import SyncIcon from '@mui/icons-material/Sync';
 import { useRiverDataProvider } from '../../useRiverDataProvider';
 
 interface SyncState {
-  parameter_id: string;
+  site_parameter_id: string;
   last_data_time: string | null;
   last_sync_attempt: string | null;
   sync_status: string | null;
@@ -114,9 +114,9 @@ const SyncStatusList = () => {
               </TableHead>
               <TableBody>
                 {syncStates.map((s) => (
-                  <TableRow key={s.parameter_id}>
+                  <TableRow key={s.site_parameter_id}>
                     <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
-                      {s.parameter_id.slice(0, 8)}...
+                      {s.site_parameter_id.slice(0, 8)}...
                     </TableCell>
                     <TableCell>
                       <Chip

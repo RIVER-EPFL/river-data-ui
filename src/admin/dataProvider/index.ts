@@ -13,12 +13,68 @@ const convertBooleanStrings = (filter: Record<string, unknown>) => {
   return converted;
 };
 
+export interface PreviewDerivedRequest {
+  formula: string;
+  site_id: string;
+  start: string;
+  end: string;
+}
+
+export interface PreviewDerivedResponse {
+  site: { id: string; name: string };
+  times: string[];
+  source_parameters: Array<{ name: string; units: string; values: (number | null)[] }>;
+  derived: { name: string; formula: string; values: (number | null)[]; errors: (string | null)[] };
+}
+
+export interface SyncService {
+  id: string;
+  service_type: string;
+  instance_id: string;
+  status: 'starting' | 'running' | 'paused' | 'error';
+  current_operation: string | null;
+  last_heartbeat: string | null;
+  last_sync_completed_at: string | null;
+  last_error: string | null;
+  health: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SyncCommand {
+  id: string;
+  service_id: string;
+  command: string;
+  payload: object | null;
+  status: 'pending' | 'acknowledged' | 'completed' | 'failed' | 'expired';
+  result: object | null;
+  created_at: string;
+  expires_at: string;
+  acknowledged_at: string | null;
+  completed_at: string | null;
+}
+
+export interface ServiceCredential {
+  id: string;
+  client_id: string;
+  service_type: string;
+  service_id: string | null;
+  revoked: boolean;
+  created_at: string;
+}
+
 export interface RiverDataProvider extends DataProvider {
-  triggerSync: () => Promise<{ data: unknown }>;
   getSyncState: () => Promise<{ data: unknown }>;
   recalibrateCalibration: (id: string) => Promise<{ data: unknown }>;
   recomputeDerived: (id: string) => Promise<{ data: unknown }>;
   invalidatePublicConfig: (slug: string) => Promise<{ data: unknown }>;
+  previewDerived: (params: PreviewDerivedRequest) => Promise<{ data: PreviewDerivedResponse }>;
+  getSyncServices: () => Promise<{ data: SyncService[] }>;
+  issueSyncCommand: (serviceId: string, command: string, payload?: object) => Promise<{ data: SyncCommand }>;
+  getSyncCommands: () => Promise<{ data: SyncCommand[] }>;
+  createServiceCredential: (serviceType: string) => Promise<{ data: { client_id: string; client_secret: string } }>;
+  listServiceCredentials: () => Promise<{ data: ServiceCredential[] }>;
+  revokeSyncService: (credentialId: string) => Promise<{ data: unknown }>;
 }
 
 const dataProvider = (
@@ -165,12 +221,6 @@ const dataProvider = (
   },
 
   // Custom methods for river-data
-  triggerSync: () => {
-    return httpClient(`${apiUrl}/sync/trigger`, {
-      method: 'POST',
-    }).then(({ json }) => ({ data: json }));
-  },
-
   getSyncState: () => {
     return httpClient(`${apiUrl}/sync/state`).then(({ json }) => ({
       data: json,
@@ -194,6 +244,39 @@ const dataProvider = (
       method: 'POST',
     }).then(({ json }) => ({ data: json }));
   },
+
+  previewDerived: (params: PreviewDerivedRequest) => {
+    return httpClient(`${apiUrl}/actions/preview_derived`, {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }).then(({ json }) => ({ data: json as PreviewDerivedResponse }));
+  },
+
+  getSyncServices: () =>
+    httpClient(`${apiUrl}/sync/services`).then(({ json }) => ({ data: json })),
+
+  issueSyncCommand: (serviceId: string, command: string, payload?: object) =>
+    httpClient(`${apiUrl}/sync/services/${serviceId}/commands`, {
+      method: 'POST',
+      body: JSON.stringify({ command, payload }),
+    }).then(({ json }) => ({ data: json })),
+
+  getSyncCommands: () =>
+    httpClient(`${apiUrl}/sync/commands`).then(({ json }) => ({ data: json })),
+
+  createServiceCredential: (serviceType: string) =>
+    httpClient(`${apiUrl}/sync/credentials`, {
+      method: 'POST',
+      body: JSON.stringify({ service_type: serviceType }),
+    }).then(({ json }) => ({ data: json })),
+
+  listServiceCredentials: () =>
+    httpClient(`${apiUrl}/sync/credentials`).then(({ json }) => ({ data: json })),
+
+  revokeSyncService: (credentialId: string) =>
+    httpClient(`${apiUrl}/sync/credentials/${credentialId}/revoke`, {
+      method: 'POST',
+    }).then(({ json }) => ({ data: json })),
 });
 
 export default dataProvider;

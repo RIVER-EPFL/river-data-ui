@@ -6,6 +6,7 @@ import {
   ReferenceField,
   DateField,
   Edit,
+  Create,
   SimpleForm,
   TextInput,
   NumberInput,
@@ -29,6 +30,21 @@ const SiteList = () => (
   </List>
 );
 
+const SiteCreate = () => (
+  <Create>
+    <SimpleForm>
+      <TextInput source="name" isRequired />
+      <ReferenceInput source="project_id" reference="projects">
+        <SelectInput optionText="name" />
+      </ReferenceInput>
+      <NumberInput source="latitude" />
+      <NumberInput source="longitude" />
+      <NumberInput source="altitude_m" />
+      <TextInput source="public_slug" helperText="URL-safe identifier for public API. Leave blank to exclude." />
+    </SimpleForm>
+  </Create>
+);
+
 const SiteEdit = () => (
   <Edit>
     <SimpleForm>
@@ -47,5 +63,6 @@ const SiteEdit = () => (
 export default {
   list: SiteList,
   show: StationHub,
+  create: SiteCreate,
   edit: SiteEdit,
 };

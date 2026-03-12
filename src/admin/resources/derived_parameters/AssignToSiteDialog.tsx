@@ -55,14 +55,16 @@ interface AssignToSiteDialogProps {
   open: boolean;
   onClose: () => void;
   definition: DerivedDefinition;
+  preselectedSiteId?: string;
 }
 
 export const AssignToSiteDialog: React.FC<AssignToSiteDialogProps> = ({
   open,
   onClose,
   definition,
+  preselectedSiteId,
 }) => {
-  const [targetSiteId, setTargetSiteId] = useState('');
+  const [targetSiteId, setTargetSiteId] = useState(preselectedSiteId ?? '');
   const [create, { isPending }] = useCreate();
   const notify = useNotify();
   const refresh = useRefresh();
@@ -173,7 +175,7 @@ export const AssignToSiteDialog: React.FC<AssignToSiteDialogProps> = ({
   };
 
   const handleClose = () => {
-    setTargetSiteId('');
+    setTargetSiteId(preselectedSiteId ?? '');
     onClose();
   };
 

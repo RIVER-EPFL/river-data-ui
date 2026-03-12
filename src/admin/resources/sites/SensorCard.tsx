@@ -33,6 +33,7 @@ import {
 import SensorsIcon from '@mui/icons-material/Sensors';
 import TuneIcon from '@mui/icons-material/Tune';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
+import HighlightOffIcon from '@mui/icons-material/HighlightOff';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import ErrorIcon from '@mui/icons-material/Error';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -709,6 +710,10 @@ interface SensorCardProps {
 export const SensorCard: React.FC<SensorCardProps> = ({ group, thresholdsByParam, latestByParam, siteName }) => {
     const [calibrateOpen, setCalibrateOpen] = useState(false);
     const [moveOpen, setMoveOpen] = useState(false);
+    const [recallOpen, setRecallOpen] = useState(false);
+    const [recallUpdate, { isPending: recallPending }] = useUpdate();
+    const recallNotify = useNotify();
+    const recallRefresh = useRefresh();
 
     const sensor = group.sensor;
     const activeDeployment = group.deployments.find((d) => !d.deployed_until);
@@ -802,6 +807,15 @@ export const SensorCard: React.FC<SensorCardProps> = ({ group, thresholdsByParam
                     >
                         Move Sensor
                     </Button>
+                    <Button
+                        size="small"
+                        color="warning"
+                        startIcon={<HighlightOffIcon />}
+                        onClick={() => setRecallOpen(true)}
+                        disabled={!activeDeployment}
+                    >
+                        Recall
+                    </Button>
                     {sensor && (
                         <Button
                             size="small"
@@ -836,6 +850,48 @@ export const SensorCard: React.FC<SensorCardProps> = ({ group, thresholdsByParam
                     sensorSerial={sensor?.serial_number ?? 'Unknown'}
                     currentSiteName={siteName}
                 />
+            )}
+
+            {activeDeployment && (
+                <Dialog open={recallOpen} onClose={() => setRecallOpen(false)} maxWidth="xs">
+                    <DialogTitle>Recall Sensor: {sensor?.serial_number ?? 'Unknown'}?</DialogTitle>
+                    <DialogContent>
+                        <Typography variant="body2">
+                            This will end the current deployment. The sensor will appear as undeployed.
+                        </Typography>
+                    </DialogContent>
+                    <DialogActions>
+                        <Button onClick={() => setRecallOpen(false)} disabled={recallPending}>Cancel</Button>
+                        <Button
+                            onClick={() => {
+                                recallUpdate(
+                                    'sensor_deployments',
+                                    {
+                                        id: activeDeployment.id,
+                                        data: { ...activeDeployment, deployed_until: new Date().toISOString() },
+                                        previousData: activeDeployment,
+                                    },
+                                    {
+                                        onSuccess: () => {
+                                            recallNotify(`Sensor recalled`, { type: 'success' });
+                                            recallRefresh();
+                                            setRecallOpen(false);
+                                        },
+                                        onError: () => {
+                                            recallNotify('Failed to recall sensor', { type: 'error' });
+                                        },
+                                    },
+                                );
+                            }}
+                            variant="contained"
+                            color="warning"
+                            disabled={recallPending}
+                            startIcon={recallPending ? <CircularProgress size={16} /> : undefined}
+                        >
+                            Recall
+                        </Button>
+                    </DialogActions>
+                </Dialog>
             )}
         </>
     );

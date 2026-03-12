@@ -12,14 +12,11 @@ import {
   Chip,
   CircularProgress,
   Box,
-  Button,
-  Alert,
 } from '@mui/material';
-import SyncIcon from '@mui/icons-material/Sync';
 import { useRiverDataProvider } from '../../useRiverDataProvider';
 
 interface SyncState {
-  parameter_id: string;
+  site_parameter_id: string;
   last_data_time: string | null;
   last_sync_attempt: string | null;
   sync_status: string | null;
@@ -33,8 +30,6 @@ export const SyncStatusPanel = () => {
   const notify = useNotify();
   const [syncStates, setSyncStates] = useState<SyncState[]>([]);
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   useEffect(() => {
     dataProvider
@@ -43,21 +38,6 @@ export const SyncStatusPanel = () => {
       .catch(() => notify('Failed to load sync status', { type: 'error' }))
       .finally(() => setLoading(false));
   }, [dataProvider, notify]);
-
-  const handleTriggerSync = async () => {
-    setSyncing(true);
-    setSyncMessage(null);
-    try {
-      await dataProvider.triggerSync();
-      setSyncMessage('Full sync triggered successfully');
-      const res = await dataProvider.getSyncState();
-      setSyncStates(res.data as SyncState[]);
-    } catch {
-      setSyncMessage('Failed to trigger sync');
-    } finally {
-      setSyncing(false);
-    }
-  };
 
   if (loading) {
     return (
@@ -77,26 +57,6 @@ export const SyncStatusPanel = () => {
   return (
     <Card>
       <CardContent>
-        <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
-          <Box />
-          <Button
-            variant="contained"
-            startIcon={syncing ? <CircularProgress size={20} color="inherit" /> : <SyncIcon />}
-            onClick={handleTriggerSync}
-            disabled={syncing}
-          >
-            Trigger Full Sync
-          </Button>
-        </Box>
-        {syncMessage && (
-          <Alert
-            severity={syncMessage.includes('Failed') ? 'error' : 'success'}
-            sx={{ mb: 2 }}
-            onClose={() => setSyncMessage(null)}
-          >
-            {syncMessage}
-          </Alert>
-        )}
         <TableContainer>
           <Table size="small">
             <TableHead>
@@ -112,9 +72,9 @@ export const SyncStatusPanel = () => {
             </TableHead>
             <TableBody>
               {syncStates.map((s) => (
-                <TableRow key={s.parameter_id}>
+                <TableRow key={s.site_parameter_id}>
                   <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
-                    {s.parameter_id.slice(0, 8)}...
+                    {s.site_parameter_id.slice(0, 8)}...
                   </TableCell>
                   <TableCell>
                     <Chip
