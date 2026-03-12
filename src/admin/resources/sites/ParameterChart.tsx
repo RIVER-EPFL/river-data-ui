@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { useKeycloak } from '../../KeycloakContext';
 import {
   Box,
   Card,
@@ -69,6 +70,7 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
   const [timeRange, setTimeRange] = useState<TimeRange>('24h');
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [loading, setLoading] = useState(false);
+  const keycloak = useKeycloak();
   const [customStart, setCustomStart] = useState<string>(() =>
     toLocalDatetime(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)),
   );
@@ -93,13 +95,14 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
       const now = new Date();
       start = new Date(now.getTime() - TIME_RANGE_MS[timeRange]);
     }
-    let url = `/api/private/sites/${siteId}/readings?start=${start.toISOString()}&page_size=10000&format=json`;
+    let url = `/api/service/sites/${siteId}/readings?start=${start.toISOString()}&page_size=10000&format=json`;
     if (end) {
       url += `&end=${end.toISOString()}`;
     }
+    const headers: HeadersInit = keycloak?.token ? { 'Authorization': 'Bearer ' + keycloak.token } : {};
 
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, { headers });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: ReadingsResponse = await res.json();
 
@@ -206,7 +209,7 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [siteId, parameterId, parameterName, units, threshold, timeRange, expanded, customStart, customEnd]);
+  }, [siteId, parameterId, parameterName, units, threshold, timeRange, expanded, customStart, customEnd, keycloak]);
 
   useEffect(() => {
     fetchData();

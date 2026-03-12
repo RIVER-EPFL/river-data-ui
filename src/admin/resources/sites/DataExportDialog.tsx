@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useKeycloak } from '../../KeycloakContext';
 import {
   Dialog,
   DialogTitle,
@@ -47,6 +48,7 @@ export const DataExportDialog: React.FC<DataExportDialogProps> = ({
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedParamIds, setSelectedParamIds] = useState<Set<string>>(new Set());
+  const keycloak = useKeycloak();
 
   // Initialize all parameters as selected when parameters change or dialog opens
   useEffect(() => {
@@ -84,9 +86,10 @@ export const DataExportDialog: React.FC<DataExportDialogProps> = ({
       const end = new Date(endDate).toISOString();
       const formatParam = format === 'json' ? 'json' : 'csv';
       const paramIds = Array.from(selectedParamIds).join(',');
-      const url = `/api/private/sites/${siteId}/readings?start=${start}&end=${end}&page_size=100000&format=${formatParam}&parameter_ids=${paramIds}`;
+      const url = `/api/service/sites/${siteId}/readings?start=${start}&end=${end}&page_size=100000&format=${formatParam}&parameter_ids=${paramIds}`;
+      const headers: HeadersInit = keycloak?.token ? { 'Authorization': 'Bearer ' + keycloak.token } : {};
 
-      const res = await fetch(url);
+      const res = await fetch(url, { headers });
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
 
       const blob = await res.blob();

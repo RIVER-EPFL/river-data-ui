@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useKeycloak } from '../../KeycloakContext';
 import {
   List,
   Datagrid,
@@ -249,6 +250,7 @@ const LastReadingField = (_props: { label?: string }) => {
   const record = useRecordContext();
   const [lastReading, setLastReading] = useState<{ value: number; time: string; units: string | null } | null>(null);
   const [loading, setLoading] = useState(false);
+  const keycloak = useKeycloak();
 
   // Step 1: Find the sensor's active deployment
   const { data: deployments } = useGetList('sensor_deployments', {
@@ -274,9 +276,10 @@ const LastReadingField = (_props: { label?: string }) => {
     setLoading(true);
     const now = new Date();
     const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    const url = `/api/private/sites/${siteParam.site_id}/readings?start=${start.toISOString()}&page_size=1000&format=json`;
+    const url = `/api/service/sites/${siteParam.site_id}/readings?start=${start.toISOString()}&page_size=1000&format=json`;
+    const headers: HeadersInit = keycloak?.token ? { 'Authorization': 'Bearer ' + keycloak.token } : {};
 
-    fetch(url)
+    fetch(url, { headers })
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json() as Promise<ReadingsApiResponse>;

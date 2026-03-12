@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { useKeycloak } from '../../KeycloakContext';
 import type {
     ParameterRecord,
     SensorDeploymentRecord,
@@ -29,15 +30,17 @@ export interface ReadingsApiResponse {
 
 export function useLatestReadings(siteId: string | undefined): Map<string, LatestReading> {
     const [latestByParam, setLatestByParam] = useState<Map<string, LatestReading>>(new Map());
+    const keycloak = useKeycloak();
 
     useEffect(() => {
         if (!siteId) return;
 
         const now = new Date();
         const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-        const url = `/api/private/sites/${siteId}/readings?start=${start.toISOString()}&page_size=1000&format=json`;
+        const url = `/api/service/sites/${siteId}/readings?start=${start.toISOString()}&page_size=1000&format=json`;
+        const headers: HeadersInit = keycloak?.token ? { 'Authorization': 'Bearer ' + keycloak.token } : {};
 
-        fetch(url)
+        fetch(url, { headers })
             .then((res) => {
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 return res.json() as Promise<ReadingsApiResponse>;

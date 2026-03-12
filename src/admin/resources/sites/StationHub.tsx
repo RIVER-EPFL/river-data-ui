@@ -19,6 +19,7 @@ import { SensorCard } from './SensorCard';
 import { DerivedSection } from './DerivedSection';
 import { ParameterChart } from './ParameterChart';
 import { DataExportDialog } from './DataExportDialog';
+import { StatusEventsTimeline } from './StatusEventsTimeline';
 import { useLatestReadings, useSensorGroups } from './hooks';
 import type {
     ParameterRecord,
@@ -162,6 +163,13 @@ const StationHub = () => {
         [parameters],
     );
 
+    // Parameter name lookup for status events
+    const parameterNames = useMemo(() => {
+        const map = new Map<string, string>();
+        parameters?.forEach((p) => map.set(p.id, p.name));
+        return map;
+    }, [parameters]);
+
     // Status summary counts
     const statusSummary = useMemo(() => {
         if (!parameters) return { active: 0, inactive: 0, total: 0, sensorsActive: 0 };
@@ -266,6 +274,12 @@ const StationHub = () => {
                         ))}
                 </Box>
             )}
+
+            {/* Device Status Events */}
+            <StatusEventsTimeline
+                siteId={id!}
+                parameterNames={parameterNames}
+            />
 
             {/* Derived Parameters */}
             <DerivedSection

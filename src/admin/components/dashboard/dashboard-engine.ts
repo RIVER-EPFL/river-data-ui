@@ -2,6 +2,7 @@ import uPlot from 'uplot';
 import noUiSlider from 'nouislider';
 
 type ApiFn = (url: string, noCache?: boolean) => Promise<any>;
+type AuthFetchFn = (url: string) => Promise<Response>;
 
 const DASHBOARD_HTML = `
 <div class="container">
@@ -83,7 +84,7 @@ const DASHBOARD_HTML = `
 </div>
 `;
 
-export function createDashboard(root: HTMLElement, api: ApiFn): () => void {
+export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFetchFn): () => void {
   root.innerHTML = DASHBOARD_HTML;
 
   const ac = new AbortController();
@@ -174,14 +175,23 @@ export function createDashboard(root: HTMLElement, api: ApiFn): () => void {
     };
   }
 
-  function downloadExport(siteId: string, format: 'csv' | 'ndjson', start: string, end: string) {
-    const url = `/api/private/sites/${siteId}/readings?format=${format}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `readings.${format === 'csv' ? 'csv' : 'ndjson'}`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  async function downloadExport(siteId: string, format: 'csv' | 'ndjson', start: string, end: string) {
+    const url = `/api/service/sites/${siteId}/readings?format=${format}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
+    try {
+      const res = await authFetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const downloadUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `readings.${format === 'csv' ? 'csv' : 'ndjson'}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(downloadUrl);
+    } catch (e) {
+      console.error('Export failed:', e);
+    }
   }
 
   function updateExportToolbar() {
@@ -219,8 +229,8 @@ export function createDashboard(root: HTMLElement, api: ApiFn): () => void {
   // Initialize
   async function init() {
     const [projects, sites] = await Promise.all([
-      api('/api/private/projects'),
-      api('/api/private/sites'),
+      api('/api/service/projects'),
+      api('/api/service/sites'),
     ]);
 
     const container = $('site-groups');
@@ -282,7 +292,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn): () => void {
   }
 
   async function loadSite(siteId: string) {
-    const site = await api(`/api/private/sites/${siteId}`, true);
+    const site = await api(`/api/service/sites/${siteId}`, true);
     state.site = site;
     updateExportToolbar();
 
@@ -498,7 +508,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn): () => void {
       resolution = 'weekly avg';
     }
 
-    const url = `/api/private/sites/${state.site.id}/${endpoint}?start=${state.start.toISOString()}&end=${state.end.toISOString()}&alarms=true`;
+    const url = `/api/service/sites/${state.site.id}/${endpoint}?start=${state.start.toISOString()}&end=${state.end.toISOString()}&alarms=true`;
 
     showLoading();
 
@@ -506,7 +516,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn): () => void {
       let data = await api(url);
 
       if (!data.times?.length && endpoint !== 'readings') {
-        const fallbackUrl = `/api/private/sites/${state.site.id}/readings?start=${state.start.toISOString()}&end=${state.end.toISOString()}&alarms=true`;
+        const fallbackUrl = `/api/service/sites/${state.site.id}/readings?start=${state.start.toISOString()}&end=${state.end.toISOString()}&alarms=true`;
         data = await api(fallbackUrl);
         resolution = '10-min raw (fallback)';
       }

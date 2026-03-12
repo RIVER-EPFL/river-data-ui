@@ -472,14 +472,20 @@ export default function ChartsDashboard() {
   useEffect(() => {
     if (!containerRef.current) return;
 
+    const authHeaders = (): HeadersInit | undefined => {
+      const token = keycloakRef.current?.token;
+      return token ? { 'Authorization': 'Bearer ' + token } : undefined;
+    };
+
     const api = (url: string, noCache = false) => {
       const finalUrl = noCache ? `${url}${url.includes('?') ? '&' : '?'}_t=${Date.now()}` : url;
-      const token = keycloakRef.current?.token;
-      const opts: RequestInit = token ? { headers: { 'Authorization': 'Bearer ' + token } } : {};
+      const opts: RequestInit = { headers: authHeaders() };
       return fetch(finalUrl, opts).then((r) => r.json());
     };
 
-    destroyRef.current = createDashboard(containerRef.current, api);
+    const authFetch = (url: string) => fetch(url, { headers: authHeaders() });
+
+    destroyRef.current = createDashboard(containerRef.current, api, authFetch);
 
     return () => {
       destroyRef.current?.();
