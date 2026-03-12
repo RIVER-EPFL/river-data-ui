@@ -84,7 +84,12 @@ const DASHBOARD_HTML = `
 </div>
 `;
 
-export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFetchFn): () => void {
+export interface DashboardHandle {
+  destroy: () => void;
+  selectSite: (siteId: string) => void;
+}
+
+export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFetchFn): DashboardHandle {
   root.innerHTML = DASHBOARD_HTML;
 
   const ac = new AbortController();
@@ -292,7 +297,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
   }
 
   async function loadSite(siteId: string) {
-    const site = await api(`/api/service/sites/${siteId}`, true);
+    const site = await api(`/api/service/sites/${siteId}/detail`, true);
     state.site = site;
     updateExportToolbar();
 
@@ -875,10 +880,16 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
   // Start
   init();
 
-  // Cleanup
-  return () => {
-    ac.abort();
-    Object.values(state.charts).forEach((c: any) => c.destroy());
-    if (state.slider) state.slider.destroy();
+  // Public API
+  return {
+    destroy: () => {
+      ac.abort();
+      Object.values(state.charts).forEach((c: any) => c.destroy());
+      if (state.slider) state.slider.destroy();
+    },
+    selectSite: (siteId: string) => {
+      const btn = root.querySelector(`.site-btn[data-id="${siteId}"]`) as HTMLElement | null;
+      if (btn) btn.click();
+    },
   };
 }

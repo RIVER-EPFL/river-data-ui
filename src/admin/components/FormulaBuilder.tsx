@@ -97,8 +97,10 @@ const VisualFormulaWrapper: React.FC<{
   parameterTypes: ParameterTypeInfo[];
 }> = ({ formulaText, onFormulaChange, parameterTypes }) => {
   const [visualNode, setVisualNode] = useState<import('./VisualFormulaBuilder').FormulaNode | null>(null);
+  const [hasEmpty, setHasEmpty] = useState(false);
   const parseRef = useRef<((f: string) => import('./VisualFormulaBuilder').FormulaNode | null) | null>(null);
   const serializeRef = useRef<((n: import('./VisualFormulaBuilder').FormulaNode) => string) | null>(null);
+  const hasEmptySlotsRef = useRef<((n: import('./VisualFormulaBuilder').FormulaNode) => boolean) | null>(null);
   const lastSerializedRef = useRef<string>('');
 
   // Load parser/serializer on mount
@@ -106,6 +108,7 @@ const VisualFormulaWrapper: React.FC<{
     import('./VisualFormulaBuilder').then((mod) => {
       parseRef.current = mod.parseFromMeval;
       serializeRef.current = mod.serializeToMeval;
+      hasEmptySlotsRef.current = mod.hasEmptySlots;
       if (formulaText.trim()) {
         setVisualNode(mod.parseFromMeval(formulaText));
         lastSerializedRef.current = formulaText;
@@ -122,27 +125,44 @@ const VisualFormulaWrapper: React.FC<{
         setVisualNode(null);
       }
       lastSerializedRef.current = formulaText;
+      setHasEmpty(false);
     }
   }, [formulaText]);
 
   const handleVisualChange = useCallback((node: import('./VisualFormulaBuilder').FormulaNode | null) => {
     setVisualNode(node);
-    if (node && serializeRef.current) {
-      const text = serializeRef.current(node);
-      lastSerializedRef.current = text;
-      onFormulaChange(text);
+    if (node && serializeRef.current && hasEmptySlotsRef.current) {
+      if (hasEmptySlotsRef.current(node)) {
+        // Has empty slots — block form submission but keep visual state
+        lastSerializedRef.current = '';
+        onFormulaChange('');
+        setHasEmpty(true);
+      } else {
+        const text = serializeRef.current(node);
+        lastSerializedRef.current = text;
+        onFormulaChange(text);
+        setHasEmpty(false);
+      }
     } else if (!node) {
       lastSerializedRef.current = '';
       onFormulaChange('');
+      setHasEmpty(false);
     }
   }, [onFormulaChange]);
 
   return (
-    <LazyVisualFormulaBuilder
-      value={visualNode}
-      onChange={handleVisualChange}
-      parameterTypes={parameterTypes}
-    />
+    <>
+      <LazyVisualFormulaBuilder
+        value={visualNode}
+        onChange={handleVisualChange}
+        parameterTypes={parameterTypes}
+      />
+      {hasEmpty && (
+        <Alert severity="warning" sx={{ mt: 1 }}>
+          Formula has unfilled slots — fill all empty slots before saving
+        </Alert>
+      )}
+    </>
   );
 };
 
@@ -185,11 +205,12 @@ export const FormulaBuilder: React.FC<FormulaBuilderProps> = (props) => {
   }, [formulaValue, paramNames.join(',')]);
 
   const hasError = !!fieldState.error || !!validationError;
+  const showPreview = formulaValue.trim() && !validationError && uniqueUsedVars.length > 0;
 
   return (
     <Paper
       variant="outlined"
-      sx={{ p: 2, mb: 2, width: '100%', maxWidth: 700 }}
+      sx={{ p: 2, mb: 2, width: '100%' }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
         <Typography variant="subtitle2">
@@ -202,34 +223,50 @@ export const FormulaBuilder: React.FC<FormulaBuilderProps> = (props) => {
         </Typography>
       </Box>
 
-      {/* Visual formula editor */}
-      <Suspense fallback={<CircularProgress size={24} />}>
-        <VisualFormulaWrapper
-          formulaText={formulaValue}
-          onFormulaChange={(newFormula: string) => field.onChange(newFormula)}
-          parameterTypes={paramInfos}
-        />
-      </Suspense>
-
-      {/* Validation error */}
-      {hasError && (validationError || fieldState.error?.message) && (
-        <Alert severity="error" sx={{ mt: 1 }}>
-          {validationError ?? fieldState.error?.message}
-        </Alert>
-      )}
-
-      {/* Real data preview chart */}
-      {formulaValue.trim() && !validationError && uniqueUsedVars.length > 0 && (
-        <Box sx={{ mt: 2 }}>
-          <Divider sx={{ mb: 1.5 }} />
+      {/* Side-by-side layout: builder (left) + preview (right) */}
+      <Box
+        sx={{
+          display: 'flex',
+          gap: 2,
+          flexWrap: 'wrap',
+        }}
+      >
+        {/* Left: Visual formula editor */}
+        <Box sx={{ flex: '1 1 420px', minWidth: 0 }}>
           <Suspense fallback={<CircularProgress size={24} />}>
-            <LazyFormulaPreviewChart
-              formula={formulaValue}
-              requiredVariables={uniqueUsedVars}
+            <VisualFormulaWrapper
+              formulaText={formulaValue}
+              onFormulaChange={(newFormula: string) => field.onChange(newFormula)}
+              parameterTypes={paramInfos}
             />
           </Suspense>
+
+          {/* Validation error */}
+          {hasError && (validationError || fieldState.error?.message) && (
+            <Alert severity="error" sx={{ mt: 1 }}>
+              {validationError ?? fieldState.error?.message}
+            </Alert>
+          )}
         </Box>
-      )}
+
+        {/* Right: Preview chart */}
+        {showPreview && (
+          <Box sx={{ flex: '1 1 400px', minWidth: 0 }}>
+            <Paper variant="outlined" sx={{ p: 2, height: '100%' }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Preview
+              </Typography>
+              <Divider sx={{ mb: 1.5 }} />
+              <Suspense fallback={<CircularProgress size={24} />}>
+                <LazyFormulaPreviewChart
+                  formula={formulaValue}
+                  requiredVariables={uniqueUsedVars}
+                />
+              </Suspense>
+            </Paper>
+          </Box>
+        )}
+      </Box>
     </Paper>
   );
 };

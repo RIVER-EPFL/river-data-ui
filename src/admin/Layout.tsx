@@ -1,6 +1,15 @@
+import { useState, useEffect, useCallback } from 'react';
 import { Layout, AppBar, TitlePortal, Menu, LayoutProps } from 'react-admin';
-import { CssBaseline, Typography } from '@mui/material';
+import { CssBaseline, Typography, IconButton, Badge } from '@mui/material';
 import SettingsIcon from '@mui/icons-material/Settings';
+import ScienceIcon from '@mui/icons-material/Science';
+import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
+import BuildIcon from '@mui/icons-material/Build';
+import HikingIcon from '@mui/icons-material/Hiking';
+import NotificationsIcon from '@mui/icons-material/Notifications';
+import SearchBar from './components/SearchBar';
+import { AlarmNotificationPanel } from './components/AlarmNotificationPanel';
+import { useRiverDataProvider } from './useRiverDataProvider';
 
 const sectionHeaderSx = {
   px: 2,
@@ -13,11 +22,43 @@ const sectionHeaderSx = {
   color: 'text.secondary',
 };
 
-const CustomAppBar = () => (
-  <AppBar>
-    <TitlePortal />
-  </AppBar>
-);
+const BADGE_REFRESH_INTERVAL = 60_000;
+
+const CustomAppBar = () => {
+  const dataProvider = useRiverDataProvider();
+  const [alarmCount, setAlarmCount] = useState(0);
+  const [panelOpen, setPanelOpen] = useState(false);
+
+  const fetchCount = useCallback(async () => {
+    try {
+      const { data } = await dataProvider.getAlarmSummary();
+      setAlarmCount(data.total);
+    } catch {
+      // Silently ignore — badge just shows stale count
+    }
+  }, [dataProvider]);
+
+  useEffect(() => {
+    fetchCount();
+    const interval = setInterval(fetchCount, BADGE_REFRESH_INTERVAL);
+    return () => clearInterval(interval);
+  }, [fetchCount]);
+
+  return (
+    <>
+      <AppBar>
+        <TitlePortal />
+        <SearchBar />
+        <IconButton color="inherit" onClick={() => setPanelOpen(true)} sx={{ ml: 1 }}>
+          <Badge badgeContent={alarmCount} color="error" max={99}>
+            <NotificationsIcon />
+          </Badge>
+        </IconButton>
+      </AppBar>
+      <AlarmNotificationPanel open={panelOpen} onClose={() => setPanelOpen(false)} />
+    </>
+  );
+};
 
 const CustomMenu = () => (
   <Menu>
@@ -25,11 +66,18 @@ const CustomMenu = () => (
     <Typography sx={sectionHeaderSx}>Field Operations</Typography>
     <Menu.ResourceItem name="sites" />
     <Menu.ResourceItem name="sensors" />
+    <Menu.Item to="/admin/field-trip" primaryText="Field Trip Entry" leftIcon={<HikingIcon />} />
     <Typography sx={sectionHeaderSx}>Science</Typography>
     <Menu.ResourceItem name="parameters" />
     <Menu.ResourceItem name="derived_parameters" />
+    <Menu.ResourceItem name="standard_curves" />
+    <Menu.Item to="/admin/grab-samples" primaryText="Enter Grab Samples" leftIcon={<ScienceIcon />} />
+    <Typography sx={sectionHeaderSx}>Analysis</Typography>
+    <Menu.Item to="/admin/compare" primaryText="Station Comparison" leftIcon={<CompareArrowsIcon />} />
+    <Menu.Item to="/admin/tools" primaryText="Tools" leftIcon={<BuildIcon />} />
     <Typography sx={sectionHeaderSx}>Admin</Typography>
     <Menu.ResourceItem name="projects" />
+    <Menu.ResourceItem name="users" />
     <Menu.Item to="/admin/system" primaryText="System" leftIcon={<SettingsIcon />} />
   </Menu>
 );

@@ -1,8 +1,12 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 import { useKeycloak } from '../../KeycloakContext';
-import { createDashboard } from './dashboard-engine';
+import { createDashboard, type DashboardHandle } from './dashboard-engine';
 import 'uplot/dist/uPlot.min.css';
 import 'nouislider/dist/nouislider.css';
+
+export interface ChartsDashboardRef {
+  selectSite: (siteId: string) => void;
+}
 
 const DASHBOARD_CSS = `
 .river-dashboard {
@@ -34,7 +38,7 @@ const DASHBOARD_CSS = `
 .river-dashboard h1 { font-size: 1.25rem; font-weight: 600; }
 .river-dashboard .site-groups {
   display: flex;
-  gap: 1.5rem;
+  gap: 1rem;
   flex-wrap: wrap;
   align-items: flex-start;
 }
@@ -45,7 +49,7 @@ const DASHBOARD_CSS = `
   align-items: center;
 }
 .river-dashboard .project-label {
-  font-size: 0.65rem;
+  font-size: 0.6rem;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -58,10 +62,10 @@ const DASHBOARD_CSS = `
   flex-wrap: wrap;
 }
 .river-dashboard .site-btn {
-  padding: 0.4rem 0.75rem;
+  padding: 0.2rem 0.5rem;
   border: 1px solid var(--border);
   border-radius: 0.375rem;
-  font-size: 0.8rem;
+  font-size: 0.7rem;
   background: var(--surface);
   cursor: pointer;
   transition: all 0.15s;
@@ -462,12 +466,16 @@ const DASHBOARD_CSS = `
 @keyframes rd-spin { to { transform: rotate(360deg); } }
 `;
 
-export default function ChartsDashboard() {
+const ChartsDashboard = forwardRef<ChartsDashboardRef>(function ChartsDashboard(_props, ref) {
   const keycloak = useKeycloak();
   const keycloakRef = useRef(keycloak);
   keycloakRef.current = keycloak;
   const containerRef = useRef<HTMLDivElement>(null);
-  const destroyRef = useRef<(() => void) | null>(null);
+  const handleRef = useRef<DashboardHandle | null>(null);
+
+  useImperativeHandle(ref, () => ({
+    selectSite: (siteId: string) => handleRef.current?.selectSite(siteId),
+  }));
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -485,11 +493,11 @@ export default function ChartsDashboard() {
 
     const authFetch = (url: string) => fetch(url, { headers: authHeaders() });
 
-    destroyRef.current = createDashboard(containerRef.current, api, authFetch);
+    handleRef.current = createDashboard(containerRef.current, api, authFetch);
 
     return () => {
-      destroyRef.current?.();
-      destroyRef.current = null;
+      handleRef.current?.destroy();
+      handleRef.current = null;
     };
   }, []);
 
@@ -499,4 +507,6 @@ export default function ChartsDashboard() {
       <div ref={containerRef} className="river-dashboard" />
     </>
   );
-}
+});
+
+export default ChartsDashboard;

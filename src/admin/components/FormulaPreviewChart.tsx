@@ -60,6 +60,13 @@ export const FormulaPreviewChart: React.FC<FormulaPreviewChartProps> = ({
     sort: { field: 'name', order: 'ASC' },
   });
 
+  // Auto-select first site for immediate preview
+  useEffect(() => {
+    if (!siteId && sites?.length) {
+      setSiteId(sites[0].id as string);
+    }
+  }, [sites, siteId]);
+
   const fetchPreview = useCallback(async () => {
     if (!formula.trim() || requiredVariables.length === 0 || !siteId) return;
 

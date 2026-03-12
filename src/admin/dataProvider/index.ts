@@ -63,7 +63,58 @@ export interface ServiceCredential {
   created_at: string;
 }
 
+export interface SearchResponse {
+  query: string;
+  results: {
+    sites: Array<{ id: string; name: string }>;
+    sensors: Array<{ id: string; serial_number: string | null; name: string | null }>;
+    parameters: Array<{ id: string; name: string; display_name: string }>;
+    projects: Array<{ id: string; name: string }>;
+  };
+  total: number;
+}
+
+export interface ActiveAlarm {
+  site_id: string;
+  site_name: string;
+  parameter_id: string;
+  parameter_name: string;
+  current_value: number;
+  threshold: {
+    warning_min: number | null;
+    warning_max: number | null;
+    alarm_min: number | null;
+    alarm_max: number | null;
+  };
+  severity: number;
+  since: string;
+}
+
+export interface ActiveAlarmsResponse {
+  alarms: ActiveAlarm[];
+  total: number;
+}
+
+export interface AlarmSummaryResponse {
+  total: number;
+  by_severity: { warning: number; alarm: number };
+  by_site: Array<{
+    site_id: string;
+    site_name: string;
+    warning_count: number;
+    alarm_count: number;
+  }>;
+}
+
+export interface KeycloakRole {
+  id: string;
+  name: string;
+}
+
 export interface RiverDataProvider extends DataProvider {
+  search: (query: string) => Promise<{ data: SearchResponse }>;
+  getActiveAlarms: () => Promise<{ data: ActiveAlarmsResponse }>;
+  getAlarmSummary: () => Promise<{ data: AlarmSummaryResponse }>;
   getSyncState: () => Promise<{ data: unknown }>;
   recalibrateCalibration: (id: string) => Promise<{ data: unknown }>;
   recomputeDerived: (id: string) => Promise<{ data: unknown }>;
@@ -75,6 +126,8 @@ export interface RiverDataProvider extends DataProvider {
   createServiceCredential: (serviceType: string) => Promise<{ data: { client_id: string; client_secret: string } }>;
   listServiceCredentials: () => Promise<{ data: ServiceCredential[] }>;
   revokeSyncService: (credentialId: string) => Promise<{ data: unknown }>;
+  listRoles: () => Promise<{ data: KeycloakRole[] }>;
+  assignUserRoles: (userId: string, roles: string[]) => Promise<{ data: unknown }>;
 }
 
 const dataProvider = (
@@ -221,6 +274,21 @@ const dataProvider = (
   },
 
   // Custom methods for river-data
+  search: (query: string) =>
+    httpClient(`${apiUrl}/search?q=${encodeURIComponent(query)}`).then(
+      ({ json }) => ({ data: json as SearchResponse }),
+    ),
+
+  getActiveAlarms: () =>
+    httpClient(`${apiUrl}/alarms/active`).then(
+      ({ json }) => ({ data: json as ActiveAlarmsResponse }),
+    ),
+
+  getAlarmSummary: () =>
+    httpClient(`${apiUrl}/alarms/summary`).then(
+      ({ json }) => ({ data: json as AlarmSummaryResponse }),
+    ),
+
   getSyncState: () => {
     return httpClient(`${apiUrl}/sync/state`).then(({ json }) => ({
       data: json,
@@ -276,6 +344,15 @@ const dataProvider = (
   revokeSyncService: (credentialId: string) =>
     httpClient(`${apiUrl}/sync/credentials/${credentialId}/revoke`, {
       method: 'POST',
+    }).then(({ json }) => ({ data: json })),
+
+  listRoles: () =>
+    httpClient(`${apiUrl}/roles`).then(({ json }) => ({ data: json as KeycloakRole[] })),
+
+  assignUserRoles: (userId: string, roles: string[]) =>
+    httpClient(`${apiUrl}/users/${userId}/roles`, {
+      method: 'POST',
+      body: JSON.stringify({ roles }),
     }).then(({ json }) => ({ data: json })),
 });
 

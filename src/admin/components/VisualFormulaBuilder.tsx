@@ -10,6 +10,9 @@ import {
   Tooltip,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
+import AddIcon from '@mui/icons-material/Add';
+import { DragDropProvider, useDraggable, useDroppable } from '@dnd-kit/react';
+import type { DragEndEvent } from '@dnd-kit/dom';
 import type { ParameterTypeInfo } from './FormulaBuilder';
 
 /* ------------------------------------------------------------------ */
@@ -19,6 +22,7 @@ import type { ParameterTypeInfo } from './FormulaBuilder';
 export type FormulaNode =
   | { type: 'Variable'; name: string }
   | { type: 'Constant'; value: number }
+  | { type: 'Empty' }
   | { type: 'BinaryOp'; op: '+' | '-' | '*' | '/' | '^'; left: FormulaNode; right: FormulaNode }
   | { type: 'FunctionCall'; name: string; args: FormulaNode[] };
 
@@ -34,6 +38,8 @@ export function serializeToMeval(node: FormulaNode): string {
       return node.name;
     case 'Constant':
       return node.value < 0 ? `(${node.value})` : String(node.value);
+    case 'Empty':
+      throw new Error('Cannot serialize formula with empty slots');
     case 'BinaryOp': {
       const leftStr = serializeChild(node.left, node.op, 'left');
       const rightStr = serializeChild(node.right, node.op, 'right');
@@ -49,13 +55,29 @@ function serializeChild(child: FormulaNode, parentOp: string, side: 'left' | 'ri
   if (child.type !== 'BinaryOp') return s;
   const childPrec = PRECEDENCE[child.op] ?? 0;
   const parentPrec = PRECEDENCE[parentOp] ?? 0;
-  // Parenthesize if child has lower precedence, or same precedence on right side
-  // for left-associative ops, or same precedence for right-associative ^
   const needsParens =
     childPrec < parentPrec ||
     (childPrec === parentPrec && side === 'right' && parentOp !== '^') ||
     (childPrec === parentPrec && side === 'left' && parentOp === '^');
   return needsParens ? `(${s})` : s;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Empty slot detection                                                */
+/* ------------------------------------------------------------------ */
+
+export function hasEmptySlots(node: FormulaNode): boolean {
+  switch (node.type) {
+    case 'Empty':
+      return true;
+    case 'Variable':
+    case 'Constant':
+      return false;
+    case 'BinaryOp':
+      return hasEmptySlots(node.left) || hasEmptySlots(node.right);
+    case 'FunctionCall':
+      return node.args.some(hasEmptySlots);
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -79,7 +101,7 @@ class Parser {
     if (this.pos >= this.input.length) return null;
     const node = this.parseAddSub();
     this.skipWhitespace();
-    if (this.pos < this.input.length) return null; // leftover input
+    if (this.pos < this.input.length) return null;
     return node;
   }
 
@@ -115,7 +137,7 @@ class Parser {
     if (this.pos < this.input.length && this.peek() === '^') {
       this.advance();
       this.skipWhitespace();
-      const exp = this.parseExponent(); // right-associative
+      const exp = this.parseExponent();
       return { type: 'BinaryOp', op: '^', left: base, right: exp };
     }
     return base;
@@ -127,7 +149,6 @@ class Parser {
       this.advance();
       this.skipWhitespace();
       const operand = this.parseUnary();
-      // Optimize: -constant -> negative constant
       if (operand.type === 'Constant') {
         return { type: 'Constant', value: -operand.value };
       }
@@ -144,7 +165,6 @@ class Parser {
   private parsePrimary(): FormulaNode {
     this.skipWhitespace();
 
-    // Parenthesized expression
     if (this.peek() === '(') {
       this.advance();
       this.skipWhitespace();
@@ -154,22 +174,18 @@ class Parser {
       return expr;
     }
 
-    // Number
     if (this.isDigitOrDot()) {
       return this.parseNumber();
     }
 
-    // Identifier: function call, constant, or variable
     if (this.isIdentStart()) {
       const ident = this.parseIdentifier();
 
-      // Known constants -> treat as variables (meval handles them)
       if (KNOWN_CONSTANTS.has(ident)) {
         return { type: 'Variable', name: ident };
       }
 
       this.skipWhitespace();
-      // Function call
       if (this.peek() === '(') {
         this.advance();
         this.skipWhitespace();
@@ -188,7 +204,6 @@ class Parser {
         return { type: 'FunctionCall', name: ident, args };
       }
 
-      // Variable
       return { type: 'Variable', name: ident };
     }
 
@@ -273,6 +288,18 @@ export function parseFromMeval(formula: string): FormulaNode | null {
 type NodePath = string; // e.g. "root", "root.left", "root.right", "root.args.0"
 
 /* ------------------------------------------------------------------ */
+/*  DnD Data Types                                                     */
+/* ------------------------------------------------------------------ */
+
+type DragData =
+  | { source: 'palette'; kind: 'variable'; name: string }
+  | { source: 'palette'; kind: 'function'; funcName: string }
+  | { source: 'palette'; kind: 'constant' }
+  | { source: 'tree'; path: NodePath; node: FormulaNode };
+
+type DropData = { path: NodePath };
+
+/* ------------------------------------------------------------------ */
 /*  Visual Editor Component                                            */
 /* ------------------------------------------------------------------ */
 
@@ -298,7 +325,6 @@ export const VisualFormulaBuilder: React.FC<VisualFormulaBuilderProps> = ({
 }) => {
   const [selectedSlot, setSelectedSlot] = useState<NodePath | null>(null);
 
-  // Assign stable colors to parameter types
   const paramColorMap = useMemo(() => {
     const map = new Map<string, string>();
     parameterTypes.forEach((pt, i) => {
@@ -307,20 +333,17 @@ export const VisualFormulaBuilder: React.FC<VisualFormulaBuilderProps> = ({
     return map;
   }, [parameterTypes]);
 
-  // Replace a node at a given path
   const replaceAtPath = useCallback(
     (root: FormulaNode | null, path: NodePath, newNode: FormulaNode | null): FormulaNode | null => {
       if (path === 'root') return newNode;
       if (!root) return null;
-
       const parts = path.split('.');
-      // parts[0] is always 'root'
       return replaceRecursive(root, parts, 1, newNode);
     },
     [],
   );
 
-  // Insert a node at the selected slot (or at root if no slot selected)
+  // Click-to-insert fallback
   const insertNode = useCallback(
     (node: FormulaNode) => {
       if (selectedSlot) {
@@ -334,7 +357,6 @@ export const VisualFormulaBuilder: React.FC<VisualFormulaBuilderProps> = ({
     [selectedSlot, value, onChange, replaceAtPath],
   );
 
-  // Wrap the selected node (or root) in a BinaryOp
   const wrapWithOperator = useCallback(
     (op: '+' | '-' | '*' | '/' | '^') => {
       if (selectedSlot && selectedSlot !== 'root') {
@@ -344,7 +366,7 @@ export const VisualFormulaBuilder: React.FC<VisualFormulaBuilderProps> = ({
             type: 'BinaryOp',
             op,
             left: existingNode,
-            right: { type: 'Constant', value: 0 },
+            right: { type: 'Empty' },
           };
           const updated = replaceAtPath(value, selectedSlot, wrapped);
           onChange(updated);
@@ -352,13 +374,12 @@ export const VisualFormulaBuilder: React.FC<VisualFormulaBuilderProps> = ({
           return;
         }
       }
-      // Wrap root
       if (value) {
         const wrapped: FormulaNode = {
           type: 'BinaryOp',
           op,
           left: value,
-          right: { type: 'Constant', value: 0 },
+          right: { type: 'Empty' },
         };
         onChange(wrapped);
         setSelectedSlot('root.right');
@@ -367,7 +388,6 @@ export const VisualFormulaBuilder: React.FC<VisualFormulaBuilderProps> = ({
     [selectedSlot, value, onChange, replaceAtPath],
   );
 
-  // Insert a variable
   const handleVariableClick = useCallback(
     (name: string) => {
       insertNode({ type: 'Variable', name });
@@ -375,20 +395,34 @@ export const VisualFormulaBuilder: React.FC<VisualFormulaBuilderProps> = ({
     [insertNode],
   );
 
-  // Insert a function
   const handleFunctionClick = useCallback(
     (funcName: string) => {
       const argCount = MULTI_ARG_FUNCTIONS.has(funcName) ? 2 : 1;
-      const args: FormulaNode[] = [];
-      for (let i = 0; i < argCount; i++) {
-        args.push({ type: 'Constant', value: 0 });
+
+      // If a non-empty slot is selected, wrap its content as first arg
+      if (selectedSlot) {
+        const existing = getNodeAtPath(value, selectedSlot);
+        if (existing && existing.type !== 'Empty') {
+          const args: FormulaNode[] = [existing];
+          for (let i = 1; i < argCount; i++) args.push({ type: 'Empty' });
+          const wrapped: FormulaNode = { type: 'FunctionCall', name: funcName, args };
+          const updated = replaceAtPath(value, selectedSlot, wrapped);
+          onChange(updated);
+          setSelectedSlot(null);
+          return;
+        }
       }
+
+      const args: FormulaNode[] = Array.from({ length: argCount }, () => ({ type: 'Empty' as const }));
       insertNode({ type: 'FunctionCall', name: funcName, args });
     },
-    [insertNode],
+    [insertNode, selectedSlot, value, onChange, replaceAtPath],
   );
 
-  // Delete a node at path
+  const handleConstantClick = useCallback(() => {
+    insertNode({ type: 'Constant', value: 0 });
+  }, [insertNode]);
+
   const handleDelete = useCallback(
     (path: NodePath) => {
       if (path === 'root') {
@@ -403,7 +437,6 @@ export const VisualFormulaBuilder: React.FC<VisualFormulaBuilderProps> = ({
     [value, onChange, replaceAtPath, selectedSlot],
   );
 
-  // Update a constant value
   const handleConstantChange = useCallback(
     (path: NodePath, newValue: number) => {
       const updated = replaceAtPath(value, path, { type: 'Constant', value: newValue });
@@ -412,193 +445,362 @@ export const VisualFormulaBuilder: React.FC<VisualFormulaBuilderProps> = ({
     [value, onChange, replaceAtPath],
   );
 
-  return (
-    <Paper variant="outlined" sx={{ p: 2, width: '100%', maxWidth: 700 }}>
-      <Typography variant="subtitle2" gutterBottom>
-        Visual Formula Builder
-      </Typography>
+  const handleAddArg = useCallback(
+    (path: NodePath) => {
+      const node = getNodeAtPath(value, path);
+      if (node?.type === 'FunctionCall') {
+        const newArgs = [...node.args, { type: 'Empty' as const }];
+        const updated = replaceAtPath(value, path, { ...node, args: newArgs });
+        onChange(updated);
+      }
+    },
+    [value, onChange, replaceAtPath],
+  );
 
-      {/* Variable palette */}
-      {parameterTypes.length > 0 && (
+  // DnD handler
+  const handleDragEnd = useCallback(
+    (event: Parameters<NonNullable<React.ComponentProps<typeof DragDropProvider>['onDragEnd']>>[0]) => {
+      const { source, target } = event.operation;
+      if (!source || !target) return;
+      if (event.operation.canceled) return;
+
+      const dragData = source.data as DragData;
+      const dropData = target.data as DropData;
+      if (!dragData || !dropData?.path) return;
+
+      const targetPath = dropData.path;
+
+      if (dragData.source === 'palette') {
+        const existingNode = targetPath === 'root' ? value : getNodeAtPath(value, targetPath);
+        const targetIsEmpty = !existingNode || existingNode.type === 'Empty';
+
+        let newNode: FormulaNode;
+        switch (dragData.kind) {
+          case 'variable':
+            newNode = { type: 'Variable', name: dragData.name };
+            break;
+          case 'function': {
+            if (!targetIsEmpty && existingNode) {
+              // Wrap: existing node becomes first arg
+              const argCount = MULTI_ARG_FUNCTIONS.has(dragData.funcName) ? 2 : 1;
+              const args: FormulaNode[] = [existingNode];
+              for (let i = 1; i < argCount; i++) {
+                args.push({ type: 'Empty' });
+              }
+              newNode = { type: 'FunctionCall', name: dragData.funcName, args };
+            } else {
+              const argCount = MULTI_ARG_FUNCTIONS.has(dragData.funcName) ? 2 : 1;
+              const args: FormulaNode[] = Array.from({ length: argCount }, () => ({ type: 'Empty' as const }));
+              newNode = { type: 'FunctionCall', name: dragData.funcName, args };
+            }
+            break;
+          }
+          case 'constant':
+            newNode = { type: 'Constant', value: 0 };
+            break;
+        }
+
+        if (targetPath === 'root' && !value) {
+          onChange(newNode);
+        } else {
+          const updated = replaceAtPath(value, targetPath, newNode);
+          onChange(updated);
+        }
+        setSelectedSlot(null);
+      } else if (dragData.source === 'tree') {
+        const sourcePath = dragData.path;
+        if (sourcePath === targetPath) return;
+
+        // Don't allow dropping a node into its own subtree
+        if (targetPath.startsWith(sourcePath + '.') || sourcePath.startsWith(targetPath + '.')) return;
+
+        const sourceNode = dragData.node;
+        const targetNode = getNodeAtPath(value, targetPath);
+
+        if (!targetNode || targetNode.type === 'Empty') {
+          // Move: target gets node, source becomes Empty
+          let updated = replaceAtPath(value, targetPath, sourceNode);
+          updated = replaceAtPath(updated, sourcePath, { type: 'Empty' });
+          onChange(updated);
+        } else {
+          // Swap
+          let updated = replaceAtPath(value, sourcePath, targetNode);
+          updated = replaceAtPath(updated, targetPath, sourceNode);
+          onChange(updated);
+        }
+        setSelectedSlot(null);
+      }
+    },
+    [value, onChange, replaceAtPath],
+  );
+
+  return (
+    <DragDropProvider onDragEnd={handleDragEnd}>
+      <Paper variant="outlined" sx={{ p: 2, width: '100%' }}>
+        <Typography variant="subtitle2" gutterBottom>
+          Visual Formula Builder
+        </Typography>
+
+        {/* Variable palette */}
+        {parameterTypes.length > 0 && (
+          <Box sx={{ mb: 1.5 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
+              Variables (drag or click to insert)
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+              {parameterTypes.map((pt) => (
+                <DraggablePaletteChip
+                  key={pt.name}
+                  pt={pt}
+                  color={paramColorMap.get(pt.name) ?? '#757575'}
+                  onClick={() => handleVariableClick(pt.name)}
+                />
+              ))}
+            </Box>
+          </Box>
+        )}
+
+        {/* Function palette */}
         <Box sx={{ mb: 1.5 }}>
           <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
-            Variables (click to insert)
+            Functions (drag or click to insert)
           </Typography>
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-            {parameterTypes.map((pt) => (
-              <Tooltip
-                key={pt.name}
-                title={
-                  pt.display_name || pt.default_units
-                    ? `${pt.display_name ?? pt.name}${pt.default_units ? ` (${pt.default_units})` : ''}`
-                    : pt.name
-                }
-                arrow
+            {MATH_FUNCTIONS.map((fn) => (
+              <DraggablePaletteButton
+                key={fn}
+                funcName={fn}
+                onClick={() => handleFunctionClick(fn)}
+              />
+            ))}
+            <DraggableConstantButton onClick={handleConstantClick} />
+          </Box>
+        </Box>
+
+        {/* Operator buttons */}
+        <Box sx={{ mb: 1.5 }}>
+          <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
+            Operators (wraps selected node)
+          </Typography>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+            {OPERATORS.map((op) => (
+              <Button
+                key={op}
+                size="small"
+                variant="outlined"
+                onClick={() => wrapWithOperator(op)}
+                disabled={!value}
+                sx={{
+                  minWidth: 36,
+                  px: 1,
+                  py: 0.25,
+                  fontFamily: 'monospace',
+                  fontSize: '0.9rem',
+                  fontWeight: 'bold',
+                }}
               >
-                <Chip
-                  label={pt.name}
-                  size="small"
-                  clickable
-                  onClick={() => handleVariableClick(pt.name)}
-                  sx={{
-                    backgroundColor: paramColorMap.get(pt.name) ?? '#757575',
-                    color: '#fff',
-                    fontFamily: 'monospace',
-                    '&:hover': {
-                      backgroundColor: paramColorMap.get(pt.name) ?? '#757575',
-                      filter: 'brightness(0.85)',
-                    },
-                  }}
-                />
-              </Tooltip>
+                {op}
+              </Button>
             ))}
           </Box>
         </Box>
-      )}
 
-      {/* Function palette */}
-      <Box sx={{ mb: 1.5 }}>
-        <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
-          Functions
-        </Typography>
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-          {MATH_FUNCTIONS.map((fn) => (
-            <Button
-              key={fn}
-              size="small"
-              variant="outlined"
-              onClick={() => handleFunctionClick(fn)}
-              sx={{
-                minWidth: 0,
-                px: 1,
-                py: 0.25,
-                fontFamily: 'monospace',
-                fontSize: '0.8rem',
-                textTransform: 'none',
-              }}
-            >
-              {fn}()
-            </Button>
-          ))}
+        {/* Tree rendering */}
+        <Box
+          sx={{
+            mt: 1,
+            p: 1.5,
+            border: '1px solid',
+            borderColor: 'divider',
+            borderRadius: 1,
+            backgroundColor: 'grey.50',
+            minHeight: 60,
+          }}
+        >
+          {value ? (
+            <NodeRenderer
+              node={value}
+              path="root"
+              selectedSlot={selectedSlot}
+              onSelectSlot={setSelectedSlot}
+              onDelete={handleDelete}
+              onConstantChange={handleConstantChange}
+              onAddArg={handleAddArg}
+              paramColorMap={paramColorMap}
+            />
+          ) : (
+            <EmptyDropZone
+              path="root"
+              selected={selectedSlot === 'root'}
+              onClick={() => setSelectedSlot('root')}
+              label="Drag or click a variable/function to start"
+            />
+          )}
         </Box>
-      </Box>
 
-      {/* Operator buttons */}
-      <Box sx={{ mb: 1.5 }}>
-        <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
-          Operators (wraps selected node)
-        </Typography>
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-          {OPERATORS.map((op) => (
-            <Button
-              key={op}
-              size="small"
-              variant="outlined"
-              onClick={() => wrapWithOperator(op)}
-              disabled={!value}
-              sx={{
-                minWidth: 36,
-                px: 1,
-                py: 0.25,
-                fontFamily: 'monospace',
-                fontSize: '0.9rem',
-                fontWeight: 'bold',
-              }}
-            >
-              {op}
-            </Button>
-          ))}
-        </Box>
-      </Box>
-
-      {/* Tree rendering */}
-      <Box
-        sx={{
-          mt: 1,
-          p: 1.5,
-          border: '1px solid',
-          borderColor: 'divider',
-          borderRadius: 1,
-          backgroundColor: 'grey.50',
-          minHeight: 60,
-        }}
-      >
-        {value ? (
-          <NodeRenderer
-            node={value}
-            path="root"
-            selectedSlot={selectedSlot}
-            onSelectSlot={setSelectedSlot}
-            onDelete={handleDelete}
-            onConstantChange={handleConstantChange}
-            paramColorMap={paramColorMap}
-          />
-        ) : (
-          <DropZone
-            path="root"
-            selected={selectedSlot === 'root'}
-            onClick={() => setSelectedSlot('root')}
-            label="Click a variable or function to start"
-          />
-        )}
-      </Box>
-
-      {/* Serialized output preview */}
-      {value && (
-        <Box sx={{ mt: 1 }}>
-          <Typography variant="caption" color="text.secondary">
-            Formula:{' '}
-            <Typography component="code" variant="caption" sx={{ fontFamily: 'monospace' }}>
-              {serializeToMeval(value)}
+        {/* Serialized output preview */}
+        {value && !hasEmptySlots(value) && (
+          <Box sx={{ mt: 1 }}>
+            <Typography variant="caption" color="text.secondary">
+              Formula:{' '}
+              <Typography component="code" variant="caption" sx={{ fontFamily: 'monospace' }}>
+                {serializeToMeval(value)}
+              </Typography>
             </Typography>
-          </Typography>
-        </Box>
-      )}
-    </Paper>
+          </Box>
+        )}
+      </Paper>
+    </DragDropProvider>
   );
 };
 
 /* ------------------------------------------------------------------ */
-/*  Drop Zone                                                          */
+/*  Draggable Palette Items                                            */
 /* ------------------------------------------------------------------ */
 
-interface DropZoneProps {
+const DraggablePaletteChip: React.FC<{
+  pt: ParameterTypeInfo;
+  color: string;
+  onClick: () => void;
+}> = ({ pt, color, onClick }) => {
+  const dragData: DragData = { source: 'palette', kind: 'variable', name: pt.name };
+  const { ref, isDragSource } = useDraggable({ id: `palette-var-${pt.name}`, data: dragData });
+
+  return (
+    <Tooltip
+      title={
+        pt.display_name || pt.default_units
+          ? `${pt.display_name ?? pt.name}${pt.default_units ? ` (${pt.default_units})` : ''}`
+          : pt.name
+      }
+      arrow
+    >
+      <Chip
+        ref={ref as React.Ref<HTMLDivElement>}
+        label={pt.name}
+        size="small"
+        clickable
+        onClick={onClick}
+        sx={{
+          backgroundColor: color,
+          color: '#fff',
+          fontFamily: 'monospace',
+          opacity: isDragSource ? 0.4 : 1,
+          cursor: 'grab',
+          '&:hover': {
+            backgroundColor: color,
+            filter: 'brightness(0.85)',
+          },
+        }}
+      />
+    </Tooltip>
+  );
+};
+
+const DraggablePaletteButton: React.FC<{
+  funcName: string;
+  onClick: () => void;
+}> = ({ funcName, onClick }) => {
+  const dragData: DragData = { source: 'palette', kind: 'function', funcName };
+  const { ref, isDragSource } = useDraggable({ id: `palette-fn-${funcName}`, data: dragData });
+
+  return (
+    <Button
+      ref={ref as React.Ref<HTMLButtonElement>}
+      size="small"
+      variant="outlined"
+      onClick={onClick}
+      sx={{
+        minWidth: 0,
+        px: 1,
+        py: 0.25,
+        fontFamily: 'monospace',
+        fontSize: '0.8rem',
+        textTransform: 'none',
+        opacity: isDragSource ? 0.4 : 1,
+        cursor: 'grab',
+      }}
+    >
+      {funcName}()
+    </Button>
+  );
+};
+
+const DraggableConstantButton: React.FC<{ onClick: () => void }> = ({ onClick }) => {
+  const dragData: DragData = { source: 'palette', kind: 'constant' };
+  const { ref, isDragSource } = useDraggable({ id: 'palette-constant', data: dragData });
+
+  return (
+    <Button
+      ref={ref as React.Ref<HTMLButtonElement>}
+      size="small"
+      variant="outlined"
+      color="secondary"
+      onClick={onClick}
+      sx={{
+        minWidth: 0,
+        px: 1,
+        py: 0.25,
+        fontFamily: 'monospace',
+        fontSize: '0.8rem',
+        textTransform: 'none',
+        opacity: isDragSource ? 0.4 : 1,
+        cursor: 'grab',
+      }}
+    >
+      Number
+    </Button>
+  );
+};
+
+/* ------------------------------------------------------------------ */
+/*  Empty Drop Zone                                                    */
+/* ------------------------------------------------------------------ */
+
+interface EmptyDropZoneProps {
   path: NodePath;
   selected: boolean;
   onClick: () => void;
   label?: string;
 }
 
-const DropZone: React.FC<DropZoneProps> = ({ selected, onClick, label }) => (
-  <Box
-    onClick={(e) => {
-      e.stopPropagation();
-      onClick();
-    }}
-    sx={{
-      display: 'inline-flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      minWidth: 80,
-      minHeight: 32,
-      px: 1,
-      border: '2px dashed',
-      borderColor: selected ? 'primary.main' : 'grey.400',
-      borderRadius: 1,
-      backgroundColor: selected ? 'primary.50' : 'transparent',
-      cursor: 'pointer',
-      transition: 'all 0.15s',
-      '&:hover': {
-        borderColor: 'primary.main',
-        backgroundColor: 'action.hover',
-      },
-    }}
-  >
-    <Typography variant="caption" color="text.secondary" sx={{ userSelect: 'none' }}>
-      {label ?? 'Drop here'}
-    </Typography>
-  </Box>
-);
+const EmptyDropZone: React.FC<EmptyDropZoneProps> = ({ path, selected, onClick, label }) => {
+  const dropData: DropData = { path };
+  const { ref, isDropTarget } = useDroppable({ id: `drop-${path}`, data: dropData });
+
+  return (
+    <Box
+      ref={ref as React.Ref<HTMLDivElement>}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      sx={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minWidth: 80,
+        minHeight: 32,
+        px: 1,
+        border: '2px dashed',
+        borderColor: isDropTarget ? 'primary.main' : selected ? 'primary.main' : 'grey.400',
+        borderRadius: 1,
+        backgroundColor: isDropTarget ? 'rgba(25, 118, 210, 0.08)' : selected ? 'primary.50' : 'transparent',
+        boxShadow: isDropTarget ? '0 0 8px rgba(25, 118, 210, 0.3)' : 'none',
+        cursor: 'pointer',
+        transition: 'all 0.15s',
+        '&:hover': {
+          borderColor: 'primary.main',
+          backgroundColor: 'action.hover',
+        },
+      }}
+    >
+      <Typography variant="caption" color="text.secondary" sx={{ userSelect: 'none' }}>
+        {label ?? 'Drop here'}
+      </Typography>
+    </Box>
+  );
+};
 
 /* ------------------------------------------------------------------ */
 /*  Node Renderer                                                      */
@@ -611,6 +813,7 @@ interface NodeRendererProps {
   onSelectSlot: (path: NodePath | null) => void;
   onDelete: (path: NodePath) => void;
   onConstantChange: (path: NodePath, value: number) => void;
+  onAddArg: (path: NodePath) => void;
   paramColorMap: Map<string, string>;
 }
 
@@ -621,6 +824,7 @@ const NodeRenderer: React.FC<NodeRendererProps> = ({
   onSelectSlot,
   onDelete,
   onConstantChange,
+  onAddArg,
   paramColorMap,
 }) => {
   const deleteButton = (
@@ -637,239 +841,268 @@ const NodeRenderer: React.FC<NodeRendererProps> = ({
   );
 
   switch (node.type) {
-    case 'Variable': {
-      const color = paramColorMap.get(node.name) ?? '#757575';
+    case 'Empty': {
       return (
-        <Box sx={{ display: 'inline-flex', alignItems: 'center' }}>
-          <Chip
-            label={node.name}
-            size="small"
-            onClick={(e) => {
-              e.stopPropagation();
-              onSelectSlot(path);
-            }}
-            sx={{
-              backgroundColor: color,
-              color: '#fff',
-              fontFamily: 'monospace',
-              fontWeight: 'bold',
-              border: selectedSlot === path ? '2px solid' : 'none',
-              borderColor: 'primary.dark',
-            }}
-          />
-          {deleteButton}
-        </Box>
+        <EmptyDropZone
+          path={path}
+          selected={selectedSlot === path}
+          onClick={() => onSelectSlot(path)}
+        />
+      );
+    }
+
+    case 'Variable': {
+      return (
+        <DraggableDroppableNode path={path} node={node} selectedSlot={selectedSlot}>
+          <Box sx={{ display: 'inline-flex', alignItems: 'center' }}>
+            <Chip
+              label={node.name}
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelectSlot(path);
+              }}
+              sx={{
+                backgroundColor: paramColorMap.get(node.name) ?? '#757575',
+                color: '#fff',
+                fontFamily: 'monospace',
+                fontWeight: 'bold',
+                border: selectedSlot === path ? '2px solid' : 'none',
+                borderColor: 'primary.dark',
+              }}
+            />
+            {deleteButton}
+          </Box>
+        </DraggableDroppableNode>
       );
     }
 
     case 'Constant': {
       return (
-        <Box sx={{ display: 'inline-flex', alignItems: 'center' }}>
-          <TextField
-            size="small"
-            type="number"
-            value={node.value}
-            onChange={(e) => {
-              const v = parseFloat(e.target.value);
-              if (!isNaN(v)) onConstantChange(path, v);
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-              onSelectSlot(path);
-            }}
-            inputProps={{ step: 'any' }}
-            sx={{
-              width: 80,
-              '& .MuiInputBase-input': {
-                py: 0.5,
-                px: 1,
-                fontFamily: 'monospace',
-                fontSize: '0.85rem',
-              },
-              border: selectedSlot === path ? '2px solid' : 'none',
-              borderColor: 'primary.main',
-              borderRadius: 1,
-            }}
-          />
-          {deleteButton}
-        </Box>
+        <DraggableDroppableNode path={path} node={node} selectedSlot={selectedSlot}>
+          <Box sx={{ display: 'inline-flex', alignItems: 'center' }}>
+            <TextField
+              size="small"
+              type="number"
+              value={node.value}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                if (!isNaN(v)) onConstantChange(path, v);
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelectSlot(path);
+              }}
+              inputProps={{ step: 'any' }}
+              sx={{
+                width: 80,
+                '& .MuiInputBase-input': {
+                  py: 0.5,
+                  px: 1,
+                  fontFamily: 'monospace',
+                  fontSize: '0.85rem',
+                },
+                border: selectedSlot === path ? '2px solid' : 'none',
+                borderColor: 'primary.main',
+                borderRadius: 1,
+              }}
+            />
+            {deleteButton}
+          </Box>
+        </DraggableDroppableNode>
       );
     }
 
     case 'BinaryOp': {
       return (
-        <Box
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelectSlot(path);
-          }}
-          sx={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 0.75,
-            px: 1,
-            py: 0.5,
-            border: '1px solid',
-            borderColor: selectedSlot === path ? 'primary.main' : 'grey.300',
-            borderRadius: 1,
-            backgroundColor: '#fff',
-          }}
-        >
-          {/* Left operand */}
-          <NodeOrSlot
-            node={node.left}
-            path={`${path}.left`}
-            selectedSlot={selectedSlot}
-            onSelectSlot={onSelectSlot}
-            onDelete={onDelete}
-            onConstantChange={onConstantChange}
-            paramColorMap={paramColorMap}
-          />
-
-          {/* Operator */}
-          <Typography
-            component="span"
+        <DraggableDroppableNode path={path} node={node} selectedSlot={selectedSlot}>
+          <Box
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelectSlot(path);
+            }}
             sx={{
-              fontFamily: 'monospace',
-              fontWeight: 'bold',
-              fontSize: '1rem',
-              px: 0.5,
-              color: 'text.primary',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 0.75,
+              px: 1,
+              py: 0.5,
+              border: '1px solid',
+              borderColor: selectedSlot === path ? 'primary.main' : 'grey.300',
+              borderRadius: 1,
+              backgroundColor: '#fff',
             }}
           >
-            {node.op}
-          </Typography>
+            <NodeRenderer
+              node={node.left}
+              path={`${path}.left`}
+              selectedSlot={selectedSlot}
+              onSelectSlot={onSelectSlot}
+              onDelete={onDelete}
+              onConstantChange={onConstantChange}
+              onAddArg={onAddArg}
+              paramColorMap={paramColorMap}
+            />
 
-          {/* Right operand */}
-          <NodeOrSlot
-            node={node.right}
-            path={`${path}.right`}
-            selectedSlot={selectedSlot}
-            onSelectSlot={onSelectSlot}
-            onDelete={onDelete}
-            onConstantChange={onConstantChange}
-            paramColorMap={paramColorMap}
-          />
+            <Typography
+              component="span"
+              sx={{
+                fontFamily: 'monospace',
+                fontWeight: 'bold',
+                fontSize: '1rem',
+                px: 0.5,
+                color: 'text.primary',
+              }}
+            >
+              {node.op}
+            </Typography>
 
-          {deleteButton}
-        </Box>
+            <NodeRenderer
+              node={node.right}
+              path={`${path}.right`}
+              selectedSlot={selectedSlot}
+              onSelectSlot={onSelectSlot}
+              onDelete={onDelete}
+              onConstantChange={onConstantChange}
+              onAddArg={onAddArg}
+              paramColorMap={paramColorMap}
+            />
+
+            {deleteButton}
+          </Box>
+        </DraggableDroppableNode>
       );
     }
 
     case 'FunctionCall': {
       return (
-        <Box
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelectSlot(path);
-          }}
-          sx={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 0.25,
-            px: 1,
-            py: 0.5,
-            border: '1px solid',
-            borderColor: selectedSlot === path ? 'primary.main' : 'grey.300',
-            borderRadius: 1,
-            backgroundColor: '#fff',
-          }}
-        >
-          <Typography
-            component="span"
+        <DraggableDroppableNode path={path} node={node} selectedSlot={selectedSlot}>
+          <Box
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelectSlot(path);
+            }}
             sx={{
-              fontFamily: 'monospace',
-              fontWeight: 'bold',
-              fontSize: '0.9rem',
-              color: 'secondary.main',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 0.25,
+              px: 1,
+              py: 0.5,
+              border: '1px solid',
+              borderColor: selectedSlot === path ? 'primary.main' : 'grey.300',
+              borderRadius: 1,
+              backgroundColor: '#fff',
             }}
           >
-            {node.name}(
-          </Typography>
+            <Typography
+              component="span"
+              sx={{
+                fontFamily: 'monospace',
+                fontWeight: 'bold',
+                fontSize: '0.9rem',
+                color: 'secondary.main',
+              }}
+            >
+              {node.name}(
+            </Typography>
 
-          {node.args.map((arg, i) => (
-            <React.Fragment key={i}>
-              {i > 0 && (
-                <Typography
-                  component="span"
-                  sx={{ fontFamily: 'monospace', color: 'text.secondary', mx: 0.25 }}
-                >
-                  ,
-                </Typography>
-              )}
-              <NodeOrSlot
-                node={arg}
-                path={`${path}.args.${i}`}
-                selectedSlot={selectedSlot}
-                onSelectSlot={onSelectSlot}
-                onDelete={onDelete}
-                onConstantChange={onConstantChange}
-                paramColorMap={paramColorMap}
-              />
-            </React.Fragment>
-          ))}
+            {node.args.map((arg, i) => (
+              <React.Fragment key={i}>
+                {i > 0 && (
+                  <Typography
+                    component="span"
+                    sx={{ fontFamily: 'monospace', color: 'text.secondary', mx: 0.25 }}
+                  >
+                    ,
+                  </Typography>
+                )}
+                <NodeRenderer
+                  node={arg}
+                  path={`${path}.args.${i}`}
+                  selectedSlot={selectedSlot}
+                  onSelectSlot={onSelectSlot}
+                  onDelete={onDelete}
+                  onConstantChange={onConstantChange}
+                  onAddArg={onAddArg}
+                  paramColorMap={paramColorMap}
+                />
+              </React.Fragment>
+            ))}
 
-          <Typography
-            component="span"
-            sx={{
-              fontFamily: 'monospace',
-              fontWeight: 'bold',
-              fontSize: '0.9rem',
-              color: 'secondary.main',
-            }}
-          >
-            )
-          </Typography>
+            {MULTI_ARG_FUNCTIONS.has(node.name) && (
+              <IconButton
+                size="small"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAddArg(path);
+                }}
+                sx={{ p: 0.25, ml: 0.25, opacity: 0.6, '&:hover': { opacity: 1 } }}
+              >
+                <Tooltip title="Add argument" arrow>
+                  <AddIcon sx={{ fontSize: 16 }} />
+                </Tooltip>
+              </IconButton>
+            )}
 
-          {deleteButton}
-        </Box>
+            <Typography
+              component="span"
+              sx={{
+                fontFamily: 'monospace',
+                fontWeight: 'bold',
+                fontSize: '0.9rem',
+                color: 'secondary.main',
+              }}
+            >
+              )
+            </Typography>
+
+            {deleteButton}
+          </Box>
+        </DraggableDroppableNode>
       );
     }
   }
 };
 
 /* ------------------------------------------------------------------ */
-/*  NodeOrSlot: renders a node or a drop zone if null                   */
+/*  DraggableDroppableNode: wraps tree nodes as both drag + drop       */
 /* ------------------------------------------------------------------ */
 
-interface NodeOrSlotProps {
-  node: FormulaNode | null;
+const DraggableDroppableNode: React.FC<{
   path: NodePath;
+  node: FormulaNode;
   selectedSlot: NodePath | null;
-  onSelectSlot: (path: NodePath | null) => void;
-  onDelete: (path: NodePath) => void;
-  onConstantChange: (path: NodePath, value: number) => void;
-  paramColorMap: Map<string, string>;
-}
+  children: React.ReactNode;
+}> = ({ path, node, children }) => {
+  const dragData: DragData = { source: 'tree', path, node };
+  const dropData: DropData = { path };
 
-const NodeOrSlot: React.FC<NodeOrSlotProps> = ({
-  node,
-  path,
-  selectedSlot,
-  onSelectSlot,
-  onDelete,
-  onConstantChange,
-  paramColorMap,
-}) => {
-  if (!node) {
-    return (
-      <DropZone
-        path={path}
-        selected={selectedSlot === path}
-        onClick={() => onSelectSlot(path)}
-      />
-    );
-  }
+  const { ref: dragRef, isDragSource } = useDraggable({ id: `drag-${path}`, data: dragData });
+  const { ref: dropRef, isDropTarget } = useDroppable({ id: `drop-${path}`, data: dropData });
+
   return (
-    <NodeRenderer
-      node={node}
-      path={path}
-      selectedSlot={selectedSlot}
-      onSelectSlot={onSelectSlot}
-      onDelete={onDelete}
-      onConstantChange={onConstantChange}
-      paramColorMap={paramColorMap}
-    />
+    <Box
+      ref={dropRef as React.Ref<HTMLDivElement>}
+      sx={{
+        display: 'inline-flex',
+        borderRadius: 1,
+        border: isDropTarget ? '2px solid' : '2px solid transparent',
+        borderColor: isDropTarget ? 'primary.main' : 'transparent',
+        boxShadow: isDropTarget ? '0 0 8px rgba(25, 118, 210, 0.3)' : 'none',
+        transition: 'all 0.15s',
+      }}
+    >
+      <Box
+        ref={dragRef as React.Ref<HTMLDivElement>}
+        sx={{
+          display: 'inline-flex',
+          opacity: isDragSource ? 0.4 : 1,
+          cursor: 'grab',
+        }}
+      >
+        {children}
+      </Box>
+    </Box>
   );
 };
 
@@ -911,27 +1144,26 @@ function replaceRecursive(
     if (part === 'left') {
       if (depth === parts.length - 1) {
         if (!newNode) {
-          // Replace deleted child with a constant placeholder
-          return { ...node, left: { type: 'Constant', value: 0 } };
+          return { ...node, left: { type: 'Empty' } };
         }
         return { ...node, left: newNode };
       }
       const updatedLeft = replaceRecursive(node.left, parts, depth + 1, newNode);
       return updatedLeft !== null
         ? { ...node, left: updatedLeft }
-        : { ...node, left: { type: 'Constant', value: 0 } };
+        : { ...node, left: { type: 'Empty' } };
     }
     if (part === 'right') {
       if (depth === parts.length - 1) {
         if (!newNode) {
-          return { ...node, right: { type: 'Constant', value: 0 } };
+          return { ...node, right: { type: 'Empty' } };
         }
         return { ...node, right: newNode };
       }
       const updatedRight = replaceRecursive(node.right, parts, depth + 1, newNode);
       return updatedRight !== null
         ? { ...node, right: updatedRight }
-        : { ...node, right: { type: 'Constant', value: 0 } };
+        : { ...node, right: { type: 'Empty' } };
     }
   }
 
@@ -939,12 +1171,11 @@ function replaceRecursive(
     const idx = parseInt(parts[depth + 1], 10);
     const newArgs = [...node.args];
     if (depth + 1 === parts.length - 1) {
-      // Direct replacement of this arg
-      newArgs[idx] = newNode ?? { type: 'Constant', value: 0 };
+      newArgs[idx] = newNode ?? { type: 'Empty' };
       return { ...node, args: newArgs };
     }
     const updatedArg = replaceRecursive(node.args[idx], parts, depth + 2, newNode);
-    newArgs[idx] = updatedArg ?? { type: 'Constant', value: 0 };
+    newArgs[idx] = updatedArg ?? { type: 'Empty' };
     return { ...node, args: newArgs };
   }
 

@@ -10,6 +10,10 @@ import CustomLayout from './Layout';
 import Dashboard from './Dashboard';
 import { resources, hiddenResources } from './resources';
 import { SystemPage } from './resources/system';
+import { GrabSampleEntry } from './resources/grab_samples';
+import { ComparePage } from './pages/ComparePage';
+import { ToolsPage } from './pages/ToolsPage';
+import { FieldTripWizard } from './resources/field_trips';
 import { KeycloakContext } from './KeycloakContext';
 
 const initOptions = {
@@ -175,6 +179,10 @@ const AdminApp = () => {
         ))}
         <CustomRoutes>
           <Route path="/system" element={<SystemPage />} />
+          <Route path="/grab-samples" element={<GrabSampleEntry />} />
+          <Route path="/compare" element={<ComparePage />} />
+          <Route path="/tools" element={<ToolsPage />} />
+          <Route path="/field-trip" element={<FieldTripWizard />} />
         </CustomRoutes>
       </Admin>
     </KeycloakContext.Provider>

@@ -21,17 +21,30 @@ import {
     TextField,
     MenuItem,
     CircularProgress,
+    Card,
+    CardContent,
+    Collapse,
+    IconButton,
+    Chip,
+    Checkbox,
+    FormControlLabel,
 } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
 import AddIcon from '@mui/icons-material/Add';
 import SensorsIcon from '@mui/icons-material/Sensors';
 import FunctionsIcon from '@mui/icons-material/Functions';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import NoteAddIcon from '@mui/icons-material/NoteAdd';
+import VerifiedIcon from '@mui/icons-material/Verified';
+import InsightsIcon from '@mui/icons-material/Insights';
 import { useParams } from 'react-router-dom';
 import { StationHeader } from './StationHeader';
 import { SensorCard } from './SensorCard';
 import { DerivedSection } from './DerivedSection';
 import { ParameterChart } from './ParameterChart';
 import { DataExportDialog } from './DataExportDialog';
+import { ScatterPlot } from '../../components/charts/ScatterPlot';
 import { StatusEventsTimeline } from './StatusEventsTimeline';
 import { AssignToSiteDialog } from '../derived_parameters/AssignToSiteDialog';
 import { useLatestReadings, useSensorGroups } from './hooks';
@@ -366,6 +379,226 @@ const AssignDerivedButton: React.FC<{ siteId: string }> = ({ siteId }) => {
 };
 
 // ---------------------------------------------------------------------------
+// Notes Section
+// ---------------------------------------------------------------------------
+
+interface NoteRecord {
+    id: string;
+    site_id: string;
+    text: string;
+    verified: boolean;
+    created_by: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+function relativeTime(iso: string): string {
+    const diff = Date.now() - new Date(iso).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 30) return `${days}d ago`;
+    return new Date(iso).toLocaleDateString();
+}
+
+const AddNoteDialog: React.FC<{
+    open: boolean;
+    onClose: () => void;
+    siteId: string;
+}> = ({ open, onClose, siteId }) => {
+    const [create, { isPending }] = useCreate();
+    const notify = useNotify();
+    const refresh = useRefresh();
+
+    const [text, setText] = useState('');
+    const [verified, setVerified] = useState(false);
+
+    const handleSubmit = () => {
+        create(
+            'notes',
+            {
+                data: {
+                    site_id: siteId,
+                    text,
+                    verified,
+                },
+            },
+            {
+                onSuccess: () => {
+                    notify('Note added', { type: 'success' });
+                    refresh();
+                    handleClose();
+                },
+                onError: (error) => {
+                    notify(`Failed: ${error instanceof Error ? error.message : 'Unknown error'}`, { type: 'error' });
+                },
+            },
+        );
+    };
+
+    const handleClose = () => {
+        setText('');
+        setVerified(false);
+        onClose();
+    };
+
+    return (
+        <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+            <DialogTitle>Add Note</DialogTitle>
+            <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+                <TextField
+                    label="Note"
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    multiline
+                    rows={4}
+                    fullWidth
+                    size="small"
+                    required
+                />
+                <FormControlLabel
+                    control={
+                        <Checkbox
+                            checked={verified}
+                            onChange={(e) => setVerified(e.target.checked)}
+                        />
+                    }
+                    label="Verified"
+                />
+            </DialogContent>
+            <DialogActions>
+                <Button onClick={handleClose} disabled={isPending}>Cancel</Button>
+                <Button
+                    onClick={handleSubmit}
+                    variant="contained"
+                    disabled={isPending || !text.trim()}
+                    startIcon={isPending ? <CircularProgress size={16} /> : undefined}
+                >
+                    Add Note
+                </Button>
+            </DialogActions>
+        </Dialog>
+    );
+};
+
+const NotesSection: React.FC<{ siteId: string }> = ({ siteId }) => {
+    const [expanded, setExpanded] = useState(false);
+    const [addNoteOpen, setAddNoteOpen] = useState(false);
+
+    const { data: notes, isPending } = useGetList<NoteRecord>('notes', {
+        filter: { site_id: siteId },
+        pagination: { page: 1, perPage: 50 },
+        sort: { field: 'created_at', order: 'DESC' },
+    }, { enabled: !!siteId });
+
+    return (
+        <Box sx={{ mt: 3 }}>
+            <Box
+                sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    mb: 1,
+                    cursor: 'pointer',
+                }}
+                onClick={() => setExpanded(!expanded)}
+            >
+                <Typography variant="h6">
+                    Notes {notes && notes.length > 0 ? `(${notes.length})` : ''}
+                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    {expanded && (
+                        <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={<NoteAddIcon />}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setAddNoteOpen(true);
+                            }}
+                        >
+                            Add Note
+                        </Button>
+                    )}
+                    <IconButton size="small">
+                        {expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                    </IconButton>
+                </Box>
+            </Box>
+
+            <Collapse in={expanded}>
+                <Card variant="outlined">
+                    <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                        {isPending && (
+                            <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+                                <CircularProgress size={24} />
+                            </Box>
+                        )}
+
+                        {!isPending && (!notes || notes.length === 0) && (
+                            <Typography
+                                variant="body2"
+                                color="text.secondary"
+                                sx={{ textAlign: 'center' }}
+                            >
+                                No notes yet.
+                            </Typography>
+                        )}
+
+                        {!isPending && notes && notes.length > 0 && (
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                                {notes.map((note) => (
+                                    <Box
+                                        key={note.id}
+                                        sx={{
+                                            p: 1.5,
+                                            borderRadius: 1,
+                                            bgcolor: 'action.hover',
+                                        }}
+                                    >
+                                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', mb: 0.5 }}>
+                                            {note.text}
+                                        </Typography>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                            {note.verified && (
+                                                <Chip
+                                                    icon={<VerifiedIcon />}
+                                                    label="Verified"
+                                                    size="small"
+                                                    color="success"
+                                                    variant="outlined"
+                                                />
+                                            )}
+                                            {note.created_by && (
+                                                <Typography variant="caption" color="text.secondary">
+                                                    {note.created_by}
+                                                </Typography>
+                                            )}
+                                            <Typography variant="caption" color="text.secondary">
+                                                {relativeTime(note.created_at)}
+                                            </Typography>
+                                        </Box>
+                                    </Box>
+                                ))}
+                            </Box>
+                        )}
+                    </CardContent>
+                </Card>
+            </Collapse>
+
+            <AddNoteDialog
+                open={addNoteOpen}
+                onClose={() => setAddNoteOpen(false)}
+                siteId={siteId}
+            />
+        </Box>
+    );
+};
+
+// ---------------------------------------------------------------------------
 // Types (local to StationHub)
 // ---------------------------------------------------------------------------
 
@@ -393,6 +626,7 @@ const StationHub = () => {
     const [exportOpen, setExportOpen] = useState(false);
     const [addParamOpen, setAddParamOpen] = useState(false);
     const [deploySensorOpen, setDeploySensorOpen] = useState(false);
+    const [analysisExpanded, setAnalysisExpanded] = useState(false);
 
     // Fetch site
     const {
@@ -634,11 +868,48 @@ const StationHub = () => {
                 </Box>
             )}
 
+            {/* Analysis (Scatter Plot) */}
+            {(parameters ?? []).filter((p) => !p.is_derived).length >= 2 && (
+                <Box sx={{ mt: 3 }}>
+                    <Box
+                        sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            mb: 1,
+                            cursor: 'pointer',
+                        }}
+                        onClick={() => setAnalysisExpanded(!analysisExpanded)}
+                    >
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <InsightsIcon color="action" />
+                            <Typography variant="h6">Analysis</Typography>
+                        </Box>
+                        <IconButton size="small">
+                            {analysisExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                        </IconButton>
+                    </Box>
+                    <Collapse in={analysisExpanded}>
+                        <ScatterPlot
+                            siteId={id!}
+                            parameters={(parameters ?? []).map((p) => ({
+                                id: p.id,
+                                name: p.name,
+                                units: p.display_units,
+                            }))}
+                        />
+                    </Collapse>
+                </Box>
+            )}
+
             {/* Device Status Events */}
             <StatusEventsTimeline
                 siteId={id!}
                 parameterNames={parameterNames}
             />
+
+            {/* Station Notes */}
+            <NotesSection siteId={id!} />
 
             {/* Derived Parameters */}
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 3, mb: 1 }}>
@@ -659,7 +930,7 @@ const StationHub = () => {
                 onClose={() => setExportOpen(false)}
                 siteId={id!}
                 siteName={site.name}
-                parameters={(parameters ?? []).filter((p) => !p.is_derived).map((p) => ({ id: p.id, name: p.name }))}
+                parameters={(parameters ?? []).map((p) => ({ id: p.id, name: p.name, is_derived: p.is_derived }))}
             />
             <AddParameterDialog
                 open={addParamOpen}

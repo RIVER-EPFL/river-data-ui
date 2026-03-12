@@ -18,6 +18,7 @@ import {
   BooleanInput,
   ReferenceInput,
   SelectInput,
+  NullableBooleanInput,
   ReferenceManyField,
   TopToolbar,
   EditButton,
@@ -30,12 +31,15 @@ import {
   useGetOne,
 } from 'react-admin';
 import {
+  Box,
   Button,
+  Chip,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
   TextField as MuiTextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import { useRiverDataProvider } from '../../useRiverDataProvider';
@@ -201,6 +205,52 @@ const RecallButton = () => {
   );
 };
 
+// Recall button for the sensor list — finds the active deployment and ends it
+const ListRecallButton = () => {
+  const record = useRecordContext();
+  const [update, { isLoading }] = useUpdate();
+  const notify = useNotify();
+  const refresh = useRefresh();
+
+  const { data: deployments } = useGetList('sensor_deployments', {
+    filter: record ? { sensor_id: record.id } : {},
+    sort: { field: 'deployed_from', order: 'DESC' },
+    pagination: { page: 1, perPage: 10 },
+  }, { enabled: !!record });
+
+  const active = deployments?.find((d: { deployed_until: string | null }) => !d.deployed_until);
+
+  if (!record || !active) return null;
+
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm('Recall this sensor? This will end the active deployment.')) return;
+    update(
+      'sensor_deployments',
+      {
+        id: active.id,
+        data: { deployed_until: new Date().toISOString() },
+        previousData: active,
+      },
+      {
+        onSuccess: () => {
+          notify('Sensor recalled', { type: 'success' });
+          refresh();
+        },
+        onError: () => {
+          notify('Recall failed', { type: 'error' });
+        },
+      }
+    );
+  };
+
+  return (
+    <Button onClick={handleClick} size="small" color="warning" variant="outlined" disabled={isLoading}>
+      Recall
+    </Button>
+  );
+};
+
 // Show current deployment site inline
 const DeployedAtField = () => {
   const record = useRecordContext();
@@ -326,8 +376,149 @@ const LastReadingField = (_props: { label?: string }) => {
   );
 };
 
+// Battery status field — finds the Battery parameter at the sensor's deployed site
+// and shows the latest voltage reading as a colored chip
+const BatteryStatusField = (_props: { label?: string }) => {
+  const record = useRecordContext();
+  const [batteryValue, setBatteryValue] = useState<{ voltage: number; time: string } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const keycloak = useKeycloak();
+
+  // Step 1: Find the sensor's active deployment
+  const { data: deployments } = useGetList('sensor_deployments', {
+    filter: record ? { sensor_id: record.id } : {},
+    sort: { field: 'deployed_from', order: 'DESC' },
+    pagination: { page: 1, perPage: 1 },
+  }, { enabled: !!record });
+
+  const active = deployments?.find((d: { deployed_until: string | null }) => !d.deployed_until);
+
+  // Step 2: Get the site_parameter to find site_id
+  const { data: siteParam } = useGetOne('site_parameters', {
+    id: active?.parameter_id,
+  }, { enabled: !!active?.parameter_id });
+
+  // Step 3: Find the Battery-type site_parameter at the same site
+  const { data: batteryParams } = useGetList('site_parameters', {
+    filter: siteParam?.site_id ? { site_id: siteParam.site_id } : {},
+    sort: { field: 'name', order: 'ASC' },
+    pagination: { page: 1, perPage: 100 },
+  }, { enabled: !!siteParam?.site_id });
+
+  const batteryParam = batteryParams?.find(
+    (p: { name: string }) => /batt/i.test(p.name)
+  );
+
+  // Step 4: Fetch latest reading for the Battery parameter
+  useEffect(() => {
+    if (!siteParam?.site_id || !batteryParam?.id) {
+      setBatteryValue(null);
+      return;
+    }
+
+    setLoading(true);
+    const now = new Date();
+    const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const url = `/api/service/sites/${siteParam.site_id}/readings?start=${start.toISOString()}&parameter_ids=${batteryParam.id}&page_size=1000&format=json`;
+    const headers: HeadersInit = keycloak?.token ? { 'Authorization': 'Bearer ' + keycloak.token } : {};
+
+    fetch(url, { headers })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json() as Promise<ReadingsApiResponse>;
+      })
+      .then((data) => {
+        if (data.times?.length && data.parameters?.length) {
+          const param = data.parameters.find((p) => p.id === batteryParam.id);
+          if (param) {
+            for (let i = data.times.length - 1; i >= 0; i--) {
+              const val = param.values[i];
+              if (val != null) {
+                setBatteryValue({ voltage: val, time: data.times[i] });
+                return;
+              }
+            }
+          }
+        }
+        setBatteryValue(null);
+      })
+      .catch((err) => {
+        console.error('Failed to fetch battery reading:', err);
+        setBatteryValue(null);
+      })
+      .finally(() => setLoading(false));
+  }, [siteParam?.site_id, batteryParam?.id]);
+
+  if (!record) return null;
+  if (!active) return <Typography variant="body2" color="text.disabled">&mdash;</Typography>;
+  if (loading) return <Typography variant="body2" color="text.secondary">...</Typography>;
+  if (!batteryValue) return <Typography variant="body2" color="text.disabled">N/A</Typography>;
+
+  const { voltage } = batteryValue;
+  let color: 'success' | 'warning' | 'error';
+  if (voltage > 12.5) {
+    color = 'success';
+  } else if (voltage >= 12.1) {
+    color = 'warning';
+  } else {
+    color = 'error';
+  }
+
+  return (
+    <Tooltip title={`${formatRelativeTime(batteryValue.time)}`}>
+      <Chip label={`${voltage.toFixed(1)} V`} size="small" color={color} variant="outlined" />
+    </Tooltip>
+  );
+};
+
+// Calibration age field — shows days since last calibration as a colored chip
+const CalibrationAgeField = (_props: { label?: string }) => {
+  const record = useRecordContext();
+
+  const { data: calibrations, isLoading } = useGetList('sensor_calibrations', {
+    filter: record ? { sensor_id: record.id } : {},
+    sort: { field: 'valid_from', order: 'DESC' },
+    pagination: { page: 1, perPage: 1 },
+  }, { enabled: !!record });
+
+  if (!record) return null;
+  if (isLoading) return <Typography variant="body2" color="text.secondary">...</Typography>;
+
+  const latest = calibrations?.[0];
+  if (!latest) return <Typography variant="body2" color="text.disabled">Never</Typography>;
+
+  const daysSince = Math.floor(
+    (Date.now() - new Date(latest.valid_from).getTime()) / (1000 * 60 * 60 * 24)
+  );
+
+  let color: 'success' | 'warning' | 'error';
+  if (daysSince < 30) {
+    color = 'success';
+  } else if (daysSince <= 90) {
+    color = 'warning';
+  } else {
+    color = 'error';
+  }
+
+  return (
+    <Tooltip title={`Last calibrated: ${new Date(latest.valid_from).toLocaleDateString()}`}>
+      <Chip label={`${daysSince}d`} size="small" color={color} variant="outlined" />
+    </Tooltip>
+  );
+};
+
+// Filters for the sensor list
+const sensorFilters = [
+  <ReferenceInput source="parameter_type_id" reference="parameters" key="parameter_type" alwaysOn>
+    <SelectInput optionText="display_name" label="Parameter Type" />
+  </ReferenceInput>,
+  <NullableBooleanInput source="is_active" label="Active" key="is_active" alwaysOn />,
+  <NullableBooleanInput source="undeployed" label="Undeployed" key="undeployed" />,
+  <NullableBooleanInput source="needs_calibration" label="Needs Calibration" key="needs_calibration" />,
+];
+
 const SensorList = () => (
-  <List>
+  <List filters={sensorFilters}>
     <Datagrid rowClick="show">
       <TextField source="serial_number" />
       <TextField source="name" />
@@ -336,10 +527,21 @@ const SensorList = () => (
       </ReferenceField>
       <FunctionField label="Deployed At" render={() => <DeployedAtField />} />
       <FunctionField label="Last Reading" render={() => <LastReadingField />} />
+      <FunctionField label="Battery" render={() => <BatteryStatusField />} />
+      <FunctionField label="Cal. Age" render={() => <CalibrationAgeField />} />
       <TextField source="manufacturer" />
       <TextField source="model" />
       <BooleanField source="is_active" />
       <DateField source="created_at" showTime />
+      <FunctionField
+        label="Actions"
+        render={(record: { id: string }) => (
+          <Box sx={{ display: 'flex', gap: 0.5 }} onClick={(e) => e.stopPropagation()}>
+            <DeployButton sensorId={record.id} />
+            <ListRecallButton />
+          </Box>
+        )}
+      />
     </Datagrid>
   </List>
 );
