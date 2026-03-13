@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useGetList } from 'react-admin';
 import { useKeycloak } from '../../KeycloakContext';
 import {
@@ -13,6 +13,8 @@ import {
 } from '@mui/material';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
+import { TimeRangeSlider } from '../TimeRangeSlider';
+import { useSiteDataRange } from '../../hooks/useSiteDataRange';
 
 interface ReadingsResponse {
   times: string[];
@@ -25,7 +27,6 @@ interface ReadingsResponse {
   }>;
 }
 
-type TimeRange = '24h' | '7d' | '30d' | 'custom';
 type AggregationLevel = 'raw' | 'hourly' | 'daily' | 'weekly' | 'monthly';
 
 interface SiteRecord {
@@ -42,17 +43,6 @@ interface ParameterRecord {
 
 const COLORS = ['#2196f3', '#f44336', '#4caf50', '#ff9800'];
 
-const TIME_RANGE_MS: Record<Exclude<TimeRange, 'custom'>, number> = {
-  '24h': 24 * 60 * 60 * 1000,
-  '7d': 7 * 24 * 60 * 60 * 1000,
-  '30d': 30 * 24 * 60 * 60 * 1000,
-};
-
-const toLocalDatetime = (d: Date): string => {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
-
 const AGGREGATION_OPTIONS: { value: AggregationLevel; label: string }[] = [
   { value: 'raw', label: 'Raw' },
   { value: 'hourly', label: 'Hourly' },
@@ -68,15 +58,13 @@ export const MultiStationChart: React.FC = () => {
 
   const [selectedSites, setSelectedSites] = useState<SiteRecord[]>([]);
   const [selectedParameter, setSelectedParameter] = useState<ParameterRecord | null>(null);
-  const [timeRange, setTimeRange] = useState<TimeRange>('7d');
+  const [start, setStart] = useState<number>(() => Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const [end, setEnd] = useState<number>(Date.now);
   const [aggregation, setAggregation] = useState<AggregationLevel>('raw');
   const [loading, setLoading] = useState(false);
-  const [customStart, setCustomStart] = useState<string>(() =>
-    toLocalDatetime(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)),
-  );
-  const [customEnd, setCustomEnd] = useState<string>(() =>
-    toLocalDatetime(new Date()),
-  );
+
+  const siteIds = useMemo(() => selectedSites.map((s) => s.id), [selectedSites]);
+  const dataRange = useSiteDataRange(siteIds);
 
   const { data: sitesData, isLoading: sitesLoading } = useGetList<SiteRecord>('sites', {
     pagination: { page: 1, perPage: 100 },
@@ -91,25 +79,18 @@ export const MultiStationChart: React.FC = () => {
   const sites = sitesData ?? [];
   const parameters = paramsData ?? [];
 
+  const handleRangeChange = useCallback((s: number, e: number) => {
+    setStart(s);
+    setEnd(e);
+  }, []);
+
   const fetchData = useCallback(async () => {
     if (selectedSites.length === 0 || !selectedParameter) return;
 
     setLoading(true);
 
-    let start: Date;
-    let end: Date | undefined;
-    if (timeRange === 'custom') {
-      start = new Date(customStart);
-      end = new Date(customEnd);
-      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-        setLoading(false);
-        return;
-      }
-    } else {
-      const now = new Date();
-      start = new Date(now.getTime() - TIME_RANGE_MS[timeRange]);
-      end = now;
-    }
+    const startISO = new Date(start).toISOString();
+    const endISO = new Date(end).toISOString();
 
     const headers: HeadersInit = keycloak?.token
       ? { Authorization: 'Bearer ' + keycloak.token }
@@ -121,13 +102,11 @@ export const MultiStationChart: React.FC = () => {
         selectedSites.map(async (site) => {
           let url: string;
           if (aggregation === 'raw') {
-            url = `/api/service/sites/${site.id}/readings?start=${start.toISOString()}&page_size=10000&format=json`;
+            url = `/api/service/sites/${site.id}/readings?start=${startISO}&page_size=10000&format=json`;
           } else {
-            url = `/api/service/sites/${site.id}/aggregates/${aggregation}?start=${start.toISOString()}&format=json`;
+            url = `/api/service/sites/${site.id}/aggregates/${aggregation}?start=${startISO}&format=json`;
           }
-          if (end) {
-            url += `&end=${end.toISOString()}`;
-          }
+          url += `&end=${endISO}`;
           url += `&parameter_ids=${selectedParameter.id}`;
 
           const res = await fetch(url, { headers });
@@ -138,8 +117,7 @@ export const MultiStationChart: React.FC = () => {
       );
 
       // Build aligned uPlot data: merge all time axes into a unified set
-      // Each station maps to its own series
-      const allTimeSets: Map<number, number[]> = new Map(); // timestamp -> array of values per station (indexed)
+      const allTimeSets: Map<number, number[]> = new Map();
 
       const stationData: { site: SiteRecord; times: number[]; values: (number | null)[] }[] = [];
 
@@ -228,7 +206,7 @@ export const MultiStationChart: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedSites, selectedParameter, timeRange, aggregation, customStart, customEnd, keycloak]);
+  }, [selectedSites, selectedParameter, start, end, aggregation, keycloak]);
 
   useEffect(() => {
     fetchData();
@@ -315,42 +293,18 @@ export const MultiStationChart: React.FC = () => {
           />
         </Box>
 
-        <Box sx={{ display: 'flex', gap: 2, mt: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-          <ToggleButtonGroup
-            value={timeRange}
-            exclusive
-            onChange={(_, v) => { if (v) setTimeRange(v); }}
-            size="small"
-          >
-            <ToggleButton value="24h">24h</ToggleButton>
-            <ToggleButton value="7d">7d</ToggleButton>
-            <ToggleButton value="30d">30d</ToggleButton>
-            <ToggleButton value="custom">Custom</ToggleButton>
-          </ToggleButtonGroup>
+        <Box sx={{ mt: 2 }}>
+          <TimeRangeSlider
+            dataMin={dataRange.min}
+            dataMax={dataRange.max}
+            loading={dataRange.loading}
+            start={start}
+            end={end}
+            onChange={handleRangeChange}
+          />
+        </Box>
 
-          {timeRange === 'custom' && (
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-              <TextField
-                type="datetime-local"
-                size="small"
-                label="Start"
-                value={customStart}
-                onChange={(e) => setCustomStart(e.target.value)}
-                InputLabelProps={{ shrink: true }}
-                sx={{ width: 200 }}
-              />
-              <TextField
-                type="datetime-local"
-                size="small"
-                label="End"
-                value={customEnd}
-                onChange={(e) => setCustomEnd(e.target.value)}
-                InputLabelProps={{ shrink: true }}
-                sx={{ width: 200 }}
-              />
-            </Box>
-          )}
-
+        <Box sx={{ display: 'flex', gap: 2, mt: 1, alignItems: 'center' }}>
           <ToggleButtonGroup
             value={aggregation}
             exclusive

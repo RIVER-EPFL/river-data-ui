@@ -7,8 +7,6 @@ import {
   Typography,
   TextField,
   MenuItem,
-  ToggleButton,
-  ToggleButtonGroup,
   CircularProgress,
   Alert,
   FormControlLabel,
@@ -16,6 +14,8 @@ import {
 } from '@mui/material';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
+import { TimeRangeSlider } from '../TimeRangeSlider';
+import { useSiteDataRange } from '../../hooks/useSiteDataRange';
 
 export interface ScatterParameter {
   id: string;
@@ -28,8 +28,6 @@ interface ScatterPlotProps {
   parameters: ScatterParameter[];
 }
 
-type TimeRange = '24h' | '7d' | '30d' | 'custom';
-
 interface ReadingsResponse {
   times: string[];
   parameters: Array<{
@@ -40,17 +38,6 @@ interface ReadingsResponse {
     values: Array<number | null>;
   }>;
 }
-
-const TIME_RANGE_MS: Record<Exclude<TimeRange, 'custom'>, number> = {
-  '24h': 24 * 60 * 60 * 1000,
-  '7d': 7 * 24 * 60 * 60 * 1000,
-  '30d': 30 * 24 * 60 * 60 * 1000,
-};
-
-const toLocalDatetime = (d: Date): string => {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
 
 /** Compute linear regression: y = slope * x + intercept, plus R-squared. */
 function linearRegression(xs: number[], ys: number[]) {
@@ -137,20 +124,23 @@ export const ScatterPlot: React.FC<ScatterPlotProps> = ({ siteId, parameters }) 
 
   const [xParamId, setXParamId] = useState('');
   const [yParamId, setYParamId] = useState('');
-  const [timeRange, setTimeRange] = useState<TimeRange>('7d');
-  const [customStart, setCustomStart] = useState(() =>
-    toLocalDatetime(new Date(Date.now() - 7 * 86400000)),
-  );
-  const [customEnd, setCustomEnd] = useState(() => toLocalDatetime(new Date()));
+  const [start, setStart] = useState<number>(() => Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const [end, setEnd] = useState<number>(Date.now);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rSquared, setRSquared] = useState<number | null>(null);
   const [showRegression, setShowRegression] = useState(true);
   const [pointCount, setPointCount] = useState(0);
   const keycloak = useKeycloak();
+  const dataRange = useSiteDataRange([siteId]);
 
   const xParam = parameters.find((p) => p.id === xParamId);
   const yParam = parameters.find((p) => p.id === yParamId);
+
+  const handleRangeChange = useCallback((s: number, e: number) => {
+    setStart(s);
+    setEnd(e);
+  }, []);
 
   const fetchAndPlot = useCallback(async () => {
     if (!xParamId || !yParamId || !chartRef.current) return;
@@ -161,21 +151,11 @@ export const ScatterPlot: React.FC<ScatterPlotProps> = ({ siteId, parameters }) 
     setPointCount(0);
 
     try {
-      let start: Date;
-      let end: Date | undefined;
-      if (timeRange === 'custom') {
-        start = new Date(customStart);
-        end = new Date(customEnd);
-        if (isNaN(start.getTime()) || isNaN(end.getTime())) return;
-      } else {
-        start = new Date(Date.now() - TIME_RANGE_MS[timeRange]);
-      }
-
       let url =
         `/api/service/sites/${siteId}/readings` +
-        `?start=${start.toISOString()}&page_size=10000&format=json` +
-        `&parameter_ids=${xParamId},${yParamId}`;
-      if (end) url += `&end=${end.toISOString()}`;
+        `?start=${new Date(start).toISOString()}&page_size=10000&format=json` +
+        `&parameter_ids=${xParamId},${yParamId}` +
+        `&end=${new Date(end).toISOString()}`;
 
       const headers: HeadersInit = keycloak?.token
         ? { Authorization: 'Bearer ' + keycloak.token }
@@ -280,7 +260,7 @@ export const ScatterPlot: React.FC<ScatterPlotProps> = ({ siteId, parameters }) 
     } finally {
       setLoading(false);
     }
-  }, [siteId, xParamId, yParamId, timeRange, customStart, customEnd, keycloak, showRegression, xParam, yParam]);
+  }, [siteId, xParamId, yParamId, start, end, keycloak, showRegression, xParam, yParam]);
 
   useEffect(() => {
     fetchAndPlot();
@@ -340,20 +320,6 @@ export const ScatterPlot: React.FC<ScatterPlotProps> = ({ siteId, parameters }) 
             ))}
           </TextField>
 
-          <ToggleButtonGroup
-            value={timeRange}
-            exclusive
-            onChange={(_, v) => {
-              if (v) setTimeRange(v);
-            }}
-            size="small"
-          >
-            <ToggleButton value="24h">24h</ToggleButton>
-            <ToggleButton value="7d">7d</ToggleButton>
-            <ToggleButton value="30d">30d</ToggleButton>
-            <ToggleButton value="custom">Custom</ToggleButton>
-          </ToggleButtonGroup>
-
           <FormControlLabel
             control={
               <Switch
@@ -366,28 +332,14 @@ export const ScatterPlot: React.FC<ScatterPlotProps> = ({ siteId, parameters }) 
           />
         </Box>
 
-        {timeRange === 'custom' && (
-          <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-            <TextField
-              type="datetime-local"
-              size="small"
-              label="Start"
-              value={customStart}
-              onChange={(e) => setCustomStart(e.target.value)}
-              slotProps={{ inputLabel: { shrink: true } }}
-              sx={{ width: 220 }}
-            />
-            <TextField
-              type="datetime-local"
-              size="small"
-              label="End"
-              value={customEnd}
-              onChange={(e) => setCustomEnd(e.target.value)}
-              slotProps={{ inputLabel: { shrink: true } }}
-              sx={{ width: 220 }}
-            />
-          </Box>
-        )}
+        <TimeRangeSlider
+          dataMin={dataRange.min}
+          dataMax={dataRange.max}
+          loading={dataRange.loading}
+          start={start}
+          end={end}
+          onChange={handleRangeChange}
+        />
 
         {rSquared !== null && (
           <Box sx={{ display: 'flex', gap: 3, mb: 1 }}>

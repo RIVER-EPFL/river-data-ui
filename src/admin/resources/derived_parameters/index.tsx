@@ -69,7 +69,7 @@ const AssignToSiteButton = () => {
           display_name: record.display_name as string | null,
           formula: record.formula as string,
           units: record.units as string | null,
-          required_parameter_types: (record.required_parameter_types ?? []) as string[],
+          sources: (record.sources ?? []) as Array<{id: string; derived_definition_id: string; parameter_id: string; variable_name: string}>,
         }}
       />
     </>

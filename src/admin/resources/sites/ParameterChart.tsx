@@ -10,8 +10,6 @@ import {
   DialogContent,
   DialogTitle,
   Typography,
-  ToggleButton,
-  ToggleButtonGroup,
   Collapse,
   IconButton,
   InputLabel,
@@ -35,6 +33,9 @@ import {
   annotationBandsPlugin,
   annotationInteractionPlugin,
 } from './annotationPlugins';
+import { TimeRangeSlider } from '../../components/TimeRangeSlider';
+import { useSiteDataRange } from '../../hooks/useSiteDataRange';
+import { resolveAggregation as resolveAggregationAuto } from '../../utils/timeRange';
 
 interface AlarmThreshold {
   warning_min: number | null;
@@ -79,7 +80,6 @@ interface AggregatesResponse {
   }>;
 }
 
-type TimeRange = '24h' | '7d' | '30d' | 'custom';
 type AggregationLevel = 'auto' | 'raw' | 'hourly' | 'daily' | 'weekly' | 'monthly';
 
 /**
@@ -377,28 +377,13 @@ function remapValues(
   return indexMap.map((idx) => (idx != null ? source[idx] : undefined));
 }
 
-const TIME_RANGE_MS: Record<Exclude<TimeRange, 'custom'>, number> = {
-  '24h': 24 * 60 * 60 * 1000,
-  '7d': 7 * 24 * 60 * 60 * 1000,
-  '30d': 30 * 24 * 60 * 60 * 1000,
-};
-
-/** Format a Date as a `datetime-local` input value (YYYY-MM-DDTHH:mm). */
-const toLocalDatetime = (d: Date): string => {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
-
-/** Resolve "auto" aggregation to a concrete level based on time span in ms. */
+/** Resolve "auto" aggregation using shared thresholds, or pass through manual choice. */
 const resolveAggregation = (
   level: AggregationLevel,
   spanMs: number,
 ): 'raw' | 'hourly' | 'daily' | 'weekly' | 'monthly' => {
   if (level !== 'auto') return level;
-  const days = spanMs / (24 * 60 * 60 * 1000);
-  if (days > 30) return 'daily';
-  if (days > 7) return 'hourly';
-  return 'raw';
+  return resolveAggregationAuto(spanMs);
 };
 
 const AGG_LABELS: Record<AggregationLevel, string> = {
@@ -420,18 +405,14 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
 }) => {
   const chartRef = useRef<HTMLDivElement>(null);
   const uplotRef = useRef<uPlot | null>(null);
-  const [timeRange, setTimeRange] = useState<TimeRange>('24h');
+  const [start, setStart] = useState<number>(() => Date.now() - 24 * 60 * 60 * 1000);
+  const [end, setEnd] = useState<number>(Date.now);
   const [aggregation, setAggregation] = useState<AggregationLevel>('auto');
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [loading, setLoading] = useState(false);
   const [chartData, setChartData] = useState<ChartData | null>(null);
   const keycloak = useKeycloak();
-  const [customStart, setCustomStart] = useState<string>(() =>
-    toLocalDatetime(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)),
-  );
-  const [customEnd, setCustomEnd] = useState<string>(() =>
-    toLocalDatetime(new Date()),
-  );
+  const dataRange = useSiteDataRange([siteId]);
   const [showBands, setShowBands] = useState(true);
   const [showGrabSamples, setShowGrabSamples] = useState(true);
   const [showFlagged, setShowFlagged] = useState(true);
@@ -452,44 +433,35 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
   const [annotateCategory, setAnnotateCategory] = useState('other');
   const tooltipRef = useRef<HTMLDivElement>(null);
 
+  const handleRangeChange = useCallback((s: number, e: number) => {
+    setStart(s);
+    setEnd(e);
+  }, []);
+
   const fetchData = useCallback(async () => {
     if (!expanded) return;
     setLoading(true);
 
-    let start: Date;
-    let end: Date | undefined;
-    if (timeRange === 'custom') {
-      start = new Date(customStart);
-      end = new Date(customEnd);
-      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-        setLoading(false);
-        return;
-      }
-    } else {
-      const now = new Date();
-      start = new Date(now.getTime() - TIME_RANGE_MS[timeRange]);
-      end = now;
-    }
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    const startISO = startDate.toISOString();
+    const endISO = endDate.toISOString();
 
-    const spanMs = (end ?? new Date()).getTime() - start.getTime();
+    const spanMs = end - start;
     const resolved = resolveAggregation(aggregation, spanMs);
     const isAggregate = resolved !== 'raw';
 
     let url: string;
     if (isAggregate) {
-      url = `/api/service/sites/${siteId}/aggregates/${resolved}?start=${start.toISOString()}&format=json`;
+      url = `/api/service/sites/${siteId}/aggregates/${resolved}?start=${startISO}&format=json&end=${endISO}`;
     } else {
-      url = `/api/service/sites/${siteId}/readings?start=${start.toISOString()}&page_size=10000&format=json&measurement_type=continuous&include_flagged=true`;
-    }
-    if (end) {
-      url += `&end=${end.toISOString()}`;
+      url = `/api/service/sites/${siteId}/readings?start=${startISO}&page_size=10000&format=json&measurement_type=continuous&include_flagged=true&end=${endISO}`;
     }
     const headers: HeadersInit = keycloak?.token ? { 'Authorization': 'Bearer ' + keycloak.token } : {};
-    const annotUrl = `/api/service/sites/${siteId}/annotations?parameter_id=${parameterId}&start=${start.toISOString()}` + (end ? `&end=${end.toISOString()}` : '');
+    const annotUrl = `/api/service/sites/${siteId}/annotations?parameter_id=${parameterId}&start=${startISO}&end=${endISO}`;
 
     // Grab sample URL — always fetched as raw readings with measurement_type=spot
-    let grabUrl = `/api/service/sites/${siteId}/readings?start=${start.toISOString()}&page_size=10000&format=json&measurement_type=spot`;
-    if (end) grabUrl += `&end=${end.toISOString()}`;
+    const grabUrl = `/api/service/sites/${siteId}/readings?start=${startISO}&page_size=10000&format=json&measurement_type=spot&end=${endISO}`;
 
     try {
       const [res, annRes, grabRes] = await Promise.all([
@@ -725,7 +697,7 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [siteId, parameterId, parameterName, units, threshold, timeRange, aggregation, expanded, customStart, customEnd, keycloak, showBands, showGrabSamples, showFlagged]);
+  }, [siteId, parameterId, parameterName, units, threshold, start, end, aggregation, expanded, keycloak, showBands, showGrabSamples, showFlagged]);
 
   useEffect(() => {
     fetchData();
@@ -903,20 +875,6 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
         </Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           {expanded && (
-            <ToggleButtonGroup
-              value={timeRange}
-              exclusive
-              onChange={(_, v) => { if (v) setTimeRange(v); }}
-              size="small"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <ToggleButton value="24h">24h</ToggleButton>
-              <ToggleButton value="7d">7d</ToggleButton>
-              <ToggleButton value="30d">30d</ToggleButton>
-              <ToggleButton value="custom">Custom</ToggleButton>
-            </ToggleButtonGroup>
-          )}
-          {expanded && (
             <FormControl size="small" onClick={(e) => e.stopPropagation()}>
               <Select
                 value={aggregation}
@@ -969,31 +927,6 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
               />
             </Tooltip>
           )}
-          {expanded && timeRange === 'custom' && (
-            <Box
-              sx={{ display: 'flex', gap: 1, alignItems: 'center' }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <TextField
-                type="datetime-local"
-                size="small"
-                label="Start"
-                value={customStart}
-                onChange={(e) => setCustomStart(e.target.value)}
-                InputLabelProps={{ shrink: true }}
-                sx={{ width: 200 }}
-              />
-              <TextField
-                type="datetime-local"
-                size="small"
-                label="End"
-                value={customEnd}
-                onChange={(e) => setCustomEnd(e.target.value)}
-                InputLabelProps={{ shrink: true }}
-                sx={{ width: 200 }}
-              />
-            </Box>
-          )}
           <IconButton size="small">
             {expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
           </IconButton>
@@ -1001,6 +934,15 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
       </Box>
       <Collapse in={expanded}>
         <CardContent sx={{ pt: 0 }}>
+          <TimeRangeSlider
+            compact
+            dataMin={dataRange.min}
+            dataMax={dataRange.max}
+            loading={dataRange.loading}
+            start={start}
+            end={end}
+            onChange={handleRangeChange}
+          />
           {loading && (
             <Typography variant="caption" color="text.secondary">
               Loading chart data...

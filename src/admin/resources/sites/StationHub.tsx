@@ -3,6 +3,8 @@ import {
     useGetOne,
     useGetList,
     useCreate,
+    useUpdate,
+    useDelete,
     useNotify,
     useRefresh,
     Title,
@@ -37,6 +39,8 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import NoteAddIcon from '@mui/icons-material/NoteAdd';
 import VerifiedIcon from '@mui/icons-material/Verified';
+import EditIcon from '@mui/icons-material/Edit';
+import DeleteIcon from '@mui/icons-material/Delete';
 import InsightsIcon from '@mui/icons-material/Insights';
 import { useParams } from 'react-router-dom';
 import { StationHeader } from './StationHeader';
@@ -369,7 +373,7 @@ const AssignDerivedButton: React.FC<{ siteId: string }> = ({ siteId }) => {
                         display_name: selectedDef.display_name,
                         formula: selectedDef.formula,
                         units: selectedDef.units,
-                        required_parameter_types: selectedDef.required_parameter_types ?? [],
+                        sources: selectedDef.sources ?? [],
                     }}
                     preselectedSiteId={siteId}
                 />
@@ -484,9 +488,90 @@ const AddNoteDialog: React.FC<{
     );
 };
 
+const EditNoteDialog: React.FC<{
+    open: boolean;
+    onClose: () => void;
+    note: NoteRecord | null;
+}> = ({ open, onClose, note }) => {
+    const [update, { isPending }] = useUpdate();
+    const notify = useNotify();
+    const refresh = useRefresh();
+
+    const [text, setText] = useState('');
+    const [verified, setVerified] = useState(false);
+
+    React.useEffect(() => {
+        if (note) {
+            setText(note.text);
+            setVerified(note.verified);
+        }
+    }, [note]);
+
+    const handleSubmit = () => {
+        if (!note) return;
+        update(
+            'notes',
+            { id: note.id, data: { text, verified }, previousData: note },
+            {
+                onSuccess: () => {
+                    notify('Note updated', { type: 'success' });
+                    refresh();
+                    onClose();
+                },
+                onError: (error) => {
+                    notify(`Failed: ${error instanceof Error ? error.message : 'Unknown error'}`, { type: 'error' });
+                },
+            },
+        );
+    };
+
+    return (
+        <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+            <DialogTitle>Edit Note</DialogTitle>
+            <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+                <TextField
+                    label="Note"
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    multiline
+                    rows={4}
+                    fullWidth
+                    size="small"
+                    required
+                />
+                <FormControlLabel
+                    control={
+                        <Checkbox
+                            checked={verified}
+                            onChange={(e) => setVerified(e.target.checked)}
+                        />
+                    }
+                    label="Verified"
+                />
+            </DialogContent>
+            <DialogActions>
+                <Button onClick={onClose} disabled={isPending}>Cancel</Button>
+                <Button
+                    onClick={handleSubmit}
+                    variant="contained"
+                    disabled={isPending || !text.trim()}
+                    startIcon={isPending ? <CircularProgress size={16} /> : undefined}
+                >
+                    Save
+                </Button>
+            </DialogActions>
+        </Dialog>
+    );
+};
+
 const NotesSection: React.FC<{ siteId: string }> = ({ siteId }) => {
     const [expanded, setExpanded] = useState(false);
     const [addNoteOpen, setAddNoteOpen] = useState(false);
+    const [editingNote, setEditingNote] = useState<NoteRecord | null>(null);
+    const [deleteTarget, setDeleteTarget] = useState<NoteRecord | null>(null);
+    const [deleteOne] = useDelete();
+    const notify = useNotify();
+    const refresh = useRefresh();
 
     const { data: notes, isPending } = useGetList<NoteRecord>('notes', {
         filter: { site_id: siteId },
@@ -580,6 +665,23 @@ const NotesSection: React.FC<{ siteId: string }> = ({ siteId }) => {
                                             <Typography variant="caption" color="text.secondary">
                                                 {relativeTime(note.created_at)}
                                             </Typography>
+                                            <Box sx={{ ml: 'auto', display: 'flex', gap: 0.5 }}>
+                                                <IconButton
+                                                    size="small"
+                                                    onClick={() => setEditingNote(note)}
+                                                    title="Edit note"
+                                                >
+                                                    <EditIcon fontSize="small" />
+                                                </IconButton>
+                                                <IconButton
+                                                    size="small"
+                                                    onClick={() => setDeleteTarget(note)}
+                                                    title="Delete note"
+                                                    color="error"
+                                                >
+                                                    <DeleteIcon fontSize="small" />
+                                                </IconButton>
+                                            </Box>
                                         </Box>
                                     </Box>
                                 ))}
@@ -594,6 +696,48 @@ const NotesSection: React.FC<{ siteId: string }> = ({ siteId }) => {
                 onClose={() => setAddNoteOpen(false)}
                 siteId={siteId}
             />
+            <EditNoteDialog
+                open={editingNote !== null}
+                onClose={() => setEditingNote(null)}
+                note={editingNote}
+            />
+            <Dialog
+                open={deleteTarget !== null}
+                onClose={() => setDeleteTarget(null)}
+                maxWidth="xs"
+                fullWidth
+            >
+                <DialogTitle>Delete Note</DialogTitle>
+                <DialogContent>
+                    <Typography>Are you sure you want to delete this note?</Typography>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setDeleteTarget(null)}>Cancel</Button>
+                    <Button
+                        color="error"
+                        variant="contained"
+                        onClick={() => {
+                            if (!deleteTarget) return;
+                            deleteOne(
+                                'notes',
+                                { id: deleteTarget.id, previousData: deleteTarget },
+                                {
+                                    onSuccess: () => {
+                                        notify('Note deleted', { type: 'success' });
+                                        refresh();
+                                        setDeleteTarget(null);
+                                    },
+                                    onError: (error) => {
+                                        notify(`Failed: ${error instanceof Error ? error.message : 'Unknown error'}`, { type: 'error' });
+                                    },
+                                },
+                            );
+                        }}
+                    >
+                        Delete
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Box>
     );
 };

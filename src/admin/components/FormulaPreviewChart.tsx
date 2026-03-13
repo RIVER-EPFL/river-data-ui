@@ -5,14 +5,14 @@ import {
   Box,
   TextField,
   MenuItem,
-  ToggleButton,
-  ToggleButtonGroup,
   CircularProgress,
   Alert,
   Typography,
 } from '@mui/material';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
+import { TimeRangeSlider } from './TimeRangeSlider';
+import { useSiteDataRange } from '../hooks/useSiteDataRange';
 
 interface FormulaPreviewChartProps {
   formula: string;
@@ -25,14 +25,6 @@ interface PreviewResponse {
   source_parameters: Array<{ name: string; units: string; values: (number | null)[] }>;
   derived: { name: string; formula: string; values: (number | null)[]; errors: (string | null)[] };
 }
-
-type TimeRange = '24h' | '7d' | '30d';
-
-const TIME_RANGE_MS: Record<TimeRange, number> = {
-  '24h': 24 * 60 * 60 * 1000,
-  '7d': 7 * 24 * 60 * 60 * 1000,
-  '30d': 30 * 24 * 60 * 60 * 1000,
-};
 
 const SOURCE_COLORS = [
   '#ff9800', '#4caf50', '#9c27b0', '#f44336', '#00bcd4',
@@ -48,12 +40,14 @@ export const FormulaPreviewChart: React.FC<FormulaPreviewChartProps> = ({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [siteId, setSiteId] = useState<string>('');
-  const [timeRange, setTimeRange] = useState<TimeRange>('24h');
+  const [start, setStart] = useState<number>(() => Date.now() - 24 * 60 * 60 * 1000);
+  const [end, setEnd] = useState<number>(Date.now);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [siteName, setSiteName] = useState<string>('');
 
   const keycloak = useKeycloak();
+  const dataRange = useSiteDataRange(siteId ? [siteId] : []);
 
   const { data: sites } = useGetList('sites', {
     pagination: { page: 1, perPage: 1000 },
@@ -67,14 +61,16 @@ export const FormulaPreviewChart: React.FC<FormulaPreviewChartProps> = ({
     }
   }, [sites, siteId]);
 
+  const handleRangeChange = useCallback((s: number, e: number) => {
+    setStart(s);
+    setEnd(e);
+  }, []);
+
   const fetchPreview = useCallback(async () => {
     if (!formula.trim() || requiredVariables.length === 0 || !siteId) return;
 
     setLoading(true);
     setError(null);
-
-    const now = new Date();
-    const start = new Date(now.getTime() - TIME_RANGE_MS[timeRange]);
 
     const headers: HeadersInit = keycloak?.token
       ? { 'Authorization': 'Bearer ' + keycloak.token, 'Content-Type': 'application/json' }
@@ -87,8 +83,8 @@ export const FormulaPreviewChart: React.FC<FormulaPreviewChartProps> = ({
         body: JSON.stringify({
           formula,
           site_id: siteId,
-          start: start.toISOString(),
-          end: now.toISOString(),
+          start: new Date(start).toISOString(),
+          end: new Date(end).toISOString(),
         }),
       });
 
@@ -174,9 +170,9 @@ export const FormulaPreviewChart: React.FC<FormulaPreviewChartProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [formula, requiredVariables, siteId, timeRange, keycloak]);
+  }, [formula, requiredVariables, siteId, start, end, keycloak]);
 
-  // Debounced fetch: immediate on site/timeRange change, debounced on formula change
+  // Debounced fetch: immediate on site/range change, debounced on formula change
   useEffect(() => {
     if (!formula.trim() || requiredVariables.length === 0 || !siteId) return;
 
@@ -220,20 +216,22 @@ export const FormulaPreviewChart: React.FC<FormulaPreviewChartProps> = ({
     return () => observer.disconnect();
   }, []);
 
-  // Don't render if formula is empty or has no variables
-  if (!formula.trim() || requiredVariables.length === 0) {
-    return null;
-  }
+  const hasFormula = formula.trim() && requiredVariables.length > 0;
 
   return (
     <Box sx={{ mt: 2, width: '100%' }}>
-      {siteName && (
+      {!hasFormula && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Build a formula with at least one variable to see a live preview
+        </Alert>
+      )}
+      {hasFormula && siteName && (
         <Alert severity="info" sx={{ mb: 2 }}>
           Preview using data from <strong>{siteName}</strong> — this is a preview, not stored data
         </Alert>
       )}
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+      <Box sx={{ display: 'flex', gap: 2, mb: 1, alignItems: 'center', flexWrap: 'wrap' }}>
         <TextField
           select
           label="Site"
@@ -248,18 +246,16 @@ export const FormulaPreviewChart: React.FC<FormulaPreviewChartProps> = ({
             </MenuItem>
           ))}
         </TextField>
-
-        <ToggleButtonGroup
-          value={timeRange}
-          exclusive
-          onChange={(_, v) => { if (v) setTimeRange(v); }}
-          size="small"
-        >
-          <ToggleButton value="24h">24h</ToggleButton>
-          <ToggleButton value="7d">7d</ToggleButton>
-          <ToggleButton value="30d">30d</ToggleButton>
-        </ToggleButtonGroup>
       </Box>
+
+      <TimeRangeSlider
+        dataMin={dataRange.min}
+        dataMax={dataRange.max}
+        loading={dataRange.loading}
+        start={start}
+        end={end}
+        onChange={handleRangeChange}
+      />
 
       {loading && (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>

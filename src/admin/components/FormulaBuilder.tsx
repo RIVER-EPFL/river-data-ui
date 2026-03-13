@@ -205,7 +205,6 @@ export const FormulaBuilder: React.FC<FormulaBuilderProps> = (props) => {
   }, [formulaValue, paramNames.join(',')]);
 
   const hasError = !!fieldState.error || !!validationError;
-  const showPreview = formulaValue.trim() && !validationError && uniqueUsedVars.length > 0;
 
   return (
     <Paper
@@ -250,22 +249,20 @@ export const FormulaBuilder: React.FC<FormulaBuilderProps> = (props) => {
         </Box>
 
         {/* Right: Preview chart */}
-        {showPreview && (
-          <Box sx={{ flex: '1 1 400px', minWidth: 0 }}>
-            <Paper variant="outlined" sx={{ p: 2, height: '100%' }}>
-              <Typography variant="subtitle2" gutterBottom>
-                Preview
-              </Typography>
-              <Divider sx={{ mb: 1.5 }} />
-              <Suspense fallback={<CircularProgress size={24} />}>
-                <LazyFormulaPreviewChart
-                  formula={formulaValue}
-                  requiredVariables={uniqueUsedVars}
-                />
-              </Suspense>
-            </Paper>
-          </Box>
-        )}
+        <Box sx={{ flex: '1 1 400px', minWidth: 0 }}>
+          <Paper variant="outlined" sx={{ p: 2, height: '100%' }}>
+            <Typography variant="subtitle2" gutterBottom>
+              Preview
+            </Typography>
+            <Divider sx={{ mb: 1.5 }} />
+            <Suspense fallback={<CircularProgress size={24} />}>
+              <LazyFormulaPreviewChart
+                formula={formulaValue}
+                requiredVariables={uniqueUsedVars}
+              />
+            </Suspense>
+          </Paper>
+        </Box>
       </Box>
     </Paper>
   );

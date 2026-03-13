@@ -29,7 +29,12 @@ interface DerivedDefinition {
   display_name: string | null;
   formula: string;
   units: string | null;
-  required_parameter_types: string[];
+  sources: Array<{
+    id: string;
+    derived_definition_id: string;
+    parameter_id: string;
+    variable_name: string;
+  }>;
 }
 
 interface SiteRecord {
@@ -43,12 +48,6 @@ interface SiteParameterRecord {
   parameter_type_id: string;
   name: string;
   is_active: boolean;
-}
-
-interface ParameterRecord {
-  id: string;
-  name: string;
-  display_name: string | null;
 }
 
 interface AssignToSiteDialogProps {
@@ -82,39 +81,27 @@ export const AssignToSiteDialog: React.FC<AssignToSiteDialogProps> = ({
     sort: { field: 'name', order: 'ASC' },
   }, { enabled: !!targetSiteId });
 
-  // Fetch global parameter catalog for name resolution
-  const { data: globalParams } = useGetList<ParameterRecord>('parameters', {
-    pagination: { page: 1, perPage: 200 },
-    sort: { field: 'name', order: 'ASC' },
-  });
-
   // Check availability of required parameter types at the selected site
   const availability = useMemo(() => {
-    if (!targetSiteId || !siteParams || !globalParams || !definition.required_parameter_types) {
+    if (!targetSiteId || !siteParams || !definition.sources) {
       return [];
     }
 
-    // Build a map: global parameter ID → name
-    const paramNameById = new Map(globalParams.map((p) => [p.id, p.name]));
-
-    // Build a map: parameter type name → site_parameter at this site
-    const siteParamByTypeName = new Map<string, SiteParameterRecord>();
+    // Build a map: parameter_id → site_parameter at this site
+    const siteParamByParamId = new Map<string, SiteParameterRecord>();
     for (const sp of siteParams) {
-      const typeName = paramNameById.get(sp.parameter_type_id);
-      if (typeName) {
-        siteParamByTypeName.set(typeName, sp);
-      }
+      siteParamByParamId.set(sp.parameter_type_id, sp);
     }
 
-    return definition.required_parameter_types.map((typeName) => {
-      const siteParam = siteParamByTypeName.get(typeName);
+    return definition.sources.map((source) => {
+      const siteParam = siteParamByParamId.get(source.parameter_id);
       return {
-        typeName,
+        variableName: source.variable_name,
         siteParam,
         available: !!siteParam,
       };
     });
-  }, [targetSiteId, siteParams, globalParams, definition.required_parameter_types]);
+  }, [targetSiteId, siteParams, definition.sources]);
 
   const allAvailable = availability.length > 0 && availability.every((a) => a.available);
   const someAvailable = availability.some((a) => a.available);
@@ -125,8 +112,7 @@ export const AssignToSiteDialog: React.FC<AssignToSiteDialogProps> = ({
     const mappings: Record<string, string> = {};
     for (const item of availability) {
       if (item.siteParam) {
-        // Use the type name (lowercase, no spaces) as variable key
-        mappings[item.typeName] = item.siteParam.id;
+        mappings[item.variableName] = item.siteParam.id;
       }
     }
     return mappings;
@@ -135,19 +121,12 @@ export const AssignToSiteDialog: React.FC<AssignToSiteDialogProps> = ({
   const handleAssign = () => {
     if (!targetSiteId) return;
 
-    // Find an existing global parameter for this derived definition
-    // We need a parameter_type_id for the site_parameter
-    // Use the first matching parameter or create one
-    const derivedParamType = globalParams?.find(
-      (p) => p.name === definition.name,
-    );
-
     create(
       'site_parameters',
       {
         data: {
           site_id: targetSiteId,
-          parameter_type_id: derivedParamType?.id ?? null,
+          parameter_type_id: null,
           name: definition.display_name ?? definition.name,
           sensor_type: 'derived',
           display_units: definition.units,
@@ -203,14 +182,14 @@ export const AssignToSiteDialog: React.FC<AssignToSiteDialogProps> = ({
         </TextField>
 
         {/* Parameter availability check */}
-        {targetSiteId && definition.required_parameter_types?.length > 0 && (
+        {targetSiteId && definition.sources?.length > 0 && (
           <Box>
             <Typography variant="subtitle2" gutterBottom>
               Required Parameters
             </Typography>
             {availability.map((item) => (
               <Box
-                key={item.typeName}
+                key={item.variableName}
                 sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}
               >
                 {item.available ? (
@@ -219,7 +198,7 @@ export const AssignToSiteDialog: React.FC<AssignToSiteDialogProps> = ({
                   <ErrorIcon sx={{ color: 'error.main', fontSize: 20 }} />
                 )}
                 <Typography variant="body2">
-                  {item.typeName}
+                  {item.variableName}
                 </Typography>
                 {item.siteParam && (
                   <Chip
@@ -257,7 +236,7 @@ export const AssignToSiteDialog: React.FC<AssignToSiteDialogProps> = ({
           </Box>
         )}
 
-        {targetSiteId && (!definition.required_parameter_types || definition.required_parameter_types.length === 0) && (
+        {targetSiteId && (!definition.sources || definition.sources.length === 0) && (
           <Alert severity="info">
             This formula has no declared required parameter types.
           </Alert>

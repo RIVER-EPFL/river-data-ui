@@ -2,7 +2,6 @@ import React, { useState, useCallback, useMemo } from 'react';
 import {
     useNotify,
     useRefresh,
-    useGetList,
 } from 'react-admin';
 import {
     Box,
@@ -28,13 +27,12 @@ export interface DerivedParameterRecord {
     display_name: string | null;
     units: string | null;
     description: string | null;
-    required_parameter_types: string[];
-}
-
-interface GlobalParameterRecord {
-    id: string;
-    name: string;
-    display_name: string | null;
+    sources: Array<{
+        id: string;
+        derived_definition_id: string;
+        parameter_id: string;
+        variable_name: string;
+    }>;
 }
 
 export interface DerivedSectionProps {
@@ -57,31 +55,15 @@ export const DerivedSection: React.FC<DerivedSectionProps> = ({
     const refresh = useRefresh();
     const [recomputing, setRecomputing] = useState<string | null>(null);
 
-    // Fetch global parameter catalog for resolving type names
-    const { data: globalParams } = useGetList<GlobalParameterRecord>('parameters', {
-        pagination: { page: 1, perPage: 200 },
-        sort: { field: 'name', order: 'ASC' },
-    });
-
-    // Build lookup: global parameter ID → name
-    const paramNameById = useMemo(() => {
-        const map = new Map<string, string>();
-        globalParams?.forEach((p) => map.set(p.id, p.name));
-        return map;
-    }, [globalParams]);
-
-    // Build lookup: parameter type name → site_parameter (non-derived only)
-    const siteParamByTypeName = useMemo(() => {
+    // Build lookup: parameter_id → site_parameter (non-derived only)
+    const siteParamByParameterId = useMemo(() => {
         const map = new Map<string, ParameterRecord>();
         for (const sp of allSiteParams) {
             if (sp.is_derived) continue;
-            const typeName = paramNameById.get(sp.parameter_type_id);
-            if (typeName) {
-                map.set(typeName, sp);
-            }
+            map.set(sp.parameter_type_id, sp);
         }
         return map;
-    }, [allSiteParams, paramNameById]);
+    }, [allSiteParams]);
 
     // Build lookup: parameter_id → has active deployment (deployed_until is null)
     const activeDeployByParamId = useMemo(() => {
@@ -122,19 +104,19 @@ export const DerivedSection: React.FC<DerivedSectionProps> = ({
                         : undefined;
 
                     // Check source parameter availability and deployment status
-                    const requiredTypes = def?.required_parameter_types ?? [];
-                    const availability = requiredTypes.map((typeName) => {
-                        const siteParam = siteParamByTypeName.get(typeName);
+                    const sources = def?.sources ?? [];
+                    const availability = sources.map((source) => {
+                        const siteParam = siteParamByParameterId.get(source.parameter_id);
                         if (!siteParam) {
-                            return { typeName, status: 'missing' as const };
+                            return { variableName: source.variable_name, status: 'missing' as const };
                         }
                         const hasActiveDeploy = activeDeployByParamId.has(siteParam.id);
                         if (!hasActiveDeploy) {
-                            return { typeName, status: 'retired' as const };
+                            return { variableName: source.variable_name, status: 'retired' as const };
                         }
-                        return { typeName, status: 'active' as const };
+                        return { variableName: source.variable_name, status: 'active' as const };
                     });
-                    const allResolved = requiredTypes.length > 0 && availability.every((a) => a.status === 'active');
+                    const allResolved = sources.length > 0 && availability.every((a) => a.status === 'active');
 
                     // Get latest reading for this derived parameter
                     const latest = latestByParam.get(param.id);
@@ -169,11 +151,11 @@ export const DerivedSection: React.FC<DerivedSectionProps> = ({
                             )}
 
                             {/* Source parameter availability */}
-                            {def && requiredTypes.length > 0 && (
+                            {def && sources.length > 0 && (
                                 <Box sx={{ ml: 1, mb: 0.5 }}>
                                     {availability.map((item) => (
                                         <Box
-                                            key={item.typeName}
+                                            key={item.variableName}
                                             sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, mr: 2 }}
                                         >
                                             {item.status === 'active' && (
@@ -186,7 +168,7 @@ export const DerivedSection: React.FC<DerivedSectionProps> = ({
                                                 <ErrorIcon sx={{ color: 'error.main', fontSize: 16 }} />
                                             )}
                                             <Typography variant="caption">
-                                                {item.typeName}
+                                                {item.variableName}
                                             </Typography>
                                         </Box>
                                     ))}
@@ -196,12 +178,12 @@ export const DerivedSection: React.FC<DerivedSectionProps> = ({
                             {/* Warnings when source parameters are missing or retired */}
                             {availability.filter((a) => a.status === 'missing').length > 0 && (
                                 <Typography variant="caption" color="error" sx={{ ml: 1, display: 'block' }}>
-                                    Missing parameter: {availability.filter((a) => a.status === 'missing').map((m) => m.typeName).join(', ')}
+                                    Missing parameter: {availability.filter((a) => a.status === 'missing').map((m) => m.variableName).join(', ')}
                                 </Typography>
                             )}
                             {availability.filter((a) => a.status === 'retired').length > 0 && (
                                 <Typography variant="caption" sx={{ ml: 1, display: 'block', color: 'warning.main' }}>
-                                    No data — required sensor for {availability.filter((a) => a.status === 'retired').map((m) => m.typeName).join(', ')} not deployed
+                                    No data — required sensor for {availability.filter((a) => a.status === 'retired').map((m) => m.variableName).join(', ')} not deployed
                                 </Typography>
                             )}
 

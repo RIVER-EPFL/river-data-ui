@@ -5,6 +5,7 @@ import ScienceIcon from '@mui/icons-material/Science';
 import FolderIcon from '@mui/icons-material/Folder';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
 import PeopleIcon from '@mui/icons-material/People';
+import TuneIcon from '@mui/icons-material/Tune';
 
 import projects from './projects';
 import sites from './sites';
@@ -21,6 +22,7 @@ import publicExposedParameters from './public_exposed_parameters';
 import standardCurves from './standard_curves';
 import users from './users';
 import fieldTrips from './field_trips';
+import constants from './constants';
 
 /** Resources shown in the sidebar navigation */
 export const resources = [
@@ -29,6 +31,7 @@ export const resources = [
   { name: 'parameters', icon: ScienceIcon, ...parameters, options: { label: 'Parameters' } },
   { name: 'derived_parameters', icon: FunctionsIcon, ...derivedParameters, options: { label: 'Derived Formulas' } },
   { name: 'standard_curves', icon: ShowChartIcon, ...standardCurves, options: { label: 'Standard Curves' } },
+  { name: 'constants', icon: TuneIcon, ...constants, options: { label: 'Constants' } },
   { name: 'projects', icon: FolderIcon, ...projects, options: { label: 'Projects' } },
   { name: 'users', icon: PeopleIcon, ...users, options: { label: 'Users' } },
 ];
