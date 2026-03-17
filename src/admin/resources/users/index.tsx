@@ -43,7 +43,7 @@ const useAvailableRoles = () => {
     dataProvider
       .listRoles()
       .then(({ data }) => setRoles(data))
-      .catch(() => setRoles([]))
+      .catch((err) => { console.error('Failed to fetch roles:', err); setRoles([]); })
       .finally(() => setLoading(false));
   }, [dataProvider]);
 

@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
-import { useKeycloak } from '../../KeycloakContext';
+import { useState, useEffect, useMemo } from 'react';
+import { useAuthFetch } from '../../hooks/useAuthFetch';
+import { formatRelativeTime } from '../../utils/formatRelativeTime';
 import {
   List,
   Datagrid,
@@ -29,6 +30,7 @@ import {
   useUpdate,
   useGetList,
   useGetOne,
+  useListContext,
 } from 'react-admin';
 import {
   Box,
@@ -37,6 +39,7 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
+  DialogContentText,
   DialogActions,
   TextField as MuiTextField,
   Tooltip,
@@ -173,12 +176,12 @@ const RecallButton = () => {
   const [update, { isLoading }] = useUpdate();
   const notify = useNotify();
   const refresh = useRefresh();
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   if (!record || record.deployed_until) return null;
 
-  const handleClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!window.confirm('Recall this sensor? This will end the active deployment.')) return;
+  const handleConfirm = () => {
+    setConfirmOpen(false);
     update(
       'sensor_deployments',
       {
@@ -199,9 +202,25 @@ const RecallButton = () => {
   };
 
   return (
-    <Button onClick={handleClick} size="small" color="warning" disabled={isLoading}>
-      Recall
-    </Button>
+    <>
+      <Button onClick={(e) => { e.stopPropagation(); setConfirmOpen(true); }} size="small" color="warning" disabled={isLoading}>
+        Recall
+      </Button>
+      <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)} maxWidth="xs">
+        <DialogTitle>Recall Sensor</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Recall this sensor? This will end the active deployment.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmOpen(false)}>Cancel</Button>
+          <Button onClick={handleConfirm} color="warning" variant="contained" disabled={isLoading}>
+            Recall
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
   );
 };
 
@@ -211,6 +230,7 @@ const ListRecallButton = () => {
   const [update, { isLoading }] = useUpdate();
   const notify = useNotify();
   const refresh = useRefresh();
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const { data: deployments } = useGetList('sensor_deployments', {
     filter: record ? { sensor_id: record.id } : {},
@@ -222,9 +242,8 @@ const ListRecallButton = () => {
 
   if (!record || !active) return null;
 
-  const handleClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!window.confirm('Recall this sensor? This will end the active deployment.')) return;
+  const handleConfirm = () => {
+    setConfirmOpen(false);
     update(
       'sensor_deployments',
       {
@@ -245,9 +264,25 @@ const ListRecallButton = () => {
   };
 
   return (
-    <Button onClick={handleClick} size="small" color="warning" variant="outlined" disabled={isLoading}>
-      Recall
-    </Button>
+    <>
+      <Button onClick={(e) => { e.stopPropagation(); setConfirmOpen(true); }} size="small" color="warning" variant="outlined" disabled={isLoading}>
+        Recall
+      </Button>
+      <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)} maxWidth="xs">
+        <DialogTitle>Recall Sensor</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Recall this sensor? This will end the active deployment.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmOpen(false)}>Cancel</Button>
+          <Button onClick={handleConfirm} color="warning" variant="contained" disabled={isLoading}>
+            Recall
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
   );
 };
 
@@ -272,18 +307,6 @@ const DeployedAtField = () => {
   );
 };
 
-// Format a timestamp as relative time (e.g., "2h ago", "3d ago")
-const formatRelativeTime = (isoTime: string): string => {
-  const diff = Date.now() - new Date(isoTime).getTime();
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-};
-
 interface ReadingsApiResponse {
   times: string[];
   parameters: Array<{
@@ -300,7 +323,7 @@ const LastReadingField = (_props: { label?: string }) => {
   const record = useRecordContext();
   const [lastReading, setLastReading] = useState<{ value: number; time: string; units: string | null } | null>(null);
   const [loading, setLoading] = useState(false);
-  const keycloak = useKeycloak();
+  const authFetch = useAuthFetch();
 
   // Step 1: Find the sensor's active deployment
   const { data: deployments } = useGetList('sensor_deployments', {
@@ -327,9 +350,8 @@ const LastReadingField = (_props: { label?: string }) => {
     const now = new Date();
     const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     const url = `/api/service/sites/${siteParam.site_id}/readings?start=${start.toISOString()}&page_size=1000&format=json`;
-    const headers: HeadersInit = keycloak?.token ? { 'Authorization': 'Bearer ' + keycloak.token } : {};
 
-    fetch(url, { headers })
+    authFetch(url)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json() as Promise<ReadingsApiResponse>;
@@ -382,7 +404,7 @@ const BatteryStatusField = (_props: { label?: string }) => {
   const record = useRecordContext();
   const [batteryValue, setBatteryValue] = useState<{ voltage: number; time: string } | null>(null);
   const [loading, setLoading] = useState(false);
-  const keycloak = useKeycloak();
+  const authFetch = useAuthFetch();
 
   // Step 1: Find the sensor's active deployment
   const { data: deployments } = useGetList('sensor_deployments', {
@@ -420,9 +442,8 @@ const BatteryStatusField = (_props: { label?: string }) => {
     const now = new Date();
     const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     const url = `/api/service/sites/${siteParam.site_id}/readings?start=${start.toISOString()}&parameter_ids=${batteryParam.id}&page_size=1000&format=json`;
-    const headers: HeadersInit = keycloak?.token ? { 'Authorization': 'Bearer ' + keycloak.token } : {};
 
-    fetch(url, { headers })
+    authFetch(url)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json() as Promise<ReadingsApiResponse>;
@@ -513,13 +534,78 @@ const sensorFilters = [
     <SelectInput optionText="display_name" label="Parameter Type" />
   </ReferenceInput>,
   <NullableBooleanInput source="is_active" label="Active" key="is_active" alwaysOn />,
-  <NullableBooleanInput source="undeployed" label="Undeployed" key="undeployed" />,
-  <NullableBooleanInput source="needs_calibration" label="Needs Calibration" key="needs_calibration" />,
+  <NullableBooleanInput source="is_lab_instrument" label="Lab Instrument" key="is_lab_instrument" />,
 ];
 
-const SensorList = () => (
-  <List filters={sensorFilters}>
-    <Datagrid rowClick="show">
+const FilteredSensorDatagrid = ({
+  showUndeployed,
+  showNeedsCalibration,
+}: {
+  showUndeployed: boolean | null;
+  showNeedsCalibration: boolean | null;
+}) => {
+  const { data: allSensors } = useListContext();
+
+  const sensorIds = useMemo(() => (allSensors ?? []).map((s: { id: string }) => s.id), [allSensors]);
+
+  const { data: allDeployments } = useGetList('sensor_deployments', {
+    filter: {},
+    pagination: { page: 1, perPage: 10000 },
+    sort: { field: 'deployed_from', order: 'DESC' },
+  }, { enabled: sensorIds.length > 0 });
+
+  const { data: allCalibrations } = useGetList('sensor_calibrations', {
+    filter: {},
+    pagination: { page: 1, perPage: 10000 },
+    sort: { field: 'valid_from', order: 'DESC' },
+  }, { enabled: sensorIds.length > 0 });
+
+  const undeployedSensorIds = useMemo(() => {
+    if (!allDeployments) return new Set<string>();
+    const deployed = new Set<string>();
+    for (const d of allDeployments) {
+      if (!d.deployed_until) deployed.add(d.sensor_id);
+    }
+    return new Set(sensorIds.filter((id: string) => !deployed.has(id)));
+  }, [allDeployments, sensorIds]);
+
+  const needsCalibrationIds = useMemo(() => {
+    if (!allCalibrations) return new Set<string>();
+    const latestCal = new Map<string, string>();
+    for (const c of allCalibrations) {
+      if (!latestCal.has(c.sensor_id)) latestCal.set(c.sensor_id, c.valid_from);
+    }
+    const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000;
+    return new Set(
+      sensorIds.filter((id: string) => {
+        const cal = latestCal.get(id);
+        return !cal || new Date(cal).getTime() < ninetyDaysAgo;
+      })
+    );
+  }, [allCalibrations, sensorIds]);
+
+  const filteredIds = useMemo(() => {
+    let ids = new Set(sensorIds);
+    if (showUndeployed === true) {
+      ids = new Set([...ids].filter(id => undeployedSensorIds.has(id)));
+    } else if (showUndeployed === false) {
+      ids = new Set([...ids].filter(id => !undeployedSensorIds.has(id)));
+    }
+    if (showNeedsCalibration === true) {
+      ids = new Set([...ids].filter(id => needsCalibrationIds.has(id)));
+    } else if (showNeedsCalibration === false) {
+      ids = new Set([...ids].filter(id => !needsCalibrationIds.has(id)));
+    }
+    return ids;
+  }, [sensorIds, showUndeployed, showNeedsCalibration, undeployedSensorIds, needsCalibrationIds]);
+
+  return (
+    <Datagrid
+      rowClick="show"
+      rowSx={(record) => ({
+        display: filteredIds.has(record.id as string) ? undefined : 'none',
+      })}
+    >
       <TextField source="serial_number" />
       <TextField source="name" />
       <ReferenceField source="parameter_type_id" reference="parameters" link={false}>
@@ -532,6 +618,7 @@ const SensorList = () => (
       <TextField source="manufacturer" />
       <TextField source="model" />
       <BooleanField source="is_active" />
+      <BooleanField source="is_lab_instrument" label="Lab" />
       <DateField source="created_at" showTime />
       <FunctionField
         label="Actions"
@@ -543,8 +630,46 @@ const SensorList = () => (
         )}
       />
     </Datagrid>
-  </List>
-);
+  );
+};
+
+const SensorList = () => {
+  const [showUndeployed, setShowUndeployed] = useState<boolean | null>(null);
+  const [showNeedsCalibration, setShowNeedsCalibration] = useState<boolean | null>(null);
+
+  return (
+    <List
+      filters={sensorFilters}
+      actions={
+        <TopToolbar>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+            <Button
+              size="small"
+              variant={showUndeployed === true ? 'contained' : 'outlined'}
+              onClick={() => setShowUndeployed(prev => prev === true ? null : true)}
+              color={showUndeployed === true ? 'warning' : 'inherit'}
+            >
+              Undeployed
+            </Button>
+            <Button
+              size="small"
+              variant={showNeedsCalibration === true ? 'contained' : 'outlined'}
+              onClick={() => setShowNeedsCalibration(prev => prev === true ? null : true)}
+              color={showNeedsCalibration === true ? 'warning' : 'inherit'}
+            >
+              Needs Calibration
+            </Button>
+          </Box>
+        </TopToolbar>
+      }
+    >
+      <FilteredSensorDatagrid
+        showUndeployed={showUndeployed}
+        showNeedsCalibration={showNeedsCalibration}
+      />
+    </List>
+  );
+};
 
 const DeploymentsTab = () => {
   const record = useRecordContext();
@@ -581,6 +706,7 @@ const SensorShow = () => (
         <TextField source="manufacturer" />
         <TextField source="model" />
         <BooleanField source="is_active" />
+        <BooleanField source="is_lab_instrument" label="Lab Instrument" />
         <TextField source="notes" />
         <DateField source="created_at" showTime />
       </TabbedShowLayout.Tab>
@@ -618,6 +744,7 @@ const SensorCreate = () => (
       <TextInput source="manufacturer" />
       <TextInput source="model" />
       <BooleanInput source="is_active" defaultValue={true} />
+      <BooleanInput source="is_lab_instrument" label="Lab Instrument" defaultValue={false} />
       <TextInput source="notes" multiline />
     </SimpleForm>
   </Create>
@@ -634,6 +761,7 @@ const SensorEdit = () => (
       <TextInput source="manufacturer" />
       <TextInput source="model" />
       <BooleanInput source="is_active" />
+      <BooleanInput source="is_lab_instrument" label="Lab Instrument" />
       <TextInput source="notes" multiline />
     </SimpleForm>
   </Edit>

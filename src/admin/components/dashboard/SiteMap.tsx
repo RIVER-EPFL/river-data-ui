@@ -6,6 +6,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useRiverDataProvider } from '../../useRiverDataProvider';
 import type { AlarmSummaryResponse } from '../../dataProvider';
+import { formatRelativeTime } from '../../utils/formatRelativeTime';
 
 interface SiteRecord {
   id: string;
@@ -38,17 +39,6 @@ const LEGEND_ITEMS = [
   { color: MARKER_COLORS.green, label: 'Healthy' },
   { color: MARKER_COLORS.grey, label: 'No data' },
 ];
-
-function formatRelativeTime(isoString: string): string {
-  const diff = Date.now() - new Date(isoString).getTime();
-  const minutes = Math.floor(diff / 60_000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
 
 interface SiteMapProps {
   onSiteClick?: (siteId: string) => void;
@@ -105,8 +95,8 @@ export const SiteMap = ({ onSiteClick }: SiteMapProps) => {
         }
         setSiteLastReading(lastReadingMap);
       }
-    } catch {
-      // Silently fail — map still shows with default colors
+    } catch (err) {
+      console.error('Failed to fetch alarm/sync data for map:', err);
     }
   }, [dataProvider, siteParameters]);
 
@@ -163,11 +153,25 @@ export const SiteMap = ({ onSiteClick }: SiteMapProps) => {
       'OpenStreetMap': osm,
     }).addTo(mapInstance.current);
 
+    // Handle popup link clicks with React Router
+    const container = mapRef.current;
+    const handlePopupClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const link = target.closest<HTMLElement>('a[data-navigate]');
+      if (link) {
+        e.preventDefault();
+        const path = link.getAttribute('data-navigate');
+        if (path) navigate(path);
+      }
+    };
+    container.addEventListener('click', handlePopupClick);
+
     return () => {
+      container.removeEventListener('click', handlePopupClick);
       mapInstance.current?.remove();
       mapInstance.current = null;
     };
-  }, []);
+  }, [navigate]);
 
   useEffect(() => {
     const map = mapInstance.current;
@@ -210,17 +214,23 @@ export const SiteMap = ({ onSiteClick }: SiteMapProps) => {
       const alarmTotal = alarms ? alarms.warning + alarms.alarm : 0;
 
       const popupLines = [
-        `<strong>${site.name}</strong>`,
-        `<br/>Parameters: ${paramCount}`,
+        `<strong style="font-size:14px">${site.name}</strong>`,
+        `<br/><span style="color:#666">Parameters: ${paramCount}</span>`,
       ];
       if (lastReading) {
-        popupLines.push(`<br/>Last reading: ${formatRelativeTime(lastReading)}`);
+        popupLines.push(`<br/><span style="color:#666">Last reading: ${formatRelativeTime(lastReading)}</span>`);
       }
       if (alarmTotal > 0) {
         popupLines.push(
           `<br/><span style="color:${alarms!.alarm > 0 ? MARKER_COLORS.red : MARKER_COLORS.orange}; font-weight:600">Active alarms: ${alarmTotal}</span>`,
         );
       }
+      popupLines.push(
+        `<br/><div style="display:flex;gap:6px;margin-top:8px">` +
+          `<a data-navigate="/admin/sites/${site.id}/show" style="padding:4px 10px;background:#1976d2;color:white;border-radius:4px;text-decoration:none;font-size:12px;cursor:pointer">View Station</a>` +
+          `<a data-navigate="/admin/sites/${site.id}/show?export=true" style="padding:4px 10px;background:#2e7d32;color:white;border-radius:4px;text-decoration:none;font-size:12px;cursor:pointer">Export</a>` +
+        `</div>`,
+      );
 
       const marker = L.circleMarker([site.latitude, site.longitude], {
         radius: 8,
@@ -233,14 +243,6 @@ export const SiteMap = ({ onSiteClick }: SiteMapProps) => {
         .addTo(map)
         .bindPopup(popupLines.join(''));
 
-      marker.on('click', () => {
-        if (onSiteClick) {
-          onSiteClick(site.id);
-        } else {
-          navigate(`/admin/sites/${site.id}/show`);
-        }
-      });
-
       markersRef.current.push(marker);
     });
 
@@ -249,7 +251,7 @@ export const SiteMap = ({ onSiteClick }: SiteMapProps) => {
     } else {
       map.setView([validSites[0].latitude, validSites[0].longitude], 12);
     }
-  }, [sites, navigate, onSiteClick, paramCountBySite, siteAlarmMap, siteLastReading]);
+  }, [sites, paramCountBySite, siteAlarmMap, siteLastReading]);
 
   const missingCount = sites
     ? sites.length - sites.filter((s) => s.latitude != null && s.longitude != null).length

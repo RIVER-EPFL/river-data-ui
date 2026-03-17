@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useGetList } from 'react-admin';
-import { useKeycloak } from '../KeycloakContext';
+import { useAuthFetch } from '../hooks/useAuthFetch';
 import {
   Box,
   TextField,
@@ -46,7 +46,7 @@ export const FormulaPreviewChart: React.FC<FormulaPreviewChartProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [siteName, setSiteName] = useState<string>('');
 
-  const keycloak = useKeycloak();
+  const authFetch = useAuthFetch();
   const dataRange = useSiteDataRange(siteId ? [siteId] : []);
 
   const { data: sites } = useGetList('sites', {
@@ -72,14 +72,10 @@ export const FormulaPreviewChart: React.FC<FormulaPreviewChartProps> = ({
     setLoading(true);
     setError(null);
 
-    const headers: HeadersInit = keycloak?.token
-      ? { 'Authorization': 'Bearer ' + keycloak.token, 'Content-Type': 'application/json' }
-      : { 'Content-Type': 'application/json' };
-
     try {
-      const res = await fetch('/api/service/actions/preview_derived', {
+      const res = await authFetch('/api/service/actions/preview_derived', {
         method: 'POST',
-        headers,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           formula,
           site_id: siteId,
@@ -170,7 +166,7 @@ export const FormulaPreviewChart: React.FC<FormulaPreviewChartProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [formula, requiredVariables, siteId, start, end, keycloak]);
+  }, [formula, requiredVariables, siteId, start, end, authFetch]);
 
   // Debounced fetch: immediate on site/range change, debounced on formula change
   useEffect(() => {

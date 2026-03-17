@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useKeycloak } from '../KeycloakContext';
+import { useAuthFetch } from './useAuthFetch';
 
 export interface DataRange {
   /** Earliest data timestamp in ms (0 while loading or no data) */
@@ -16,7 +16,7 @@ const EMPTY: DataRange = { min: 0, max: 0, loading: false };
  * For multiple sites, min = earliest start, max = latest end.
  */
 export function useSiteDataRange(siteIds: string[]): DataRange {
-  const keycloak = useKeycloak();
+  const authFetch = useAuthFetch();
   const [range, setRange] = useState<DataRange>(EMPTY);
   const prevKey = useRef('');
 
@@ -35,15 +35,11 @@ export function useSiteDataRange(siteIds: string[]): DataRange {
     let cancelled = false;
     setRange((r) => ({ ...r, loading: true }));
 
-    const headers: HeadersInit = keycloak?.token
-      ? { Authorization: 'Bearer ' + keycloak.token }
-      : {};
-
     Promise.all(
       siteIds.filter(Boolean).map((id) =>
-        fetch(`/api/service/sites/${id}/detail`, { headers })
+        authFetch(`/api/service/sites/${id}/detail`)
           .then((r) => (r.ok ? r.json() : null))
-          .catch(() => null),
+          .catch((err) => { console.error('Failed to fetch site detail:', err); return null; }),
       ),
     ).then((results) => {
       if (cancelled) return;
@@ -69,7 +65,7 @@ export function useSiteDataRange(siteIds: string[]): DataRange {
     return () => {
       cancelled = true;
     };
-  }, [siteIds.join(','), keycloak?.token]);
+  }, [siteIds.join(','), authFetch]);
 
   return range;
 }

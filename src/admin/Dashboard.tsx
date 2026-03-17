@@ -2,7 +2,6 @@ import { useRef } from 'react';
 import { Title } from 'react-admin';
 import { Box } from '@mui/material';
 import { SiteMap } from './components/dashboard/SiteMap';
-import { SummaryCards } from './components/dashboard/SummaryCards';
 import ChartsDashboard from './components/dashboard/ChartsDashboard';
 import type { ChartsDashboardRef } from './components/dashboard/ChartsDashboard';
 
@@ -16,7 +15,6 @@ const Dashboard = () => {
   return (
     <>
       <Title title="River Data Admin" />
-      <SummaryCards />
       <Box
         sx={{
           display: 'flex',

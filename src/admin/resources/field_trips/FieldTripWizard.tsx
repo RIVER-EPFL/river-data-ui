@@ -30,7 +30,7 @@ import SendIcon from '@mui/icons-material/Send';
 import HikingIcon from '@mui/icons-material/Hiking';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
-import { useKeycloak } from '../../KeycloakContext';
+import { useAuthFetch } from '../../hooks/useAuthFetch';
 
 interface SiteRecord {
     id: string;
@@ -83,7 +83,7 @@ const toLocalDatetime = (d: Date): string => {
 
 export const FieldTripPage: React.FC = () => {
     const notify = useNotify();
-    const keycloak = useKeycloak();
+    const authFetch = useAuthFetch();
 
     const [activeStep, setActiveStep] = useState(0);
     const [submitting, setSubmitting] = useState(false);
@@ -282,14 +282,9 @@ export const FieldTripPage: React.FC = () => {
                     })),
             };
 
-            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-            if (keycloak?.token) {
-                headers['Authorization'] = `Bearer ${keycloak.token}`;
-            }
-
-            const response = await fetch('/api/service/actions/field_trip_batch', {
+            const response = await authFetch('/api/service/actions/field_trip_batch', {
                 method: 'POST',
-                headers,
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload),
             });
 

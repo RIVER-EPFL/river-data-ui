@@ -1,6 +1,7 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { TextField, Box, MenuItem } from '@mui/material';
 import { ToolLayout } from './ToolLayout';
+import { LoadStandardCurveButton } from './LoadStandardCurveButton';
 
 export const ChlorophyllTool = () => {
   const [method, setMethod] = useState('acid');
@@ -8,6 +9,11 @@ export const ChlorophyllTool = () => {
   const [fluorAfter, setFluorAfter] = useState('');
   const [slope, setSlope] = useState('');
   const [intercept, setIntercept] = useState('');
+
+  const handleLoadCurve = useCallback((s: number, i: number) => {
+    setSlope(String(s));
+    setIntercept(String(i));
+  }, []);
 
   const inputs = useMemo(() => ({
     method,
@@ -19,7 +25,7 @@ export const ChlorophyllTool = () => {
 
   return (
     <ToolLayout toolName="chlorophyll" description="Chlorophyll-a concentration from fluorescence with standard curve." inputs={inputs}>
-      <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+      <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
         <TextField label="Method" value={method} onChange={(e) => setMethod(e.target.value)} select size="small" sx={{ minWidth: 120 }}>
           <MenuItem value="acid">Acid correction</MenuItem>
           <MenuItem value="no_acid">No acid</MenuItem>
@@ -30,6 +36,7 @@ export const ChlorophyllTool = () => {
         )}
         <TextField label="Slope" value={slope} onChange={(e) => setSlope(e.target.value)} type="number" size="small" required />
         <TextField label="Intercept" value={intercept} onChange={(e) => setIntercept(e.target.value)} type="number" size="small" required />
+        <LoadStandardCurveButton onLoad={handleLoadCurve} />
       </Box>
     </ToolLayout>
   );

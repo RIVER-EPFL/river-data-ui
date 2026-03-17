@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
     useGetList,
     useNotify,
@@ -20,6 +20,9 @@ import {
     FormControlLabel,
     Collapse,
     Chip,
+    Tooltip,
+    Drawer,
+    Fab,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -27,7 +30,9 @@ import SendIcon from '@mui/icons-material/Send';
 import ScienceIcon from '@mui/icons-material/Science';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import { useKeycloak } from '../../KeycloakContext';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import BuildIcon from '@mui/icons-material/Build';
+import { useAuthFetch } from '../../hooks/useAuthFetch';
 
 interface SiteRecord {
     id: string;
@@ -94,9 +99,155 @@ const isDepthParameter = (name: string): boolean =>
 
 const MAX_REPLICATES = 10;
 
+// Tool definitions: name matching is based on lowercase parameter names in the form
+const TOOL_DEFS: Array<{ name: string; displayName: string; apiName: string; match: (names: Set<string>) => boolean }> = [
+    { name: 'doc', displayName: 'DOC Calculator', apiName: 'doc', match: (ns) => [...ns].some(n => n.includes('doc') || n.includes('organic carbon')) },
+    { name: 'pco2', displayName: 'pCO2 Calculator', apiName: 'pco2', match: (ns) => [...ns].some(n => n.includes('co2') || n.includes('ph') || n.includes('alkalinity')) },
+    { name: 'dic', displayName: 'DIC Calculator', apiName: 'dic', match: (ns) => [...ns].some(n => n.includes('dic') || n.includes('alkalinity')) },
+    { name: 'chlorophyll', displayName: 'Chlorophyll Calculator', apiName: 'chlorophyll', match: (ns) => [...ns].some(n => n.includes('chlorophyll') || n.includes('chl')) },
+    { name: 'alkalinity', displayName: 'Alkalinity Calculator', apiName: 'alkalinity', match: (ns) => [...ns].some(n => n.includes('alkalinity') || n.includes('alk')) },
+    { name: 'tss_afdm', displayName: 'TSS / AFDM', apiName: 'tss_afdm', match: (ns) => [...ns].some(n => n.includes('tss') || n.includes('afdm') || n.includes('suspended')) },
+    { name: 'dom', displayName: 'DOM Processing', apiName: 'dom', match: (ns) => [...ns].some(n => n.includes('dom') || n.includes('dissolved organic')) },
+    { name: 'ions', displayName: 'Ions Calculator', apiName: 'ions', match: (ns) => [...ns].some(n => n.includes('ion') || n.includes('anion') || n.includes('cation')) },
+    { name: 'field_data', displayName: 'Field Data Processing', apiName: 'field_data', match: () => true },
+];
+
+interface ToolSidebarProps {
+    rows: ReadingRow[];
+    paramById: Map<string, SiteParameterRecord>;
+    siteId: string;
+    barometricPressure: number | null;
+    onApplyResult: (parameterId: string, value: number) => void;
+}
+
+const ToolSidebar: React.FC<ToolSidebarProps> = ({ rows, paramById, barometricPressure, onApplyResult }) => {
+    const authFetch = useAuthFetch();
+
+    const enteredParams = useMemo(() => {
+        return rows
+            .filter(r => r.parameter_id && r.value)
+            .map(r => ({
+                paramId: r.parameter_id,
+                name: paramById.get(r.parameter_id)?.name ?? '',
+                value: parseFloat(r.value),
+            }));
+    }, [rows, paramById]);
+
+    const applicableTools = useMemo(() => {
+        if (enteredParams.length === 0) return [];
+        const paramNames = new Set(enteredParams.map(p => p.name.toLowerCase()));
+        return TOOL_DEFS.filter(t => t.match(paramNames));
+    }, [enteredParams]);
+
+    const [expandedTool, setExpandedTool] = useState<string | null>(null);
+    const [calculating, setCalculating] = useState(false);
+    const [results, setResults] = useState<Record<string, unknown> | null>(null);
+    const [error, setError] = useState<string | null>(null);
+
+    const handleCalculate = async (apiName: string) => {
+        setCalculating(true);
+        setError(null);
+        setResults(null);
+        try {
+            const inputs: Record<string, unknown> = {};
+            for (const ep of enteredParams) {
+                inputs[ep.name.toLowerCase().replace(/\s/g, '_')] = ep.value;
+            }
+            if (barometricPressure != null) {
+                inputs['barometric_pressure'] = barometricPressure;
+            }
+
+            const resp = await authFetch(`/api/service/tools/${apiName}/calculate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(inputs),
+            });
+            if (!resp.ok) {
+                const text = await resp.text();
+                throw new Error(text || `HTTP ${resp.status}`);
+            }
+            const data = await resp.json();
+            setResults(data.results);
+        } catch (e) {
+            setError(e instanceof Error ? e.message : 'Calculation failed');
+        } finally {
+            setCalculating(false);
+        }
+    };
+
+    return (
+        <Box sx={{ width: 350, p: 2 }}>
+            <Typography variant="h6" sx={{ mb: 2 }}>Calculation Tools</Typography>
+
+            {applicableTools.length === 0 ? (
+                <Alert severity="info">Enter parameter values to see applicable tools</Alert>
+            ) : (
+                applicableTools.map(tool => (
+                    <Paper key={tool.name} variant="outlined" sx={{ mb: 1.5 }}>
+                        <Button
+                            fullWidth
+                            onClick={() => {
+                                setExpandedTool(expandedTool === tool.name ? null : tool.name);
+                                setResults(null);
+                                setError(null);
+                            }}
+                            sx={{ justifyContent: 'space-between', textTransform: 'none', p: 1.5 }}
+                            endIcon={expandedTool === tool.name ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                        >
+                            {tool.displayName}
+                        </Button>
+                        <Collapse in={expandedTool === tool.name}>
+                            <Box sx={{ p: 1.5, pt: 0 }}>
+                                <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                                    Using values: {enteredParams.map(p => p.name).join(', ')}
+                                </Typography>
+                                <Button
+                                    size="small"
+                                    variant="contained"
+                                    onClick={() => handleCalculate(tool.apiName)}
+                                    disabled={calculating}
+                                    startIcon={calculating ? <CircularProgress size={14} /> : null}
+                                >
+                                    Calculate
+                                </Button>
+                                {error && <Alert severity="error" sx={{ mt: 1 }}>{error}</Alert>}
+                                {results && (
+                                    <Box sx={{ mt: 1 }}>
+                                        {Object.entries(results)
+                                            .filter(([, v]) => v != null && typeof v === 'number')
+                                            .map(([key, value]) => (
+                                                <Box key={key} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 0.5 }}>
+                                                    <Typography variant="body2">
+                                                        {key.replace(/_/g, ' ')}: <strong>{(value as number).toFixed(4)}</strong>
+                                                    </Typography>
+                                                    <Button
+                                                        size="small"
+                                                        onClick={() => {
+                                                            const match = [...paramById.entries()].find(([, sp]) =>
+                                                                sp.name.toLowerCase().replace(/[_\s]/g, '').includes(key.toLowerCase().replace(/_/g, ''))
+                                                            );
+                                                            if (match) onApplyResult(match[0], value as number);
+                                                        }}
+                                                        sx={{ textTransform: 'none', fontSize: '0.7rem', minWidth: 'auto' }}
+                                                    >
+                                                        Apply
+                                                    </Button>
+                                                </Box>
+                                            ))}
+                                    </Box>
+                                )}
+                            </Box>
+                        </Collapse>
+                    </Paper>
+                ))
+            )}
+        </Box>
+    );
+};
+
 const GrabSampleEntry: React.FC = () => {
     const notify = useNotify();
-    const keycloak = useKeycloak();
+    const authFetch = useAuthFetch();
 
     const [siteId, setSiteId] = useState('');
     const [dateTime, setDateTime] = useState(() => {
@@ -119,6 +270,10 @@ const GrabSampleEntry: React.FC = () => {
     const [correctionEnabled, setCorrectionEnabled] = useState<Record<number, boolean>>({});
     // Manual override: rowId → override value (empty = use calculated)
     const [overrideValues, setOverrideValues] = useState<Record<number, string>>({});
+    // Quantile cache for distribution-based validation warnings
+    const [quantileCache, setQuantileCache] = useState<Map<string, { p5: number; p95: number }>>(new Map());
+    // Tool sidebar state
+    const [toolDrawerOpen, setToolDrawerOpen] = useState(false);
 
     // Fetch sites (including altitude_m)
     const { data: sites } = useGetList<SiteRecord>('sites', {
@@ -227,6 +382,60 @@ const GrabSampleEntry: React.FC = () => {
         return value;
     }, [overrideValues, getReplicateStats, activeCurveMap, correctionEnabled]);
 
+    const fetchQuantiles = useCallback(async (paramId: string) => {
+        const cacheKey = `${siteId}:${paramId}`;
+        if (quantileCache.has(cacheKey)) return;
+
+        try {
+            const now = new Date();
+            const start = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+            const url = `/api/service/sites/${siteId}/readings?start=${start.toISOString()}&parameter_ids=${paramId}&page_size=100000&format=json`;
+
+            const res = await authFetch(url);
+            if (!res.ok) return;
+
+            const data = await res.json();
+            if (!data.parameters?.length || !data.times?.length) return;
+
+            const values = data.parameters[0].values.filter((v: number | null) => v != null) as number[];
+            if (values.length < 10) return; // Need enough data for meaningful quantiles
+
+            values.sort((a: number, b: number) => a - b);
+            const p5 = values[Math.floor(values.length * 0.05)];
+            const p95 = values[Math.ceil(values.length * 0.95) - 1];
+
+            setQuantileCache(prev => {
+                const next = new Map(prev);
+                next.set(cacheKey, { p5, p95 });
+                return next;
+            });
+        } catch (err) {
+            console.error('Failed to fetch quantile data for validation:', err);
+        }
+    }, [siteId, authFetch, quantileCache]);
+
+    useEffect(() => {
+        if (!siteId) return;
+        const timer = setTimeout(() => {
+            for (const row of rows) {
+                if (row.parameter_id && row.value) {
+                    fetchQuantiles(row.parameter_id);
+                }
+            }
+        }, 500);
+        return () => clearTimeout(timer);
+    }, [rows, siteId, fetchQuantiles]);
+
+    const getQuantileWarning = useCallback((paramId: string, value: number): string | null => {
+        const cacheKey = `${siteId}:${paramId}`;
+        const quantiles = quantileCache.get(cacheKey);
+        if (!quantiles) return null;
+        if (value < quantiles.p5 || value > quantiles.p95) {
+            return `Value ${value} is outside typical range [${quantiles.p5.toFixed(2)} – ${quantiles.p95.toFixed(2)}] for this station`;
+        }
+        return null;
+    }, [siteId, quantileCache]);
+
     const addRow = () => {
         setRows((prev) => [...prev, { id: nextId, parameter_id: '', sensor_id: '', value: '' }]);
         setNextId((n) => n + 1);
@@ -278,6 +487,13 @@ const GrabSampleEntry: React.FC = () => {
         setOverrideValues({});
     };
 
+    const handleApplyToolResult = useCallback((parameterId: string, value: number) => {
+        setRows(prev => prev.map(r =>
+            r.parameter_id === parameterId ? { ...r, value: value.toString() } : r
+        ));
+        notify(`Applied ${value.toFixed(4)} to form`, { type: 'success' });
+    }, [notify]);
+
     const validate = (): string | null => {
         if (!siteId) return 'Please select a station';
         if (!dateTime) return 'Please set a date/time';
@@ -323,14 +539,9 @@ const GrabSampleEntry: React.FC = () => {
 
         setSubmitting(true);
         try {
-            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-            if (keycloak?.token) {
-                headers['Authorization'] = `Bearer ${keycloak.token}`;
-            }
-
-            const response = await fetch('/api/service/grab_samples', {
+            const response = await authFetch('/api/service/grab_samples', {
                 method: 'POST',
-                headers,
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload),
             });
 
@@ -368,6 +579,7 @@ const GrabSampleEntry: React.FC = () => {
                         value={siteId}
                         onChange={(e) => {
                             setSiteId(e.target.value);
+                            setQuantileCache(new Map());
                             resetForm();
                         }}
                         sx={{ minWidth: 250 }}
@@ -494,6 +706,16 @@ const GrabSampleEntry: React.FC = () => {
                                             sx={{ flex: 1.5 }}
                                             placeholder={selectedParam?.display_units ?? 'Value'}
                                         />
+
+                                        {(() => {
+                                            const val = parseFloat(row.value);
+                                            const warning = !isNaN(val) && row.parameter_id ? getQuantileWarning(row.parameter_id, val) : null;
+                                            return warning ? (
+                                                <Tooltip title={warning}>
+                                                    <WarningAmberIcon sx={{ color: 'warning.main', fontSize: 20, ml: -0.5 }} />
+                                                </Tooltip>
+                                            ) : null;
+                                        })()}
 
                                         <IconButton
                                             size="small"
@@ -724,6 +946,31 @@ const GrabSampleEntry: React.FC = () => {
                     {successInfo && `${successInfo.count} grab sample${successInfo.count !== 1 ? 's' : ''} recorded for ${successInfo.siteName}`}
                 </Alert>
             </Snackbar>
+
+            {siteId && (
+                <>
+                    <Fab
+                        color="primary"
+                        sx={{ position: 'fixed', bottom: 24, right: 24 }}
+                        onClick={() => setToolDrawerOpen(true)}
+                    >
+                        <BuildIcon />
+                    </Fab>
+                    <Drawer
+                        anchor="right"
+                        open={toolDrawerOpen}
+                        onClose={() => setToolDrawerOpen(false)}
+                    >
+                        <ToolSidebar
+                            rows={rows}
+                            paramById={paramById}
+                            siteId={siteId}
+                            barometricPressure={barometricPressure}
+                            onApplyResult={handleApplyToolResult}
+                        />
+                    </Drawer>
+                </>
+            )}
         </Box>
     );
 };

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useGetList } from 'react-admin';
-import { useKeycloak } from '../../KeycloakContext';
+import { useAuthFetch } from '../../hooks/useAuthFetch';
 import {
   Box,
   Typography,
@@ -54,7 +54,7 @@ const AGGREGATION_OPTIONS: { value: AggregationLevel; label: string }[] = [
 export const MultiStationChart: React.FC = () => {
   const chartRef = useRef<HTMLDivElement>(null);
   const uplotRef = useRef<uPlot | null>(null);
-  const keycloak = useKeycloak();
+  const authFetch = useAuthFetch();
 
   const [selectedSites, setSelectedSites] = useState<SiteRecord[]>([]);
   const [selectedParameter, setSelectedParameter] = useState<ParameterRecord | null>(null);
@@ -92,10 +92,6 @@ export const MultiStationChart: React.FC = () => {
     const startISO = new Date(start).toISOString();
     const endISO = new Date(end).toISOString();
 
-    const headers: HeadersInit = keycloak?.token
-      ? { Authorization: 'Bearer ' + keycloak.token }
-      : {};
-
     try {
       // Fetch readings for each selected site in parallel
       const results = await Promise.all(
@@ -109,7 +105,7 @@ export const MultiStationChart: React.FC = () => {
           url += `&end=${endISO}`;
           url += `&parameter_ids=${selectedParameter.id}`;
 
-          const res = await fetch(url, { headers });
+          const res = await authFetch(url);
           if (!res.ok) throw new Error(`HTTP ${res.status} for site ${site.name}`);
           const data: ReadingsResponse = await res.json();
           return { site, data };
@@ -206,7 +202,7 @@ export const MultiStationChart: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedSites, selectedParameter, start, end, aggregation, keycloak]);
+  }, [selectedSites, selectedParameter, start, end, aggregation, authFetch]);
 
   useEffect(() => {
     fetchData();

@@ -40,6 +40,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import EditIcon from '@mui/icons-material/Edit';
 import { Link } from 'react-router-dom';
 import { CalibrationTimeline } from './CalibrationTimeline';
+import { formatRelativeTime } from '../../utils/formatRelativeTime';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -80,6 +81,8 @@ export interface SensorRecord {
 export interface AlarmThresholdRecord {
     id: string;
     parameter_id: string;
+    site_id: string | null;
+    alarm_type: string;
     warning_min: number | null;
     warning_max: number | null;
     alarm_min: number | null;
@@ -123,19 +126,6 @@ interface SiteRecord {
     longitude: number | null;
     altitude_m: number | null;
     created_at: string;
-}
-
-function formatRelativeTime(isoTime: string): string {
-    const now = Date.now();
-    const then = new Date(isoTime).getTime();
-    const diffMs = now - then;
-    const diffMin = Math.floor(diffMs / 60000);
-    if (diffMin < 1) return 'just now';
-    if (diffMin < 60) return `${diffMin}m ago`;
-    const diffHours = Math.floor(diffMin / 60);
-    if (diffHours < 24) return `${diffHours}h ago`;
-    const diffDays = Math.floor(diffHours / 24);
-    return `${diffDays}d ago`;
 }
 
 // ---------------------------------------------------------------------------
@@ -697,6 +687,87 @@ const InlineThreshold: React.FC<InlineThresholdProps> = ({ threshold }) => {
 };
 
 // ---------------------------------------------------------------------------
+// Create Threshold Button (inline, for parameters with no threshold)
+// ---------------------------------------------------------------------------
+
+interface CreateThresholdButtonProps {
+    parameterId: string;
+    siteId: string;
+}
+
+const CreateThresholdButton: React.FC<CreateThresholdButtonProps> = ({ parameterId, siteId }) => {
+    const [editing, setEditing] = useState(false);
+    const [create, { isPending }] = useCreate();
+    const notify = useNotify();
+    const refresh = useRefresh();
+
+    const [warnMin, setWarnMin] = useState('');
+    const [warnMax, setWarnMax] = useState('');
+    const [alarmMin, setAlarmMin] = useState('');
+    const [alarmMax, setAlarmMax] = useState('');
+
+    const toNum = (v: string) => (v === '' ? null : parseFloat(v));
+
+    const handleSave = () => {
+        create(
+            'alarm_thresholds',
+            {
+                data: {
+                    parameter_id: parameterId,
+                    site_id: siteId,
+                    alarm_type: 'range',
+                    warning_min: toNum(warnMin),
+                    warning_max: toNum(warnMax),
+                    alarm_min: toNum(alarmMin),
+                    alarm_max: toNum(alarmMax),
+                },
+            },
+            {
+                onSuccess: () => {
+                    notify('Thresholds created', { type: 'success' });
+                    setEditing(false);
+                    refresh();
+                },
+                onError: () => {
+                    notify('Failed to create thresholds', { type: 'error' });
+                },
+            },
+        );
+    };
+
+    if (!editing) {
+        return (
+            <Button size="small" onClick={() => setEditing(true)} sx={{ textTransform: 'none', fontSize: '0.75rem' }}>
+                Set Thresholds
+            </Button>
+        );
+    }
+
+    return (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
+            <TextField label="W min" size="small" type="number" value={warnMin}
+                onChange={(e) => setWarnMin(e.target.value)} sx={{ width: 70 }}
+                inputProps={{ step: 'any' }} />
+            <TextField label="W max" size="small" type="number" value={warnMax}
+                onChange={(e) => setWarnMax(e.target.value)} sx={{ width: 70 }}
+                inputProps={{ step: 'any' }} />
+            <TextField label="A min" size="small" type="number" value={alarmMin}
+                onChange={(e) => setAlarmMin(e.target.value)} sx={{ width: 70 }}
+                inputProps={{ step: 'any' }} />
+            <TextField label="A max" size="small" type="number" value={alarmMax}
+                onChange={(e) => setAlarmMax(e.target.value)} sx={{ width: 70 }}
+                inputProps={{ step: 'any' }} />
+            <Button size="small" onClick={handleSave} disabled={isPending} variant="outlined">
+                {isPending ? <CircularProgress size={14} /> : 'Create'}
+            </Button>
+            <Button size="small" onClick={() => setEditing(false)} disabled={isPending}>
+                Cancel
+            </Button>
+        </Box>
+    );
+};
+
+// ---------------------------------------------------------------------------
 // Sensor Card
 // ---------------------------------------------------------------------------
 
@@ -778,9 +849,7 @@ export const SensorCard: React.FC<SensorCardProps> = ({ group, thresholdsByParam
                                     <LatestValue reading={latest} units={param.display_units} />
                                     {threshold && <InlineThreshold threshold={threshold} />}
                                     {!threshold && (
-                                        <Typography variant="caption" color="text.secondary">
-                                            No thresholds set
-                                        </Typography>
+                                        <CreateThresholdButton parameterId={param.id} siteId={param.site_id} />
                                     )}
                                 </Box>
                                 {group.parameters.indexOf(param) < group.parameters.length - 1 && (

@@ -83,7 +83,8 @@ export default function SearchBar() {
           const { data } = await dataProvider.search(q.trim());
           setResults(data);
           setOpen(data.total > 0);
-        } catch {
+        } catch (err) {
+          console.error('Failed to fetch search results:', err);
           setResults(null);
           setOpen(false);
         } finally {

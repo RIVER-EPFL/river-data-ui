@@ -19,13 +19,12 @@ import {
   useRecordContext,
   useNotify,
   useRefresh,
-  useGetList,
+  ReferenceManyCount,
 } from 'react-admin';
 import {
   Button,
   Box,
   Typography,
-  Chip,
   Tooltip,
   CircularProgress,
   Alert,
@@ -219,18 +218,6 @@ const PublicApiPreview = () => {
 // List
 // ---------------------------------------------------------------------------
 
-const ProjectSiteCount = (_props: { label?: string }) => {
-  const record = useRecordContext();
-  const { total } = useGetList('sites', {
-    filter: record ? { project_id: record.id } : {},
-    pagination: { page: 1, perPage: 1 },
-    sort: { field: 'name', order: 'ASC' },
-  }, { enabled: !!record });
-
-  if (total === undefined) return null;
-  return <Chip label={`${total} site${total !== 1 ? 's' : ''}`} size="small" variant="outlined" />;
-};
-
 const PublicApiUrl = () => {
   const record = useRecordContext();
   const notify = useNotify();
@@ -263,7 +250,7 @@ const ProjectList = () => (
       <TextField source="name" />
       <TextField source="data_source" />
       <TextField source="description" />
-      <ProjectSiteCount label="Sites" />
+      <ReferenceManyCount reference="sites" target="project_id" label="Sites" />
       <BooleanField source="is_public" label="Public" />
       <DateField source="created_at" showTime />
     </Datagrid>
@@ -328,8 +315,8 @@ const ProjectEdit = () => {
         onSuccess: (data: Record<string, unknown>) => {
           notify('Project saved', { type: 'success' });
           if (data.public_slug) {
-            dataProvider.invalidatePublicConfig(data.public_slug as string).catch(() => {
-              // Cache invalidation is best-effort
+            dataProvider.invalidatePublicConfig(data.public_slug as string).catch((err) => {
+              console.error('Failed to invalidate public config cache:', err);
             });
           }
         },

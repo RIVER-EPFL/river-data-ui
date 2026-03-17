@@ -1,6 +1,7 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { TextField, Box, FormControlLabel, Switch } from '@mui/material';
 import { ToolLayout } from './ToolLayout';
+import { LoadStandardCurveButton } from './LoadStandardCurveButton';
 
 export const FieldDataTool = () => {
   const [elevationM, setElevationM] = useState('');
@@ -10,6 +11,12 @@ export const FieldDataTool = () => {
   const [useCurve, setUseCurve] = useState(false);
   const [slope, setSlope] = useState('');
   const [intercept, setIntercept] = useState('');
+
+  const handleLoadCurve = useCallback((s: number, i: number) => {
+    setSlope(String(s));
+    setIntercept(String(i));
+    setUseCurve(true);
+  }, []);
 
   const inputs = useMemo(() => {
     const result: Record<string, unknown> = {
@@ -37,9 +44,10 @@ export const FieldDataTool = () => {
         label="Apply standard curve correction"
       />
       {useCurve && (
-        <Box sx={{ display: 'flex', gap: 2 }}>
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
           <TextField label="Slope" value={slope} onChange={(e) => setSlope(e.target.value)} type="number" size="small" />
           <TextField label="Intercept" value={intercept} onChange={(e) => setIntercept(e.target.value)} type="number" size="small" />
+          <LoadStandardCurveButton onLoad={handleLoadCurve} />
         </Box>
       )}
     </ToolLayout>

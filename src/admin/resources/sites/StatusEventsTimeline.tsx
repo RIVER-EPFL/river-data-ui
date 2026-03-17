@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { useKeycloak } from '../../KeycloakContext';
+import { useAuthFetch } from '../../hooks/useAuthFetch';
 import {
     Box,
     Card,
@@ -82,7 +82,7 @@ export const StatusEventsTimeline: React.FC<StatusEventsTimelineProps> = ({
     siteId,
     parameterNames,
 }) => {
-    const keycloak = useKeycloak();
+    const authFetch = useAuthFetch();
     const [events, setEvents] = useState<StatusEvent[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -97,12 +97,9 @@ export const StatusEventsTimeline: React.FC<StatusEventsTimelineProps> = ({
         const now = new Date();
         const start = new Date(now.getTime() - TIME_RANGE_MS[timeRange]);
         const url = `/api/service/sites/${siteId}/status_events?start=${start.toISOString()}&format=json`;
-        const headers: HeadersInit = keycloak?.token
-            ? { Authorization: 'Bearer ' + keycloak.token }
-            : {};
 
         try {
-            const res = await fetch(url, { headers });
+            const res = await authFetch(url);
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data: StatusEventsApiResponse = await res.json();
             setEvents(data.events ?? []);
@@ -112,7 +109,7 @@ export const StatusEventsTimeline: React.FC<StatusEventsTimelineProps> = ({
         } finally {
             setLoading(false);
         }
-    }, [siteId, expanded, timeRange, keycloak]);
+    }, [siteId, expanded, timeRange, authFetch]);
 
     useEffect(() => {
         fetchEvents();

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { useKeycloak } from '../../KeycloakContext';
+import { useAuthFetch } from '../../hooks/useAuthFetch';
 import {
   Box,
   Card,
@@ -131,7 +131,7 @@ export const ScatterPlot: React.FC<ScatterPlotProps> = ({ siteId, parameters }) 
   const [rSquared, setRSquared] = useState<number | null>(null);
   const [showRegression, setShowRegression] = useState(true);
   const [pointCount, setPointCount] = useState(0);
-  const keycloak = useKeycloak();
+  const authFetch = useAuthFetch();
   const dataRange = useSiteDataRange([siteId]);
 
   const xParam = parameters.find((p) => p.id === xParamId);
@@ -157,10 +157,7 @@ export const ScatterPlot: React.FC<ScatterPlotProps> = ({ siteId, parameters }) 
         `&parameter_ids=${xParamId},${yParamId}` +
         `&end=${new Date(end).toISOString()}`;
 
-      const headers: HeadersInit = keycloak?.token
-        ? { Authorization: 'Bearer ' + keycloak.token }
-        : {};
-      const res = await fetch(url, { headers });
+      const res = await authFetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
       const data: ReadingsResponse = await res.json();
@@ -260,7 +257,7 @@ export const ScatterPlot: React.FC<ScatterPlotProps> = ({ siteId, parameters }) 
     } finally {
       setLoading(false);
     }
-  }, [siteId, xParamId, yParamId, start, end, keycloak, showRegression, xParam, yParam]);
+  }, [siteId, xParamId, yParamId, start, end, authFetch, showRegression, xParam, yParam]);
 
   useEffect(() => {
     fetchAndPlot();

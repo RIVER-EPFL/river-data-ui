@@ -1,5 +1,5 @@
 import { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
-import { useKeycloak } from '../../KeycloakContext';
+import { useAuthFetch } from '../../hooks/useAuthFetch';
 import { createDashboard, type DashboardHandle } from './dashboard-engine';
 import 'uplot/dist/uPlot.min.css';
 import 'nouislider/dist/nouislider.css';
@@ -467,9 +467,9 @@ const DASHBOARD_CSS = `
 `;
 
 const ChartsDashboard = forwardRef<ChartsDashboardRef>(function ChartsDashboard(_props, ref) {
-  const keycloak = useKeycloak();
-  const keycloakRef = useRef(keycloak);
-  keycloakRef.current = keycloak;
+  const authFetch = useAuthFetch();
+  const authFetchRef = useRef(authFetch);
+  authFetchRef.current = authFetch;
   const containerRef = useRef<HTMLDivElement>(null);
   const handleRef = useRef<DashboardHandle | null>(null);
 
@@ -480,20 +480,14 @@ const ChartsDashboard = forwardRef<ChartsDashboardRef>(function ChartsDashboard(
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const authHeaders = (): HeadersInit | undefined => {
-      const token = keycloakRef.current?.token;
-      return token ? { 'Authorization': 'Bearer ' + token } : undefined;
-    };
-
     const api = (url: string, noCache = false) => {
       const finalUrl = noCache ? `${url}${url.includes('?') ? '&' : '?'}_t=${Date.now()}` : url;
-      const opts: RequestInit = { headers: authHeaders() };
-      return fetch(finalUrl, opts).then((r) => r.json());
+      return authFetchRef.current(finalUrl).then((r) => r.json());
     };
 
-    const authFetch = (url: string) => fetch(url, { headers: authHeaders() });
+    const wrappedFetch = (url: string) => authFetchRef.current(url);
 
-    handleRef.current = createDashboard(containerRef.current, api, authFetch);
+    handleRef.current = createDashboard(containerRef.current, api, wrappedFetch);
 
     return () => {
       handleRef.current?.destroy();

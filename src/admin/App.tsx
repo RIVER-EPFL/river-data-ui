@@ -157,7 +157,7 @@ const AdminApp = () => {
 
   const theme = {
     ...defaultTheme,
-    sidebar: { width: 200 },
+    sidebar: { width: 220 },
   };
 
   return (

@@ -8,6 +8,7 @@ import BuildIcon from '@mui/icons-material/Build';
 import HikingIcon from '@mui/icons-material/Hiking';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import SearchBar from './components/SearchBar';
+import { StatusIndicators } from './components/StatusIndicators';
 import { AlarmNotificationPanel } from './components/AlarmNotificationPanel';
 import { useRiverDataProvider } from './useRiverDataProvider';
 
@@ -33,8 +34,8 @@ const CustomAppBar = () => {
     try {
       const { data } = await dataProvider.getAlarmSummary();
       setAlarmCount(data.total);
-    } catch {
-      // Silently ignore — badge just shows stale count
+    } catch (err) {
+      console.error('Failed to fetch alarm count:', err);
     }
   }, [dataProvider]);
 
@@ -48,6 +49,7 @@ const CustomAppBar = () => {
     <>
       <AppBar>
         <TitlePortal />
+        <StatusIndicators />
         <SearchBar />
         <IconButton color="inherit" onClick={() => setPanelOpen(true)} sx={{ ml: 1 }}>
           <Badge badgeContent={alarmCount} color="error" max={99}>

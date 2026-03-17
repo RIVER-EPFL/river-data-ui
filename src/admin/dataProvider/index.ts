@@ -63,6 +63,21 @@ export interface ServiceCredential {
   created_at: string;
 }
 
+export interface SyncEvent {
+  id: string;
+  service_id: string;
+  command_id: string | null;
+  event_type: 'scheduled' | 'triggered' | 'full_sync';
+  status: 'running' | 'completed' | 'partial' | 'failed';
+  readings_synced: number;
+  status_events_synced: number;
+  errors: string[] | null;
+  log: string[] | null;
+  started_at: string;
+  completed_at: string | null;
+  duration_ms: number | null;
+}
+
 export interface SearchResponse {
   query: string;
   results: {
@@ -123,6 +138,7 @@ export interface RiverDataProvider extends DataProvider {
   getSyncServices: () => Promise<{ data: SyncService[] }>;
   issueSyncCommand: (serviceId: string, command: string, payload?: object) => Promise<{ data: SyncCommand }>;
   getSyncCommands: () => Promise<{ data: SyncCommand[] }>;
+  getSyncEvents: () => Promise<{ data: SyncEvent[] }>;
   createServiceCredential: (serviceType: string) => Promise<{ data: { client_id: string; client_secret: string } }>;
   listServiceCredentials: () => Promise<{ data: ServiceCredential[] }>;
   revokeSyncService: (credentialId: string) => Promise<{ data: unknown }>;
@@ -331,6 +347,9 @@ const dataProvider = (
 
   getSyncCommands: () =>
     httpClient(`${apiUrl}/sync/commands`).then(({ json }) => ({ data: json })),
+
+  getSyncEvents: () =>
+    httpClient(`${apiUrl}/sync/events`).then(({ json }) => ({ data: json })),
 
   createServiceCredential: (serviceType: string) =>
     httpClient(`${apiUrl}/sync/credentials`, {

@@ -61,6 +61,11 @@ services:
         condition: service_healthy
       river-db-keycloak:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:${API_PORT:-3000}/healthz || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     volumes:
       - ../river-data-api/src:/app/src
       - ../river-data-api/migration:/app/migration
@@ -103,6 +108,34 @@ services:
       - ./src:/app/src
       - ./index.html:/app/index.html
       - ./vite.config.ts:/app/vite.config.ts
+
+  river-data-sync-vaisala:
+    build:
+      context: ../river-data-api
+      dockerfile: river-data-sync-vaisala/Dockerfile
+    environment:
+      # River Data API connection
+      - API_BASE_URL=http://river-db-api:${API_PORT:-3000}
+      # Control plane credentials (create via dashboard → System → Services)
+      - SERVICE_CLIENT_ID=${SERVICE_CLIENT_ID:-}
+      - SERVICE_CLIENT_SECRET=${SERVICE_CLIENT_SECRET:-}
+      - INSTANCE_ID=${INSTANCE_ID:-vaisala-dev-01}
+      # Vaisala viewLinc connection
+      - VAISALA_BASE_URL=${VAISALA_BASE_URL:-https://10.95.35.5/rest/v1}
+      - VAISALA_BEARER_TOKEN=${VAISALA_BEARER_TOKEN:-}
+      - VAISALA_SKIP_TLS_VERIFY=${VAISALA_SKIP_TLS_VERIFY:-true}
+      # Runner config
+      - SYNC_INTERVAL_SECONDS=${SYNC_INTERVAL_SECONDS:-300}
+      - HEARTBEAT_INTERVAL_SECONDS=${HEARTBEAT_INTERVAL_SECONDS:-30}
+      - MAX_HISTORY_DAYS=${MAX_HISTORY_DAYS:-90}
+      # Retry configuration
+      - RETRY_MAX=${RETRY_MAX:-3}
+      - RETRY_DELAY_SECONDS=${RETRY_DELAY_SECONDS:-60}
+      # Logging
+      - RUST_LOG=${SYNC_RUST_LOG:-info}
+    depends_on:
+      river-db-api:
+        condition: service_healthy
 
   river-db-keycloak:
     image: quay.io/keycloak/keycloak:26.0

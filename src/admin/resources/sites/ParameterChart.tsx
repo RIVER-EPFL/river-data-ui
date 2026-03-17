@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { useKeycloak } from '../../KeycloakContext';
+import { useAuthFetch } from '../../hooks/useAuthFetch';
 import {
   Box,
   Button,
@@ -36,6 +36,7 @@ import {
 import { TimeRangeSlider } from '../../components/TimeRangeSlider';
 import { useSiteDataRange } from '../../hooks/useSiteDataRange';
 import { resolveAggregation as resolveAggregationAuto } from '../../utils/timeRange';
+import type { ReadingsResponse, AggregatesResponse } from '../../hooks/useSiteChartData';
 
 interface AlarmThreshold {
   warning_min: number | null;
@@ -51,33 +52,18 @@ interface ParameterChartProps {
   units: string | null;
   threshold?: AlarmThreshold;
   defaultExpanded?: boolean;
-}
-
-interface ReadingsResponse {
-  times: string[];
-  parameters: Array<{
-    id: string;
-    name: string;
-    type: string;
-    units: string | null;
-    values: Array<number | null>;
-    flagged?: Array<boolean | null>;
-    flag_reasons?: Array<string | null>;
-  }>;
-}
-
-interface AggregatesResponse {
-  times: string[];
-  parameters: Array<{
-    id: string;
-    name: string;
-    type: string;
-    units: string | null;
-    avg: Array<number | null>;
-    min: Array<number | null>;
-    max: Array<number | null>;
-    count: number[];
-  }>;
+  /** When provided, use external time range (shared mode) — no per-chart slider or collapse */
+  externalStart?: number;
+  externalEnd?: number;
+  /** uPlot cursor sync key for synchronized crosshairs across charts */
+  syncKey?: string;
+  /** Pre-fetched data from parent (skips HTTP when provided) */
+  prefetchedData?: ReadingsResponse | AggregatesResponse | null;
+  prefetchedIsAggregate?: boolean;
+  prefetchedAnnotations?: AnnotationData[];
+  prefetchedGrabData?: ReadingsResponse | null;
+  /** Called after a mutation (annotation/flag) so parent can refetch shared data */
+  onDataMutated?: () => void;
 }
 
 type AggregationLevel = 'auto' | 'raw' | 'hourly' | 'daily' | 'weekly' | 'monthly';
@@ -402,17 +388,34 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
   units,
   threshold,
   defaultExpanded = false,
+  externalStart,
+  externalEnd,
+  syncKey,
+  prefetchedData,
+  prefetchedIsAggregate,
+  prefetchedAnnotations,
+  prefetchedGrabData,
+  onDataMutated,
 }) => {
   const chartRef = useRef<HTMLDivElement>(null);
   const uplotRef = useRef<uPlot | null>(null);
-  const [start, setStart] = useState<number>(() => Date.now() - 24 * 60 * 60 * 1000);
-  const [end, setEnd] = useState<number>(Date.now);
+  const [internalStart, setStart] = useState<number>(() => Date.now() - 24 * 60 * 60 * 1000);
+  const [internalEnd, setEnd] = useState<number>(Date.now);
   const [aggregation, setAggregation] = useState<AggregationLevel>('auto');
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [loading, setLoading] = useState(false);
   const [chartData, setChartData] = useState<ChartData | null>(null);
-  const keycloak = useKeycloak();
-  const dataRange = useSiteDataRange([siteId]);
+  const [noData, setNoData] = useState(false);
+  const authFetch = useAuthFetch();
+
+  // Shared mode: external time range provided by parent
+  const isSharedMode = externalStart != null && externalEnd != null;
+  const start = isSharedMode ? externalStart : internalStart;
+  const end = isSharedMode ? externalEnd : internalEnd;
+  const effectiveExpanded = isSharedMode ? true : expanded;
+
+  // Only fetch data range when in standalone mode (shared mode uses parent's slider)
+  const dataRange = useSiteDataRange(isSharedMode ? [] : [siteId]);
   const [showBands, setShowBands] = useState(true);
   const [showGrabSamples, setShowGrabSamples] = useState(true);
   const [showFlagged, setShowFlagged] = useState(true);
@@ -438,61 +441,87 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
     setEnd(e);
   }, []);
 
+  const hasPrefetchedData = prefetchedData !== undefined;
+
   const fetchData = useCallback(async () => {
-    if (!expanded) return;
+    if (!effectiveExpanded) return;
     setLoading(true);
+    setNoData(false);
 
-    const startDate = new Date(start);
-    const endDate = new Date(end);
-    const startISO = startDate.toISOString();
-    const endISO = endDate.toISOString();
-
+    const startISO = new Date(start).toISOString();
+    const endISO = new Date(end).toISOString();
     const spanMs = end - start;
     const resolved = resolveAggregation(aggregation, spanMs);
-    const isAggregate = resolved !== 'raw';
-
-    let url: string;
-    if (isAggregate) {
-      url = `/api/service/sites/${siteId}/aggregates/${resolved}?start=${startISO}&format=json&end=${endISO}`;
-    } else {
-      url = `/api/service/sites/${siteId}/readings?start=${startISO}&page_size=10000&format=json&measurement_type=continuous&include_flagged=true&end=${endISO}`;
-    }
-    const headers: HeadersInit = keycloak?.token ? { 'Authorization': 'Bearer ' + keycloak.token } : {};
-    const annotUrl = `/api/service/sites/${siteId}/annotations?parameter_id=${parameterId}&start=${startISO}&end=${endISO}`;
-
-    // Grab sample URL — always fetched as raw readings with measurement_type=spot
-    const grabUrl = `/api/service/sites/${siteId}/readings?start=${startISO}&page_size=10000&format=json&measurement_type=spot&end=${endISO}`;
+    const isAggregate = hasPrefetchedData
+      ? (prefetchedIsAggregate ?? false)
+      : resolved !== 'raw';
 
     try {
-      const [res, annRes, grabRes] = await Promise.all([
-        fetch(url, { headers }),
-        fetch(annotUrl, { headers }).catch(() => null as Response | null),
-        showGrabSamples ? fetch(grabUrl, { headers }).catch(() => null as Response | null) : Promise.resolve(null),
-      ]);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const fetchedAnnotations: AnnotationData[] = annRes?.ok ? await annRes.json() : [];
-
-      // Parse grab sample data
+      let mainData: ReadingsResponse | AggregatesResponse;
+      let fetchedAnnotations: AnnotationData[];
       let grabTimes: number[] = [];
       let grabValues: (number | undefined)[] = [];
-      if (grabRes?.ok) {
-        const grabData: ReadingsResponse = await grabRes.json();
-        const grabParam = grabData.parameters?.find((p) => p.id === parameterId);
-        if (grabData.times?.length && grabParam) {
-          grabTimes = grabData.times.map((t) => new Date(t).getTime() / 1000);
-          grabValues = grabParam.values.map((v) => v ?? undefined) as (number | undefined)[];
+
+      if (hasPrefetchedData) {
+        // --- Prefetched path: skip HTTP, use parent-provided data ---
+        if (prefetchedData == null) {
+          // Parent is still loading or had an error
+          setLoading(false);
+          return;
+        }
+        mainData = prefetchedData;
+        fetchedAnnotations = (prefetchedAnnotations ?? []).filter(
+          (a) => a.parameter_id === parameterId,
+        );
+        if (showGrabSamples && prefetchedGrabData) {
+          const grabParam = prefetchedGrabData.parameters?.find((p) => p.id === parameterId);
+          if (prefetchedGrabData.times?.length && grabParam) {
+            grabTimes = prefetchedGrabData.times.map((t) => new Date(t).getTime() / 1000);
+            grabValues = grabParam.values.map((v) => v ?? undefined) as (number | undefined)[];
+          }
+        }
+      } else {
+        // --- HTTP fetch path (standalone mode) ---
+        let url: string;
+        if (isAggregate) {
+          url = `/api/service/sites/${siteId}/aggregates/${resolved}?start=${startISO}&format=json&end=${endISO}`;
+        } else {
+          url = `/api/service/sites/${siteId}/readings?start=${startISO}&page_size=10000&format=json&measurement_type=continuous&include_flagged=true&end=${endISO}`;
+        }
+        const annotUrl = `/api/service/sites/${siteId}/annotations?parameter_id=${parameterId}&start=${startISO}&end=${endISO}`;
+        const grabUrl = `/api/service/sites/${siteId}/readings?start=${startISO}&page_size=10000&format=json&measurement_type=spot&end=${endISO}`;
+
+        const [res, annRes, grabRes] = await Promise.all([
+          authFetch(url),
+          authFetch(annotUrl).catch((err) => { console.error('Failed to fetch annotations:', err); return null as Response | null; }),
+          showGrabSamples ? authFetch(grabUrl).catch((err) => { console.error('Failed to fetch grab samples:', err); return null as Response | null; }) : Promise.resolve(null),
+        ]);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+        mainData = await res.json();
+        fetchedAnnotations = annRes?.ok ? await annRes.json() : [];
+
+        if (grabRes?.ok) {
+          const grabDataResp: ReadingsResponse = await grabRes.json();
+          const grabParam = grabDataResp.parameters?.find((p) => p.id === parameterId);
+          if (grabDataResp.times?.length && grabParam) {
+            grabTimes = grabDataResp.times.map((t) => new Date(t).getTime() / 1000);
+            grabValues = grabParam.values.map((v) => v ?? undefined) as (number | undefined)[];
+          }
         }
       }
+
       setAnnotations(fetchedAnnotations);
       annotationsRef.current = fetchedAnnotations;
 
       if (isAggregate) {
-        const data: AggregatesResponse = await res.json();
+        const data = mainData as AggregatesResponse;
         const param = data.parameters?.find((p) => p.id === parameterId);
         if (!data.times?.length || !param) {
           uplotRef.current?.destroy();
           uplotRef.current = null;
           setChartData(null);
+          setNoData(true);
           return;
         }
 
@@ -583,7 +612,7 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
             {},
             { label: units ?? '', size: 60 },
           ],
-          cursor: { drag: { x: true, y: false } },
+          cursor: { ...(syncKey ? { sync: { key: syncKey } } : {}), drag: { x: true, y: false } },
           scales: { x: { time: true } },
         };
 
@@ -592,13 +621,14 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
           uplotRef.current = new uPlot(opts, allData, chartRef.current);
         }
       } else {
-        // Raw readings path (original logic)
-        const data: ReadingsResponse = await res.json();
+        // Raw readings path
+        const data = mainData as ReadingsResponse;
         const param = data.parameters?.find((p) => p.id === parameterId);
         if (!data.times?.length || !param) {
           uplotRef.current?.destroy();
           uplotRef.current = null;
           setChartData(null);
+          setNoData(true);
           return;
         }
 
@@ -683,7 +713,7 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
             {},
             { label: units ?? '', size: 60 },
           ],
-          cursor: { drag: { x: true, y: false } },
+          cursor: { ...(syncKey ? { sync: { key: syncKey } } : {}), drag: { x: true, y: false } },
           scales: { x: { time: true } },
         };
 
@@ -697,7 +727,7 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [siteId, parameterId, parameterName, units, threshold, start, end, aggregation, expanded, keycloak, showBands, showGrabSamples, showFlagged]);
+  }, [siteId, parameterId, parameterName, units, threshold, start, end, aggregation, effectiveExpanded, authFetch, showBands, showGrabSamples, showFlagged, hasPrefetchedData, prefetchedData, prefetchedIsAggregate, prefetchedAnnotations, prefetchedGrabData]);
 
   useEffect(() => {
     fetchData();
@@ -709,7 +739,7 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
 
   // Handle resize
   useEffect(() => {
-    if (!expanded || !chartRef.current) return;
+    if (!effectiveExpanded || !chartRef.current) return;
 
     const observer = new ResizeObserver(() => {
       if (uplotRef.current && chartRef.current) {
@@ -722,15 +752,13 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
 
     observer.observe(chartRef.current);
     return () => observer.disconnect();
-  }, [expanded]);
+  }, [effectiveExpanded]);
 
   const handleAnnotateSave = useCallback(async () => {
     if (!annotateRange) return;
-    const hdrs: HeadersInit = keycloak?.token
-      ? { 'Authorization': 'Bearer ' + keycloak.token, 'Content-Type': 'application/json' }
-      : { 'Content-Type': 'application/json' };
+    const hdrs: HeadersInit = { 'Content-Type': 'application/json' };
     try {
-      const res = await fetch('/api/service/annotations', {
+      const res = await authFetch('/api/service/annotations', {
         method: 'POST',
         headers: hdrs,
         body: JSON.stringify({
@@ -747,24 +775,23 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
       setAnnotateRange(null);
       setAnnotateText('');
       setAnnotateCategory('other');
-      fetchData();
+      if (onDataMutated) onDataMutated();
+      else fetchData();
     } catch (err) {
       console.error('Failed to save annotation:', err);
     }
-  }, [annotateRange, annotateText, annotateCategory, keycloak, siteId, parameterId, fetchData]);
+  }, [annotateRange, annotateText, annotateCategory, authFetch, siteId, parameterId, fetchData, onDataMutated]);
 
   const flagReadings = useCallback(async (indices: number[]) => {
     setFlagBusy(true);
-    const hdrs: HeadersInit = keycloak?.token
-      ? { 'Authorization': 'Bearer ' + keycloak.token, 'Content-Type': 'application/json' }
-      : { 'Content-Type': 'application/json' };
+    const hdrs: HeadersInit = { 'Content-Type': 'application/json' };
     const readings = indices.map((i) => ({
       site_id: siteId,
       parameter_id: parameterId,
       time: rawTimesISORef.current[i],
     }));
     try {
-      const res = await fetch('/api/service/readings/flag', {
+      const res = await authFetch('/api/service/readings/flag', {
         method: 'PATCH',
         headers: hdrs,
         body: JSON.stringify({ readings, reason: flagReason }),
@@ -773,26 +800,25 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
       setFlagPopoverAnchor(null);
       setFlagPointIdx(null);
       setFlagReason('');
-      fetchData();
+      if (onDataMutated) onDataMutated();
+      else fetchData();
     } catch (err) {
       console.error('Failed to flag readings:', err);
     } finally {
       setFlagBusy(false);
     }
-  }, [keycloak, siteId, parameterId, flagReason, fetchData]);
+  }, [authFetch, siteId, parameterId, flagReason, fetchData, onDataMutated]);
 
   const unflagReadings = useCallback(async (indices: number[]) => {
     setFlagBusy(true);
-    const hdrs: HeadersInit = keycloak?.token
-      ? { 'Authorization': 'Bearer ' + keycloak.token, 'Content-Type': 'application/json' }
-      : { 'Content-Type': 'application/json' };
+    const hdrs: HeadersInit = { 'Content-Type': 'application/json' };
     const readings = indices.map((i) => ({
       site_id: siteId,
       parameter_id: parameterId,
       time: rawTimesISORef.current[i],
     }));
     try {
-      const res = await fetch('/api/service/readings/unflag', {
+      const res = await authFetch('/api/service/readings/unflag', {
         method: 'PATCH',
         headers: hdrs,
         body: JSON.stringify({ readings }),
@@ -800,13 +826,14 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setFlagPopoverAnchor(null);
       setFlagPointIdx(null);
-      fetchData();
+      if (onDataMutated) onDataMutated();
+      else fetchData();
     } catch (err) {
       console.error('Failed to unflag readings:', err);
     } finally {
       setFlagBusy(false);
     }
-  }, [keycloak, siteId, parameterId, fetchData]);
+  }, [authFetch, siteId, parameterId, fetchData, onDataMutated]);
 
   const handleChartClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const u = uplotRef.current;
@@ -857,6 +884,241 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
     setFlagPopoverAnchor(e.currentTarget as HTMLElement);
   }, []);
 
+  const chartControls = (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+      {threshold && (
+        <Tooltip title={showBands ? 'Hide alarm bands' : 'Show alarm bands'}>
+          <Checkbox
+            size="small"
+            checked={showBands}
+            onChange={(e) => { e.stopPropagation(); setShowBands(e.target.checked); }}
+            onClick={(e) => e.stopPropagation()}
+            sx={{ p: 0.5 }}
+            inputProps={{ 'aria-label': 'Toggle alarm bands' }}
+          />
+        </Tooltip>
+      )}
+      <Tooltip title={showGrabSamples ? 'Hide grab samples' : 'Show grab samples'}>
+        <Checkbox
+          size="small"
+          checked={showGrabSamples}
+          onChange={(e) => { e.stopPropagation(); setShowGrabSamples(e.target.checked); }}
+          onClick={(e) => e.stopPropagation()}
+          sx={{ p: 0.5, color: '#ff9800', '&.Mui-checked': { color: '#ff9800' } }}
+          inputProps={{ 'aria-label': 'Toggle grab samples' }}
+        />
+      </Tooltip>
+      <Tooltip title={showFlagged ? 'Hide flagged points' : 'Show flagged points'}>
+        <Checkbox
+          size="small"
+          checked={showFlagged}
+          onChange={(e) => { e.stopPropagation(); setShowFlagged(e.target.checked); }}
+          onClick={(e) => e.stopPropagation()}
+          icon={<FlagIcon fontSize="small" sx={{ color: 'rgba(211, 47, 47, 0.4)' }} />}
+          checkedIcon={<FlagIcon fontSize="small" />}
+          sx={{ p: 0.5, color: '#d32f2f', '&.Mui-checked': { color: '#d32f2f' } }}
+          inputProps={{ 'aria-label': 'Toggle flagged points' }}
+        />
+      </Tooltip>
+    </Box>
+  );
+
+  const chartContent = (
+    <>
+      {loading && (
+        <Typography variant="caption" color="text.secondary">
+          Loading chart data...
+        </Typography>
+      )}
+      {!loading && noData && (
+        <Box sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: 80,
+          border: '1px dashed',
+          borderColor: 'divider',
+          borderRadius: 1,
+          bgcolor: 'action.hover',
+        }}>
+          <Typography variant="body2" color="text.secondary">
+            No data in selected range
+          </Typography>
+        </Box>
+      )}
+      <div style={{ position: 'relative', width: '100%', display: noData ? 'none' : 'block' }} onClick={handleChartClick}>
+        <div ref={chartRef} style={{ width: '100%' }} />
+        <div
+          ref={tooltipRef}
+          style={{
+            display: 'none',
+            position: 'absolute',
+            background: 'rgba(0,0,0,0.8)',
+            color: '#fff',
+            padding: '4px 8px',
+            borderRadius: 4,
+            fontSize: '0.75rem',
+            pointerEvents: 'none',
+            zIndex: 10,
+            maxWidth: 200,
+            whiteSpace: 'pre-wrap',
+          }}
+        />
+      </div>
+      {annotateRange && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
+          <Typography variant="caption" color="text.secondary">
+            Selected: {annotateRange.start.toLocaleString()} &ndash; {annotateRange.end.toLocaleString()}
+          </Typography>
+          <Button
+            size="small"
+            variant="contained"
+            onClick={() => setAnnotateDialogOpen(true)}
+          >
+            Annotate
+          </Button>
+          <Button
+            size="small"
+            onClick={() => setAnnotateRange(null)}
+          >
+            Dismiss
+          </Button>
+        </Box>
+      )}
+      <StatisticsPanel
+        parameterName={parameterName}
+        units={units}
+        data={chartData}
+      />
+    </>
+  );
+
+  // Shared mode: compact chart, no collapse, no per-chart slider
+  if (isSharedMode) {
+    return (
+      <>
+        <Box sx={{ borderBottom: '1px solid', borderColor: 'divider', pb: 1, mb: 0.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+            <Typography variant="subtitle2">
+              {parameterName} {units ? `(${units})` : ''}
+            </Typography>
+            {chartControls}
+          </Box>
+          {chartContent}
+        </Box>
+        <Dialog
+          open={annotateDialogOpen}
+          onClose={() => setAnnotateDialogOpen(false)}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>Add Annotation</DialogTitle>
+          <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+            <TextField
+              label="Text"
+              multiline
+              minRows={2}
+              value={annotateText}
+              onChange={(e) => setAnnotateText(e.target.value)}
+              fullWidth
+            />
+            <FormControl fullWidth>
+              <InputLabel>Category</InputLabel>
+              <Select
+                value={annotateCategory}
+                onChange={(e) => setAnnotateCategory(e.target.value)}
+                label="Category"
+              >
+                {ANNOTATION_CATEGORIES.map((c) => (
+                  <MenuItem key={c.value} value={c.value}>{c.label}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            {annotateRange && (
+              <Typography variant="caption" color="text.secondary">
+                Range: {annotateRange.start.toLocaleString()} &ndash; {annotateRange.end.toLocaleString()}
+              </Typography>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setAnnotateDialogOpen(false)}>Cancel</Button>
+            <Button
+              onClick={handleAnnotateSave}
+              variant="contained"
+              disabled={!annotateText.trim()}
+            >
+              Save
+            </Button>
+          </DialogActions>
+        </Dialog>
+        <Popover
+          open={Boolean(flagPopoverAnchor) && flagPointIdx != null}
+          anchorEl={flagPopoverAnchor}
+          onClose={() => { setFlagPopoverAnchor(null); setFlagPointIdx(null); }}
+          anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+          transformOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        >
+          <Box sx={{ p: 2, minWidth: 260 }}>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+              <FlagIcon fontSize="small" sx={{ verticalAlign: 'middle', mr: 0.5, color: '#d32f2f' }} />
+              {flagPointIdx != null && mergedFlaggedRef.current[flagPointIdx]
+                ? 'Flagged Reading'
+                : 'Flag Reading'}
+            </Typography>
+            {flagPointIdx != null && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                {rawTimesISORef.current[flagPointIdx]
+                  ? new Date(rawTimesISORef.current[flagPointIdx]).toLocaleString()
+                  : ''}
+              </Typography>
+            )}
+            {flagPointIdx != null && !mergedFlaggedRef.current[flagPointIdx] && (
+              <>
+                <TextField
+                  label="Reason"
+                  size="small"
+                  fullWidth
+                  value={flagReason}
+                  onChange={(e) => setFlagReason(e.target.value)}
+                  sx={{ mb: 1 }}
+                />
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="error"
+                  disabled={flagBusy || !flagReason.trim()}
+                  onClick={() => flagReadings([flagPointIdx])}
+                  fullWidth
+                >
+                  Flag
+                </Button>
+              </>
+            )}
+            {flagPointIdx != null && mergedFlaggedRef.current[flagPointIdx] && (
+              <>
+                {mergedFlagReasonsRef.current[flagPointIdx] && (
+                  <Typography variant="body2" sx={{ mb: 1 }}>
+                    Reason: {mergedFlagReasonsRef.current[flagPointIdx]}
+                  </Typography>
+                )}
+                <Button
+                  size="small"
+                  variant="outlined"
+                  disabled={flagBusy}
+                  onClick={() => unflagReadings([flagPointIdx])}
+                  fullWidth
+                >
+                  Unflag
+                </Button>
+              </>
+            )}
+          </Box>
+        </Popover>
+      </>
+    );
+  }
+
+  // Standalone mode: collapsible card with per-chart time range slider
   return (
     <Card variant="outlined" sx={{ mb: 1 }}>
       <Box
@@ -889,44 +1151,7 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
               </Select>
             </FormControl>
           )}
-          {expanded && threshold && (
-            <Tooltip title={showBands ? 'Hide alarm bands' : 'Show alarm bands'}>
-              <Checkbox
-                size="small"
-                checked={showBands}
-                onChange={(e) => { e.stopPropagation(); setShowBands(e.target.checked); }}
-                onClick={(e) => e.stopPropagation()}
-                sx={{ p: 0.5 }}
-                inputProps={{ 'aria-label': 'Toggle alarm bands' }}
-              />
-            </Tooltip>
-          )}
-          {expanded && (
-            <Tooltip title={showGrabSamples ? 'Hide grab samples' : 'Show grab samples'}>
-              <Checkbox
-                size="small"
-                checked={showGrabSamples}
-                onChange={(e) => { e.stopPropagation(); setShowGrabSamples(e.target.checked); }}
-                onClick={(e) => e.stopPropagation()}
-                sx={{ p: 0.5, color: '#ff9800', '&.Mui-checked': { color: '#ff9800' } }}
-                inputProps={{ 'aria-label': 'Toggle grab samples' }}
-              />
-            </Tooltip>
-          )}
-          {expanded && (
-            <Tooltip title={showFlagged ? 'Hide flagged points' : 'Show flagged points'}>
-              <Checkbox
-                size="small"
-                checked={showFlagged}
-                onChange={(e) => { e.stopPropagation(); setShowFlagged(e.target.checked); }}
-                onClick={(e) => e.stopPropagation()}
-                icon={<FlagIcon fontSize="small" sx={{ color: 'rgba(211, 47, 47, 0.4)' }} />}
-                checkedIcon={<FlagIcon fontSize="small" />}
-                sx={{ p: 0.5, color: '#d32f2f', '&.Mui-checked': { color: '#d32f2f' } }}
-                inputProps={{ 'aria-label': 'Toggle flagged points' }}
-              />
-            </Tooltip>
-          )}
+          {expanded && chartControls}
           <IconButton size="small">
             {expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
           </IconButton>
@@ -943,55 +1168,7 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
             end={end}
             onChange={handleRangeChange}
           />
-          {loading && (
-            <Typography variant="caption" color="text.secondary">
-              Loading chart data...
-            </Typography>
-          )}
-          <div style={{ position: 'relative', width: '100%' }} onClick={handleChartClick}>
-            <div ref={chartRef} style={{ width: '100%' }} />
-            <div
-              ref={tooltipRef}
-              style={{
-                display: 'none',
-                position: 'absolute',
-                background: 'rgba(0,0,0,0.8)',
-                color: '#fff',
-                padding: '4px 8px',
-                borderRadius: 4,
-                fontSize: '0.75rem',
-                pointerEvents: 'none',
-                zIndex: 10,
-                maxWidth: 200,
-                whiteSpace: 'pre-wrap',
-              }}
-            />
-          </div>
-          {annotateRange && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
-              <Typography variant="caption" color="text.secondary">
-                Selected: {annotateRange.start.toLocaleString()} &ndash; {annotateRange.end.toLocaleString()}
-              </Typography>
-              <Button
-                size="small"
-                variant="contained"
-                onClick={() => setAnnotateDialogOpen(true)}
-              >
-                Annotate
-              </Button>
-              <Button
-                size="small"
-                onClick={() => setAnnotateRange(null)}
-              >
-                Dismiss
-              </Button>
-            </Box>
-          )}
-          <StatisticsPanel
-            parameterName={parameterName}
-            units={units}
-            data={chartData}
-          />
+          {chartContent}
         </CardContent>
       </Collapse>
       <Dialog

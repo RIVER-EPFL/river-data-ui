@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
     useGetOne,
     useGetList,
@@ -52,6 +52,9 @@ import { ScatterPlot } from '../../components/charts/ScatterPlot';
 import { StatusEventsTimeline } from './StatusEventsTimeline';
 import { AssignToSiteDialog } from '../derived_parameters/AssignToSiteDialog';
 import { useLatestReadings, useSensorGroups } from './hooks';
+import { TimeRangeSlider } from '../../components/TimeRangeSlider';
+import { useSiteDataRange } from '../../hooks/useSiteDataRange';
+import { useSiteChartData } from '../../hooks/useSiteChartData';
 import type {
     ParameterRecord,
     SensorDeploymentRecord,
@@ -896,6 +899,20 @@ const StationHub = () => {
         return { active, inactive: parameters.length - active, total: parameters.length, sensorsActive };
     }, [parameters, sensorGroups]);
 
+    const [sensorsExpanded, setSensorsExpanded] = useState(false);
+
+    // Shared time range for all charts (dashboard-like)
+    const dataRange = useSiteDataRange(id ? [id] : []);
+    const [sharedStart, setSharedStart] = useState<number>(() => Date.now() - 24 * 60 * 60 * 1000);
+    const [sharedEnd, setSharedEnd] = useState<number>(Date.now);
+    const handleSharedRangeChange = useCallback((s: number, e: number) => {
+        setSharedStart(s);
+        setSharedEnd(e);
+    }, []);
+
+    // Fetch all chart data once for the site (readings + annotations + grab samples)
+    const chartData = useSiteChartData(id, sharedStart, sharedEnd);
+
     // Loading / Error states
     if (siteLoading || paramsLoading || deploymentsLoading) {
         return <Loading />;
@@ -930,55 +947,81 @@ const StationHub = () => {
                 statusSummary={statusSummary}
             />
 
-            {/* Sensor Cards */}
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-                <Typography variant="h6">
-                    Deployed Sensors
-                </Typography>
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                    <Button
-                        variant="outlined"
+            {/* Sensor Cards (collapsible) */}
+            <Box
+                sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    mb: sensorsExpanded ? 2 : 0,
+                    cursor: 'pointer',
+                }}
+                onClick={() => setSensorsExpanded(!sensorsExpanded)}
+            >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <SensorsIcon color="action" />
+                    <Typography variant="h6">
+                        Deployed Sensors
+                    </Typography>
+                    <Chip
+                        label={`${statusSummary.sensorsActive} sensor${statusSummary.sensorsActive !== 1 ? 's' : ''}, ${statusSummary.total} parameters`}
                         size="small"
-                        startIcon={<AddIcon />}
-                        onClick={() => setAddParamOpen(true)}
-                    >
-                        Add Parameter
-                    </Button>
-                    <Button
                         variant="outlined"
-                        size="small"
-                        startIcon={<SensorsIcon />}
-                        onClick={() => setDeploySensorOpen(true)}
-                        disabled={!(parameters ?? []).some((p) => !p.is_derived)}
-                    >
-                        Deploy Sensor
-                    </Button>
+                    />
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    {sensorsExpanded && (
+                        <>
+                            <Button
+                                variant="outlined"
+                                size="small"
+                                startIcon={<AddIcon />}
+                                onClick={(e) => { e.stopPropagation(); setAddParamOpen(true); }}
+                            >
+                                Add Parameter
+                            </Button>
+                            <Button
+                                variant="outlined"
+                                size="small"
+                                startIcon={<SensorsIcon />}
+                                onClick={(e) => { e.stopPropagation(); setDeploySensorOpen(true); }}
+                                disabled={!(parameters ?? []).some((p) => !p.is_derived)}
+                            >
+                                Deploy Sensor
+                            </Button>
+                        </>
+                    )}
+                    <IconButton size="small">
+                        {sensorsExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                    </IconButton>
                 </Box>
             </Box>
 
-            {sensorGroups.length === 0 && (
-                <Alert severity="info" sx={{ mb: 2 }}>
-                    No sensor deployments found for this site.
-                </Alert>
-            )}
+            <Collapse in={sensorsExpanded}>
+                {sensorGroups.length === 0 && (
+                    <Alert severity="info" sx={{ mb: 2 }}>
+                        No sensor deployments found for this site.
+                    </Alert>
+                )}
 
-            <Grid container spacing={2}>
-                {sensorGroups.map((group) => (
-                    <Grid key={group.sensorId} size={{ xs: 12, md: 6, xl: 4 }}>
-                        <SensorCard
-                            group={group}
-                            thresholdsByParam={thresholdsByParam}
-                            latestByParam={latestByParam}
-                            siteName={site.name}
-                        />
-                    </Grid>
-                ))}
-            </Grid>
+                <Grid container spacing={2}>
+                    {sensorGroups.map((group) => (
+                        <Grid key={group.sensorId} size={{ xs: 12, md: 6, xl: 4 }}>
+                            <SensorCard
+                                group={group}
+                                thresholdsByParam={thresholdsByParam}
+                                latestByParam={latestByParam}
+                                siteName={site.name}
+                            />
+                        </Grid>
+                    ))}
+                </Grid>
+            </Collapse>
 
-            {/* Charts */}
+            {/* Charts — dashboard-like: single shared time range, all visible */}
             {(parameters ?? []).filter((p) => !p.is_derived).length > 0 && (
                 <Box sx={{ mt: 3 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
                         <Typography variant="h6">
                             Time Series
                         </Typography>
@@ -991,24 +1034,41 @@ const StationHub = () => {
                             Export Data
                         </Button>
                     </Box>
-                    {(parameters ?? [])
-                        .filter((p) => !p.is_derived)
-                        .map((param, index) => (
-                            <ParameterChart
-                                key={param.id}
-                                siteId={id!}
-                                parameterId={param.id}
-                                parameterName={param.name}
-                                units={param.display_units}
-                                threshold={thresholdsByParam.get(param.id) ? {
-                                    warning_min: thresholdsByParam.get(param.id)!.warning_min,
-                                    warning_max: thresholdsByParam.get(param.id)!.warning_max,
-                                    alarm_min: thresholdsByParam.get(param.id)!.alarm_min,
-                                    alarm_max: thresholdsByParam.get(param.id)!.alarm_max,
-                                } : undefined}
-                                defaultExpanded={index < 3}
-                            />
-                        ))}
+                    <TimeRangeSlider
+                        dataMin={dataRange.min}
+                        dataMax={dataRange.max}
+                        loading={dataRange.loading}
+                        start={sharedStart}
+                        end={sharedEnd}
+                        onChange={handleSharedRangeChange}
+                    />
+                    <Card variant="outlined" sx={{ mt: 1, p: 2 }}>
+                        {(parameters ?? [])
+                            .filter((p) => !p.is_derived)
+                            .map((param) => (
+                                <ParameterChart
+                                    key={param.id}
+                                    siteId={id!}
+                                    parameterId={param.id}
+                                    parameterName={param.name}
+                                    units={param.display_units}
+                                    threshold={thresholdsByParam.get(param.id) ? {
+                                        warning_min: thresholdsByParam.get(param.id)!.warning_min,
+                                        warning_max: thresholdsByParam.get(param.id)!.warning_max,
+                                        alarm_min: thresholdsByParam.get(param.id)!.alarm_min,
+                                        alarm_max: thresholdsByParam.get(param.id)!.alarm_max,
+                                    } : undefined}
+                                    externalStart={sharedStart}
+                                    externalEnd={sharedEnd}
+                                    syncKey="station-hub"
+                                    prefetchedData={chartData.data}
+                                    prefetchedIsAggregate={chartData.isAggregate}
+                                    prefetchedAnnotations={chartData.annotations}
+                                    prefetchedGrabData={chartData.grabData}
+                                    onDataMutated={chartData.refetch}
+                                />
+                            ))}
+                    </Card>
                 </Box>
             )}
 

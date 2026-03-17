@@ -17,7 +17,7 @@ import sensorDeployments from './sensor_deployments';
 import derivedParameters from './derived_parameters';
 import alarmThresholds from './alarm_thresholds';
 import tokens from './tokens';
-import syncStatus from './sync_status';
+
 import publicExposedParameters from './public_exposed_parameters';
 import standardCurves from './standard_curves';
 import users from './users';
@@ -40,7 +40,7 @@ export const resources = [
 export const hiddenResources = [
   { name: 'site_parameters', ...siteParameters },
   { name: 'tokens', ...tokens },
-  { name: 'sync_status', ...syncStatus },
+
   { name: 'alarm_thresholds', ...alarmThresholds },
   { name: 'sensor_calibrations', ...sensorCalibrations },
   { name: 'sensor_deployments', ...sensorDeployments },

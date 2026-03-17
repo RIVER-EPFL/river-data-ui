@@ -23,13 +23,22 @@ import {
   IconButton,
   Tooltip,
   Snackbar,
+  Divider,
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
 } from '@mui/material';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PauseIcon from '@mui/icons-material/Pause';
 import SyncIcon from '@mui/icons-material/Sync';
 import { useRiverDataProvider } from '../../useRiverDataProvider';
-import type { SyncService, SyncCommand, ServiceCredential } from '../../dataProvider';
+import type { SyncService, SyncCommand, SyncEvent, ServiceCredential } from '../../dataProvider';
+import { formatRelativeTime } from '../../utils/formatRelativeTime';
 
 const healthColor = (service: SyncService) => {
   if (!service.last_heartbeat) return 'grey';
@@ -49,8 +58,12 @@ const statusChipColor = (status: string): 'default' | 'primary' | 'success' | 'e
   }
 };
 
-const commandStatusColor = (status: string): 'default' | 'primary' | 'success' | 'error' | 'warning' => {
-  switch (status) {
+const commandStatusColor = (cmd: SyncCommand): 'default' | 'primary' | 'success' | 'error' | 'warning' => {
+  if (cmd.status === 'completed' && cmd.result) {
+    const errors = (cmd.result as Record<string, unknown>).errors;
+    if (Array.isArray(errors) && errors.length > 0) return 'warning';
+  }
+  switch (cmd.status) {
     case 'pending': return 'default';
     case 'acknowledged': return 'primary';
     case 'completed': return 'success';
@@ -60,17 +73,23 @@ const commandStatusColor = (status: string): 'default' | 'primary' | 'success' |
   }
 };
 
-const formatRelativeTime = (dateStr: string | null): string => {
-  if (!dateStr) return '-';
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const seconds = Math.floor(diff / 1000);
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+const syncEventStatusColor = (status: string): 'default' | 'primary' | 'success' | 'error' | 'warning' => {
+  switch (status) {
+    case 'running': return 'primary';
+    case 'completed': return 'success';
+    case 'partial': return 'warning';
+    case 'failed': return 'error';
+    default: return 'default';
+  }
+};
+
+const formatDurationMs = (ms: number | null): string => {
+  if (ms === null) return '-';
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  const minutes = Math.floor(ms / 60_000);
+  const secs = Math.floor((ms % 60_000) / 1000);
+  return `${minutes}m ${secs}s`;
 };
 
 const formatDuration = (cmd: SyncCommand): string => {
@@ -89,6 +108,7 @@ export const SyncServicesPanel = () => {
   const notify = useNotify();
   const [services, setServices] = useState<SyncService[]>([]);
   const [commands, setCommands] = useState<SyncCommand[]>([]);
+  const [syncEvents, setSyncEvents] = useState<SyncEvent[]>([]);
   const [credentials, setCredentials] = useState<ServiceCredential[]>([]);
   const [loading, setLoading] = useState(true);
   const [snackbar, setSnackbar] = useState<string | null>(null);
@@ -102,18 +122,23 @@ export const SyncServicesPanel = () => {
   const [revokeDialogOpen, setRevokeDialogOpen] = useState(false);
   const [revokeTarget, setRevokeTarget] = useState<ServiceCredential | null>(null);
 
+  // Event detail dialog
+  const [selectedEvent, setSelectedEvent] = useState<SyncEvent | null>(null);
+
   const refresh = useCallback(async () => {
     try {
-      const [svcRes, cmdRes, credRes] = await Promise.all([
+      const [svcRes, cmdRes, evtRes, credRes] = await Promise.all([
         dataProvider.getSyncServices(),
         dataProvider.getSyncCommands(),
+        dataProvider.getSyncEvents(),
         dataProvider.listServiceCredentials(),
       ]);
       setServices(svcRes.data);
       setCommands(cmdRes.data);
+      setSyncEvents(evtRes.data);
       setCredentials(credRes.data);
-    } catch {
-      // Silently fail on refresh
+    } catch (err) {
+      console.error('Failed to refresh sync services data:', err);
     }
   }, [dataProvider]);
 
@@ -285,7 +310,7 @@ export const SyncServicesPanel = () => {
               <TableHead>
                 <TableRow>
                   <TableCell>Client ID</TableCell>
-                  <TableCell>Service Type</TableCell>
+                  <TableCell>Service Name</TableCell>
                   <TableCell>Linked Service</TableCell>
                   <TableCell>Status</TableCell>
                   <TableCell>Created</TableCell>
@@ -356,37 +381,52 @@ export const SyncServicesPanel = () => {
                   <TableCell>Service</TableCell>
                   <TableCell>Command</TableCell>
                   <TableCell>Status</TableCell>
+                  <TableCell>Result</TableCell>
                   <TableCell>Duration</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {commands.slice(0, 20).map((cmd) => (
-                  <TableRow key={cmd.id}>
-                    <TableCell>{formatRelativeTime(cmd.created_at)}</TableCell>
-                    <TableCell>
-                      {services.find((s) => s.id === cmd.service_id)?.service_type || cmd.service_id.slice(0, 8)}
-                    </TableCell>
-                    <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
-                      {cmd.command}
-                    </TableCell>
-                    <TableCell>
-                      <Tooltip
-                        title={cmd.status === 'failed' && cmd.result ? JSON.stringify(cmd.result) : ''}
-                      >
-                        <Chip
-                          label={cmd.status}
-                          color={commandStatusColor(cmd.status)}
-                          size="small"
-                          variant={cmd.status === 'expired' ? 'outlined' : 'filled'}
-                        />
-                      </Tooltip>
-                    </TableCell>
-                    <TableCell>{formatDuration(cmd)}</TableCell>
-                  </TableRow>
-                ))}
+                {commands.slice(0, 20).map((cmd) => {
+                  const result = cmd.result as Record<string, unknown> | null;
+                  const readingsCount = result?.readings_synced as number | undefined;
+                  const errorCount = Array.isArray(result?.errors) ? (result.errors as unknown[]).length : 0;
+                  const resultText = result
+                    ? [
+                        readingsCount !== undefined ? `${readingsCount} readings` : null,
+                        errorCount > 0 ? `${errorCount} error${errorCount > 1 ? 's' : ''}` : null,
+                        result?.error ? 'error' : null,
+                      ].filter(Boolean).join(', ') || '-'
+                    : '-';
+
+                  return (
+                    <TableRow key={cmd.id}>
+                      <TableCell>{formatRelativeTime(cmd.created_at)}</TableCell>
+                      <TableCell>
+                        {services.find((s) => s.id === cmd.service_id)?.service_type || cmd.service_id.slice(0, 8)}
+                      </TableCell>
+                      <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                        {cmd.command}
+                      </TableCell>
+                      <TableCell>
+                        <Tooltip
+                          title={cmd.result ? JSON.stringify(cmd.result, null, 2) : ''}
+                        >
+                          <Chip
+                            label={cmd.status}
+                            color={commandStatusColor(cmd)}
+                            size="small"
+                            variant={cmd.status === 'expired' ? 'outlined' : 'filled'}
+                          />
+                        </Tooltip>
+                      </TableCell>
+                      <TableCell sx={{ fontSize: '0.85rem' }}>{resultText}</TableCell>
+                      <TableCell>{formatDuration(cmd)}</TableCell>
+                    </TableRow>
+                  );
+                })}
                 {commands.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5} align="center">
+                    <TableCell colSpan={6} align="center">
                       No commands yet.
                     </TableCell>
                   </TableRow>
@@ -397,6 +437,259 @@ export const SyncServicesPanel = () => {
         </CardContent>
       </Card>
 
+      {/* Section 4: Sync History */}
+      <Card>
+        <CardContent>
+          <Typography variant="h6" gutterBottom>
+            Sync History
+          </Typography>
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Time</TableCell>
+                  <TableCell>Service</TableCell>
+                  <TableCell>Type</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell>Readings</TableCell>
+                  <TableCell>Status Events</TableCell>
+                  <TableCell>Duration</TableCell>
+                  <TableCell>Errors</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {syncEvents.slice(0, 30).map((evt) => {
+                  const errorList = Array.isArray(evt.errors) ? evt.errors : [];
+                  return (
+                    <TableRow
+                      key={evt.id}
+                      hover
+                      sx={{ cursor: 'pointer' }}
+                      onClick={() => setSelectedEvent(evt)}
+                    >
+                      <TableCell>{formatRelativeTime(evt.started_at)}</TableCell>
+                      <TableCell>
+                        {services.find((s) => s.id === evt.service_id)?.service_type || evt.service_id.slice(0, 8)}
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          label={evt.event_type}
+                          size="small"
+                          variant="outlined"
+                          color={evt.event_type === 'full_sync' ? 'primary' : evt.event_type === 'triggered' ? 'info' : 'default'}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          label={evt.status}
+                          color={syncEventStatusColor(evt.status)}
+                          size="small"
+                        />
+                      </TableCell>
+                      <TableCell>{evt.readings_synced}</TableCell>
+                      <TableCell>{evt.status_events_synced}</TableCell>
+                      <TableCell>{formatDurationMs(evt.duration_ms)}</TableCell>
+                      <TableCell>
+                        {errorList.length > 0 ? (
+                          <Chip
+                            label={`${errorList.length}`}
+                            color="error"
+                            size="small"
+                            variant="outlined"
+                          />
+                        ) : (
+                          '-'
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+                {syncEvents.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={8} align="center">
+                      No sync events yet.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </CardContent>
+      </Card>
+
+      {/* Sync Event Detail Dialog */}
+      <Dialog
+        open={!!selectedEvent}
+        onClose={() => setSelectedEvent(null)}
+        maxWidth="md"
+        fullWidth
+      >
+        {selectedEvent && (() => {
+          const svc = services.find((s) => s.id === selectedEvent.service_id);
+          const linkedCmd = selectedEvent.command_id
+            ? commands.find((c) => c.id === selectedEvent.command_id)
+            : null;
+          const errorList = Array.isArray(selectedEvent.errors) ? selectedEvent.errors : [];
+          const logList = Array.isArray(selectedEvent.log) ? selectedEvent.log : [];
+
+          return (
+            <>
+              <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                Sync Event Detail
+                <Chip
+                  label={selectedEvent.status}
+                  color={syncEventStatusColor(selectedEvent.status)}
+                  size="small"
+                  sx={{ ml: 1 }}
+                />
+              </DialogTitle>
+              <DialogContent>
+                {/* Summary grid */}
+                <Box
+                  display="grid"
+                  gridTemplateColumns="1fr 1fr"
+                  gap={2}
+                  sx={{ mb: 3 }}
+                >
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Service</Typography>
+                    <Typography variant="body1">
+                      {svc ? `${svc.service_type} (${svc.instance_id})` : selectedEvent.service_id.slice(0, 8)}
+                    </Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Type</Typography>
+                    <Typography variant="body1">
+                      <Chip
+                        label={selectedEvent.event_type}
+                        size="small"
+                        variant="outlined"
+                        color={selectedEvent.event_type === 'full_sync' ? 'primary' : selectedEvent.event_type === 'triggered' ? 'info' : 'default'}
+                      />
+                    </Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Started</Typography>
+                    <Typography variant="body1">
+                      {new Date(selectedEvent.started_at).toLocaleString()}
+                    </Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Completed</Typography>
+                    <Typography variant="body1">
+                      {selectedEvent.completed_at
+                        ? new Date(selectedEvent.completed_at).toLocaleString()
+                        : selectedEvent.status === 'running' ? 'In progress...' : '-'}
+                    </Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Duration</Typography>
+                    <Typography variant="body1">{formatDurationMs(selectedEvent.duration_ms)}</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Triggered by</Typography>
+                    <Typography variant="body1">
+                      {linkedCmd
+                        ? `Command: ${linkedCmd.command}`
+                        : selectedEvent.command_id
+                          ? `Command ${selectedEvent.command_id.slice(0, 8)}...`
+                          : 'Scheduled'}
+                    </Typography>
+                  </Box>
+                </Box>
+
+                <Divider sx={{ mb: 2 }} />
+
+                {/* Results */}
+                <Typography variant="subtitle2" gutterBottom>Results</Typography>
+                <Box
+                  display="grid"
+                  gridTemplateColumns="1fr 1fr"
+                  gap={2}
+                  sx={{ mb: 3 }}
+                >
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Readings Synced</Typography>
+                    <Typography variant="h6">{selectedEvent.readings_synced}</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Status Events Synced</Typography>
+                    <Typography variant="h6">{selectedEvent.status_events_synced}</Typography>
+                  </Box>
+                </Box>
+
+                {/* Log */}
+                {logList.length > 0 && (
+                  <>
+                    <Divider sx={{ mb: 2 }} />
+                    <Typography variant="subtitle2" gutterBottom>
+                      Log
+                    </Typography>
+                    <List dense disablePadding>
+                      {logList.map((entry, i) => (
+                        <ListItem key={i} sx={{ pl: 0, py: 0.25 }}>
+                          <ListItemIcon sx={{ minWidth: 32 }}>
+                            {entry.toLowerCase().includes('ok') || entry.toLowerCase().includes('events')
+                              ? <CheckCircleOutlineIcon color="success" fontSize="small" />
+                              : <InfoOutlinedIcon color="info" fontSize="small" />}
+                          </ListItemIcon>
+                          <ListItemText
+                            primary={entry}
+                            primaryTypographyProps={{
+                              variant: 'body2',
+                              sx: { fontFamily: 'monospace', fontSize: '0.85rem' },
+                            }}
+                          />
+                        </ListItem>
+                      ))}
+                    </List>
+                  </>
+                )}
+
+                {/* Errors */}
+                {errorList.length > 0 && (
+                  <>
+                    <Divider sx={{ mb: 2 }} />
+                    <Typography variant="subtitle2" gutterBottom color="error">
+                      Errors ({errorList.length})
+                    </Typography>
+                    <List dense disablePadding>
+                      {errorList.map((err, i) => (
+                        <ListItem key={i} sx={{ pl: 0, py: 0.25 }}>
+                          <ListItemIcon sx={{ minWidth: 32 }}>
+                            <ErrorOutlineIcon color="error" fontSize="small" />
+                          </ListItemIcon>
+                          <ListItemText
+                            primary={err}
+                            primaryTypographyProps={{
+                              variant: 'body2',
+                              sx: { fontFamily: 'monospace', fontSize: '0.85rem', wordBreak: 'break-all' },
+                            }}
+                          />
+                        </ListItem>
+                      ))}
+                    </List>
+                  </>
+                )}
+
+                {/* IDs */}
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="caption" color="text.secondary" component="div" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                  Event ID: {selectedEvent.id}
+                  {selectedEvent.command_id && (<><br />Command ID: {selectedEvent.command_id}</>)}
+                  <br />Service ID: {selectedEvent.service_id}
+                </Typography>
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => setSelectedEvent(null)} variant="contained">
+                  Close
+                </Button>
+              </DialogActions>
+            </>
+          );
+        })()}
+      </Dialog>
+
       {/* Create Credential Dialog */}
       <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Create Service Credential</DialogTitle>
@@ -405,7 +698,7 @@ export const SyncServicesPanel = () => {
             <TextField
               autoFocus
               margin="dense"
-              label="Service Type"
+              label="Service Name"
               fullWidth
               variant="outlined"
               value={newServiceType}
