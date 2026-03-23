@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Title, useNotify } from 'react-admin';
 import {
   Card,
@@ -12,50 +12,65 @@ import {
   Chip,
   CircularProgress,
   Box,
+  Typography,
   Button,
-  Alert,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
-import SyncIcon from '@mui/icons-material/Sync';
+import LinkIcon from '@mui/icons-material/Link';
+import LinkOffIcon from '@mui/icons-material/LinkOff';
+import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import { useRiverDataProvider } from '../../useRiverDataProvider';
-
-interface SyncState {
-  site_parameter_id: string;
-  last_data_time: string | null;
-  last_sync_attempt: string | null;
-  sync_status: string | null;
-  error_message: string | null;
-  retry_count: number | null;
-  last_full_sync: string | null;
-}
+import type { StreamState } from '../../dataProvider';
+import { DiscoveryWizard } from './DiscoveryWizard';
+import { StreamPairDialog } from './StreamPairDialog';
 
 const SyncStatusList = () => {
   const dataProvider = useRiverDataProvider();
   const notify = useNotify();
-  const [syncStates, setSyncStates] = useState<SyncState[]>([]);
+  const [streams, setStreams] = useState<StreamState[]>([]);
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
 
-  useEffect(() => {
-    dataProvider
+  // Pair dialog
+  const [pairDialogOpen, setPairDialogOpen] = useState(false);
+  const [pairTarget, setPairTarget] = useState<StreamState | null>(null);
+
+  // Unpair dialog
+  const [unpairDialogOpen, setUnpairDialogOpen] = useState(false);
+  const [unpairTarget, setUnpairTarget] = useState<StreamState | null>(null);
+  const [unpairing, setUnpairing] = useState(false);
+
+  const refresh = useCallback(() => {
+    return dataProvider
       .getSyncState()
-      .then((res: { data: unknown }) => setSyncStates(res.data as SyncState[]))
-      .catch(() => notify('Failed to load sync status', { type: 'error' }))
-      .finally(() => setLoading(false));
+      .then((res) => setStreams(res.data))
+      .catch(() => notify('Failed to load sync status', { type: 'error' }));
   }, [dataProvider, notify]);
 
-  const handleTriggerSync = async () => {
-    setSyncing(true);
-    setSyncMessage(null);
+  useEffect(() => {
+    refresh().finally(() => setLoading(false));
+  }, [refresh]);
+
+  const openPairDialog = (stream: StreamState) => {
+    setPairTarget(stream);
+    setPairDialogOpen(true);
+  };
+
+  const handleUnpair = async () => {
+    if (!unpairTarget) return;
+    setUnpairing(true);
     try {
-      await dataProvider.triggerSync();
-      setSyncMessage('Full sync triggered successfully');
-      const res = await dataProvider.getSyncState();
-      setSyncStates(res.data as SyncState[]);
+      await dataProvider.unpairStream(unpairTarget.id);
+      notify('Stream unpaired successfully', { type: 'success' });
+      setUnpairDialogOpen(false);
+      await refresh();
     } catch {
-      setSyncMessage('Failed to trigger sync');
+      notify('Failed to unpair stream', { type: 'error' });
     } finally {
-      setSyncing(false);
+      setUnpairing(false);
     }
   };
 
@@ -67,84 +82,132 @@ const SyncStatusList = () => {
     );
   }
 
-  const statusColor = (status: string | null): 'success' | 'error' | 'warning' | 'default' => {
-    if (status === 'success') return 'success';
-    if (status === 'error') return 'error';
-    if (status === 'pending') return 'warning';
-    return 'default';
-  };
+  const unpairedCount = streams.filter((s) => !s.site_parameter_id).length;
 
   return (
     <>
-      <Title title="Sync Status" />
+      <Title title="Data Streams" />
+      {unpairedCount > 0 && (
+        <Box display="flex" justifyContent="flex-end" mb={1}>
+          <Button
+            variant="contained"
+            startIcon={<AutoFixHighIcon />}
+            onClick={() => setWizardOpen(true)}
+          >
+            Auto-Discover & Pair ({unpairedCount} unpaired)
+          </Button>
+        </Box>
+      )}
       <Card>
         <CardContent>
-          <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
-            <Box />
-            <Button
-              variant="contained"
-              startIcon={syncing ? <CircularProgress size={20} color="inherit" /> : <SyncIcon />}
-              onClick={handleTriggerSync}
-              disabled={syncing}
-            >
-              Trigger Full Sync
-            </Button>
-          </Box>
-          {syncMessage && (
-            <Alert
-              severity={syncMessage.includes('Failed') ? 'error' : 'success'}
-              sx={{ mb: 2 }}
-              onClose={() => setSyncMessage(null)}
-            >
-              {syncMessage}
-            </Alert>
-          )}
-          <TableContainer>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Parameter ID</TableCell>
-                  <TableCell>Status</TableCell>
-                  <TableCell>Last Data</TableCell>
-                  <TableCell>Last Sync</TableCell>
-                  <TableCell>Last Full Sync</TableCell>
-                  <TableCell>Retries</TableCell>
-                  <TableCell>Error</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {syncStates.map((s) => (
-                  <TableRow key={s.site_parameter_id}>
-                    <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
-                      {s.site_parameter_id.slice(0, 8)}...
-                    </TableCell>
-                    <TableCell>
-                      <Chip
-                        label={s.sync_status ?? 'unknown'}
-                        color={statusColor(s.sync_status)}
-                        size="small"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      {s.last_data_time ? new Date(s.last_data_time).toLocaleString() : '-'}
-                    </TableCell>
-                    <TableCell>
-                      {s.last_sync_attempt ? new Date(s.last_sync_attempt).toLocaleString() : '-'}
-                    </TableCell>
-                    <TableCell>
-                      {s.last_full_sync ? new Date(s.last_full_sync).toLocaleString() : '-'}
-                    </TableCell>
-                    <TableCell>{s.retry_count ?? 0}</TableCell>
-                    <TableCell sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {s.error_message ?? '-'}
-                    </TableCell>
+          {streams.length === 0 ? (
+            <Typography color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
+              No data streams registered
+            </Typography>
+          ) : (
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Source</TableCell>
+                    <TableCell>Key</TableCell>
+                    <TableCell>Name</TableCell>
+                    <TableCell>Paired</TableCell>
+                    <TableCell>Active</TableCell>
+                    <TableCell>Last Data</TableCell>
+                    <TableCell>Actions</TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+                </TableHead>
+                <TableBody>
+                  {streams.map((s) => (
+                    <TableRow key={s.id}>
+                      <TableCell>{s.source_system}</TableCell>
+                      <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                        {s.source_key}
+                      </TableCell>
+                      <TableCell>{s.source_name ?? '-'}</TableCell>
+                      <TableCell>
+                        <Chip
+                          label={s.site_parameter_id ? 'Paired' : 'Unpaired'}
+                          color={s.site_parameter_id ? 'success' : 'default'}
+                          size="small"
+                          variant="outlined"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          label={s.is_active ? 'Active' : 'Inactive'}
+                          color={s.is_active ? 'success' : 'default'}
+                          size="small"
+                          variant="outlined"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        {s.last_data_time ? new Date(s.last_data_time).toLocaleString() : '-'}
+                      </TableCell>
+                      <TableCell>
+                        {s.site_parameter_id ? (
+                          <Button
+                            size="small"
+                            color="warning"
+                            startIcon={<LinkOffIcon />}
+                            onClick={() => {
+                              setUnpairTarget(s);
+                              setUnpairDialogOpen(true);
+                            }}
+                          >
+                            Unpair
+                          </Button>
+                        ) : (
+                          <Button
+                            size="small"
+                            color="primary"
+                            startIcon={<LinkIcon />}
+                            onClick={() => openPairDialog(s)}
+                          >
+                            Pair
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
         </CardContent>
       </Card>
+
+      {/* Pair Dialog */}
+      <StreamPairDialog
+        open={pairDialogOpen}
+        stream={pairTarget}
+        onClose={() => setPairDialogOpen(false)}
+        onPaired={() => refresh()}
+      />
+
+      {/* Unpair Dialog */}
+      <Dialog open={unpairDialogOpen} onClose={() => setUnpairDialogOpen(false)}>
+        <DialogTitle>Unpair Stream</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Remove pairing from <strong>{unpairTarget?.source_name}</strong>?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setUnpairDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleUnpair} color="warning" variant="contained" disabled={unpairing}>
+            {unpairing ? 'Unpairing...' : 'Unpair'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Discovery Wizard */}
+      <DiscoveryWizard
+        open={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+        onComplete={() => refresh()}
+      />
     </>
   );
 };

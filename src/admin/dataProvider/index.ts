@@ -78,6 +78,76 @@ export interface SyncEvent {
   duration_ms: number | null;
 }
 
+export interface StreamState {
+  id: string;
+  source_system: string;
+  source_key: string;
+  source_name: string | null;
+  source_path: string | null;
+  metadata: Record<string, unknown>;
+  site_parameter_id: string | null;
+  is_active: boolean;
+  last_data_time: string | null;
+}
+
+export interface StreamStats {
+  stream_id: string;
+  reading_count: number;
+  min_time: string | null;
+  max_time: string | null;
+  latest_value: number | null;
+}
+
+export interface DiscoveryMatch {
+  id: string;
+  name: string;
+}
+
+export interface DiscoverySuggestion {
+  match: DiscoveryMatch | null;
+  confidence: 'exact' | 'fuzzy' | 'none';
+  suggested_name?: string;
+  suggested_units?: string;
+}
+
+export interface DiscoveryItem {
+  stream: {
+    id: string;
+    source_name: string | null;
+    source_path: string | null;
+    metadata: Record<string, unknown>;
+  };
+  suggestions: {
+    project: DiscoverySuggestion;
+    site: DiscoverySuggestion;
+    parameter: DiscoverySuggestion;
+    site_parameter: DiscoverySuggestion;
+  };
+  action: 'pair_existing' | 'create_and_pair' | 'needs_input';
+}
+
+export interface ApplyAction {
+  stream_id: string;
+  create_project?: { name: string } | null;
+  create_site?: { name: string } | null;
+  create_parameter?: { name: string; display_name: string; default_units: string; category: string } | null;
+  create_site_parameter?: { display_units?: string; sample_interval_sec?: number; channel_id?: number } | null;
+  pair_to: string;
+  use_project_id?: string | null;
+  use_site_id?: string | null;
+  use_parameter_id?: string | null;
+}
+
+export interface ApplyDiscoveryResponse {
+  projects_created: number;
+  sites_created: number;
+  parameters_created: number;
+  site_parameters_created: number;
+  streams_paired: number;
+  total_backfilled: number;
+  errors: string[];
+}
+
 export interface SearchResponse {
   query: string;
   results: {
@@ -130,7 +200,12 @@ export interface RiverDataProvider extends DataProvider {
   search: (query: string) => Promise<{ data: SearchResponse }>;
   getActiveAlarms: () => Promise<{ data: ActiveAlarmsResponse }>;
   getAlarmSummary: () => Promise<{ data: AlarmSummaryResponse }>;
-  getSyncState: () => Promise<{ data: unknown }>;
+  getSyncState: () => Promise<{ data: StreamState[] }>;
+  getStreamStats: (streamId: string) => Promise<{ data: StreamStats }>;
+  pairStream: (streamId: string, siteParameterId: string) => Promise<{ data: unknown }>;
+  unpairStream: (streamId: string) => Promise<{ data: unknown }>;
+  getDiscovery: () => Promise<{ data: DiscoveryItem[] }>;
+  applyDiscovery: (actions: ApplyAction[]) => Promise<{ data: ApplyDiscoveryResponse }>;
   recalibrateCalibration: (id: string) => Promise<{ data: unknown }>;
   recomputeDerived: (id: string) => Promise<{ data: unknown }>;
   invalidatePublicConfig: (slug: string) => Promise<{ data: unknown }>;
@@ -160,9 +235,21 @@ const dataProvider = (
 
     const processedFilter = convertBooleanStrings(params.filter ?? {});
 
+    // Extract client-side admin filter for users (Keycloak doesn't support role filtering)
+    let filterByAdmin: boolean | undefined;
+    if (resource === 'users' && 'admin' in processedFilter) {
+      if (processedFilter.admin === true) filterByAdmin = true;
+      delete processedFilter.admin;
+    }
+
+    // When filtering by admin, fetch all users so we can filter + paginate client-side
+    const fetchAll = filterByAdmin !== undefined;
+    const effectiveStart = fetchAll ? 0 : rangeStart;
+    const effectiveEnd = fetchAll ? 999 : rangeEnd;
+
     const query = {
       sort: JSON.stringify([field, order]),
-      range: JSON.stringify([rangeStart, rangeEnd]),
+      range: JSON.stringify([effectiveStart, effectiveEnd]),
       filter: JSON.stringify(processedFilter),
     };
     const url = `${apiUrl}/${resource}?${stringify(query)}`;
@@ -170,7 +257,7 @@ const dataProvider = (
       countHeader === 'Content-Range'
         ? {
             headers: new Headers({
-              Range: `${resource}=${rangeStart}-${rangeEnd}`,
+              Range: `${resource}=${effectiveStart}-${effectiveEnd}`,
             }),
           }
         : {};
@@ -181,6 +268,17 @@ const dataProvider = (
           `The ${countHeader} header is missing in the HTTP Response. The simple REST data provider expects responses for lists of resources to contain this header with the total number of results to build the pagination. If you are using CORS, did you declare ${countHeader} in the Access-Control-Expose-Headers header?`
         );
       }
+
+      // Client-side role filtering for users
+      if (filterByAdmin !== undefined) {
+        const filtered = (json as Array<{ roles?: string[] }>).filter((u) =>
+          Array.isArray(u.roles) && u.roles.includes('admin'),
+        );
+        const total = filtered.length;
+        const paged = filtered.slice(rangeStart, rangeEnd + 1);
+        return { data: paged, total };
+      }
+
       const total =
         countHeader === 'Content-Range'
           ? parseInt(headers.get('content-range')?.split('/').pop() ?? '0', 10)
@@ -310,6 +408,29 @@ const dataProvider = (
       data: json,
     }));
   },
+
+  getStreamStats: (streamId: string) =>
+    httpClient(`/api/service/streams/${streamId}/stats`).then(({ json }) => ({ data: json })),
+
+  pairStream: (streamId: string, siteParameterId: string) =>
+    httpClient(`/api/service/streams/${streamId}/pair`, {
+      method: 'POST',
+      body: JSON.stringify({ site_parameter_id: siteParameterId }),
+    }).then(({ json }) => ({ data: json })),
+
+  unpairStream: (streamId: string) =>
+    httpClient(`/api/service/streams/${streamId}/unpair`, {
+      method: 'POST',
+    }).then(({ json }) => ({ data: json })),
+
+  getDiscovery: () =>
+    httpClient(`${apiUrl}/sync/discovery`).then(({ json }) => ({ data: json })),
+
+  applyDiscovery: (actions: ApplyAction[]) =>
+    httpClient(`${apiUrl}/sync/apply-discovery`, {
+      method: 'POST',
+      body: JSON.stringify({ actions }),
+    }).then(({ json }) => ({ data: json })),
 
   recalibrateCalibration: (id: string) => {
     return httpClient(`${apiUrl}/actions/sensor_calibrations/${id}/recalculate`, {

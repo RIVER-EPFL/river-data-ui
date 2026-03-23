@@ -1,16 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import {
   List,
   Datagrid,
   TextField,
   BooleanField,
+  BooleanInput,
   FunctionField,
   Show,
   SimpleShowLayout,
   Create,
   SimpleForm,
   TextInput,
-  BooleanInput,
   Edit,
   useRecordContext,
   useNotify,
@@ -18,39 +18,14 @@ import {
 import {
   Chip,
   Stack,
-  Typography,
-  Checkbox,
-  FormControlLabel,
-  FormGroup,
   Box,
+  Switch,
+  FormControlLabel,
   CircularProgress,
 } from '@mui/material';
 import { useRiverDataProvider } from '../../useRiverDataProvider';
 
 // ---------- Helpers ----------
-
-interface Role {
-  id: string;
-  name: string;
-}
-
-const useAvailableRoles = () => {
-  const dataProvider = useRiverDataProvider();
-  const [roles, setRoles] = useState<Role[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    dataProvider
-      .listRoles()
-      .then(({ data }) => setRoles(data))
-      .catch((err) => { console.error('Failed to fetch roles:', err); setRoles([]); })
-      .finally(() => setLoading(false));
-  }, [dataProvider]);
-
-  return { roles, loading };
-};
-
-// ---------- List ----------
 
 const RolesField = () => {
   const record = useRecordContext();
@@ -64,14 +39,68 @@ const RolesField = () => {
   );
 };
 
+const hasAdmin = (roles?: unknown): boolean =>
+  Array.isArray(roles) && (roles as string[]).includes('admin');
+
+const AdminToggle = () => {
+  const record = useRecordContext();
+  const dataProvider = useRiverDataProvider();
+  const notify = useNotify();
+  const [saving, setSaving] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(() => hasAdmin(record?.roles));
+
+  const handleToggle = useCallback(async () => {
+    if (!record?.id) return;
+    const newAdmin = !isAdmin;
+    const newRoles = newAdmin ? ['admin', 'user'] : ['user'];
+    setSaving(true);
+    try {
+      await dataProvider.assignUserRoles(record.id as string, newRoles);
+      setIsAdmin(newAdmin);
+      notify('Roles updated', { type: 'success' });
+    } catch {
+      notify('Failed to update roles', { type: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  }, [record?.id, isAdmin, dataProvider, notify]);
+
+  if (!record) return null;
+
+  return (
+    <Box sx={{ py: 1 }}>
+      <FormControlLabel
+        control={
+          saving ? (
+            <CircularProgress size={20} sx={{ mx: 1.25 }} />
+          ) : (
+            <Switch checked={isAdmin} onChange={handleToggle} />
+          )
+        }
+        label="Administrator"
+      />
+    </Box>
+  );
+};
+
+// ---------- List ----------
+
+const userFilters = [
+  <BooleanInput key="admin" source="admin" label="Admins only" alwaysOn />,
+];
+
 const UserList = () => (
-  <List sort={{ field: 'username', order: 'ASC' }}>
+  <List sort={{ field: 'username', order: 'ASC' }} filters={userFilters}>
     <Datagrid rowClick="show">
       <TextField source="username" />
       <TextField source="email" />
       <TextField source="firstName" label="First Name" />
       <TextField source="lastName" label="Last Name" />
       <BooleanField source="enabled" />
+      <FunctionField
+        label="Admin"
+        render={(record: { roles?: string[] }) => hasAdmin(record?.roles) ? '✓' : ''}
+      />
       <FunctionField
         label="Created"
         render={(record: { createdTimestamp?: number }) =>
@@ -96,6 +125,7 @@ const UserShow = () => (
       <TextField source="lastName" label="Last Name" />
       <BooleanField source="enabled" />
       <FunctionField label="Roles" render={() => <RolesField />} />
+      <AdminToggle />
     </SimpleShowLayout>
   </Show>
 );
@@ -103,7 +133,7 @@ const UserShow = () => (
 // ---------- Create ----------
 
 const UserCreate = () => (
-  <Create>
+  <Create redirect="show">
     <SimpleForm>
       <TextInput source="username" isRequired />
       <TextInput source="email" type="email" />
@@ -117,90 +147,6 @@ const UserCreate = () => (
 
 // ---------- Edit ----------
 
-const RolesInput = () => {
-  const record = useRecordContext();
-  const { roles: availableRoles, loading } = useAvailableRoles();
-  const dataProvider = useRiverDataProvider();
-  const notify = useNotify();
-  const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [initialized, setInitialized] = useState(false);
-
-  useEffect(() => {
-    if (record?.roles && !initialized) {
-      setSelectedRoles(record.roles as string[]);
-      setInitialized(true);
-    }
-  }, [record?.roles, initialized]);
-
-  if (loading) {
-    return (
-      <Box sx={{ py: 1 }}>
-        <CircularProgress size={20} />
-      </Box>
-    );
-  }
-
-  const handleToggle = (roleName: string) => {
-    setSelectedRoles((prev) =>
-      prev.includes(roleName) ? prev.filter((r) => r !== roleName) : [...prev, roleName],
-    );
-  };
-
-  const handleSave = async () => {
-    if (!record?.id) return;
-    setSaving(true);
-    try {
-      await dataProvider.assignUserRoles(record.id as string, selectedRoles);
-      notify('Roles updated', { type: 'success' });
-    } catch {
-      notify('Failed to update roles', { type: 'error' });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const changed =
-    initialized &&
-    JSON.stringify([...selectedRoles].sort()) !==
-      JSON.stringify([...(record?.roles as string[] || [])].sort());
-
-  return (
-    <Box sx={{ mt: 1 }}>
-      <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
-        Realm Roles
-      </Typography>
-      <FormGroup row>
-        {availableRoles.map((role) => (
-          <FormControlLabel
-            key={role.id}
-            control={
-              <Checkbox
-                checked={selectedRoles.includes(role.name)}
-                onChange={() => handleToggle(role.name)}
-                size="small"
-              />
-            }
-            label={role.name}
-          />
-        ))}
-      </FormGroup>
-      {changed && (
-        <Box sx={{ mt: 1 }}>
-          <Typography
-            variant="caption"
-            color="primary"
-            sx={{ cursor: 'pointer', textDecoration: 'underline' }}
-            onClick={handleSave}
-          >
-            {saving ? 'Saving...' : 'Save role changes'}
-          </Typography>
-        </Box>
-      )}
-    </Box>
-  );
-};
-
 const UserEdit = () => (
   <Edit mutationMode="pessimistic">
     <SimpleForm>
@@ -209,7 +155,6 @@ const UserEdit = () => (
       <TextInput source="firstName" label="First Name" />
       <TextInput source="lastName" label="Last Name" />
       <BooleanInput source="enabled" />
-      <RolesInput />
     </SimpleForm>
   </Edit>
 );

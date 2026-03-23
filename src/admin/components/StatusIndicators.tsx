@@ -24,12 +24,7 @@ import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { useRiverDataProvider } from '../useRiverDataProvider';
-import type { SyncEvent } from '../dataProvider';
-
-interface SyncState {
-  site_parameter_id: string;
-  last_data_time: string | null;
-}
+import type { SyncEvent, StreamState } from '../dataProvider';
 
 interface SiteParameterRecord {
   id: string;
@@ -126,19 +121,20 @@ export const StatusIndicators = () => {
       setSyncRunning(false);
     }
 
-    // Sync state → stale sites
+    // Sync state → stale sites (only paired, active streams)
     try {
       const res = await dataProvider.getSyncState();
-      const states = res.data as SyncState[];
-      if (!Array.isArray(states) || !siteParameters?.length) return;
+      const streams = res.data;
+      if (!Array.isArray(streams) || !siteParameters?.length) return;
 
       const spToSite = new Map<string, string>();
       for (const sp of siteParameters) spToSite.set(sp.id, sp.site_id);
 
       const siteLastData = new Map<string, number>();
-      for (const s of states) {
+      for (const s of streams) {
+        if (!s.site_parameter_id || !s.is_active || !s.last_data_time) continue;
         const siteId = spToSite.get(s.site_parameter_id);
-        if (!siteId || !s.last_data_time) continue;
+        if (!siteId) continue;
         const ts = new Date(s.last_data_time).getTime();
         const current = siteLastData.get(siteId) ?? 0;
         if (ts > current) siteLastData.set(siteId, ts);

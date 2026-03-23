@@ -61,6 +61,19 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "river-data-api",
+      "name": "River Data API",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "river-data-api-dev-secret",
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "clientAuthenticatorType": "client-secret",
+      "protocol": "openid-connect",
+      "defaultClientScopes": ["web-origins", "profile", "roles", "email"]
     }
   ],
   "users": [
@@ -95,6 +108,14 @@
         }
       ],
       "realmRoles": ["user"]
+    },
+    {
+      "username": "service-account-river-data-api",
+      "enabled": true,
+      "serviceAccountClientId": "river-data-api",
+      "clientRoles": {
+        "realm-management": ["manage-users", "view-users", "query-users"]
+      }
     }
   ],
   "roles": {

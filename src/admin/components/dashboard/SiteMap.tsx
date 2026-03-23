@@ -5,7 +5,7 @@ import { Box, Typography } from '@mui/material';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useRiverDataProvider } from '../../useRiverDataProvider';
-import type { AlarmSummaryResponse } from '../../dataProvider';
+import type { AlarmSummaryResponse, StreamState } from '../../dataProvider';
 import { formatRelativeTime } from '../../utils/formatRelativeTime';
 
 interface SiteRecord {
@@ -19,11 +19,6 @@ interface SiteParameterRecord {
   id: string;
   site_id: string;
   is_active: boolean;
-}
-
-interface SyncState {
-  site_parameter_id: string;
-  last_data_time: string | null;
 }
 
 const MARKER_COLORS = {
@@ -71,7 +66,7 @@ export const SiteMap = ({ onSiteClick }: SiteMapProps) => {
     try {
       const [alarmRes, syncRes] = await Promise.all([
         dataProvider.getAlarmSummary(),
-        dataProvider.getSyncState() as Promise<{ data: SyncState[] }>,
+        dataProvider.getSyncState(),
       ]);
 
       setAlarmSummary(alarmRes.data);
@@ -83,11 +78,12 @@ export const SiteMap = ({ onSiteClick }: SiteMapProps) => {
           spToSite.set(sp.id, sp.site_id);
         }
 
-        // Group by site: find max last_data_time per site
+        // Group by site: find max last_data_time per site (only paired, active streams)
         const lastReadingMap = new Map<string, string>();
         for (const s of syncRes.data) {
+          if (!s.site_parameter_id || !s.is_active || !s.last_data_time) continue;
           const siteId = spToSite.get(s.site_parameter_id);
-          if (!siteId || !s.last_data_time) continue;
+          if (!siteId) continue;
           const existing = lastReadingMap.get(siteId);
           if (!existing || s.last_data_time > existing) {
             lastReadingMap.set(siteId, s.last_data_time);
