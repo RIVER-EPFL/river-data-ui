@@ -244,7 +244,7 @@ export const MultiStationChart: React.FC = () => {
             renderInput={(params) => (
               <TextField
                 {...params}
-                label="Stations (max 4)"
+                label="Sites (max 4)"
                 size="small"
                 InputProps={{
                   ...params.InputProps,
@@ -320,7 +320,7 @@ export const MultiStationChart: React.FC = () => {
       <Paper sx={{ p: 2 }}>
         {selectedSites.length === 0 || !selectedParameter ? (
           <Typography color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
-            Select at least one station and a parameter to compare
+            Select at least one site and a parameter to compare
           </Typography>
         ) : loading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 4, gap: 1 }}>

@@ -431,7 +431,7 @@ const GrabSampleEntry: React.FC = () => {
         const quantiles = quantileCache.get(cacheKey);
         if (!quantiles) return null;
         if (value < quantiles.p5 || value > quantiles.p95) {
-            return `Value ${value} is outside typical range [${quantiles.p5.toFixed(2)} – ${quantiles.p95.toFixed(2)}] for this station`;
+            return `Value ${value} is outside typical range [${quantiles.p5.toFixed(2)} – ${quantiles.p95.toFixed(2)}] for this site`;
         }
         return null;
     }, [siteId, quantileCache]);
@@ -495,7 +495,7 @@ const GrabSampleEntry: React.FC = () => {
     }, [notify]);
 
     const validate = (): string | null => {
-        if (!siteId) return 'Please select a station';
+        if (!siteId) return 'Please select a site';
         if (!dateTime) return 'Please set a date/time';
 
         const validRows = rows.filter((r) => r.parameter_id || r.value);
@@ -575,7 +575,7 @@ const GrabSampleEntry: React.FC = () => {
                 <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
                     <TextField
                         select
-                        label="Station"
+                        label="Site"
                         value={siteId}
                         onChange={(e) => {
                             setSiteId(e.target.value);
@@ -620,7 +620,7 @@ const GrabSampleEntry: React.FC = () => {
                         size="small"
                         slotProps={{ input: { readOnly: true } }}
                         sx={{ mb: 2, minWidth: 320 }}
-                        helperText={barometricPressure == null ? 'Station has no altitude configured' : undefined}
+                        helperText={barometricPressure == null ? 'Site has no altitude configured' : undefined}
                     />
                 )}
 
@@ -628,7 +628,7 @@ const GrabSampleEntry: React.FC = () => {
 
                 {/* Parameter rows */}
                 {!siteId ? (
-                    <Alert severity="info">Select a station to begin entering samples</Alert>
+                    <Alert severity="info">Select a site to begin entering samples</Alert>
                 ) : (
                     <>
                         <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>

@@ -1,4 +1,5 @@
-import { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
+import { useEffect, useRef, useImperativeHandle, forwardRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuthFetch } from '../../hooks/useAuthFetch';
 import { createDashboard, type DashboardHandle } from './dashboard-engine';
 import 'uplot/dist/uPlot.min.css';
@@ -380,7 +381,7 @@ const DASHBOARD_CSS = `
   padding: 0.75rem;
   box-shadow: 0 4px 12px rgba(0,0,0,0.15);
   pointer-events: none;
-  z-index: 100;
+  z-index: 1400;
   font-size: 0.8rem;
   min-width: 180px;
   display: none;
@@ -464,17 +465,45 @@ const DASHBOARD_CSS = `
   vertical-align: middle;
 }
 @keyframes rd-spin { to { transform: rotate(360deg); } }
+.river-dashboard--embedded .container {
+  max-width: none;
+  padding: 0.5rem;
+}
 `;
 
-const ChartsDashboard = forwardRef<ChartsDashboardRef>(function ChartsDashboard(_props, ref) {
+interface ChartsDashboardProps {
+  /** When set, skip the header/site-selector and load this site immediately */
+  siteId?: string;
+}
+
+const ChartsDashboard = forwardRef<ChartsDashboardRef, ChartsDashboardProps>(function ChartsDashboard({ siteId }, ref) {
   const authFetch = useAuthFetch();
   const authFetchRef = useRef(authFetch);
   authFetchRef.current = authFetch;
   const containerRef = useRef<HTMLDivElement>(null);
   const handleRef = useRef<DashboardHandle | null>(null);
+  const navigate = useNavigate();
+
+  // Intercept data-navigate link clicks for React Router navigation
+  const handleClick = useCallback((e: MouseEvent) => {
+    const target = e.target as HTMLElement;
+    const link = target.closest<HTMLElement>('a[data-navigate]');
+    if (link) {
+      e.preventDefault();
+      const path = link.getAttribute('data-navigate');
+      if (path) navigate(path);
+    }
+  }, [navigate]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    el.addEventListener('click', handleClick);
+    return () => el.removeEventListener('click', handleClick);
+  }, [handleClick]);
 
   useImperativeHandle(ref, () => ({
-    selectSite: (siteId: string) => handleRef.current?.selectSite(siteId),
+    selectSite: (id: string) => handleRef.current?.selectSite(id),
   }));
 
   useEffect(() => {
@@ -487,18 +516,18 @@ const ChartsDashboard = forwardRef<ChartsDashboardRef>(function ChartsDashboard(
 
     const wrappedFetch = (url: string) => authFetchRef.current(url);
 
-    handleRef.current = createDashboard(containerRef.current, api, wrappedFetch);
+    handleRef.current = createDashboard(containerRef.current, api, wrappedFetch, { siteId });
 
     return () => {
       handleRef.current?.destroy();
       handleRef.current = null;
     };
-  }, []);
+  }, [siteId]);
 
   return (
     <>
       <style>{DASHBOARD_CSS}</style>
-      <div ref={containerRef} className="river-dashboard" />
+      <div ref={containerRef} className={`river-dashboard${siteId ? ' river-dashboard--embedded' : ''}`} />
     </>
   );
 });

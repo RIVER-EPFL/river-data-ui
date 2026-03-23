@@ -272,6 +272,17 @@ const ProjectShow = () => (
         <DateField source="created_at" showTime />
         <DateField source="discovered_at" showTime />
       </TabbedShowLayout.Tab>
+      <TabbedShowLayout.Tab label="Sites">
+        <ReferenceManyField reference="sites" target="project_id" label={false}>
+          <Datagrid bulkActionButtons={false} rowClick="show">
+            <TextField source="name" />
+            <NumberField source="latitude" />
+            <NumberField source="longitude" />
+            <NumberField source="altitude_m" label="Altitude (m)" />
+            <DateField source="created_at" showTime />
+          </Datagrid>
+        </ReferenceManyField>
+      </TabbedShowLayout.Tab>
       <TabbedShowLayout.Tab label="Public API">
         <BooleanField source="is_public" />
         <TextField source="public_slug" emptyText="Not configured" />

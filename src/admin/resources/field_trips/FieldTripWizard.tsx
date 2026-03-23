@@ -69,7 +69,7 @@ interface StationEntry {
     rows: ReadingRow[];
 }
 
-const STEPS = ['Trip Details', 'Station Samples', 'Review & Submit'];
+const STEPS = ['Trip Details', 'Site Samples', 'Review & Submit'];
 
 const toLocalDate = (d: Date): string => {
     const pad = (n: number) => String(n).padStart(2, '0');
@@ -198,13 +198,13 @@ export const FieldTripPage: React.FC = () => {
 
     const validateStep2 = (): string | null => {
         const validStations = stations.filter((s) => s.site_id);
-        if (validStations.length === 0) return 'Add at least one station with samples';
+        if (validStations.length === 0) return 'Add at least one site with samples';
 
         for (const station of validStations) {
-            if (!station.dateTime) return 'Each station needs a date/time';
+            if (!station.dateTime) return 'Each site needs a date/time';
             const validRows = station.rows.filter((r) => r.parameter_id || r.value);
             if (validRows.length === 0) {
-                const name = sites?.find((s) => s.id === station.site_id)?.name ?? 'station';
+                const name = sites?.find((s) => s.id === station.site_id)?.name ?? 'site';
                 return `Add at least one reading for ${name}`;
             }
             for (const row of validRows) {
@@ -214,7 +214,7 @@ export const FieldTripPage: React.FC = () => {
             // Check duplicates within a station
             const paramIds = validRows.map((r) => r.parameter_id);
             if (new Set(paramIds).size !== paramIds.length) {
-                const name = sites?.find((s) => s.id === station.site_id)?.name ?? 'station';
+                const name = sites?.find((s) => s.id === station.site_id)?.name ?? 'site';
                 return `Duplicate parameters in ${name}`;
             }
         }
@@ -373,7 +373,7 @@ export const FieldTripPage: React.FC = () => {
                             <Paper key={si} sx={{ p: 3, mb: 2 }}>
                                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                                     <Typography variant="h6">
-                                        Station {si + 1}
+                                        Site {si + 1}
                                         {station.site_id && sites && (
                                             <Chip
                                                 label={sites.find((s) => s.id === station.site_id)?.name}
@@ -392,7 +392,7 @@ export const FieldTripPage: React.FC = () => {
                                 <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
                                     <TextField
                                         select
-                                        label="Station"
+                                        label="Site"
                                         value={station.site_id}
                                         onChange={(e) => updateStation(si, 'site_id', e.target.value)}
                                         size="small"
@@ -488,7 +488,7 @@ export const FieldTripPage: React.FC = () => {
                     })}
 
                     <Button variant="outlined" startIcon={<AddIcon />} onClick={addStation}>
-                        Add Station
+                        Add Site
                     </Button>
                 </Box>
             )}
@@ -520,7 +520,7 @@ export const FieldTripPage: React.FC = () => {
                     <Divider sx={{ my: 2 }} />
 
                     <Typography variant="subtitle1" sx={{ mb: 1 }}>
-                        {summaryData.length} station{summaryData.length !== 1 ? 's' : ''}, {totalReadings} reading{totalReadings !== 1 ? 's' : ''}
+                        {summaryData.length} site{summaryData.length !== 1 ? 's' : ''}, {totalReadings} reading{totalReadings !== 1 ? 's' : ''}
                     </Typography>
 
                     {summaryData.map((s, i) => (
@@ -581,7 +581,7 @@ export const FieldTripPage: React.FC = () => {
                 anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
             >
                 <Alert onClose={() => setSuccessInfo(null)} severity="success" variant="filled">
-                    {successInfo && `Field trip recorded: ${successInfo.count} reading${successInfo.count !== 1 ? 's' : ''} across all stations`}
+                    {successInfo && `Field trip recorded: ${successInfo.count} reading${successInfo.count !== 1 ? 's' : ''} across all sites`}
                 </Alert>
             </Snackbar>
         </Box>

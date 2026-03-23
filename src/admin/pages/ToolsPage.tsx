@@ -36,6 +36,9 @@ import { DomTool } from '../components/tools/DomTool';
 import { FieldDataTool } from '../components/tools/FieldDataTool';
 import { Co2AirTool } from '../components/tools/Co2AirTool';
 import { BenthicTool } from '../components/tools/BenthicTool';
+import { NutrientsTool } from '../components/tools/NutrientsTool';
+import { ChlaBenthicTool } from '../components/tools/ChlaBenthicTool';
+import BiotechIcon from '@mui/icons-material/Biotech';
 
 interface ToolDefinition {
   id: string;
@@ -96,6 +99,13 @@ const tools: ToolDefinition[] = [
     component: ChlorophyllTool,
   },
   {
+    id: 'nutrients',
+    name: 'Nutrients',
+    description: 'Multi-species nutrient replicates (PO4, NH4, NOx, NO2, TDP, TDN) with NO3 computation',
+    icon: <ScienceIcon sx={{ fontSize: 48, color: '#00897B' }} />,
+    component: NutrientsTool,
+  },
+  {
     id: 'ions',
     name: 'Ion Charge Balance',
     description: 'IC ion charge balance verification (cations vs anions)',
@@ -136,6 +146,13 @@ const tools: ToolDefinition[] = [
     description: 'Rock surface area and benthic AFDM/Chl-a per m² normalizations',
     icon: <WavesIcon sx={{ fontSize: 48, color: '#26A69A' }} />,
     component: BenthicTool,
+  },
+  {
+    id: 'chla_benthic',
+    name: 'Chla-Benthic (Multi)',
+    description: 'Unified Chlorophyll-Benthic: up to 5 replicates with acid/no-acid Chl-a, per-m² normalizations, AFDM, and averages/SDs',
+    icon: <BiotechIcon sx={{ fontSize: 48, color: '#388E3C' }} />,
+    component: ChlaBenthicTool,
   },
 ];
 

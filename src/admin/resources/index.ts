@@ -26,7 +26,7 @@ import constants from './constants';
 
 /** Resources shown in the sidebar navigation */
 export const resources = [
-  { name: 'sites', icon: LocationOnIcon, ...sites, options: { label: 'Stations' } },
+  { name: 'sites', icon: LocationOnIcon, ...sites, options: { label: 'Sites' } },
   { name: 'sensors', icon: MemoryIcon, ...sensors, options: { label: 'Sensors' } },
   { name: 'parameters', icon: ScienceIcon, ...parameters, options: { label: 'Parameters' } },
   { name: 'derived_parameters', icon: FunctionsIcon, ...derivedParameters, options: { label: 'Derived Formulas' } },

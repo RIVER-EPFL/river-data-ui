@@ -42,6 +42,8 @@ interface StatusEventsTimelineProps {
     siteId: string;
     /** Map of parameter UUID -> display name */
     parameterNames: Map<string, string>;
+    /** Start expanded (default: false) */
+    defaultExpanded?: boolean;
 }
 
 type TimeRange = '24h' | '7d' | '30d';
@@ -81,12 +83,13 @@ function formatTime(iso: string): string {
 export const StatusEventsTimeline: React.FC<StatusEventsTimelineProps> = ({
     siteId,
     parameterNames,
+    defaultExpanded = false,
 }) => {
     const authFetch = useAuthFetch();
     const [events, setEvents] = useState<StatusEvent[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [expanded, setExpanded] = useState(false);
+    const [expanded, setExpanded] = useState(defaultExpanded);
     const [timeRange, setTimeRange] = useState<TimeRange>('7d');
 
     const fetchEvents = useCallback(async () => {

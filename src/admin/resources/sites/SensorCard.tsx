@@ -50,7 +50,7 @@ export interface ParameterRecord {
     id: string;
     name: string;
     site_id: string;
-    parameter_type_id: string;
+    parameter_id: string;
     sensor_type: string | null;
     display_units: string | null;
     is_active: boolean;

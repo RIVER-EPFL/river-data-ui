@@ -18,10 +18,15 @@ import {
   DialogActions,
   TextField as MuiTextField,
   MenuItem,
+  Chip,
+  IconButton,
+  Tooltip,
 } from '@mui/material';
 import CalculateIcon from '@mui/icons-material/Calculate';
 import DownloadIcon from '@mui/icons-material/Download';
 import SaveIcon from '@mui/icons-material/Save';
+import LinkIcon from '@mui/icons-material/Link';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import { useGetList } from 'react-admin';
 import { useAuthFetch } from '../../hooks/useAuthFetch';
 
@@ -55,6 +60,28 @@ async function callToolApi(
   return data.results;
 }
 
+// --------------------------------------------------------------------------
+// SaveToStationDialog
+// --------------------------------------------------------------------------
+
+interface ParameterRecord {
+  id: string;
+  name: string;
+  display_name: string;
+  default_units: string;
+  category: string;
+}
+
+interface MappingEntry {
+  key: string;
+  value: number;
+  parameterId: string;
+  parameterName: string;
+  linked: boolean;     // true if site_parameter already exists
+  linkable: boolean;   // true if parameter exists in catalog but not linked to site
+  globalParamId: string; // the parameter UUID from global catalog
+}
+
 interface SaveToStationDialogProps {
   open: boolean;
   onClose: () => void;
@@ -66,39 +93,111 @@ const SaveToStationDialog: React.FC<SaveToStationDialogProps> = ({ open, onClose
   const authFetch = useAuthFetch();
   const [siteId, setSiteId] = useState('');
   const [dateTime, setDateTime] = useState(() => new Date().toISOString().slice(0, 16));
+  const [fieldTripId, setFieldTripId] = useState('');
   const [saving, setSaving] = useState(false);
+  const [linking, setLinking] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savedCount, setSavedCount] = useState<number | null>(null);
+  const [linkVersion, setLinkVersion] = useState(0);
 
   const { data: sites } = useGetList('sites', {
     pagination: { page: 1, perPage: 200 },
     sort: { field: 'name', order: 'ASC' },
   });
 
-  const { data: siteParams } = useGetList('site_parameters', {
+  const { data: siteParams, refetch: refetchSiteParams } = useGetList('site_parameters', {
     filter: { site_id: siteId, is_active: true },
-    pagination: { page: 1, perPage: 200 },
+    pagination: { page: 1, perPage: 500 },
     sort: { field: 'name', order: 'ASC' },
+    meta: { _version: linkVersion },
   }, { enabled: !!siteId });
+
+  // Fetch all parameters from global catalog to find matches by exact name
+  const { data: allParams } = useGetList('parameters', {
+    pagination: { page: 1, perPage: 500 },
+    sort: { field: 'name', order: 'ASC' },
+  });
+
+  const { data: fieldTrips } = useGetList('field_trips', {
+    pagination: { page: 1, perPage: 50 },
+    sort: { field: 'date', order: 'DESC' },
+  });
 
   const resultEntries = Object.entries(results).filter(([, v]) => typeof v === 'number' && v !== null);
 
-  const mappings = useMemo(() => {
-    if (!siteParams) return [];
+  // Exact-match mapping: result key matches parameters.name exactly
+  const mappings: MappingEntry[] = useMemo(() => {
+    if (!allParams) return [];
+    const paramsByName = new Map<string, ParameterRecord>();
+    for (const p of allParams) {
+      paramsByName.set(p.name, p as unknown as ParameterRecord);
+    }
+
+    const siteParamsByParamId = new Map<string, any>();
+    if (siteParams) {
+      for (const sp of siteParams) {
+        siteParamsByParamId.set(sp.parameter_id, sp);
+      }
+    }
+
     return resultEntries.map(([key, value]) => {
-      const normalizedKey = key.toLowerCase().replace(/_/g, '');
-      const match = siteParams.find(sp => {
-        const normalizedName = sp.name.toLowerCase().replace(/[_\s]/g, '');
-        return normalizedName.includes(normalizedKey) || normalizedKey.includes(normalizedName);
-      });
-      return { key, value: value as number, parameterId: match?.parameter_id ?? '', parameterName: match?.name ?? '' };
+      const globalParam = paramsByName.get(key);
+      if (!globalParam) {
+        return { key, value: value as number, parameterId: '', parameterName: '', linked: false, linkable: false, globalParamId: '' };
+      }
+
+      const siteParam = siteParamsByParamId.get(globalParam.id);
+      if (siteParam) {
+        return { key, value: value as number, parameterId: globalParam.id, parameterName: globalParam.display_name, linked: true, linkable: false, globalParamId: globalParam.id };
+      }
+
+      // Parameter exists in catalog but not linked to this site
+      return { key, value: value as number, parameterId: globalParam.id, parameterName: globalParam.display_name, linked: false, linkable: true, globalParamId: globalParam.id };
     });
-  }, [resultEntries, siteParams]);
+  }, [resultEntries, allParams, siteParams]);
+
+  const linkedMappings = mappings.filter(m => m.linked);
+  const linkableMappings = mappings.filter(m => m.linkable);
+  const unmatchedMappings = mappings.filter(m => !m.linked && !m.linkable);
+
+  const handleLinkParameter = async (m: MappingEntry) => {
+    if (!siteId || !m.globalParamId) return;
+    setLinking(m.key);
+    try {
+      const resp = await authFetch('/api/service/site_parameters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          site_id: siteId,
+          parameter_id: m.globalParamId,
+          name: m.parameterName,
+          is_active: true,
+          is_derived: false,
+        }),
+      });
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(text || `HTTP ${resp.status}`);
+      }
+      setLinkVersion(v => v + 1);
+      refetchSiteParams();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to link parameter');
+    } finally {
+      setLinking(null);
+    }
+  };
+
+  const handleLinkAll = async () => {
+    for (const m of linkableMappings) {
+      await handleLinkParameter(m);
+    }
+  };
 
   const handleSave = async () => {
-    const validMappings = mappings.filter(m => m.parameterId);
-    if (validMappings.length === 0) {
-      setError('No parameters mapped. Select a site with matching parameters.');
+    const saveable = mappings.filter(m => m.linked);
+    if (saveable.length === 0) {
+      setError('No parameters linked to this site. Click "Link" to add them first.');
       return;
     }
 
@@ -106,14 +205,17 @@ const SaveToStationDialog: React.FC<SaveToStationDialogProps> = ({ open, onClose
     setError(null);
     try {
       const timestamp = new Date(dateTime).toISOString();
-      const payload = {
+      const payload: Record<string, unknown> = {
         site_id: siteId,
-        readings: validMappings.map(m => ({
+        readings: saveable.map(m => ({
           parameter_id: m.parameterId,
           value: m.value,
           time: timestamp,
         })),
       };
+      if (fieldTripId) {
+        payload.field_trip_id = fieldTripId;
+      }
 
       const resp = await authFetch('/api/service/grab_samples', {
         method: 'POST',
@@ -133,43 +235,99 @@ const SaveToStationDialog: React.FC<SaveToStationDialogProps> = ({ open, onClose
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Save Results to Station</DialogTitle>
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+      <DialogTitle>Save Results to Site</DialogTitle>
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <MuiTextField
+            select label="Site" value={siteId}
+            onChange={(e) => setSiteId(e.target.value)} size="small" fullWidth
+          >
+            {(sites ?? []).map((s: any) => (
+              <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>
+            ))}
+          </MuiTextField>
+
+          <MuiTextField
+            label="Date / Time" type="datetime-local" value={dateTime}
+            onChange={(e) => setDateTime(e.target.value)} size="small" fullWidth
+            slotProps={{ inputLabel: { shrink: true } }}
+          />
+        </Box>
+
         <MuiTextField
-          select label="Station" value={siteId}
-          onChange={(e) => setSiteId(e.target.value)} size="small" fullWidth
+          select label="Field Trip (optional)" value={fieldTripId}
+          onChange={(e) => setFieldTripId(e.target.value)} size="small" fullWidth
         >
-          {(sites ?? []).map((s: any) => (
-            <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>
+          <MenuItem value="">None</MenuItem>
+          {(fieldTrips ?? []).map((ft: any) => (
+            <MenuItem key={ft.id} value={ft.id}>
+              {ft.date}{ft.participants ? ` — ${ft.participants}` : ''}
+            </MenuItem>
           ))}
         </MuiTextField>
 
-        <MuiTextField
-          label="Date / Time" type="datetime-local" value={dateTime}
-          onChange={(e) => setDateTime(e.target.value)} size="small" fullWidth
-          slotProps={{ inputLabel: { shrink: true } }}
-        />
-
         {siteId && mappings.length > 0 && (
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Result</TableCell>
-                <TableCell>Value</TableCell>
-                <TableCell>Maps to Parameter</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {mappings.map(m => (
-                <TableRow key={m.key}>
-                  <TableCell>{m.key.replace(/_/g, ' ')}</TableCell>
-                  <TableCell>{typeof m.value === 'number' ? m.value.toFixed(4) : String(m.value)}</TableCell>
-                  <TableCell>{m.parameterName || <Typography color="text.disabled">No match</Typography>}</TableCell>
+          <>
+            {linkableMappings.length > 0 && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Alert severity="info" sx={{ flex: 1 }}>
+                  {linkableMappings.length} parameter(s) exist but aren't linked to this site yet.
+                </Alert>
+                <Button size="small" variant="outlined" onClick={handleLinkAll} disabled={!!linking}>
+                  Link All
+                </Button>
+              </Box>
+            )}
+
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Result</TableCell>
+                  <TableCell>Value</TableCell>
+                  <TableCell>Parameter</TableCell>
+                  <TableCell align="center">Status</TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHead>
+              <TableBody>
+                {mappings.map(m => (
+                  <TableRow key={m.key} sx={{ opacity: m.linked ? 1 : 0.7 }}>
+                    <TableCell>{m.key}</TableCell>
+                    <TableCell>{typeof m.value === 'number' ? m.value.toFixed(4) : String(m.value)}</TableCell>
+                    <TableCell>{m.parameterName || <Typography color="text.disabled" variant="body2">Not in catalog</Typography>}</TableCell>
+                    <TableCell align="center">
+                      {m.linked && (
+                        <Tooltip title="Linked to site">
+                          <CheckCircleIcon color="success" fontSize="small" />
+                        </Tooltip>
+                      )}
+                      {m.linkable && (
+                        <Tooltip title="Click to link this parameter to the site">
+                          <IconButton
+                            size="small"
+                            onClick={() => handleLinkParameter(m)}
+                            disabled={linking === m.key}
+                          >
+                            {linking === m.key ? <CircularProgress size={16} /> : <LinkIcon fontSize="small" />}
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                      {!m.linked && !m.linkable && (
+                        <Chip label="No match" size="small" variant="outlined" color="warning" />
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+
+            {linkedMappings.length > 0 && (
+              <Typography variant="body2" color="text.secondary">
+                {linkedMappings.length} of {mappings.length} result(s) will be saved.
+                {unmatchedMappings.length > 0 && ` ${unmatchedMappings.length} not in parameter catalog.`}
+              </Typography>
+            )}
+          </>
         )}
 
         {error && <Alert severity="error">{error}</Alert>}
@@ -177,13 +335,17 @@ const SaveToStationDialog: React.FC<SaveToStationDialogProps> = ({ open, onClose
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button onClick={handleSave} variant="contained" disabled={saving || !siteId}>
-          {saving ? <CircularProgress size={16} /> : 'Save'}
+        <Button onClick={handleSave} variant="contained" disabled={saving || !siteId || linkedMappings.length === 0}>
+          {saving ? <CircularProgress size={16} /> : `Save ${linkedMappings.length} Reading(s)`}
         </Button>
       </DialogActions>
     </Dialog>
   );
 };
+
+// --------------------------------------------------------------------------
+// ToolLayout
+// --------------------------------------------------------------------------
 
 export const ToolLayout = ({ toolName, description, children, inputs, onResult }: ToolLayoutProps) => {
   const authFetch = useAuthFetch();
@@ -255,7 +417,7 @@ export const ToolLayout = ({ toolName, description, children, inputs, onResult }
                   Export CSV
                 </Button>
                 <Button size="small" startIcon={<SaveIcon />} onClick={() => setSaveOpen(true)}>
-                  Save to Station
+                  Save to Site
                 </Button>
               </Box>
             </Box>
@@ -271,7 +433,7 @@ export const ToolLayout = ({ toolName, description, children, inputs, onResult }
                   .filter(([, v]) => v !== null && v !== undefined)
                   .map(([key, value]) => (
                     <TableRow key={key}>
-                      <TableCell>{key.replace(/_/g, ' ')}</TableCell>
+                      <TableCell>{key}</TableCell>
                       <TableCell align="right">
                         {typeof value === 'number' ? value.toFixed(6) : String(value)}
                       </TableCell>

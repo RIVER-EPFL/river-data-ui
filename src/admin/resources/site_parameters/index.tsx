@@ -113,7 +113,7 @@ const ParameterShow = () => (
         <ReferenceField source="site_id" reference="sites" link="show">
           <TextField source="name" />
         </ReferenceField>
-        <ReferenceField source="parameter_type_id" reference="parameters" link={false}>
+        <ReferenceField source="parameter_type_id" reference="parameters" link="show">
           <TextField source="display_name" />
         </ReferenceField>
         <TextField source="sensor_type" />
@@ -124,7 +124,7 @@ const ParameterShow = () => (
         <NumberField source="sample_interval_sec" />
         <BooleanField source="is_active" />
         <BooleanField source="is_derived" />
-        <ReferenceField source="derived_definition_id" reference="derived_parameters" link="edit" emptyText="-">
+        <ReferenceField source="derived_definition_id" reference="derived_parameters" link="show" emptyText="-">
           <TextField source="name" />
         </ReferenceField>
         <DateField source="created_at" showTime />

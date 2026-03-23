@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useGetList } from 'react-admin';
-import { useNavigate } from 'react-router-dom';
 import { Box, Typography } from '@mui/material';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import 'leaflet.markercluster';
+import 'leaflet.markercluster/dist/MarkerCluster.css';
+import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 import { useRiverDataProvider } from '../../useRiverDataProvider';
-import type { AlarmSummaryResponse, StreamState } from '../../dataProvider';
-import { formatRelativeTime } from '../../utils/formatRelativeTime';
+import type { AlarmSummaryResponse } from '../../dataProvider';
 
 interface SiteRecord {
   id: string;
@@ -37,13 +38,14 @@ const LEGEND_ITEMS = [
 
 interface SiteMapProps {
   onSiteClick?: (siteId: string) => void;
+  selectedSiteId?: string | null;
 }
 
-export const SiteMap = ({ onSiteClick }: SiteMapProps) => {
+export const SiteMap = ({ onSiteClick, selectedSiteId }: SiteMapProps) => {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<L.Map | null>(null);
-  const markersRef = useRef<L.CircleMarker[]>([]);
-  const navigate = useNavigate();
+  const clusterGroupRef = useRef<L.MarkerClusterGroup | null>(null);
+  const markersRef = useRef<Map<string, L.Marker>>(new Map());
   const dataProvider = useRiverDataProvider();
 
   const { data: sites } = useGetList<SiteRecord>('sites', {
@@ -60,45 +62,19 @@ export const SiteMap = ({ onSiteClick }: SiteMapProps) => {
   );
 
   const [alarmSummary, setAlarmSummary] = useState<AlarmSummaryResponse | null>(null);
-  const [siteLastReading, setSiteLastReading] = useState<Map<string, string>>(new Map());
 
-  const fetchAlarmAndSyncData = useCallback(async () => {
+  const fetchAlarmData = useCallback(async () => {
     try {
-      const [alarmRes, syncRes] = await Promise.all([
-        dataProvider.getAlarmSummary(),
-        dataProvider.getSyncState(),
-      ]);
-
+      const alarmRes = await dataProvider.getAlarmSummary();
       setAlarmSummary(alarmRes.data);
-
-      // Build site_parameter_id -> site_id mapping
-      if (siteParameters) {
-        const spToSite = new Map<string, string>();
-        for (const sp of siteParameters) {
-          spToSite.set(sp.id, sp.site_id);
-        }
-
-        // Group by site: find max last_data_time per site (only paired, active streams)
-        const lastReadingMap = new Map<string, string>();
-        for (const s of syncRes.data) {
-          if (!s.site_parameter_id || !s.is_active || !s.last_data_time) continue;
-          const siteId = spToSite.get(s.site_parameter_id);
-          if (!siteId) continue;
-          const existing = lastReadingMap.get(siteId);
-          if (!existing || s.last_data_time > existing) {
-            lastReadingMap.set(siteId, s.last_data_time);
-          }
-        }
-        setSiteLastReading(lastReadingMap);
-      }
     } catch (err) {
-      console.error('Failed to fetch alarm/sync data for map:', err);
+      console.error('Failed to fetch alarm data for map:', err);
     }
-  }, [dataProvider, siteParameters]);
+  }, [dataProvider]);
 
   useEffect(() => {
-    if (siteParameters) fetchAlarmAndSyncData();
-  }, [siteParameters, fetchAlarmAndSyncData]);
+    fetchAlarmData();
+  }, [fetchAlarmData]);
 
   // Build lookups from alarm summary
   const siteAlarmMap = useMemo(() => {
@@ -141,7 +117,7 @@ export const SiteMap = ({ onSiteClick }: SiteMapProps) => {
       { attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>', maxZoom: 19 },
     );
 
-    swisstopo.addTo(mapInstance.current);
+    swissAerial.addTo(mapInstance.current);
 
     L.control.layers({
       'SwissTopo': swisstopo,
@@ -149,35 +125,21 @@ export const SiteMap = ({ onSiteClick }: SiteMapProps) => {
       'OpenStreetMap': osm,
     }).addTo(mapInstance.current);
 
-    // Handle popup link clicks with React Router
-    const container = mapRef.current;
-    const handlePopupClick = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      const link = target.closest<HTMLElement>('a[data-navigate]');
-      if (link) {
-        e.preventDefault();
-        const path = link.getAttribute('data-navigate');
-        if (path) navigate(path);
-      }
-    };
-    container.addEventListener('click', handlePopupClick);
-
     return () => {
-      container.removeEventListener('click', handlePopupClick);
       mapInstance.current?.remove();
       mapInstance.current = null;
     };
-  }, [navigate]);
+  }, []);
 
   useEffect(() => {
     const map = mapInstance.current;
     if (!map || !sites) return;
 
-    // Clear existing circle markers
-    for (const m of markersRef.current) {
-      map.removeLayer(m);
+    // Remove previous cluster group
+    if (clusterGroupRef.current) {
+      map.removeLayer(clusterGroupRef.current);
+      clusterGroupRef.current = null;
     }
-    markersRef.current = [];
 
     const validSites = sites.filter(
       (s): s is SiteRecord & { latitude: number; longitude: number } =>
@@ -190,12 +152,36 @@ export const SiteMap = ({ onSiteClick }: SiteMapProps) => {
       (s) => [s.latitude, s.longitude] as L.LatLngTuple,
     );
 
+    const clusterGroup = L.markerClusterGroup({
+      maxClusterRadius: 40,
+      spiderfyOnMaxZoom: true,
+      showCoverageOnHover: false,
+      zoomToBoundsOnClick: true,
+      iconCreateFunction: (cluster) => {
+        const children = cluster.getAllChildMarkers();
+        const count = children.length;
+        // Worst-status color for cluster: red > orange > green > grey
+        let worstColor = MARKER_COLORS.grey;
+        for (const child of children) {
+          const c = (child.options as { statusColor?: string }).statusColor;
+          if (c === MARKER_COLORS.red) { worstColor = MARKER_COLORS.red; break; }
+          if (c === MARKER_COLORS.orange) worstColor = MARKER_COLORS.orange;
+          if (c === MARKER_COLORS.green && worstColor === MARKER_COLORS.grey) worstColor = MARKER_COLORS.green;
+        }
+        return L.divIcon({
+          html: `<div class="site-cluster" style="background:${worstColor}"><span>${count}</span></div>`,
+          className: 'site-cluster-icon',
+          iconSize: L.point(40, 40),
+        });
+      },
+    });
+
+    const newMarkers = new Map<string, L.Marker>();
+
     validSites.forEach((site) => {
       const paramCount = paramCountBySite.get(site.id) ?? 0;
       const alarms = siteAlarmMap.get(site.id);
-      const lastReading = siteLastReading.get(site.id);
 
-      // Color based on active alarm state
       let color: string;
       if (paramCount === 0) {
         color = MARKER_COLORS.grey;
@@ -207,47 +193,53 @@ export const SiteMap = ({ onSiteClick }: SiteMapProps) => {
         color = MARKER_COLORS.green;
       }
 
-      const alarmTotal = alarms ? alarms.warning + alarms.alarm : 0;
+      const icon = L.divIcon({
+        html: `<div class="site-marker" style="background:${color}"></div>`,
+        className: 'site-marker-icon',
+        iconSize: L.point(24, 24),
+        iconAnchor: L.point(12, 12),
+        tooltipAnchor: L.point(14, 0),
+      });
 
-      const popupLines = [
-        `<strong style="font-size:14px">${site.name}</strong>`,
-        `<br/><span style="color:#666">Parameters: ${paramCount}</span>`,
-      ];
-      if (lastReading) {
-        popupLines.push(`<br/><span style="color:#666">Last reading: ${formatRelativeTime(lastReading)}</span>`);
-      }
-      if (alarmTotal > 0) {
-        popupLines.push(
-          `<br/><span style="color:${alarms!.alarm > 0 ? MARKER_COLORS.red : MARKER_COLORS.orange}; font-weight:600">Active alarms: ${alarmTotal}</span>`,
-        );
-      }
-      popupLines.push(
-        `<br/><div style="display:flex;gap:6px;margin-top:8px">` +
-          `<a data-navigate="/admin/sites/${site.id}/show" style="padding:4px 10px;background:#1976d2;color:white;border-radius:4px;text-decoration:none;font-size:12px;cursor:pointer">View Station</a>` +
-          `<a data-navigate="/admin/sites/${site.id}/show?export=true" style="padding:4px 10px;background:#2e7d32;color:white;border-radius:4px;text-decoration:none;font-size:12px;cursor:pointer">Export</a>` +
-        `</div>`,
-      );
+      const marker = L.marker([site.latitude, site.longitude], {
+        icon,
+        statusColor: color,
+      } as L.MarkerOptions & { statusColor: string })
+        .bindTooltip(site.name, {
+          permanent: true,
+          direction: 'right',
+          className: 'site-label',
+        })
+        .on('click', () => onSiteClick?.(site.id));
 
-      const marker = L.circleMarker([site.latitude, site.longitude], {
-        radius: 8,
-        fillColor: color,
-        color: '#fff',
-        weight: 2,
-        opacity: 1,
-        fillOpacity: 0.85,
-      })
-        .addTo(map)
-        .bindPopup(popupLines.join(''));
-
-      markersRef.current.push(marker);
+      newMarkers.set(site.id, marker);
+      clusterGroup.addLayer(marker);
     });
+
+    markersRef.current = newMarkers;
+
+    map.addLayer(clusterGroup);
+    clusterGroupRef.current = clusterGroup;
 
     if (validSites.length > 1) {
       map.fitBounds(bounds, { padding: [50, 50] });
     } else {
       map.setView([validSites[0].latitude, validSites[0].longitude], 12);
     }
-  }, [sites, paramCountBySite, siteAlarmMap, siteLastReading]);
+  }, [sites, paramCountBySite, siteAlarmMap, onSiteClick]);
+
+  // Update active marker styling when selection changes
+  useEffect(() => {
+    for (const [siteId, marker] of markersRef.current) {
+      const el = (marker as L.Marker).getElement();
+      if (!el) continue;
+      if (siteId === selectedSiteId) {
+        el.classList.add('site-marker-active');
+      } else {
+        el.classList.remove('site-marker-active');
+      }
+    }
+  }, [selectedSiteId]);
 
   const missingCount = sites
     ? sites.length - sites.filter((s) => s.latitude != null && s.longitude != null).length
@@ -265,6 +257,69 @@ export const SiteMap = ({ onSiteClick }: SiteMapProps) => {
         flexDirection: 'column',
       }}
     >
+      <style>{`
+        .site-marker-icon {
+          background: transparent !important;
+          border: none !important;
+        }
+        .site-marker {
+          width: 24px;
+          height: 24px;
+          border-radius: 50%;
+          border: 3px solid white;
+          box-shadow: 0 0 0 2px rgba(0,0,0,0.4), 0 2px 6px rgba(0,0,0,0.4);
+          transition: transform 0.2s ease;
+        }
+        .site-marker-active .site-marker {
+          transform: scale(1.4);
+          border-color: #fff;
+          box-shadow: 0 0 0 3px rgba(37,99,235,0.9), 0 0 12px 4px rgba(37,99,235,0.5), 0 2px 8px rgba(0,0,0,0.4);
+        }
+        .site-marker-active {
+          z-index: 1000 !important;
+        }
+        @keyframes site-pulse {
+          0%, 100% { box-shadow: 0 0 0 3px rgba(37,99,235,0.9), 0 0 12px 4px rgba(37,99,235,0.5); }
+          50% { box-shadow: 0 0 0 5px rgba(37,99,235,0.6), 0 0 20px 8px rgba(37,99,235,0.3); }
+        }
+        .site-marker-active .site-marker {
+          animation: site-pulse 2s ease-in-out infinite;
+        }
+        .site-cluster-icon {
+          background: transparent !important;
+          border: none !important;
+        }
+        .site-cluster {
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          border: 3px solid white;
+          box-shadow: 0 0 0 2px rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.4);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .site-cluster span {
+          color: white;
+          font-weight: 700;
+          font-size: 14px;
+          text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+        }
+        .site-label {
+          background: rgba(255,255,255,0.92) !important;
+          border: 1px solid rgba(0,0,0,0.2) !important;
+          border-radius: 4px !important;
+          padding: 2px 6px !important;
+          font-size: 12px !important;
+          font-weight: 600 !important;
+          color: #333 !important;
+          box-shadow: 0 1px 4px rgba(0,0,0,0.3) !important;
+          white-space: nowrap !important;
+        }
+        .site-label::before {
+          border-right-color: rgba(0,0,0,0.2) !important;
+        }
+      `}</style>
       <div ref={mapRef} style={{ flex: 1, width: '100%', minHeight: 0 }} />
       {/* Map legend */}
       <Box
@@ -284,12 +339,12 @@ export const SiteMap = ({ onSiteClick }: SiteMapProps) => {
           <Box key={item.label} sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.25 }}>
             <Box
               sx={{
-                width: 12,
-                height: 12,
+                width: 14,
+                height: 14,
                 borderRadius: '50%',
                 bgcolor: item.color,
-                border: '1.5px solid white',
-                boxShadow: '0 0 0 1px rgba(0,0,0,0.15)',
+                border: '2px solid white',
+                boxShadow: '0 0 0 1.5px rgba(0,0,0,0.3)',
                 flexShrink: 0,
               }}
             />

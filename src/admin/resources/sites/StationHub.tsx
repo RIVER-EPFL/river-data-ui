@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
     useGetOne,
     useGetList,
@@ -30,8 +30,10 @@ import {
     Chip,
     Checkbox,
     FormControlLabel,
+    Tab,
+    Tabs,
+    Paper,
 } from '@mui/material';
-import DownloadIcon from '@mui/icons-material/Download';
 import AddIcon from '@mui/icons-material/Add';
 import SensorsIcon from '@mui/icons-material/Sensors';
 import FunctionsIcon from '@mui/icons-material/Functions';
@@ -46,15 +48,12 @@ import { useParams } from 'react-router-dom';
 import { StationHeader } from './StationHeader';
 import { SensorCard } from './SensorCard';
 import { DerivedSection } from './DerivedSection';
-import { ParameterChart } from './ParameterChart';
 import { DataExportDialog } from './DataExportDialog';
 import { ScatterPlot } from '../../components/charts/ScatterPlot';
 import { StatusEventsTimeline } from './StatusEventsTimeline';
 import { AssignToSiteDialog } from '../derived_parameters/AssignToSiteDialog';
 import { useLatestReadings, useSensorGroups } from './hooks';
-import { TimeRangeSlider } from '../../components/TimeRangeSlider';
-import { useSiteDataRange } from '../../hooks/useSiteDataRange';
-import { useSiteChartData } from '../../hooks/useSiteChartData';
+import ChartsDashboard from '../../components/dashboard/ChartsDashboard';
 import type {
     ParameterRecord,
     SensorDeploymentRecord,
@@ -567,8 +566,8 @@ const EditNoteDialog: React.FC<{
     );
 };
 
-const NotesSection: React.FC<{ siteId: string }> = ({ siteId }) => {
-    const [expanded, setExpanded] = useState(false);
+const NotesSection: React.FC<{ siteId: string; defaultExpanded?: boolean }> = ({ siteId, defaultExpanded = false }) => {
+    const [expanded, setExpanded] = useState(defaultExpanded);
     const [addNoteOpen, setAddNoteOpen] = useState(false);
     const [editingNote, setEditingNote] = useState<NoteRecord | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<NoteRecord | null>(null);
@@ -765,6 +764,18 @@ interface ProjectRecord {
 }
 
 // ---------------------------------------------------------------------------
+// Tab Panel helper
+// ---------------------------------------------------------------------------
+
+function TabPanel({ children, value, index }: { children?: React.ReactNode; value: number; index: number }) {
+    return (
+        <div role="tabpanel" hidden={value !== index}>
+            {value === index && <Box sx={{ pt: 2 }}>{children}</Box>}
+        </div>
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Station Hub (main component)
 // ---------------------------------------------------------------------------
 
@@ -773,7 +784,7 @@ const StationHub = () => {
     const [exportOpen, setExportOpen] = useState(false);
     const [addParamOpen, setAddParamOpen] = useState(false);
     const [deploySensorOpen, setDeploySensorOpen] = useState(false);
-    const [analysisExpanded, setAnalysisExpanded] = useState(false);
+    const [tab, setTab] = useState(0);
 
     // Fetch site
     const {
@@ -899,19 +910,6 @@ const StationHub = () => {
         return { active, inactive: parameters.length - active, total: parameters.length, sensorsActive };
     }, [parameters, sensorGroups]);
 
-    const [sensorsExpanded, setSensorsExpanded] = useState(false);
-
-    // Shared time range for all charts (dashboard-like)
-    const dataRange = useSiteDataRange(id ? [id] : []);
-    const [sharedStart, setSharedStart] = useState<number>(() => Date.now() - 24 * 60 * 60 * 1000);
-    const [sharedEnd, setSharedEnd] = useState<number>(Date.now);
-    const handleSharedRangeChange = useCallback((s: number, e: number) => {
-        setSharedStart(s);
-        setSharedEnd(e);
-    }, []);
-
-    // Fetch all chart data once for the site (readings + annotations + grab samples)
-    const chartData = useSiteChartData(id, sharedStart, sharedEnd);
 
     // Loading / Error states
     if (siteLoading || paramsLoading || deploymentsLoading) {
@@ -938,7 +936,7 @@ const StationHub = () => {
 
     return (
         <Box sx={{ p: 2 }}>
-            <Title title={`Station Hub: ${site.name}`} />
+            <Title title={`Site: ${site.name}`} />
 
             {/* Header */}
             <StationHeader
@@ -947,36 +945,33 @@ const StationHub = () => {
                 statusSummary={statusSummary}
             />
 
-            {/* Sensor Cards (collapsible) */}
-            <Box
-                sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    mb: sensorsExpanded ? 2 : 0,
-                    cursor: 'pointer',
-                }}
-                onClick={() => setSensorsExpanded(!sensorsExpanded)}
-            >
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <SensorsIcon color="action" />
-                    <Typography variant="h6">
-                        Deployed Sensors
-                    </Typography>
-                    <Chip
-                        label={`${statusSummary.sensorsActive} sensor${statusSummary.sensorsActive !== 1 ? 's' : ''}, ${statusSummary.total} parameters`}
-                        size="small"
-                        variant="outlined"
-                    />
-                </Box>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    {sensorsExpanded && (
-                        <>
+            {/* Two-column layout: management (left) + charts (right) */}
+            <Grid container spacing={2} sx={{ mt: 1 }}>
+                {/* Left column: site management tabs */}
+                <Grid size={{ xs: 12, lg: 5 }}>
+                    <Paper sx={{ mb: 1 }}>
+                        <Tabs
+                            value={tab}
+                            onChange={(_, v) => setTab(v)}
+                            variant="scrollable"
+                            scrollButtons="auto"
+                        >
+                            <Tab icon={<SensorsIcon />} iconPosition="start" label="Sensors" />
+                            <Tab icon={<InsightsIcon />} iconPosition="start" label="Analysis" />
+                            <Tab label="Status" />
+                            <Tab label="Notes" />
+                            <Tab icon={<FunctionsIcon />} iconPosition="start" label="Derived" />
+                        </Tabs>
+                    </Paper>
+
+                    {/* Sensors tab */}
+                    <TabPanel value={tab} index={0}>
+                        <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
                             <Button
                                 variant="outlined"
                                 size="small"
                                 startIcon={<AddIcon />}
-                                onClick={(e) => { e.stopPropagation(); setAddParamOpen(true); }}
+                                onClick={() => setAddParamOpen(true)}
                             >
                                 Add Parameter
                             </Button>
@@ -984,151 +979,93 @@ const StationHub = () => {
                                 variant="outlined"
                                 size="small"
                                 startIcon={<SensorsIcon />}
-                                onClick={(e) => { e.stopPropagation(); setDeploySensorOpen(true); }}
+                                onClick={() => setDeploySensorOpen(true)}
                                 disabled={!(parameters ?? []).some((p) => !p.is_derived)}
                             >
                                 Deploy Sensor
                             </Button>
-                        </>
-                    )}
-                    <IconButton size="small">
-                        {sensorsExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                    </IconButton>
-                </Box>
-            </Box>
-
-            <Collapse in={sensorsExpanded}>
-                {sensorGroups.length === 0 && (
-                    <Alert severity="info" sx={{ mb: 2 }}>
-                        No sensor deployments found for this site.
-                    </Alert>
-                )}
-
-                <Grid container spacing={2}>
-                    {sensorGroups.map((group) => (
-                        <Grid key={group.sensorId} size={{ xs: 12, md: 6, xl: 4 }}>
-                            <SensorCard
-                                group={group}
-                                thresholdsByParam={thresholdsByParam}
-                                latestByParam={latestByParam}
-                                siteName={site.name}
-                            />
-                        </Grid>
-                    ))}
-                </Grid>
-            </Collapse>
-
-            {/* Charts — dashboard-like: single shared time range, all visible */}
-            {(parameters ?? []).filter((p) => !p.is_derived).length > 0 && (
-                <Box sx={{ mt: 3 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-                        <Typography variant="h6">
-                            Time Series
-                        </Typography>
-                        <Button
-                            variant="outlined"
-                            size="small"
-                            startIcon={<DownloadIcon />}
-                            onClick={() => setExportOpen(true)}
-                        >
-                            Export Data
-                        </Button>
-                    </Box>
-                    <TimeRangeSlider
-                        dataMin={dataRange.min}
-                        dataMax={dataRange.max}
-                        loading={dataRange.loading}
-                        start={sharedStart}
-                        end={sharedEnd}
-                        onChange={handleSharedRangeChange}
-                    />
-                    <Card variant="outlined" sx={{ mt: 1, p: 2 }}>
-                        {(parameters ?? [])
-                            .filter((p) => !p.is_derived)
-                            .map((param) => (
-                                <ParameterChart
-                                    key={param.id}
-                                    siteId={id!}
-                                    parameterId={param.id}
-                                    parameterName={param.name}
-                                    units={param.display_units}
-                                    threshold={thresholdsByParam.get(param.id) ? {
-                                        warning_min: thresholdsByParam.get(param.id)!.warning_min,
-                                        warning_max: thresholdsByParam.get(param.id)!.warning_max,
-                                        alarm_min: thresholdsByParam.get(param.id)!.alarm_min,
-                                        alarm_max: thresholdsByParam.get(param.id)!.alarm_max,
-                                    } : undefined}
-                                    externalStart={sharedStart}
-                                    externalEnd={sharedEnd}
-                                    syncKey="station-hub"
-                                    prefetchedData={chartData.data}
-                                    prefetchedIsAggregate={chartData.isAggregate}
-                                    prefetchedAnnotations={chartData.annotations}
-                                    prefetchedGrabData={chartData.grabData}
-                                    onDataMutated={chartData.refetch}
-                                />
-                            ))}
-                    </Card>
-                </Box>
-            )}
-
-            {/* Analysis (Scatter Plot) */}
-            {(parameters ?? []).filter((p) => !p.is_derived).length >= 2 && (
-                <Box sx={{ mt: 3 }}>
-                    <Box
-                        sx={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            mb: 1,
-                            cursor: 'pointer',
-                        }}
-                        onClick={() => setAnalysisExpanded(!analysisExpanded)}
-                    >
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <InsightsIcon color="action" />
-                            <Typography variant="h6">Analysis</Typography>
                         </Box>
-                        <IconButton size="small">
-                            {analysisExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                        </IconButton>
-                    </Box>
-                    <Collapse in={analysisExpanded}>
-                        <ScatterPlot
+
+                        {sensorGroups.length === 0 ? (
+                            <Alert severity="info">
+                                No sensor deployments found for this site.
+                            </Alert>
+                        ) : (
+                            <Grid container spacing={2}>
+                                {sensorGroups.map((group) => (
+                                    <Grid key={group.sensorId} size={{ xs: 12, xl: 6 }}>
+                                        <SensorCard
+                                            group={group}
+                                            thresholdsByParam={thresholdsByParam}
+                                            latestByParam={latestByParam}
+                                            siteName={site.name}
+                                        />
+                                    </Grid>
+                                ))}
+                            </Grid>
+                        )}
+                    </TabPanel>
+
+                    {/* Analysis tab */}
+                    <TabPanel value={tab} index={1}>
+                        {(parameters ?? []).filter((p) => !p.is_derived).length >= 2 ? (
+                            <ScatterPlot
+                                siteId={id!}
+                                parameters={(parameters ?? []).map((p) => ({
+                                    id: p.id,
+                                    name: p.name,
+                                    units: p.display_units,
+                                }))}
+                            />
+                        ) : (
+                            <Alert severity="info">
+                                At least 2 non-derived parameters are needed for analysis.
+                            </Alert>
+                        )}
+                    </TabPanel>
+
+                    {/* Status tab */}
+                    <TabPanel value={tab} index={2}>
+                        <StatusEventsTimeline
                             siteId={id!}
-                            parameters={(parameters ?? []).map((p) => ({
-                                id: p.id,
-                                name: p.name,
-                                units: p.display_units,
-                            }))}
+                            parameterNames={parameterNames}
+                            defaultExpanded
                         />
-                    </Collapse>
-                </Box>
-            )}
+                    </TabPanel>
 
-            {/* Device Status Events */}
-            <StatusEventsTimeline
-                siteId={id!}
-                parameterNames={parameterNames}
-            />
+                    {/* Notes tab */}
+                    <TabPanel value={tab} index={3}>
+                        <NotesSection siteId={id!} defaultExpanded />
+                    </TabPanel>
 
-            {/* Station Notes */}
-            <NotesSection siteId={id!} />
+                    {/* Derived tab */}
+                    <TabPanel value={tab} index={4}>
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+                            <AssignDerivedButton siteId={id!} />
+                        </Box>
+                        <DerivedSection
+                            derivedParams={derivedParams}
+                            derivedDefs={derivedDefById}
+                            allSiteParams={parameters ?? []}
+                            latestByParam={latestByParam}
+                            deployments={deployments ?? []}
+                        />
+                    </TabPanel>
+                </Grid>
 
-            {/* Derived Parameters */}
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 3, mb: 1 }}>
-                <Box />
-                <AssignDerivedButton siteId={id!} />
-            </Box>
-            <DerivedSection
-                derivedParams={derivedParams}
-                derivedDefs={derivedDefById}
-                allSiteParams={parameters ?? []}
-                latestByParam={latestByParam}
-                deployments={deployments ?? []}
-            />
+                {/* Right column: dashboard charts (sticky) */}
+                <Grid size={{ xs: 12, lg: 7 }}>
+                    <Box sx={{ position: 'sticky', top: 16, maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' }}>
+                        {(parameters ?? []).filter((p) => !p.is_derived).length > 0 ? (
+                            <ChartsDashboard siteId={id!} />
+                        ) : (
+                            <Alert severity="info">No parameters configured for charting.</Alert>
+                        )}
+                    </Box>
+                </Grid>
+            </Grid>
 
-            {/* Dialogs */}
+            {/* Dialogs (render in portal, unaffected by grid) */}
             <DataExportDialog
                 open={exportOpen}
                 onClose={() => setExportOpen(false)}

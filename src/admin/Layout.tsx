@@ -75,7 +75,7 @@ const CustomMenu = () => (
     <Menu.ResourceItem name="standard_curves" />
     <Menu.Item to="/admin/grab-samples" primaryText="Enter Grab Samples" leftIcon={<ScienceIcon />} />
     <Typography sx={sectionHeaderSx}>Analysis</Typography>
-    <Menu.Item to="/admin/compare" primaryText="Station Comparison" leftIcon={<CompareArrowsIcon />} />
+    <Menu.Item to="/admin/compare" primaryText="Site Comparison" leftIcon={<CompareArrowsIcon />} />
     <Menu.Item to="/admin/tools" primaryText="Tools" leftIcon={<BuildIcon />} />
     <Typography sx={sectionHeaderSx}>Admin</Typography>
     <Menu.ResourceItem name="projects" />

@@ -45,7 +45,7 @@ interface SiteRecord {
 interface SiteParameterRecord {
   id: string;
   site_id: string;
-  parameter_type_id: string;
+  parameter_id: string;
   name: string;
   is_active: boolean;
 }
@@ -90,7 +90,7 @@ export const AssignToSiteDialog: React.FC<AssignToSiteDialogProps> = ({
     // Build a map: parameter_id → site_parameter at this site
     const siteParamByParamId = new Map<string, SiteParameterRecord>();
     for (const sp of siteParams) {
-      siteParamByParamId.set(sp.parameter_type_id, sp);
+      siteParamByParamId.set(sp.parameter_id, sp);
     }
 
     return definition.sources.map((source) => {
@@ -126,7 +126,7 @@ export const AssignToSiteDialog: React.FC<AssignToSiteDialogProps> = ({
       {
         data: {
           site_id: targetSiteId,
-          parameter_type_id: null,
+          parameter_id: null,
           name: definition.display_name ?? definition.name,
           sensor_type: 'derived',
           display_units: definition.units,

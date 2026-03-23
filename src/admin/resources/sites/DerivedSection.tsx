@@ -60,7 +60,7 @@ export const DerivedSection: React.FC<DerivedSectionProps> = ({
         const map = new Map<string, ParameterRecord>();
         for (const sp of allSiteParams) {
             if (sp.is_derived) continue;
-            map.set(sp.parameter_type_id, sp);
+            map.set(sp.parameter_id, sp);
         }
         return map;
     }, [allSiteParams]);

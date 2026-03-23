@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useGetList } from 'react-admin';
 import { useAuthFetch } from '../hooks/useAuthFetch';
 import {
@@ -17,6 +17,7 @@ import { useSiteDataRange } from '../hooks/useSiteDataRange';
 interface FormulaPreviewChartProps {
   formula: string;
   requiredVariables: string[];
+  onSiteChange?: (siteId: string) => void;
 }
 
 interface PreviewResponse {
@@ -34,6 +35,7 @@ const SOURCE_COLORS = [
 export const FormulaPreviewChart: React.FC<FormulaPreviewChartProps> = ({
   formula,
   requiredVariables,
+  onSiteChange,
 }) => {
   const chartRef = useRef<HTMLDivElement>(null);
   const uplotRef = useRef<uPlot | null>(null);
@@ -54,12 +56,65 @@ export const FormulaPreviewChart: React.FC<FormulaPreviewChartProps> = ({
     sort: { field: 'name', order: 'ASC' },
   });
 
-  // Auto-select first site for immediate preview
-  useEffect(() => {
-    if (!siteId && sites?.length) {
-      setSiteId(sites[0].id as string);
+  const { data: allParameters } = useGetList('parameters', {
+    pagination: { page: 1, perPage: 500 },
+    sort: { field: 'name', order: 'ASC' },
+  });
+
+  const { data: allSiteParams } = useGetList('site_parameters', {
+    pagination: { page: 1, perPage: 500 },
+    sort: { field: 'id', order: 'ASC' },
+  });
+
+  // Compute which sites have ALL the required parameters
+  const eligibleSiteIds = useMemo(() => {
+    if (!allParameters || !allSiteParams || requiredVariables.length === 0) return null;
+
+    const requiredParamIds = requiredVariables
+      .map(v => allParameters.find(p => p.name === v)?.id as string | undefined)
+      .filter((id): id is string => !!id);
+
+    if (requiredParamIds.length === 0) return null;
+
+    const siteParamMap = new Map<string, Set<string>>();
+    for (const sp of allSiteParams) {
+      const sid = sp.site_id as string;
+      if (!siteParamMap.has(sid)) siteParamMap.set(sid, new Set());
+      siteParamMap.get(sid)!.add(sp.parameter_id as string);
     }
-  }, [sites, siteId]);
+
+    const eligible = new Set<string>();
+    for (const [sid, paramIds] of siteParamMap) {
+      if (requiredParamIds.every(pid => paramIds.has(pid))) {
+        eligible.add(sid);
+      }
+    }
+    return eligible;
+  }, [allParameters, allSiteParams, requiredVariables]);
+
+  const eligibleSites = useMemo(() => {
+    if (!sites) return [];
+    if (!eligibleSiteIds) return sites;
+    return sites.filter(s => eligibleSiteIds.has(s.id as string));
+  }, [sites, eligibleSiteIds]);
+
+  // Auto-select first eligible site, or deselect if current is ineligible
+  useEffect(() => {
+    if (!eligibleSiteIds || !sites?.length) return;
+    if (eligibleSiteIds.size === 0) {
+      setSiteId('');
+      return;
+    }
+    if (!siteId || !eligibleSiteIds.has(siteId)) {
+      const first = sites.find(s => eligibleSiteIds.has(s.id as string));
+      setSiteId(first ? (first.id as string) : '');
+    }
+  }, [eligibleSiteIds, sites]);
+
+  // Notify parent of site changes
+  useEffect(() => {
+    onSiteChange?.(siteId);
+  }, [siteId, onSiteChange]);
 
   const handleRangeChange = useCallback((s: number, e: number) => {
     setStart(s);
@@ -221,54 +276,65 @@ export const FormulaPreviewChart: React.FC<FormulaPreviewChartProps> = ({
           Build a formula with at least one variable to see a live preview
         </Alert>
       )}
-      {hasFormula && siteName && (
+      {hasFormula && eligibleSiteIds?.size === 0 && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          No sites have all required parameters ({requiredVariables.join(', ')})
+        </Alert>
+      )}
+      {hasFormula && siteName && eligibleSites.length > 0 && (
         <Alert severity="info" sx={{ mb: 2 }}>
           Preview using data from <strong>{siteName}</strong> — this is a preview, not stored data
         </Alert>
       )}
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-        <TextField
-          select
-          label="Site"
-          value={siteId}
-          onChange={(e) => setSiteId(e.target.value)}
-          size="small"
-          sx={{ minWidth: 200 }}
-        >
-          {(sites ?? []).map((site) => (
-            <MenuItem key={site.id} value={site.id}>
-              {site.name}
-            </MenuItem>
-          ))}
-        </TextField>
-      </Box>
-
-      <TimeRangeSlider
-        dataMin={dataRange.min}
-        dataMax={dataRange.max}
-        loading={dataRange.loading}
-        start={start}
-        end={end}
-        onChange={handleRangeChange}
-      />
-
-      {loading && (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-          <CircularProgress size={20} />
-          <Typography variant="body2" color="text.secondary">
-            Loading preview...
-          </Typography>
+      {hasFormula && eligibleSites.length > 0 && (
+        <Box sx={{ display: 'flex', gap: 2, mb: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+          <TextField
+            select
+            label="Site"
+            value={siteId}
+            onChange={(e) => setSiteId(e.target.value)}
+            size="small"
+            sx={{ minWidth: 200 }}
+          >
+            {eligibleSites.map((site) => (
+              <MenuItem key={site.id} value={site.id}>
+                {site.name}
+              </MenuItem>
+            ))}
+          </TextField>
         </Box>
       )}
 
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
-        </Alert>
-      )}
+      {siteId && (
+        <>
+          <TimeRangeSlider
+            dataMin={dataRange.min}
+            dataMax={dataRange.max}
+            loading={dataRange.loading}
+            start={start}
+            end={end}
+            onChange={handleRangeChange}
+          />
 
-      <div ref={chartRef} style={{ width: '100%' }} />
+          {loading && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+              <CircularProgress size={20} />
+              <Typography variant="body2" color="text.secondary">
+                Loading preview...
+              </Typography>
+            </Box>
+          )}
+
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {error}
+            </Alert>
+          )}
+
+          <div ref={chartRef} style={{ width: '100%' }} />
+        </>
+      )}
     </Box>
   );
 };

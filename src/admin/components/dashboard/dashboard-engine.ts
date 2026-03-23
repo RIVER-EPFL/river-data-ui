@@ -84,16 +84,24 @@ const DASHBOARD_HTML = `
 </div>
 `;
 
+export interface DashboardOptions {
+  /** When set, skip the header/site-selector and load this site immediately */
+  siteId?: string;
+}
+
 export interface DashboardHandle {
   destroy: () => void;
   selectSite: (siteId: string) => void;
 }
 
-export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFetchFn): DashboardHandle {
+export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFetchFn, options?: DashboardOptions): DashboardHandle {
   root.innerHTML = DASHBOARD_HTML;
 
   const ac = new AbortController();
   const { signal } = ac;
+
+  // Tooltip hide debounce (prevents flicker when cursor moves between synced charts)
+  let hideRaf: number | null = null;
 
   // Scoped DOM query helper
   const $ = (id: string) => root.querySelector(`#${id}`) as HTMLElement;
@@ -207,8 +215,9 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
       return;
     }
     toolbar.style.display = '';
-    hubLink.href = `#/sites/${state.site.id}/show`;
-    hubLink.textContent = `${state.site.name} — view site details`;
+    hubLink.href = '#';
+    hubLink.setAttribute('data-navigate', `/admin/sites/${state.site.id}/show`);
+    hubLink.textContent = 'View site details';
   }
 
   function formatDate(ts: number) {
@@ -231,8 +240,24 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     return `${(days / 365).toFixed(1)} years`;
   }
 
+  // Single-site mode: hide header and site-hub link
+  const singleSiteMode = !!options?.siteId;
+  if (singleSiteMode) {
+    const header = root.querySelector('header');
+    if (header) (header as HTMLElement).style.display = 'none';
+    const hubLink = $('site-hub-link');
+    if (hubLink) hubLink.style.display = 'none';
+  }
+
   // Initialize
   async function init() {
+    if (singleSiteMode) {
+      // Skip project/site fetching, go straight to the site
+      initControls();
+      loadSite(options!.siteId!);
+      return;
+    }
+
     const [projects, sites] = await Promise.all([
       api('/api/service/projects'),
       api('/api/service/sites'),
@@ -273,6 +298,14 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
       }, { signal });
     });
 
+    initControls();
+
+    // Auto-load first site
+    const firstBtn = container.querySelector('.site-btn') as HTMLElement | null;
+    if (firstBtn) firstBtn.click();
+  }
+
+  function initControls() {
     // Alarm toggle handler
     $('alarm-toggle').addEventListener('click', () => {
       state.showAlarms = !state.showAlarms;
@@ -290,10 +323,6 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
       if (!state.site || !state.start || !state.end) return;
       downloadExport(state.site.id, 'ndjson', state.start.toISOString(), state.end.toISOString());
     }, { signal });
-
-    // Auto-load first site
-    const firstBtn = container.querySelector('.site-btn') as HTMLElement | null;
-    if (firstBtn) firstBtn.click();
   }
 
   async function loadSite(siteId: string) {
@@ -307,7 +336,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     $('charts-container').innerHTML = '';
 
     const toggles = $('parameter-toggles');
-    const types = [...new Set((site.parameters || []).map((s: any) => s.sensor_type).filter(Boolean))].sort() as string[];
+    const types = [...new Set((site.parameters || []).map((s: any) => s.sensor_type || s.name).filter(Boolean))].sort() as string[];
 
     if (!types.length) {
       toggles.innerHTML = '<span style="color: var(--muted); font-size: 0.875rem;">No parameters configured</span>';
@@ -831,12 +860,13 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
               (u: uPlot) => {
                 const idx = u.cursor.idx;
                 if (idx != null) {
+                  if (hideRaf != null) { cancelAnimationFrame(hideRaf); hideRaf = null; }
                   const bbox = u.root.getBoundingClientRect();
                   const cx = u.cursor.left! + bbox.left;
                   const cy = u.cursor.top! + bbox.top;
                   updateTooltip(idx, cx, cy);
                 } else {
-                  hideTooltip();
+                  hideRaf = requestAnimationFrame(() => { hideTooltip(); hideRaf = null; });
                 }
               },
             ],
@@ -855,6 +885,12 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
         };
 
         state.charts[type] = new uPlot(opts, seriesData, chartArea as HTMLElement);
+
+        // Attach dblclick to uPlot root (u-over div may absorb events on .chart-area)
+        state.charts[type].root.addEventListener('dblclick', () => {
+          if (!state.site?.data_start || !state.site?.data_end || !state.slider) return;
+          state.slider.set([new Date(state.site.data_start).getTime(), new Date(state.site.data_end).getTime()]);
+        }, { signal });
       }
     });
 
@@ -868,14 +904,20 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     hideTooltip();
   }, { signal });
 
-  window.addEventListener('resize', debounce(() => {
+  // Resize charts when container changes size (handles grid layout changes, not just window resize)
+  const resizeCharts = debounce(() => {
     const chartsContainer = $('charts-container');
     const width = chartsContainer.clientWidth - 32;
     Object.entries(state.charts).forEach(([type, chart]: [string, any]) => {
       const height = state.expandedCharts.has(type) ? CHART_HEIGHT_EXPANDED : CHART_HEIGHT_NORMAL;
-      chart.setSize({ width, height });
+      if (chart.width !== width) {
+        chart.setSize({ width, height });
+      }
     });
-  }, 100), { signal });
+  }, 100);
+
+  const resizeObserver = new ResizeObserver(resizeCharts);
+  resizeObserver.observe($('charts-container'));
 
   // Start
   init();
@@ -884,6 +926,8 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
   return {
     destroy: () => {
       ac.abort();
+      resizeObserver.disconnect();
+      if (hideRaf != null) cancelAnimationFrame(hideRaf);
       Object.values(state.charts).forEach((c: any) => c.destroy());
       if (state.slider) state.slider.destroy();
     },
