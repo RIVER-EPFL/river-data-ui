@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNotify } from 'react-admin';
 import {
   Card,
@@ -53,6 +53,9 @@ export const SyncStatusPanel = () => {
   // Discovery wizard
   const [wizardOpen, setWizardOpen] = useState(false);
 
+  // Version ref to prevent stale stats from a previous request
+  const statsRequestVersion = useRef(0);
+
   const refresh = useCallback(() => {
     return dataProvider
       .getSyncState()
@@ -90,17 +93,22 @@ export const SyncStatusPanel = () => {
   };
 
   const openStatsDialog = async (stream: StreamState) => {
+    const version = ++statsRequestVersion.current;
     setStatsTarget(stream);
     setStatsDialogOpen(true);
     setStats(null);
     setLoadingStats(true);
     try {
       const res = await dataProvider.getStreamStats(stream.id);
+      if (statsRequestVersion.current !== version) return;
       setStats(res.data);
     } catch {
+      if (statsRequestVersion.current !== version) return;
       notify('Failed to load stream stats', { type: 'error' });
     } finally {
-      setLoadingStats(false);
+      if (statsRequestVersion.current === version) {
+        setLoadingStats(false);
+      }
     }
   };
 

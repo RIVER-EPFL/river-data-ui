@@ -410,16 +410,16 @@ const dataProvider = (
   },
 
   getStreamStats: (streamId: string) =>
-    httpClient(`/api/service/streams/${streamId}/stats`).then(({ json }) => ({ data: json })),
+    httpClient(`${apiUrl}/streams/${streamId}/stats`).then(({ json }) => ({ data: json })),
 
   pairStream: (streamId: string, siteParameterId: string) =>
-    httpClient(`/api/service/streams/${streamId}/pair`, {
+    httpClient(`${apiUrl}/streams/${streamId}/pair`, {
       method: 'POST',
       body: JSON.stringify({ site_parameter_id: siteParameterId }),
     }).then(({ json }) => ({ data: json })),
 
   unpairStream: (streamId: string) =>
-    httpClient(`/api/service/streams/${streamId}/unpair`, {
+    httpClient(`${apiUrl}/streams/${streamId}/unpair`, {
       method: 'POST',
     }).then(({ json }) => ({ data: json })),
 

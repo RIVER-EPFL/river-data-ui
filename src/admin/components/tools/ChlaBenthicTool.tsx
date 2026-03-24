@@ -13,6 +13,9 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import { ToolLayout } from './ToolLayout';
 import { LoadStandardCurveButton } from './LoadStandardCurveButton';
 
+/** Returns true if the string is non-empty but not a valid finite number */
+const isInvalidNumber = (v: string): boolean => v !== '' && (isNaN(Number(v)) || !isFinite(Number(v)));
+
 interface ReplicateState {
   fluorBefore: string;
   fluorAfter: string;
@@ -132,6 +135,8 @@ export const ChlaBenthicTool = () => {
               type="number"
               size="small"
               sx={{ width: 120 }}
+              error={isInvalidNumber(acidSlope)}
+              helperText={isInvalidNumber(acidSlope) ? 'Must be a number' : undefined}
             />
             <TextField
               label="Intercept"
@@ -140,6 +145,8 @@ export const ChlaBenthicTool = () => {
               type="number"
               size="small"
               sx={{ width: 120 }}
+              error={isInvalidNumber(acidIntercept)}
+              helperText={isInvalidNumber(acidIntercept) ? 'Must be a number' : undefined}
             />
             <LoadStandardCurveButton onLoad={handleLoadAcidCurve} />
           </Box>
@@ -156,6 +163,8 @@ export const ChlaBenthicTool = () => {
               type="number"
               size="small"
               sx={{ width: 120 }}
+              error={isInvalidNumber(noacidSlope)}
+              helperText={isInvalidNumber(noacidSlope) ? 'Must be a number' : undefined}
             />
             <TextField
               label="Intercept"
@@ -164,6 +173,8 @@ export const ChlaBenthicTool = () => {
               type="number"
               size="small"
               sx={{ width: 120 }}
+              error={isInvalidNumber(noacidIntercept)}
+              helperText={isInvalidNumber(noacidIntercept) ? 'Must be a number' : undefined}
             />
             <LoadStandardCurveButton onLoad={handleLoadNoacidCurve} />
           </Box>
@@ -217,6 +228,8 @@ export const ChlaBenthicTool = () => {
                   size="small"
                   sx={{ width: 120 }}
                   required
+                  error={isInvalidNumber(rep.fluorBefore)}
+                  helperText={isInvalidNumber(rep.fluorBefore) ? 'Must be a number' : undefined}
                 />
                 <TextField
                   label="After (acid)"

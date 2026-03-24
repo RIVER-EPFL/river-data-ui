@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useGetList } from 'react-admin';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -151,10 +151,20 @@ export const StatusIndicators = () => {
     }
   }, [dataProvider, siteParameters]);
 
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   useEffect(() => {
+    if (intervalRef.current !== null) {
+      clearInterval(intervalRef.current);
+    }
     refresh();
-    const interval = setInterval(refresh, REFRESH_INTERVAL);
-    return () => clearInterval(interval);
+    intervalRef.current = setInterval(refresh, REFRESH_INTERVAL);
+    return () => {
+      if (intervalRef.current !== null) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
   }, [refresh]);
 
   const handleAck = (eventId: string) => {
