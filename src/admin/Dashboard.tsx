@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, useCallback } from 'react';
 import { Title } from 'react-admin';
 import { Box } from '@mui/material';
 import { SiteMap } from './components/dashboard/SiteMap';
@@ -9,10 +9,10 @@ const Dashboard = () => {
   const chartsRef = useRef<ChartsDashboardRef>(null);
   const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
 
-  const handleSiteClick = (siteId: string) => {
+  const handleSiteClick = useCallback((siteId: string) => {
     setSelectedSiteId(siteId);
     chartsRef.current?.selectSite(siteId);
-  };
+  }, []);
 
   return (
     <>
@@ -36,7 +36,7 @@ const Dashboard = () => {
         >
           <SiteMap onSiteClick={handleSiteClick} selectedSiteId={selectedSiteId} />
         </Box>
-        <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Box sx={{ flex: 1, minWidth: 0, overflowX: 'hidden' }}>
           <ChartsDashboard ref={chartsRef} />
         </Box>
       </Box>

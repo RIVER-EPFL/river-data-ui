@@ -333,7 +333,9 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     Object.values(state.charts).forEach((chart: any) => chart.destroy());
     state.charts = {};
     state.chartData = {};
-    $('charts-container').innerHTML = '';
+    const chartsEl = $('charts-container');
+    chartsEl.style.minHeight = chartsEl.offsetHeight + 'px';
+    chartsEl.innerHTML = '';
 
     const toggles = $('parameter-toggles');
     const types = [...new Set((site.parameters || []).map((s: any) => s.sensor_type || s.name).filter(Boolean))].sort() as string[];
@@ -342,6 +344,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
       toggles.innerHTML = '<span style="color: var(--muted); font-size: 0.875rem;">No parameters configured</span>';
       state.parameters = new Set();
       $('charts-container').innerHTML = '<div class="chart-placeholder">No parameters configured</div>';
+      $('charts-container').style.minHeight = '';
       return;
     }
 
@@ -368,6 +371,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     if (!site.data_start || !site.data_end) {
       ($('slider-section')).style.display = 'none';
       $('charts-container').innerHTML = '<div class="chart-placeholder">No data available for this site</div>';
+      $('charts-container').style.minHeight = '';
       return;
     }
 
@@ -563,6 +567,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     } catch (e) {
       console.error('Failed to fetch data:', e);
       $('charts-container').innerHTML = '<div class="chart-placeholder">Error loading data</div>';
+      $('charts-container').style.minHeight = '';
     } finally {
       hideLoading();
     }
@@ -897,6 +902,9 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     // Remove placeholder if we have charts
     const placeholder = chartsContainer.querySelector('.chart-placeholder');
     if (placeholder && enabledTypes.length) placeholder.remove();
+
+    // Clear minHeight lock now that charts are rendered
+    chartsContainer.style.minHeight = '';
   }
 
   // Event listeners

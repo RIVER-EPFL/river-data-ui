@@ -74,7 +74,7 @@ const AdminApp = () => {
 
         await keycloakClient.init(initOptions);
 
-        const redirectUri = window.location.origin + '/admin';
+        const redirectUri = window.location.origin + '/admin/';
 
         authProvider.current = keycloakAuthProvider(keycloakClient, {
           onPermissions: getPermissions,

@@ -213,7 +213,7 @@ export interface RiverDataProvider extends DataProvider {
   getSyncServices: () => Promise<{ data: SyncService[] }>;
   issueSyncCommand: (serviceId: string, command: string, payload?: object) => Promise<{ data: SyncCommand }>;
   getSyncCommands: () => Promise<{ data: SyncCommand[] }>;
-  getSyncEvents: () => Promise<{ data: SyncEvent[] }>;
+  getSyncEvents: (params?: { page?: number; perPage?: number }) => Promise<{ data: SyncEvent[]; total: number }>;
   createServiceCredential: (serviceType: string) => Promise<{ data: { client_id: string; client_secret: string } }>;
   listServiceCredentials: () => Promise<{ data: ServiceCredential[] }>;
   revokeSyncService: (credentialId: string) => Promise<{ data: unknown }>;
@@ -469,8 +469,16 @@ const dataProvider = (
   getSyncCommands: () =>
     httpClient(`${apiUrl}/sync/commands`).then(({ json }) => ({ data: json })),
 
-  getSyncEvents: () =>
-    httpClient(`${apiUrl}/sync/events`).then(({ json }) => ({ data: json })),
+  getSyncEvents: (params?: { page?: number; perPage?: number }) => {
+    const page = params?.page ?? 1;
+    const perPage = params?.perPage ?? 25;
+    return httpClient(`${apiUrl}/sync/events?page=${page}&per_page=${perPage}`).then(({ headers, json }) => {
+      const range = headers.get('Content-Range') || '';
+      const match = range.match(/\/(\d+)/);
+      const total = match ? parseInt(match[1], 10) : json.length;
+      return { data: json, total };
+    });
+  },
 
   createServiceCredential: (serviceType: string) =>
     httpClient(`${apiUrl}/sync/credentials`, {

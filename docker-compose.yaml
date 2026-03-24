@@ -103,7 +103,15 @@ services:
     environment:
       - VITE_KEYCLOAK_BROWSER_URL=http://localhost:8180/
     labels:
-      - "traefik.http.routers.river-db-ui.rule=PathPrefix(`/admin`)"
+      # Redirect /admin (no trailing slash) to /admin/
+      - "traefik.http.routers.river-db-ui-redirect.rule=Path(`/admin`)"
+      - "traefik.http.routers.river-db-ui-redirect.priority=60"
+      - "traefik.http.routers.river-db-ui-redirect.middlewares=admin-trailing-slash"
+      - "traefik.http.middlewares.admin-trailing-slash.redirectregex.regex=^(https?://[^/]+)/admin$$"
+      - "traefik.http.middlewares.admin-trailing-slash.redirectregex.replacement=$${1}/admin/"
+      - "traefik.http.routers.river-db-ui-redirect.service=river-db-ui"
+      # Main router for /admin/ paths
+      - "traefik.http.routers.river-db-ui.rule=PathPrefix(`/admin/`)"
       - "traefik.http.routers.river-db-ui.priority=50"
       - "traefik.http.services.river-db-ui.loadbalancer.server.port=5173"
     volumes:
@@ -139,6 +147,134 @@ services:
       river-db-api:
         condition: service_healthy
 
+  # ── Portal source databases ─────────────────────────────────────────
+  portal-db-cnet:
+    image: mariadb:10.3
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: cnet_db
+      MYSQL_USER: sync_reader
+      MYSQL_PASSWORD: sync_reader
+    volumes:
+      - /home/ejthomas/projects/RIVER/dumps/cnet_db_prod.sql:/docker-entrypoint-initdb.d/01-data.sql:ro
+      - portal-cnet-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  portal-db-metalp:
+    image: mariadb:10.3
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: metalp_db
+      MYSQL_USER: sync_reader
+      MYSQL_PASSWORD: sync_reader
+    volumes:
+      - /home/ejthomas/projects/RIVER/dumps/metalp_db_prod.sql:/docker-entrypoint-initdb.d/01-data.sql:ro
+      - portal-metalp-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  portal-db-nomis:
+    image: mariadb:10.3
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: nomis_db
+      MYSQL_USER: sync_reader
+      MYSQL_PASSWORD: sync_reader
+    volumes:
+      - /home/ejthomas/projects/RIVER/dumps/nomis_db_prod.sql:/docker-entrypoint-initdb.d/01-data.sql:ro
+      - portal-nomis-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Portal sync microservices ──────────────────────────────────────
+  river-data-sync-cnet:
+    build:
+      context: ../river-data-api
+      dockerfile: river-data-sync-portal/Dockerfile
+    environment:
+      - PORTAL_TYPE=cnet
+      - PORTAL_DB_HOST=portal-db-cnet
+      - PORTAL_DB_PORT=3306
+      - PORTAL_DB_USER=sync_reader
+      - PORTAL_DB_PASSWORD=sync_reader
+      - PORTAL_DB_NAME=cnet_db
+      - API_BASE_URL=http://river-db-api:${API_PORT:-3000}
+      - SERVICE_CLIENT_ID=${CNET_SERVICE_CLIENT_ID:-}
+      - SERVICE_CLIENT_SECRET=${CNET_SERVICE_CLIENT_SECRET:-}
+      - INSTANCE_ID=cnet-dev-01
+      - SYNC_INTERVAL_SECONDS=${PORTAL_SYNC_INTERVAL:-21600}
+      - HEARTBEAT_INTERVAL_SECONDS=30
+      - RETRY_MAX=3
+      - RETRY_DELAY_SECONDS=60
+      - RUST_LOG=${SYNC_RUST_LOG:-info}
+    depends_on:
+      river-db-api:
+        condition: service_healthy
+      portal-db-cnet:
+        condition: service_healthy
+
+  river-data-sync-metalp:
+    build:
+      context: ../river-data-api
+      dockerfile: river-data-sync-portal/Dockerfile
+    environment:
+      - PORTAL_TYPE=metalp
+      - PORTAL_DB_HOST=portal-db-metalp
+      - PORTAL_DB_PORT=3306
+      - PORTAL_DB_USER=sync_reader
+      - PORTAL_DB_PASSWORD=sync_reader
+      - PORTAL_DB_NAME=metalp_db
+      - API_BASE_URL=http://river-db-api:${API_PORT:-3000}
+      - SERVICE_CLIENT_ID=${METALP_SERVICE_CLIENT_ID:-}
+      - SERVICE_CLIENT_SECRET=${METALP_SERVICE_CLIENT_SECRET:-}
+      - INSTANCE_ID=metalp-dev-01
+      - SYNC_INTERVAL_SECONDS=${PORTAL_SYNC_INTERVAL:-21600}
+      - HEARTBEAT_INTERVAL_SECONDS=30
+      - RETRY_MAX=3
+      - RETRY_DELAY_SECONDS=60
+      - RUST_LOG=${SYNC_RUST_LOG:-info}
+    depends_on:
+      river-db-api:
+        condition: service_healthy
+      portal-db-metalp:
+        condition: service_healthy
+
+  river-data-sync-nomis:
+    build:
+      context: ../river-data-api
+      dockerfile: river-data-sync-portal/Dockerfile
+    environment:
+      - PORTAL_TYPE=nomis
+      - PORTAL_DB_HOST=portal-db-nomis
+      - PORTAL_DB_PORT=3306
+      - PORTAL_DB_USER=sync_reader
+      - PORTAL_DB_PASSWORD=sync_reader
+      - PORTAL_DB_NAME=nomis_db
+      - API_BASE_URL=http://river-db-api:${API_PORT:-3000}
+      - SERVICE_CLIENT_ID=${NOMIS_SERVICE_CLIENT_ID:-}
+      - SERVICE_CLIENT_SECRET=${NOMIS_SERVICE_CLIENT_SECRET:-}
+      - INSTANCE_ID=nomis-dev-01
+      - SYNC_INTERVAL_SECONDS=${PORTAL_SYNC_INTERVAL:-21600}
+      - HEARTBEAT_INTERVAL_SECONDS=30
+      - RETRY_MAX=3
+      - RETRY_DELAY_SECONDS=60
+      - RUST_LOG=${SYNC_RUST_LOG:-info}
+    depends_on:
+      river-db-api:
+        condition: service_healthy
+      portal-db-nomis:
+        condition: service_healthy
+
   river-db-keycloak:
     image: quay.io/keycloak/keycloak:26.0
     command: start-dev --import-realm
@@ -162,3 +298,6 @@ services:
 volumes:
   river-db-timescale-data:
   river-db-rust-data:
+  portal-cnet-data:
+  portal-metalp-data:
+  portal-nomis-data:

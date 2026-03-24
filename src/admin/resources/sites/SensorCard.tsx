@@ -62,7 +62,7 @@ export interface ParameterRecord {
 export interface SensorDeploymentRecord {
     id: string;
     sensor_id: string;
-    parameter_id: string;
+    site_id: string;
     deployed_from: string;
     deployed_until: string | null;
     deployment_type: string | null;
@@ -73,6 +73,7 @@ export interface SensorRecord {
     id: string;
     serial_number: string;
     name: string | null;
+    parameter_id: string | null;
     manufacturer: string | null;
     model: string | null;
     is_active: boolean;
@@ -429,7 +430,7 @@ const MoveSensorDialog: React.FC<MoveSensorDialogProps> = ({
             {
                 data: {
                     sensor_id: deployment.sensor_id,
-                    parameter_id: targetParameterId,
+                    site_id: targetSiteId,
                     deployed_from: new Date(newDeployedFrom).toISOString(),
                     deployed_until: null,
                     deployment_type: deployment.deployment_type,
@@ -581,7 +582,7 @@ const MoveSensorDialog: React.FC<MoveSensorDialogProps> = ({
                         <Button
                             onClick={handleCreateDeployment}
                             variant="contained"
-                            disabled={createPending || !targetSiteId || !targetParameterId || !newDeployedFrom}
+                            disabled={createPending || !targetSiteId || !newDeployedFrom}
                             startIcon={createPending ? <CircularProgress size={16} /> : undefined}
                         >
                             Create Deployment
@@ -599,105 +600,23 @@ const MoveSensorDialog: React.FC<MoveSensorDialogProps> = ({
 };
 
 // ---------------------------------------------------------------------------
-// Inline Editable Threshold
+// Threshold Dialog (shared for create and edit)
 // ---------------------------------------------------------------------------
 
-interface InlineThresholdProps {
-    threshold: AlarmThresholdRecord;
-}
-
-const InlineThreshold: React.FC<InlineThresholdProps> = ({ threshold }) => {
-    const [editing, setEditing] = useState(false);
-    const [update, { isPending }] = useUpdate();
-    const notify = useNotify();
-    const refresh = useRefresh();
-
-    const [warnMin, setWarnMin] = useState(String(threshold.warning_min ?? ''));
-    const [warnMax, setWarnMax] = useState(String(threshold.warning_max ?? ''));
-    const [alarmMin, setAlarmMin] = useState(String(threshold.alarm_min ?? ''));
-    const [alarmMax, setAlarmMax] = useState(String(threshold.alarm_max ?? ''));
-
-    const handleSave = () => {
-        const toNum = (v: string) => (v === '' ? null : parseFloat(v));
-        update(
-            'alarm_thresholds',
-            {
-                id: threshold.id,
-                data: {
-                    ...threshold,
-                    warning_min: toNum(warnMin),
-                    warning_max: toNum(warnMax),
-                    alarm_min: toNum(alarmMin),
-                    alarm_max: toNum(alarmMax),
-                },
-                previousData: threshold,
-            },
-            {
-                onSuccess: () => {
-                    notify('Thresholds updated', { type: 'success' });
-                    setEditing(false);
-                    refresh();
-                },
-                onError: () => {
-                    notify('Failed to update thresholds', { type: 'error' });
-                },
-            },
-        );
-    };
-
-    if (!editing) {
-        return (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
-                <Typography variant="caption" color="text.secondary">
-                    Warn: [{threshold.warning_min ?? '-'}, {threshold.warning_max ?? '-'}]
-                    {' | '}
-                    Alarm: [{threshold.alarm_min ?? '-'}, {threshold.alarm_max ?? '-'}]
-                </Typography>
-                <Tooltip title="Edit thresholds">
-                    <IconButton size="small" onClick={() => setEditing(true)}>
-                        <EditIcon sx={{ fontSize: 14 }} />
-                    </IconButton>
-                </Tooltip>
-            </Box>
-        );
-    }
-
-    return (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
-            <TextField label="W min" size="small" type="number" value={warnMin}
-                onChange={(e) => setWarnMin(e.target.value)} sx={{ width: 70 }}
-                inputProps={{ step: 'any' }} />
-            <TextField label="W max" size="small" type="number" value={warnMax}
-                onChange={(e) => setWarnMax(e.target.value)} sx={{ width: 70 }}
-                inputProps={{ step: 'any' }} />
-            <TextField label="A min" size="small" type="number" value={alarmMin}
-                onChange={(e) => setAlarmMin(e.target.value)} sx={{ width: 70 }}
-                inputProps={{ step: 'any' }} />
-            <TextField label="A max" size="small" type="number" value={alarmMax}
-                onChange={(e) => setAlarmMax(e.target.value)} sx={{ width: 70 }}
-                inputProps={{ step: 'any' }} />
-            <Button size="small" onClick={handleSave} disabled={isPending} variant="outlined">
-                {isPending ? <CircularProgress size={14} /> : 'Save'}
-            </Button>
-            <Button size="small" onClick={() => setEditing(false)} disabled={isPending}>
-                Cancel
-            </Button>
-        </Box>
-    );
-};
-
-// ---------------------------------------------------------------------------
-// Create Threshold Button (inline, for parameters with no threshold)
-// ---------------------------------------------------------------------------
-
-interface CreateThresholdButtonProps {
+interface ThresholdDialogProps {
+    open: boolean;
+    onClose: () => void;
+    threshold?: AlarmThresholdRecord;
     parameterId: string;
     siteId: string;
+    parameterName: string;
 }
 
-const CreateThresholdButton: React.FC<CreateThresholdButtonProps> = ({ parameterId, siteId }) => {
-    const [editing, setEditing] = useState(false);
-    const [create, { isPending }] = useCreate();
+const ThresholdDialog: React.FC<ThresholdDialogProps> = ({
+    open, onClose, threshold, parameterId, siteId, parameterName,
+}) => {
+    const [create, { isPending: createPending }] = useCreate();
+    const [update, { isPending: updatePending }] = useUpdate();
     const notify = useNotify();
     const refresh = useRefresh();
 
@@ -706,64 +625,85 @@ const CreateThresholdButton: React.FC<CreateThresholdButtonProps> = ({ parameter
     const [alarmMin, setAlarmMin] = useState('');
     const [alarmMax, setAlarmMax] = useState('');
 
+    const isPending = createPending || updatePending;
+    const isEdit = !!threshold;
+
+    React.useEffect(() => {
+        if (open && threshold) {
+            setWarnMin(String(threshold.warning_min ?? ''));
+            setWarnMax(String(threshold.warning_max ?? ''));
+            setAlarmMin(String(threshold.alarm_min ?? ''));
+            setAlarmMax(String(threshold.alarm_max ?? ''));
+        } else if (open) {
+            setWarnMin('');
+            setWarnMax('');
+            setAlarmMin('');
+            setAlarmMax('');
+        }
+    }, [open, threshold]);
+
     const toNum = (v: string) => (v === '' ? null : parseFloat(v));
 
     const handleSave = () => {
-        create(
-            'alarm_thresholds',
-            {
-                data: {
-                    parameter_id: parameterId,
-                    site_id: siteId,
-                    alarm_type: 'range',
-                    warning_min: toNum(warnMin),
-                    warning_max: toNum(warnMax),
-                    alarm_min: toNum(alarmMin),
-                    alarm_max: toNum(alarmMax),
-                },
-            },
-            {
-                onSuccess: () => {
-                    notify('Thresholds created', { type: 'success' });
-                    setEditing(false);
-                    refresh();
-                },
-                onError: () => {
-                    notify('Failed to create thresholds', { type: 'error' });
-                },
-            },
-        );
+        const values = {
+            warning_min: toNum(warnMin),
+            warning_max: toNum(warnMax),
+            alarm_min: toNum(alarmMin),
+            alarm_max: toNum(alarmMax),
+        };
+
+        if (isEdit) {
+            update('alarm_thresholds', {
+                id: threshold.id,
+                data: { ...threshold, ...values },
+                previousData: threshold,
+            }, {
+                onSuccess: () => { notify('Thresholds updated', { type: 'success' }); refresh(); onClose(); },
+                onError: () => { notify('Failed to update thresholds', { type: 'error' }); },
+            });
+        } else {
+            create('alarm_thresholds', {
+                data: { parameter_id: parameterId, site_id: siteId, alarm_type: 'range', ...values },
+            }, {
+                onSuccess: () => { notify('Thresholds created', { type: 'success' }); refresh(); onClose(); },
+                onError: () => { notify('Failed to create thresholds', { type: 'error' }); },
+            });
+        }
     };
 
-    if (!editing) {
-        return (
-            <Button size="small" onClick={() => setEditing(true)} sx={{ textTransform: 'none', fontSize: '0.75rem' }}>
-                Set Thresholds
-            </Button>
-        );
-    }
-
     return (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
-            <TextField label="W min" size="small" type="number" value={warnMin}
-                onChange={(e) => setWarnMin(e.target.value)} sx={{ width: 70 }}
-                inputProps={{ step: 'any' }} />
-            <TextField label="W max" size="small" type="number" value={warnMax}
-                onChange={(e) => setWarnMax(e.target.value)} sx={{ width: 70 }}
-                inputProps={{ step: 'any' }} />
-            <TextField label="A min" size="small" type="number" value={alarmMin}
-                onChange={(e) => setAlarmMin(e.target.value)} sx={{ width: 70 }}
-                inputProps={{ step: 'any' }} />
-            <TextField label="A max" size="small" type="number" value={alarmMax}
-                onChange={(e) => setAlarmMax(e.target.value)} sx={{ width: 70 }}
-                inputProps={{ step: 'any' }} />
-            <Button size="small" onClick={handleSave} disabled={isPending} variant="outlined">
-                {isPending ? <CircularProgress size={14} /> : 'Create'}
-            </Button>
-            <Button size="small" onClick={() => setEditing(false)} disabled={isPending}>
-                Cancel
-            </Button>
-        </Box>
+        <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+            <DialogTitle>{isEdit ? 'Edit' : 'Set'} Thresholds: {parameterName}</DialogTitle>
+            <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+                <Typography variant="body2" color="text.secondary">
+                    Warning thresholds trigger a yellow alert. Alarm thresholds trigger a red alert.
+                    Leave blank to disable a threshold.
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 2 }}>
+                    <TextField label="Warning Min" type="number" value={warnMin}
+                        onChange={(e) => setWarnMin(e.target.value)} fullWidth size="small"
+                        inputProps={{ step: 'any' }} />
+                    <TextField label="Warning Max" type="number" value={warnMax}
+                        onChange={(e) => setWarnMax(e.target.value)} fullWidth size="small"
+                        inputProps={{ step: 'any' }} />
+                </Box>
+                <Box sx={{ display: 'flex', gap: 2 }}>
+                    <TextField label="Alarm Min" type="number" value={alarmMin}
+                        onChange={(e) => setAlarmMin(e.target.value)} fullWidth size="small"
+                        inputProps={{ step: 'any' }} />
+                    <TextField label="Alarm Max" type="number" value={alarmMax}
+                        onChange={(e) => setAlarmMax(e.target.value)} fullWidth size="small"
+                        inputProps={{ step: 'any' }} />
+                </Box>
+            </DialogContent>
+            <DialogActions>
+                <Button onClick={onClose} disabled={isPending}>Cancel</Button>
+                <Button onClick={handleSave} variant="contained" disabled={isPending}
+                    startIcon={isPending ? <CircularProgress size={16} /> : undefined}>
+                    {isEdit ? 'Save' : 'Create'}
+                </Button>
+            </DialogActions>
+        </Dialog>
     );
 };
 
@@ -782,6 +722,7 @@ export const SensorCard: React.FC<SensorCardProps> = ({ group, thresholdsByParam
     const [calibrateOpen, setCalibrateOpen] = useState(false);
     const [moveOpen, setMoveOpen] = useState(false);
     const [recallOpen, setRecallOpen] = useState(false);
+    const [thresholdParam, setThresholdParam] = useState<ParameterRecord | null>(null);
     const [recallUpdate, { isPending: recallPending }] = useUpdate();
     const recallNotify = useNotify();
     const recallRefresh = useRefresh();
@@ -829,27 +770,46 @@ export const SensorCard: React.FC<SensorCardProps> = ({ group, thresholdsByParam
                                     <Typography variant="body2" fontWeight="medium">
                                         {param.name}
                                     </Typography>
-                                    <Chip
-                                        label={param.sensor_type ?? 'N/A'}
-                                        size="small"
-                                        variant="outlined"
-                                        sx={{ fontSize: '0.7rem' }}
-                                    />
+                                    {param.sensor_type && param.sensor_type.trim() !== '' && (
+                                        <Chip
+                                            label={param.sensor_type}
+                                            size="small"
+                                            variant="outlined"
+                                            sx={{ fontSize: '0.7rem' }}
+                                        />
+                                    )}
                                     <Typography variant="caption" color="text.secondary">
                                         {param.display_units ?? ''}
                                     </Typography>
-                                    <Chip
-                                        label={param.is_active ? 'Active' : 'Inactive'}
-                                        size="small"
-                                        color={param.is_active ? 'success' : 'default'}
-                                        sx={{ fontSize: '0.65rem', height: 18 }}
-                                    />
+                                    <Tooltip title={param.is_active ? 'Parameter is actively being monitored' : 'Parameter monitoring is paused'}>
+                                        <Chip
+                                            label={param.is_active ? 'Active' : 'Inactive'}
+                                            size="small"
+                                            color={param.is_active ? 'success' : 'default'}
+                                            sx={{ fontSize: '0.65rem', height: 18 }}
+                                        />
+                                    </Tooltip>
                                 </Box>
                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, ml: 3.5 }}>
                                     <LatestValue reading={latest} units={param.display_units} />
-                                    {threshold && <InlineThreshold threshold={threshold} />}
-                                    {!threshold && (
-                                        <CreateThresholdButton parameterId={param.id} siteId={param.site_id} />
+                                    {threshold ? (
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                            <Typography variant="caption" color="text.secondary">
+                                                Warn: [{threshold.warning_min ?? '-'}, {threshold.warning_max ?? '-'}]
+                                                {' | '}
+                                                Alarm: [{threshold.alarm_min ?? '-'}, {threshold.alarm_max ?? '-'}]
+                                            </Typography>
+                                            <Tooltip title="Edit thresholds">
+                                                <IconButton size="small" onClick={() => setThresholdParam(param)}>
+                                                    <EditIcon sx={{ fontSize: 14 }} />
+                                                </IconButton>
+                                            </Tooltip>
+                                        </Box>
+                                    ) : (
+                                        <Button size="small" onClick={() => setThresholdParam(param)}
+                                            sx={{ textTransform: 'none', fontSize: '0.75rem' }}>
+                                            Set Thresholds
+                                        </Button>
                                     )}
                                 </Box>
                                 {group.parameters.indexOf(param) < group.parameters.length - 1 && (
@@ -860,31 +820,43 @@ export const SensorCard: React.FC<SensorCardProps> = ({ group, thresholdsByParam
                     })}
                 </CardContent>
                 <CardActions sx={{ pt: 0 }}>
-                    <Button
-                        size="small"
-                        startIcon={<TuneIcon />}
-                        onClick={() => setCalibrateOpen(true)}
-                        disabled={!sensor}
-                    >
-                        Calibrate
-                    </Button>
-                    <Button
-                        size="small"
-                        startIcon={<SwapHorizIcon />}
-                        onClick={() => setMoveOpen(true)}
-                        disabled={!activeDeployment}
-                    >
-                        Move Sensor
-                    </Button>
-                    <Button
-                        size="small"
-                        color="warning"
-                        startIcon={<HighlightOffIcon />}
-                        onClick={() => setRecallOpen(true)}
-                        disabled={!activeDeployment}
-                    >
-                        Recall
-                    </Button>
+                    <Tooltip title={!sensor ? 'Deploy a sensor first' : ''}>
+                        <span>
+                            <Button
+                                size="small"
+                                startIcon={<TuneIcon />}
+                                onClick={() => setCalibrateOpen(true)}
+                                disabled={!sensor}
+                            >
+                                Calibrate
+                            </Button>
+                        </span>
+                    </Tooltip>
+                    <Tooltip title={!activeDeployment ? 'No active deployment to move' : ''}>
+                        <span>
+                            <Button
+                                size="small"
+                                startIcon={<SwapHorizIcon />}
+                                onClick={() => setMoveOpen(true)}
+                                disabled={!activeDeployment}
+                            >
+                                Move Sensor
+                            </Button>
+                        </span>
+                    </Tooltip>
+                    <Tooltip title={!activeDeployment ? 'No active deployment to recall' : ''}>
+                        <span>
+                            <Button
+                                size="small"
+                                color="warning"
+                                startIcon={<HighlightOffIcon />}
+                                onClick={() => setRecallOpen(true)}
+                                disabled={!activeDeployment}
+                            >
+                                Recall
+                            </Button>
+                        </span>
+                    </Tooltip>
                     {sensor && (
                         <Button
                             size="small"
@@ -918,6 +890,17 @@ export const SensorCard: React.FC<SensorCardProps> = ({ group, thresholdsByParam
                     deployment={activeDeployment}
                     sensorSerial={sensor?.serial_number ?? 'Unknown'}
                     currentSiteName={siteName}
+                />
+            )}
+
+            {thresholdParam && (
+                <ThresholdDialog
+                    open={!!thresholdParam}
+                    onClose={() => setThresholdParam(null)}
+                    threshold={thresholdsByParam.get(thresholdParam.id)}
+                    parameterId={thresholdParam.id}
+                    siteId={thresholdParam.site_id}
+                    parameterName={thresholdParam.name}
                 />
             )}
 

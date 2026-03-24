@@ -5,7 +5,7 @@ const App = () => (
   <BrowserRouter>
     <Routes>
       <Route path="/admin/*" element={<AdminApp />} />
-      <Route path="*" element={<Navigate to="/admin" replace />} />
+      <Route path="*" element={<Navigate to="/admin/" replace />} />
     </Routes>
   </BrowserRouter>
 );

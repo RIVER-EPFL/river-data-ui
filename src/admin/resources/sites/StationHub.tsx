@@ -198,8 +198,9 @@ const AddParameterDialog: React.FC<{
 const DeploySensorDialog: React.FC<{
     open: boolean;
     onClose: () => void;
+    siteId: string;
     parameters: ParameterRecord[];
-}> = ({ open, onClose, parameters }) => {
+}> = ({ open, onClose, siteId, parameters }) => {
     const [create, { isPending }] = useCreate();
     const notify = useNotify();
     const refresh = useRefresh();
@@ -221,7 +222,7 @@ const DeploySensorDialog: React.FC<{
             {
                 data: {
                     sensor_id: sensorId,
-                    parameter_id: parameterId,
+                    site_id: siteId,
                     deployed_from: new Date(deployedFrom).toISOString(),
                     deployed_until: null,
                     deployment_type: 'manual',
@@ -818,15 +819,15 @@ const StationHub = () => {
         [parameters],
     );
 
-    // Fetch sensor deployments filtered by this site's parameter IDs
+    // Fetch sensor deployments for this site
     const {
         data: deployments,
         isPending: deploymentsLoading,
     } = useGetList<SensorDeploymentRecord>('sensor_deployments', {
-        filter: { parameter_id: parameterIds },
+        filter: { site_id: id },
         pagination: { page: 1, perPage: 200 },
         sort: { field: 'deployed_from', order: 'DESC' },
-    }, { enabled: parameterIds.length > 0 });
+    }, { enabled: !!id });
 
     // Fetch alarm thresholds filtered by this site's parameter IDs
     const {
@@ -993,7 +994,7 @@ const StationHub = () => {
                         ) : (
                             <Grid container spacing={2}>
                                 {sensorGroups.map((group) => (
-                                    <Grid key={group.sensorId} size={{ xs: 12, xl: 6 }}>
+                                    <Grid key={group.sensorId} size={12}>
                                         <SensorCard
                                             group={group}
                                             thresholdsByParam={thresholdsByParam}
@@ -1049,6 +1050,7 @@ const StationHub = () => {
                             allSiteParams={parameters ?? []}
                             latestByParam={latestByParam}
                             deployments={deployments ?? []}
+                            sensorById={sensorById}
                         />
                     </TabPanel>
                 </Grid>
@@ -1081,6 +1083,7 @@ const StationHub = () => {
             <DeploySensorDialog
                 open={deploySensorOpen}
                 onClose={() => setDeploySensorOpen(false)}
+                siteId={id!}
                 parameters={parameters ?? []}
             />
         </Box>

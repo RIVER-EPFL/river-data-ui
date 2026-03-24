@@ -28,6 +28,7 @@ import {
   ListItem,
   ListItemIcon,
   ListItemText,
+  TablePagination,
 } from '@mui/material';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
@@ -36,6 +37,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PauseIcon from '@mui/icons-material/Pause';
 import SyncIcon from '@mui/icons-material/Sync';
+import CloudSyncIcon from '@mui/icons-material/CloudSync';
 import { useRiverDataProvider } from '../../useRiverDataProvider';
 import type { SyncService, SyncCommand, SyncEvent, ServiceCredential } from '../../dataProvider';
 import { formatRelativeTime } from '../../utils/formatRelativeTime';
@@ -51,6 +53,8 @@ const healthColor = (service: SyncService) => {
 const statusChipColor = (status: string): 'default' | 'primary' | 'success' | 'error' | 'warning' => {
   switch (status) {
     case 'running': return 'success';
+    case 'idle': return 'success';
+    case 'syncing': return 'primary';
     case 'paused': return 'warning';
     case 'error': return 'error';
     case 'starting': return 'primary';
@@ -93,9 +97,8 @@ const formatDurationMs = (ms: number | null): string => {
 };
 
 const formatDuration = (cmd: SyncCommand): string => {
-  const end = cmd.completed_at || cmd.acknowledged_at;
-  if (!end) return '-';
-  const ms = new Date(end).getTime() - new Date(cmd.created_at).getTime();
+  if (!cmd.completed_at) return '-';
+  const ms = new Date(cmd.completed_at).getTime() - new Date(cmd.created_at).getTime();
   if (ms < 1000) return `${ms}ms`;
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
   const minutes = Math.floor(ms / 60_000);
@@ -125,22 +128,34 @@ export const SyncServicesPanel = () => {
   // Event detail dialog
   const [selectedEvent, setSelectedEvent] = useState<SyncEvent | null>(null);
 
+  // Sync history pagination
+  const [eventsPage, setEventsPage] = useState(0);
+  const [eventsPerPage, setEventsPerPage] = useState(25);
+  const [eventsTotal, setEventsTotal] = useState(0);
+
+  // Command in-flight state: serviceId → command name
+  const [pendingCommands, setPendingCommands] = useState<Record<string, string>>({});
+
+  // Full sync confirmation dialog
+  const [fullSyncTarget, setFullSyncTarget] = useState<SyncService | null>(null);
+
   const refresh = useCallback(async () => {
     try {
       const [svcRes, cmdRes, evtRes, credRes] = await Promise.all([
         dataProvider.getSyncServices(),
         dataProvider.getSyncCommands(),
-        dataProvider.getSyncEvents(),
+        dataProvider.getSyncEvents({ page: eventsPage + 1, perPage: eventsPerPage }),
         dataProvider.listServiceCredentials(),
       ]);
       setServices(svcRes.data);
       setCommands(cmdRes.data);
       setSyncEvents(evtRes.data);
+      setEventsTotal(evtRes.total);
       setCredentials(credRes.data);
     } catch (err) {
       console.error('Failed to refresh sync services data:', err);
     }
-  }, [dataProvider]);
+  }, [dataProvider, eventsPage, eventsPerPage]);
 
   useEffect(() => {
     refresh().finally(() => setLoading(false));
@@ -149,12 +164,19 @@ export const SyncServicesPanel = () => {
   }, [refresh]);
 
   const handleCommand = async (serviceId: string, command: string) => {
+    setPendingCommands((prev) => ({ ...prev, [serviceId]: command }));
     try {
       await dataProvider.issueSyncCommand(serviceId, command);
       setSnackbar(`Command '${command}' sent`);
       await refresh();
     } catch {
       notify(`Failed to send command '${command}'`, { type: 'error' });
+    } finally {
+      setPendingCommands((prev) => {
+        const next = { ...prev };
+        delete next[serviceId];
+        return next;
+      });
     }
   };
 
@@ -204,9 +226,12 @@ export const SyncServicesPanel = () => {
               started.
             </Alert>
           ) : (
-            <Box display="flex" flexWrap="wrap" gap={2}>
-              {services.map((svc) => (
-                <Card key={svc.id} variant="outlined" sx={{ minWidth: 320, flex: '1 1 320px', maxWidth: 480 }}>
+            <Box display="grid" gridTemplateColumns="repeat(auto-fill, minmax(280px, 1fr))" gap={2}>
+              {services.map((svc) => {
+                const pending = pendingCommands[svc.id];
+                const isBusy = !!pending;
+                return (
+                <Card key={svc.id} variant="outlined">
                   <CardContent>
                     <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
                       <Box display="flex" alignItems="center" gap={1}>
@@ -241,48 +266,61 @@ export const SyncServicesPanel = () => {
                         {svc.last_error}
                       </Alert>
                     )}
-                    <Box display="flex" gap={1} mt={2}>
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        startIcon={<SyncIcon />}
-                        onClick={() => handleCommand(svc.id, 'trigger_sync')}
-                      >
-                        Sync
-                      </Button>
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        startIcon={<SyncIcon />}
-                        onClick={() => handleCommand(svc.id, 'trigger_full_sync')}
-                      >
-                        Full Sync
-                      </Button>
+                    <Box display="flex" gap={0.5} mt={2}>
+                      <Tooltip title="Sync">
+                        <span>
+                          <IconButton
+                            size="small"
+                            disabled={isBusy}
+                            onClick={() => handleCommand(svc.id, 'trigger_sync')}
+                          >
+                            {pending === 'trigger_sync' ? <CircularProgress size={18} /> : <SyncIcon fontSize="small" />}
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                      <Tooltip title="Full Sync">
+                        <span>
+                          <IconButton
+                            size="small"
+                            disabled={isBusy}
+                            onClick={() => setFullSyncTarget(svc)}
+                          >
+                            {pending === 'trigger_full_sync' ? <CircularProgress size={18} /> : <CloudSyncIcon fontSize="small" />}
+                          </IconButton>
+                        </span>
+                      </Tooltip>
                       {svc.status === 'paused' ? (
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          color="success"
-                          startIcon={<PlayArrowIcon />}
-                          onClick={() => handleCommand(svc.id, 'resume')}
-                        >
-                          Resume
-                        </Button>
+                        <Tooltip title="Resume">
+                          <span>
+                            <IconButton
+                              size="small"
+                              color="success"
+                              disabled={isBusy}
+                              onClick={() => handleCommand(svc.id, 'resume')}
+                            >
+                              {pending === 'resume' ? <CircularProgress size={18} /> : <PlayArrowIcon fontSize="small" />}
+                            </IconButton>
+                          </span>
+                        </Tooltip>
                       ) : (
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          color="warning"
-                          startIcon={<PauseIcon />}
-                          onClick={() => handleCommand(svc.id, 'pause')}
-                        >
-                          Pause
-                        </Button>
+                        <Tooltip title="Pause">
+                          <span>
+                            <IconButton
+                              size="small"
+                              color="warning"
+                              disabled={isBusy}
+                              onClick={() => handleCommand(svc.id, 'pause')}
+                            >
+                              {pending === 'pause' ? <CircularProgress size={18} /> : <PauseIcon fontSize="small" />}
+                            </IconButton>
+                          </span>
+                        </Tooltip>
                       )}
                     </Box>
                   </CardContent>
                 </Card>
-              ))}
+                );
+              })}
             </Box>
           )}
         </CardContent>
@@ -458,7 +496,7 @@ export const SyncServicesPanel = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {syncEvents.slice(0, 30).map((evt) => {
+                {syncEvents.map((evt) => {
                   const errorList = Array.isArray(evt.errors) ? evt.errors : [];
                   return (
                     <TableRow
@@ -514,6 +552,18 @@ export const SyncServicesPanel = () => {
               </TableBody>
             </Table>
           </TableContainer>
+          <TablePagination
+            component="div"
+            count={eventsTotal}
+            page={eventsPage}
+            onPageChange={(_, newPage) => setEventsPage(newPage)}
+            rowsPerPage={eventsPerPage}
+            onRowsPerPageChange={(e) => {
+              setEventsPerPage(parseInt(e.target.value, 10));
+              setEventsPage(0);
+            }}
+            rowsPerPageOptions={[10, 25, 50]}
+          />
         </CardContent>
       </Card>
 
@@ -774,6 +824,31 @@ export const SyncServicesPanel = () => {
           <Button onClick={() => setRevokeDialogOpen(false)}>Cancel</Button>
           <Button onClick={handleRevoke} color="error" variant="contained">
             Revoke
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Full Sync Confirmation Dialog */}
+      <Dialog open={!!fullSyncTarget} onClose={() => setFullSyncTarget(null)}>
+        <DialogTitle>Confirm Full Sync</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Run a full sync on <strong>{fullSyncTarget?.service_type}</strong>? This rescans all
+            historical data from the source and may take a long time.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setFullSyncTarget(null)}>Cancel</Button>
+          <Button
+            onClick={() => {
+              if (fullSyncTarget) {
+                handleCommand(fullSyncTarget.id, 'trigger_full_sync');
+              }
+              setFullSyncTarget(null);
+            }}
+            variant="contained"
+          >
+            Full Sync
           </Button>
         </DialogActions>
       </Dialog>

@@ -80,41 +80,43 @@ export function useSensorGroups(
     return useMemo(() => {
         if (!parameters || !deployments) return [];
 
-        // Build: parameter_id -> active deployment
-        const activeDeployByParam = new Map<string, SensorDeploymentRecord>();
-        const allDeploysBySensor = new Map<string, SensorDeploymentRecord[]>();
+        // Build lookup: global parameter_id -> site_parameter
+        const siteParamByGlobalId = new Map<string, ParameterRecord>();
+        parameters.forEach((p) => {
+            if (!p.is_derived) siteParamByGlobalId.set(p.parameter_id, p);
+        });
 
-        const siteParamIds = new Set(parameters.map((p) => p.id));
+        // Collect all deployments by sensor, and track active deployments
+        const allDeploysBySensor = new Map<string, SensorDeploymentRecord[]>();
+        const activeSensorIds = new Set<string>();
 
         deployments.forEach((d) => {
-            if (!siteParamIds.has(d.parameter_id)) return;
-            if (!d.deployed_until) {
-                activeDeployByParam.set(d.parameter_id, d);
-            }
             const list = allDeploysBySensor.get(d.sensor_id) ?? [];
             list.push(d);
             allDeploysBySensor.set(d.sensor_id, list);
+            if (!d.deployed_until) activeSensorIds.add(d.sensor_id);
         });
 
-        // Group parameters by sensor_id
+        // Group site_parameters by sensor via sensor.parameter_id matching
         const groups = new Map<string, { deployments: SensorDeploymentRecord[]; paramIds: Set<string> }>();
-        const ungroupedParams: ParameterRecord[] = [];
+        const matchedParamIds = new Set<string>();
 
-        parameters.forEach((param) => {
-            if (param.is_derived) return; // Derived params handled separately
-            const dep = activeDeployByParam.get(param.id);
-            if (dep) {
-                const existing = groups.get(dep.sensor_id);
-                if (existing) {
-                    existing.paramIds.add(param.id);
-                } else {
-                    groups.set(dep.sensor_id, {
-                        deployments: allDeploysBySensor.get(dep.sensor_id) ?? [dep],
-                        paramIds: new Set([param.id]),
-                    });
-                }
+        activeSensorIds.forEach((sensorId) => {
+            const sensor = sensorById.get(sensorId);
+            if (!sensor?.parameter_id) return;
+
+            const siteParam = siteParamByGlobalId.get(sensor.parameter_id);
+            if (!siteParam) return;
+
+            matchedParamIds.add(siteParam.id);
+            const existing = groups.get(sensorId);
+            if (existing) {
+                existing.paramIds.add(siteParam.id);
             } else {
-                ungroupedParams.push(param);
+                groups.set(sensorId, {
+                    deployments: allDeploysBySensor.get(sensorId) ?? [],
+                    paramIds: new Set([siteParam.id]),
+                });
             }
         });
 
@@ -129,7 +131,8 @@ export function useSensorGroups(
             });
         });
 
-        // Add ungrouped parameters as a virtual "no sensor" group if any exist
+        // Add ungrouped non-derived parameters
+        const ungroupedParams = parameters.filter((p) => !p.is_derived && !matchedParamIds.has(p.id));
         if (ungroupedParams.length > 0) {
             result.push({
                 sensorId: '__unassigned__',
@@ -139,10 +142,10 @@ export function useSensorGroups(
             });
         }
 
-        // Sort by sensor serial
+        // Sort by sensor name/serial
         result.sort((a, b) => {
-            const sa = a.sensor?.serial_number ?? 'zzz';
-            const sb = b.sensor?.serial_number ?? 'zzz';
+            const sa = a.sensor?.serial_number ?? a.sensor?.name ?? 'zzz';
+            const sb = b.sensor?.serial_number ?? b.sensor?.name ?? 'zzz';
             return sa.localeCompare(sb);
         });
 

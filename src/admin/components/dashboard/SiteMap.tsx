@@ -46,6 +46,9 @@ export const SiteMap = ({ onSiteClick, selectedSiteId }: SiteMapProps) => {
   const mapInstance = useRef<L.Map | null>(null);
   const clusterGroupRef = useRef<L.MarkerClusterGroup | null>(null);
   const markersRef = useRef<Map<string, L.Marker>>(new Map());
+  const onSiteClickRef = useRef(onSiteClick);
+  onSiteClickRef.current = onSiteClick;
+  const hasFitBounds = useRef(false);
   const dataProvider = useRiverDataProvider();
 
   const { data: sites } = useGetList<SiteRecord>('sites', {
@@ -102,7 +105,7 @@ export const SiteMap = ({ onSiteClick, selectedSiteId }: SiteMapProps) => {
   useEffect(() => {
     if (!mapRef.current || mapInstance.current) return;
 
-    mapInstance.current = L.map(mapRef.current).setView([46.5, 7.5], 8);
+    mapInstance.current = L.map(mapRef.current, { center: [46.5, 7.5], zoom: 8, fadeAnimation: false });
 
     const swisstopo = L.tileLayer(
       'https://wmts20.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg',
@@ -210,7 +213,7 @@ export const SiteMap = ({ onSiteClick, selectedSiteId }: SiteMapProps) => {
           direction: 'right',
           className: 'site-label',
         })
-        .on('click', () => onSiteClick?.(site.id));
+        .on('click', () => onSiteClickRef.current?.(site.id));
 
       newMarkers.set(site.id, marker);
       clusterGroup.addLayer(marker);
@@ -221,12 +224,15 @@ export const SiteMap = ({ onSiteClick, selectedSiteId }: SiteMapProps) => {
     map.addLayer(clusterGroup);
     clusterGroupRef.current = clusterGroup;
 
-    if (validSites.length > 1) {
-      map.fitBounds(bounds, { padding: [50, 50] });
-    } else {
-      map.setView([validSites[0].latitude, validSites[0].longitude], 12);
+    if (!hasFitBounds.current) {
+      if (validSites.length > 1) {
+        map.fitBounds(bounds, { padding: [50, 50], animate: false });
+      } else {
+        map.setView([validSites[0].latitude, validSites[0].longitude], 12, { animate: false });
+      }
+      hasFitBounds.current = true;
     }
-  }, [sites, paramCountBySite, siteAlarmMap, onSiteClick]);
+  }, [sites, paramCountBySite, siteAlarmMap]);
 
   // Update active marker styling when selection changes
   useEffect(() => {

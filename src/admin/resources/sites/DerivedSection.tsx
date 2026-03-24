@@ -41,6 +41,7 @@ export interface DerivedSectionProps {
     allSiteParams: ParameterRecord[];
     latestByParam: Map<string, LatestReading>;
     deployments: SensorDeploymentRecord[];
+    sensorById?: Map<string, import('./SensorCard').SensorRecord>;
 }
 
 export const DerivedSection: React.FC<DerivedSectionProps> = ({
@@ -49,6 +50,7 @@ export const DerivedSection: React.FC<DerivedSectionProps> = ({
     allSiteParams,
     latestByParam,
     deployments,
+    sensorById,
 }) => {
     const dataProvider = useRiverDataProvider();
     const notify = useNotify();
@@ -65,16 +67,19 @@ export const DerivedSection: React.FC<DerivedSectionProps> = ({
         return map;
     }, [allSiteParams]);
 
-    // Build lookup: parameter_id → has active deployment (deployed_until is null)
+    // Build set of site_parameter IDs that have an active sensor deployment
     const activeDeployByParamId = useMemo(() => {
         const set = new Set<string>();
         for (const d of deployments) {
-            if (!d.deployed_until) {
-                set.add(d.parameter_id);
-            }
+            if (d.deployed_until) continue;
+            const sensor = sensorById?.get(d.sensor_id);
+            if (!sensor?.parameter_id) continue;
+            // Find the site_parameter matching this sensor's global parameter_id
+            const sp = siteParamByParameterId.get(sensor.parameter_id);
+            if (sp) set.add(sp.id);
         }
         return set;
-    }, [deployments]);
+    }, [deployments, sensorById, siteParamByParameterId]);
 
     const handleRecompute = useCallback(async (defId: string) => {
         setRecomputing(defId);
