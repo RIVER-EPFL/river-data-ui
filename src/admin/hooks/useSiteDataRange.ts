@@ -58,6 +58,11 @@ export function useSiteDataRange(siteIds: string[]): DataRange {
       if (min === Infinity || max === -Infinity) {
         setRange({ min: 0, max: 0, loading: false });
       } else {
+        // Pad single-point data so the range has nonzero width (1 hour each side)
+        if (min === max) {
+          min -= 3600_000;
+          max += 3600_000;
+        }
         setRange({ min, max, loading: false });
       }
     });
