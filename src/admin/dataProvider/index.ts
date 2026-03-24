@@ -218,6 +218,52 @@ export interface RiverDataProvider extends DataProvider {
   revokeSyncService: (credentialId: string) => Promise<{ data: unknown }>;
   listRoles: () => Promise<{ data: KeycloakRole[] }>;
   assignUserRoles: (userId: string, roles: string[]) => Promise<{ data: unknown }>;
+  groupedDiscovery: (sourceSystem: string) => Promise<{ data: GroupedDiscoveryResponse }>;
+  bulkPair: (req: BulkPairRequest) => Promise<{ data: BulkPairResponse }>;
+}
+
+export interface GroupedProject {
+  name: string;
+  stream_count: number;
+  existing_id: string | null;
+}
+
+export interface GroupedSite {
+  name: string;
+  glacier: string | null;
+  stream_count: number;
+  existing_id: string | null;
+}
+
+export interface GroupedParameter {
+  name: string;
+  display_name: string;
+  units: string;
+  stream_count: number;
+  existing_id: string | null;
+}
+
+export interface GroupedDiscoveryResponse {
+  source_system: string;
+  total_streams: number;
+  projects: GroupedProject[];
+  sites: GroupedSite[];
+  parameters: GroupedParameter[];
+}
+
+export interface BulkPairRequest {
+  source_system: string;
+  project_name: string;
+  sites: { name: string; existing_id: string | null }[];
+  parameters: { name: string; display_name: string; units: string; existing_id: string | null }[];
+}
+
+export interface BulkPairResponse {
+  project_created: boolean;
+  sites_created: number;
+  parameters_created: number;
+  site_parameters_created: number;
+  streams_paired: number;
 }
 
 const dataProvider = (
@@ -495,6 +541,18 @@ const dataProvider = (
       method: 'POST',
       body: JSON.stringify({ roles }),
     }).then(({ json }) => ({ data: json })),
+
+  groupedDiscovery: (sourceSystem: string) =>
+    httpClient(`${apiUrl}/sync/grouped-discovery`, {
+      method: 'POST',
+      body: JSON.stringify({ source_system: sourceSystem }),
+    }).then(({ json }) => ({ data: json as GroupedDiscoveryResponse })),
+
+  bulkPair: (req: BulkPairRequest) =>
+    httpClient(`${apiUrl}/sync/bulk-pair`, {
+      method: 'POST',
+      body: JSON.stringify(req),
+    }).then(({ json }) => ({ data: json as BulkPairResponse })),
 });
 
 export default dataProvider;
