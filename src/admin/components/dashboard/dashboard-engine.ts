@@ -1,7 +1,86 @@
 import uPlot from 'uplot';
-import noUiSlider from 'nouislider';
+import noUiSlider, { PipsMode, type Options as NoUiSliderOptions } from 'nouislider';
 
-type ApiFn = (url: string, noCache?: boolean) => Promise<any>;
+/** Minimal project shape returned by /api/service/projects */
+interface DashboardProject {
+  id: string;
+  name: string;
+}
+
+/** Minimal site shape returned by /api/service/sites */
+interface DashboardSite {
+  id: string;
+  name: string;
+  project_id: string;
+}
+
+/** Site detail returned by /api/service/sites/{id}/detail */
+interface SiteDetail {
+  id: string;
+  name: string;
+  data_start: string | null;
+  data_end: string | null;
+  parameters: SiteDetailParameter[];
+}
+
+/** Parameter entry within a site detail response */
+interface SiteDetailParameter {
+  sensor_type?: string;
+  name: string;
+}
+
+/** A single parameter in the readings/aggregates response */
+interface ReadingsParameter {
+  id: string;
+  name: string;
+  type: string;
+  units?: string;
+  values?: (number | null)[];
+  avg?: (number | null)[];
+  severities?: (number | null)[];
+  max_severity?: (number | null)[];
+}
+
+/** Shape of readings/aggregates API response */
+interface ReadingsData {
+  times: string[];
+  parameters: ReadingsParameter[];
+}
+
+/** An alarm band extracted from readings severity data */
+interface AlarmBand {
+  when_on: string;
+  when_off: string | null;
+  severity: number;
+  parameter_id: string;
+  parameter_name: string;
+  parameter_type: string;
+}
+
+/** Per-type chart data stored in state.chartData */
+interface ChartDataEntry {
+  params: ReadingsParameter[];
+  timestamps: number[];
+}
+
+/** Dashboard state object */
+interface DashboardState {
+  site: SiteDetail | null;
+  parameters: Set<string>;
+  parametersWithData: Set<string>;
+  parameterTypeOrder: string[];
+  expandedCharts: Set<string>;
+  start: Date | null;
+  end: Date | null;
+  charts: Record<string, uPlot>;
+  chartData: Record<string, ChartDataEntry>;
+  slider: ReturnType<typeof noUiSlider.create> | null;
+  data: ReadingsData | null;
+  alarms: AlarmBand[];
+  showAlarms: boolean;
+}
+
+type ApiFn = (url: string, noCache?: boolean) => Promise<unknown>;
 type AuthFetchFn = (url: string) => Promise<Response>;
 
 const DASHBOARD_HTML = `
@@ -107,7 +186,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
   const $ = (id: string) => root.querySelector(`#${id}`) as HTMLElement;
 
   // State
-  const state: any = {
+  const state: DashboardState = {
     site: null,
     parameters: new Set(),
     parametersWithData: new Set(),
@@ -115,11 +194,11 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     expandedCharts: new Set(),
     start: null,
     end: null,
-    charts: {} as Record<string, uPlot>,
-    chartData: {} as Record<string, any>,
-    slider: null as ReturnType<typeof noUiSlider.create> | null,
-    data: null as any,
-    alarms: [] as any[],
+    charts: {},
+    chartData: {},
+    slider: null,
+    data: null,
+    alarms: [],
     showAlarms: true,
   };
 
@@ -157,7 +236,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
           const { left, top, width, height } = u.bbox;
           const [xMin, xMax] = [u.scales.x.min!, u.scales.x.max!];
 
-          state.alarms.forEach((alarm: any) => {
+          state.alarms.forEach((alarm) => {
             if (alarm.parameter_type !== paramType) return;
             const startTs = new Date(alarm.when_on).getTime() / 1000;
             const endTs = alarm.when_off
@@ -180,9 +259,9 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     };
   }
 
-  function debounce(fn: (...args: any[]) => void, ms: number) {
+  function debounce<T extends unknown[]>(fn: (...args: T) => void, ms: number) {
     let timeout: ReturnType<typeof setTimeout>;
-    return (...args: any[]) => {
+    return (...args: T) => {
       clearTimeout(timeout);
       timeout = setTimeout(() => fn(...args), ms);
     };
@@ -259,28 +338,28 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     }
 
     const [projects, sites] = await Promise.all([
-      api('/api/service/projects'),
-      api('/api/service/sites'),
+      api('/api/service/projects') as Promise<DashboardProject[]>,
+      api('/api/service/sites') as Promise<DashboardSite[]>,
     ]);
 
     const container = $('site-groups');
 
-    const sitesByProject: Record<string, any[]> = {};
-    sites.forEach((s: any) => {
+    const sitesByProject: Record<string, DashboardSite[]> = {};
+    sites.forEach((s) => {
       const projectId = s.project_id || 'unknown';
       if (!sitesByProject[projectId]) sitesByProject[projectId] = [];
       sitesByProject[projectId].push(s);
     });
 
     let html = '';
-    projects.forEach((project: any) => {
+    projects.forEach((project) => {
       const projectSites = sitesByProject[project.id] || [];
       if (projectSites.length === 0) return;
       html += `
         <div class="project-group">
           <div class="project-label">${project.name}</div>
           <div class="project-sites">
-            ${projectSites.map((s: any) => `
+            ${projectSites.map((s) => `
               <button class="site-btn" data-id="${s.id}">${s.name}</button>
             `).join('')}
           </div>
@@ -310,7 +389,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     $('alarm-toggle').addEventListener('click', () => {
       state.showAlarms = !state.showAlarms;
       $('alarm-toggle').classList.toggle('active', state.showAlarms);
-      Object.values(state.charts).forEach((c: any) => c.redraw());
+      Object.values(state.charts).forEach((c) => c.redraw());
     }, { signal });
 
     // Export button handlers
@@ -326,11 +405,11 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
   }
 
   async function loadSite(siteId: string) {
-    const site = await api(`/api/service/sites/${siteId}/detail`, true);
+    const site = await api(`/api/service/sites/${siteId}/detail`, true) as SiteDetail;
     state.site = site;
     updateExportToolbar();
 
-    Object.values(state.charts).forEach((chart: any) => chart.destroy());
+    Object.values(state.charts).forEach((chart) => chart.destroy());
     state.charts = {};
     state.chartData = {};
     const chartsEl = $('charts-container');
@@ -338,7 +417,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     chartsEl.innerHTML = '';
 
     const toggles = $('parameter-toggles');
-    const types = [...new Set((site.parameters || []).map((s: any) => s.sensor_type || s.name).filter(Boolean))].sort() as string[];
+    const types = [...new Set((site.parameters || []).map((s) => s.sensor_type || s.name).filter(Boolean))].sort() as string[];
 
     if (!types.length) {
       toggles.innerHTML = '<span style="color: var(--muted); font-size: 0.875rem;">No parameters configured</span>';
@@ -398,8 +477,8 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     const todayStart = maxTs - oneDayMs;
     const weekStart = maxTs - oneWeekMs;
 
-    let sliderRange: any;
-    let pipsConfig: any;
+    let sliderRange: NoUiSliderOptions['range'];
+    let pipsConfig: NoUiSliderOptions['pips'];
     const zoneHistory = $('region-history');
     const zoneWeek = $('region-week');
     const zoneToday = $('region-today');
@@ -426,7 +505,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
       labelWeek.textContent = 'Last week';
       labelToday.textContent = 'Last day';
       pipsConfig = {
-        mode: 'positions' as const,
+        mode: PipsMode.Positions,
         values: [0, 25, 50, 65, 80, 90, 100],
         density: 100,
         format: {
@@ -455,7 +534,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
       labelWeek.textContent = 'This week';
       labelToday.textContent = 'Last day';
       pipsConfig = {
-        mode: 'positions' as const,
+        mode: PipsMode.Positions,
         values: [0, 20, 40, 60, 85, 100],
         format: {
           to: (v: number) => {
@@ -481,7 +560,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
       labelToday.style.width = '100%';
       labelToday.textContent = 'All data';
       pipsConfig = {
-        mode: 'count' as const,
+        mode: PipsMode.Count,
         values: 6,
         format: {
           to: (v: number) => {
@@ -522,14 +601,15 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
   }
 
   function updateWindowInfo() {
-    const duration = state.end - state.start;
+    if (!state.start || !state.end) return;
+    const duration = state.end.getTime() - state.start.getTime();
     $('window-info').textContent = `Showing: ${formatDuration(duration)}`;
   }
 
   const fetchData = debounce(async () => {
     if (!state.site || !state.start || !state.end) return;
 
-    const days = (state.end - state.start) / 86400000;
+    const days = (state.end.getTime() - state.start.getTime()) / 86400000;
     let endpoint: string, resolution: string;
 
     if (days <= 14) {
@@ -551,11 +631,11 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     showLoading();
 
     try {
-      let data = await api(url);
+      let data = await api(url) as ReadingsData;
 
       if (!data.times?.length && endpoint !== 'readings') {
         const fallbackUrl = `/api/service/sites/${state.site.id}/readings?start=${state.start.toISOString()}&end=${state.end.toISOString()}&alarms=true`;
-        data = await api(fallbackUrl);
+        data = await api(fallbackUrl) as ReadingsData;
         resolution = '10-min raw (fallback)';
       }
 
@@ -573,14 +653,14 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     }
   }, 100);
 
-  function extractAlarmsFromData(data: any) {
+  function extractAlarmsFromData(data: ReadingsData | null): AlarmBand[] {
     if (!data?.times?.length || !data?.parameters?.length) return [];
-    const alarms: any[] = [];
+    const alarms: AlarmBand[] = [];
 
-    data.parameters.forEach((param: any) => {
+    data.parameters.forEach((param) => {
       const sevs = param.severities || param.max_severity;
       if (!sevs) return;
-      let currentAlarm: any = null;
+      let currentAlarm: AlarmBand | null = null;
 
       for (let i = 0; i < data.times.length; i++) {
         const severity = sevs[i] || 0;
@@ -636,9 +716,9 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     if (spinner) spinner.remove();
   }
 
-  function hasData(param: any) {
+  function hasData(param: ReadingsParameter) {
     const values = param.values || param.avg || [];
-    return values.some((v: any) => v != null);
+    return values.some((v) => v != null);
   }
 
   function updateTooltip(idx: number | null, mouseX: number, mouseY: number) {
@@ -657,7 +737,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     state.parameterTypeOrder.forEach((type: string) => {
       if (!state.parameters.has(type) || !state.chartData[type]) return;
       const { params } = state.chartData[type];
-      params.forEach((param: any) => {
+      params.forEach((param) => {
         const values = param.values || param.avg || [];
         const val = values[idx];
         const color = parameterColors[type] || '#666';
@@ -694,19 +774,19 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
 
     if (!state.data || !state.data.times?.length) {
       chartsContainer.innerHTML = '<div class="chart-placeholder">No data for selected range</div>';
-      Object.values(state.charts).forEach((chart: any) => chart.destroy());
+      Object.values(state.charts).forEach((chart) => chart.destroy());
       state.charts = {};
       state.chartData = {};
       return;
     }
 
     const { times, parameters } = state.data;
-    const timestamps = times.map((t: string) => new Date(t).getTime() / 1000);
+    const timestamps = times.map((t) => new Date(t).getTime() / 1000);
 
-    const paramsByType: Record<string, any[]> = {};
+    const paramsByType: Record<string, ReadingsParameter[]> = {};
     state.parametersWithData.clear();
 
-    parameters.forEach((param: any) => {
+    parameters.forEach((param) => {
       if (!hasData(param)) return;
       if (!paramsByType[param.type]) paramsByType[param.type] = [];
       paramsByType[param.type].push(param);
@@ -715,7 +795,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
 
     // Update parameter toggles
     const toggles = $('parameter-toggles');
-    const allTypes = [...new Set(parameters.map((s: any) => s.type))].sort() as string[];
+    const allTypes = [...new Set(parameters.map((s) => s.type))].sort();
     toggles.innerHTML = allTypes.map((t) => {
       const hasAnyData = state.parametersWithData.has(t);
       const checked = state.parameters.has(t) && hasAnyData;
@@ -738,7 +818,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
 
     if (!enabledTypes.length) {
       chartsContainer.innerHTML = '<div class="chart-placeholder">No data available for selected parameters</div>';
-      Object.values(state.charts).forEach((chart: any) => chart.destroy());
+      Object.values(state.charts).forEach((chart) => chart.destroy());
       state.charts = {};
       state.chartData = {};
       return;
@@ -804,7 +884,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
         }, { signal });
 
         chartDiv.querySelector('.chart-area')!.addEventListener('dblclick', () => {
-          if (!state.site?.data_start || !state.site?.data_end) return;
+          if (!state.site?.data_start || !state.site?.data_end || !state.slider) return;
           const siteMinTs = new Date(state.site.data_start).getTime();
           const siteMaxTs = new Date(state.site.data_end).getTime();
           state.slider.set([siteMinTs, siteMaxTs]);
@@ -819,9 +899,9 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
       const seriesData: uPlot.AlignedData = [timestamps];
       const seriesOpts: uPlot.Series[] = [{}];
 
-      typeParams.forEach((param: any) => {
+      typeParams.forEach((param) => {
         const values = param.values || param.avg || [];
-        (seriesData as any[]).push(values);
+        (seriesData as (number | null)[][]).push(values);
         seriesOpts.push({
           label: param.name,
           stroke: parameterColors[type] || '#666',
@@ -880,7 +960,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
                 if (u.select.width > 0) {
                   const left = u.posToVal(u.select.left, 'x');
                   const right = u.posToVal(u.select.left + u.select.width, 'x');
-                  state.slider.set([left * 1000, right * 1000]);
+                  state.slider?.set([left * 1000, right * 1000]);
                   u.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false);
                 }
               },
@@ -916,7 +996,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
   const resizeCharts = debounce(() => {
     const chartsContainer = $('charts-container');
     const width = chartsContainer.clientWidth - 32;
-    Object.entries(state.charts).forEach(([type, chart]: [string, any]) => {
+    Object.entries(state.charts).forEach(([type, chart]) => {
       const height = state.expandedCharts.has(type) ? CHART_HEIGHT_EXPANDED : CHART_HEIGHT_NORMAL;
       if (chart.width !== width) {
         chart.setSize({ width, height });
@@ -936,7 +1016,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
       ac.abort();
       resizeObserver.disconnect();
       if (hideRaf != null) cancelAnimationFrame(hideRaf);
-      Object.values(state.charts).forEach((c: any) => c.destroy());
+      Object.values(state.charts).forEach((c) => c.destroy());
       if (state.slider) state.slider.destroy();
     },
     selectSite: (siteId: string) => {
