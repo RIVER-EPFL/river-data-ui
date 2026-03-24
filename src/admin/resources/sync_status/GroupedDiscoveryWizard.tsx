@@ -80,6 +80,9 @@ export const GroupedDiscoveryWizard = ({ open, sourceSystem, onClose, onComplete
         sites: discovery.sites.map((s) => ({
           name: s.name,
           existing_id: s.existing_id,
+          latitude: s.latitude,
+          longitude: s.longitude,
+          altitude_m: s.altitude_m,
         })),
         parameters: discovery.parameters.map((p) => ({
           name: p.name,

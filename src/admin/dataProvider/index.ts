@@ -233,6 +233,9 @@ export interface GroupedSite {
   glacier: string | null;
   stream_count: number;
   existing_id: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  altitude_m: number | null;
 }
 
 export interface GroupedParameter {
@@ -254,7 +257,7 @@ export interface GroupedDiscoveryResponse {
 export interface BulkPairRequest {
   source_system: string;
   project_name: string;
-  sites: { name: string; existing_id: string | null }[];
+  sites: { name: string; existing_id: string | null; latitude: number | null; longitude: number | null; altitude_m: number | null }[];
   parameters: { name: string; display_name: string; units: string; existing_id: string | null }[];
 }
 
