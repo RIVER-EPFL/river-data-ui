@@ -121,21 +121,25 @@ export const StatusIndicators = () => {
       setSyncRunning(false);
     }
 
-    // Sync state → stale sites (only paired, active streams)
+    // Fetch paired active streams to find stale sites
     try {
-      const res = await dataProvider.getSyncState();
+      const res = await dataProvider.getList('data_streams', {
+        pagination: { page: 1, perPage: 10000 },
+        sort: { field: 'last_data_time', order: 'DESC' },
+        filter: { is_active: true },
+      });
       const streams = res.data;
-      if (!Array.isArray(streams) || !siteParameters?.length) return;
+      if (!siteParameters?.length) return;
 
       const spToSite = new Map<string, string>();
       for (const sp of siteParameters) spToSite.set(sp.id, sp.site_id);
 
       const siteLastData = new Map<string, number>();
       for (const s of streams) {
-        if (!s.site_parameter_id || !s.is_active || !s.last_data_time) continue;
-        const siteId = spToSite.get(s.site_parameter_id);
+        if (!s.site_parameter_id || !s.last_data_time) continue;
+        const siteId = spToSite.get(s.site_parameter_id as string);
         if (!siteId) continue;
-        const ts = new Date(s.last_data_time).getTime();
+        const ts = new Date(s.last_data_time as string).getTime();
         const current = siteLastData.get(siteId) ?? 0;
         if (ts > current) siteLastData.set(siteId, ts);
       }
@@ -147,7 +151,7 @@ export const StatusIndicators = () => {
       }
       setStaleSiteCount(stale);
     } catch (err) {
-      console.error('Failed to fetch sync state for stale site count:', err);
+      console.error('Failed to fetch data streams for stale site count:', err);
     }
   }, [dataProvider, siteParameters]);
 

@@ -1,16 +1,19 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
-import { useNotify } from 'react-admin';
+import { useState, useRef } from 'react';
 import {
-  Card,
-  CardContent,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
+  List,
+  Datagrid,
+  TextField,
+  BooleanField,
+  DateField,
+  FunctionField,
+  useNotify,
+  useRefresh,
+  useRecordContext,
+  TopToolbar,
+  useListContext,
+} from 'react-admin';
+import {
   Chip,
-  CircularProgress,
   Box,
   Typography,
   Button,
@@ -19,6 +22,9 @@ import {
   DialogContent,
   DialogActions,
   Tooltip,
+  CircularProgress,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
 import LinkIcon from '@mui/icons-material/Link';
 import LinkOffIcon from '@mui/icons-material/LinkOff';
@@ -29,11 +35,204 @@ import type { StreamState, StreamStats } from '../../dataProvider';
 import { DiscoveryWizard } from '../sync_status/DiscoveryWizard';
 import { StreamPairDialog } from '../sync_status/StreamPairDialog';
 
+// ============================================================================
+// Action Buttons (use record context from Datagrid)
+// ============================================================================
+
+const PairUnpairButton = ({
+  onPair,
+  onUnpair,
+}: {
+  onPair: (stream: StreamState) => void;
+  onUnpair: (stream: StreamState) => void;
+}) => {
+  const record = useRecordContext<StreamState>();
+  if (!record) return null;
+
+  return record.site_parameter_id ? (
+    <Button size="small" color="warning" startIcon={<LinkOffIcon />} onClick={() => onUnpair(record)}>
+      Unpair
+    </Button>
+  ) : (
+    <Button size="small" color="primary" startIcon={<LinkIcon />} onClick={() => onPair(record)}>
+      Pair
+    </Button>
+  );
+};
+
+const StreamNameButton = ({ onStats }: { onStats: (stream: StreamState) => void }) => {
+  const record = useRecordContext<StreamState>();
+  if (!record) return null;
+  return (
+    <Tooltip title="View stats">
+      <Button
+        size="small"
+        sx={{ textTransform: 'none', p: 0, minWidth: 0 }}
+        onClick={() => onStats(record)}
+      >
+        {record.source_name ?? '-'}
+      </Button>
+    </Tooltip>
+  );
+};
+
+// ============================================================================
+// Toolbar with filter toggles and discovery button
+// ============================================================================
+
+const DataStreamToolbar = ({ onOpenWizard }: { onOpenWizard: () => void }) => {
+  const { filterValues, setFilters, total } = useListContext();
+  const currentFilter = filterValues.site_parameter_id === undefined
+    ? 'all'
+    : filterValues.site_parameter_id === null
+      ? 'unpaired'
+      : 'paired';
+
+  const handleFilterChange = (_: React.MouseEvent<HTMLElement>, value: string | null) => {
+    if (!value) return;
+    const newFilters = { ...filterValues };
+    if (value === 'all') {
+      delete newFilters.site_parameter_id;
+    } else if (value === 'unpaired') {
+      newFilters.site_parameter_id = null;
+    } else {
+      // "paired" — filter for non-null. CrudCrate supports __not_null suffix
+      newFilters.site_parameter_id = '__not_null';
+    }
+    setFilters(newFilters, {});
+  };
+
+  return (
+    <TopToolbar sx={{ width: '100%', justifyContent: 'space-between' }}>
+      <ToggleButtonGroup
+        size="small"
+        value={currentFilter}
+        exclusive
+        onChange={handleFilterChange}
+      >
+        <ToggleButton value="all">All ({total ?? '...'})</ToggleButton>
+        <ToggleButton value="unpaired">Unpaired</ToggleButton>
+        <ToggleButton value="paired">Paired</ToggleButton>
+      </ToggleButtonGroup>
+      <Button
+        variant="contained"
+        size="small"
+        startIcon={<AutoFixHighIcon />}
+        onClick={onOpenWizard}
+      >
+        Auto-Discover & Pair
+      </Button>
+    </TopToolbar>
+  );
+};
+
+// ============================================================================
+// Stats Dialog
+// ============================================================================
+
+const StatsDialog = ({
+  open,
+  onClose,
+  stream,
+  stats,
+  loading,
+}: {
+  open: boolean;
+  onClose: () => void;
+  stream: StreamState | null;
+  stats: StreamStats | null;
+  loading: boolean;
+}) => (
+  <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+      <InfoOutlinedIcon color="info" />
+      Stream Details
+    </DialogTitle>
+    <DialogContent>
+      {stream && (
+        <Box>
+          <Typography variant="body2" gutterBottom>
+            <strong>Name:</strong> {stream.source_name ?? '-'}
+          </Typography>
+          <Typography variant="body2" gutterBottom>
+            <strong>Path:</strong> {stream.source_path ?? '-'}
+          </Typography>
+          <Typography variant="body2" gutterBottom>
+            <strong>Source:</strong> {stream.source_system} / {stream.source_key}
+          </Typography>
+          {stream.metadata && (
+            <>
+              {(stream.metadata as Record<string, unknown>).units && (
+                <Typography variant="body2" gutterBottom>
+                  <strong>Units:</strong> {String((stream.metadata as Record<string, unknown>).units)}
+                </Typography>
+              )}
+              {(stream.metadata as Record<string, unknown>).device && (
+                <Typography variant="body2" gutterBottom>
+                  <strong>Logger Serial:</strong>{' '}
+                  {String(
+                    ((stream.metadata as Record<string, unknown>).device as Record<string, unknown>)
+                      ?.logger_serial ?? '-',
+                  )}
+                </Typography>
+              )}
+            </>
+          )}
+          {loading ? (
+            <Box display="flex" justifyContent="center" py={2}>
+              <CircularProgress size={24} />
+            </Box>
+          ) : stats ? (
+            <Box display="grid" gridTemplateColumns="1fr 1fr" gap={2} sx={{ mt: 2 }}>
+              <Box>
+                <Typography variant="caption" color="text.secondary">
+                  Reading Count
+                </Typography>
+                <Typography variant="h6">{stats.reading_count.toLocaleString()}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">
+                  Latest Value
+                </Typography>
+                <Typography variant="h6">{stats.latest_value?.toFixed(2) ?? '-'}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">
+                  First Reading
+                </Typography>
+                <Typography variant="body2">
+                  {stats.min_time ? new Date(stats.min_time).toLocaleString() : '-'}
+                </Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">
+                  Last Reading
+                </Typography>
+                <Typography variant="body2">
+                  {stats.max_time ? new Date(stats.max_time).toLocaleString() : '-'}
+                </Typography>
+              </Box>
+            </Box>
+          ) : null}
+        </Box>
+      )}
+    </DialogContent>
+    <DialogActions>
+      <Button onClick={onClose} variant="contained">
+        Close
+      </Button>
+    </DialogActions>
+  </Dialog>
+);
+
+// ============================================================================
+// Main Panel
+// ============================================================================
+
 export const SyncStatusPanel = () => {
   const dataProvider = useRiverDataProvider();
   const notify = useNotify();
-  const [streams, setStreams] = useState<StreamState[]>([]);
-  const [loading, setLoading] = useState(true);
+  const refresh = useRefresh();
 
   // Pair dialog
   const [pairDialogOpen, setPairDialogOpen] = useState(false);
@@ -49,23 +248,10 @@ export const SyncStatusPanel = () => {
   const [statsTarget, setStatsTarget] = useState<StreamState | null>(null);
   const [stats, setStats] = useState<StreamStats | null>(null);
   const [loadingStats, setLoadingStats] = useState(false);
+  const statsRequestVersion = useRef(0);
 
   // Discovery wizard
   const [wizardOpen, setWizardOpen] = useState(false);
-
-  // Version ref to prevent stale stats from a previous request
-  const statsRequestVersion = useRef(0);
-
-  const refresh = useCallback(() => {
-    return dataProvider
-      .getSyncState()
-      .then((res) => setStreams(res.data))
-      .catch(() => notify('Failed to load sync status', { type: 'error' }));
-  }, [dataProvider, notify]);
-
-  useEffect(() => {
-    refresh().finally(() => setLoading(false));
-  }, [refresh]);
 
   const openPairDialog = (stream: StreamState) => {
     setPairTarget(stream);
@@ -84,7 +270,7 @@ export const SyncStatusPanel = () => {
       await dataProvider.unpairStream(unpairTarget.id);
       notify('Stream unpaired successfully', { type: 'success' });
       setUnpairDialogOpen(false);
-      await refresh();
+      refresh();
     } catch {
       notify('Failed to unpair stream', { type: 'error' });
     } finally {
@@ -112,128 +298,70 @@ export const SyncStatusPanel = () => {
     }
   };
 
-  if (loading) {
-    return (
-      <Box display="flex" justifyContent="center" p={4}>
-        <CircularProgress />
-      </Box>
-    );
-  }
-
-  if (streams.length === 0) {
-    return (
-      <Card>
-        <CardContent>
-          <Typography color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
-            No data streams registered
-          </Typography>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  const unpairedCount = streams.filter((s) => !s.site_parameter_id).length;
-
   return (
     <>
-      {unpairedCount > 0 && (
-        <Box display="flex" justifyContent="flex-end" mb={1}>
-          <Button
-            variant="contained"
-            startIcon={<AutoFixHighIcon />}
-            onClick={() => setWizardOpen(true)}
-          >
-            Auto-Discover & Pair ({unpairedCount} unpaired)
-          </Button>
-        </Box>
-      )}
-      <Card>
-        <CardContent>
-          <TableContainer>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Source</TableCell>
-                  <TableCell>Key</TableCell>
-                  <TableCell>Name</TableCell>
-                  <TableCell>Paired</TableCell>
-                  <TableCell>Active</TableCell>
-                  <TableCell>Last Data</TableCell>
-                  <TableCell>Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {streams.map((s) => (
-                  <TableRow key={s.id}>
-                    <TableCell>{s.source_system}</TableCell>
-                    <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
-                      {s.source_key}
-                    </TableCell>
-                    <TableCell>
-                      <Tooltip title="View stats">
-                        <Button
-                          size="small"
-                          sx={{ textTransform: 'none', p: 0, minWidth: 0 }}
-                          onClick={() => openStatsDialog(s)}
-                        >
-                          {s.source_name ?? '-'}
-                        </Button>
-                      </Tooltip>
-                    </TableCell>
-                    <TableCell>
-                      <Chip
-                        label={s.site_parameter_id ? 'Paired' : 'Unpaired'}
-                        color={s.site_parameter_id ? 'success' : 'default'}
-                        size="small"
-                        variant="outlined"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Chip
-                        label={s.is_active ? 'Active' : 'Inactive'}
-                        color={s.is_active ? 'success' : 'default'}
-                        size="small"
-                        variant="outlined"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      {s.last_data_time ? new Date(s.last_data_time).toLocaleString() : '-'}
-                    </TableCell>
-                    <TableCell>
-                      {s.site_parameter_id ? (
-                        <Button
-                          size="small"
-                          color="warning"
-                          startIcon={<LinkOffIcon />}
-                          onClick={() => openUnpairDialog(s)}
-                        >
-                          Unpair
-                        </Button>
-                      ) : (
-                        <Button
-                          size="small"
-                          color="primary"
-                          startIcon={<LinkIcon />}
-                          onClick={() => openPairDialog(s)}
-                        >
-                          Pair
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </CardContent>
-      </Card>
+      <List
+        resource="data_streams"
+        sort={{ field: 'discovered_at', order: 'DESC' }}
+        perPage={25}
+        actions={
+          <DataStreamToolbar
+            onOpenWizard={() => setWizardOpen(true)}
+          />
+        }
+        empty={
+          <Typography color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+            No data streams registered
+          </Typography>
+        }
+        title=" "
+        sx={{ '& .RaList-main': { mt: 0 } }}
+      >
+        <Datagrid bulkActionButtons={false} size="small">
+          <TextField source="source_system" label="Source" />
+          <FunctionField
+            label="Key"
+            render={(record: StreamState) => (
+              <Typography sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                {record.source_key}
+              </Typography>
+            )}
+          />
+          <FunctionField
+            label="Name"
+            render={() => <StreamNameButton onStats={openStatsDialog} />}
+          />
+          <FunctionField
+            label="Paired"
+            render={(record: StreamState) => (
+              <Chip
+                label={record.site_parameter_id ? 'Paired' : 'Unpaired'}
+                color={record.site_parameter_id ? 'success' : 'default'}
+                size="small"
+                variant="outlined"
+              />
+            )}
+          />
+          <BooleanField source="is_active" label="Active" />
+          <DateField source="last_data_time" label="Last Data" showTime />
+          <FunctionField
+            label="Actions"
+            render={() => (
+              <PairUnpairButton onPair={openPairDialog} onUnpair={openUnpairDialog} />
+            )}
+          />
+        </Datagrid>
+      </List>
 
       {/* Pair Dialog */}
       <StreamPairDialog
         open={pairDialogOpen}
         stream={pairTarget}
         onClose={() => setPairDialogOpen(false)}
-        onPaired={() => refresh()}
+        onPaired={() => {
+          refresh();
+          setPairDialogOpen(false);
+        }}
       />
 
       {/* Unpair Dialog */}
@@ -254,80 +382,13 @@ export const SyncStatusPanel = () => {
       </Dialog>
 
       {/* Stats Dialog */}
-      <Dialog open={statsDialogOpen} onClose={() => setStatsDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <InfoOutlinedIcon color="info" />
-          Stream Details
-        </DialogTitle>
-        <DialogContent>
-          {statsTarget && (
-            <Box>
-              <Typography variant="body2" gutterBottom>
-                <strong>Name:</strong> {statsTarget.source_name ?? '-'}
-              </Typography>
-              <Typography variant="body2" gutterBottom>
-                <strong>Path:</strong> {statsTarget.source_path ?? '-'}
-              </Typography>
-              <Typography variant="body2" gutterBottom>
-                <strong>Source:</strong> {statsTarget.source_system} / {statsTarget.source_key}
-              </Typography>
-              {statsTarget.metadata && (
-                <>
-                  {(statsTarget.metadata as Record<string, unknown>).units && (
-                    <Typography variant="body2" gutterBottom>
-                      <strong>Units:</strong> {String((statsTarget.metadata as Record<string, unknown>).units)}
-                    </Typography>
-                  )}
-                  {(statsTarget.metadata as Record<string, unknown>).device && (
-                    <Typography variant="body2" gutterBottom>
-                      <strong>Logger Serial:</strong>{' '}
-                      {String(((statsTarget.metadata as Record<string, unknown>).device as Record<string, unknown>)?.logger_serial ?? '-')}
-                    </Typography>
-                  )}
-                </>
-              )}
-              {loadingStats ? (
-                <Box display="flex" justifyContent="center" py={2}>
-                  <CircularProgress size={24} />
-                </Box>
-              ) : stats ? (
-                <Box
-                  display="grid"
-                  gridTemplateColumns="1fr 1fr"
-                  gap={2}
-                  sx={{ mt: 2 }}
-                >
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">Reading Count</Typography>
-                    <Typography variant="h6">{stats.reading_count.toLocaleString()}</Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">Latest Value</Typography>
-                    <Typography variant="h6">{stats.latest_value?.toFixed(2) ?? '-'}</Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">First Reading</Typography>
-                    <Typography variant="body2">
-                      {stats.min_time ? new Date(stats.min_time).toLocaleString() : '-'}
-                    </Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">Last Reading</Typography>
-                    <Typography variant="body2">
-                      {stats.max_time ? new Date(stats.max_time).toLocaleString() : '-'}
-                    </Typography>
-                  </Box>
-                </Box>
-              ) : null}
-            </Box>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setStatsDialogOpen(false)} variant="contained">
-            Close
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <StatsDialog
+        open={statsDialogOpen}
+        onClose={() => setStatsDialogOpen(false)}
+        stream={statsTarget}
+        stats={stats}
+        loading={loadingStats}
+      />
 
       {/* Discovery Wizard */}
       <DiscoveryWizard

@@ -200,7 +200,6 @@ export interface RiverDataProvider extends DataProvider {
   search: (query: string) => Promise<{ data: SearchResponse }>;
   getActiveAlarms: () => Promise<{ data: ActiveAlarmsResponse }>;
   getAlarmSummary: () => Promise<{ data: AlarmSummaryResponse }>;
-  getSyncState: () => Promise<{ data: StreamState[] }>;
   getStreamStats: (streamId: string) => Promise<{ data: StreamStats }>;
   pairStream: (streamId: string, siteParameterId: string) => Promise<{ data: unknown }>;
   unpairStream: (streamId: string) => Promise<{ data: unknown }>;
@@ -402,12 +401,6 @@ const dataProvider = (
     httpClient(`${apiUrl}/alarms/summary`).then(
       ({ json }) => ({ data: json as AlarmSummaryResponse }),
     ),
-
-  getSyncState: () => {
-    return httpClient(`${apiUrl}/sync/state`).then(({ json }) => ({
-      data: json,
-    }));
-  },
 
   getStreamStats: (streamId: string) =>
     httpClient(`${apiUrl}/streams/${streamId}/stats`).then(({ json }) => ({ data: json })),

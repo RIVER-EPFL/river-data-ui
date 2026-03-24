@@ -46,4 +46,5 @@ export const hiddenResources = [
   { name: 'sensor_deployments', ...sensorDeployments },
   { name: 'public_exposed_parameters', ...publicExposedParameters },
   { name: 'field_trips', ...fieldTrips },
+  { name: 'data_streams' },
 ];
