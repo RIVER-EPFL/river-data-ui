@@ -49,6 +49,7 @@ export default function SearchBar() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const anchorRef = useRef<HTMLDivElement | null>(null);
@@ -79,14 +80,15 @@ export default function SearchBar() {
       }
       debounceRef.current = setTimeout(async () => {
         setLoading(true);
+        setSearchError(null);
         try {
           const { data } = await dataProvider.search(q.trim());
           setResults(data);
           setOpen(data.total > 0);
         } catch (err) {
-          console.error('Failed to fetch search results:', err);
+          setSearchError(err instanceof Error ? err.message : 'Search failed');
           setResults(null);
-          setOpen(false);
+          setOpen(true);
         } finally {
           setLoading(false);
         }
@@ -115,7 +117,7 @@ export default function SearchBar() {
     navigate(`/admin/${path}/${id}/show`);
   };
 
-  const showNoResults = !loading && query.trim().length >= 2 && results?.total === 0;
+  const showNoResults = !loading && !searchError && query.trim().length >= 2 && results?.total === 0;
 
   return (
     <ClickAwayListener onClickAway={() => setOpen(false)}>
@@ -175,7 +177,7 @@ export default function SearchBar() {
           }}
         />
         <Popper
-          open={open || showNoResults}
+          open={open || showNoResults || !!searchError}
           anchorEl={anchorRef.current}
           placement="bottom-start"
           transition
@@ -187,7 +189,11 @@ export default function SearchBar() {
                 elevation={8}
                 sx={{ width: 360, maxHeight: 420, overflow: 'auto', mt: 0.5 }}
               >
-                {showNoResults ? (
+                {searchError ? (
+                  <Typography sx={{ p: 2 }} color="error" variant="body2">
+                    {searchError}
+                  </Typography>
+                ) : showNoResults ? (
                   <Typography sx={{ p: 2, color: 'text.secondary' }}>
                     No results for "{query.trim()}"
                   </Typography>

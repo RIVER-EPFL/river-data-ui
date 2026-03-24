@@ -36,6 +36,7 @@ export interface SiteChartData {
   annotations: AnnotationData[];
   grabData: ReadingsResponse | null;
   loading: boolean;
+  error: string | null;
   refetch: () => void;
 }
 
@@ -55,6 +56,7 @@ export function useSiteChartData(
   const [annotations, setAnnotations] = useState<AnnotationData[]>([]);
   const [grabData, setGrabData] = useState<ReadingsResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const fetchIdRef = useRef(0);
 
   const fetchAll = useCallback(async () => {
@@ -62,6 +64,7 @@ export function useSiteChartData(
 
     const id = ++fetchIdRef.current;
     setLoading(true);
+    setError(null);
 
     const startISO = new Date(start).toISOString();
     const endISO = new Date(end).toISOString();
@@ -79,8 +82,8 @@ export function useSiteChartData(
     try {
       const [dataRes, annRes, grabRes] = await Promise.all([
         authFetch(dataUrl),
-        authFetch(annotUrl).catch((err) => { console.error('Failed to fetch annotations:', err); return null as Response | null; }),
-        authFetch(grabUrl).catch((err) => { console.error('Failed to fetch grab samples:', err); return null as Response | null; }),
+        authFetch(annotUrl).catch(() => null as Response | null),
+        authFetch(grabUrl).catch(() => null as Response | null),
       ]);
 
       if (id !== fetchIdRef.current) return;
@@ -97,8 +100,8 @@ export function useSiteChartData(
       setAnnotations(parsedAnnotations);
       setGrabData(parsedGrab);
     } catch (err) {
-      console.error('Failed to fetch site chart data:', err);
       if (id === fetchIdRef.current) {
+        setError(err instanceof Error ? err.message : 'Failed to load chart data');
         setData(null);
         setAnnotations([]);
         setGrabData(null);
@@ -114,5 +117,5 @@ export function useSiteChartData(
     fetchAll();
   }, [fetchAll]);
 
-  return { data, isAggregate, annotations, grabData, loading, refetch: fetchAll };
+  return { data, isAggregate, annotations, grabData, loading, error, refetch: fetchAll };
 }

@@ -10,6 +10,7 @@ import {
   Autocomplete,
   CircularProgress,
   Paper,
+  Button,
 } from '@mui/material';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
@@ -62,6 +63,7 @@ export const MultiStationChart: React.FC = () => {
   const [end, setEnd] = useState<number>(Date.now);
   const [aggregation, setAggregation] = useState<AggregationLevel>('raw');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const siteIds = useMemo(() => selectedSites.map((s) => s.id), [selectedSites]);
   const dataRange = useSiteDataRange(siteIds);
@@ -88,6 +90,7 @@ export const MultiStationChart: React.FC = () => {
     if (selectedSites.length === 0 || !selectedParameter) return;
 
     setLoading(true);
+    setError(null);
 
     const startISO = new Date(start).toISOString();
     const endISO = new Date(end).toISOString();
@@ -198,7 +201,7 @@ export const MultiStationChart: React.FC = () => {
         uplotRef.current = new uPlot(opts, allData, chartRef.current);
       }
     } catch (err) {
-      console.error('Failed to fetch comparison data:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load comparison data');
     } finally {
       setLoading(false);
     }
@@ -328,6 +331,15 @@ export const MultiStationChart: React.FC = () => {
             <Typography variant="body2" color="text.secondary">
               Loading chart data...
             </Typography>
+          </Box>
+        ) : error ? (
+          <Box sx={{ textAlign: 'center', py: 4 }}>
+            <Typography color="error" gutterBottom>
+              {error}
+            </Typography>
+            <Button size="small" onClick={fetchData}>
+              Retry
+            </Button>
           </Box>
         ) : null}
 
