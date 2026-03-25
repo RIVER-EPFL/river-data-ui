@@ -781,7 +781,21 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     }
 
     const { times, parameters } = state.data;
-    const timestamps = times.map((t) => new Date(t).getTime() / 1000);
+    let timestamps = times.map((t) => new Date(t).getTime() / 1000);
+
+    // Single-point data: uPlot cannot render a line from 1 point.
+    // Pad with a synthetic point 1 second later so the chart has a valid range,
+    // using null values for the padded point so no false line is drawn.
+    const isSingleTimestamp = timestamps.length === 1;
+    if (isSingleTimestamp) {
+      timestamps = [timestamps[0] - 1, timestamps[0], timestamps[0] + 1];
+      parameters.forEach((param) => {
+        if (param.values) param.values = [null, param.values[0], null];
+        if (param.avg) param.avg = [null, param.avg[0], null];
+        if (param.severities) param.severities = [null, param.severities[0], null];
+        if (param.max_severity) param.max_severity = [null, param.max_severity[0], null];
+      });
+    }
 
     const paramsByType: Record<string, ReadingsParameter[]> = {};
     state.parametersWithData.clear();
@@ -906,6 +920,8 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
           label: param.name,
           stroke: parameterColors[type] || '#666',
           width: 1.5,
+          // Show dots for single-point data (the value sits between two nulls)
+          points: isSingleTimestamp ? { show: true, size: 8 } : undefined,
           value: (_u: uPlot, v: number | null) => v == null ? '--' : v.toFixed(2) + (param.units ? ' ' + param.units : ''),
         });
       });

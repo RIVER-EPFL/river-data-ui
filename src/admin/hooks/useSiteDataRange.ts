@@ -7,9 +7,11 @@ export interface DataRange {
   /** Latest data timestamp in ms (0 while loading or no data) */
   max: number;
   loading: boolean;
+  /** True when all data points share a single timestamp (e.g. grab samples) */
+  isSinglePoint: boolean;
 }
 
-const EMPTY: DataRange = { min: 0, max: 0, loading: false };
+const EMPTY: DataRange = { min: 0, max: 0, loading: false, isSinglePoint: false };
 
 /**
  * Fetches data_start / data_end for one or more sites and returns the union range.
@@ -56,14 +58,15 @@ export function useSiteDataRange(siteIds: string[]): DataRange {
       }
 
       if (min === Infinity || max === -Infinity) {
-        setRange({ min: 0, max: 0, loading: false });
+        setRange({ min: 0, max: 0, loading: false, isSinglePoint: false });
       } else {
         // Pad single-point data so the range has nonzero width (1 hour each side)
-        if (min === max) {
+        const singlePoint = min === max;
+        if (singlePoint) {
           min -= 3600_000;
           max += 3600_000;
         }
-        setRange({ min, max, loading: false });
+        setRange({ min, max, loading: false, isSinglePoint: singlePoint });
       }
     });
 

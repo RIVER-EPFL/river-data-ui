@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
     useGetOne,
     useGetList,
@@ -33,6 +33,12 @@ import {
     Tab,
     Tabs,
     Paper,
+    Table,
+    TableBody,
+    TableCell,
+    TableContainer,
+    TableHead,
+    TableRow,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import SensorsIcon from '@mui/icons-material/Sensors';
@@ -54,6 +60,8 @@ import { StatusEventsTimeline } from './StatusEventsTimeline';
 import { AssignToSiteDialog } from '../derived_parameters/AssignToSiteDialog';
 import { useLatestReadings, useSensorGroups } from './hooks';
 import ChartsDashboard from '../../components/dashboard/ChartsDashboard';
+import { useSiteDataRange } from '../../hooks/useSiteDataRange';
+import { useAuthFetch } from '../../hooks/useAuthFetch';
 import type {
     ParameterRecord,
     SensorDeploymentRecord,
@@ -777,6 +785,168 @@ function TabPanel({ children, value, index }: { children?: React.ReactNode; valu
 }
 
 // ---------------------------------------------------------------------------
+// Single-Point Data Table (grab samples with 1 timestamp)
+// ---------------------------------------------------------------------------
+
+interface ReadingsResponse {
+    times: string[];
+    parameters: {
+        id: string;
+        name: string;
+        type: string;
+        units?: string;
+        values?: (number | null)[];
+        avg?: (number | null)[];
+    }[];
+}
+
+const SinglePointDataTable: React.FC<{ siteId: string }> = ({ siteId }) => {
+    const authFetch = useAuthFetch();
+    const dataRange = useSiteDataRange([siteId]);
+    const [data, setData] = useState<ReadingsResponse | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (dataRange.loading || !dataRange.min || !dataRange.max) return;
+        let cancelled = false;
+        setLoading(true);
+
+        const start = new Date(dataRange.min).toISOString();
+        const end = new Date(dataRange.max).toISOString();
+        authFetch(`/api/service/sites/${siteId}/readings?start=${start}&end=${end}`)
+            .then((r) => {
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                return r.json();
+            })
+            .then((json: ReadingsResponse) => {
+                if (!cancelled) setData(json);
+            })
+            .catch((err) => {
+                if (!cancelled) setError(err instanceof Error ? err.message : 'Unknown error');
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false);
+            });
+
+        return () => { cancelled = true; };
+    }, [siteId, dataRange.min, dataRange.max, dataRange.loading, authFetch]);
+
+    if (dataRange.loading || loading) {
+        return (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+                <CircularProgress size={24} />
+            </Box>
+        );
+    }
+
+    if (error) {
+        return <Alert severity="error">Failed to load readings: {error}</Alert>;
+    }
+
+    if (!data?.times?.length || !data?.parameters?.length) {
+        return <Alert severity="info">No readings found for this site.</Alert>;
+    }
+
+    const timestamp = new Date(data.times[0]);
+
+    // Build rows: one per parameter, using the first non-null value
+    const rows: { name: string; type: string; value: string; units: string }[] = [];
+    for (const param of data.parameters) {
+        const values = param.values ?? param.avg ?? [];
+        const nonNull = values.filter((v): v is number => v != null);
+        if (nonNull.length === 0) continue;
+
+        let valueStr: string;
+        if (nonNull.length === 1) {
+            valueStr = nonNull[0].toFixed(4);
+        } else {
+            // Multiple replicates: show mean and count
+            const mean = nonNull.reduce((a, b) => a + b, 0) / nonNull.length;
+            valueStr = `${mean.toFixed(4)} (n=${nonNull.length})`;
+        }
+
+        rows.push({
+            name: param.name,
+            type: param.type,
+            units: param.units ?? '',
+            value: valueStr,
+        });
+    }
+
+    // Group by measurement type
+    const grouped = new Map<string, typeof rows>();
+    for (const row of rows) {
+        const group = grouped.get(row.type) ?? [];
+        group.push(row);
+        grouped.set(row.type, group);
+    }
+
+    return (
+        <Card variant="outlined">
+            <CardContent>
+                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Grab sample readings at{' '}
+                    {timestamp.toLocaleString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                    })}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    {rows.length} parameters from a single site visit
+                </Typography>
+                <TableContainer>
+                    <Table size="small">
+                        <TableHead>
+                            <TableRow>
+                                <TableCell>Parameter</TableCell>
+                                <TableCell align="right">Value</TableCell>
+                                <TableCell>Units</TableCell>
+                            </TableRow>
+                        </TableHead>
+                        <TableBody>
+                            {[...grouped.entries()].map(([type, typeRows]) => (
+                                <React.Fragment key={type}>
+                                    {grouped.size > 1 && (
+                                        <TableRow>
+                                            <TableCell
+                                                colSpan={3}
+                                                sx={{
+                                                    fontWeight: 600,
+                                                    bgcolor: 'action.hover',
+                                                    fontSize: '0.75rem',
+                                                    textTransform: 'uppercase',
+                                                    letterSpacing: '0.05em',
+                                                    color: 'text.secondary',
+                                                }}
+                                            >
+                                                {type}
+                                            </TableCell>
+                                        </TableRow>
+                                    )}
+                                    {typeRows.map((row) => (
+                                        <TableRow key={row.name}>
+                                            <TableCell>{row.name}</TableCell>
+                                            <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                                                {row.value}
+                                            </TableCell>
+                                            <TableCell sx={{ color: 'text.secondary' }}>{row.units}</TableCell>
+                                        </TableRow>
+                                    ))}
+                                </React.Fragment>
+                            ))}
+                        </TableBody>
+                    </Table>
+                </TableContainer>
+            </CardContent>
+        </Card>
+    );
+};
+
+// ---------------------------------------------------------------------------
 // Station Hub (main component)
 // ---------------------------------------------------------------------------
 
@@ -865,6 +1035,9 @@ const StationHub = () => {
 
     // Fetch latest readings for this site
     const latestByParam = useLatestReadings(id);
+
+    // Detect single-point data (grab samples with 1 timestamp)
+    const dataRange = useSiteDataRange(id ? [id] : []);
 
     // Build lookup maps
     const sensorById = useMemo(() => {
@@ -1055,11 +1228,15 @@ const StationHub = () => {
                     </TabPanel>
                 </Grid>
 
-                {/* Right column: dashboard charts (sticky) */}
+                {/* Right column: dashboard charts or data table (sticky) */}
                 <Grid size={{ xs: 12, lg: 7 }}>
                     <Box sx={{ position: 'sticky', top: 16, maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' }}>
                         {(parameters ?? []).filter((p) => !p.is_derived).length > 0 ? (
-                            <ChartsDashboard siteId={id!} />
+                            dataRange.isSinglePoint ? (
+                                <SinglePointDataTable siteId={id!} />
+                            ) : (
+                                <ChartsDashboard siteId={id!} />
+                            )
                         ) : (
                             <Alert severity="info">No parameters configured for charting.</Alert>
                         )}
