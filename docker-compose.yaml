@@ -65,9 +65,10 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:${API_PORT:-3000}/healthz || exit 1"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 30
+      start_period: 120s
     volumes:
       - ../river-data-api/src:/app/src
       - ../river-data-api/migration:/app/migration
