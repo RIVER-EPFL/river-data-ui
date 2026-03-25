@@ -185,6 +185,9 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
   // Scoped DOM query helper
   const $ = (id: string) => root.querySelector(`#${id}`) as HTMLElement;
 
+  // Sanitize parameter type names for use as CSS IDs (spaces, parens, slashes, etc.)
+  const cssId = (type: string) => 'chart-' + type.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
+
   // State
   const state: DashboardState = {
     site: null,
@@ -844,7 +847,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
         state.charts[type].destroy();
         delete state.charts[type];
         delete state.chartData[type];
-        const el = root.querySelector(`#chart-${type}`);
+        const el = root.querySelector(`#${cssId(type)}`);
         if (el) el.remove();
       }
     });
@@ -857,13 +860,13 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
 
       state.chartData[type] = { params: typeParams, timestamps };
 
-      let chartDiv = root.querySelector(`#chart-${type}`) as HTMLElement | null;
+      let chartDiv = root.querySelector(`#${cssId(type)}`) as HTMLElement | null;
       const isExpanded = state.expandedCharts.has(type);
       const chartHeight = isExpanded ? CHART_HEIGHT_EXPANDED : CHART_HEIGHT_NORMAL;
 
       if (!chartDiv) {
         chartDiv = document.createElement('div');
-        chartDiv.id = `chart-${type}`;
+        chartDiv.id = cssId(type);
         chartDiv.className = 'parameter-chart';
         const siteHubHref = state.site ? `#/sites/${state.site.id}/show` : '#';
         chartDiv.innerHTML = `
@@ -875,7 +878,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
         const currentIndex = enabledTypes.indexOf(type);
         let insertBefore: HTMLElement | null = null;
         for (let i = currentIndex + 1; i < enabledTypes.length; i++) {
-          const nextChart = root.querySelector(`#chart-${enabledTypes[i]}`) as HTMLElement | null;
+          const nextChart = root.querySelector(`#${cssId(enabledTypes[i])}`) as HTMLElement | null;
           if (nextChart) {
             insertBefore = nextChart;
             break;
