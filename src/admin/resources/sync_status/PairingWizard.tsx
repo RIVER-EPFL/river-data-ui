@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNotify } from 'react-admin';
 import {
   Dialog,
@@ -22,13 +22,20 @@ import {
   Alert,
   LinearProgress,
   TablePagination,
-  TextField,
   ToggleButton,
   ToggleButtonGroup,
   Tooltip,
   Card,
   CardContent,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
 } from '@mui/material';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import { useRiverDataProvider } from '../../useRiverDataProvider';
@@ -41,7 +48,41 @@ import type {
 
 const STEPS = ['Select Source', 'Review Mapping', 'Warnings', 'Apply', 'Result'];
 
-type FilterMode = 'all' | 'needs_review' | 'ready' | 'skipped';
+interface SourceSummary {
+  source_system: string;
+  unpaired: number;
+  paired: number;
+}
+
+interface GroupedProject {
+  name: string;
+  count: number;
+  create: boolean;
+}
+
+interface GroupedParameter {
+  name: string;
+  units: string;
+  count: number;
+  create: boolean;
+  skipped: boolean;
+}
+
+interface GroupedSite {
+  name: string;
+  glacier: string | null;
+  lat: number | null;
+  lon: number | null;
+  count: number;
+  create: boolean;
+  skipped: boolean;
+}
+
+interface GroupedWarning {
+  warning: string;
+  parameter: string;
+  count: number;
+}
 
 interface PairingWizardProps {
   open: boolean;
@@ -54,55 +95,113 @@ export const PairingWizard = ({ open, onClose, onComplete }: PairingWizardProps)
   const notify = useNotify();
 
   const [activeStep, setActiveStep] = useState(0);
-  const [sourceSystem, setSourceSystem] = useState('nomis');
+  const [sourceSystem, setSourceSystem] = useState('');
+  const [sourceSummaries, setSourceSummaries] = useState<SourceSummary[]>([]);
+  const [loadingSources, setLoadingSources] = useState(false);
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState(false);
   const [plan, setPlan] = useState<PairingPlan | null>(null);
   const [localEntries, setLocalEntries] = useState<PairingPlanEntry[]>([]);
   const [result, setResult] = useState<PairingPlanApplyResult | null>(null);
 
-  // Pagination
-  const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(25);
-
-  // Filters
-  const [filterMode, setFilterMode] = useState<FilterMode>('all');
-  const [searchQuery, setSearchQuery] = useState('');
+  // Site pagination
+  const [sitePage, setSitePage] = useState(0);
+  const [siteRowsPerPage, setSiteRowsPerPage] = useState(25);
 
   // Pending action changes to batch-send
   const [pendingUpdates, setPendingUpdates] = useState<Map<string, PlanEntryUpdate>>(new Map());
 
   // --------------------------------------------------------------------------
-  // Derived data
+  // Load source summaries when dialog opens
   // --------------------------------------------------------------------------
 
-  const filteredEntries = useMemo(() => {
-    let entries = localEntries;
-
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      entries = entries.filter(
-        (e) =>
-          (e.source_name ?? '').toLowerCase().includes(q) ||
-          e.source_key.toLowerCase().includes(q),
-      );
+  useEffect(() => {
+    if (open) {
+      setLoadingSources(true);
+      dataProvider
+        .getUnpairedSummary()
+        .then((res) => {
+          const withUnpaired = res.data.filter((s) => s.unpaired > 0);
+          setSourceSummaries(withUnpaired);
+          if (withUnpaired.length === 1) {
+            setSourceSystem(withUnpaired[0].source_system);
+          }
+        })
+        .catch(() => {
+          notify('Failed to load source summaries', { type: 'error' });
+        })
+        .finally(() => setLoadingSources(false));
     }
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    if (filterMode === 'needs_review') {
-      entries = entries.filter((e) => e.confidence !== 'exact' && e.action === 'pair');
-    } else if (filterMode === 'ready') {
-      entries = entries.filter((e) => e.confidence === 'exact' && e.action === 'pair');
-    } else if (filterMode === 'skipped') {
-      entries = entries.filter((e) => e.action === 'skip');
+  // --------------------------------------------------------------------------
+  // Grouped data (computed from localEntries)
+  // --------------------------------------------------------------------------
+
+  const groupedProjects = useMemo(() => {
+    const map = new Map<string, GroupedProject>();
+    for (const e of localEntries.filter((e) => e.action === 'pair')) {
+      const key = e.project.name;
+      const existing = map.get(key);
+      if (existing) {
+        existing.count++;
+      } else {
+        map.set(key, { name: key, count: 1, create: e.project.create });
+      }
     }
+    return Array.from(map.values());
+  }, [localEntries]);
 
-    return entries;
-  }, [localEntries, filterMode, searchQuery]);
+  const groupedParameters = useMemo(() => {
+    const map = new Map<string, GroupedParameter>();
+    for (const e of localEntries) {
+      const key = e.parameter.name;
+      const existing = map.get(key);
+      if (existing) {
+        if (e.action === 'pair') existing.count++;
+        // If any entry for this param is not skipped, the param is not fully skipped
+        if (e.action !== 'skip') existing.skipped = false;
+      } else {
+        map.set(key, {
+          name: key,
+          units: e.parameter.units,
+          count: e.action === 'pair' ? 1 : 0,
+          create: e.parameter.create,
+          skipped: e.action === 'skip',
+        });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [localEntries]);
 
-  const paginatedEntries = useMemo(
-    () => filteredEntries.slice(page * rowsPerPage, (page + 1) * rowsPerPage),
-    [filteredEntries, page, rowsPerPage],
-  );
+  const groupedSites = useMemo(() => {
+    const map = new Map<string, GroupedSite>();
+    for (const e of localEntries) {
+      const key = e.site.name;
+      const existing = map.get(key);
+      if (existing) {
+        if (e.action === 'pair') existing.count++;
+        if (e.action !== 'skip') existing.skipped = false;
+      } else {
+        // Try to extract glacier from source_name prefix or metadata
+        let glacier: string | null = null;
+        if (e.source_name) {
+          const parts = e.source_name.split('/');
+          if (parts.length > 1) glacier = parts[0];
+        }
+        map.set(key, {
+          name: key,
+          glacier,
+          lat: e.site.latitude,
+          lon: e.site.longitude,
+          count: e.action === 'pair' ? 1 : 0,
+          create: e.site.create,
+          skipped: e.action === 'skip',
+        });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [localEntries]);
 
   const localSummary = useMemo(() => {
     const willPair = localEntries.filter((e) => e.action === 'pair').length;
@@ -129,18 +228,30 @@ export const PairingWizard = ({ open, onClose, onComplete }: PairingWizardProps)
     };
   }, [localEntries]);
 
-  const entriesWithWarnings = useMemo(
-    () => localEntries.filter((e) => e.warnings.length > 0),
-    [localEntries],
-  );
+  const groupedWarnings = useMemo(() => {
+    const map = new Map<string, GroupedWarning>();
+    for (const e of localEntries) {
+      for (const w of e.warnings) {
+        const key = `${w}||${e.parameter.name}`;
+        const existing = map.get(key);
+        if (existing) {
+          existing.count++;
+        } else {
+          map.set(key, { warning: w, parameter: e.parameter.name, count: 1 });
+        }
+      }
+    }
+    return Array.from(map.values());
+  }, [localEntries]);
 
-  const hasWarnings = entriesWithWarnings.length > 0;
+  const hasWarnings = groupedWarnings.length > 0;
 
   // --------------------------------------------------------------------------
   // Handlers
   // --------------------------------------------------------------------------
 
   const handleCreatePlan = async () => {
+    if (!sourceSystem) return;
     setLoading(true);
     try {
       const res = await dataProvider.createPairingPlan(sourceSystem);
@@ -148,9 +259,7 @@ export const PairingWizard = ({ open, onClose, onComplete }: PairingWizardProps)
       setLocalEntries(res.data.entries);
       setPendingUpdates(new Map());
       setActiveStep(1);
-      setPage(0);
-      setFilterMode('all');
-      setSearchQuery('');
+      setSitePage(0);
     } catch {
       notify('Failed to create pairing plan', { type: 'error' });
     } finally {
@@ -158,26 +267,19 @@ export const PairingWizard = ({ open, onClose, onComplete }: PairingWizardProps)
     }
   };
 
-  const handleActionChange = (streamId: string, newAction: string) => {
-    setLocalEntries((prev) =>
-      prev.map((e) => (e.stream_id === streamId ? { ...e, action: newAction } : e)),
-    );
-    setPendingUpdates((prev) => {
-      const next = new Map(prev);
-      const existing = next.get(streamId) ?? { stream_id: streamId };
-      next.set(streamId, { ...existing, action: newAction });
-      return next;
-    });
-  };
+  const toggleParameterSkip = (paramName: string) => {
+    // Determine current state: if all entries with this param are skipped, toggle to pair; otherwise skip all
+    const paramEntries = localEntries.filter((e) => e.parameter.name === paramName);
+    const allSkipped = paramEntries.every((e) => e.action === 'skip');
+    const newAction = allSkipped ? 'pair' : 'skip';
 
-  const handleBulkAcceptExact = () => {
     const updates = new Map(pendingUpdates);
     setLocalEntries((prev) =>
       prev.map((e) => {
-        if (e.confidence === 'exact' && e.action !== 'pair') {
+        if (e.parameter.name === paramName) {
           const existing = updates.get(e.stream_id) ?? { stream_id: e.stream_id };
-          updates.set(e.stream_id, { ...existing, action: 'pair' });
-          return { ...e, action: 'pair' };
+          updates.set(e.stream_id, { ...existing, action: newAction });
+          return { ...e, action: newAction };
         }
         return e;
       }),
@@ -185,14 +287,18 @@ export const PairingWizard = ({ open, onClose, onComplete }: PairingWizardProps)
     setPendingUpdates(updates);
   };
 
-  const handleBulkSkipUnknowns = () => {
+  const toggleSiteSkip = (siteName: string) => {
+    const siteEntries = localEntries.filter((e) => e.site.name === siteName);
+    const allSkipped = siteEntries.every((e) => e.action === 'skip');
+    const newAction = allSkipped ? 'pair' : 'skip';
+
     const updates = new Map(pendingUpdates);
     setLocalEntries((prev) =>
       prev.map((e) => {
-        if (e.confidence === 'none' && e.action !== 'skip') {
+        if (e.site.name === siteName) {
           const existing = updates.get(e.stream_id) ?? { stream_id: e.stream_id };
-          updates.set(e.stream_id, { ...existing, action: 'skip' });
-          return { ...e, action: 'skip' };
+          updates.set(e.stream_id, { ...existing, action: newAction });
+          return { ...e, action: newAction };
         }
         return e;
       }),
@@ -266,20 +372,10 @@ export const PairingWizard = ({ open, onClose, onComplete }: PairingWizardProps)
     setLocalEntries([]);
     setResult(null);
     setPendingUpdates(new Map());
-    setPage(0);
-    setFilterMode('all');
-    setSearchQuery('');
-    setSourceSystem('nomis');
+    setSitePage(0);
+    setSourceSystem('');
+    setSourceSummaries([]);
     onClose();
-  };
-
-  // --------------------------------------------------------------------------
-  // Render helpers
-  // --------------------------------------------------------------------------
-
-  const confidenceChip = (confidence: string) => {
-    const color = confidence === 'exact' ? 'success' : confidence === 'none' ? 'error' : 'warning';
-    return <Chip label={confidence} color={color} size="small" variant="outlined" />;
   };
 
   // --------------------------------------------------------------------------
@@ -293,22 +389,37 @@ export const PairingWizard = ({ open, onClose, onComplete }: PairingWizardProps)
           <CircularProgress />
           <Typography sx={{ mt: 2 }}>Creating pairing plan...</Typography>
         </>
+      ) : loadingSources ? (
+        <>
+          <CircularProgress />
+          <Typography sx={{ mt: 2 }}>Loading source systems...</Typography>
+        </>
+      ) : sourceSummaries.length === 0 ? (
+        <Typography color="text.secondary">No source systems with unpaired streams found.</Typography>
       ) : (
         <>
           <Typography sx={{ mb: 3 }}>
             Create a pairing plan to map unpaired streams to projects, sites, and parameters.
           </Typography>
-          <TextField
-            label="Source System"
-            value={sourceSystem}
-            onChange={(e) => setSourceSystem(e.target.value)}
-            size="small"
-            sx={{ mb: 3, width: 300 }}
-          />
+          <FormControl sx={{ mb: 3, width: 360 }} size="small">
+            <InputLabel>Source System</InputLabel>
+            <Select
+              value={sourceSystem}
+              label="Source System"
+              onChange={(e) => setSourceSystem(e.target.value)}
+            >
+              {sourceSummaries.map((s) => (
+                <MenuItem key={s.source_system} value={s.source_system}>
+                  {s.source_system} ({s.unpaired.toLocaleString()} unpaired)
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
           <Box>
             <Button
               variant="contained"
               onClick={handleCreatePlan}
+              disabled={!sourceSystem}
               startIcon={<AutoFixHighIcon />}
             >
               Create Plan
@@ -319,148 +430,232 @@ export const PairingWizard = ({ open, onClose, onComplete }: PairingWizardProps)
     </Box>
   );
 
-  const renderReviewMapping = () => (
-    <Box>
-      <Alert severity="info" sx={{ mb: 2 }}>
-        {localSummary.total.toLocaleString()} streams{' '}
-        &rarr; {localSummary.projects} project(s), {localSummary.sites} sites, {localSummary.parameters} parameters.
-        {localSummary.sitesToCreate > 0 && ` ${localSummary.sitesToCreate} sites to create.`}
-        {localSummary.paramsToCreate > 0 && ` ${localSummary.paramsToCreate} parameters to create.`}
-        {` ${localSummary.willPair.toLocaleString()} will pair, ${localSummary.willSkip.toLocaleString()} will skip.`}
-      </Alert>
+  const renderReviewMapping = () => {
+    const paginatedSites = groupedSites.slice(
+      sitePage * siteRowsPerPage,
+      (sitePage + 1) * siteRowsPerPage,
+    );
 
-      {/* Toolbar */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 1 }}>
-        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-          <ToggleButtonGroup
-            size="small"
-            value={filterMode}
-            exclusive
-            onChange={(_, v) => { if (v) { setFilterMode(v); setPage(0); } }}
-          >
-            <ToggleButton value="all">All</ToggleButton>
-            <ToggleButton value="needs_review">Needs Review</ToggleButton>
-            <ToggleButton value="ready">Ready</ToggleButton>
-            <ToggleButton value="skipped">Skipped</ToggleButton>
-          </ToggleButtonGroup>
-          <TextField
-            placeholder="Search by stream name..."
-            size="small"
-            value={searchQuery}
-            onChange={(e) => { setSearchQuery(e.target.value); setPage(0); }}
-            sx={{ width: 250 }}
-          />
-        </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button size="small" variant="outlined" onClick={handleBulkAcceptExact}>
-            Accept all exact
-          </Button>
-          <Button size="small" variant="outlined" color="warning" onClick={handleBulkSkipUnknowns}>
-            Skip all unknowns
-          </Button>
-        </Box>
-      </Box>
+    return (
+      <Box>
+        <Alert severity="info" sx={{ mb: 2 }}>
+          {localSummary.total.toLocaleString()} streams
+          {' -> '}{localSummary.projects} project(s), {localSummary.sites} sites, {localSummary.parameters} parameters.
+          {' '}{localSummary.willPair.toLocaleString()} will pair, {localSummary.willSkip.toLocaleString()} will skip.
+        </Alert>
 
-      {/* Table */}
-      <TableContainer sx={{ maxHeight: 500 }}>
-        <Table size="small" stickyHeader>
-          <TableHead>
-            <TableRow>
-              <TableCell>Stream Name</TableCell>
-              <TableCell>Project</TableCell>
-              <TableCell>Site</TableCell>
-              <TableCell>Parameter</TableCell>
-              <TableCell>Units</TableCell>
-              <TableCell>Confidence</TableCell>
-              <TableCell>Action</TableCell>
-              <TableCell sx={{ width: 40 }} />
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {paginatedEntries.map((entry) => (
-              <TableRow key={entry.stream_id} hover>
-                <TableCell>
-                  <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
-                    {entry.source_name ?? entry.source_key}
-                  </Typography>
-                </TableCell>
-                <TableCell>{entry.project.name}</TableCell>
-                <TableCell>{entry.site.name}</TableCell>
-                <TableCell>{entry.parameter.name}</TableCell>
-                <TableCell>{entry.parameter.units}</TableCell>
-                <TableCell>{confidenceChip(entry.confidence)}</TableCell>
-                <TableCell>
-                  <ToggleButtonGroup
-                    size="small"
-                    value={entry.action}
-                    exclusive
-                    onChange={(_, v) => { if (v) handleActionChange(entry.stream_id, v); }}
-                  >
-                    <ToggleButton value="pair" sx={{ py: 0.25, px: 1 }}>Pair</ToggleButton>
-                    <ToggleButton value="skip" sx={{ py: 0.25, px: 1 }}>Skip</ToggleButton>
-                  </ToggleButtonGroup>
-                </TableCell>
-                <TableCell>
-                  {entry.warnings.length > 0 && (
-                    <Tooltip title={entry.warnings.join('; ')}>
-                      <WarningAmberIcon fontSize="small" sx={{ color: 'orange' }} />
-                    </Tooltip>
+        {/* Projects */}
+        <Accordion defaultExpanded>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Typography variant="subtitle1">
+              Projects ({groupedProjects.length})
+            </Typography>
+          </AccordionSummary>
+          <AccordionDetails>
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Name</TableCell>
+                    <TableCell align="right">Streams</TableCell>
+                    <TableCell>Status</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {groupedProjects.map((p) => (
+                    <TableRow key={p.name}>
+                      <TableCell>{p.name}</TableCell>
+                      <TableCell align="right">{p.count.toLocaleString()}</TableCell>
+                      <TableCell>
+                        <Chip
+                          label={p.create ? 'Will Create' : 'Exists'}
+                          color={p.create ? 'warning' : 'success'}
+                          size="small"
+                          variant="outlined"
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {groupedProjects.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={3} align="center">
+                        <Typography color="text.secondary" variant="body2">
+                          No projects (all streams skipped)
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
                   )}
-                </TableCell>
-              </TableRow>
-            ))}
-            {paginatedEntries.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={8} align="center">
-                  <Typography color="text.secondary" sx={{ py: 2 }}>
-                    No entries match the current filter
-                  </Typography>
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
-      <TablePagination
-        component="div"
-        count={filteredEntries.length}
-        page={page}
-        onPageChange={(_, p) => setPage(p)}
-        rowsPerPage={rowsPerPage}
-        onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
-        rowsPerPageOptions={[10, 25, 50, 100]}
-      />
-    </Box>
-  );
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </AccordionDetails>
+        </Accordion>
+
+        {/* Parameters */}
+        <Accordion defaultExpanded>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Typography variant="subtitle1">
+              Parameters ({groupedParameters.length})
+            </Typography>
+          </AccordionSummary>
+          <AccordionDetails>
+            <TableContainer sx={{ maxHeight: 400 }}>
+              <Table size="small" stickyHeader>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Name</TableCell>
+                    <TableCell>Units</TableCell>
+                    <TableCell align="right">Streams</TableCell>
+                    <TableCell>Status</TableCell>
+                    <TableCell>Action</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {groupedParameters.map((p) => (
+                    <TableRow key={p.name} sx={p.skipped ? { opacity: 0.5 } : undefined}>
+                      <TableCell>{p.name}</TableCell>
+                      <TableCell>{p.units}</TableCell>
+                      <TableCell align="right">{p.count.toLocaleString()}</TableCell>
+                      <TableCell>
+                        <Chip
+                          label={p.create ? 'Will Create' : 'Exists'}
+                          color={p.create ? 'warning' : 'success'}
+                          size="small"
+                          variant="outlined"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <ToggleButtonGroup
+                          size="small"
+                          value={p.skipped ? 'skip' : 'pair'}
+                          exclusive
+                          onChange={() => toggleParameterSkip(p.name)}
+                        >
+                          <ToggleButton value="pair" sx={{ py: 0.25, px: 1 }}>Pair</ToggleButton>
+                          <ToggleButton value="skip" sx={{ py: 0.25, px: 1 }}>Skip</ToggleButton>
+                        </ToggleButtonGroup>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </AccordionDetails>
+        </Accordion>
+
+        {/* Sites */}
+        <Accordion>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Typography variant="subtitle1">
+              Sites ({groupedSites.length})
+            </Typography>
+          </AccordionSummary>
+          <AccordionDetails>
+            <TableContainer sx={{ maxHeight: 500 }}>
+              <Table size="small" stickyHeader>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Name</TableCell>
+                    <TableCell>Glacier</TableCell>
+                    <TableCell>Coordinates</TableCell>
+                    <TableCell align="right">Streams</TableCell>
+                    <TableCell>Status</TableCell>
+                    <TableCell>Action</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {paginatedSites.map((s) => (
+                    <TableRow key={s.name} sx={s.skipped ? { opacity: 0.5 } : undefined}>
+                      <TableCell>{s.name}</TableCell>
+                      <TableCell>{s.glacier ?? '-'}</TableCell>
+                      <TableCell>
+                        {s.lat != null && s.lon != null
+                          ? `${s.lat.toFixed(4)}, ${s.lon.toFixed(4)}`
+                          : '-'}
+                      </TableCell>
+                      <TableCell align="right">{s.count.toLocaleString()}</TableCell>
+                      <TableCell>
+                        <Chip
+                          label={s.create ? 'Will Create' : 'Exists'}
+                          color={s.create ? 'warning' : 'success'}
+                          size="small"
+                          variant="outlined"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <ToggleButtonGroup
+                          size="small"
+                          value={s.skipped ? 'skip' : 'pair'}
+                          exclusive
+                          onChange={() => toggleSiteSkip(s.name)}
+                        >
+                          <ToggleButton value="pair" sx={{ py: 0.25, px: 1 }}>Pair</ToggleButton>
+                          <ToggleButton value="skip" sx={{ py: 0.25, px: 1 }}>Skip</ToggleButton>
+                        </ToggleButtonGroup>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {paginatedSites.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={6} align="center">
+                        <Typography color="text.secondary" variant="body2">
+                          No sites
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+            <TablePagination
+              component="div"
+              count={groupedSites.length}
+              page={sitePage}
+              onPageChange={(_, p) => setSitePage(p)}
+              rowsPerPage={siteRowsPerPage}
+              onRowsPerPageChange={(e) => {
+                setSiteRowsPerPage(parseInt(e.target.value, 10));
+                setSitePage(0);
+              }}
+              rowsPerPageOptions={[10, 25, 50, 100]}
+            />
+          </AccordionDetails>
+        </Accordion>
+      </Box>
+    );
+  };
 
   const renderWarnings = () => (
     <Box>
       <Alert severity="warning" sx={{ mb: 2 }}>
-        {entriesWithWarnings.length} entries have warnings. Review them before applying.
+        {groupedWarnings.length} distinct warning(s) across streams. Review them before applying.
       </Alert>
       <TableContainer sx={{ maxHeight: 400 }}>
         <Table size="small" stickyHeader>
           <TableHead>
             <TableRow>
-              <TableCell>Stream</TableCell>
-              <TableCell>Parameter</TableCell>
               <TableCell>Warning</TableCell>
+              <TableCell>Parameter</TableCell>
+              <TableCell align="right">Affected Streams</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {entriesWithWarnings.map((entry) =>
-              entry.warnings.map((warning, idx) => (
-                <TableRow key={`${entry.stream_id}-${idx}`}>
-                  <TableCell>{entry.source_name ?? entry.source_key}</TableCell>
-                  <TableCell>{entry.parameter.name}</TableCell>
-                  <TableCell>
+            {groupedWarnings.map((gw, idx) => (
+              <TableRow key={idx}>
+                <TableCell>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Tooltip title="Warning">
+                      <WarningAmberIcon fontSize="small" sx={{ color: 'orange', flexShrink: 0 }} />
+                    </Tooltip>
                     <Typography variant="body2" color="warning.main">
-                      {warning}
+                      {gw.warning}
                     </Typography>
-                  </TableCell>
-                </TableRow>
-              )),
-            )}
+                  </Box>
+                </TableCell>
+                <TableCell>{gw.parameter}</TableCell>
+                <TableCell align="right">{gw.count.toLocaleString()}</TableCell>
+              </TableRow>
+            ))}
           </TableBody>
         </Table>
       </TableContainer>

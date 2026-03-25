@@ -280,6 +280,7 @@ export interface RiverDataProvider extends DataProvider {
   applyPairingPlan: (id: string) => Promise<{ data: PairingPlanApplyResult }>;
   revertPairingPlan: (id: string) => Promise<{ data: unknown }>;
   listPairingPlans: () => Promise<{ data: PairingPlan[] }>;
+  getUnpairedSummary: () => Promise<{ data: { source_system: string; unpaired: number; paired: number }[] }>;
 }
 
 export interface GroupedProject {
@@ -644,6 +645,9 @@ const dataProvider = (
 
   listPairingPlans: () =>
     httpClient(`${apiUrl}/sync/pairing-plans`).then(({ json }) => ({ data: json as PairingPlan[] })),
+
+  getUnpairedSummary: () =>
+    httpClient(`${apiUrl}/sync/unpaired-summary`).then(({ json }) => ({ data: json })),
 });
 
 export default dataProvider;
