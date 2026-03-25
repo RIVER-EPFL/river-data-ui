@@ -34,6 +34,7 @@ import { useRiverDataProvider } from '../../useRiverDataProvider';
 import type { StreamState, StreamStats } from '../../dataProvider';
 import { DiscoveryWizard } from '../sync_status/DiscoveryWizard';
 import { GroupedDiscoveryWizard } from '../sync_status/GroupedDiscoveryWizard';
+import { PairingWizard } from '../sync_status/PairingWizard';
 import { StreamPairDialog } from '../sync_status/StreamPairDialog';
 
 // ============================================================================
@@ -81,7 +82,7 @@ const StreamNameButton = ({ onStats }: { onStats: (stream: StreamState) => void 
 // Toolbar with filter toggles and discovery button
 // ============================================================================
 
-const DataStreamToolbar = ({ onOpenWizard, onOpenGroupedWizard }: { onOpenWizard: () => void; onOpenGroupedWizard: () => void }) => {
+const DataStreamToolbar = ({ onOpenPairingWizard }: { onOpenPairingWizard: () => void }) => {
   const { filterValues, setFilters, total } = useListContext();
   const currentFilter = filterValues.site_parameter_id === undefined
     ? 'all'
@@ -115,23 +116,14 @@ const DataStreamToolbar = ({ onOpenWizard, onOpenGroupedWizard }: { onOpenWizard
         <ToggleButton value="unpaired">Unpaired</ToggleButton>
         <ToggleButton value="paired">Paired</ToggleButton>
       </ToggleButtonGroup>
-      <Box sx={{ display: 'flex', gap: 1 }}>
-        <Button
-          variant="contained"
-          size="small"
-          startIcon={<AutoFixHighIcon />}
-          onClick={onOpenGroupedWizard}
-        >
-          Bulk Auto-Pair
-        </Button>
-        <Button
-          variant="outlined"
-          size="small"
-          onClick={onOpenWizard}
-        >
-          Per-Stream Discovery
-        </Button>
-      </Box>
+      <Button
+        variant="contained"
+        size="small"
+        startIcon={<AutoFixHighIcon />}
+        onClick={onOpenPairingWizard}
+      >
+        New Pairing Plan
+      </Button>
     </TopToolbar>
   );
 };
@@ -260,10 +252,13 @@ export const SyncStatusPanel = () => {
   const [loadingStats, setLoadingStats] = useState(false);
   const statsRequestVersion = useRef(0);
 
-  // Discovery wizards
+  // Discovery wizards (legacy, kept for backward compatibility)
   const [wizardOpen, setWizardOpen] = useState(false);
   const [groupedWizardOpen, setGroupedWizardOpen] = useState(false);
   const [groupedSourceSystem, setGroupedSourceSystem] = useState('nomis');
+
+  // Pairing wizard
+  const [pairingWizardOpen, setPairingWizardOpen] = useState(false);
 
   const openPairDialog = (stream: StreamState) => {
     setPairTarget(stream);
@@ -318,8 +313,7 @@ export const SyncStatusPanel = () => {
         perPage={25}
         actions={
           <DataStreamToolbar
-            onOpenWizard={() => setWizardOpen(true)}
-            onOpenGroupedWizard={() => setGroupedWizardOpen(true)}
+            onOpenPairingWizard={() => setPairingWizardOpen(true)}
           />
         }
         empty={
@@ -415,6 +409,13 @@ export const SyncStatusPanel = () => {
         open={groupedWizardOpen}
         sourceSystem={groupedSourceSystem}
         onClose={() => setGroupedWizardOpen(false)}
+        onComplete={() => refresh()}
+      />
+
+      {/* Pairing Plan Wizard */}
+      <PairingWizard
+        open={pairingWizardOpen}
+        onClose={() => setPairingWizardOpen(false)}
         onComplete={() => refresh()}
       />
     </>

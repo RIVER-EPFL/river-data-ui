@@ -196,6 +196,60 @@ export interface KeycloakRole {
   name: string;
 }
 
+export interface PairingPlanEntry {
+  stream_id: string;
+  source_key: string;
+  source_name: string | null;
+  action: string; // "pair" | "skip"
+  project: { id: string | null; name: string; create: boolean };
+  site: { id: string | null; name: string; create: boolean; latitude: number | null; longitude: number | null; altitude_m: number | null };
+  parameter: { id: string | null; name: string; create: boolean; units: string };
+  confidence: string;
+  warnings: string[];
+}
+
+export interface PairingPlanSummary {
+  total_streams: number;
+  will_pair: number;
+  will_skip: number;
+  projects_to_create: number;
+  sites_to_create: number;
+  parameters_to_create: number;
+  unique_projects: number;
+  unique_sites: number;
+  unique_parameters: number;
+}
+
+export interface PairingPlan {
+  id: string;
+  source_system: string;
+  status: string;
+  created_by: string | null;
+  summary: PairingPlanSummary;
+  entries: PairingPlanEntry[];
+  created_at: string;
+  applied_at: string | null;
+  apply_result: PairingPlanApplyResult | null;
+}
+
+export interface PairingPlanApplyResult {
+  projects_created: number;
+  sites_created: number;
+  parameters_created: number;
+  site_parameters_created: number;
+  streams_paired: number;
+  readings_backfilled: number;
+}
+
+export interface PlanEntryUpdate {
+  stream_id: string;
+  action?: string;
+  project_name?: string;
+  site_name?: string;
+  parameter_name?: string;
+  parameter_units?: string;
+}
+
 export interface RiverDataProvider extends DataProvider {
   search: (query: string) => Promise<{ data: SearchResponse }>;
   getActiveAlarms: () => Promise<{ data: ActiveAlarmsResponse }>;
@@ -220,6 +274,12 @@ export interface RiverDataProvider extends DataProvider {
   assignUserRoles: (userId: string, roles: string[]) => Promise<{ data: unknown }>;
   groupedDiscovery: (sourceSystem: string) => Promise<{ data: GroupedDiscoveryResponse }>;
   bulkPair: (req: BulkPairRequest) => Promise<{ data: BulkPairResponse }>;
+  createPairingPlan: (sourceSystem: string) => Promise<{ data: PairingPlan }>;
+  getPairingPlan: (id: string) => Promise<{ data: PairingPlan }>;
+  updatePairingPlan: (id: string, updates: PlanEntryUpdate[]) => Promise<{ data: PairingPlan }>;
+  applyPairingPlan: (id: string) => Promise<{ data: PairingPlanApplyResult }>;
+  revertPairingPlan: (id: string) => Promise<{ data: unknown }>;
+  listPairingPlans: () => Promise<{ data: PairingPlan[] }>;
 }
 
 export interface GroupedProject {
@@ -556,6 +616,34 @@ const dataProvider = (
       method: 'POST',
       body: JSON.stringify(req),
     }).then(({ json }) => ({ data: json as BulkPairResponse })),
+
+  createPairingPlan: (sourceSystem: string) =>
+    httpClient(`${apiUrl}/sync/pairing-plans`, {
+      method: 'POST',
+      body: JSON.stringify({ source_system: sourceSystem }),
+    }).then(({ json }) => ({ data: json as PairingPlan })),
+
+  getPairingPlan: (id: string) =>
+    httpClient(`${apiUrl}/sync/pairing-plans/${id}`).then(({ json }) => ({ data: json as PairingPlan })),
+
+  updatePairingPlan: (id: string, updates: PlanEntryUpdate[]) =>
+    httpClient(`${apiUrl}/sync/pairing-plans/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ updates }),
+    }).then(({ json }) => ({ data: json as PairingPlan })),
+
+  applyPairingPlan: (id: string) =>
+    httpClient(`${apiUrl}/sync/pairing-plans/${id}/apply`, {
+      method: 'POST',
+    }).then(({ json }) => ({ data: json as PairingPlanApplyResult })),
+
+  revertPairingPlan: (id: string) =>
+    httpClient(`${apiUrl}/sync/pairing-plans/${id}/revert`, {
+      method: 'POST',
+    }).then(({ json }) => ({ data: json })),
+
+  listPairingPlans: () =>
+    httpClient(`${apiUrl}/sync/pairing-plans`).then(({ json }) => ({ data: json as PairingPlan[] })),
 });
 
 export default dataProvider;
