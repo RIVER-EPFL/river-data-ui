@@ -764,57 +764,41 @@ export const SensorCard: React.FC<SensorCardProps> = ({ group, thresholdsByParam
                         const alarmLevel = getAlarmLevel(threshold, latest?.value);
 
                         return (
-                            <Box key={param.id} sx={{ mb: 1.5 }}>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                            <Box key={param.id} sx={{ py: 0.5, borderBottom: group.parameters.indexOf(param) < group.parameters.length - 1 ? '1px solid' : 'none', borderColor: 'divider' }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
                                     <AlarmDot level={alarmLevel} />
-                                    <Typography variant="body2" fontWeight="medium">
+                                    <Typography variant="body2" fontWeight="medium" sx={{ fontSize: '0.8rem' }}>
                                         {param.name}
                                     </Typography>
-                                    {param.sensor_type && param.sensor_type.trim() !== '' && (
-                                        <Chip
-                                            label={param.sensor_type}
-                                            size="small"
-                                            variant="outlined"
-                                            sx={{ fontSize: '0.7rem' }}
-                                        />
+                                    {param.display_units && (
+                                        <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                                            ({param.display_units})
+                                        </Typography>
                                     )}
-                                    <Typography variant="caption" color="text.secondary">
-                                        {param.display_units ?? ''}
-                                    </Typography>
-                                    <Tooltip title={param.is_active ? 'Parameter is actively being monitored' : 'Parameter monitoring is paused'}>
+                                    <Tooltip title={param.is_active ? 'Actively monitored' : 'Monitoring paused'}>
                                         <Chip
                                             label={param.is_active ? 'Active' : 'Inactive'}
                                             size="small"
                                             color={param.is_active ? 'success' : 'default'}
-                                            sx={{ fontSize: '0.65rem', height: 18 }}
+                                            sx={{ fontSize: '0.6rem', height: 16, '& .MuiChip-label': { px: 0.75 } }}
                                         />
                                     </Tooltip>
-                                </Box>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, ml: 3.5 }}>
-                                    <LatestValue reading={latest} units={param.display_units} />
-                                    {threshold ? (
-                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                            <Typography variant="caption" color="text.secondary">
-                                                Warn: [{threshold.warning_min ?? '-'}, {threshold.warning_max ?? '-'}]
-                                                {' | '}
-                                                Alarm: [{threshold.alarm_min ?? '-'}, {threshold.alarm_max ?? '-'}]
-                                            </Typography>
-                                            <Tooltip title="Edit thresholds">
-                                                <IconButton size="small" onClick={() => setThresholdParam(param)}>
+                                    <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                        <LatestValue reading={latest} units={param.display_units} />
+                                        {threshold ? (
+                                            <Tooltip title={`Warn: [${threshold.warning_min ?? '-'}, ${threshold.warning_max ?? '-'}] | Alarm: [${threshold.alarm_min ?? '-'}, ${threshold.alarm_max ?? '-'}]`}>
+                                                <IconButton size="small" onClick={() => setThresholdParam(param)} sx={{ p: 0.25 }}>
                                                     <EditIcon sx={{ fontSize: 14 }} />
                                                 </IconButton>
                                             </Tooltip>
-                                        </Box>
-                                    ) : (
-                                        <Button size="small" onClick={() => setThresholdParam(param)}
-                                            sx={{ textTransform: 'none', fontSize: '0.75rem' }}>
-                                            Set Thresholds
-                                        </Button>
-                                    )}
+                                        ) : (
+                                            <Button size="small" onClick={() => setThresholdParam(param)}
+                                                sx={{ textTransform: 'none', fontSize: '0.7rem', minWidth: 0, py: 0, px: 0.5 }}>
+                                                Set Thresholds
+                                            </Button>
+                                        )}
+                                    </Box>
                                 </Box>
-                                {group.parameters.indexOf(param) < group.parameters.length - 1 && (
-                                    <Divider sx={{ mt: 1.5 }} />
-                                )}
                             </Box>
                         );
                     })}

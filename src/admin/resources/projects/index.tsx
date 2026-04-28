@@ -11,6 +11,7 @@ import {
   TabbedForm,
   TextInput,
   BooleanInput,
+  NullableBooleanInput,
   ReferenceManyField,
   ReferenceField,
   NumberField,
@@ -244,8 +245,13 @@ const PublicApiUrl = () => {
   );
 };
 
+const projectFilters = [
+  <TextInput source="q" label="Search" alwaysOn key="q" />,
+  <NullableBooleanInput source="is_public" label="Public" key="is_public" />,
+];
+
 const ProjectList = () => (
-  <List>
+  <List filters={projectFilters} sort={{ field: 'name', order: 'ASC' }}>
     <Datagrid rowClick="show">
       <TextField source="name" />
       <TextField source="data_source" />
@@ -298,7 +304,7 @@ const ProjectShow = () => (
           <Datagrid bulkActionButtons={false} rowClick="edit">
             <TextField source="public_name" label="Name" />
             <TextField source="public_units" label="Units" />
-            <ReferenceField source="parameter_type_id" reference="parameters" link={false}>
+            <ReferenceField source="parameter_id" reference="parameters" link={false}>
               <TextField source="display_name" />
             </ReferenceField>
             <TextField source="description" />

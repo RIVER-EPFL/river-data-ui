@@ -124,8 +124,9 @@ export const ScatterPlot: React.FC<ScatterPlotProps> = ({ siteId, parameters }) 
 
   const [xParamId, setXParamId] = useState('');
   const [yParamId, setYParamId] = useState('');
-  const [start, setStart] = useState<number>(() => Date.now() - 7 * 24 * 60 * 60 * 1000);
-  const [end, setEnd] = useState<number>(Date.now);
+  const [start, setStart] = useState<number>(0);
+  const [end, setEnd] = useState<number>(0);
+  const [rangeInitialized, setRangeInitialized] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rSquared, setRSquared] = useState<number | null>(null);
@@ -133,6 +134,15 @@ export const ScatterPlot: React.FC<ScatterPlotProps> = ({ siteId, parameters }) 
   const [pointCount, setPointCount] = useState(0);
   const authFetch = useAuthFetch();
   const dataRange = useSiteDataRange([siteId]);
+
+  // Initialize time range from actual data range once loaded
+  useEffect(() => {
+    if (!dataRange.loading && dataRange.min && dataRange.max && !rangeInitialized) {
+      setStart(dataRange.min);
+      setEnd(dataRange.max);
+      setRangeInitialized(true);
+    }
+  }, [dataRange.loading, dataRange.min, dataRange.max, rangeInitialized]);
 
   const xParam = parameters.find((p) => p.id === xParamId);
   const yParam = parameters.find((p) => p.id === yParamId);
@@ -143,7 +153,7 @@ export const ScatterPlot: React.FC<ScatterPlotProps> = ({ siteId, parameters }) 
   }, []);
 
   const fetchAndPlot = useCallback(async () => {
-    if (!xParamId || !yParamId || !chartRef.current) return;
+    if (!xParamId || !yParamId || !chartRef.current || !rangeInitialized) return;
 
     setLoading(true);
     setError(null);
@@ -257,7 +267,7 @@ export const ScatterPlot: React.FC<ScatterPlotProps> = ({ siteId, parameters }) 
     } finally {
       setLoading(false);
     }
-  }, [siteId, xParamId, yParamId, start, end, authFetch, showRegression, xParam, yParam]);
+  }, [siteId, xParamId, yParamId, start, end, authFetch, showRegression, xParam, yParam, rangeInitialized]);
 
   useEffect(() => {
     fetchAndPlot();

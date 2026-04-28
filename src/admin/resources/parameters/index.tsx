@@ -12,8 +12,10 @@ import {
   TabbedShowLayout,
   SimpleForm,
   TextInput,
+  SelectInput,
   ReferenceManyField,
   ReferenceField,
+  FunctionField,
   TopToolbar,
   EditButton,
   useRecordContext,
@@ -38,7 +40,7 @@ const SiteCountField = (_props: { label?: string; counts?: Map<string, number> }
       color={total > 0 ? 'primary' : 'default'}
       onClick={total > 0 ? (e) => {
         e.stopPropagation();
-        navigate(`/site_parameters?filter=${encodeURIComponent(JSON.stringify({ parameter_type_id: record.id }))}`);
+        navigate(`/site_parameters?filter=${encodeURIComponent(JSON.stringify({ parameter_id: record.id }))}`);
       } : undefined}
       sx={total > 0 ? { cursor: 'pointer' } : undefined}
     />
@@ -61,7 +63,7 @@ const SensorCountField = (_props: { label?: string; counts?: Map<string, number>
       color={total > 0 ? 'info' : 'default'}
       onClick={total > 0 ? (e) => {
         e.stopPropagation();
-        navigate(`/sensors?filter=${encodeURIComponent(JSON.stringify({ parameter_type_id: record.id }))}`);
+        navigate(`/sensors?filter=${encodeURIComponent(JSON.stringify({ parameter_id: record.id }))}`);
       } : undefined}
       sx={total > 0 ? { cursor: 'pointer' } : undefined}
     />
@@ -114,8 +116,16 @@ const ParameterDatagrid = () => {
   );
 };
 
+const parameterFilters = [
+  <TextInput source="q" label="Search" alwaysOn key="q" />,
+  <SelectInput source="category" label="Category" key="category" choices={[
+    { id: 'measurement', name: 'Measurement' },
+    { id: 'device_health', name: 'Device Health' },
+  ]} />,
+];
+
 const ParameterList = () => (
-  <List>
+  <List filters={parameterFilters} sort={{ field: 'name', order: 'ASC' }}>
     <ParameterDatagrid />
   </List>
 );
@@ -130,6 +140,27 @@ const ParameterCreate = () => (
     </SimpleForm>
   </Create>
 );
+
+/** Show current deployment site for a sensor */
+const SensorCurrentSite = () => {
+  const record = useRecordContext();
+  const { data: deployments } = useGetList('sensor_deployments', {
+    filter: record ? { sensor_id: record.id } : {},
+    sort: { field: 'deployed_from', order: 'DESC' },
+    pagination: { page: 1, perPage: 1 },
+  }, { enabled: !!record });
+
+  const active = deployments?.find((d: { deployed_until: string | null }) => !d.deployed_until);
+  if (!active) return <Typography variant="body2" color="text.disabled">Not deployed</Typography>;
+
+  return (
+    <ReferenceField source="parameter_id" reference="site_parameters" record={active} link={false}>
+      <ReferenceField source="site_id" reference="sites" link="show">
+        <TextField source="name" />
+      </ReferenceField>
+    </ReferenceField>
+  );
+};
 
 const ParameterShow = () => (
   <Show actions={<TopToolbar><EditButton /></TopToolbar>}>
@@ -151,26 +182,29 @@ const ParameterShow = () => (
         <DateField source="created_at" showTime />
       </TabbedShowLayout.Tab>
       <TabbedShowLayout.Tab label="Site Assignments">
-        <ReferenceManyField reference="site_parameters" target="parameter_type_id" label={false}>
+        <ReferenceManyField reference="site_parameters" target="parameter_id" label={false}>
           <Datagrid bulkActionButtons={false} rowClick="show">
             <ReferenceField source="site_id" reference="sites" link="show">
               <TextField source="name" />
             </ReferenceField>
             <TextField source="name" label="Parameter Name" />
             <TextField source="display_units" />
+            <TextField source="sensor_type" />
+            <NumberField source="sample_interval_sec" label="Interval (s)" />
             <BooleanField source="is_active" />
             <BooleanField source="is_derived" />
           </Datagrid>
         </ReferenceManyField>
       </TabbedShowLayout.Tab>
       <TabbedShowLayout.Tab label="Sensors">
-        <ReferenceManyField reference="sensors" target="parameter_type_id" label={false}>
+        <ReferenceManyField reference="sensors" target="parameter_id" label={false}>
           <Datagrid bulkActionButtons={false} rowClick="show">
             <TextField source="serial_number" />
             <TextField source="name" />
             <TextField source="manufacturer" />
             <TextField source="model" />
             <BooleanField source="is_active" />
+            <FunctionField label="Current Site" render={() => <SensorCurrentSite />} />
           </Datagrid>
         </ReferenceManyField>
       </TabbedShowLayout.Tab>

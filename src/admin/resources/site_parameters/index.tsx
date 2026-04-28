@@ -14,8 +14,10 @@ import {
   TextInput,
   NumberInput,
   BooleanInput,
+  NullableBooleanInput,
   ReferenceInput,
   SelectInput,
+  AutocompleteInput,
   ReferenceManyField,
   TopToolbar,
   EditButton,
@@ -24,14 +26,23 @@ import {
 } from 'react-admin';
 import { Typography } from '@mui/material';
 
+const siteParamFilters = [
+  <TextInput source="q" label="Search" alwaysOn key="q" />,
+  <ReferenceInput source="site_id" reference="sites" key="site" alwaysOn>
+    <AutocompleteInput optionText="name" label="Site" />
+  </ReferenceInput>,
+  <NullableBooleanInput source="is_active" label="Active" key="is_active" />,
+  <NullableBooleanInput source="is_derived" label="Derived" key="is_derived" />,
+];
+
 const ParameterList = () => (
-  <List>
+  <List filters={siteParamFilters} sort={{ field: 'name', order: 'ASC' }}>
     <Datagrid rowClick="show">
       <TextField source="name" />
       <ReferenceField source="site_id" reference="sites" link="show">
         <TextField source="name" />
       </ReferenceField>
-      <ReferenceField source="parameter_type_id" reference="parameters" link={false}>
+      <ReferenceField source="parameter_id" reference="parameters" link={false}>
         <TextField source="display_name" />
       </ReferenceField>
       <TextField source="sensor_type" />
@@ -113,7 +124,7 @@ const ParameterShow = () => (
         <ReferenceField source="site_id" reference="sites" link="show">
           <TextField source="name" />
         </ReferenceField>
-        <ReferenceField source="parameter_type_id" reference="parameters" link="show">
+        <ReferenceField source="parameter_id" reference="parameters" link="show">
           <TextField source="display_name" />
         </ReferenceField>
         <TextField source="sensor_type" />
@@ -156,7 +167,7 @@ const ParameterEdit = () => (
       <ReferenceInput source="site_id" reference="sites">
         <SelectInput optionText="name" />
       </ReferenceInput>
-      <ReferenceInput source="parameter_type_id" reference="parameters">
+      <ReferenceInput source="parameter_id" reference="parameters">
         <SelectInput optionText="display_name" />
       </ReferenceInput>
       <TextInput source="sensor_type" />

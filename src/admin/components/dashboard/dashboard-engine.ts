@@ -78,6 +78,7 @@ interface DashboardState {
   data: ReadingsData | null;
   alarms: AlarmBand[];
   showAlarms: boolean;
+  singlePoint: boolean;
 }
 
 type ApiFn = (url: string, noCache?: boolean) => Promise<unknown>;
@@ -166,6 +167,10 @@ const DASHBOARD_HTML = `
 export interface DashboardOptions {
   /** When set, skip the header/site-selector and load this site immediately */
   siteId?: string;
+  /** Hide the header (project/site buttons) but keep them in the DOM so selectSite() works */
+  hideHeader?: boolean;
+  /** Don't auto-load the first site on init */
+  skipAutoLoad?: boolean;
 }
 
 export interface DashboardHandle {
@@ -203,6 +208,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     data: null,
     alarms: [],
     showAlarms: true,
+    singlePoint: false,
   };
 
   const CHART_HEIGHT_NORMAL = 180;
@@ -331,6 +337,12 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     if (hubLink) hubLink.style.display = 'none';
   }
 
+  // Hide header but keep buttons in the DOM so selectSite() still works
+  if (options?.hideHeader) {
+    const header = root.querySelector('header');
+    if (header) (header as HTMLElement).style.display = 'none';
+  }
+
   // Initialize
   async function init() {
     if (singleSiteMode) {
@@ -382,9 +394,11 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
 
     initControls();
 
-    // Auto-load first site
-    const firstBtn = container.querySelector('.site-btn') as HTMLElement | null;
-    if (firstBtn) firstBtn.click();
+    // Auto-load first site (unless caller handles site selection)
+    if (!options?.skipAutoLoad) {
+      const firstBtn = container.querySelector('.site-btn') as HTMLElement | null;
+      if (firstBtn) firstBtn.click();
+    }
   }
 
   function initControls() {
@@ -434,21 +448,8 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     state.parameters = new Set(types);
     state.parameterTypeOrder = types;
 
-    toggles.innerHTML = types.map((t) => `
-      <label class="parameter-toggle">
-        <input type="checkbox" value="${t}" checked>
-        <span style="color: ${parameterColors[t]}">${t}</span>
-      </label>
-    `).join('');
-
-    toggles.querySelectorAll('input').forEach((cb) => {
-      cb.addEventListener('change', () => {
-        const input = cb as HTMLInputElement;
-        if (input.checked) state.parameters.add(input.value);
-        else state.parameters.delete(input.value);
-        updateCharts();
-      }, { signal });
-    });
+    // Don't render toggles yet — updateCharts will render only types with data
+    toggles.innerHTML = '<span style="color: var(--muted); font-size: 0.875rem">Loading…</span>';
 
     if (!site.data_start || !site.data_end) {
       ($('slider-section')).style.display = 'none';
@@ -464,14 +465,36 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     $('max-date').textContent = formatDate(maxTs);
     ($('slider-section')).style.display = 'block';
 
-    const defaultWindow = Math.min(1 * 86400000, maxTs - minTs);
-    state.start = new Date(maxTs - defaultWindow);
-    state.end = new Date(maxTs);
-
     const sliderEl = $('time-slider');
     if (state.slider) {
       state.slider.destroy();
+      state.slider = null;
     }
+
+    // Single-point data: show static label instead of slider
+    if (minTs === maxTs) {
+      state.singlePoint = true;
+      sliderEl.style.display = 'none';
+      $('min-date').textContent = '';
+      $('max-date').textContent = '';
+      ($('timeline-legend') as HTMLElement).style.display = 'none';
+      ($('timeline-labels') as HTMLElement).style.display = 'none';
+      $('window-info').textContent = `Single measurement · ${formatDateTimeFull(minTs)}`;
+      $('resolution-info').textContent = '';
+      state.start = new Date(minTs - 300000);
+      state.end = new Date(maxTs + 300000);
+      fetchData();
+      return;
+    }
+
+    state.singlePoint = false;
+    sliderEl.style.display = '';
+    ($('timeline-legend') as HTMLElement).style.display = '';
+    ($('timeline-labels') as HTMLElement).style.display = '';
+
+    const defaultWindow = Math.min(1 * 86400000, maxTs - minTs);
+    state.start = new Date(maxTs - defaultWindow);
+    state.end = new Date(maxTs);
 
     const rangeDays = (maxTs - minTs) / 86400000;
     const oneDayMs = 86400000;
@@ -643,7 +666,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
       }
 
       state.data = data;
-      $('resolution-info').textContent = `(${resolution})`;
+      $('resolution-info').textContent = state.singlePoint ? '' : `(${resolution})`;
       state.alarms = extractAlarmsFromData(data);
       updateAlarmCount();
       updateCharts();
@@ -810,19 +833,18 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
       state.parametersWithData.add(param.type);
     });
 
-    // Update parameter toggles
+    // Update parameter toggles (only show types that have data)
     const toggles = $('parameter-toggles');
-    const allTypes = [...new Set(parameters.map((s) => s.type))].sort();
-    toggles.innerHTML = allTypes.map((t) => {
-      const hasAnyData = state.parametersWithData.has(t);
-      const checked = state.parameters.has(t) && hasAnyData;
-      return `<label class="parameter-toggle" ${!hasAnyData ? 'style="opacity: 0.4"' : ''}>
-        <input type="checkbox" value="${t}" ${checked ? 'checked' : ''} ${!hasAnyData ? 'disabled' : ''}>
-        <span style="color: ${parameterColors[t]}">${t}${!hasAnyData ? ' (no data)' : ''}</span>
+    const typesWithData = [...new Set(parameters.map((s) => s.type))].filter((t) => state.parametersWithData.has(t)).sort();
+    toggles.innerHTML = typesWithData.map((t) => {
+      const checked = state.parameters.has(t);
+      return `<label class="parameter-toggle">
+        <input type="checkbox" value="${t}" ${checked ? 'checked' : ''}>
+        <span style="color: ${parameterColors[t]}">${t}</span>
       </label>`;
-    }).join('');
+    }).join('') || '<span style="color: var(--muted); font-size: 0.875rem">No data available</span>';
 
-    toggles.querySelectorAll('input:not(:disabled)').forEach((cb) => {
+    toggles.querySelectorAll('input').forEach((cb) => {
       cb.addEventListener('change', () => {
         const input = cb as HTMLInputElement;
         if (input.checked) state.parameters.add(input.value);
@@ -1041,6 +1063,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     selectSite: (siteId: string) => {
       const btn = root.querySelector(`.site-btn[data-id="${siteId}"]`) as HTMLElement | null;
       if (btn) btn.click();
+      else loadSite(siteId);
     },
   };
 }

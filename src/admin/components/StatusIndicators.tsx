@@ -88,7 +88,11 @@ export const StatusIndicators = () => {
   const refresh = useCallback(async () => {
     // Sync events → error count + last sync
     try {
-      const { data: events } = await dataProvider.getSyncEvents();
+      const { data: events } = await dataProvider.getList<SyncEvent>('sync_events', {
+        pagination: { page: 1, perPage: 25 },
+        sort: { field: 'started_at', order: 'DESC' },
+        filter: {},
+      });
       // All failed/partial events — no time window. They persist until acknowledged.
       const failed = events.filter(
         (e: SyncEvent) => e.status === 'failed' || e.status === 'partial',

@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
-import { useNotify } from 'react-admin';
+import { useEffect, useState } from 'react';
+import { useNotify, useGetList, useRefresh } from 'react-admin';
 import {
   Card,
   CardContent,
@@ -109,11 +109,7 @@ const formatDuration = (cmd: SyncCommand): string => {
 export const SyncServicesPanel = () => {
   const dataProvider = useRiverDataProvider();
   const notify = useNotify();
-  const [services, setServices] = useState<SyncService[]>([]);
-  const [commands, setCommands] = useState<SyncCommand[]>([]);
-  const [syncEvents, setSyncEvents] = useState<SyncEvent[]>([]);
-  const [credentials, setCredentials] = useState<ServiceCredential[]>([]);
-  const [loading, setLoading] = useState(true);
+  const refresh = useRefresh();
   const [snackbar, setSnackbar] = useState<string | null>(null);
 
   // Create credential dialog
@@ -131,7 +127,6 @@ export const SyncServicesPanel = () => {
   // Sync history pagination
   const [eventsPage, setEventsPage] = useState(0);
   const [eventsPerPage, setEventsPerPage] = useState(25);
-  const [eventsTotal, setEventsTotal] = useState(0);
 
   // Command in-flight state: serviceId → command name
   const [pendingCommands, setPendingCommands] = useState<Record<string, string>>({});
@@ -139,27 +134,29 @@ export const SyncServicesPanel = () => {
   // Full sync confirmation dialog
   const [fullSyncTarget, setFullSyncTarget] = useState<SyncService | null>(null);
 
-  const refresh = useCallback(async () => {
-    try {
-      const [svcRes, cmdRes, evtRes, credRes] = await Promise.all([
-        dataProvider.getSyncServices(),
-        dataProvider.getSyncCommands(),
-        dataProvider.getSyncEvents({ page: eventsPage + 1, perPage: eventsPerPage }),
-        dataProvider.listServiceCredentials(),
-      ]);
-      setServices(svcRes.data);
-      setCommands(cmdRes.data);
-      setSyncEvents(evtRes.data);
-      setEventsTotal(evtRes.total);
-      setCredentials(credRes.data);
-    } catch (err) {
-      console.error('Failed to refresh sync services data:', err);
-    }
-  }, [dataProvider, eventsPage, eventsPerPage]);
+  // React-admin data hooks — respond to global refresh button
+  const { data: services = [], isLoading: servicesLoading } = useGetList<SyncService>('sync_services', {
+    sort: { field: 'updated_at', order: 'DESC' },
+    pagination: { page: 1, perPage: 100 },
+  });
 
+  const { data: commands = [] } = useGetList<SyncCommand>('sync_commands', {
+    sort: { field: 'created_at', order: 'DESC' },
+    pagination: { page: 1, perPage: 20 },
+  });
+
+  const { data: syncEvents = [], total: eventsTotal = 0 } = useGetList<SyncEvent>('sync_events', {
+    sort: { field: 'started_at', order: 'DESC' },
+    pagination: { page: eventsPage + 1, perPage: eventsPerPage },
+  });
+
+  const { data: credentials = [] } = useGetList<ServiceCredential>('sync_service_credentials', {
+    pagination: { page: 1, perPage: 100 },
+  });
+
+  // Auto-refresh every 10 seconds via react-admin's refresh mechanism
   useEffect(() => {
-    refresh().finally(() => setLoading(false));
-    const interval = setInterval(refresh, 10000);
+    const interval = setInterval(() => refresh(), 10000);
     return () => clearInterval(interval);
   }, [refresh]);
 
@@ -168,7 +165,7 @@ export const SyncServicesPanel = () => {
     try {
       await dataProvider.issueSyncCommand(serviceId, command);
       setSnackbar(`Command '${command}' sent`);
-      await refresh();
+      refresh();
     } catch {
       notify(`Failed to send command '${command}'`, { type: 'error' });
     } finally {
@@ -185,7 +182,7 @@ export const SyncServicesPanel = () => {
     try {
       const res = await dataProvider.createServiceCredential(newServiceType.trim());
       setCreatedCredential(res.data);
-      await refresh();
+      refresh();
     } catch {
       notify('Failed to create credential', { type: 'error' });
     }
@@ -198,13 +195,13 @@ export const SyncServicesPanel = () => {
       setRevokeDialogOpen(false);
       setRevokeTarget(null);
       setSnackbar('Credential revoked');
-      await refresh();
+      refresh();
     } catch {
       notify('Failed to revoke credential', { type: 'error' });
     }
   };
 
-  if (loading) {
+  if (servicesLoading) {
     return (
       <Box display="flex" justifyContent="center" p={4}>
         <CircularProgress />

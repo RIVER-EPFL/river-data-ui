@@ -47,4 +47,8 @@ export const hiddenResources = [
   { name: 'public_exposed_parameters', ...publicExposedParameters },
   { name: 'field_trips', ...fieldTrips },
   { name: 'data_streams' },
+  { name: 'sync_services' },
+  { name: 'sync_commands' },
+  { name: 'sync_events' },
+  { name: 'sync_service_credentials' },
 ];

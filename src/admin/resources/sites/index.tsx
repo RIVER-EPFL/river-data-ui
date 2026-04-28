@@ -12,11 +12,19 @@ import {
   NumberInput,
   ReferenceInput,
   SelectInput,
+  AutocompleteInput,
 } from 'react-admin';
 import StationHub from './StationHub';
 
+const siteFilters = [
+  <TextInput source="q" label="Search" alwaysOn key="q" />,
+  <ReferenceInput source="project_id" reference="projects" key="project" alwaysOn>
+    <AutocompleteInput optionText="name" label="Project" />
+  </ReferenceInput>,
+];
+
 const SiteList = () => (
-  <List>
+  <List filters={siteFilters} sort={{ field: 'name', order: 'ASC' }}>
     <Datagrid rowClick="show">
       <TextField source="name" />
       <ReferenceField source="project_id" reference="projects" link="show">

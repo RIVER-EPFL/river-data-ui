@@ -49,7 +49,7 @@ import NoteAddIcon from '@mui/icons-material/NoteAdd';
 import VerifiedIcon from '@mui/icons-material/Verified';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
-import InsightsIcon from '@mui/icons-material/Insights';
+import ScatterPlotIcon from '@mui/icons-material/ScatterPlot';
 import { useParams } from 'react-router-dom';
 import { StationHeader } from './StationHeader';
 import { SensorCard } from './SensorCard';
@@ -108,7 +108,7 @@ const AddParameterDialog: React.FC<{
             {
                 data: {
                     site_id: siteId,
-                    parameter_type_id: paramTypeId,
+                    parameter_id: paramTypeId,
                     name: selectedType?.display_name ?? selectedType?.name ?? '',
                     sensor_type: sensorType || null,
                     display_units: displayUnits || selectedType?.default_units || null,
@@ -1131,7 +1131,7 @@ const StationHub = () => {
                             scrollButtons="auto"
                         >
                             <Tab icon={<SensorsIcon />} iconPosition="start" label="Sensors" />
-                            <Tab icon={<InsightsIcon />} iconPosition="start" label="Analysis" />
+                            <Tab icon={<ScatterPlotIcon />} iconPosition="start" label="Scatter Plot" />
                             <Tab label="Status" />
                             <Tab label="Notes" />
                             <Tab icon={<FunctionsIcon />} iconPosition="start" label="Derived" />

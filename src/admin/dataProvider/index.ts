@@ -31,12 +31,12 @@ export interface SyncService {
   id: string;
   service_type: string;
   instance_id: string;
-  status: 'starting' | 'running' | 'paused' | 'error';
+  status: string;
   current_operation: string | null;
   last_heartbeat: string | null;
   last_sync_completed_at: string | null;
   last_error: string | null;
-  health: string;
+  health?: string;
   created_at: string;
   updated_at: string;
 }
@@ -263,12 +263,8 @@ export interface RiverDataProvider extends DataProvider {
   recomputeDerived: (id: string) => Promise<{ data: unknown }>;
   invalidatePublicConfig: (slug: string) => Promise<{ data: unknown }>;
   previewDerived: (params: PreviewDerivedRequest) => Promise<{ data: PreviewDerivedResponse }>;
-  getSyncServices: () => Promise<{ data: SyncService[] }>;
   issueSyncCommand: (serviceId: string, command: string, payload?: object) => Promise<{ data: SyncCommand }>;
-  getSyncCommands: () => Promise<{ data: SyncCommand[] }>;
-  getSyncEvents: (params?: { page?: number; perPage?: number }) => Promise<{ data: SyncEvent[]; total: number }>;
   createServiceCredential: (serviceType: string) => Promise<{ data: { client_id: string; client_secret: string } }>;
-  listServiceCredentials: () => Promise<{ data: ServiceCredential[] }>;
   revokeSyncService: (credentialId: string) => Promise<{ data: unknown }>;
   listRoles: () => Promise<{ data: KeycloakRole[] }>;
   assignUserRoles: (userId: string, roles: string[]) => Promise<{ data: unknown }>;
@@ -402,13 +398,12 @@ const dataProvider = (
     }));
   },
 
-  getMany: (resource, params) => {
-    const query = {
-      filter: JSON.stringify({ id: params.ids }),
-    };
-    const url = `${apiUrl}/${resource}?${stringify(query)}`;
-    return httpClient(url).then(({ json }) => ({ data: json }));
-  },
+  getMany: (resource, params) =>
+    Promise.all(
+      params.ids.map((id) =>
+        httpClient(`${apiUrl}/${resource}/${id}`).then(({ json }) => json)
+      )
+    ).then((data) => ({ data })),
 
   getManyReference: (resource, params) => {
     const { page = 1, perPage = 25 } = params.pagination ?? {};
@@ -560,37 +555,17 @@ const dataProvider = (
     }).then(({ json }) => ({ data: json as PreviewDerivedResponse }));
   },
 
-  getSyncServices: () =>
-    httpClient(`${apiUrl}/sync/services`).then(({ json }) => ({ data: json })),
-
   issueSyncCommand: (serviceId: string, command: string, payload?: object) =>
     httpClient(`${apiUrl}/sync/services/${serviceId}/commands`, {
       method: 'POST',
       body: JSON.stringify({ command, payload }),
     }).then(({ json }) => ({ data: json })),
 
-  getSyncCommands: () =>
-    httpClient(`${apiUrl}/sync/commands`).then(({ json }) => ({ data: json })),
-
-  getSyncEvents: (params?: { page?: number; perPage?: number }) => {
-    const page = params?.page ?? 1;
-    const perPage = params?.perPage ?? 25;
-    return httpClient(`${apiUrl}/sync/events?page=${page}&per_page=${perPage}`).then(({ headers, json }) => {
-      const range = headers.get('Content-Range') || '';
-      const match = range.match(/\/(\d+)/);
-      const total = match ? parseInt(match[1], 10) : json.length;
-      return { data: json, total };
-    });
-  },
-
   createServiceCredential: (serviceType: string) =>
     httpClient(`${apiUrl}/sync/credentials`, {
       method: 'POST',
       body: JSON.stringify({ service_type: serviceType }),
     }).then(({ json }) => ({ data: json })),
-
-  listServiceCredentials: () =>
-    httpClient(`${apiUrl}/sync/credentials`).then(({ json }) => ({ data: json })),
 
   revokeSyncService: (credentialId: string) =>
     httpClient(`${apiUrl}/sync/credentials/${credentialId}/revoke`, {

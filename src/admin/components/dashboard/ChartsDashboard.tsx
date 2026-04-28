@@ -474,9 +474,13 @@ const DASHBOARD_CSS = `
 interface ChartsDashboardProps {
   /** When set, skip the header/site-selector and load this site immediately */
   siteId?: string;
+  /** Hide the header (project/site buttons) but keep them in the DOM */
+  hideHeader?: boolean;
+  /** Don't auto-load the first site on init */
+  skipAutoLoad?: boolean;
 }
 
-const ChartsDashboard = forwardRef<ChartsDashboardRef, ChartsDashboardProps>(function ChartsDashboard({ siteId }, ref) {
+const ChartsDashboard = forwardRef<ChartsDashboardRef, ChartsDashboardProps>(function ChartsDashboard({ siteId, hideHeader, skipAutoLoad }, ref) {
   const authFetch = useAuthFetch();
   const authFetchRef = useRef(authFetch);
   authFetchRef.current = authFetch;
@@ -516,13 +520,13 @@ const ChartsDashboard = forwardRef<ChartsDashboardRef, ChartsDashboardProps>(fun
 
     const wrappedFetch = (url: string) => authFetchRef.current(url);
 
-    handleRef.current = createDashboard(containerRef.current, api, wrappedFetch, { siteId });
+    handleRef.current = createDashboard(containerRef.current, api, wrappedFetch, { siteId, hideHeader, skipAutoLoad });
 
     return () => {
       handleRef.current?.destroy();
       handleRef.current = null;
     };
-  }, [siteId]);
+  }, [siteId, hideHeader, skipAutoLoad]);
 
   return (
     <>

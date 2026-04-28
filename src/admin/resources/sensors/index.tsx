@@ -31,6 +31,7 @@ import {
   useGetList,
   useGetOne,
   useListContext,
+  Labeled,
 } from 'react-admin';
 import {
   Box,
@@ -530,7 +531,7 @@ const CalibrationAgeField = (_props: { label?: string }) => {
 
 // Filters for the sensor list
 const sensorFilters = [
-  <ReferenceInput source="parameter_type_id" reference="parameters" key="parameter_type" alwaysOn>
+  <ReferenceInput source="parameter_id" reference="parameters" key="parameter_type" alwaysOn>
     <SelectInput optionText="display_name" label="Parameter Type" />
   </ReferenceInput>,
   <NullableBooleanInput source="is_active" label="Active" key="is_active" alwaysOn />,
@@ -608,7 +609,7 @@ const FilteredSensorDatagrid = ({
     >
       <TextField source="serial_number" />
       <TextField source="name" />
-      <ReferenceField source="parameter_type_id" reference="parameters" link={false}>
+      <ReferenceField source="parameter_id" reference="parameters" link={false}>
         <TextField source="display_name" />
       </ReferenceField>
       <FunctionField label="Deployed At" render={() => <DeployedAtField />} />
@@ -700,7 +701,7 @@ const SensorShow = () => (
       <TabbedShowLayout.Tab label="Overview">
         <TextField source="serial_number" emptyText="N/A" />
         <TextField source="name" />
-        <ReferenceField source="parameter_type_id" reference="parameters" link={false}>
+        <ReferenceField source="parameter_id" reference="parameters" link={false}>
           <TextField source="display_name" />
         </ReferenceField>
         <TextField source="manufacturer" />
@@ -709,6 +710,9 @@ const SensorShow = () => (
         <BooleanField source="is_lab_instrument" label="Lab Instrument" />
         <TextField source="notes" />
         <DateField source="created_at" showTime />
+        <Labeled label="Current Site">
+          <FunctionField render={() => <DeployedAtField />} />
+        </Labeled>
       </TabbedShowLayout.Tab>
       <TabbedShowLayout.Tab label="Deployments">
         <DeploymentsTab />
@@ -738,7 +742,7 @@ const SensorCreate = () => (
     <SimpleForm>
       <TextInput source="serial_number" isRequired />
       <TextInput source="name" />
-      <ReferenceInput source="parameter_type_id" reference="parameters">
+      <ReferenceInput source="parameter_id" reference="parameters">
         <SelectInput optionText="display_name" />
       </ReferenceInput>
       <TextInput source="manufacturer" />
@@ -755,7 +759,7 @@ const SensorEdit = () => (
     <SimpleForm>
       <TextInput source="serial_number" isRequired />
       <TextInput source="name" />
-      <ReferenceInput source="parameter_type_id" reference="parameters">
+      <ReferenceInput source="parameter_id" reference="parameters">
         <SelectInput optionText="display_name" />
       </ReferenceInput>
       <TextInput source="manufacturer" />
