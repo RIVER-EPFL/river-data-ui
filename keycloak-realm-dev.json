@@ -13,7 +13,7 @@
   "ssoSessionMaxLifespan": 36000,
   "clients": [
     {
-      "clientId": "river-data-ui",
+      "clientId": "river-data-ui-local",
       "name": "River Data UI",
       "enabled": true,
       "publicClient": true,
@@ -63,11 +63,11 @@
       ]
     },
     {
-      "clientId": "river-data-api",
-      "name": "River Data API",
+      "clientId": "river-data-api-local",
+      "name": "River Data API (Local)",
       "enabled": true,
       "publicClient": false,
-      "secret": "river-data-api-dev-secret",
+      "secret": "river-data-api-local-secret",
       "serviceAccountsEnabled": true,
       "standardFlowEnabled": false,
       "directAccessGrantsEnabled": false,
@@ -91,7 +91,7 @@
           "temporary": false
         }
       ],
-      "realmRoles": ["admin", "user"]
+      "realmRoles": ["riverdata-admin", "riverdata-user"]
     },
     {
       "username": "user",
@@ -107,12 +107,12 @@
           "temporary": false
         }
       ],
-      "realmRoles": ["user"]
+      "realmRoles": ["riverdata-user"]
     },
     {
       "username": "service-account-river-data-api",
       "enabled": true,
-      "serviceAccountClientId": "river-data-api",
+      "serviceAccountClientId": "river-data-api-local",
       "clientRoles": {
         "realm-management": ["manage-users", "view-users", "query-users"]
       }
@@ -121,15 +121,15 @@
   "roles": {
     "realm": [
       {
-        "name": "admin",
-        "description": "Administrator with full access"
+        "name": "riverdata-admin",
+        "description": "River Data administrator with full access"
       },
       {
-        "name": "user",
-        "description": "Standard user with read access"
+        "name": "riverdata-user",
+        "description": "River Data standard user with read access"
       }
     ]
   },
-  "defaultRoles": ["user"],
+  "defaultRoles": ["riverdata-user"],
   "requiredCredentials": ["password"]
 }
