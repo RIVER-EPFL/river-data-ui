@@ -48,6 +48,14 @@ import {
 } from '@mui/material';
 import { useRiverDataProvider } from '../../useRiverDataProvider';
 import { ConfirmPopover } from '../../components/ConfirmPopover';
+import { RecallPopover } from './RecallPopover';
+import { SensorStatusPin, type SensorStatus } from './SensorStatusPin';
+import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
+import HighlightOffIcon from '@mui/icons-material/HighlightOff';
+import TuneIcon from '@mui/icons-material/Tune';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import { IconButton } from '@mui/material';
+import { Link as RouterLink } from 'react-router-dom';
 
 // Item 4: Recalculate button per calibration row
 const RecalibrateButton = () => {
@@ -84,218 +92,6 @@ const RecalibrateButton = () => {
   );
 };
 
-// Item 5: Deploy button — opens dialog to create a new deployment
-const DeployButton = ({ sensorId }: { sensorId: string }) => {
-  const [open, setOpen] = useState(false);
-  const [parameterId, setParameterId] = useState('');
-  const [deployedFrom, setDeployedFrom] = useState(
-    new Date().toISOString().slice(0, 16)
-  );
-  const [deploymentType, setDeploymentType] = useState('');
-  const [notes, setNotes] = useState('');
-  const [create, { isLoading }] = useCreate();
-  const notify = useNotify();
-  const refresh = useRefresh();
-
-  const handleSubmit = () => {
-    create(
-      'sensor_deployments',
-      {
-        data: {
-          sensor_id: sensorId,
-          parameter_id: parameterId,
-          deployed_from: new Date(deployedFrom).toISOString(),
-          deployment_type: deploymentType || null,
-          notes: notes || null,
-        },
-      },
-      {
-        onSuccess: () => {
-          notify('Deployment created', { type: 'success' });
-          refresh();
-          handleClose();
-        },
-        onError: () => {
-          notify('Failed to create deployment', { type: 'error' });
-        },
-      }
-    );
-  };
-
-  const handleClose = () => {
-    setOpen(false);
-    setParameterId('');
-    setDeployedFrom(new Date().toISOString().slice(0, 16));
-    setDeploymentType('');
-    setNotes('');
-  };
-
-  return (
-    <>
-      <Button onClick={() => setOpen(true)} size="small" color="primary" variant="outlined">
-        Deploy
-      </Button>
-      <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
-        <DialogTitle>New Deployment</DialogTitle>
-        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
-          <ReferenceInput source="parameter_id" reference="site_parameters">
-            <SelectInput
-              optionText="name"
-              value={parameterId}
-              onChange={(e) => setParameterId(e.target.value as string)}
-              fullWidth
-              label="Site Parameter"
-            />
-          </ReferenceInput>
-          <MuiTextField
-            label="Deployed From"
-            type="datetime-local"
-            value={deployedFrom}
-            onChange={(e) => setDeployedFrom(e.target.value)}
-            slotProps={{ inputLabel: { shrink: true } }}
-            fullWidth
-          />
-          <MuiTextField
-            label="Deployment Type"
-            value={deploymentType}
-            onChange={(e) => setDeploymentType(e.target.value)}
-            fullWidth
-          />
-          <MuiTextField
-            label="Notes"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            multiline
-            rows={3}
-            fullWidth
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleClose}>Cancel</Button>
-          <Button onClick={handleSubmit} disabled={isLoading || !parameterId} variant="contained">
-            Deploy
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </>
-  );
-};
-
-// Item 5: Recall button — ends an active deployment
-const RecallButton = () => {
-  const record = useRecordContext();
-  const [update, { isLoading }] = useUpdate();
-  const notify = useNotify();
-  const refresh = useRefresh();
-  const [confirmOpen, setConfirmOpen] = useState(false);
-
-  if (!record || record.deployed_until) return null;
-
-  const handleConfirm = () => {
-    setConfirmOpen(false);
-    update(
-      'sensor_deployments',
-      {
-        id: record.id,
-        data: { deployed_until: new Date().toISOString() },
-        previousData: record,
-      },
-      {
-        onSuccess: () => {
-          notify('Sensor recalled', { type: 'success' });
-          refresh();
-        },
-        onError: () => {
-          notify('Recall failed', { type: 'error' });
-        },
-      }
-    );
-  };
-
-  return (
-    <>
-      <Button onClick={(e) => { e.stopPropagation(); setConfirmOpen(true); }} size="small" color="warning" disabled={isLoading}>
-        Recall
-      </Button>
-      <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)} maxWidth="xs">
-        <DialogTitle>Recall Sensor</DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            Recall this sensor? This will end the active deployment.
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmOpen(false)}>Cancel</Button>
-          <Button onClick={handleConfirm} color="warning" variant="contained" disabled={isLoading}>
-            Recall
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </>
-  );
-};
-
-// Recall button for the sensor list — finds the active deployment and ends it
-const ListRecallButton = () => {
-  const record = useRecordContext();
-  const [update, { isLoading }] = useUpdate();
-  const notify = useNotify();
-  const refresh = useRefresh();
-  const [confirmOpen, setConfirmOpen] = useState(false);
-
-  const { data: deployments } = useGetList('sensor_deployments', {
-    filter: record ? { sensor_id: record.id } : {},
-    sort: { field: 'deployed_from', order: 'DESC' },
-    pagination: { page: 1, perPage: 10 },
-  }, { enabled: !!record });
-
-  const active = deployments?.find((d: { deployed_until: string | null }) => !d.deployed_until);
-
-  if (!record || !active) return null;
-
-  const handleConfirm = () => {
-    setConfirmOpen(false);
-    update(
-      'sensor_deployments',
-      {
-        id: active.id,
-        data: { deployed_until: new Date().toISOString() },
-        previousData: active,
-      },
-      {
-        onSuccess: () => {
-          notify('Sensor recalled', { type: 'success' });
-          refresh();
-        },
-        onError: () => {
-          notify('Recall failed', { type: 'error' });
-        },
-      }
-    );
-  };
-
-  return (
-    <>
-      <Button onClick={(e) => { e.stopPropagation(); setConfirmOpen(true); }} size="small" color="warning" variant="outlined" disabled={isLoading}>
-        Recall
-      </Button>
-      <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)} maxWidth="xs">
-        <DialogTitle>Recall Sensor</DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            Recall this sensor? This will end the active deployment.
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmOpen(false)}>Cancel</Button>
-          <Button onClick={handleConfirm} color="warning" variant="contained" disabled={isLoading}>
-            Recall
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </>
-  );
-};
 
 // Show current deployment site inline
 const DeployedAtField = () => {
@@ -617,6 +413,17 @@ const FilteredSensorDatagrid = ({
         display: filteredIds.has(record.id as string) ? undefined : 'none',
       })}
     >
+      <FunctionField
+        label=""
+        render={(record: { id: string; is_active: boolean; is_lab_instrument: boolean }) => {
+          let status: SensorStatus = 'unknown';
+          if (record.is_lab_instrument) status = 'healthy';
+          else if (undeployedSensorIds.has(record.id)) status = 'undeployed';
+          else if (needsCalibrationIds.has(record.id)) status = 'attention';
+          else status = 'healthy';
+          return <SensorStatusPin status={status} />;
+        }}
+      />
       <TextField source="serial_number" />
       <TextField source="name" />
       <ReferenceField source="parameter_id" reference="parameters" link={false}>
@@ -627,20 +434,77 @@ const FilteredSensorDatagrid = ({
       <FunctionField label="Battery" render={() => <BatteryStatusField />} />
       <FunctionField label="Cal. Age" render={() => <CalibrationAgeField />} />
       <TextField source="manufacturer" />
-      <TextField source="model" />
       <BooleanField source="is_active" />
       <BooleanField source="is_lab_instrument" label="Lab" />
-      <DateField source="created_at" showTime />
       <FunctionField
         label="Actions"
         render={(record: { id: string }) => (
-          <Box sx={{ display: 'flex', gap: 0.5 }} onClick={(e) => e.stopPropagation()}>
-            <DeployButton sensorId={record.id} />
-            <ListRecallButton />
+          <Box sx={{ display: 'flex', gap: 0.25 }} onClick={(e) => e.stopPropagation()}>
+            <SensorRowActions sensorId={record.id} undeployed={undeployedSensorIds.has(record.id)} />
           </Box>
         )}
       />
     </Datagrid>
+  );
+};
+
+/** Compact icon row actions for the sensor list. */
+const SensorRowActions = ({ sensorId, undeployed }: { sensorId: string; undeployed: boolean }) => {
+  // Find active deployment id for the recall popover
+  const { data: deployments } = useGetList(
+    'sensor_deployments',
+    {
+      filter: { sensor_id: sensorId, deployed_until: null },
+      pagination: { page: 1, perPage: 1 },
+      sort: { field: 'deployed_from', order: 'DESC' },
+    },
+  );
+  const activeDeployment = deployments?.[0];
+
+  return (
+    <>
+      <Tooltip title={undeployed ? 'Deploy sensor' : 'Move sensor'}>
+        <IconButton
+          component={RouterLink}
+          to={`/admin/sensors/${sensorId}/move`}
+        >
+          {undeployed ? (
+            <CloudUploadIcon fontSize="small" />
+          ) : (
+            <SwapHorizIcon fontSize="small" />
+          )}
+        </IconButton>
+      </Tooltip>
+      {activeDeployment ? (
+        <RecallPopover
+          deploymentId={activeDeployment.id as string}
+          existingNotes={activeDeployment.notes as string | null}
+          trigger={
+            <Tooltip title="Recall sensor">
+              <IconButton color="warning">
+                <HighlightOffIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          }
+        />
+      ) : (
+        <Tooltip title="No active deployment to recall">
+          <span>
+            <IconButton disabled color="warning">
+              <HighlightOffIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+      )}
+      <Tooltip title="Calibrate (open sensor)">
+        <IconButton
+          component={RouterLink}
+          to={`/admin/sensors/${sensorId}/show/2`}
+        >
+          <TuneIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
+    </>
   );
 };
 
@@ -687,18 +551,43 @@ const DeploymentsTab = () => {
   if (!record) return null;
   return (
     <>
-      <DeployButton sensorId={record.id as string} />
+      <Button
+        component={RouterLink}
+        to={`/admin/sensors/${record.id}/move`}
+        startIcon={<CloudUploadIcon />}
+        variant="contained"
+        sx={{ mb: 2 }}
+      >
+        Deploy / Move
+      </Button>
       <ReferenceManyField reference="sensor_deployments" target="sensor_id"
         sort={{ field: 'deployed_from', order: 'DESC' }} label={false}>
-        <Datagrid bulkActionButtons={false}>
-          <ReferenceField source="parameter_id" reference="site_parameters" link="show">
+        <Datagrid bulkActionButtons={false} rowClick="edit">
+          <ReferenceField source="site_id" reference="sites" link="show">
             <TextField source="name" />
           </ReferenceField>
           <DateField source="deployed_from" showTime />
           <DateField source="deployed_until" showTime emptyText="Active" />
           <TextField source="deployment_type" />
           <TextField source="notes" />
-          <RecallButton />
+          <FunctionField
+            label=""
+            render={(d: { id: string; deployed_until: string | null; notes: string | null }) =>
+              d.deployed_until === null ? (
+                <RecallPopover
+                  deploymentId={d.id}
+                  existingNotes={d.notes}
+                  trigger={
+                    <Tooltip title="Recall this deployment">
+                      <IconButton color="warning">
+                        <HighlightOffIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  }
+                />
+              ) : null
+            }
+          />
         </Datagrid>
       </ReferenceManyField>
     </>

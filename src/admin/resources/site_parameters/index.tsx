@@ -31,6 +31,9 @@ const siteParamFilters = [
   <ReferenceInput source="site_id" reference="sites" key="site" alwaysOn>
     <AutocompleteInput optionText="name" label="Site" />
   </ReferenceInput>,
+  <ReferenceInput source="parameter_id" reference="parameters" key="parameter" alwaysOn>
+    <AutocompleteInput optionText="display_name" label="Parameter" />
+  </ReferenceInput>,
   <NullableBooleanInput source="is_active" label="Active" key="is_active" />,
   <NullableBooleanInput source="is_derived" label="Derived" key="is_derived" />,
 ];
@@ -170,14 +173,14 @@ const ParameterEdit = () => (
       <ReferenceInput source="parameter_id" reference="parameters">
         <SelectInput optionText="display_name" />
       </ReferenceInput>
-      <TextInput source="sensor_type" />
-      <TextInput source="display_units" />
-      <TextInput source="units_name" />
-      <NumberInput source="units_min" />
-      <NumberInput source="units_max" />
-      <NumberInput source="decimal_places" />
-      <NumberInput source="channel_id" />
-      <NumberInput source="sample_interval_sec" />
+      <TextInput source="sensor_type" helperText="Type of sensor expected at this slot (e.g. 'pH', 'optical-DO')" />
+      <TextInput source="display_units" helperText="Units shown to users (e.g. 'µS/cm', '°C')" />
+      <TextInput source="units_name" helperText="Long-form units name for tooltips and exports" />
+      <NumberInput source="units_min" helperText="Display axis minimum (charts)" />
+      <NumberInput source="units_max" helperText="Display axis maximum (charts)" />
+      <NumberInput source="decimal_places" helperText="How many decimals to render" />
+      <NumberInput source="channel_id" helperText="Source-system channel identifier (Vaisala location_id, etc.)" />
+      <NumberInput source="sample_interval_sec" helperText="Expected interval between readings, in seconds" />
       <BooleanInput source="is_active" />
       <BooleanInput source="is_derived" />
     </SimpleForm>

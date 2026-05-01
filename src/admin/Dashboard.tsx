@@ -1,4 +1,4 @@
-import { useRef, useState, useMemo, useCallback } from 'react';
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { Title, useGetList } from 'react-admin';
 import {
   Box,
@@ -8,12 +8,105 @@ import {
   Chip,
   IconButton,
   Collapse,
+  Card,
+  CardContent,
+  Grid2 as Grid,
 } from '@mui/material';
 import MapIcon from '@mui/icons-material/Map';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
+import HealthAndSafetyIcon from '@mui/icons-material/HealthAndSafety';
+import HistoryToggleOffIcon from '@mui/icons-material/HistoryToggleOff';
 import { SiteMap } from './components/dashboard/SiteMap';
 import ChartsDashboard from './components/dashboard/ChartsDashboard';
 import type { ChartsDashboardRef } from './components/dashboard/ChartsDashboard';
+import { useRiverDataProvider } from './useRiverDataProvider';
+
+interface SummaryCardProps {
+  label: string;
+  value: number | string;
+  icon: React.ReactNode;
+  color: string;
+}
+
+const SummaryCard = ({ label, value, icon, color }: SummaryCardProps) => (
+  <Card variant="outlined">
+    <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+      <Box sx={{ color, display: 'flex', alignItems: 'center' }}>{icon}</Box>
+      <Box>
+        <Typography variant="h5" fontWeight={600} sx={{ lineHeight: 1.1 }}>
+          {value}
+        </Typography>
+        <Typography variant="caption" color="text.secondary">
+          {label}
+        </Typography>
+      </Box>
+    </CardContent>
+  </Card>
+);
+
+const AlarmSummaryRow = () => {
+  const dataProvider = useRiverDataProvider();
+  const [summary, setSummary] = useState<{ total: number; warning: number; alarm: number; siteCount: number }>({
+    total: 0,
+    warning: 0,
+    alarm: 0,
+    siteCount: 0,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchSummary = async () => {
+      try {
+        const { data } = await dataProvider.getAlarmSummary();
+        if (cancelled) return;
+        setSummary({
+          total: data.total,
+          warning: data.by_severity.warning,
+          alarm: data.by_severity.alarm,
+          siteCount: data.by_site.length,
+        });
+      } catch {
+        // silent — the AppBar bell handles errors
+      }
+    };
+    fetchSummary();
+    const interval = setInterval(fetchSummary, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [dataProvider]);
+
+  return (
+    <Grid container spacing={2} sx={{ mb: 2 }}>
+      <Grid size={{ xs: 12, sm: 4 }}>
+        <SummaryCard
+          label="Active alarms"
+          value={summary.alarm + summary.warning}
+          icon={<NotificationsActiveIcon />}
+          color={summary.alarm > 0 ? 'error.main' : summary.warning > 0 ? 'warning.main' : 'success.main'}
+        />
+      </Grid>
+      <Grid size={{ xs: 12, sm: 4 }}>
+        <SummaryCard
+          label="Critical (alarm tier)"
+          value={summary.alarm}
+          icon={<HealthAndSafetyIcon />}
+          color={summary.alarm > 0 ? 'error.main' : 'success.main'}
+        />
+      </Grid>
+      <Grid size={{ xs: 12, sm: 4 }}>
+        <SummaryCard
+          label="Sites with alarms"
+          value={summary.siteCount}
+          icon={<HistoryToggleOffIcon />}
+          color={summary.siteCount > 0 ? 'warning.main' : 'success.main'}
+        />
+      </Grid>
+    </Grid>
+  );
+};
 
 const Dashboard = () => {
   const chartsRef = useRef<ChartsDashboardRef>(null);
@@ -46,6 +139,9 @@ const Dashboard = () => {
   return (
     <>
       <Title title={selectedSiteName ? `${selectedSiteName} – River Data` : 'River Data Admin'} />
+
+      {/* Alarm summary cards */}
+      <AlarmSummaryRow />
 
       {/* Info bar */}
       <Paper

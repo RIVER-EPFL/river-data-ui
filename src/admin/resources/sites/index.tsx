@@ -45,9 +45,9 @@ const SiteCreate = () => (
       <ReferenceInput source="project_id" reference="projects">
         <SelectInput optionText="name" />
       </ReferenceInput>
-      <NumberInput source="latitude" />
-      <NumberInput source="longitude" />
-      <NumberInput source="altitude_m" />
+      <NumberInput source="latitude" helperText="Decimal degrees, WGS84 (e.g. 46.5197)" />
+      <NumberInput source="longitude" helperText="Decimal degrees, WGS84 (e.g. 6.6323)" />
+      <NumberInput source="altitude_m" helperText="Meters above sea level" />
       <TextInput source="public_slug" helperText="URL-safe identifier for public API. Leave blank to exclude." />
     </SimpleForm>
   </Create>
@@ -60,9 +60,9 @@ const SiteEdit = () => (
       <ReferenceInput source="project_id" reference="projects">
         <SelectInput optionText="name" />
       </ReferenceInput>
-      <NumberInput source="latitude" />
-      <NumberInput source="longitude" />
-      <NumberInput source="altitude_m" />
+      <NumberInput source="latitude" helperText="Decimal degrees, WGS84 (e.g. 46.5197)" />
+      <NumberInput source="longitude" helperText="Decimal degrees, WGS84 (e.g. 6.6323)" />
+      <NumberInput source="altitude_m" helperText="Meters above sea level" />
       <TextInput source="public_slug" helperText="URL-safe identifier for public API. Leave blank to exclude." />
     </SimpleForm>
   </Edit>

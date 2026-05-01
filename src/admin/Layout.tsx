@@ -7,6 +7,7 @@ import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import BuildIcon from '@mui/icons-material/Build';
 import HikingIcon from '@mui/icons-material/Hiking';
 import NotificationsIcon from '@mui/icons-material/Notifications';
+import RssFeedIcon from '@mui/icons-material/RssFeed';
 import SearchBar from './components/SearchBar';
 import { StatusIndicators } from './components/StatusIndicators';
 import { AlarmNotificationPanel } from './components/AlarmNotificationPanel';
@@ -65,19 +66,21 @@ const CustomAppBar = () => {
 const CustomMenu = () => (
   <Menu>
     <Menu.DashboardItem />
-    <Typography sx={sectionHeaderSx}>Field Operations</Typography>
+    <Typography sx={sectionHeaderSx}>Monitor</Typography>
     <Menu.ResourceItem name="sites" />
     <Menu.ResourceItem name="sensors" />
+    <Menu.Item to="/admin/streams" primaryText="Streams" leftIcon={<RssFeedIcon />} />
+    <Typography sx={sectionHeaderSx}>Field Work</Typography>
     <Menu.Item to="/admin/field-trip" primaryText="Field Trip Entry" leftIcon={<HikingIcon />} />
-    <Typography sx={sectionHeaderSx}>Science</Typography>
+    <Menu.Item to="/admin/grab-samples" primaryText="Grab Samples" leftIcon={<ScienceIcon />} />
+    <Typography sx={sectionHeaderSx}>Analyze</Typography>
+    <Menu.Item to="/admin/compare" primaryText="Compare Sites" leftIcon={<CompareArrowsIcon />} />
+    <Menu.Item to="/admin/tools" primaryText="Tools" leftIcon={<BuildIcon />} />
+    <Typography sx={sectionHeaderSx}>Configure</Typography>
     <Menu.ResourceItem name="parameters" />
     <Menu.ResourceItem name="derived_parameters" />
     <Menu.ResourceItem name="standard_curves" />
-    <Menu.Item to="/admin/grab-samples" primaryText="Enter Grab Samples" leftIcon={<ScienceIcon />} />
-    <Typography sx={sectionHeaderSx}>Analysis</Typography>
-    <Menu.Item to="/admin/compare" primaryText="Site Comparison" leftIcon={<CompareArrowsIcon />} />
-    <Menu.Item to="/admin/tools" primaryText="Tools" leftIcon={<BuildIcon />} />
-    <Typography sx={sectionHeaderSx}>Admin</Typography>
+    <Menu.ResourceItem name="constants" />
     <Menu.ResourceItem name="projects" />
     <Menu.ResourceItem name="users" />
     <Menu.Item to="/admin/system" primaryText="System" leftIcon={<SettingsIcon />} />

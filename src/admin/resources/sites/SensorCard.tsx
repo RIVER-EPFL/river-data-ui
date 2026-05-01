@@ -32,8 +32,8 @@ import { formatRelativeTime } from '../../utils/formatRelativeTime';
 import { AlarmDot, type AlarmLevel } from '../../components/AlarmDot';
 import { snippets } from '../../themeSnippets';
 import { CalibrateDialog } from './dialogs/CalibrateDialog';
-import { MoveSensorDialog } from './dialogs/MoveSensorDialog';
 import { ThresholdDialog } from './dialogs/ThresholdDialog';
+import { RecallPopover } from '../sensors/RecallPopover';
 
 export type { AlarmLevel };
 
@@ -197,12 +197,7 @@ interface SensorCardProps {
 
 export const SensorCard: React.FC<SensorCardProps> = ({ group, thresholdsByParam, latestByParam, siteName }) => {
     const [calibrateOpen, setCalibrateOpen] = useState(false);
-    const [moveOpen, setMoveOpen] = useState(false);
-    const [recallOpen, setRecallOpen] = useState(false);
     const [thresholdParam, setThresholdParam] = useState<ParameterRecord | null>(null);
-    const [recallUpdate, { isPending: recallPending }] = useUpdate();
-    const recallNotify = useNotify();
-    const recallRefresh = useRefresh();
 
     const sensor = group.sensor;
     const activeDeployment = group.deployments.find((d) => !d.deployed_until);
@@ -289,31 +284,40 @@ export const SensorCard: React.FC<SensorCardProps> = ({ group, thresholdsByParam
                             </Button>
                         </span>
                     </Tooltip>
-                    <Tooltip title={!activeDeployment ? 'No active deployment to move' : ''}>
+                    <Tooltip title={!sensor ? 'No sensor to move' : ''}>
                         <span>
                             <Button
                                 size="small"
                                 startIcon={<SwapHorizIcon />}
-                                onClick={() => setMoveOpen(true)}
-                                disabled={!activeDeployment}
+                                component={Link}
+                                to={sensor ? `/admin/sensors/${sensor.id}/move` : '#'}
+                                disabled={!sensor}
                             >
                                 Move Sensor
                             </Button>
                         </span>
                     </Tooltip>
-                    <Tooltip title={!activeDeployment ? 'No active deployment to recall' : ''}>
-                        <span>
-                            <Button
-                                size="small"
-                                color="warning"
-                                startIcon={<HighlightOffIcon />}
-                                onClick={() => setRecallOpen(true)}
-                                disabled={!activeDeployment}
-                            >
-                                Recall
-                            </Button>
-                        </span>
-                    </Tooltip>
+                    {activeDeployment && sensor ? (
+                        <RecallPopover
+                            deploymentId={activeDeployment.id}
+                            sensorSerial={sensor.serial_number}
+                            siteName={siteName}
+                            existingNotes={activeDeployment.notes}
+                            trigger={
+                                <Button startIcon={<HighlightOffIcon />} color="warning">
+                                    Recall
+                                </Button>
+                            }
+                        />
+                    ) : (
+                        <Tooltip title="No active deployment to recall">
+                            <span>
+                                <Button startIcon={<HighlightOffIcon />} color="warning" disabled>
+                                    Recall
+                                </Button>
+                            </span>
+                        </Tooltip>
+                    )}
                     {sensor && (
                         <Button
                             size="small"
@@ -340,16 +344,6 @@ export const SensorCard: React.FC<SensorCardProps> = ({ group, thresholdsByParam
                 />
             )}
 
-            {activeDeployment && (
-                <MoveSensorDialog
-                    open={moveOpen}
-                    onClose={() => setMoveOpen(false)}
-                    deployment={activeDeployment}
-                    sensorSerial={sensor?.serial_number ?? 'Unknown'}
-                    currentSiteName={siteName}
-                />
-            )}
-
             {thresholdParam && (
                 <ThresholdDialog
                     open={!!thresholdParam}
@@ -361,47 +355,6 @@ export const SensorCard: React.FC<SensorCardProps> = ({ group, thresholdsByParam
                 />
             )}
 
-            {activeDeployment && (
-                <Dialog open={recallOpen} onClose={() => setRecallOpen(false)} maxWidth="xs">
-                    <DialogTitle>Recall Sensor: {sensor?.serial_number ?? 'Unknown'}?</DialogTitle>
-                    <DialogContent>
-                        <Typography variant="body2">
-                            This will end the current deployment. The sensor will appear as undeployed.
-                        </Typography>
-                    </DialogContent>
-                    <DialogActions>
-                        <Button onClick={() => setRecallOpen(false)} disabled={recallPending}>Cancel</Button>
-                        <Button
-                            onClick={() => {
-                                recallUpdate(
-                                    'sensor_deployments',
-                                    {
-                                        id: activeDeployment.id,
-                                        data: { ...activeDeployment, deployed_until: new Date().toISOString() },
-                                        previousData: activeDeployment,
-                                    },
-                                    {
-                                        onSuccess: () => {
-                                            recallNotify(`Sensor recalled`, { type: 'success' });
-                                            recallRefresh();
-                                            setRecallOpen(false);
-                                        },
-                                        onError: () => {
-                                            recallNotify('Failed to recall sensor', { type: 'error' });
-                                        },
-                                    },
-                                );
-                            }}
-                            variant="contained"
-                            color="warning"
-                            disabled={recallPending}
-                            startIcon={recallPending ? <CircularProgress size={16} /> : undefined}
-                        >
-                            Recall
-                        </Button>
-                    </DialogActions>
-                </Dialog>
-            )}
         </>
     );
 };

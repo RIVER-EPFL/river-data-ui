@@ -32,8 +32,6 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import { useRiverDataProvider } from '../../useRiverDataProvider';
 import type { StreamState, StreamStats } from '../../dataProvider';
-import { DiscoveryWizard } from '../sync_status/DiscoveryWizard';
-import { GroupedDiscoveryWizard } from '../sync_status/GroupedDiscoveryWizard';
 import { PairingWizard } from '../sync_status/PairingWizard';
 import { StreamPairDialog } from '../sync_status/StreamPairDialog';
 
@@ -253,9 +251,6 @@ export const SyncStatusPanel = () => {
   const statsRequestVersion = useRef(0);
 
   // Discovery wizards (legacy, kept for backward compatibility)
-  const [wizardOpen, setWizardOpen] = useState(false);
-  const [groupedWizardOpen, setGroupedWizardOpen] = useState(false);
-  const [groupedSourceSystem, setGroupedSourceSystem] = useState('nomis');
 
   // Pairing wizard
   const [pairingWizardOpen, setPairingWizardOpen] = useState(false);
@@ -395,21 +390,6 @@ export const SyncStatusPanel = () => {
         stream={statsTarget}
         stats={stats}
         loading={loadingStats}
-      />
-
-      {/* Per-Stream Discovery Wizard */}
-      <DiscoveryWizard
-        open={wizardOpen}
-        onClose={() => setWizardOpen(false)}
-        onComplete={() => refresh()}
-      />
-
-      {/* Grouped Bulk Discovery Wizard */}
-      <GroupedDiscoveryWizard
-        open={groupedWizardOpen}
-        sourceSystem={groupedSourceSystem}
-        onClose={() => setGroupedWizardOpen(false)}
-        onComplete={() => refresh()}
       />
 
       {/* Pairing Plan Wizard */}

@@ -12,6 +12,7 @@ import {
   TabbedShowLayout,
   SimpleForm,
   TextInput,
+  NumberInput,
   SelectInput,
   ReferenceManyField,
   ReferenceField,
@@ -130,13 +131,37 @@ const ParameterList = () => (
   </List>
 );
 
+const PARAMETER_CATEGORIES = [
+  { id: 'measurement', name: 'Measurement' },
+  { id: 'device_health', name: 'Device Health' },
+];
+
+const PARAMETER_DATA_TYPES = [
+  { id: 'float', name: 'Float (numeric)' },
+  { id: 'int', name: 'Integer' },
+  { id: 'string', name: 'String' },
+  { id: 'bool', name: 'Boolean' },
+];
+
 const ParameterCreate = () => (
   <Create>
     <SimpleForm>
       <TextInput source="name" isRequired />
       <TextInput source="display_name" />
       <TextInput source="default_units" />
+      <SelectInput source="category" choices={PARAMETER_CATEGORIES} defaultValue="measurement" />
+      <SelectInput source="data_type" choices={PARAMETER_DATA_TYPES} defaultValue="float" />
       <TextInput source="description" multiline />
+      <Typography variant="subtitle2" color="text.secondary" sx={{ mt: 2 }}>
+        Default Thresholds (optional)
+      </Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ mb: 1 }}>
+        Used as fallback when no site-specific override exists.
+      </Typography>
+      <NumberInput source="default_warning_min" label="Warning Min" />
+      <NumberInput source="default_warning_max" label="Warning Max" />
+      <NumberInput source="default_alarm_min" label="Alarm Min" />
+      <NumberInput source="default_alarm_max" label="Alarm Max" />
     </SimpleForm>
   </Create>
 );
@@ -218,7 +243,19 @@ const ParameterEdit = () => (
       <TextInput source="name" isRequired />
       <TextInput source="display_name" />
       <TextInput source="default_units" />
+      <SelectInput source="category" choices={PARAMETER_CATEGORIES} />
+      <SelectInput source="data_type" choices={PARAMETER_DATA_TYPES} />
       <TextInput source="description" multiline />
+      <Typography variant="subtitle2" color="text.secondary" sx={{ mt: 2 }}>
+        Default Thresholds
+      </Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ mb: 1 }}>
+        Site-specific thresholds override these defaults at read time.
+      </Typography>
+      <NumberInput source="default_warning_min" label="Warning Min" />
+      <NumberInput source="default_warning_max" label="Warning Max" />
+      <NumberInput source="default_alarm_min" label="Alarm Min" />
+      <NumberInput source="default_alarm_max" label="Alarm Max" />
     </SimpleForm>
   </Edit>
 );
