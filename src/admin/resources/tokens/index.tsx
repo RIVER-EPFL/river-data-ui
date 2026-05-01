@@ -50,6 +50,16 @@ const PermissionsSummary = ({ record }: { record?: { permissions?: { read_metada
   return <>{parts.length ? parts.join(', ') : 'None'}</>;
 };
 
+const ExpiryChip = ({ expiresAt }: { expiresAt?: string }) => {
+  if (!expiresAt) return <Chip label="Never" variant="outlined" />;
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  const days = Math.floor(ms / (24 * 60 * 60 * 1000));
+  if (ms <= 0) return <Chip label="Expired" color="error" />;
+  if (days < 2) return <Chip label={`Expires in ${days}d`} color="error" />;
+  if (days < 14) return <Chip label={`Expires in ${days}d`} color="warning" />;
+  return <Chip label={`Expires in ${days}d`} variant="outlined" />;
+};
+
 const TokenList = () => (
   <List>
     <Datagrid rowClick="show">

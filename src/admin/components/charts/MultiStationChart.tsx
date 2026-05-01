@@ -17,6 +17,7 @@ import 'uplot/dist/uPlot.min.css';
 import { TimeRangeSlider } from '../TimeRangeSlider';
 import { useSiteDataRange } from '../../hooks/useSiteDataRange';
 import { tokens } from '../../theme';
+import { CompareStatsPanel, computeStationStats, type StationStats } from './CompareStatsPanel';
 
 interface ReadingsResponse {
   times: string[];
@@ -65,6 +66,7 @@ export const MultiStationChart: React.FC = () => {
   const [aggregation, setAggregation] = useState<AggregationLevel>('raw');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [stats, setStats] = useState<StationStats[]>([]);
 
   const siteIds = useMemo(() => selectedSites.map((s) => s.id), [selectedSites]);
   const dataRange = useSiteDataRange(siteIds);
@@ -159,6 +161,11 @@ export const MultiStationChart: React.FC = () => {
           }
         }
       }
+
+      // Compute stats for the panel (US-6.3)
+      setStats(
+        selectedSites.map((site, i) => computeStationStats(site.name, seriesArrays[i])),
+      );
 
       const allData: uPlot.AlignedData = [allTimes, ...seriesArrays];
 
@@ -365,6 +372,15 @@ export const MultiStationChart: React.FC = () => {
 
         <div ref={chartRef} style={{ width: '100%' }} />
       </Paper>
+
+      {/* Stats panel (US-6.3) */}
+      {stats.length > 0 && (
+        <CompareStatsPanel
+          stats={stats}
+          units={selectedParameter?.units}
+          parameterName={selectedParameter?.name}
+        />
+      )}
     </Box>
   );
 };
