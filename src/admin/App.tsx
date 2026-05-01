@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Admin, Resource, CustomRoutes, defaultTheme } from 'react-admin';
+import { Admin, Resource, CustomRoutes } from 'react-admin';
 import { Route } from 'react-router';
 import { fetchUtils } from 'ra-core';
 import Keycloak from 'keycloak-js';
@@ -15,6 +15,7 @@ import { ComparePage } from './pages/ComparePage';
 import { ToolsPage } from './pages/ToolsPage';
 import { FieldTripWizard } from './resources/field_trips';
 import { KeycloakContext } from './KeycloakContext';
+import { theme } from './theme';
 
 const initOptions = {
   onLoad: 'login-required' as const,
@@ -121,7 +122,7 @@ const AdminApp = () => {
           style={{
             marginTop: '20px',
             padding: '10px 20px',
-            backgroundColor: '#2E7D87',
+            backgroundColor: '#1F4E79',
             color: 'white',
             border: 'none',
             borderRadius: '4px',
@@ -154,11 +155,6 @@ const AdminApp = () => {
       </div>
     );
   }
-
-  const theme = {
-    ...defaultTheme,
-    sidebar: { width: 220 },
-  };
 
   return (
     <KeycloakContext.Provider value={initState.status === 'keycloak' ? initState.keycloak : null}>

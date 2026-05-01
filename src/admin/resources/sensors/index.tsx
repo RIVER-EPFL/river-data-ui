@@ -47,6 +47,7 @@ import {
   Typography,
 } from '@mui/material';
 import { useRiverDataProvider } from '../../useRiverDataProvider';
+import { ConfirmPopover } from '../../components/ConfirmPopover';
 
 // Item 4: Recalculate button per calibration row
 const RecalibrateButton = () => {
@@ -55,9 +56,9 @@ const RecalibrateButton = () => {
   const notify = useNotify();
   const refresh = useRefresh();
 
-  const handleClick = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!record) return;
+  if (!record) return null;
+
+  const handleConfirm = async () => {
     try {
       await dataProvider.recalibrateCalibration(record.id as string);
       notify('Recalculation triggered', { type: 'success' });
@@ -68,9 +69,18 @@ const RecalibrateButton = () => {
   };
 
   return (
-    <Button onClick={handleClick} size="small" color="primary">
-      Recalculate
-    </Button>
+    <ConfirmPopover
+      title="Recalculate readings?"
+      description="This will recompute all readings against this calibration. The previous calibrated values will be overwritten and cannot be undone."
+      confirmLabel="Recalculate"
+      confirmColor="warning"
+      onConfirm={handleConfirm}
+      trigger={
+        <Button size="small" color="primary">
+          Recalculate
+        </Button>
+      }
+    />
   );
 };
 

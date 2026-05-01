@@ -16,6 +16,8 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { TimeRangeSlider } from '../TimeRangeSlider';
 import { useSiteDataRange } from '../../hooks/useSiteDataRange';
+import { tokens } from '../../theme';
+import { uPlotTheme } from '../../uPlotTheme';
 
 export interface ScatterParameter {
   id: string;
@@ -87,9 +89,9 @@ const tooltipPlugin = (
         (u: uPlot) => {
           tooltip = document.createElement('div');
           tooltip.style.cssText =
-            'position:absolute;display:none;background:rgba(0,0,0,0.85);color:#fff;' +
-            'padding:8px 12px;border-radius:4px;font-size:12px;pointer-events:none;' +
-            'z-index:100;white-space:nowrap;line-height:1.5;';
+            `position:absolute;display:none;background:${uPlotTheme.tooltipBg};color:${uPlotTheme.tooltipColor};` +
+            `padding:8px 12px;border-radius:4px;font-size:${uPlotTheme.tooltipFontSize};pointer-events:none;` +
+            `z-index:100;white-space:nowrap;line-height:1.5;`;
           u.over.appendChild(tooltip);
         },
       ],
@@ -223,10 +225,10 @@ export const ScatterPlot: React.FC<ScatterPlotProps> = ({ siteId, parameters }) 
         { label: xLabel },
         {
           label: yLabel,
-          stroke: '#2196f3',
+          stroke: tokens.dataViz[0],
           width: 0,
           paths: () => null,
-          points: { show: true, size: 5, fill: '#2196f3' },
+          points: { show: true, size: 5, fill: tokens.dataViz[0] },
         },
       ];
 
@@ -235,7 +237,7 @@ export const ScatterPlot: React.FC<ScatterPlotProps> = ({ siteId, parameters }) 
         plotData.push(regY);
         series.push({
           label: `Regression (R\u00B2=${reg.rSquared.toFixed(4)})`,
-          stroke: 'rgba(244, 67, 54, 0.8)',
+          stroke: tokens.severity.alarm.border,
           width: 2,
           dash: [6, 3],
           points: { show: false },

@@ -1,5 +1,6 @@
 import uPlot from 'uplot';
 import noUiSlider, { PipsMode, type Options as NoUiSliderOptions } from 'nouislider';
+import { tokens } from '../../theme';
 
 /** Minimal project shape returned by /api/service/projects */
 interface DashboardProject {
@@ -221,8 +222,8 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
   const tooltipTime = $('tooltip-time');
   const tooltipValues = $('tooltip-values');
 
-  // Color palette
-  const colors = ['#2563eb', '#dc2626', '#16a34a', '#ca8a04', '#9333ea', '#0891b2', '#be185d', '#ea580c'];
+  // Color palette (Okabe-Ito, colorblind-safe — from theme tokens)
+  const colors = tokens.dataViz;
   const parameterColors: Record<string, string> = {};
 
   const alarmColors: Record<number, string> = {

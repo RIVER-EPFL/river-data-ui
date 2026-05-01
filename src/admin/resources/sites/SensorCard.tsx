@@ -1,7 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
-    useGetList,
-    useCreate,
     useUpdate,
     useNotify,
     useRefresh,
@@ -20,27 +18,24 @@ import {
     DialogTitle,
     DialogContent,
     DialogActions,
-    TextField,
     Tooltip,
     CircularProgress,
-    Divider,
-    Alert,
-    MenuItem,
-    Stepper,
-    Step,
-    StepLabel,
 } from '@mui/material';
 import SensorsIcon from '@mui/icons-material/Sensors';
 import TuneIcon from '@mui/icons-material/Tune';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import HighlightOffIcon from '@mui/icons-material/HighlightOff';
-import WarningAmberIcon from '@mui/icons-material/WarningAmber';
-import ErrorIcon from '@mui/icons-material/Error';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import EditIcon from '@mui/icons-material/Edit';
 import { Link } from 'react-router-dom';
 import { CalibrationTimeline } from './CalibrationTimeline';
 import { formatRelativeTime } from '../../utils/formatRelativeTime';
+import { AlarmDot, type AlarmLevel } from '../../components/AlarmDot';
+import { snippets } from '../../themeSnippets';
+import { CalibrateDialog } from './dialogs/CalibrateDialog';
+import { MoveSensorDialog } from './dialogs/MoveSensorDialog';
+import { ThresholdDialog } from './dialogs/ThresholdDialog';
+
+export type { AlarmLevel };
 
 // ---------------------------------------------------------------------------
 // Types
@@ -113,7 +108,6 @@ export interface LatestReading {
     time: string;
 }
 
-export type AlarmLevel = 'ok' | 'warning' | 'alarm' | 'unknown';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -188,524 +182,7 @@ export function getAlarmLevel(threshold: AlarmThresholdRecord | undefined, value
     return 'ok';
 }
 
-function AlarmDot({ level }: { level: AlarmLevel }) {
-    switch (level) {
-        case 'ok':
-            return (
-                <Tooltip title="OK - within thresholds">
-                    <CheckCircleIcon sx={{ color: 'success.main', fontSize: 20 }} />
-                </Tooltip>
-            );
-        case 'warning':
-            return (
-                <Tooltip title="Warning threshold exceeded">
-                    <WarningAmberIcon sx={{ color: 'warning.main', fontSize: 20 }} />
-                </Tooltip>
-            );
-        case 'alarm':
-            return (
-                <Tooltip title="Alarm threshold exceeded">
-                    <ErrorIcon sx={{ color: 'error.main', fontSize: 20 }} />
-                </Tooltip>
-            );
-        default:
-            return (
-                <Tooltip title="No thresholds configured">
-                    <CheckCircleIcon sx={{ color: 'action.disabled', fontSize: 20 }} />
-                </Tooltip>
-            );
-    }
-}
 
-// ---------------------------------------------------------------------------
-// Calibrate Dialog
-// ---------------------------------------------------------------------------
-
-interface CalibrateDialogProps {
-    open: boolean;
-    onClose: () => void;
-    sensorId: string;
-    sensorSerial: string;
-}
-
-const CalibrateDialog: React.FC<CalibrateDialogProps> = ({ open, onClose, sensorId, sensorSerial }) => {
-    const [create, { isPending }] = useCreate();
-    const notify = useNotify();
-    const refresh = useRefresh();
-
-    const [slope, setSlope] = useState('1');
-    const [intercept, setIntercept] = useState('0');
-    const [validFrom, setValidFrom] = useState(new Date().toISOString().slice(0, 16));
-    const [performedBy, setPerformedBy] = useState('');
-    const [notes, setNotes] = useState('');
-
-    const handleSubmit = () => {
-        create(
-            'sensor_calibrations',
-            {
-                data: {
-                    sensor_id: sensorId,
-                    slope: parseFloat(slope),
-                    intercept: parseFloat(intercept),
-                    valid_from: new Date(validFrom).toISOString(),
-                    performed_by: performedBy || null,
-                    notes: notes || null,
-                },
-            },
-            {
-                onSuccess: () => {
-                    notify('Calibration created', { type: 'success' });
-                    refresh();
-                    onClose();
-                },
-                onError: () => {
-                    notify('Failed to create calibration', { type: 'error' });
-                },
-            },
-        );
-    };
-
-    return (
-        <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-            <DialogTitle>Calibrate Sensor: {sensorSerial}</DialogTitle>
-            <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
-                <TextField
-                    label="Slope"
-                    type="number"
-                    value={slope}
-                    onChange={(e) => setSlope(e.target.value)}
-                    inputProps={{ step: 'any' }}
-                    fullWidth
-                    size="small"
-                />
-                <TextField
-                    label="Intercept"
-                    type="number"
-                    value={intercept}
-                    onChange={(e) => setIntercept(e.target.value)}
-                    inputProps={{ step: 'any' }}
-                    fullWidth
-                    size="small"
-                />
-                <TextField
-                    label="Valid From"
-                    type="datetime-local"
-                    value={validFrom}
-                    onChange={(e) => setValidFrom(e.target.value)}
-                    fullWidth
-                    size="small"
-                    slotProps={{ inputLabel: { shrink: true } }}
-                />
-                <TextField
-                    label="Performed By"
-                    value={performedBy}
-                    onChange={(e) => setPerformedBy(e.target.value)}
-                    fullWidth
-                    size="small"
-                />
-                <TextField
-                    label="Notes"
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    multiline
-                    rows={2}
-                    fullWidth
-                    size="small"
-                />
-            </DialogContent>
-            <DialogActions>
-                <Button onClick={onClose} disabled={isPending}>Cancel</Button>
-                <Button
-                    onClick={handleSubmit}
-                    variant="contained"
-                    disabled={isPending}
-                    startIcon={isPending ? <CircularProgress size={16} /> : undefined}
-                >
-                    Save Calibration
-                </Button>
-            </DialogActions>
-        </Dialog>
-    );
-};
-
-// ---------------------------------------------------------------------------
-// Move Sensor Dialog (with two-step workflow)
-// ---------------------------------------------------------------------------
-
-interface MoveSensorDialogProps {
-    open: boolean;
-    onClose: () => void;
-    deployment: SensorDeploymentRecord;
-    sensorSerial: string;
-    currentSiteName: string;
-}
-
-type MoveStep = 1 | 2 | 'done';
-
-const MoveSensorDialog: React.FC<MoveSensorDialogProps> = ({
-    open,
-    onClose,
-    deployment,
-    sensorSerial,
-    currentSiteName,
-}) => {
-    const [update, { isPending: updatePending }] = useUpdate();
-    const [create, { isPending: createPending }] = useCreate();
-    const notify = useNotify();
-    const refresh = useRefresh();
-
-    const [step, setStep] = useState<MoveStep>(1);
-    const [deployedUntil, setDeployedUntil] = useState(new Date().toISOString().slice(0, 16));
-    const [movNotes, setMovNotes] = useState('');
-
-    // Step 2 fields
-    const [targetSiteId, setTargetSiteId] = useState('');
-    const [targetParameterId, setTargetParameterId] = useState('');
-    const [newDeployedFrom, setNewDeployedFrom] = useState('');
-    const [newDeployNotes, setNewDeployNotes] = useState('');
-
-    // Fetch sites for step 2
-    const { data: allSites } = useGetList<SiteRecord>('sites', {
-        pagination: { page: 1, perPage: 100 },
-        sort: { field: 'name', order: 'ASC' },
-    }, { enabled: step === 2 });
-
-    // Fetch parameters for selected target site
-    const { data: targetParams } = useGetList<ParameterRecord>('site_parameters', {
-        filter: { site_id: targetSiteId },
-        pagination: { page: 1, perPage: 100 },
-        sort: { field: 'name', order: 'ASC' },
-    }, { enabled: step === 2 && !!targetSiteId });
-
-    // Reset state when dialog opens
-    useEffect(() => {
-        if (open) {
-            setStep(1);
-            setDeployedUntil(new Date().toISOString().slice(0, 16));
-            setMovNotes('');
-            setTargetSiteId('');
-            setTargetParameterId('');
-            setNewDeployedFrom('');
-            setNewDeployNotes('');
-        }
-    }, [open]);
-
-    // Reset target parameter when target site changes
-    useEffect(() => {
-        setTargetParameterId('');
-    }, [targetSiteId]);
-
-    const handleEndDeployment = () => {
-        const endTime = new Date(deployedUntil).toISOString();
-        update(
-            'sensor_deployments',
-            {
-                id: deployment.id,
-                data: {
-                    ...deployment,
-                    deployed_until: endTime,
-                    notes: movNotes
-                        ? `${deployment.notes ? deployment.notes + '; ' : ''}${movNotes}`
-                        : deployment.notes,
-                },
-                previousData: deployment,
-            },
-            {
-                onSuccess: () => {
-                    notify('Deployment ended successfully', { type: 'success' });
-                    refresh();
-                    setNewDeployedFrom(deployedUntil);
-                    setStep(2);
-                },
-                onError: () => {
-                    notify('Failed to end deployment', { type: 'error' });
-                },
-            },
-        );
-    };
-
-    const handleCreateDeployment = () => {
-        create(
-            'sensor_deployments',
-            {
-                data: {
-                    sensor_id: deployment.sensor_id,
-                    site_id: targetSiteId,
-                    deployed_from: new Date(newDeployedFrom).toISOString(),
-                    deployed_until: null,
-                    deployment_type: deployment.deployment_type,
-                    notes: newDeployNotes || null,
-                },
-            },
-            {
-                onSuccess: () => {
-                    notify('New deployment created', { type: 'success' });
-                    refresh();
-                    setStep('done');
-                },
-                onError: () => {
-                    notify('Failed to create new deployment', { type: 'error' });
-                },
-            },
-        );
-    };
-
-    const handleClose = () => {
-        onClose();
-    };
-
-    const activeStep = step === 1 ? 0 : step === 2 ? 1 : 2;
-
-    return (
-        <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
-            <DialogTitle>Move Sensor: {sensorSerial}</DialogTitle>
-            <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
-                <Stepper activeStep={activeStep} sx={{ mb: 2 }}>
-                    <Step completed={step !== 1}>
-                        <StepLabel>End Current Deployment</StepLabel>
-                    </Step>
-                    <Step completed={step === 'done'}>
-                        <StepLabel>Create New Deployment</StepLabel>
-                    </Step>
-                </Stepper>
-
-                {step === 1 && (
-                    <>
-                        <Alert severity="info" sx={{ mb: 1 }}>
-                            Step 1: End the current deployment at {currentSiteName}.
-                        </Alert>
-                        <TextField
-                            label="Deployed Until"
-                            type="datetime-local"
-                            value={deployedUntil}
-                            onChange={(e) => setDeployedUntil(e.target.value)}
-                            fullWidth
-                            size="small"
-                            slotProps={{ inputLabel: { shrink: true } }}
-                        />
-                        <TextField
-                            label="Notes"
-                            value={movNotes}
-                            onChange={(e) => setMovNotes(e.target.value)}
-                            multiline
-                            rows={2}
-                            fullWidth
-                            size="small"
-                            placeholder="Reason for moving..."
-                        />
-                    </>
-                )}
-
-                {step === 2 && (
-                    <>
-                        <Alert severity="success" sx={{ mb: 1 }}>
-                            Deployment ended. Now create a new deployment for this sensor.
-                        </Alert>
-                        <TextField
-                            select
-                            label="Target Site"
-                            value={targetSiteId}
-                            onChange={(e) => setTargetSiteId(e.target.value)}
-                            fullWidth
-                            size="small"
-                        >
-                            {(allSites ?? []).map((s) => (
-                                <MenuItem key={s.id} value={s.id}>
-                                    {s.name}
-                                </MenuItem>
-                            ))}
-                        </TextField>
-                        <TextField
-                            select
-                            label="Target Parameter"
-                            value={targetParameterId}
-                            onChange={(e) => setTargetParameterId(e.target.value)}
-                            fullWidth
-                            size="small"
-                            disabled={!targetSiteId}
-                            helperText={!targetSiteId ? 'Select a site first' : undefined}
-                        >
-                            {(targetParams ?? []).map((p) => (
-                                <MenuItem key={p.id} value={p.id}>
-                                    {p.name} ({p.display_units ?? 'N/A'})
-                                </MenuItem>
-                            ))}
-                        </TextField>
-                        <TextField
-                            label="Deployed From"
-                            type="datetime-local"
-                            value={newDeployedFrom}
-                            onChange={(e) => setNewDeployedFrom(e.target.value)}
-                            fullWidth
-                            size="small"
-                            slotProps={{ inputLabel: { shrink: true } }}
-                        />
-                        <TextField
-                            label="Notes"
-                            value={newDeployNotes}
-                            onChange={(e) => setNewDeployNotes(e.target.value)}
-                            multiline
-                            rows={2}
-                            fullWidth
-                            size="small"
-                            placeholder="Deployment notes..."
-                        />
-                    </>
-                )}
-
-                {step === 'done' && (
-                    <Alert severity="success">
-                        Sensor moved successfully. The new deployment has been created.
-                    </Alert>
-                )}
-            </DialogContent>
-            <DialogActions>
-                {step === 1 && (
-                    <>
-                        <Button onClick={handleClose} disabled={updatePending}>Cancel</Button>
-                        <Button
-                            onClick={handleEndDeployment}
-                            variant="contained"
-                            color="warning"
-                            disabled={updatePending}
-                            startIcon={updatePending ? <CircularProgress size={16} /> : undefined}
-                        >
-                            End Deployment
-                        </Button>
-                    </>
-                )}
-                {step === 2 && (
-                    <>
-                        <Button onClick={handleClose}>
-                            Skip — I'll do this later
-                        </Button>
-                        <Button
-                            onClick={handleCreateDeployment}
-                            variant="contained"
-                            disabled={createPending || !targetSiteId || !newDeployedFrom}
-                            startIcon={createPending ? <CircularProgress size={16} /> : undefined}
-                        >
-                            Create Deployment
-                        </Button>
-                    </>
-                )}
-                {step === 'done' && (
-                    <Button onClick={handleClose} variant="contained">
-                        Close
-                    </Button>
-                )}
-            </DialogActions>
-        </Dialog>
-    );
-};
-
-// ---------------------------------------------------------------------------
-// Threshold Dialog (shared for create and edit)
-// ---------------------------------------------------------------------------
-
-interface ThresholdDialogProps {
-    open: boolean;
-    onClose: () => void;
-    threshold?: AlarmThresholdRecord;
-    parameterId: string;
-    siteId: string;
-    parameterName: string;
-}
-
-const ThresholdDialog: React.FC<ThresholdDialogProps> = ({
-    open, onClose, threshold, parameterId, siteId, parameterName,
-}) => {
-    const [create, { isPending: createPending }] = useCreate();
-    const [update, { isPending: updatePending }] = useUpdate();
-    const notify = useNotify();
-    const refresh = useRefresh();
-
-    const [warnMin, setWarnMin] = useState('');
-    const [warnMax, setWarnMax] = useState('');
-    const [alarmMin, setAlarmMin] = useState('');
-    const [alarmMax, setAlarmMax] = useState('');
-
-    const isPending = createPending || updatePending;
-    const isEdit = !!threshold;
-
-    React.useEffect(() => {
-        if (open && threshold) {
-            setWarnMin(String(threshold.warning_min ?? ''));
-            setWarnMax(String(threshold.warning_max ?? ''));
-            setAlarmMin(String(threshold.alarm_min ?? ''));
-            setAlarmMax(String(threshold.alarm_max ?? ''));
-        } else if (open) {
-            setWarnMin('');
-            setWarnMax('');
-            setAlarmMin('');
-            setAlarmMax('');
-        }
-    }, [open, threshold]);
-
-    const toNum = (v: string) => (v === '' ? null : parseFloat(v));
-
-    const handleSave = () => {
-        const values = {
-            warning_min: toNum(warnMin),
-            warning_max: toNum(warnMax),
-            alarm_min: toNum(alarmMin),
-            alarm_max: toNum(alarmMax),
-        };
-
-        if (isEdit) {
-            update('alarm_thresholds', {
-                id: threshold.id,
-                data: { ...threshold, ...values },
-                previousData: threshold,
-            }, {
-                onSuccess: () => { notify('Thresholds updated', { type: 'success' }); refresh(); onClose(); },
-                onError: () => { notify('Failed to update thresholds', { type: 'error' }); },
-            });
-        } else {
-            create('alarm_thresholds', {
-                data: { parameter_id: parameterId, site_id: siteId, alarm_type: 'range', ...values },
-            }, {
-                onSuccess: () => { notify('Thresholds created', { type: 'success' }); refresh(); onClose(); },
-                onError: () => { notify('Failed to create thresholds', { type: 'error' }); },
-            });
-        }
-    };
-
-    return (
-        <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-            <DialogTitle>{isEdit ? 'Edit' : 'Set'} Thresholds: {parameterName}</DialogTitle>
-            <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
-                <Typography variant="body2" color="text.secondary">
-                    Warning thresholds trigger a yellow alert. Alarm thresholds trigger a red alert.
-                    Leave blank to disable a threshold.
-                </Typography>
-                <Box sx={{ display: 'flex', gap: 2 }}>
-                    <TextField label="Warning Min" type="number" value={warnMin}
-                        onChange={(e) => setWarnMin(e.target.value)} fullWidth size="small"
-                        inputProps={{ step: 'any' }} />
-                    <TextField label="Warning Max" type="number" value={warnMax}
-                        onChange={(e) => setWarnMax(e.target.value)} fullWidth size="small"
-                        inputProps={{ step: 'any' }} />
-                </Box>
-                <Box sx={{ display: 'flex', gap: 2 }}>
-                    <TextField label="Alarm Min" type="number" value={alarmMin}
-                        onChange={(e) => setAlarmMin(e.target.value)} fullWidth size="small"
-                        inputProps={{ step: 'any' }} />
-                    <TextField label="Alarm Max" type="number" value={alarmMax}
-                        onChange={(e) => setAlarmMax(e.target.value)} fullWidth size="small"
-                        inputProps={{ step: 'any' }} />
-                </Box>
-            </DialogContent>
-            <DialogActions>
-                <Button onClick={onClose} disabled={isPending}>Cancel</Button>
-                <Button onClick={handleSave} variant="contained" disabled={isPending}
-                    startIcon={isPending ? <CircularProgress size={16} /> : undefined}>
-                    {isEdit ? 'Save' : 'Create'}
-                </Button>
-            </DialogActions>
-        </Dialog>
-    );
-};
 
 // ---------------------------------------------------------------------------
 // Sensor Card
@@ -764,40 +241,36 @@ export const SensorCard: React.FC<SensorCardProps> = ({ group, thresholdsByParam
                         const alarmLevel = getAlarmLevel(threshold, latest?.value);
 
                         return (
-                            <Box key={param.id} sx={{ py: 0.5, borderBottom: group.parameters.indexOf(param) < group.parameters.length - 1 ? '1px solid' : 'none', borderColor: 'divider' }}>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
-                                    <AlarmDot level={alarmLevel} />
-                                    <Typography variant="body2" fontWeight="medium" sx={{ fontSize: '0.8rem' }}>
-                                        {param.name}
+                            <Box key={param.id} sx={snippets.tightCardRow}>
+                                <AlarmDot level={alarmLevel} />
+                                <Typography variant="body2" fontWeight={600}>
+                                    {param.name}
+                                </Typography>
+                                {param.display_units && (
+                                    <Typography variant="caption" color="text.secondary">
+                                        ({param.display_units})
                                     </Typography>
-                                    {param.display_units && (
-                                        <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
-                                            ({param.display_units})
-                                        </Typography>
+                                )}
+                                <Tooltip title={param.is_active ? 'Actively monitored' : 'Monitoring paused'}>
+                                    <Chip
+                                        label={param.is_active ? 'Active' : 'Inactive'}
+                                        color={param.is_active ? 'success' : 'default'}
+                                    />
+                                </Tooltip>
+                                <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                    <LatestValue reading={latest} units={param.display_units} />
+                                    {threshold ? (
+                                        <Tooltip title={`Warn: [${threshold.warning_min ?? '-'}, ${threshold.warning_max ?? '-'}] | Alarm: [${threshold.alarm_min ?? '-'}, ${threshold.alarm_max ?? '-'}]`}>
+                                            <IconButton onClick={() => setThresholdParam(param)} sx={{ p: 0.25 }}>
+                                                <EditIcon sx={{ fontSize: 14 }} />
+                                            </IconButton>
+                                        </Tooltip>
+                                    ) : (
+                                        <Button onClick={() => setThresholdParam(param)}
+                                            sx={{ minWidth: 0, py: 0, px: 0.5 }}>
+                                            Set Thresholds
+                                        </Button>
                                     )}
-                                    <Tooltip title={param.is_active ? 'Actively monitored' : 'Monitoring paused'}>
-                                        <Chip
-                                            label={param.is_active ? 'Active' : 'Inactive'}
-                                            size="small"
-                                            color={param.is_active ? 'success' : 'default'}
-                                            sx={{ fontSize: '0.6rem', height: 16, '& .MuiChip-label': { px: 0.75 } }}
-                                        />
-                                    </Tooltip>
-                                    <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                        <LatestValue reading={latest} units={param.display_units} />
-                                        {threshold ? (
-                                            <Tooltip title={`Warn: [${threshold.warning_min ?? '-'}, ${threshold.warning_max ?? '-'}] | Alarm: [${threshold.alarm_min ?? '-'}, ${threshold.alarm_max ?? '-'}]`}>
-                                                <IconButton size="small" onClick={() => setThresholdParam(param)} sx={{ p: 0.25 }}>
-                                                    <EditIcon sx={{ fontSize: 14 }} />
-                                                </IconButton>
-                                            </Tooltip>
-                                        ) : (
-                                            <Button size="small" onClick={() => setThresholdParam(param)}
-                                                sx={{ textTransform: 'none', fontSize: '0.7rem', minWidth: 0, py: 0, px: 0.5 }}>
-                                                Set Thresholds
-                                            </Button>
-                                        )}
-                                    </Box>
                                 </Box>
                             </Box>
                         );

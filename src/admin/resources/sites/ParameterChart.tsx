@@ -37,6 +37,7 @@ import { TimeRangeSlider } from '../../components/TimeRangeSlider';
 import { useSiteDataRange } from '../../hooks/useSiteDataRange';
 import { resolveAggregation as resolveAggregationAuto } from '../../utils/timeRange';
 import type { ReadingsResponse, AggregatesResponse } from '../../hooks/useSiteChartData';
+import { uPlotTheme } from '../../uPlotTheme';
 
 interface AlarmThreshold {
   warning_min: number | null;
@@ -100,7 +101,7 @@ const thresholdBandsPlugin = (
           Math.max(chartTop, Math.min(chartBot, y));
 
         // --- Alarm zones (red, beyond alarm thresholds) ---
-        ctx.fillStyle = 'rgba(244, 67, 54, 0.12)';
+        ctx.fillStyle = uPlotTheme.alarmBandFill;
         if (threshold.alarm_max != null) {
           const y = clampY(valToY(threshold.alarm_max));
           if (y > chartTop) {
@@ -115,7 +116,7 @@ const thresholdBandsPlugin = (
         }
 
         // --- Warning zones (orange, between warning and alarm thresholds) ---
-        ctx.fillStyle = 'rgba(255, 152, 0, 0.12)';
+        ctx.fillStyle = uPlotTheme.warningBandFill;
 
         // Upper warning band: between warning_max and alarm_max
         if (threshold.warning_max != null) {
@@ -171,7 +172,7 @@ const minMaxBandPlugin = (
         ctx.rect(left, top, width, height);
         ctx.clip();
 
-        ctx.fillStyle = 'rgba(33, 150, 243, 0.12)';
+        ctx.fillStyle = uPlotTheme.minMaxBandFill;
         ctx.beginPath();
 
         // Trace max line forward
@@ -229,8 +230,8 @@ const flaggedPointsPlugin = (
         ctx.rect(left, top, width, height);
         ctx.clip();
 
-        const size = 5;
-        ctx.strokeStyle = '#d32f2f';
+        const size = uPlotTheme.flaggedSize;
+        ctx.strokeStyle = uPlotTheme.flaggedColor;
         ctx.lineWidth = 2;
 
         for (let i = 0; i < xData.length; i++) {
@@ -293,8 +294,8 @@ const grabSampleDiamondsPlugin = (
         ctx.clip();
 
         const size = 5;
-        ctx.fillStyle = '#ff9800';
-        ctx.strokeStyle = '#e65100';
+        ctx.fillStyle = uPlotTheme.grabSampleFill;
+        ctx.strokeStyle = uPlotTheme.grabSampleStroke;
         ctx.lineWidth = 1.5;
 
         for (let i = 0; i < xData.length; i++) {

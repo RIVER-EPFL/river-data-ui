@@ -26,6 +26,7 @@ import AddLocationIcon from '@mui/icons-material/AddLocation';
 import { useRiverDataProvider } from '../../useRiverDataProvider';
 import { FormulaBuilder, type ParameterTypeInfo } from '../../components/FormulaBuilder';
 import { AssignToSiteDialog } from './AssignToSiteDialog';
+import { ConfirmPopover } from '../../components/ConfirmPopover';
 
 const LazyFormulaPreviewChart = lazy(() =>
   import('../../components/FormulaPreviewChart').then((mod) => ({
@@ -39,9 +40,9 @@ const RecomputeButton = () => {
   const notify = useNotify();
   const refresh = useRefresh();
 
-  const handleClick = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!record) return;
+  if (!record) return null;
+
+  const handleConfirm = async () => {
     try {
       await dataProvider.recomputeDerived(record.id as string);
       notify('Recompute triggered', { type: 'success' });
@@ -52,9 +53,18 @@ const RecomputeButton = () => {
   };
 
   return (
-    <Button onClick={handleClick} size="small" color="primary">
-      Recompute
-    </Button>
+    <ConfirmPopover
+      title="Recompute derived values?"
+      description="This will recalculate every assignment of this formula across all sites. The previous values will be overwritten."
+      confirmLabel="Recompute"
+      confirmColor="warning"
+      onConfirm={handleConfirm}
+      trigger={
+        <Button size="small" color="primary">
+          Recompute
+        </Button>
+      }
+    />
   );
 };
 
@@ -129,8 +139,7 @@ const AssignmentRecomputeButton = () => {
 
   if (!record?.derived_definition_id) return null;
 
-  const handleClick = async (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleConfirm = async () => {
     try {
       await dataProvider.recomputeDerived(record.derived_definition_id as string);
       notify('Recompute triggered', { type: 'success' });
@@ -141,9 +150,18 @@ const AssignmentRecomputeButton = () => {
   };
 
   return (
-    <Button onClick={handleClick} size="small" color="primary">
-      Recompute
-    </Button>
+    <ConfirmPopover
+      title="Recompute this site's derived values?"
+      description="This will recalculate every assignment of the underlying formula. Existing values will be overwritten and cannot be undone."
+      confirmLabel="Recompute"
+      confirmColor="warning"
+      onConfirm={handleConfirm}
+      trigger={
+        <Button size="small" color="primary">
+          Recompute
+        </Button>
+      }
+    />
   );
 };
 

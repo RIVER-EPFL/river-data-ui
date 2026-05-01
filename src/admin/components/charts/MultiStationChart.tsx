@@ -16,6 +16,7 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { TimeRangeSlider } from '../TimeRangeSlider';
 import { useSiteDataRange } from '../../hooks/useSiteDataRange';
+import { tokens } from '../../theme';
 
 interface ReadingsResponse {
   times: string[];
@@ -42,7 +43,7 @@ interface ParameterRecord {
   units: string | null;
 }
 
-const COLORS = ['#2196f3', '#f44336', '#4caf50', '#ff9800'];
+const COLORS = tokens.dataViz.slice(0, 4);
 
 const AGGREGATION_OPTIONS: { value: AggregationLevel; label: string }[] = [
   { value: 'raw', label: 'Raw' },

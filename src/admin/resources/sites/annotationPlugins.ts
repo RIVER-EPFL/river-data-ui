@@ -1,5 +1,6 @@
 import type React from 'react';
 import type uPlot from 'uplot';
+import { uPlotTheme } from '../../uPlotTheme';
 
 export interface AnnotationData {
   id: string;
@@ -13,12 +14,7 @@ export interface AnnotationData {
   created_at: string | null;
 }
 
-export const ANNOTATION_CATEGORY_COLORS: Record<string, string> = {
-  maintenance: 'rgba(33, 150, 243, 0.18)',
-  quality_issue: 'rgba(244, 67, 54, 0.18)',
-  environmental: 'rgba(76, 175, 80, 0.18)',
-  other: 'rgba(158, 158, 158, 0.18)',
-};
+export const ANNOTATION_CATEGORY_COLORS: Record<string, string> = uPlotTheme.annotationCategoryColors;
 
 export const ANNOTATION_CATEGORIES: { value: string; label: string }[] = [
   { value: 'maintenance', label: 'Maintenance' },

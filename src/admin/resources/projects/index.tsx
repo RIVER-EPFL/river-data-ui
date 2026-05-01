@@ -140,13 +140,27 @@ const PublicApiPreview = () => {
     }
   }, []);
 
-  useEffect(() => {
-    if (record?.is_public && record?.public_slug) {
-      fetchPreview(record.public_slug as string);
-    }
-  }, [record?.id, record?.is_public, record?.public_slug, fetchPreview]);
-
   if (!record?.is_public || !record?.public_slug) return null;
+
+  if (data === null && !loading && !error) {
+    return (
+      <Box sx={{ mt: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+          <Typography variant="subtitle1">API Response Preview</Typography>
+        </Box>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+          GET /api/public/{record.public_slug as string}/sites
+        </Typography>
+        <Button
+          size="small"
+          variant="outlined"
+          onClick={() => fetchPreview(record.public_slug as string)}
+        >
+          Load preview
+        </Button>
+      </Box>
+    );
+  }
 
   const truncated = Array.isArray(data) && data.length > PREVIEW_MAX_ITEMS;
   const displayData = truncated && !expanded ? data.slice(0, PREVIEW_MAX_ITEMS) : data;
