@@ -119,6 +119,14 @@ const Dashboard = () => {
 
       {/* Collapsible full-width map */}
       <Collapse in={mapExpanded}>
+        <Box sx={{ height: 300, borderRadius: 1, overflow: 'hidden' }}>
+          <SiteMap
+            onSiteClick={handleSiteClick}
+            selectedSiteId={selectedSiteId}
+            onMissingCount={setMissingCoordCount}
+            filterProjectId={mapProjectFilter}
+          />
+        </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.75, flexWrap: 'wrap' }}>
           {projects && projects.length > 1 && (
             <>
@@ -177,14 +185,6 @@ const Dashboard = () => {
             )}
             sx={{ ml: 'auto', minWidth: 240 }}
             isOptionEqualToValue={(option, value) => option.id === value.id}
-          />
-        </Box>
-        <Box sx={{ height: 300, borderRadius: 1, overflow: 'hidden' }}>
-          <SiteMap
-            onSiteClick={handleSiteClick}
-            selectedSiteId={selectedSiteId}
-            onMissingCount={setMissingCoordCount}
-            filterProjectId={mapProjectFilter}
           />
         </Box>
       </Collapse>

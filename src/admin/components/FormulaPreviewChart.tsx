@@ -329,7 +329,7 @@ export const FormulaPreviewChart: React.FC<FormulaPreviewChartProps> = ({
             </Alert>
           )}
 
-          <div ref={chartRef} style={{ width: '100%', overflow: 'hidden' }} />
+          <div ref={chartRef} style={{ width: '100%', minHeight: 300, overflow: 'hidden' }} />
         </>
       )}
     </Box>

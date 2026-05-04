@@ -93,7 +93,6 @@ const SaveToStationDialog: React.FC<SaveToStationDialogProps> = ({ open, onClose
   const authFetch = useAuthFetch();
   const [siteId, setSiteId] = useState('');
   const [dateTime, setDateTime] = useState(() => new Date().toISOString().slice(0, 16));
-  const [fieldTripId, setFieldTripId] = useState('');
   const [saving, setSaving] = useState(false);
   const [linking, setLinking] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -116,11 +115,6 @@ const SaveToStationDialog: React.FC<SaveToStationDialogProps> = ({ open, onClose
   const { data: allParams } = useGetList('parameters', {
     pagination: { page: 1, perPage: 500 },
     sort: { field: 'name', order: 'ASC' },
-  });
-
-  const { data: fieldTrips } = useGetList('field_trips', {
-    pagination: { page: 1, perPage: 50 },
-    sort: { field: 'date', order: 'DESC' },
   });
 
   const resultEntries = Object.entries(results).filter(([, v]) => typeof v === 'number' && v !== null);
@@ -213,10 +207,6 @@ const SaveToStationDialog: React.FC<SaveToStationDialogProps> = ({ open, onClose
           time: timestamp,
         })),
       };
-      if (fieldTripId) {
-        payload.field_trip_id = fieldTripId;
-      }
-
       const resp = await authFetch('/api/service/grab_samples', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -254,18 +244,6 @@ const SaveToStationDialog: React.FC<SaveToStationDialogProps> = ({ open, onClose
             slotProps={{ inputLabel: { shrink: true } }}
           />
         </Box>
-
-        <MuiTextField
-          select label="Field Trip (optional)" value={fieldTripId}
-          onChange={(e) => setFieldTripId(e.target.value)} fullWidth
-        >
-          <MenuItem value="">None</MenuItem>
-          {(fieldTrips ?? []).map((ft: any) => (
-            <MenuItem key={ft.id} value={ft.id}>
-              {ft.date}{ft.participants ? ` — ${ft.participants}` : ''}
-            </MenuItem>
-          ))}
-        </MuiTextField>
 
         {siteId && mappings.length > 0 && (
           <>

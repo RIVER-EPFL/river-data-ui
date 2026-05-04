@@ -52,6 +52,7 @@ export interface ParameterRecord {
     is_derived: boolean;
     derived_definition_id: string | null;
     sample_interval_sec: number | null;
+    parameter?: { id: string; display_name?: string; name?: string }[];
 }
 
 export interface SensorDeploymentRecord {
@@ -247,9 +248,16 @@ export const SensorCard: React.FC<SensorCardProps> = ({ group, thresholdsByParam
                         return (
                             <Box key={param.id} sx={snippets.tightCardRow}>
                                 <AlarmDot level={alarmLevel} />
-                                <Typography variant="body2" fontWeight={600}>
-                                    {param.name}
-                                </Typography>
+                                <Box>
+                                    <Typography variant="body2" fontWeight={600}>
+                                        {param.parameter?.[0]?.display_name || param.name}
+                                    </Typography>
+                                    {param.parameter?.[0]?.display_name && param.parameter[0].display_name !== param.name && (
+                                        <Typography variant="caption" color="text.secondary">
+                                            {param.name}
+                                        </Typography>
+                                    )}
+                                </Box>
                                 {param.display_units && (
                                     <Typography variant="caption" color="text.secondary">
                                         ({param.display_units})

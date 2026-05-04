@@ -14,7 +14,7 @@ import { GrabSampleEntry } from './resources/grab_samples';
 import { ComparePage } from './pages/ComparePage';
 import { ToolsPage } from './pages/ToolsPage';
 import { StreamsPage } from './pages/StreamsPage';
-import { FieldTripWizard } from './resources/field_trips';
+
 import { MoveSensorPage } from './resources/sensors/MoveSensorPage';
 import { Navigate } from 'react-router-dom';
 import { KeycloakContext } from './KeycloakContext';
@@ -187,7 +187,6 @@ const AdminApp = () => {
           <Route path="/grab-samples" element={<GrabSampleEntry />} />
           <Route path="/compare" element={<ComparePage />} />
           <Route path="/tools" element={<ToolsPage />} />
-          <Route path="/field-trip" element={<FieldTripWizard />} />
         </CustomRoutes>
       </Admin>
     </KeycloakContext.Provider>

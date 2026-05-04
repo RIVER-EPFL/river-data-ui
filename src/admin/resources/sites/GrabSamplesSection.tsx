@@ -15,13 +15,10 @@ import {
     TableRow,
     Paper,
     CircularProgress,
-    Tooltip,
     Button,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import FlagIcon from '@mui/icons-material/Flag';
-import FlagOutlinedIcon from '@mui/icons-material/FlagOutlined';
 import ScienceIcon from '@mui/icons-material/Science';
 import { useNavigate } from 'react-router-dom';
 import { useAuthFetch } from '../../hooks/useAuthFetch';
@@ -34,7 +31,6 @@ interface SampleRecord {
     collected_at: string;
     label: string | null;
     notes: string | null;
-    field_trip_id: string | null;
     created_by: string | null;
     mean: number | null;
     stdev: number | null;
@@ -60,10 +56,11 @@ interface ReplicateReading {
 
 interface GrabSamplesSectionProps {
     siteId: string;
+    projectId?: string;
     parameters: SiteParameterRecord[];
 }
 
-export const GrabSamplesSection: React.FC<GrabSamplesSectionProps> = ({ siteId, parameters }) => {
+export const GrabSamplesSection: React.FC<GrabSamplesSectionProps> = ({ siteId, projectId, parameters }) => {
     const notify = useNotify();
     const navigate = useNavigate();
     const authFetch = useAuthFetch();
@@ -117,32 +114,6 @@ export const GrabSamplesSection: React.FC<GrabSamplesSectionProps> = ({ siteId, 
         }
     }, [expandedSample, authFetch, siteId, notify]);
 
-    const handleToggleFlag = useCallback(async (sample: SampleRecord, repIndex: number, currentlyFlagged: boolean) => {
-        const endpoint = currentlyFlagged ? '/api/service/readings/unflag' : '/api/service/readings/flag';
-        const time = replicates[repIndex]?.time;
-        if (!time) return;
-
-        try {
-            const res = await authFetch(endpoint, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    site_id: siteId,
-                    parameter_id: sample.parameter_id,
-                    start: time,
-                    end: time,
-                    ...(!currentlyFlagged ? { reason: 'Flagged from samples view' } : {}),
-                }),
-            });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            notify(currentlyFlagged ? 'Reading unflagged' : 'Reading flagged', { type: 'success' });
-            await toggleExpand(sample.id);
-            refetch();
-        } catch (e) {
-            notify(`Flag operation failed: ${e instanceof Error ? e.message : 'error'}`, { type: 'error' });
-        }
-    }, [authFetch, siteId, notify, replicates, toggleExpand, refetch]);
-
     const formatDate = (iso: string) => {
         const d = new Date(iso);
         return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
@@ -157,7 +128,7 @@ export const GrabSamplesSection: React.FC<GrabSamplesSectionProps> = ({ siteId, 
         return (
             <Box sx={{ p: 2 }}>
                 <Alert severity="info" action={
-                    <Button color="inherit" onClick={() => navigate('/admin/grab-samples')}>
+                    <Button color="inherit" onClick={() => navigate(`/admin/grab-samples?siteId=${siteId}${projectId ? `&projectId=${projectId}` : ''}`)}>
                         Enter Samples
                     </Button>
                 }>
@@ -172,7 +143,7 @@ export const GrabSamplesSection: React.FC<GrabSamplesSectionProps> = ({ siteId, 
             <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
                 <Button
                     startIcon={<ScienceIcon />}
-                    onClick={() => navigate('/admin/grab-samples')}
+                    onClick={() => navigate(`/admin/grab-samples?siteId=${siteId}${projectId ? `&projectId=${projectId}` : ''}`)}
                     sx={{ textTransform: 'none' }}
                 >
                     Enter New Samples
@@ -241,65 +212,33 @@ export const GrabSamplesSection: React.FC<GrabSamplesSectionProps> = ({ siteId, 
                                                             No replicate readings found
                                                         </Typography>
                                                     ) : (
-                                                        <Table size="small" sx={{ maxWidth: 500 }}>
+                                                        <Table size="small" sx={{ maxWidth: 400 }}>
                                                             <TableHead>
                                                                 <TableRow>
                                                                     <TableCell>Replicate</TableCell>
                                                                     <TableCell align="right">Value</TableCell>
-                                                                    <TableCell align="center" width={60}>Flag</TableCell>
                                                                 </TableRow>
                                                             </TableHead>
                                                             <TableBody>
-                                                                {replicates.map((rep, i) => {
-                                                                    const flagged = rep.is_flagged === true;
-                                                                    return (
-                                                                        <TableRow key={i}>
-                                                                            <TableCell>
-                                                                                <Typography
-                                                                                    variant="body2"
-                                                                                    sx={{
-                                                                                        textDecoration: flagged ? 'line-through' : 'none',
-                                                                                        color: flagged ? 'text.disabled' : 'text.primary',
-                                                                                    }}
-                                                                                >
-                                                                                    Rep {i + 1}
-                                                                                </Typography>
-                                                                            </TableCell>
-                                                                            <TableCell align="right">
-                                                                                <Typography
-                                                                                    variant="body2"
-                                                                                    sx={{
-                                                                                        fontFamily: tokens.font.mono,
-                                                                                        textDecoration: flagged ? 'line-through' : 'none',
-                                                                                        color: flagged ? 'text.disabled' : 'text.primary',
-                                                                                    }}
-                                                                                >
-                                                                                    {rep.value.toFixed(4)}
-                                                                                </Typography>
-                                                                            </TableCell>
-                                                                            <TableCell align="center">
-                                                                                <Tooltip title={flagged ? (rep.flag_reason ?? 'Unflag') : 'Flag this replicate'}>
-                                                                                    <IconButton
-                                                                                        onClick={(e) => {
-                                                                                            e.stopPropagation();
-                                                                                            handleToggleFlag(sample, i, flagged);
-                                                                                        }}
-                                                                                        color={flagged ? 'error' : 'default'}
-                                                                                    >
-                                                                                        {flagged ? <FlagIcon /> : <FlagOutlinedIcon />}
-                                                                                    </IconButton>
-                                                                                </Tooltip>
-                                                                            </TableCell>
-                                                                        </TableRow>
-                                                                    );
-                                                                })}
+                                                                {replicates.map((rep, i) => (
+                                                                    <TableRow key={i}>
+                                                                        <TableCell>
+                                                                            <Typography variant="body2">
+                                                                                Rep {i + 1}
+                                                                            </Typography>
+                                                                        </TableCell>
+                                                                        <TableCell align="right">
+                                                                            <Typography
+                                                                                variant="body2"
+                                                                                sx={{ fontFamily: tokens.font.mono }}
+                                                                            >
+                                                                                {rep.value.toFixed(4)}
+                                                                            </Typography>
+                                                                        </TableCell>
+                                                                    </TableRow>
+                                                                ))}
                                                             </TableBody>
                                                         </Table>
-                                                    )}
-                                                    {sample.field_trip_id && (
-                                                        <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                                                            Field trip: {sample.field_trip_id.slice(0, 8)}
-                                                        </Typography>
                                                     )}
                                                 </Box>
                                             </Collapse>

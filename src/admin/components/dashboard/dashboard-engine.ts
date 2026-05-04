@@ -1,6 +1,7 @@
 import uPlot from 'uplot';
 import noUiSlider, { PipsMode, type Options as NoUiSliderOptions } from 'nouislider';
 import { tokens } from '../../theme';
+import { uPlotTheme } from '../../uPlotTheme';
 
 /** Minimal project shape returned by /api/service/projects */
 interface DashboardProject {
@@ -34,6 +35,7 @@ interface SiteDetailParameter {
 interface ReadingsParameter {
   id: string;
   name: string;
+  display_name?: string;
   type: string;
   units?: string;
   values?: (number | null)[];
@@ -64,6 +66,15 @@ interface ChartDataEntry {
   timestamps: number[];
 }
 
+/** Grab sample metadata from the samples CrudCrate resource */
+interface SampleRecord {
+  id: string;
+  parameter_id: string;
+  collected_at: string;
+  n: number;
+  mean: number | null;
+}
+
 /** Dashboard state object */
 interface DashboardState {
   site: SiteDetail | null;
@@ -77,6 +88,8 @@ interface DashboardState {
   chartData: Record<string, ChartDataEntry>;
   slider: ReturnType<typeof noUiSlider.create> | null;
   data: ReadingsData | null;
+  grabData: ReadingsData | null;
+  samplesLookup: Map<string, SampleRecord>;
   alarms: AlarmBand[];
   showAlarms: boolean;
   singlePoint: boolean;
@@ -209,6 +222,8 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     chartData: {},
     slider: null,
     data: null,
+    grabData: null,
+    samplesLookup: new Map(),
     alarms: [],
     showAlarms: true,
     singlePoint: false,
@@ -635,6 +650,92 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     $('window-info').textContent = `Showing: ${formatDuration(duration)}`;
   }
 
+  function mergeTimelines(
+    mainTimes: number[],
+    grabTimes: number[],
+  ): { times: number[]; mainAt: (number | null)[]; grabAt: (number | null)[] } {
+    if (grabTimes.length === 0) {
+      return {
+        times: mainTimes,
+        mainAt: mainTimes.map((_, i) => i),
+        grabAt: mainTimes.map(() => null),
+      };
+    }
+    const map = new Map<number, { m: number | null; g: number | null }>();
+    mainTimes.forEach((t, i) => map.set(t, { m: i, g: null }));
+    grabTimes.forEach((t, i) => {
+      const entry = map.get(t);
+      if (entry) entry.g = i;
+      else map.set(t, { m: null, g: i });
+    });
+    const sorted = Array.from(map.entries()).sort((a, b) => a[0] - b[0]);
+    return {
+      times: sorted.map(([t]) => t),
+      mainAt: sorted.map(([, v]) => v.m),
+      grabAt: sorted.map(([, v]) => v.g),
+    };
+  }
+
+  function remapValues(
+    source: (number | null | undefined)[],
+    indexMap: (number | null)[],
+  ): (number | null)[] {
+    return indexMap.map((idx) => (idx != null ? (source[idx] ?? null) : null));
+  }
+
+  function grabSampleDiamondsPlugin(seriesIdx: number): uPlot.Plugin {
+    return {
+      hooks: {
+        draw: [
+          (u: uPlot) => {
+            const data = u.data[seriesIdx];
+            const xData = u.data[0];
+            if (!data || !xData) return;
+
+            const ctx = u.ctx;
+            const { left, top, width, height } = u.bbox;
+
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(left, top, width, height);
+            ctx.clip();
+
+            const size = 5;
+            ctx.fillStyle = uPlotTheme.grabSampleFill;
+            ctx.strokeStyle = uPlotTheme.grabSampleStroke;
+            ctx.lineWidth = 1.5;
+
+            for (let i = 0; i < xData.length; i++) {
+              const val = data[i];
+              if (val == null) continue;
+              const x = u.valToPos(xData[i], 'x', true);
+              const y = u.valToPos(val as number, 'y', true);
+
+              ctx.beginPath();
+              ctx.moveTo(x, y - size);
+              ctx.lineTo(x + size, y);
+              ctx.lineTo(x, y + size);
+              ctx.lineTo(x - size, y);
+              ctx.closePath();
+              ctx.fill();
+              ctx.stroke();
+            }
+
+            ctx.restore();
+          },
+        ],
+      },
+    };
+  }
+
+  function buildSamplesLookup(samples: SampleRecord[]): Map<string, SampleRecord> {
+    const lookup = new Map<string, SampleRecord>();
+    for (const s of samples) {
+      lookup.set(s.collected_at, s);
+    }
+    return lookup;
+  }
+
   const fetchData = debounce(async () => {
     if (!state.site || !state.start || !state.end) return;
 
@@ -656,21 +757,30 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     }
 
     const url = `/api/service/sites/${state.site.id}/${endpoint}?start=${state.start.toISOString()}&end=${state.end.toISOString()}&alarms=true`;
+    const grabUrl = `/api/service/sites/${state.site.id}/readings?start=${state.start.toISOString()}&end=${state.end.toISOString()}&measurement_type=spot`;
+    const samplesUrl = `/api/service/samples?filter=${encodeURIComponent(JSON.stringify({ site_id: state.site.id }))}&range=[0,999]&sort=["collected_at","DESC"]`;
 
     showLoading();
 
     try {
-      let data = await api(url) as ReadingsData;
+      const [data, grabData, samplesRes] = await Promise.all([
+        api(url) as Promise<ReadingsData>,
+        (api(grabUrl) as Promise<ReadingsData>).catch(() => ({ times: [], parameters: [] } as ReadingsData)),
+        authFetch(samplesUrl).then(r => r.ok ? r.json() : []).catch(() => []) as Promise<SampleRecord[]>,
+      ]);
 
-      if (!data.times?.length && endpoint !== 'readings') {
+      let mainData = data;
+      if (!mainData.times?.length && endpoint !== 'readings') {
         const fallbackUrl = `/api/service/sites/${state.site.id}/readings?start=${state.start.toISOString()}&end=${state.end.toISOString()}&alarms=true`;
-        data = await api(fallbackUrl) as ReadingsData;
+        mainData = await api(fallbackUrl) as ReadingsData;
         resolution = '10-min raw (fallback)';
       }
 
-      state.data = data;
+      state.data = mainData;
+      state.grabData = grabData.times?.length ? grabData : null;
+      state.samplesLookup = buildSamplesLookup(samplesRes);
       $('resolution-info').textContent = state.singlePoint ? '' : `(${resolution})`;
-      state.alarms = extractAlarmsFromData(data);
+      state.alarms = extractAlarmsFromData(mainData);
       updateAlarmCount();
       updateCharts();
     } catch (e) {
@@ -705,7 +815,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
               when_off: null,
               severity,
               parameter_id: param.id,
-              parameter_name: param.name,
+              parameter_name: param.display_name || param.name,
               parameter_type: param.type,
             };
           }
@@ -781,8 +891,33 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
         const sev = (sevs && state.showAlarms) ? (sevs[idx] || 0) : 0;
         const badge = sev > 0 ? `<span class="alarm-badge ${sev === 2 ? 'critical' : 'warning'}">${sev === 2 ? 'ALARM' : 'WARN'}</span>` : '';
         html += `<div class="tooltip-row">
-          <span class="tooltip-label" style="color: ${color}">${param.name} ${badge}</span>
+          <span class="tooltip-label" style="color: ${color}">${param.display_name || param.name} ${badge}</span>
           <span class="tooltip-value">${val != null ? val.toFixed(2) : '--'} ${param.units || ''}</span>
+        </div>`;
+      });
+
+      // Show grab sample values for this parameter type at the hovered timestamp
+      const grabParams = state.grabData?.parameters?.filter((p) => p.type === type) ?? [];
+      grabParams.forEach((gp) => {
+        const grabTimes = state.grabData?.times ?? [];
+        const grabValues = gp.values || [];
+        // Find the grab sample at this merged timestamp index
+        const mergedTs = state.chartData[type]?.timestamps;
+        if (!mergedTs) return;
+        const hoveredTs = mergedTs[idx];
+        if (hoveredTs == null) return;
+        const grabTimeIdx = grabTimes.findIndex((t) => Math.abs(new Date(t).getTime() / 1000 - hoveredTs) < 1);
+        if (grabTimeIdx < 0 || grabValues[grabTimeIdx] == null) return;
+
+        const grabVal = grabValues[grabTimeIdx];
+        const sample = state.samplesLookup.get(grabTimes[grabTimeIdx]);
+        const replicateBadge = sample && sample.n > 1
+          ? `<span class="tooltip-grab-badge">${sample.n} replicates</span>`
+          : '';
+
+        html += `<div class="tooltip-row">
+          <span class="tooltip-label" style="color: ${tokens.markers.grabSample.stroke}">&#x25C6; ${gp.display_name || gp.name} (grab) ${replicateBadge}</span>
+          <span class="tooltip-value">${grabVal != null ? grabVal.toFixed(2) : '--'} ${gp.units || ''}</span>
         </div>`;
       });
     });
@@ -913,8 +1048,6 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
       const typeParams = paramsByType[type] || [];
       if (!typeParams.length) return;
 
-      state.chartData[type] = { params: typeParams, timestamps };
-
       let chartDiv = root.querySelector(`#${cssId(type)}`) as HTMLElement | null;
       const isExpanded = state.expandedCharts.has(type);
       const chartHeight = isExpanded ? CHART_HEIGHT_EXPANDED : CHART_HEIGHT_NORMAL;
@@ -968,21 +1101,53 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
       expandBtn.textContent = isExpanded ? '\u2921' : '\u2922';
       (expandBtn as HTMLElement).title = isExpanded ? 'Collapse chart' : 'Expand chart';
 
-      const seriesData: uPlot.AlignedData = [timestamps];
+      // Collect grab sample data for this parameter type
+      const grabParams = state.grabData?.parameters?.filter((p) => p.type === type) ?? [];
+      const grabTimesRaw = grabParams.length > 0 && state.grabData?.times?.length
+        ? state.grabData.times.map((t) => new Date(t).getTime() / 1000)
+        : [];
+      const hasGrab = grabTimesRaw.length > 0;
+
+      // Merge grab sample timestamps into the main timeline
+      const { times: mergedTimes, mainAt, grabAt } = hasGrab
+        ? mergeTimelines(timestamps, grabTimesRaw)
+        : { times: timestamps, mainAt: timestamps.map((_, i) => i), grabAt: timestamps.map(() => null) };
+
+      state.chartData[type] = { params: typeParams, timestamps: mergedTimes };
+
+      const seriesData: uPlot.AlignedData = [mergedTimes];
       const seriesOpts: uPlot.Series[] = [{}];
 
       typeParams.forEach((param) => {
-        const values = param.values || param.avg || [];
+        const rawValues = param.values || param.avg || [];
+        const values = hasGrab ? remapValues(rawValues, mainAt) : rawValues;
         (seriesData as (number | null)[][]).push(values);
         seriesOpts.push({
-          label: param.name,
+          label: param.display_name || param.name,
           stroke: parameterColors[type] || tokens.brand.textMuted,
           width: 1.5,
-          // Show dots for single-point data (the value sits between two nulls)
           points: isSingleTimestamp ? { show: true, size: 8 } : undefined,
           value: (_u: uPlot, v: number | null) => v == null ? '--' : v.toFixed(2) + (param.units ? ' ' + param.units : ''),
         });
       });
+
+      // Add grab sample series (one per grab parameter matching this type)
+      const plugins: uPlot.Plugin[] = [alarmBandsPlugin(type)];
+      if (hasGrab) {
+        grabParams.forEach((gp) => {
+          const rawGrabValues = gp.values || [];
+          const grabValues = remapValues(rawGrabValues, grabAt);
+          (seriesData as (number | null)[][]).push(grabValues);
+          const grabSeriesIdx = seriesData.length - 1;
+          seriesOpts.push({
+            label: `${gp.display_name || gp.name} (grab)`,
+            stroke: tokens.markers.grabSample.fill,
+            width: 0,
+            points: { show: false },
+          });
+          plugins.push(grabSampleDiamondsPlugin(grabSeriesIdx));
+        });
+      }
 
       const existing = state.charts[type];
       if (existing && existing.series.length === seriesOpts.length) {
@@ -1013,7 +1178,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
             sync: { key: syncKey.key, setSeries: true },
             drag: { x: true, y: false },
           },
-          plugins: [alarmBandsPlugin(type)],
+          plugins,
           hooks: {
             setCursor: [
               (u: uPlot) => {

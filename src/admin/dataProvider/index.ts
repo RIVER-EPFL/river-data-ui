@@ -260,6 +260,7 @@ export interface RiverDataProvider extends DataProvider {
   getDiscovery: () => Promise<{ data: DiscoveryItem[] }>;
   applyDiscovery: (actions: ApplyAction[]) => Promise<{ data: ApplyDiscoveryResponse }>;
   recalibrateCalibration: (id: string) => Promise<{ data: unknown }>;
+  rollbackDeployment: (deploymentId: string) => Promise<{ data: { status: string; readings_reassigned: number; previous_deployment_id: string | null } }>;
   recomputeDerived: (id: string) => Promise<{ data: unknown }>;
   invalidatePublicConfig: (slug: string) => Promise<{ data: unknown }>;
   previewDerived: (params: PreviewDerivedRequest) => Promise<{ data: PreviewDerivedResponse }>;
@@ -533,6 +534,13 @@ const dataProvider = (
   recalibrateCalibration: (id: string) => {
     return httpClient(`${apiUrl}/actions/sensor_calibrations/${id}/recalculate`, {
       method: 'POST',
+    }).then(({ json }) => ({ data: json }));
+  },
+
+  rollbackDeployment: (deploymentId: string) => {
+    return httpClient(`${apiUrl}/actions/rollback_deployment`, {
+      method: 'POST',
+      body: JSON.stringify({ deployment_id: deploymentId }),
     }).then(({ json }) => ({ data: json }));
   },
 

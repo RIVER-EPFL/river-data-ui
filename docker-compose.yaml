@@ -324,9 +324,51 @@ services:
       retries: 15
       start_period: 30s
 
+  # ── Test infrastructure (profile: test) ─────────────────────────────
+  river-db-test-db:
+    image: timescale/timescaledb:${TIMESCALEDB_VERSION:-2.23.0-pg18}
+    profiles: [test]
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=psql
+      - POSTGRES_DB=river_test
+    ports:
+      - "5444:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  river-db-test-watcher:
+    build:
+      context: ../river-data-api
+      dockerfile: Dockerfile.dev
+    profiles: [test]
+    environment:
+      - DATABASE_URL=postgresql://postgres:psql@river-db-test-db:5432/river_test
+      - RUST_LOG=warn
+    depends_on:
+      river-db-test-db:
+        condition: service_healthy
+    entrypoint: ["bacon", "--headless", "test-integration"]
+    volumes:
+      - ../river-data-api/src:/app/src
+      - ../river-data-api/tests:/app/tests
+      - ../river-data-api/migration:/app/migration
+      - ../river-data-api/river-data-toolbox:/app/river-data-toolbox
+      - ../river-data-api/river-data-sync-common:/app/river-data-sync-common
+      - ../river-data-api/Cargo.toml:/app/Cargo.toml
+      - ../river-data-api/Cargo.lock:/app/Cargo.lock
+      - ../river-data-api/bacon.toml:/app/bacon.toml
+      - river-db-test-rust-data:/app/target
+
 volumes:
   river-db-timescale-data:
   river-db-rust-data:
+  river-db-test-rust-data:
   portal-cnet-data:
   portal-metalp-data:
   portal-nomis-data:

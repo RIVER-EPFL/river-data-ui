@@ -21,7 +21,6 @@ import tokens from './tokens';
 import publicExposedParameters from './public_exposed_parameters';
 import standardCurves from './standard_curves';
 import users from './users';
-import fieldTrips from './field_trips';
 import constants from './constants';
 
 /** Resources shown in the sidebar navigation */
@@ -45,7 +44,6 @@ export const hiddenResources = [
   { name: 'sensor_calibrations', ...sensorCalibrations },
   { name: 'sensor_deployments', ...sensorDeployments },
   { name: 'public_exposed_parameters', ...publicExposedParameters },
-  { name: 'field_trips', ...fieldTrips },
   { name: 'data_streams' },
   { name: 'sync_services' },
   { name: 'sync_commands' },

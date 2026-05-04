@@ -29,6 +29,7 @@ interface DerivedDefinition {
   display_name: string | null;
   formula: string;
   units: string | null;
+  output_parameter_id: string | null;
   sources: Array<{
     id: string;
     derived_definition_id: string;
@@ -73,6 +74,8 @@ export const AssignToSiteDialog: React.FC<AssignToSiteDialogProps> = ({
     pagination: { page: 1, perPage: 200 },
     sort: { field: 'name', order: 'ASC' },
   });
+
+  const outputParameterId = definition.output_parameter_id;
 
   // Fetch site_parameters for selected site
   const { data: siteParams } = useGetList<SiteParameterRecord>('site_parameters', {
@@ -119,14 +122,14 @@ export const AssignToSiteDialog: React.FC<AssignToSiteDialogProps> = ({
   }, [availability, allAvailable]);
 
   const handleAssign = () => {
-    if (!targetSiteId) return;
+    if (!targetSiteId || !outputParameterId) return;
 
     create(
       'site_parameters',
       {
         data: {
           site_id: targetSiteId,
-          parameter_id: null,
+          parameter_id: outputParameterId,
           name: definition.display_name ?? definition.name,
           sensor_type: 'derived',
           display_units: definition.units,
@@ -239,6 +242,12 @@ export const AssignToSiteDialog: React.FC<AssignToSiteDialogProps> = ({
             This formula has no declared required parameter types.
           </Alert>
         )}
+
+        {targetSiteId && !outputParameterId && (
+          <Alert severity="error">
+            No output parameter linked to this formula. Edit and re-save the derived definition to generate the link.
+          </Alert>
+        )}
       </DialogContent>
       <DialogActions>
         <Button onClick={handleClose} disabled={isPending}>
@@ -247,7 +256,7 @@ export const AssignToSiteDialog: React.FC<AssignToSiteDialogProps> = ({
         <Button
           onClick={handleAssign}
           variant="contained"
-          disabled={isPending || !targetSiteId}
+          disabled={isPending || !targetSiteId || !outputParameterId}
           startIcon={isPending ? <CircularProgress size={16} /> : undefined}
         >
           Assign to Site

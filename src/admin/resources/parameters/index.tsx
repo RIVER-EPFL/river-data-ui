@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   List,
   Datagrid,
@@ -21,12 +21,14 @@ import {
   EditButton,
   useRecordContext,
   useGetList,
+  useListContext,
+  ListContextProvider,
 } from 'react-admin';
 import { Chip, Typography, Box } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 
 /** Show count of sites using this parameter (receives pre-computed counts) */
-const SiteCountField = (_props: { label?: string; counts?: Map<string, number> }) => {
+const SiteCountField = (_props: { label?: string; counts?: Map<string, number>; sortBy?: string }) => {
   const record = useRecordContext();
   const navigate = useNavigate();
   const counts = _props.counts;
@@ -48,7 +50,7 @@ const SiteCountField = (_props: { label?: string; counts?: Map<string, number> }
 };
 
 /** Show count of sensors measuring this parameter (receives pre-computed counts) */
-const SensorCountField = (_props: { label?: string; counts?: Map<string, number> }) => {
+const SensorCountField = (_props: { label?: string; counts?: Map<string, number>; sortBy?: string }) => {
   const record = useRecordContext();
   const navigate = useNavigate();
   const counts = _props.counts;
@@ -71,6 +73,9 @@ const SensorCountField = (_props: { label?: string; counts?: Map<string, number>
 
 /** Wraps Datagrid with bulk-fetched counts for site_parameters and sensors */
 const ParameterDatagrid = () => {
+  const [showUnassigned, setShowUnassigned] = useState(false);
+  const listContext = useListContext();
+
   const { data: siteParams } = useGetList('site_parameters', {
     pagination: { page: 1, perPage: 500 },
     sort: { field: 'id', order: 'ASC' },
@@ -102,16 +107,61 @@ const ParameterDatagrid = () => {
     return map;
   }, [sensors]);
 
-  return (
+  const needsClientProcessing = showUnassigned ||
+    listContext.sort?.field === '__site_count' ||
+    listContext.sort?.field === '__sensor_count';
+
+  const effectiveData = useMemo(() => {
+    if (!needsClientProcessing || !listContext.data) return null;
+
+    let data = listContext.data;
+
+    if (showUnassigned) {
+      data = data.filter((r) => (siteCounts.get(String(r.id)) ?? 0) === 0);
+    }
+
+    const { field, order } = listContext.sort ?? {};
+    if (field === '__site_count' || field === '__sensor_count') {
+      const counts = field === '__site_count' ? siteCounts : sensorCounts;
+      const dir = order === 'DESC' ? -1 : 1;
+      data = [...data].sort((a, b) =>
+        dir * ((counts.get(String(a.id)) ?? 0) - (counts.get(String(b.id)) ?? 0)),
+      );
+    }
+
+    return data;
+  }, [needsClientProcessing, showUnassigned, listContext.data, listContext.sort, siteCounts, sensorCounts]);
+
+  const grid = (
     <Datagrid rowClick="show">
       <TextField source="name" />
       <TextField source="display_name" />
       <TextField source="default_units" />
       <TextField source="description" />
-      <SiteCountField label="Sites" counts={siteCounts} />
-      <SensorCountField label="Sensors" counts={sensorCounts} />
+      <SiteCountField label="Sites" counts={siteCounts} sortBy="__site_count" />
+      <SensorCountField label="Sensors" counts={sensorCounts} sortBy="__sensor_count" />
       <DateField source="created_at" showTime />
     </Datagrid>
+  );
+
+  return (
+    <>
+      <Box sx={{ px: 2, pt: 1, display: 'flex', gap: 1 }}>
+        <Chip
+          label="Unassigned only"
+          variant={showUnassigned ? 'filled' : 'outlined'}
+          color={showUnassigned ? 'warning' : 'default'}
+          onClick={() => setShowUnassigned(!showUnassigned)}
+        />
+      </Box>
+      {effectiveData ? (
+        <ListContextProvider value={{ ...listContext, data: effectiveData, total: effectiveData.length } as any}>
+          {grid}
+        </ListContextProvider>
+      ) : (
+        grid
+      )}
+    </>
   );
 };
 
@@ -131,7 +181,7 @@ const ParameterFilters = () => {
   const categoryChoices = useCategoryChoices();
   return [
     <TextInput source="q" label="Search" alwaysOn key="q" />,
-    <SelectInput source="category" label="Category" key="category" choices={categoryChoices} />,
+    <SelectInput source="category" label="Category" key="category" choices={categoryChoices} alwaysOn />,
   ];
 };
 

@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
     useGetList,
     useNotify,
@@ -72,6 +73,17 @@ interface SensorRecord {
     model: string | null;
     is_active: boolean | null;
     is_lab_instrument: boolean | null;
+    metadata: Record<string, string> | null;
+}
+
+interface SensorCalibrationRecord {
+    id: string;
+    sensor_id: string;
+    slope: number;
+    intercept: number;
+    valid_from: string;
+    performed_by: string | null;
+    notes: string | null;
 }
 
 interface StandardCurveRecord {
@@ -115,9 +127,10 @@ const MAX_REPLICATES = 10;
 const GrabSampleEntry: React.FC = () => {
     const notify = useNotify();
     const authFetch = useAuthFetch();
+    const [searchParams] = useSearchParams();
 
-    const [projectId, setProjectId] = useState('');
-    const [siteId, setSiteId] = useState('');
+    const [projectId, setProjectId] = useState(() => searchParams.get('projectId') ?? '');
+    const [siteId, setSiteId] = useState(() => searchParams.get('siteId') ?? '');
     const [dateTime, setDateTime] = useState(() => {
         const now = new Date();
         now.setSeconds(0, 0);
@@ -140,6 +153,18 @@ const GrabSampleEntry: React.FC = () => {
     const [overrideValues, setOverrideValues] = useState<Record<number, string>>({});
     // Quantile cache for distribution-based validation warnings
     const [quantileCache, setQuantileCache] = useState<Map<string, { p5: number; p95: number }>>(new Map());
+    // Sensor stats cache (fetched on-demand when instrument selected)
+    const [sensorStatsCache, setSensorStatsCache] = useState<Map<string, { reading_count: number; last_reading_at: string | null; last_calibration_at: string | null }>>(new Map());
+
+    const fetchSensorStats = useCallback(async (sensorId: string) => {
+        if (sensorStatsCache.has(sensorId)) return;
+        try {
+            const resp = await authFetch(`/api/service/sensors/${sensorId}`);
+            if (!resp.ok) return;
+            const data = await resp.json();
+            setSensorStatsCache(prev => new Map(prev).set(sensorId, data));
+        } catch { /* ignore */ }
+    }, [authFetch, sensorStatsCache]);
 
     // Fetch projects and sites
     const { data: projects } = useGetList<ProjectRecord>('projects', {
@@ -164,12 +189,30 @@ const GrabSampleEntry: React.FC = () => {
         sort: { field: 'name', order: 'ASC' },
     }, { enabled: !!siteId });
 
-    // Fetch lab instrument sensors
+    // Fetch lab/portable instrument sensors
     const { data: sensors } = useGetList<SensorRecord>('sensors', {
         filter: { is_lab_instrument: true, is_active: true },
         pagination: { page: 1, perPage: 200 },
         sort: { field: 'serial_number', order: 'ASC' },
     });
+
+    // Fetch calibrations for lab instruments (latest per sensor)
+    const { data: sensorCalibrations } = useGetList<SensorCalibrationRecord>('sensor_calibrations', {
+        pagination: { page: 1, perPage: 500 },
+        sort: { field: 'valid_from', order: 'DESC' },
+    });
+
+    // Map sensor_id → most recent calibration date
+    const lastCalibrationMap = useMemo(() => {
+        const map = new Map<string, string>();
+        if (!sensorCalibrations) return map;
+        for (const cal of sensorCalibrations) {
+            if (!map.has(cal.sensor_id)) {
+                map.set(cal.sensor_id, cal.valid_from);
+            }
+        }
+        return map;
+    }, [sensorCalibrations]);
 
     // Fetch standard curves (sorted by valid_from DESC)
     const { data: standardCurves } = useGetList<StandardCurveRecord>('standard_curves', {
@@ -572,7 +615,7 @@ const GrabSampleEntry: React.FC = () => {
                             return (
                                 <Box key={row.id} sx={{ mb: 2 }}>
                                     {/* Main row */}
-                                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
                                         <TextField
                                             select
                                             value={row.parameter_id}
@@ -618,18 +661,51 @@ const GrabSampleEntry: React.FC = () => {
                                         <TextField
                                             select
                                             value={row.sensor_id}
-                                            onChange={(e) => updateRow(row.id, 'sensor_id', e.target.value)}
+                                            onChange={(e) => {
+                                                updateRow(row.id, 'sensor_id', e.target.value);
+                                                if (e.target.value) fetchSensorStats(e.target.value);
+                                            }}
                                             sx={{ flex: 2 }}
+                                            helperText={row.sensor_id ? (sensorStatsCache.get(row.sensor_id)
+                                                ? (() => {
+                                                    const stats = sensorStatsCache.get(row.sensor_id)!;
+                                                    if (stats.last_reading_at) return `Last reading: ${new Date(stats.last_reading_at).toLocaleDateString()} (${stats.reading_count} total)`;
+                                                    return 'No readings yet';
+                                                })()
+                                                : 'Loading...'
+                                            ) : undefined}
+                                            slotProps={{
+                                                select: {
+                                                    renderValue: (val) => {
+                                                        const s = sensors?.find(x => x.id === val as string);
+                                                        if (!s) return '';
+                                                        const serial = s.serial_number ?? s.metadata?.source_device_serial;
+                                                        return serial ? `${s.name ?? ''} (${serial})` : (s.name ?? '');
+                                                    },
+                                                },
+                                            }}
                                         >
                                             <MenuItem value="">
                                                 <em>None</em>
                                             </MenuItem>
-                                            {(sensors ?? []).map((s) => (
-                                                <MenuItem key={s.id} value={s.id}>
-                                                    {s.serial_number ?? s.name ?? s.id.slice(0, 8)}
-                                                    {s.manufacturer ? ` (${s.manufacturer})` : ''}
-                                                </MenuItem>
-                                            ))}
+                                            {(sensors ?? []).map((s) => {
+                                                const serial = s.serial_number ?? s.metadata?.source_device_serial;
+                                                const label = serial ? `${s.name ?? ''} (${serial})` : (s.name ?? s.id.slice(0, 8));
+                                                const calDate = lastCalibrationMap.get(s.id);
+                                                const subtitle = [
+                                                    s.manufacturer && s.model ? `${s.manufacturer} ${s.model}` : (s.model ?? s.manufacturer ?? ''),
+                                                    calDate ? `Cal: ${new Date(calDate).toLocaleDateString()}` : null,
+                                                ].filter(Boolean).join(' · ');
+
+                                                return (
+                                                    <MenuItem key={s.id} value={s.id}>
+                                                        <Box>
+                                                            <Typography variant="body2">{label}</Typography>
+                                                            {subtitle && <Typography variant="caption" color="text.secondary">{subtitle}</Typography>}
+                                                        </Box>
+                                                    </MenuItem>
+                                                );
+                                            })}
                                         </TextField>
 
                                         <TextField
@@ -645,7 +721,7 @@ const GrabSampleEntry: React.FC = () => {
                                             const warning = !isNaN(val) && row.parameter_id ? getQuantileWarning(row.parameter_id, val) : null;
                                             return warning ? (
                                                 <Tooltip title={warning}>
-                                                    <WarningAmberIcon sx={{ color: 'warning.main', fontSize: 20, ml: -0.5 }} />
+                                                    <WarningAmberIcon sx={{ color: 'warning.main', fontSize: 20, ml: -0.5, mt: '10px' }} />
                                                 </Tooltip>
                                             ) : null;
                                         })()}
@@ -653,6 +729,7 @@ const GrabSampleEntry: React.FC = () => {
                                         <IconButton
                                             onClick={() => removeRow(row.id)}
                                             disabled={rows.length <= 1}
+                                            sx={{ mt: '4px' }}
                                         >
                                             <DeleteIcon fontSize="small" />
                                         </IconButton>

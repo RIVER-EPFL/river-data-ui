@@ -5,7 +5,7 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import ScienceIcon from '@mui/icons-material/Science';
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import BuildIcon from '@mui/icons-material/Build';
-import HikingIcon from '@mui/icons-material/Hiking';
+
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import RssFeedIcon from '@mui/icons-material/RssFeed';
 import SearchBar from './components/SearchBar';
@@ -43,7 +43,6 @@ const CustomMenu = () => (
     <Menu.ResourceItem name="sensors" />
     <Menu.Item to="/admin/streams" primaryText="Streams" leftIcon={<RssFeedIcon />} />
     <Typography sx={snippets.navSectionLabel}>Field Work</Typography>
-    <Menu.Item to="/admin/field-trip" primaryText="Field Trip Entry" leftIcon={<HikingIcon />} />
     <Menu.Item to="/admin/grab-samples" primaryText="Grab Samples" leftIcon={<ScienceIcon />} />
     <Typography sx={snippets.navSectionLabel}>Analyze</Typography>
     <Menu.Item to="/admin/compare" primaryText="Compare Sites" leftIcon={<CompareArrowsIcon />} />

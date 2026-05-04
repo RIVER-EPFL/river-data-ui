@@ -53,6 +53,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ScatterPlotIcon from '@mui/icons-material/ScatterPlot';
 import ScienceIcon from '@mui/icons-material/Science';
+import TimelineIcon from '@mui/icons-material/Timeline';
 import { useParams } from 'react-router-dom';
 import { StationHeader } from './StationHeader';
 import { SensorCard } from './SensorCard';
@@ -330,6 +331,16 @@ const DeploySensorDialog: React.FC<{
                     }}
                     renderInput={(params) => <TextField {...params} label="Sensor" />}
                 />
+                {selectedSensor && (() => {
+                    const dep = getActiveDeploy(selectedSensor);
+                    if (!dep || dep.site_id === siteId) return null;
+                    const name = siteMap.get(dep.site_id) ?? dep.site_id.slice(0, 8);
+                    return (
+                        <Alert severity="warning">
+                            This sensor is currently deployed at <strong>{name}</strong>. Deploying here will automatically recall it.
+                        </Alert>
+                    );
+                })()}
                 <TextField
                     select
                     label="Target Parameter"
@@ -339,7 +350,7 @@ const DeploySensorDialog: React.FC<{
                 >
                     {nonDerivedParams.map((p) => (
                         <MenuItem key={p.id} value={p.id}>
-                            {p.name} ({p.display_units ?? 'N/A'})
+                            {p.parameter?.[0]?.display_name || p.name} ({p.display_units ?? 'N/A'})
                         </MenuItem>
                     ))}
                 </TextField>
@@ -431,6 +442,7 @@ const AssignDerivedButton: React.FC<{ siteId: string }> = ({ siteId }) => {
                         display_name: selectedDef.display_name,
                         formula: selectedDef.formula,
                         units: selectedDef.units,
+                        output_parameter_id: selectedDef.output_parameter_id ?? null,
                         sources: selectedDef.sources ?? [],
                     }}
                     preselectedSiteId={siteId}
@@ -481,6 +493,7 @@ interface ReadingsResponse {
     parameters: {
         id: string;
         name: string;
+        display_name?: string;
         type: string;
         units?: string;
         values?: (number | null)[];
@@ -555,7 +568,7 @@ const SinglePointDataTable: React.FC<{ siteId: string }> = ({ siteId }) => {
         }
 
         rows.push({
-            name: param.name,
+            name: param.display_name || param.name,
             type: param.type,
             units: param.units ?? '',
             value: valueStr,
@@ -758,7 +771,7 @@ const StationHub = () => {
     // Parameter name lookup for status events
     const parameterNames = useMemo(() => {
         const map = new Map<string, string>();
-        parameters?.forEach((p) => map.set(p.id, p.name));
+        parameters?.forEach((p) => map.set(p.id, p.parameter?.[0]?.display_name || p.name));
         return map;
     }, [parameters]);
 
@@ -836,20 +849,7 @@ const StationHub = () => {
                 </Button>
             </Box>
 
-            {/* Charts hero (full-width, primary) */}
-            <Box sx={{ mb: 3 }}>
-                {(parameters ?? []).filter((p) => !p.is_derived).length > 0 ? (
-                    dataRange.isSinglePoint ? (
-                        <SinglePointDataTable siteId={id!} />
-                    ) : (
-                        <ChartsDashboard siteId={id!} />
-                    )
-                ) : (
-                    <Alert severity="info">No parameters configured for charting.</Alert>
-                )}
-            </Box>
-
-            {/* Detail tabs (full width, below charts) */}
+            {/* Tabs (charts is the default first tab) */}
             <Paper sx={{ mb: 1 }}>
                 <Tabs
                     value={tab}
@@ -857,6 +857,7 @@ const StationHub = () => {
                     variant="scrollable"
                     scrollButtons="auto"
                 >
+                    <Tab icon={<TimelineIcon />} iconPosition="start" label="Charts" />
                     <Tab icon={<SensorsIcon />} iconPosition="start" label="Sensors" />
                     <Tab icon={<FunctionsIcon />} iconPosition="start" label="Derived" />
                     <Tab label="Status" />
@@ -866,8 +867,23 @@ const StationHub = () => {
                 </Tabs>
             </Paper>
 
+            {/* Charts tab — always mounted to preserve zoom/scroll state */}
+            <div role="tabpanel" hidden={tab !== 0}>
+                <Box sx={{ pt: 2 }}>
+                    {(parameters ?? []).filter((p) => !p.is_derived).length > 0 ? (
+                        dataRange.isSinglePoint ? (
+                            <SinglePointDataTable siteId={id!} />
+                        ) : (
+                            <ChartsDashboard siteId={id!} />
+                        )
+                    ) : (
+                        <Alert severity="info">No parameters configured for charting.</Alert>
+                    )}
+                </Box>
+            </div>
+
             {/* Sensors tab */}
-            <TabPanel value={tab} index={0}>
+            <TabPanel value={tab} index={1}>
                 {sensorGroups.length === 0 ? (
                     <Alert severity="info">
                         No sensor deployments found for this site. Click "Deploy Sensor" above to get started.
@@ -889,7 +905,7 @@ const StationHub = () => {
             </TabPanel>
 
             {/* Derived tab */}
-            <TabPanel value={tab} index={1}>
+            <TabPanel value={tab} index={2}>
                 <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
                     <AssignDerivedButton siteId={id!} />
                 </Box>
@@ -904,7 +920,7 @@ const StationHub = () => {
             </TabPanel>
 
             {/* Status tab */}
-            <TabPanel value={tab} index={2}>
+            <TabPanel value={tab} index={3}>
                 <StatusEventsTimeline
                     siteId={id!}
                     parameterNames={parameterNames}
@@ -913,18 +929,18 @@ const StationHub = () => {
             </TabPanel>
 
             {/* Notes tab */}
-            <TabPanel value={tab} index={3}>
+            <TabPanel value={tab} index={4}>
                 <NotesSection siteId={id!} defaultExpanded />
             </TabPanel>
 
             {/* Scatter tab */}
-            <TabPanel value={tab} index={4}>
+            <TabPanel value={tab} index={5}>
                 {(parameters ?? []).filter((p) => !p.is_derived).length >= 2 ? (
                     <ScatterPlot
                         siteId={id!}
                         parameters={(parameters ?? []).map((p) => ({
                             id: p.id,
-                            name: p.name,
+                            name: p.parameter?.[0]?.display_name || p.name,
                             units: p.display_units,
                         }))}
                     />
@@ -936,13 +952,14 @@ const StationHub = () => {
             </TabPanel>
 
             {/* Grab Samples tab */}
-            <TabPanel value={tab} index={5}>
+            <TabPanel value={tab} index={6}>
                 <GrabSamplesSection
                     siteId={id!}
+                    projectId={site?.project_id}
                     parameters={(parameters ?? []).map(p => ({
                         id: p.id,
                         parameter_id: p.parameter_id,
-                        name: p.name,
+                        name: p.parameter?.[0]?.display_name || p.name,
                         display_units: p.display_units,
                     }))}
                 />

@@ -28,6 +28,7 @@ export interface DerivedParameterRecord {
     display_name: string | null;
     units: string | null;
     description: string | null;
+    output_parameter_id: string | null;
     sources: Array<{
         id: string;
         derived_definition_id: string;
@@ -131,7 +132,7 @@ export const DerivedSection: React.FC<DerivedSectionProps> = ({
                         <Box key={param.id} sx={{ mb: 2, pb: 2, borderBottom: '1px solid', borderColor: 'divider', '&:last-child': { borderBottom: 'none', pb: 0 } }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
                                 <Typography variant="body2" fontWeight="medium">
-                                    {param.name}
+                                    {def?.display_name || param.parameter?.[0]?.display_name || param.name}
                                 </Typography>
                                 {param.display_units && (
                                     <Chip label={param.display_units} variant="outlined" />

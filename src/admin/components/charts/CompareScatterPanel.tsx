@@ -14,6 +14,7 @@ interface SiteParameterRecord {
     site_id: string;
     display_units: string | null;
     is_derived: boolean;
+    parameter?: { id: string; display_name?: string }[];
 }
 
 /**
@@ -45,7 +46,7 @@ export const CompareScatterPanel = () => {
         () =>
             (siteParams ?? [])
                 .filter((p) => !p.is_derived)
-                .map((p) => ({ id: p.id, name: p.name, units: p.display_units })),
+                .map((p) => ({ id: p.id, name: p.parameter?.[0]?.display_name || p.name, units: p.display_units })),
         [siteParams],
     );
 

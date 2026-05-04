@@ -93,6 +93,7 @@ const AssignToSiteButton = () => {
           display_name: record.display_name as string | null,
           formula: record.formula as string,
           units: record.units as string | null,
+          output_parameter_id: (record.output_parameter_id as string | null) ?? null,
           sources: (record.sources ?? []) as Array<{id: string; derived_definition_id: string; parameter_id: string; variable_name: string}>,
         }}
       />
@@ -236,6 +237,7 @@ const PreviewSection = () => {
           display_name: record.display_name as string | null,
           formula,
           units: record.units as string | null,
+          output_parameter_id: (record.output_parameter_id as string | null) ?? null,
           sources,
         }}
         preselectedSiteId={previewSiteId}

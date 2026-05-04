@@ -47,8 +47,9 @@ export const StationHeader: React.FC<StationHeaderProps> = ({ site, project, sta
                     component={Link}
                     to={`/admin/sites/${site.id}`}
                     startIcon={<EditIcon />}
+                    variant="outlined"
                 >
-                    Edit
+                    Edit Site
                 </Button>
             </Box>
 

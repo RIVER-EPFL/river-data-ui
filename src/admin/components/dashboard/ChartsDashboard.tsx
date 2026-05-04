@@ -452,6 +452,16 @@ const DASHBOARD_CSS = `
 }
 .river-dashboard .alarm-badge.warning { background: ${tokens.severity.warning.soft}; color: ${tokens.severity.warning.main}; }
 .river-dashboard .alarm-badge.critical { background: ${tokens.severity.alarm.soft}; color: ${tokens.severity.alarm.main}; }
+.river-dashboard .tooltip-grab-badge {
+  font-size: 0.6rem;
+  font-weight: 600;
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.15rem;
+  background: ${tokens.markers.grabSample.fill}33;
+  color: ${tokens.markers.grabSample.stroke};
+  margin-left: 0.3rem;
+  vertical-align: middle;
+}
 .river-dashboard .noUi-target {
   background: var(--bg);
   border: 1px solid var(--border);

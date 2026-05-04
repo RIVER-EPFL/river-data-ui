@@ -90,7 +90,7 @@ const SLIDER_CSS = `
 }
 `;
 
-export const TimeRangeSlider: React.FC<TimeRangeSliderProps> = ({
+export const TimeRangeSlider: React.FC<TimeRangeSliderProps> = React.memo(({
   dataMin,
   dataMax,
   loading = false,
@@ -102,6 +102,7 @@ export const TimeRangeSlider: React.FC<TimeRangeSliderProps> = ({
   compact = false,
 }) => {
   const sliderElRef = useRef<HTMLDivElement>(null);
+  const isDraggingRef = useRef(false);
   const sliderRef = useRef<SliderAPI | null>(null);
   const styleInjected = useRef(false);
   // Local span for smooth info-text updates during drag (avoids waiting for React re-render)
@@ -237,6 +238,9 @@ export const TimeRangeSlider: React.FC<TimeRangeSliderProps> = ({
       pips: pipsConfig || undefined,
     });
 
+    slider.on('start', () => { isDraggingRef.current = true; });
+    slider.on('end', () => { isDraggingRef.current = false; });
+
     // 'slide' fires only on user interaction (NOT on programmatic set()),
     // so there's no feedback loop with the sync effect below.
     // Update local span immediately for smooth info-text, and propagate to parent.
@@ -268,7 +272,7 @@ export const TimeRangeSlider: React.FC<TimeRangeSliderProps> = ({
   // Since we use 'slide' (not 'update'), programmatic set() won't re-trigger onChange.
   useEffect(() => {
     const slider = sliderRef.current;
-    if (!slider) return;
+    if (!slider || isDraggingRef.current) return;
 
     const clampedStart = Math.max(dataMin, Math.min(start, dataMax));
     const clampedEnd = Math.max(dataMin, Math.min(end, dataMax));
@@ -408,4 +412,4 @@ export const TimeRangeSlider: React.FC<TimeRangeSliderProps> = ({
       )}
     </Box>
   );
-};
+});

@@ -11,6 +11,7 @@ import {
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
+import SearchIcon from '@mui/icons-material/Search';
 import { DragDropProvider, useDraggable, useDroppable } from '@dnd-kit/react';
 import type { DragEndEvent } from '@dnd-kit/dom';
 import { tokens } from '../theme';
@@ -322,6 +323,7 @@ export const VisualFormulaBuilder: React.FC<VisualFormulaBuilderProps> = ({
   parameterTypes,
 }) => {
   const [selectedSlot, setSelectedSlot] = useState<NodePath | null>(null);
+  const [paletteSearch, setPaletteSearch] = useState('');
 
   const paramColorMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -545,12 +547,45 @@ export const VisualFormulaBuilder: React.FC<VisualFormulaBuilderProps> = ({
             <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
               Variables (drag or click to insert)
             </Typography>
+            <TextField
+              placeholder="Filter variables..."
+              value={paletteSearch}
+              onChange={(e) => setPaletteSearch(e.target.value)}
+              fullWidth
+              sx={{ mb: 0.75 }}
+              slotProps={{
+                input: {
+                  startAdornment: <SearchIcon sx={{ mr: 0.5, color: 'text.disabled', fontSize: '1rem' }} />,
+                  ...(paletteSearch ? {
+                    endAdornment: (
+                      <IconButton onClick={() => setPaletteSearch('')} sx={{ p: 0.25 }}>
+                        <CloseIcon sx={{ fontSize: 14 }} />
+                      </IconButton>
+                    ),
+                  } : {}),
+                },
+              }}
+            />
             {(() => {
+              const q = paletteSearch.toLowerCase();
+              const filtered = q
+                ? parameterTypes.filter((pt) =>
+                    pt.name.toLowerCase().includes(q) ||
+                    (pt.display_name?.toLowerCase().includes(q) ?? false) ||
+                    ((pt as { category?: string }).category?.toLowerCase().includes(q) ?? false))
+                : parameterTypes;
               const groups = new Map<string, typeof parameterTypes>();
-              for (const pt of parameterTypes) {
+              for (const pt of filtered) {
                 const cat = (pt as { category?: string }).category ?? 'Other';
                 if (!groups.has(cat)) groups.set(cat, []);
                 groups.get(cat)!.push(pt);
+              }
+              if (filtered.length === 0 && paletteSearch) {
+                return (
+                  <Typography variant="caption" color="text.disabled" sx={{ fontStyle: 'italic' }}>
+                    No parameters match &ldquo;{paletteSearch}&rdquo;
+                  </Typography>
+                );
               }
               return Array.from(groups.entries()).map(([cat, pts]) => (
                 <Box key={cat} sx={{ mb: 0.75 }}>

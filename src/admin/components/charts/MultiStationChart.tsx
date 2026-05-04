@@ -40,6 +40,7 @@ interface SiteRecord {
 interface ParameterRecord {
   id: string;
   name: string;
+  display_name?: string;
   type: string;
   units: string | null;
 }
@@ -274,7 +275,7 @@ export const MultiStationChart: React.FC = () => {
 
           <Autocomplete
             options={parameters}
-            getOptionLabel={(option) => `${option.name}${option.units ? ` (${option.units})` : ''}`}
+            getOptionLabel={(option) => `${option.display_name || option.name}${option.units ? ` (${option.units})` : ''}`}
             value={selectedParameter}
             onChange={(_, value) => setSelectedParameter(value)}
             loading={paramsLoading}
@@ -376,7 +377,7 @@ export const MultiStationChart: React.FC = () => {
         <CompareStatsPanel
           stats={stats}
           units={selectedParameter?.units}
-          parameterName={selectedParameter?.name}
+          parameterName={selectedParameter?.display_name || selectedParameter?.name}
         />
       )}
     </Box>
