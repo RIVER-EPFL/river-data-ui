@@ -166,6 +166,7 @@ export default function SearchBar() {
             width: 280,
             '& .MuiOutlinedInput-root': {
               color: 'white',
+              backgroundColor: 'transparent',
               '& fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
               '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.5)' },
               '&.Mui-focused fieldset': { borderColor: 'rgba(255,255,255,0.7)' },

@@ -14,6 +14,7 @@ import {
 } from '@mui/material';
 import MapIcon from '@mui/icons-material/Map';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import FilterListIcon from '@mui/icons-material/FilterList';
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import HealthAndSafetyIcon from '@mui/icons-material/HealthAndSafety';
 import HistoryToggleOffIcon from '@mui/icons-material/HistoryToggleOff';
@@ -114,6 +115,7 @@ const Dashboard = () => {
   const [selectedSiteName, setSelectedSiteName] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [mapExpanded, setMapExpanded] = useState(true);
+  const [mapProjectFilter, setMapProjectFilter] = useState<string | null>(null);
   const [missingCoordCount, setMissingCoordCount] = useState(0);
 
   const { data: projects } = useGetList('projects', {
@@ -182,11 +184,32 @@ const Dashboard = () => {
 
       {/* Collapsible full-width map */}
       <Collapse in={mapExpanded}>
+        {projects && projects.length > 1 && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.75 }}>
+            <FilterListIcon sx={{ fontSize: '1rem', color: 'text.secondary' }} />
+            <Chip
+              label="All"
+              variant={mapProjectFilter === null ? 'filled' : 'outlined'}
+              color={mapProjectFilter === null ? 'primary' : 'default'}
+              onClick={() => setMapProjectFilter(null)}
+            />
+            {projects.map((p) => (
+              <Chip
+                key={p.id}
+                label={p.name}
+                variant={mapProjectFilter === p.id ? 'filled' : 'outlined'}
+                color={mapProjectFilter === p.id ? 'primary' : 'default'}
+                onClick={() => setMapProjectFilter(mapProjectFilter === p.id ? null : p.id)}
+              />
+            ))}
+          </Box>
+        )}
         <Box sx={{ height: 300, borderRadius: 1, overflow: 'hidden' }}>
           <SiteMap
             onSiteClick={handleSiteClick}
             selectedSiteId={selectedSiteId}
             onMissingCount={setMissingCoordCount}
+            filterProjectId={mapProjectFilter}
           />
         </Box>
         {missingCoordCount > 0 && (

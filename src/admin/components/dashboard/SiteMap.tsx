@@ -29,9 +29,11 @@ interface SiteMapProps {
   selectedSiteId?: string | null;
   /** Called when sites load, with the count of sites missing valid coordinates */
   onMissingCount?: (count: number) => void;
+  /** When set, only show sites belonging to this project and zoom to fit them */
+  filterProjectId?: string | null;
 }
 
-export const SiteMap = ({ onSiteClick, selectedSiteId, onMissingCount }: SiteMapProps) => {
+export const SiteMap = ({ onSiteClick, selectedSiteId, onMissingCount, filterProjectId }: SiteMapProps) => {
   const mapInstance = useRef<L.Map | null>(null);
   const clusterGroupRef = useRef<L.MarkerClusterGroup | null>(null);
   const markersRef = useRef<Map<string, L.Marker>>(new Map());
@@ -91,6 +93,8 @@ export const SiteMap = ({ onSiteClick, selectedSiteId, onMissingCount }: SiteMap
     return () => observer.disconnect();
   });
 
+  const prevFilterRef = useRef<string | null | undefined>(undefined);
+
   useEffect(() => {
     const map = mapInstance.current;
     if (!map || !sites) return;
@@ -101,7 +105,10 @@ export const SiteMap = ({ onSiteClick, selectedSiteId, onMissingCount }: SiteMap
       clusterGroupRef.current = null;
     }
 
-    const validSites = sites.filter(isValidCoord);
+    const filtered = filterProjectId
+      ? sites.filter((s) => s.project_id === filterProjectId)
+      : sites;
+    const validSites = filtered.filter(isValidCoord);
 
     if (validSites.length === 0) return;
 
@@ -152,15 +159,18 @@ export const SiteMap = ({ onSiteClick, selectedSiteId, onMissingCount }: SiteMap
     map.addLayer(clusterGroup);
     clusterGroupRef.current = clusterGroup;
 
-    if (!hasFitBounds.current) {
+    const filterChanged = prevFilterRef.current !== filterProjectId;
+    prevFilterRef.current = filterProjectId;
+
+    if (!hasFitBounds.current || filterChanged) {
       if (validSites.length > 1) {
-        map.fitBounds(bounds, { padding: [50, 50], animate: false });
+        map.fitBounds(bounds, { padding: [50, 50], animate: filterChanged });
       } else {
-        map.setView([validSites[0].latitude, validSites[0].longitude], 12, { animate: false });
+        map.setView([validSites[0].latitude, validSites[0].longitude], 14, { animate: filterChanged });
       }
       hasFitBounds.current = true;
     }
-  }, [sites]);
+  }, [sites, filterProjectId]);
 
   // Update active marker styling when selection changes
   useEffect(() => {
@@ -177,8 +187,11 @@ export const SiteMap = ({ onSiteClick, selectedSiteId, onMissingCount }: SiteMap
 
   useEffect(() => {
     if (!sites) return;
-    onMissingCount?.(sites.length - sites.filter(isValidCoord).length);
-  }, [sites, onMissingCount]);
+    const filtered = filterProjectId
+      ? sites.filter((s) => s.project_id === filterProjectId)
+      : sites;
+    onMissingCount?.(filtered.length - filtered.filter(isValidCoord).length);
+  }, [sites, filterProjectId, onMissingCount]);
 
   return (
     <Box
