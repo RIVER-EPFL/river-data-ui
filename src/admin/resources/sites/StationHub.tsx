@@ -68,6 +68,7 @@ import { useLatestReadings, useSensorGroups } from './hooks';
 import ChartsDashboard from '../../components/dashboard/ChartsDashboard';
 import { useSiteDataRange } from '../../hooks/useSiteDataRange';
 import { useAuthFetch } from '../../hooks/useAuthFetch';
+import { DeploySensorDialog } from '../../components/DeploySensorDialog';
 import type {
     ParameterRecord,
     SensorDeploymentRecord,
@@ -201,190 +202,7 @@ const AddParameterDialog: React.FC<{
     );
 };
 
-// ---------------------------------------------------------------------------
-// Deploy Sensor Dialog
-// ---------------------------------------------------------------------------
-
-const DeploySensorDialog: React.FC<{
-    open: boolean;
-    onClose: () => void;
-    siteId: string;
-    parameters: ParameterRecord[];
-}> = ({ open, onClose, siteId, parameters }) => {
-    const [create, { isPending }] = useCreate();
-    const notify = useNotify();
-    const refresh = useRefresh();
-
-    const [selectedSensor, setSelectedSensor] = useState<SensorRecord | null>(null);
-    const [parameterId, setParameterId] = useState('');
-    const [deployedFrom, setDeployedFrom] = useState(new Date().toISOString().slice(0, 16));
-    const [notes, setNotes] = useState('');
-
-    const { data: allSensors } = useGetList<SensorRecord>('sensors', {
-        filter: { is_active: true },
-        pagination: { page: 1, perPage: 500 },
-        sort: { field: 'serial_number', order: 'ASC' },
-    });
-
-    const { data: allSites } = useGetList<SiteRecord>('sites', {
-        pagination: { page: 1, perPage: 200 },
-    });
-
-    const siteMap = useMemo(
-        () => new Map((allSites ?? []).map((s) => [s.id, s.name])),
-        [allSites],
-    );
-
-    const getActiveDeploy = (s: SensorRecord) =>
-        s.deployments?.find((d) => d.deployed_until === null);
-
-    const sortedSensors = useMemo(() => {
-        if (!allSensors) return [];
-        return [...allSensors].sort((a, b) => {
-            const aDeployed = !!getActiveDeploy(a);
-            const bDeployed = !!getActiveDeploy(b);
-            if (aDeployed !== bDeployed) return aDeployed ? 1 : -1;
-            return (a.serial_number ?? a.name ?? '').localeCompare(b.serial_number ?? b.name ?? '');
-        });
-    }, [allSensors]);
-
-    const sensorLabel = (s: SensorRecord) =>
-        s.serial_number ?? s.name ?? 'Unnamed';
-
-    const handleSubmit = () => {
-        if (!selectedSensor) return;
-        create(
-            'sensor_deployments',
-            {
-                data: {
-                    sensor_id: selectedSensor.id,
-                    site_id: siteId,
-                    deployed_from: new Date(deployedFrom).toISOString(),
-                    deployed_until: null,
-                    deployment_type: 'manual',
-                    notes: notes || null,
-                },
-            },
-            {
-                onSuccess: () => {
-                    notify('Sensor deployed', { type: 'success' });
-                    refresh();
-                    handleClose();
-                },
-                onError: (error) => {
-                    notify(`Failed: ${error instanceof Error ? error.message : 'Unknown error'}`, { type: 'error' });
-                },
-            },
-        );
-    };
-
-    const handleClose = () => {
-        setSelectedSensor(null);
-        setParameterId('');
-        setDeployedFrom(new Date().toISOString().slice(0, 16));
-        setNotes('');
-        onClose();
-    };
-
-    const nonDerivedParams = parameters.filter((p) => !p.is_derived);
-
-    return (
-        <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
-            <DialogTitle>Deploy Sensor</DialogTitle>
-            <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
-                <Autocomplete
-                    options={sortedSensors}
-                    value={selectedSensor}
-                    onChange={(_, v) => setSelectedSensor(v)}
-                    getOptionLabel={sensorLabel}
-                    groupBy={(s) => getActiveDeploy(s) ? 'Currently Deployed' : 'Available'}
-                    isOptionEqualToValue={(opt, val) => opt.id === val.id}
-                    renderOption={(props, s) => {
-                        const dep = getActiveDeploy(s);
-                        const depSiteName = dep ? siteMap.get(dep.site_id) ?? dep.site_id.slice(0, 8) : null;
-                        return (
-                            <li {...props} key={s.id}>
-                                <Box sx={{ width: '100%' }}>
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                        <Typography variant="body2">
-                                            {sensorLabel(s)}
-                                        </Typography>
-                                        {dep && (
-                                            <Chip
-                                                label={dep.site_id === siteId ? 'This site' : depSiteName}
-                                                color={dep.site_id === siteId ? 'primary' : 'default'}
-                                                variant="outlined"
-                                            />
-                                        )}
-                                    </Box>
-                                    {(s.manufacturer || dep) && (
-                                        <Typography variant="caption" color="text.secondary">
-                                            {[
-                                                s.manufacturer ? `${s.manufacturer}${s.model ? ` ${s.model}` : ''}` : null,
-                                                dep ? `Since ${new Date(dep.deployed_from).toLocaleDateString()}` : null,
-                                            ].filter(Boolean).join(' · ')}
-                                        </Typography>
-                                    )}
-                                </Box>
-                            </li>
-                        );
-                    }}
-                    renderInput={(params) => <TextField {...params} label="Sensor" />}
-                />
-                {selectedSensor && (() => {
-                    const dep = getActiveDeploy(selectedSensor);
-                    if (!dep || dep.site_id === siteId) return null;
-                    const name = siteMap.get(dep.site_id) ?? dep.site_id.slice(0, 8);
-                    return (
-                        <Alert severity="warning">
-                            This sensor is currently deployed at <strong>{name}</strong>. Deploying here will automatically recall it.
-                        </Alert>
-                    );
-                })()}
-                <TextField
-                    select
-                    label="Target Parameter"
-                    value={parameterId}
-                    onChange={(e) => setParameterId(e.target.value)}
-                    fullWidth
-                >
-                    {nonDerivedParams.map((p) => (
-                        <MenuItem key={p.id} value={p.id}>
-                            {p.parameter?.[0]?.display_name || p.name} ({p.display_units ?? 'N/A'})
-                        </MenuItem>
-                    ))}
-                </TextField>
-                <TextField
-                    label="Deployed From"
-                    type="datetime-local"
-                    value={deployedFrom}
-                    onChange={(e) => setDeployedFrom(e.target.value)}
-                    fullWidth
-                    slotProps={{ inputLabel: { shrink: true } }}
-                />
-                <TextField
-                    label="Notes"
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    multiline
-                    rows={2}
-                    fullWidth
-                />
-            </DialogContent>
-            <DialogActions>
-                <Button onClick={handleClose} disabled={isPending}>Cancel</Button>
-                <Button
-                    onClick={handleSubmit}
-                    variant="contained"
-                    disabled={isPending || !selectedSensor || !parameterId}
-                    startIcon={isPending ? <CircularProgress size={16} /> : undefined}
-                >
-                    Deploy
-                </Button>
-            </DialogActions>
-        </Dialog>
-    );
-};
+// DeploySensorDialog imported from shared component
 
 // ---------------------------------------------------------------------------
 // Assign Derived Formula Button (for StationHub)
@@ -982,7 +800,6 @@ const StationHub = () => {
                 open={deploySensorOpen}
                 onClose={() => setDeploySensorOpen(false)}
                 siteId={id!}
-                parameters={parameters ?? []}
             />
         </Box>
     );

@@ -48,6 +48,7 @@ import {
 } from '@mui/material';
 import { useRiverDataProvider } from '../../useRiverDataProvider';
 import { ConfirmPopover } from '../../components/ConfirmPopover';
+import { DeploySensorDialog } from '../../components/DeploySensorDialog';
 import { RecallPopover } from './RecallPopover';
 import { SensorStatusPin, type SensorStatus } from './SensorStatusPin';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
@@ -133,9 +134,11 @@ interface SensorListRecord {
 const FilteredSensorDatagrid = ({
   showUndeployed,
   showNeedsCalibration,
+  onDeploy,
 }: {
   showUndeployed: boolean | null;
   showNeedsCalibration: boolean | null;
+  onDeploy: (sensorId: string) => void;
 }) => {
   const { data: allSensors } = useListContext<SensorListRecord>();
 
@@ -234,7 +237,7 @@ const FilteredSensorDatagrid = ({
         label="Actions"
         render={(record: SensorListRecord) => (
           <Box sx={{ display: 'flex', gap: 0.25 }} onClick={(e) => e.stopPropagation()}>
-            <SensorRowActions sensorId={record.id} undeployed={!record.current_site_id} />
+            <SensorRowActions sensorId={record.id} undeployed={!record.current_site_id} onDeploy={onDeploy} />
           </Box>
         )}
       />
@@ -243,8 +246,7 @@ const FilteredSensorDatagrid = ({
 };
 
 /** Compact icon row actions for the sensor list. */
-const SensorRowActions = ({ sensorId, undeployed }: { sensorId: string; undeployed: boolean }) => {
-  // Find active deployment id for the recall popover
+const SensorRowActions = ({ sensorId, undeployed, onDeploy }: { sensorId: string; undeployed: boolean; onDeploy: (id: string) => void }) => {
   const { data: deployments } = useGetList(
     'sensor_deployments',
     {
@@ -258,10 +260,7 @@ const SensorRowActions = ({ sensorId, undeployed }: { sensorId: string; undeploy
   return (
     <>
       <Tooltip title={undeployed ? 'Deploy sensor' : 'Move sensor'}>
-        <IconButton
-          component={RouterLink}
-          to={`/admin/sensors/${sensorId}/move`}
-        >
+        <IconButton onClick={() => onDeploy(sensorId)}>
           {undeployed ? (
             <CloudUploadIcon fontSize="small" />
           ) : (
@@ -305,36 +304,45 @@ const SensorRowActions = ({ sensorId, undeployed }: { sensorId: string; undeploy
 const SensorList = () => {
   const [showUndeployed, setShowUndeployed] = useState<boolean | null>(null);
   const [showNeedsCalibration, setShowNeedsCalibration] = useState<boolean | null>(null);
+  const [deploySensorId, setDeploySensorId] = useState<string | null>(null);
 
   return (
-    <List
-      filters={sensorFilters}
-      actions={
-        <TopToolbar>
-          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-            <Button
-              variant={showUndeployed === true ? 'contained' : 'outlined'}
-              onClick={() => setShowUndeployed(prev => prev === true ? null : true)}
-              color={showUndeployed === true ? 'warning' : 'inherit'}
-            >
-              Undeployed
-            </Button>
-            <Button
-              variant={showNeedsCalibration === true ? 'contained' : 'outlined'}
-              onClick={() => setShowNeedsCalibration(prev => prev === true ? null : true)}
-              color={showNeedsCalibration === true ? 'warning' : 'inherit'}
-            >
-              Needs Calibration
-            </Button>
-          </Box>
-        </TopToolbar>
-      }
-    >
-      <FilteredSensorDatagrid
-        showUndeployed={showUndeployed}
-        showNeedsCalibration={showNeedsCalibration}
+    <>
+      <List
+        filters={sensorFilters}
+        actions={
+          <TopToolbar>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+              <Button
+                variant={showUndeployed === true ? 'contained' : 'outlined'}
+                onClick={() => setShowUndeployed(prev => prev === true ? null : true)}
+                color={showUndeployed === true ? 'warning' : 'inherit'}
+              >
+                Undeployed
+              </Button>
+              <Button
+                variant={showNeedsCalibration === true ? 'contained' : 'outlined'}
+                onClick={() => setShowNeedsCalibration(prev => prev === true ? null : true)}
+                color={showNeedsCalibration === true ? 'warning' : 'inherit'}
+              >
+                Needs Calibration
+              </Button>
+            </Box>
+          </TopToolbar>
+        }
+      >
+        <FilteredSensorDatagrid
+          showUndeployed={showUndeployed}
+          showNeedsCalibration={showNeedsCalibration}
+          onDeploy={(id) => setDeploySensorId(id)}
+        />
+      </List>
+      <DeploySensorDialog
+        open={!!deploySensorId}
+        onClose={() => setDeploySensorId(null)}
+        sensorId={deploySensorId ?? undefined}
       />
-    </List>
+    </>
   );
 };
 
@@ -370,18 +378,23 @@ const RollbackButton = ({ deploymentId }: { deploymentId: string }) => {
 
 const DeploymentsTab = () => {
   const record = useRecordContext();
+  const [deployOpen, setDeployOpen] = useState(false);
   if (!record) return null;
   return (
     <>
       <Button
-        component={RouterLink}
-        to={`/admin/sensors/${record.id}/move`}
+        onClick={() => setDeployOpen(true)}
         startIcon={<CloudUploadIcon />}
         variant="contained"
         sx={{ mb: 2 }}
       >
         Deploy / Move
       </Button>
+      <DeploySensorDialog
+        open={deployOpen}
+        onClose={() => setDeployOpen(false)}
+        sensorId={record.id as string}
+      />
       <ReferenceManyField reference="sensor_deployments" target="sensor_id"
         sort={{ field: 'deployed_from', order: 'DESC' }} label={false}>
         <Datagrid bulkActionButtons={false} rowClick="edit">

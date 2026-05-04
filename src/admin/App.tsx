@@ -14,8 +14,6 @@ import { GrabSampleEntry } from './resources/grab_samples';
 import { ComparePage } from './pages/ComparePage';
 import { ToolsPage } from './pages/ToolsPage';
 import { StreamsPage } from './pages/StreamsPage';
-
-import { MoveSensorPage } from './resources/sensors/MoveSensorPage';
 import { Navigate } from 'react-router-dom';
 import { KeycloakContext } from './KeycloakContext';
 import { theme, tokens } from './theme';
@@ -180,8 +178,8 @@ const AdminApp = () => {
         <CustomRoutes>
           <Route path="/system" element={<SystemPage />} />
           <Route path="/streams" element={<StreamsPage />} />
-          <Route path="/sensors/:id/move" element={<MoveSensorPage />} />
-          <Route path="/sensors/move" element={<MoveSensorPage />} />
+          <Route path="/sensors/:id/move" element={<Navigate to="/admin/sensors" replace />} />
+          <Route path="/sensors/move" element={<Navigate to="/admin/sensors" replace />} />
           <Route path="/system/streams" element={<Navigate to="/admin/streams" replace />} />
           <Route path="/system/parameters" element={<Navigate to="/admin/parameters" replace />} />
           <Route path="/grab-samples" element={<GrabSampleEntry />} />

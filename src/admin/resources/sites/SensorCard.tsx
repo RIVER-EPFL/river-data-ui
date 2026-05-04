@@ -28,6 +28,7 @@ import HighlightOffIcon from '@mui/icons-material/HighlightOff';
 import EditIcon from '@mui/icons-material/Edit';
 import { Link } from 'react-router-dom';
 import { CalibrationTimeline } from './CalibrationTimeline';
+import { DeploySensorDialog } from '../../components/DeploySensorDialog';
 import { formatRelativeTime } from '../../utils/formatRelativeTime';
 import { AlarmDot, type AlarmLevel } from '../../components/AlarmDot';
 import { snippets } from '../../themeSnippets';
@@ -207,6 +208,7 @@ interface SensorCardProps {
 
 export const SensorCard: React.FC<SensorCardProps> = ({ group, thresholdsByParam, latestByParam, siteName }) => {
     const [calibrateOpen, setCalibrateOpen] = useState(false);
+    const [moveOpen, setMoveOpen] = useState(false);
     const [thresholdParam, setThresholdParam] = useState<ParameterRecord | null>(null);
 
     const sensor = group.sensor;
@@ -304,8 +306,7 @@ export const SensorCard: React.FC<SensorCardProps> = ({ group, thresholdsByParam
                         <span>
                             <Button
                                 startIcon={<SwapHorizIcon />}
-                                component={Link}
-                                to={sensor ? `/admin/sensors/${sensor.id}/move` : '#'}
+                                onClick={() => setMoveOpen(true)}
                                 disabled={!sensor}
                             >
                                 Move Sensor
@@ -366,6 +367,14 @@ export const SensorCard: React.FC<SensorCardProps> = ({ group, thresholdsByParam
                     parameterId={thresholdParam.id}
                     siteId={thresholdParam.site_id}
                     parameterName={thresholdParam.name}
+                />
+            )}
+
+            {sensor && (
+                <DeploySensorDialog
+                    open={moveOpen}
+                    onClose={() => setMoveOpen(false)}
+                    sensorId={sensor.id}
                 />
             )}
 
