@@ -34,6 +34,7 @@ import { useRiverDataProvider } from '../../useRiverDataProvider';
 import type { StreamState, StreamStats } from '../../dataProvider';
 import { PairingWizard } from '../sync_status/PairingWizard';
 import { StreamPairDialog } from '../sync_status/StreamPairDialog';
+import { tokens } from '../../theme';
 
 // ============================================================================
 // Action Buttons (use record context from Datagrid)
@@ -50,11 +51,11 @@ const PairUnpairButton = ({
   if (!record) return null;
 
   return record.site_parameter_id ? (
-    <Button size="small" color="warning" startIcon={<LinkOffIcon />} onClick={() => onUnpair(record)}>
+    <Button color="warning" startIcon={<LinkOffIcon />} onClick={() => onUnpair(record)}>
       Unpair
     </Button>
   ) : (
-    <Button size="small" color="primary" startIcon={<LinkIcon />} onClick={() => onPair(record)}>
+    <Button color="primary" startIcon={<LinkIcon />} onClick={() => onPair(record)}>
       Pair
     </Button>
   );
@@ -66,7 +67,6 @@ const StreamNameButton = ({ onStats }: { onStats: (stream: StreamState) => void 
   return (
     <Tooltip title="View stats">
       <Button
-        size="small"
         sx={{ textTransform: 'none', p: 0, minWidth: 0 }}
         onClick={() => onStats(record)}
       >
@@ -116,7 +116,6 @@ const DataStreamToolbar = ({ onOpenPairingWizard }: { onOpenPairingWizard: () =>
       </ToggleButtonGroup>
       <Button
         variant="contained"
-        size="small"
         startIcon={<AutoFixHighIcon />}
         onClick={onOpenPairingWizard}
       >
@@ -324,7 +323,7 @@ export const SyncStatusPanel = () => {
           <FunctionField
             label="Key"
             render={(record: StreamState) => (
-              <Typography sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+              <Typography sx={{ fontFamily: tokens.font.mono, fontSize: '0.8125rem' }}>
                 {record.source_key}
               </Typography>
             )}
@@ -339,7 +338,6 @@ export const SyncStatusPanel = () => {
               <Chip
                 label={record.site_parameter_id ? 'Paired' : 'Unpaired'}
                 color={record.site_parameter_id ? 'success' : 'default'}
-                size="small"
                 variant="outlined"
               />
             )}

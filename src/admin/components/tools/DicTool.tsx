@@ -47,28 +47,28 @@ export const DicTool = () => {
     <ToolLayout toolName="dic" description="DIC concentration and d13C-DIC from acid digestion + Picarro CO2 analysis." inputs={inputs}>
       <Typography variant="subtitle2" sx={{ mb: 1 }}>Replicate A</Typography>
       <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-        <TextField label="Acid+sample wt (g)" value={acidSampleWt} onChange={(e) => setAcidSampleWt(e.target.value)} type="number" size="small" required />
-        <TextField label="Acid wt (g)" value={acidWt} onChange={(e) => setAcidWt(e.target.value)} type="number" size="small" required />
-        <TextField label="Overpressure (mL)" value={overpressure} onChange={(e) => setOverpressure(e.target.value)} type="number" size="small" required />
-        <TextField label="SA added (mL)" value={saAdded} onChange={(e) => setSaAdded(e.target.value)} type="number" size="small" required />
-        <TextField label="CO2 dry (ppm)" value={co2Dry} onChange={(e) => setCo2Dry(e.target.value)} type="number" size="small" required />
-        <TextField label="d13CO2 (permil)" value={d13co2} onChange={(e) => setD13co2(e.target.value)} type="number" size="small" helperText="Optional" />
-        <TextField label="Lab temp (C)" value={labTemp} onChange={(e) => setLabTemp(e.target.value)} type="number" size="small" />
+        <TextField label="Acid+sample wt (g)" value={acidSampleWt} onChange={(e) => setAcidSampleWt(e.target.value)} type="number" required />
+        <TextField label="Acid wt (g)" value={acidWt} onChange={(e) => setAcidWt(e.target.value)} type="number" required />
+        <TextField label="Overpressure (mL)" value={overpressure} onChange={(e) => setOverpressure(e.target.value)} type="number" required />
+        <TextField label="SA added (mL)" value={saAdded} onChange={(e) => setSaAdded(e.target.value)} type="number" required />
+        <TextField label="CO2 dry (ppm)" value={co2Dry} onChange={(e) => setCo2Dry(e.target.value)} type="number" required />
+        <TextField label="d13CO2 (permil)" value={d13co2} onChange={(e) => setD13co2(e.target.value)} type="number" helperText="Optional" />
+        <TextField label="Lab temp (C)" value={labTemp} onChange={(e) => setLabTemp(e.target.value)} type="number" />
       </Box>
       <Box sx={{ mt: 2 }}>
-        <Button variant="outlined" size="small" onClick={() => setShowRepB(!showRepB)}>
+        <Button variant="outlined" onClick={() => setShowRepB(!showRepB)}>
           {showRepB ? 'Remove Replicate B' : 'Add Replicate B'}
         </Button>
       </Box>
       <Collapse in={showRepB}>
         <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>Replicate B</Typography>
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-          <TextField label="Acid+sample wt (g)" value={bAcidSampleWt} onChange={(e) => setBacidSampleWt(e.target.value)} type="number" size="small" required />
-          <TextField label="Acid wt (g)" value={bAcidWt} onChange={(e) => setBacidWt(e.target.value)} type="number" size="small" required />
-          <TextField label="Overpressure (mL)" value={bOverpressure} onChange={(e) => setBoverpressure(e.target.value)} type="number" size="small" required />
-          <TextField label="SA added (mL)" value={bSaAdded} onChange={(e) => setBsaAdded(e.target.value)} type="number" size="small" required />
-          <TextField label="CO2 dry (ppm)" value={bCo2Dry} onChange={(e) => setBco2Dry(e.target.value)} type="number" size="small" required />
-          <TextField label="d13CO2 (permil)" value={bD13co2} onChange={(e) => setBd13co2(e.target.value)} type="number" size="small" helperText="Optional" />
+          <TextField label="Acid+sample wt (g)" value={bAcidSampleWt} onChange={(e) => setBacidSampleWt(e.target.value)} type="number" required />
+          <TextField label="Acid wt (g)" value={bAcidWt} onChange={(e) => setBacidWt(e.target.value)} type="number" required />
+          <TextField label="Overpressure (mL)" value={bOverpressure} onChange={(e) => setBoverpressure(e.target.value)} type="number" required />
+          <TextField label="SA added (mL)" value={bSaAdded} onChange={(e) => setBsaAdded(e.target.value)} type="number" required />
+          <TextField label="CO2 dry (ppm)" value={bCo2Dry} onChange={(e) => setBco2Dry(e.target.value)} type="number" required />
+          <TextField label="d13CO2 (permil)" value={bD13co2} onChange={(e) => setBd13co2(e.target.value)} type="number" helperText="Optional" />
         </Box>
       </Collapse>
     </ToolLayout>

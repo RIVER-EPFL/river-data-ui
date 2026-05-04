@@ -13,6 +13,7 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { TimeRangeSlider } from './TimeRangeSlider';
 import { useSiteDataRange } from '../hooks/useSiteDataRange';
+import { tokens } from '../theme';
 
 interface FormulaPreviewChartProps {
   formula: string;
@@ -27,10 +28,7 @@ interface PreviewResponse {
   derived: { name: string; formula: string; values: (number | null)[]; errors: (string | null)[] };
 }
 
-const SOURCE_COLORS = [
-  '#ff9800', '#4caf50', '#9c27b0', '#f44336', '#00bcd4',
-  '#795548', '#607d8b', '#e91e63', '#3f51b5', '#009688',
-];
+const SOURCE_COLORS = tokens.dataViz;
 
 export const FormulaPreviewChart: React.FC<FormulaPreviewChartProps> = ({
   formula,
@@ -172,7 +170,7 @@ export const FormulaPreviewChart: React.FC<FormulaPreviewChartProps> = ({
       // Derived series (bold blue line)
       const derivedSeries: uPlot.Series = {
         label: `Derived: ${data.derived.name}`,
-        stroke: '#2196f3',
+        stroke: tokens.dataViz[0],
         width: 3,
         points: { show: false },
       };
@@ -256,10 +254,10 @@ export const FormulaPreviewChart: React.FC<FormulaPreviewChartProps> = ({
 
     const observer = new ResizeObserver(() => {
       if (uplotRef.current && chartRef.current) {
-        uplotRef.current.setSize({
-          width: chartRef.current.clientWidth,
-          height: 300,
-        });
+        const newWidth = chartRef.current.clientWidth;
+        if (Math.abs(uplotRef.current.width - newWidth) > 4) {
+          uplotRef.current.setSize({ width: newWidth, height: 300 });
+        }
       }
     });
 
@@ -294,7 +292,6 @@ export const FormulaPreviewChart: React.FC<FormulaPreviewChartProps> = ({
             label="Site"
             value={siteId}
             onChange={(e) => setSiteId(e.target.value)}
-            size="small"
             sx={{ minWidth: 200 }}
           >
             {eligibleSites.map((site) => (
@@ -332,7 +329,7 @@ export const FormulaPreviewChart: React.FC<FormulaPreviewChartProps> = ({
             </Alert>
           )}
 
-          <div ref={chartRef} style={{ width: '100%' }} />
+          <div ref={chartRef} style={{ width: '100%', overflow: 'hidden' }} />
         </>
       )}
     </Box>

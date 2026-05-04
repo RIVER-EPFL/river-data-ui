@@ -133,7 +133,6 @@ export const ChlaBenthicTool = () => {
               value={acidSlope}
               onChange={(e) => setAcidSlope(e.target.value)}
               type="number"
-              size="small"
               sx={{ width: 120 }}
               error={isInvalidNumber(acidSlope)}
               helperText={isInvalidNumber(acidSlope) ? 'Must be a number' : undefined}
@@ -143,7 +142,6 @@ export const ChlaBenthicTool = () => {
               value={acidIntercept}
               onChange={(e) => setAcidIntercept(e.target.value)}
               type="number"
-              size="small"
               sx={{ width: 120 }}
               error={isInvalidNumber(acidIntercept)}
               helperText={isInvalidNumber(acidIntercept) ? 'Must be a number' : undefined}
@@ -161,7 +159,6 @@ export const ChlaBenthicTool = () => {
               value={noacidSlope}
               onChange={(e) => setNoacidSlope(e.target.value)}
               type="number"
-              size="small"
               sx={{ width: 120 }}
               error={isInvalidNumber(noacidSlope)}
               helperText={isInvalidNumber(noacidSlope) ? 'Must be a number' : undefined}
@@ -171,7 +168,6 @@ export const ChlaBenthicTool = () => {
               value={noacidIntercept}
               onChange={(e) => setNoacidIntercept(e.target.value)}
               type="number"
-              size="small"
               sx={{ width: 120 }}
               error={isInvalidNumber(noacidIntercept)}
               helperText={isInvalidNumber(noacidIntercept) ? 'Must be a number' : undefined}
@@ -189,7 +185,6 @@ export const ChlaBenthicTool = () => {
           Replicates ({replicates.length}/{MAX_REPLICATES})
         </Typography>
         <Button
-          size="small"
           startIcon={<AddIcon />}
           onClick={addReplicate}
           disabled={replicates.length >= MAX_REPLICATES}
@@ -206,7 +201,6 @@ export const ChlaBenthicTool = () => {
                 Replicate {labels[idx]}
               </Typography>
               <IconButton
-                size="small"
                 onClick={() => removeReplicate(idx)}
                 disabled={replicates.length <= 1}
               >
@@ -225,7 +219,6 @@ export const ChlaBenthicTool = () => {
                   value={rep.fluorBefore}
                   onChange={(e) => updateReplicate(idx, 'fluorBefore', e.target.value)}
                   type="number"
-                  size="small"
                   sx={{ width: 120 }}
                   required
                   error={isInvalidNumber(rep.fluorBefore)}
@@ -236,7 +229,6 @@ export const ChlaBenthicTool = () => {
                   value={rep.fluorAfter}
                   onChange={(e) => updateReplicate(idx, 'fluorAfter', e.target.value)}
                   type="number"
-                  size="small"
                   sx={{ width: 120 }}
                 />
               </Box>
@@ -251,7 +243,6 @@ export const ChlaBenthicTool = () => {
                   value={rep.volTotal}
                   onChange={(e) => updateReplicate(idx, 'volTotal', e.target.value)}
                   type="number"
-                  size="small"
                   sx={{ width: 120 }}
                   required
                 />
@@ -260,7 +251,6 @@ export const ChlaBenthicTool = () => {
                   value={rep.volAfter}
                   onChange={(e) => updateReplicate(idx, 'volAfter', e.target.value)}
                   type="number"
-                  size="small"
                   sx={{ width: 120 }}
                   required
                 />
@@ -276,7 +266,6 @@ export const ChlaBenthicTool = () => {
                   value={rep.d1}
                   onChange={(e) => updateReplicate(idx, 'd1', e.target.value)}
                   type="number"
-                  size="small"
                   sx={{ width: 100 }}
                   required
                 />
@@ -285,7 +274,6 @@ export const ChlaBenthicTool = () => {
                   value={rep.d2}
                   onChange={(e) => updateReplicate(idx, 'd2', e.target.value)}
                   type="number"
-                  size="small"
                   sx={{ width: 100 }}
                   required
                 />
@@ -294,7 +282,6 @@ export const ChlaBenthicTool = () => {
                   value={rep.d3}
                   onChange={(e) => updateReplicate(idx, 'd3', e.target.value)}
                   type="number"
-                  size="small"
                   sx={{ width: 100 }}
                   required
                 />
@@ -310,7 +297,6 @@ export const ChlaBenthicTool = () => {
                   value={rep.afdm}
                   onChange={(e) => updateReplicate(idx, 'afdm', e.target.value)}
                   type="number"
-                  size="small"
                   sx={{ width: 120 }}
                 />
               </Box>

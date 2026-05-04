@@ -16,8 +16,8 @@ const DiameterRow = ({
   onRemove: () => void;
 }) => (
   <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-    <TextField label={`Diameter ${index + 1} (cm)`} value={value} onChange={(e) => onChange(e.target.value)} type="number" size="small" sx={{ width: 180 }} />
-    <IconButton size="small" onClick={onRemove}><DeleteIcon fontSize="small" /></IconButton>
+    <TextField label={`Diameter ${index + 1} (cm)`} value={value} onChange={(e) => onChange(e.target.value)} type="number" sx={{ width: 180 }} />
+    <IconButton onClick={onRemove}><DeleteIcon fontSize="small" /></IconButton>
   </Box>
 );
 
@@ -55,17 +55,17 @@ export const BenthicTool = () => {
                 onRemove={() => setDiameters(diameters.filter((_, j) => j !== i))}
               />
             ))}
-            <Button size="small" startIcon={<AddIcon />} onClick={() => setDiameters([...diameters, ''])}>
+            <Button startIcon={<AddIcon />} onClick={() => setDiameters([...diameters, ''])}>
               Add diameter
             </Button>
           </Box>
         </Box>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           <Typography variant="subtitle2">Sample Parameters</Typography>
-          <TextField label="Volume filtered (mL)" value={volumeFilteredMl} onChange={(e) => setVolumeFilteredMl(e.target.value)} type="number" size="small" required />
-          <TextField label="Total volume (mL)" value={totalVolumeMl} onChange={(e) => setTotalVolumeMl(e.target.value)} type="number" size="small" required />
-          <TextField label="AFDM (g/filter)" value={afdmGFilter} onChange={(e) => setAfdmGFilter(e.target.value)} type="number" size="small" />
-          <TextField label="Chl-a (µg/L)" value={chlaUgL} onChange={(e) => setChlaUgL(e.target.value)} type="number" size="small" />
+          <TextField label="Volume filtered (mL)" value={volumeFilteredMl} onChange={(e) => setVolumeFilteredMl(e.target.value)} type="number" required />
+          <TextField label="Total volume (mL)" value={totalVolumeMl} onChange={(e) => setTotalVolumeMl(e.target.value)} type="number" required />
+          <TextField label="AFDM (g/filter)" value={afdmGFilter} onChange={(e) => setAfdmGFilter(e.target.value)} type="number" />
+          <TextField label="Chl-a (µg/L)" value={chlaUgL} onChange={(e) => setChlaUgL(e.target.value)} type="number" />
         </Box>
       </Box>
     </ToolLayout>

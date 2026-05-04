@@ -145,7 +145,6 @@ export const AlarmNotificationPanel = ({ open, onClose }: AlarmNotificationPanel
             !showUnack ? (
               <Box sx={{ display: 'flex', gap: 0.5 }}>
                 <IconButton
-                  size="small"
                   title="Acknowledge"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -155,7 +154,6 @@ export const AlarmNotificationPanel = ({ open, onClose }: AlarmNotificationPanel
                   <CheckCircleIcon fontSize="small" />
                 </IconButton>
                 <IconButton
-                  size="small"
                   title="Snooze"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -168,7 +166,6 @@ export const AlarmNotificationPanel = ({ open, onClose }: AlarmNotificationPanel
               </Box>
             ) : (
               <Button
-                size="small"
                 onClick={(e) => {
                   e.stopPropagation();
                   handleUnack(alarm);
@@ -195,13 +192,12 @@ export const AlarmNotificationPanel = ({ open, onClose }: AlarmNotificationPanel
                   </Typography>
                   <Chip
                     label={alarm.severity === 2 ? 'ALARM' : 'WARNING'}
-                    size="small"
                     sx={{
                       height: 20,
                       fontSize: '0.65rem',
                       fontWeight: 700,
                       bgcolor: alarm.severity === 2 ? 'error.main' : 'warning.main',
-                      color: 'white',
+                      color: 'common.white',
                     }}
                   />
                 </Box>
@@ -225,7 +221,7 @@ export const AlarmNotificationPanel = ({ open, onClose }: AlarmNotificationPanel
           <Typography variant="h6">
             Alarms {activeAlarms.length > 0 ? `(${activeAlarms.length})` : ''}
           </Typography>
-          <IconButton onClick={onClose} size="small">
+          <IconButton onClick={onClose}>
             <CloseIcon />
           </IconButton>
         </Box>

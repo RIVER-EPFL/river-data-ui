@@ -229,10 +229,10 @@ export const MultiStationChart: React.FC = () => {
 
     const observer = new ResizeObserver(() => {
       if (uplotRef.current && chartRef.current) {
-        uplotRef.current.setSize({
-          width: chartRef.current.clientWidth,
-          height: 400,
-        });
+        const newWidth = chartRef.current.clientWidth;
+        if (Math.abs(uplotRef.current.width - newWidth) > 4) {
+          uplotRef.current.setSize({ width: newWidth, height: 400 });
+        }
       }
     });
 
@@ -256,7 +256,6 @@ export const MultiStationChart: React.FC = () => {
               <TextField
                 {...params}
                 label="Sites (max 4)"
-                size="small"
                 InputProps={{
                   ...params.InputProps,
                   endAdornment: (
@@ -283,7 +282,6 @@ export const MultiStationChart: React.FC = () => {
               <TextField
                 {...params}
                 label="Parameter"
-                size="small"
                 InputProps={{
                   ...params.InputProps,
                   endAdornment: (
@@ -345,7 +343,7 @@ export const MultiStationChart: React.FC = () => {
             <Typography color="error" gutterBottom>
               {error}
             </Typography>
-            <Button size="small" onClick={fetchData}>
+            <Button onClick={fetchData}>
               Retry
             </Button>
           </Box>
@@ -370,7 +368,7 @@ export const MultiStationChart: React.FC = () => {
           </Box>
         )}
 
-        <div ref={chartRef} style={{ width: '100%' }} />
+        <div ref={chartRef} style={{ width: '100%', overflow: 'hidden' }} />
       </Paper>
 
       {/* Stats panel (US-6.3) */}

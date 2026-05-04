@@ -84,7 +84,7 @@ const RecalibrateButton = () => {
       confirmColor="warning"
       onConfirm={handleConfirm}
       trigger={
-        <Button size="small" color="primary">
+        <Button color="primary">
           Recalculate
         </Button>
       }
@@ -294,7 +294,7 @@ const BatteryStatusField = (_props: { label?: string }) => {
 
   return (
     <Tooltip title={`${formatRelativeTime(batteryValue.time)}`}>
-      <Chip label={`${voltage.toFixed(1)} V`} size="small" color={color} variant="outlined" />
+      <Chip label={`${voltage.toFixed(1)} V`} color={color} variant="outlined" />
     </Tooltip>
   );
 };
@@ -330,7 +330,7 @@ const CalibrationAgeField = (_props: { label?: string }) => {
 
   return (
     <Tooltip title={`Last calibrated: ${new Date(latest.valid_from).toLocaleDateString()}`}>
-      <Chip label={`${daysSince}d`} size="small" color={color} variant="outlined" />
+      <Chip label={`${daysSince}d`} color={color} variant="outlined" />
     </Tooltip>
   );
 };
@@ -519,7 +519,6 @@ const SensorList = () => {
         <TopToolbar>
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
             <Button
-              size="small"
               variant={showUndeployed === true ? 'contained' : 'outlined'}
               onClick={() => setShowUndeployed(prev => prev === true ? null : true)}
               color={showUndeployed === true ? 'warning' : 'inherit'}
@@ -527,7 +526,6 @@ const SensorList = () => {
               Undeployed
             </Button>
             <Button
-              size="small"
               variant={showNeedsCalibration === true ? 'contained' : 'outlined'}
               onClick={() => setShowNeedsCalibration(prev => prev === true ? null : true)}
               color={showNeedsCalibration === true ? 'warning' : 'inherit'}

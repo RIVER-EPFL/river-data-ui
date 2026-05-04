@@ -219,7 +219,6 @@ export const StatusIndicators = () => {
           <Chip
             icon={<SignalWifiOffIcon />}
             label={`${staleSiteCount} stale`}
-            size="small"
             color="warning"
             variant="filled"
             onClick={() => navigate('/admin/sites')}
@@ -241,7 +240,6 @@ export const StatusIndicators = () => {
               ? `${unackedErrors.length} error${unackedErrors.length > 1 ? 's' : ''}`
               : syncLabel
           }
-          size="small"
           color={syncChipColor}
           variant="filled"
           onClick={handleSyncChipClick}
@@ -277,12 +275,11 @@ export const StatusIndicators = () => {
             </Typography>
             <Box sx={{ display: 'flex', gap: 0.5 }}>
               {unackedErrors.length > 0 && (
-                <Button size="small" onClick={handleAckAll}>
+                <Button onClick={handleAckAll}>
                   Clear all
                 </Button>
               )}
               <IconButton
-                size="small"
                 title="View full sync history"
                 onClick={() => {
                   setAnchorEl(null);
@@ -317,7 +314,6 @@ export const StatusIndicators = () => {
                     divider={i < unackedErrors.length - 1}
                     secondaryAction={
                       <IconButton
-                        size="small"
                         title="Acknowledge"
                         onClick={(e) => {
                           e.stopPropagation();

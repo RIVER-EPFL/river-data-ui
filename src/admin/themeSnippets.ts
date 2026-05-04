@@ -1,4 +1,5 @@
 import type { SxProps, Theme } from '@mui/material/styles';
+import { tokens } from './theme';
 
 export const snippets = {
   tightCardRow: {
@@ -21,7 +22,7 @@ export const snippets = {
   } as SxProps<Theme>,
 
   monoInline: {
-    fontFamily: '"JetBrains Mono","SF Mono","Roboto Mono",monospace',
+    fontFamily: tokens.font.mono,
     fontSize: '0.8125rem',
     color: 'text.primary',
   } as SxProps<Theme>,

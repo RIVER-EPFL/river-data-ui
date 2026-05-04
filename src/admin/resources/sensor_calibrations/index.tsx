@@ -53,7 +53,7 @@ const RecalculateButton = () => {
       confirmColor="warning"
       onConfirm={handleConfirm}
       trigger={
-        <Button size="small" color="primary">
+        <Button color="primary">
           Recalculate
         </Button>
       }

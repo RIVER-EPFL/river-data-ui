@@ -16,9 +16,9 @@ export const Co2AirTool = () => {
   return (
     <ToolLayout toolName="co2_air" description="CO2 and CH4 dry concentration from wet measurements, corrected for water vapor." inputs={inputs}>
       <Box sx={{ display: 'flex', gap: 2 }}>
-        <TextField label="CO2 wet (ppm)" value={co2Wet} onChange={(e) => setCo2Wet(e.target.value)} type="number" size="small" />
-        <TextField label="CH4 wet (ppm)" value={ch4Wet} onChange={(e) => setCh4Wet(e.target.value)} type="number" size="small" />
-        <TextField label="H2O (%)" value={h2oPercent} onChange={(e) => setH2oPercent(e.target.value)} type="number" size="small" required />
+        <TextField label="CO2 wet (ppm)" value={co2Wet} onChange={(e) => setCo2Wet(e.target.value)} type="number" />
+        <TextField label="CH4 wet (ppm)" value={ch4Wet} onChange={(e) => setCh4Wet(e.target.value)} type="number" />
+        <TextField label="H2O (%)" value={h2oPercent} onChange={(e) => setH2oPercent(e.target.value)} type="number" required />
       </Box>
     </ToolLayout>
   );

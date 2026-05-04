@@ -77,7 +77,7 @@ export function ConfirmPopover({
                         </Typography>
                     )}
                     <Stack direction="row" spacing={1} justifyContent="flex-end">
-                        <Button onClick={handleClose} disabled={busy} size="small">
+                        <Button onClick={handleClose} disabled={busy}>
                             {cancelLabel}
                         </Button>
                         <Button
@@ -85,7 +85,6 @@ export function ConfirmPopover({
                             disabled={busy}
                             color={confirmColor}
                             variant="contained"
-                            size="small"
                         >
                             {confirmLabel}
                         </Button>

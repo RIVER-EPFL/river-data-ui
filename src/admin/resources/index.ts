@@ -51,4 +51,5 @@ export const hiddenResources = [
   { name: 'sync_commands' },
   { name: 'sync_events' },
   { name: 'sync_service_credentials' },
+  { name: 'samples' },
 ];

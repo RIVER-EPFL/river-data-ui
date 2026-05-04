@@ -252,7 +252,6 @@ export const NotesSection: React.FC<{ siteId: string; defaultExpanded?: boolean 
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     {expanded && (
                         <Button
-                            size="small"
                             variant="outlined"
                             startIcon={<NoteAddIcon />}
                             onClick={(e) => {
@@ -263,7 +262,7 @@ export const NotesSection: React.FC<{ siteId: string; defaultExpanded?: boolean 
                             Add Note
                         </Button>
                     )}
-                    <IconButton size="small">
+                    <IconButton>
                         {expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
                     </IconButton>
                 </Box>

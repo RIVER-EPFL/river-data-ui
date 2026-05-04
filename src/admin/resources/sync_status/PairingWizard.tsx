@@ -470,7 +470,6 @@ export const PairingWizard = ({ open, onClose, onComplete }: PairingWizardProps)
                         <Chip
                           label={p.create ? 'Will Create' : 'Exists'}
                           color={p.create ? 'warning' : 'success'}
-                          size="small"
                           variant="outlined"
                         />
                       </TableCell>
@@ -520,7 +519,6 @@ export const PairingWizard = ({ open, onClose, onComplete }: PairingWizardProps)
                         <Chip
                           label={p.create ? 'Will Create' : 'Exists'}
                           color={p.create ? 'warning' : 'success'}
-                          size="small"
                           variant="outlined"
                         />
                       </TableCell>
@@ -578,7 +576,6 @@ export const PairingWizard = ({ open, onClose, onComplete }: PairingWizardProps)
                         <Chip
                           label={s.create ? 'Will Create' : 'Exists'}
                           color={s.create ? 'warning' : 'success'}
-                          size="small"
                           variant="outlined"
                         />
                       </TableCell>
@@ -645,7 +642,7 @@ export const PairingWizard = ({ open, onClose, onComplete }: PairingWizardProps)
                 <TableCell>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Tooltip title="Warning">
-                      <WarningAmberIcon fontSize="small" sx={{ color: 'orange', flexShrink: 0 }} />
+                      <WarningAmberIcon fontSize="small" sx={{ color: 'warning.main', flexShrink: 0 }} />
                     </Tooltip>
                     <Typography variant="body2" color="warning.main">
                       {gw.warning}

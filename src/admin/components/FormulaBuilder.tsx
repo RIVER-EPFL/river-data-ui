@@ -88,6 +88,7 @@ export interface ParameterTypeInfo {
   name: string;
   display_name?: string;
   default_units?: string;
+  category?: string;
 }
 
 /** Wrapper that bridges string formula <-> FormulaNode AST for the visual builder */

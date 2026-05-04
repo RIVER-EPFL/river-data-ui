@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
     useGetList,
     useNotify,
@@ -20,6 +20,7 @@ import {
     CircularProgress,
     Snackbar,
     Chip,
+    Collapse,
     List,
     ListItem,
     ListItemText,
@@ -30,11 +31,25 @@ import SendIcon from '@mui/icons-material/Send';
 import HikingIcon from '@mui/icons-material/Hiking';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import { useAuthFetch } from '../../hooks/useAuthFetch';
+
+interface ProjectRecord {
+    id: string;
+    name: string;
+}
 
 interface SiteRecord {
     id: string;
     name: string;
+    project_id: string | null;
+}
+
+interface NestedParameter {
+    id: string;
+    name: string;
+    display_name: string;
 }
 
 interface SiteParameterRecord {
@@ -45,6 +60,7 @@ interface SiteParameterRecord {
     display_units: string | null;
     is_active: boolean | null;
     is_derived: boolean | null;
+    parameter: NestedParameter[];
 }
 
 interface SensorRecord {
@@ -90,6 +106,7 @@ export const FieldTripPage: React.FC = () => {
     const [successInfo, setSuccessInfo] = useState<{ count: number; tripId: string } | null>(null);
 
     // Step 1: Trip metadata
+    const [projectFilter, setProjectFilter] = useState('');
     const [tripDate, setTripDate] = useState(() => toLocalDate(new Date()));
     const [participants, setParticipants] = useState('');
     const [tripNotes, setTripNotes] = useState('');
@@ -100,8 +117,41 @@ export const FieldTripPage: React.FC = () => {
     ]);
     const [nextRowId, setNextRowId] = useState(2);
 
+    // Replicate state keyed by "stationIndex:rowId"
+    const [replicateInputs, setReplicateInputs] = useState<Record<string, string[]>>({});
+    const [showReplicates, setShowReplicates] = useState<Set<string>>(new Set());
+
+    const repKey = (si: number, rowId: number) => `${si}:${rowId}`;
+
+    const MAX_REPLICATES = 10;
+
+    const sampleStdDev = (values: number[]): number => {
+        if (values.length < 2) return 0;
+        const mean = values.reduce((a, b) => a + b, 0) / values.length;
+        return Math.sqrt(values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (values.length - 1));
+    };
+
+    const getRepStats = useCallback((si: number, row: ReadingRow) => {
+        const reps = replicateInputs[repKey(si, row.id)];
+        if (!reps || reps.length === 0) return null;
+        const allValues = [row.value, ...reps].map(v => parseFloat(v)).filter(v => !isNaN(v));
+        if (allValues.length < 2) return null;
+        const mean = allValues.reduce((a, b) => a + b, 0) / allValues.length;
+        return { mean, sd: sampleStdDev(allValues), count: allValues.length };
+    }, [replicateInputs]);
+
     // Data fetching
+    const { data: projects } = useGetList<ProjectRecord>('projects', {
+        pagination: { page: 1, perPage: 50 },
+        sort: { field: 'name', order: 'ASC' },
+    });
+
+    const siteFilter = useMemo(
+        () => projectFilter ? { project_id: projectFilter } : {},
+        [projectFilter],
+    );
     const { data: sites } = useGetList<SiteRecord>('sites', {
+        filter: siteFilter,
         pagination: { page: 1, perPage: 200 },
         sort: { field: 'name', order: 'ASC' },
     });
@@ -200,7 +250,8 @@ export const FieldTripPage: React.FC = () => {
         const validStations = stations.filter((s) => s.site_id);
         if (validStations.length === 0) return 'Add at least one site with samples';
 
-        for (const station of validStations) {
+        for (let si = 0; si < validStations.length; si++) {
+            const station = validStations[si];
             if (!station.dateTime) return 'Each site needs a date/time';
             const validRows = station.rows.filter((r) => r.parameter_id || r.value);
             if (validRows.length === 0) {
@@ -209,13 +260,14 @@ export const FieldTripPage: React.FC = () => {
             }
             for (const row of validRows) {
                 if (!row.parameter_id) return 'Each row needs a parameter';
+                const stats = getRepStats(si, row);
+                if (stats) continue;
                 if (!row.value || isNaN(parseFloat(row.value))) return 'Each row needs a valid numeric value';
             }
-            // Check duplicates within a station
             const paramIds = validRows.map((r) => r.parameter_id);
             if (new Set(paramIds).size !== paramIds.length) {
                 const name = sites?.find((s) => s.id === station.site_id)?.name ?? 'site';
-                return `Duplicate parameters in ${name}`;
+                return `Duplicate parameters in ${name} — use replicates within a row for repeated measurements`;
             }
         }
         return null;
@@ -248,8 +300,9 @@ export const FieldTripPage: React.FC = () => {
                     dateTime: s.dateTime,
                     readings: validRows.map((r) => {
                         const param = params.find((p) => p.parameter_id === r.parameter_id);
+                        const dn = param?.parameter?.[0]?.display_name;
                         return {
-                            paramName: param?.name ?? r.parameter_id,
+                            paramName: dn ? `${dn} (${param?.name})` : (param?.name ?? r.parameter_id),
                             units: param?.display_units ?? '',
                             value: r.value,
                         };
@@ -269,16 +322,34 @@ export const FieldTripPage: React.FC = () => {
                 notes: tripNotes || null,
                 stations: stations
                     .filter((s) => s.site_id)
-                    .map((s) => ({
+                    .map((s, si) => ({
                         site_id: s.site_id,
                         readings: s.rows
-                            .filter((r) => r.parameter_id && r.value)
-                            .map((r) => ({
-                                parameter_id: r.parameter_id,
-                                sensor_id: r.sensor_id || null,
-                                value: parseFloat(r.value),
-                                time: new Date(s.dateTime).toISOString(),
-                            })),
+                            .filter((r) => r.parameter_id && (r.value || getRepStats(si, r)))
+                            .flatMap((r) => {
+                                const rk = repKey(si, r.id);
+                                const reps = replicateInputs[rk];
+                                const timestamp = new Date(s.dateTime).toISOString();
+                                const hasReplicates = reps && reps.length > 0;
+
+                                if (hasReplicates) {
+                                    return [r.value, ...reps]
+                                        .map(v => parseFloat(v))
+                                        .filter(v => !isNaN(v))
+                                        .map(value => ({
+                                            parameter_id: r.parameter_id,
+                                            sensor_id: r.sensor_id || null,
+                                            value,
+                                            time: timestamp,
+                                        }));
+                                }
+                                return [{
+                                    parameter_id: r.parameter_id,
+                                    sensor_id: r.sensor_id || null,
+                                    value: parseFloat(r.value),
+                                    time: timestamp,
+                                }];
+                            }),
                     })),
             };
 
@@ -303,6 +374,8 @@ export const FieldTripPage: React.FC = () => {
             setTripNotes('');
             setStations([{ site_id: '', dateTime: toLocalDatetime(new Date()), rows: [{ id: nextRowId, parameter_id: '', sensor_id: '', value: '' }] }]);
             setNextRowId((n) => n + 1);
+            setReplicateInputs({});
+            setShowReplicates(new Set());
         } catch (e) {
             notify(`Failed: ${e instanceof Error ? e.message : 'Unknown error'}`, { type: 'error' });
         } finally {
@@ -333,11 +406,26 @@ export const FieldTripPage: React.FC = () => {
                     <Typography variant="h6" sx={{ mb: 2 }}>Trip Details</Typography>
                     <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
                         <TextField
+                            select
+                            label="Project"
+                            value={projectFilter}
+                            onChange={(e) => {
+                                setProjectFilter(e.target.value);
+                                setStations(prev => prev.map(s => ({ ...s, site_id: '', rows: [{ id: nextRowId, parameter_id: '', sensor_id: '', value: '' }] })));
+                                setNextRowId(n => n + 1);
+                            }}
+                            sx={{ minWidth: 200 }}
+                        >
+                            <MenuItem value=""><em>All projects</em></MenuItem>
+                            {(projects ?? []).map((p) => (
+                                <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
+                            ))}
+                        </TextField>
+                        <TextField
                             label="Trip Date"
                             type="date"
                             value={tripDate}
                             onChange={(e) => setTripDate(e.target.value)}
-                            size="small"
                             slotProps={{ inputLabel: { shrink: true } }}
                             sx={{ minWidth: 180 }}
                         />
@@ -345,7 +433,6 @@ export const FieldTripPage: React.FC = () => {
                             label="Participants"
                             value={participants}
                             onChange={(e) => setParticipants(e.target.value)}
-                            size="small"
                             placeholder="e.g. Alice, Bob"
                             sx={{ minWidth: 300, flex: 1 }}
                         />
@@ -354,7 +441,6 @@ export const FieldTripPage: React.FC = () => {
                         label="Trip Notes"
                         value={tripNotes}
                         onChange={(e) => setTripNotes(e.target.value)}
-                        size="small"
                         multiline
                         rows={3}
                         fullWidth
@@ -377,13 +463,12 @@ export const FieldTripPage: React.FC = () => {
                                         {station.site_id && sites && (
                                             <Chip
                                                 label={sites.find((s) => s.id === station.site_id)?.name}
-                                                size="small"
                                                 sx={{ ml: 1 }}
                                             />
                                         )}
                                     </Typography>
                                     {stations.length > 1 && (
-                                        <IconButton size="small" onClick={() => removeStation(si)} color="error">
+                                        <IconButton onClick={() => removeStation(si)} color="error">
                                             <DeleteIcon fontSize="small" />
                                         </IconButton>
                                     )}
@@ -395,8 +480,8 @@ export const FieldTripPage: React.FC = () => {
                                         label="Site"
                                         value={station.site_id}
                                         onChange={(e) => updateStation(si, 'site_id', e.target.value)}
-                                        size="small"
                                         sx={{ minWidth: 250 }}
+                                        disabled={!sites?.length}
                                     >
                                         {(sites ?? []).map((s) => (
                                             <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>
@@ -408,7 +493,6 @@ export const FieldTripPage: React.FC = () => {
                                         type="datetime-local"
                                         value={station.dateTime}
                                         onChange={(e) => updateStation(si, 'dateTime', e.target.value)}
-                                        size="small"
                                         slotProps={{ inputLabel: { shrink: true } }}
                                         sx={{ minWidth: 220 }}
                                     />
@@ -426,27 +510,52 @@ export const FieldTripPage: React.FC = () => {
 
                                         {station.rows.map((row) => {
                                             const selectedParam = stationParams.find((p) => p.parameter_id === row.parameter_id);
+                                            const rk = repKey(si, row.id);
+                                            const reps = replicateInputs[rk] ?? [];
+                                            const isExpanded = showReplicates.has(rk);
+                                            const stats = getRepStats(si, row);
                                             return (
-                                                <Box key={row.id} sx={{ display: 'flex', gap: 1, mb: 1, alignItems: 'center' }}>
+                                                <Box key={row.id} sx={{ mb: 1.5 }}>
+                                                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                                                     <TextField
                                                         select
                                                         value={row.parameter_id}
                                                         onChange={(e) => updateRow(si, row.id, 'parameter_id', e.target.value)}
-                                                        size="small"
                                                         sx={{ flex: 3 }}
+                                                        slotProps={{
+                                                            select: {
+                                                                renderValue: (val) => {
+                                                                    const sp = stationParams.find(p => p.parameter_id === val);
+                                                                    const dn = sp?.parameter?.[0]?.display_name;
+                                                                    return dn ? `${dn} — ${sp?.name}` : (sp?.name ?? '');
+                                                                },
+                                                            },
+                                                        }}
                                                     >
-                                                        {stationParams.map((p) => (
-                                                            <MenuItem key={p.parameter_id} value={p.parameter_id}>
-                                                                {p.name} {p.display_units ? `(${p.display_units})` : ''}
-                                                            </MenuItem>
-                                                        ))}
+                                                        {stationParams.map((p) => {
+                                                            const dn = p.parameter?.[0]?.display_name;
+                                                            return (
+                                                                <MenuItem key={p.parameter_id} value={p.parameter_id}>
+                                                                    <Box>
+                                                                        <Typography variant="body2">
+                                                                            {dn ?? p.name}
+                                                                            {p.display_units ? ` (${p.display_units})` : ''}
+                                                                        </Typography>
+                                                                        {dn && (
+                                                                            <Typography variant="caption" color="text.secondary">
+                                                                                {p.name}
+                                                                            </Typography>
+                                                                        )}
+                                                                    </Box>
+                                                                </MenuItem>
+                                                            );
+                                                        })}
                                                     </TextField>
 
                                                     <TextField
                                                         select
                                                         value={row.sensor_id}
                                                         onChange={(e) => updateRow(si, row.id, 'sensor_id', e.target.value)}
-                                                        size="small"
                                                         sx={{ flex: 2 }}
                                                     >
                                                         <MenuItem value=""><em>None</em></MenuItem>
@@ -461,24 +570,100 @@ export const FieldTripPage: React.FC = () => {
                                                     <TextField
                                                         value={row.value}
                                                         onChange={(e) => updateRow(si, row.id, 'value', e.target.value)}
-                                                        size="small"
                                                         type="number"
                                                         sx={{ flex: 1.5 }}
                                                         placeholder={selectedParam?.display_units ?? 'Value'}
                                                     />
 
                                                     <IconButton
-                                                        size="small"
                                                         onClick={() => removeRow(si, row.id)}
                                                         disabled={station.rows.length <= 1}
                                                     >
                                                         <DeleteIcon fontSize="small" />
                                                     </IconButton>
+                                                    </Box>
+
+                                                    {row.parameter_id && (
+                                                        <Box sx={{ ml: 1, mt: 0.5 }}>
+                                                            <Button
+                                                                onClick={() => {
+                                                                    setShowReplicates(prev => {
+                                                                        const next = new Set(prev);
+                                                                        if (next.has(rk)) next.delete(rk); else next.add(rk);
+                                                                        return next;
+                                                                    });
+                                                                    if (!replicateInputs[rk]?.length) {
+                                                                        setReplicateInputs(prev => ({ ...prev, [rk]: [''] }));
+                                                                    }
+                                                                }}
+                                                                startIcon={isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                                                                sx={{ textTransform: 'none', fontSize: '0.8125rem' }}
+                                                            >
+                                                                Replicates
+                                                                {stats && <Chip label={`n=${stats.count}`} sx={{ ml: 1, height: 20, fontSize: '0.7rem' }} />}
+                                                            </Button>
+                                                            <Collapse in={isExpanded}>
+                                                                <Paper variant="outlined" sx={{ p: 1.5, mt: 0.5, ml: 2 }}>
+                                                                    <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                                                                        The primary value above counts as the first measurement.
+                                                                    </Typography>
+                                                                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1 }}>
+                                                                        {reps.map((rep, ri) => (
+                                                                            <Box key={ri} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                                                <TextField
+                                                                                    type="number"
+                                                                                    value={rep}
+                                                                                    onChange={(e) => {
+                                                                                        setReplicateInputs(prev => {
+                                                                                            const arr = [...(prev[rk] ?? [])];
+                                                                                            arr[ri] = e.target.value;
+                                                                                            return { ...prev, [rk]: arr };
+                                                                                        });
+                                                                                    }}
+                                                                                    placeholder={`Rep ${ri + 2}`}
+                                                                                    sx={{ width: 90 }}
+                                                                                    slotProps={{ input: { sx: { fontSize: '0.8125rem' } } }}
+                                                                                />
+                                                                                <IconButton onClick={() => {
+                                                                                    setReplicateInputs(prev => {
+                                                                                        const arr = [...(prev[rk] ?? [])];
+                                                                                        arr.splice(ri, 1);
+                                                                                        return { ...prev, [rk]: arr };
+                                                                                    });
+                                                                                }}>
+                                                                                    <DeleteIcon sx={{ fontSize: 16 }} />
+                                                                                </IconButton>
+                                                                            </Box>
+                                                                        ))}
+                                                                        {reps.length < MAX_REPLICATES - 1 && (
+                                                                            <Button
+                                                                                onClick={() => setReplicateInputs(prev => ({
+                                                                                    ...prev, [rk]: [...(prev[rk] ?? []), '']
+                                                                                }))}
+                                                                                startIcon={<AddIcon />}
+                                                                                sx={{ textTransform: 'none', fontSize: '0.75rem' }}
+                                                                            >
+                                                                                Add
+                                                                            </Button>
+                                                                        )}
+                                                                    </Box>
+                                                                    {stats && (
+                                                                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                                                                            Mean: <strong>{stats.mean.toFixed(2)}</strong>
+                                                                            {' ± '}{stats.sd.toFixed(2)}
+                                                                            {' '}{selectedParam?.display_units ?? ''}
+                                                                            {' '}(n={stats.count})
+                                                                        </Typography>
+                                                                    )}
+                                                                </Paper>
+                                                            </Collapse>
+                                                        </Box>
+                                                    )}
                                                 </Box>
                                             );
                                         })}
 
-                                        <Button size="small" startIcon={<AddIcon />} onClick={() => addRow(si)} sx={{ mt: 1 }}>
+                                        <Button startIcon={<AddIcon />} onClick={() => addRow(si)} sx={{ mt: 1 }}>
                                             Add Row
                                         </Button>
                                     </>

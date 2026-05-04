@@ -124,7 +124,6 @@ export default function SearchBar() {
       <Box ref={anchorRef} sx={{ position: 'relative', mx: 2 }}>
         <TextField
           inputRef={inputRef}
-          size="small"
           placeholder="Search..."
           value={query}
           onChange={handleChange}

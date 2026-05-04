@@ -300,7 +300,6 @@ export const ScatterPlot: React.FC<ScatterPlotProps> = ({ siteId, parameters }) 
             label="X Axis"
             value={xParamId}
             onChange={(e) => setXParamId(e.target.value)}
-            size="small"
             sx={{ minWidth: 180 }}
           >
             {parameters.map((p) => (
@@ -319,7 +318,6 @@ export const ScatterPlot: React.FC<ScatterPlotProps> = ({ siteId, parameters }) 
             label="Y Axis"
             value={yParamId}
             onChange={(e) => setYParamId(e.target.value)}
-            size="small"
             sx={{ minWidth: 180 }}
           >
             {parameters.map((p) => (

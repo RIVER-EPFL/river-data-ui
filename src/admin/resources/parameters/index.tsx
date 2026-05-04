@@ -36,7 +36,6 @@ const SiteCountField = (_props: { label?: string; counts?: Map<string, number> }
   return (
     <Chip
       label={`${total} site${total !== 1 ? 's' : ''}`}
-      size="small"
       variant="outlined"
       color={total > 0 ? 'primary' : 'default'}
       onClick={total > 0 ? (e) => {
@@ -59,7 +58,6 @@ const SensorCountField = (_props: { label?: string; counts?: Map<string, number>
   return (
     <Chip
       label={`${total} sensor${total !== 1 ? 's' : ''}`}
-      size="small"
       variant="outlined"
       color={total > 0 ? 'info' : 'default'}
       onClick={total > 0 ? (e) => {
@@ -117,24 +115,34 @@ const ParameterDatagrid = () => {
   );
 };
 
-const parameterFilters = [
-  <TextInput source="q" label="Search" alwaysOn key="q" />,
-  <SelectInput source="category" label="Category" key="category" choices={[
-    { id: 'measurement', name: 'Measurement' },
-    { id: 'device_health', name: 'Device Health' },
-  ]} />,
-];
+const useCategoryChoices = () => {
+  const { data } = useGetList('parameters', {
+    pagination: { page: 1, perPage: 500 },
+    sort: { field: 'category', order: 'ASC' },
+  });
+  return useMemo(() => {
+    if (!data) return [];
+    const cats = [...new Set(data.map((p) => p.category as string))].sort();
+    return cats.map((c) => ({ id: c, name: c }));
+  }, [data]);
+};
 
-const ParameterList = () => (
-  <List filters={parameterFilters} sort={{ field: 'name', order: 'ASC' }}>
-    <ParameterDatagrid />
-  </List>
-);
+const ParameterFilters = () => {
+  const categoryChoices = useCategoryChoices();
+  return [
+    <TextInput source="q" label="Search" alwaysOn key="q" />,
+    <SelectInput source="category" label="Category" key="category" choices={categoryChoices} />,
+  ];
+};
 
-const PARAMETER_CATEGORIES = [
-  { id: 'measurement', name: 'Measurement' },
-  { id: 'device_health', name: 'Device Health' },
-];
+const ParameterList = () => {
+  const filters = ParameterFilters();
+  return (
+    <List filters={filters} sort={{ field: 'name', order: 'ASC' }}>
+      <ParameterDatagrid />
+    </List>
+  );
+};
 
 const PARAMETER_DATA_TYPES = [
   { id: 'float', name: 'Float (numeric)' },
@@ -143,13 +151,15 @@ const PARAMETER_DATA_TYPES = [
   { id: 'bool', name: 'Boolean' },
 ];
 
-const ParameterCreate = () => (
+const ParameterCreate = () => {
+  const categoryChoices = useCategoryChoices();
+  return (
   <Create>
     <SimpleForm>
       <TextInput source="name" isRequired />
       <TextInput source="display_name" />
       <TextInput source="default_units" />
-      <SelectInput source="category" choices={PARAMETER_CATEGORIES} defaultValue="measurement" />
+      <SelectInput source="category" choices={categoryChoices} defaultValue="measurement" />
       <SelectInput source="data_type" choices={PARAMETER_DATA_TYPES} defaultValue="float" />
       <TextInput source="description" multiline />
       <Typography variant="subtitle2" color="text.secondary" sx={{ mt: 2 }}>
@@ -164,7 +174,8 @@ const ParameterCreate = () => (
       <NumberInput source="default_alarm_max" label="Alarm Max" />
     </SimpleForm>
   </Create>
-);
+  );
+};
 
 /** Show current deployment site for a sensor */
 const SensorCurrentSite = () => {
@@ -237,13 +248,15 @@ const ParameterShow = () => (
   </Show>
 );
 
-const ParameterEdit = () => (
+const ParameterEdit = () => {
+  const categoryChoices = useCategoryChoices();
+  return (
   <Edit>
     <SimpleForm>
       <TextInput source="name" isRequired />
       <TextInput source="display_name" />
       <TextInput source="default_units" />
-      <SelectInput source="category" choices={PARAMETER_CATEGORIES} />
+      <SelectInput source="category" choices={categoryChoices} />
       <SelectInput source="data_type" choices={PARAMETER_DATA_TYPES} />
       <TextInput source="description" multiline />
       <Typography variant="subtitle2" color="text.secondary" sx={{ mt: 2 }}>
@@ -258,7 +271,8 @@ const ParameterEdit = () => (
       <NumberInput source="default_alarm_max" label="Alarm Max" />
     </SimpleForm>
   </Edit>
-);
+  );
+};
 
 export default {
   list: ParameterList,

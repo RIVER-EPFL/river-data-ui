@@ -36,7 +36,7 @@ export const StationHeader: React.FC<StationHeaderProps> = ({ site, project, sta
         <CardContent>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                 <Tooltip title="Back to sites list">
-                    <IconButton component={Link} to="/admin/sites" size="small">
+                    <IconButton component={Link} to="/admin/sites">
                         <ArrowBackIcon />
                     </IconButton>
                 </Tooltip>
@@ -46,7 +46,6 @@ export const StationHeader: React.FC<StationHeaderProps> = ({ site, project, sta
                 <Button
                     component={Link}
                     to={`/admin/sites/${site.id}`}
-                    size="small"
                     startIcon={<EditIcon />}
                 >
                     Edit
@@ -71,9 +70,9 @@ export const StationHeader: React.FC<StationHeaderProps> = ({ site, project, sta
                     </Typography>
                 )}
                 <Divider orientation="vertical" flexItem />
-                <Chip label={`${statusSummary.total} parameters`} size="small" />
-                <Chip label={`${statusSummary.active} active`} size="small" color="success" />
-                <Chip label={`${statusSummary.sensorsActive} sensors deployed`} size="small" color="info" />
+                <Chip label={`${statusSummary.total} parameters`} />
+                <Chip label={`${statusSummary.active} active`} color="success" />
+                <Chip label={`${statusSummary.sensorsActive} sensors deployed`} color="info" />
             </Box>
         </CardContent>
     </Card>

@@ -80,6 +80,7 @@ interface DashboardState {
   alarms: AlarmBand[];
   showAlarms: boolean;
   singlePoint: boolean;
+  parametersCollapsed: boolean;
 }
 
 type ApiFn = (url: string, noCache?: boolean) => Promise<unknown>;
@@ -106,9 +107,9 @@ const DASHBOARD_HTML = `
       <div class="timeline-region-today" id="region-today"></div>
     </div>
     <div class="timeline-labels" id="timeline-labels">
-      <span id="label-history" style="color: #94a3b8"></span>
-      <span id="label-week" style="color: #3b82f6"></span>
-      <span id="label-today" style="color: #10b981"></span>
+      <span id="label-history" style="color: ${tokens.brand.textMuted}"></span>
+      <span id="label-week" style="color: ${tokens.brand.primary}"></span>
+      <span id="label-today" style="color: ${tokens.severity.ok.main}"></span>
     </div>
     <div class="slider-info">
       <div>
@@ -177,6 +178,7 @@ export interface DashboardOptions {
 export interface DashboardHandle {
   destroy: () => void;
   selectSite: (siteId: string) => void;
+  clearSite: () => void;
 }
 
 export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFetchFn, options?: DashboardOptions): DashboardHandle {
@@ -210,6 +212,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     alarms: [],
     showAlarms: true,
     singlePoint: false,
+    parametersCollapsed: true,
   };
 
   const CHART_HEIGHT_NORMAL = 180;
@@ -227,14 +230,14 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
   const parameterColors: Record<string, string> = {};
 
   const alarmColors: Record<number, string> = {
-    0: 'rgba(59, 130, 246, 0.15)',
-    1: 'rgba(245, 158, 11, 0.25)',
-    2: 'rgba(239, 68, 68, 0.35)',
+    0: tokens.severity.unknown.soft,
+    1: tokens.severity.warning.soft,
+    2: tokens.severity.alarm.soft,
   };
   const alarmBorderColors: Record<number, string> = {
-    0: 'rgba(59, 130, 246, 0.5)',
-    1: 'rgba(245, 158, 11, 0.7)',
-    2: 'rgba(239, 68, 68, 0.8)',
+    0: tokens.severity.unknown.border,
+    1: tokens.severity.warning.border,
+    2: tokens.severity.alarm.border,
   };
 
   function alarmBandsPlugin(paramType: string) {
@@ -493,8 +496,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     ($('timeline-legend') as HTMLElement).style.display = '';
     ($('timeline-labels') as HTMLElement).style.display = '';
 
-    const defaultWindow = Math.min(1 * 86400000, maxTs - minTs);
-    state.start = new Date(maxTs - defaultWindow);
+    state.start = new Date(minTs);
     state.end = new Date(maxTs);
 
     const rangeDays = (maxTs - minTs) / 86400000;
@@ -754,7 +756,14 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
       return;
     }
 
-    const time = new Date(state.data.times[idx]);
+    let timeMs: number | undefined;
+    for (const type of state.parameterTypeOrder) {
+      if (state.chartData[type]?.timestamps[idx] != null) {
+        timeMs = state.chartData[type].timestamps[idx] * 1000;
+        break;
+      }
+    }
+    const time = timeMs != null ? new Date(timeMs) : new Date(state.data.times[idx]);
     tooltipTime.textContent = time.toLocaleString('en-US', {
       month: 'short', day: 'numeric', year: 'numeric',
       hour: '2-digit', minute: '2-digit',
@@ -767,7 +776,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
       params.forEach((param) => {
         const values = param.values || param.avg || [];
         const val = values[idx];
-        const color = parameterColors[type] || '#666';
+        const color = parameterColors[type] || tokens.brand.textMuted;
         const sevs = param.severities || param.max_severity;
         const sev = (sevs && state.showAlarms) ? (sevs[idx] || 0) : 0;
         const badge = sev > 0 ? `<span class="alarm-badge ${sev === 2 ? 'critical' : 'warning'}">${sev === 2 ? 'ALARM' : 'WARN'}</span>` : '';
@@ -837,15 +846,38 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     // Update parameter toggles (only show types that have data)
     const toggles = $('parameter-toggles');
     const typesWithData = [...new Set(parameters.map((s) => s.type))].filter((t) => state.parametersWithData.has(t)).sort();
-    toggles.innerHTML = typesWithData.map((t) => {
-      const checked = state.parameters.has(t);
-      return `<label class="parameter-toggle">
-        <input type="checkbox" value="${t}" ${checked ? 'checked' : ''}>
-        <span style="color: ${parameterColors[t]}">${t}</span>
-      </label>`;
-    }).join('') || '<span style="color: var(--muted); font-size: 0.875rem">No data available</span>';
+    const enabledCount = typesWithData.filter((t) => state.parameters.has(t)).length;
 
-    toggles.querySelectorAll('input').forEach((cb) => {
+    if (!typesWithData.length) {
+      toggles.innerHTML = '<span style="color: var(--muted); font-size: 0.875rem">No data available</span>';
+    } else {
+      const isCollapsed = state.parametersCollapsed;
+      toggles.innerHTML = `
+        <div class="parameter-toggles-summary" id="parameter-toggles-summary">
+          <span class="parameter-toggles-count">${enabledCount} of ${typesWithData.length} parameters showing</span>
+          <span class="parameter-toggles-arrow">${isCollapsed ? '▼' : '▲'}</span>
+        </div>
+        <div class="parameter-toggles-list" id="parameter-toggles-list" style="display: ${isCollapsed ? 'none' : 'flex'}">
+          ${typesWithData.map((t) => {
+            const checked = state.parameters.has(t);
+            return `<label class="parameter-toggle">
+              <input type="checkbox" value="${t}" ${checked ? 'checked' : ''}>
+              <span style="color: ${parameterColors[t]}">${t}</span>
+            </label>`;
+          }).join('')}
+        </div>
+      `;
+
+      $('parameter-toggles-summary').addEventListener('click', () => {
+        state.parametersCollapsed = !state.parametersCollapsed;
+        const list = $('parameter-toggles-list');
+        const arrow = toggles.querySelector('.parameter-toggles-arrow');
+        if (list) list.style.display = state.parametersCollapsed ? 'none' : 'flex';
+        if (arrow) arrow.textContent = state.parametersCollapsed ? '▼' : '▲';
+      }, { signal });
+    }
+
+    toggles.querySelectorAll('.parameter-toggles-list input').forEach((cb) => {
       cb.addEventListener('change', () => {
         const input = cb as HTMLInputElement;
         if (input.checked) state.parameters.add(input.value);
@@ -944,7 +976,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
         (seriesData as (number | null)[][]).push(values);
         seriesOpts.push({
           label: param.name,
-          stroke: parameterColors[type] || '#666',
+          stroke: parameterColors[type] || tokens.brand.textMuted,
           width: 1.5,
           // Show dots for single-point data (the value sits between two nulls)
           points: isSingleTimestamp ? { show: true, size: 8 } : undefined,
@@ -968,10 +1000,10 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
           padding: [10, 10, 0, 0],
           scales: { x: { time: true }, y: { auto: true } },
           axes: [
-            { stroke: '#64748b', grid: { stroke: '#e2e8f0' }, size: 50 },
+            { stroke: tokens.brand.textMuted, grid: { stroke: tokens.brand.divider }, size: 50 },
             {
               stroke: parameterColors[type],
-              grid: { stroke: '#e2e8f0' },
+              grid: { stroke: tokens.brand.divider },
               size: 50,
               values: (_u: uPlot, vals: number[]) => vals.map((v) => v == null ? '' : v.toFixed(1)),
             },
@@ -1040,7 +1072,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     const width = chartsContainer.clientWidth - 32;
     Object.entries(state.charts).forEach(([type, chart]) => {
       const height = state.expandedCharts.has(type) ? CHART_HEIGHT_EXPANDED : CHART_HEIGHT_NORMAL;
-      if (chart.width !== width) {
+      if (Math.abs(chart.width - width) > 4) {
         chart.setSize({ width, height });
       }
     });
@@ -1065,6 +1097,20 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
       const btn = root.querySelector(`.site-btn[data-id="${siteId}"]`) as HTMLElement | null;
       if (btn) btn.click();
       else loadSite(siteId);
+    },
+    clearSite: () => {
+      Object.values(state.charts).forEach((c) => c.destroy());
+      state.charts = {};
+      state.chartData = {};
+      state.data = null;
+      state.site = null;
+      state.alarms = [];
+      if (state.slider) { state.slider.destroy(); state.slider = null; }
+      ($('slider-section')).style.display = 'none';
+      ($('export-toolbar')).style.display = 'none';
+      $('charts-container').innerHTML = '<div class="chart-placeholder">Select a site to view data</div>';
+      $('parameter-toggles').innerHTML = '<span style="color: var(--muted); font-size: 0.875rem">Select a site to see parameters</span>';
+      root.querySelectorAll('.site-btn').forEach((b) => b.classList.remove('active'));
     },
   };
 }

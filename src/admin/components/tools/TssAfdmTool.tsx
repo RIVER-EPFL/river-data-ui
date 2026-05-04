@@ -18,10 +18,10 @@ export const TssAfdmTool = () => {
   return (
     <ToolLayout toolName="tss_afdm" description="Total Suspended Solids and Ash-Free Dry Mass from filter weights." inputs={inputs}>
       <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-        <TextField label="Dried weight (g)" value={dried} onChange={(e) => setDried(e.target.value)} type="number" size="small" required />
-        <TextField label="Pre-filter weight (g)" value={prefilt} onChange={(e) => setPrefilt(e.target.value)} type="number" size="small" required />
-        <TextField label="Ashed weight (g)" value={ashed} onChange={(e) => setAshed(e.target.value)} type="number" size="small" helperText="Optional, for AFDM" />
-        <TextField label="Volume filtered (mL)" value={vol} onChange={(e) => setVol(e.target.value)} type="number" size="small" required />
+        <TextField label="Dried weight (g)" value={dried} onChange={(e) => setDried(e.target.value)} type="number" required />
+        <TextField label="Pre-filter weight (g)" value={prefilt} onChange={(e) => setPrefilt(e.target.value)} type="number" required />
+        <TextField label="Ashed weight (g)" value={ashed} onChange={(e) => setAshed(e.target.value)} type="number" helperText="Optional, for AFDM" />
+        <TextField label="Volume filtered (mL)" value={vol} onChange={(e) => setVol(e.target.value)} type="number" required />
       </Box>
     </ToolLayout>
   );

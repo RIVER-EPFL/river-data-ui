@@ -119,7 +119,7 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
         }}
         onClick={() => setOpen(!open)}
       >
-        <IconButton size="small" sx={{ p: 0.25 }}>
+        <IconButton sx={{ p: 0.25 }}>
           {open ? (
             <ExpandLessIcon fontSize="small" />
           ) : (
@@ -143,7 +143,7 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
                 <TableCell>% Missing</TableCell>
                 <TableCell padding="none" sx={{ width: 32 }}>
                   <Tooltip title="Copy as TSV">
-                    <IconButton size="small" onClick={copyToClipboard} sx={{ p: 0.25 }}>
+                    <IconButton onClick={copyToClipboard} sx={{ p: 0.25 }}>
                       <ContentCopyIcon fontSize="small" />
                     </IconButton>
                   </Tooltip>

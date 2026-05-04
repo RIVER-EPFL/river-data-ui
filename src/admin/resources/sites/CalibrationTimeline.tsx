@@ -2,6 +2,7 @@ import React from 'react';
 import { useGetList } from 'react-admin';
 import { Box, Typography, Tooltip } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
+import { tokens } from '../../theme';
 
 interface CalibrationRecord {
   id: string;
@@ -17,11 +18,7 @@ interface CalibrationTimelineProps {
   sensorId: string;
 }
 
-// Generate distinct colors for calibration segments
-const SEGMENT_COLORS = [
-  '#2196f3', '#4caf50', '#ff9800', '#9c27b0', '#00bcd4',
-  '#f44336', '#3f51b5', '#009688', '#ff5722', '#607d8b',
-];
+const SEGMENT_COLORS = tokens.dataViz;
 
 export const CalibrationTimeline: React.FC<CalibrationTimelineProps> = ({ sensorId }) => {
   const navigate = useNavigate();

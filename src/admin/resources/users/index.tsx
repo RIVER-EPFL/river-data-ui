@@ -33,7 +33,7 @@ const RolesField = () => {
   return (
     <Stack direction="row" spacing={0.5} flexWrap="wrap">
       {(record.roles as string[]).map((role) => (
-        <Chip key={role} label={role} size="small" />
+        <Chip key={role} label={role} />
       ))}
     </Stack>
   );

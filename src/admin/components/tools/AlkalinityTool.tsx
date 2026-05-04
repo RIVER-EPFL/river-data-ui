@@ -23,10 +23,10 @@ export const AlkalinityTool = () => {
   return (
     <ToolLayout toolName="alkalinity" description="Gran titration alkalinity in meq/L and mg/L CaCO3." inputs={inputs}>
       <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-        <TextField label="Sample weight (g)" value={sampleWeight} onChange={(e) => setSampleWeight(e.target.value)} type="number" size="small" required />
-        <TextField label="Acid normality (N)" value={acidNormality} onChange={(e) => setAcidNormality(e.target.value)} type="number" size="small" required />
-        <TextField label="Titrant volume (mL)" value={titrantVolume} onChange={(e) => setTitrantVolume(e.target.value)} type="number" size="small" required />
-        <TextField label="Initial pH" value={initialPh} onChange={(e) => setInitialPh(e.target.value)} type="number" size="small" helperText="Optional" />
+        <TextField label="Sample weight (g)" value={sampleWeight} onChange={(e) => setSampleWeight(e.target.value)} type="number" required />
+        <TextField label="Acid normality (N)" value={acidNormality} onChange={(e) => setAcidNormality(e.target.value)} type="number" required />
+        <TextField label="Titrant volume (mL)" value={titrantVolume} onChange={(e) => setTitrantVolume(e.target.value)} type="number" required />
+        <TextField label="Initial pH" value={initialPh} onChange={(e) => setInitialPh(e.target.value)} type="number" helperText="Optional" />
       </Box>
     </ToolLayout>
   );

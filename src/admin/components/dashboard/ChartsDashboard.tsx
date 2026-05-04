@@ -4,20 +4,22 @@ import { useAuthFetch } from '../../hooks/useAuthFetch';
 import { createDashboard, type DashboardHandle } from './dashboard-engine';
 import 'uplot/dist/uPlot.min.css';
 import 'nouislider/dist/nouislider.css';
+import { tokens } from '../../theme';
 
 export interface ChartsDashboardRef {
   selectSite: (siteId: string) => void;
+  clearSite: () => void;
 }
 
 const DASHBOARD_CSS = `
 .river-dashboard {
-  --bg: #f8fafc;
-  --surface: #ffffff;
-  --border: #e2e8f0;
-  --text: #1e293b;
-  --muted: #64748b;
-  --accent: #2563eb;
-  font-family: system-ui, -apple-system, sans-serif;
+  --bg: ${tokens.brand.bg};
+  --surface: ${tokens.brand.surface};
+  --border: ${tokens.brand.divider};
+  --text: ${tokens.brand.text};
+  --muted: ${tokens.brand.textMuted};
+  --accent: ${tokens.brand.primary};
+  font-family: ${tokens.font.body};
   color: var(--text);
 }
 .river-dashboard *, .river-dashboard *::before, .river-dashboard *::after {
@@ -116,9 +118,9 @@ const DASHBOARD_CSS = `
   height: 100%;
   position: relative;
 }
-.river-dashboard .timeline-region-history { background: #94a3b8; }
-.river-dashboard .timeline-region-week { background: #3b82f6; }
-.river-dashboard .timeline-region-today { background: #10b981; }
+.river-dashboard .timeline-region-history { background: ${tokens.brand.textMuted}; }
+.river-dashboard .timeline-region-week { background: ${tokens.brand.primary}; }
+.river-dashboard .timeline-region-today { background: ${tokens.severity.ok.main}; }
 .river-dashboard .timeline-region-history::after,
 .river-dashboard .timeline-region-week::after {
   content: '';
@@ -182,10 +184,11 @@ const DASHBOARD_CSS = `
   border-radius: 0.5rem;
   padding: 0.75rem 1rem;
   display: flex;
+  flex-direction: column;
   flex-wrap: wrap;
-  gap: 1rem;
+  gap: 0;
   min-height: 42px;
-  align-items: center;
+  align-items: flex-start;
   flex: 1;
 }
 .river-dashboard .parameter-toggle {
@@ -200,6 +203,35 @@ const DASHBOARD_CSS = `
   height: 1rem;
   accent-color: var(--accent);
 }
+.river-dashboard .parameter-toggles-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--muted);
+  user-select: none;
+  -webkit-user-select: none;
+  width: 100%;
+}
+.river-dashboard .parameter-toggles-summary:hover {
+  color: var(--text);
+}
+.river-dashboard .parameter-toggles-count {
+  font-weight: 500;
+}
+.river-dashboard .parameter-toggles-arrow {
+  font-size: 0.65rem;
+}
+.river-dashboard .parameter-toggles-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+  margin-top: 0.75rem;
+  width: 100%;
+}
 .river-dashboard .alarm-toggle {
   display: flex;
   align-items: center;
@@ -213,17 +245,17 @@ const DASHBOARD_CSS = `
   transition: all 0.15s;
 }
 .river-dashboard .alarm-toggle:hover {
-  border-color: #ef4444;
+  border-color: ${tokens.severity.alarm.main};
 }
 .river-dashboard .alarm-toggle.active {
   background: rgba(239, 68, 68, 0.1);
-  border-color: #ef4444;
+  border-color: ${tokens.severity.alarm.main};
 }
 .river-dashboard .alarm-indicator {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #ef4444;
+  background: ${tokens.severity.alarm.main};
 }
 .river-dashboard .alarm-toggle:not(.active) .alarm-indicator {
   background: var(--muted);
@@ -283,7 +315,7 @@ const DASHBOARD_CSS = `
   padding-top: 1.5rem;
   padding-bottom: 1rem;
   position: relative;
-  overflow: visible;
+  overflow: hidden;
 }
 .river-dashboard .parameter-chart .chart-label {
   position: absolute;
@@ -418,8 +450,8 @@ const DASHBOARD_CSS = `
   margin-left: 0.3rem;
   letter-spacing: 0.02em;
 }
-.river-dashboard .alarm-badge.warning { background: rgba(245, 158, 11, 0.3); color: #b45309; }
-.river-dashboard .alarm-badge.critical { background: rgba(239, 68, 68, 0.3); color: #b91c1c; }
+.river-dashboard .alarm-badge.warning { background: ${tokens.severity.warning.soft}; color: ${tokens.severity.warning.main}; }
+.river-dashboard .alarm-badge.critical { background: ${tokens.severity.alarm.soft}; color: ${tokens.severity.alarm.main}; }
 .river-dashboard .noUi-target {
   background: var(--bg);
   border: 1px solid var(--border);
@@ -467,7 +499,7 @@ const DASHBOARD_CSS = `
 @keyframes rd-spin { to { transform: rotate(360deg); } }
 .river-dashboard--embedded .container {
   max-width: none;
-  padding: 0.5rem;
+  padding: 0;
 }
 `;
 
@@ -508,6 +540,7 @@ const ChartsDashboard = forwardRef<ChartsDashboardRef, ChartsDashboardProps>(fun
 
   useImperativeHandle(ref, () => ({
     selectSite: (id: string) => handleRef.current?.selectSite(id),
+    clearSite: () => handleRef.current?.clearSite(),
   }));
 
   useEffect(() => {
@@ -531,7 +564,7 @@ const ChartsDashboard = forwardRef<ChartsDashboardRef, ChartsDashboardProps>(fun
   return (
     <>
       <style>{DASHBOARD_CSS}</style>
-      <div ref={containerRef} className={`river-dashboard${siteId ? ' river-dashboard--embedded' : ''}`} />
+      <div ref={containerRef} className={`river-dashboard${siteId || hideHeader ? ' river-dashboard--embedded' : ''}`} />
     </>
   );
 });

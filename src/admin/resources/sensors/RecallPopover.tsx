@@ -127,7 +127,7 @@ export function RecallPopover({
                         />
                     </Stack>
                     <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ mt: 2 }}>
-                        <Button onClick={handleClose} disabled={isPending} size="small">
+                        <Button onClick={handleClose} disabled={isPending}>
                             Cancel
                         </Button>
                         <Button
@@ -135,7 +135,6 @@ export function RecallPopover({
                             disabled={isPending}
                             color="warning"
                             variant="contained"
-                            size="small"
                             startIcon={isPending ? <CircularProgress size={14} /> : undefined}
                         >
                             Recall

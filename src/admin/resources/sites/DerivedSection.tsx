@@ -19,6 +19,7 @@ import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import ErrorIcon from '@mui/icons-material/Error';
 import { useRiverDataProvider } from '../../useRiverDataProvider';
 import type { ParameterRecord, SensorDeploymentRecord, LatestReading } from './SensorCard';
+import { tokens } from '../../theme';
 
 export interface DerivedParameterRecord {
     id: string;
@@ -133,12 +134,11 @@ export const DerivedSection: React.FC<DerivedSectionProps> = ({
                                     {param.name}
                                 </Typography>
                                 {param.display_units && (
-                                    <Chip label={param.display_units} size="small" variant="outlined" />
+                                    <Chip label={param.display_units} variant="outlined" />
                                 )}
                                 {latest && (
                                     <Chip
                                         label={`${latest.value} (${new Date(latest.time).toLocaleString()})`}
-                                        size="small"
                                         color="primary"
                                         variant="outlined"
                                     />
@@ -149,7 +149,7 @@ export const DerivedSection: React.FC<DerivedSectionProps> = ({
                                 <Typography
                                     variant="caption"
                                     component="div"
-                                    sx={{ fontFamily: 'monospace', color: 'text.secondary', ml: 1, mb: 0.5 }}
+                                    sx={{ fontFamily: tokens.font.mono, color: 'text.secondary', ml: 1, mb: 0.5 }}
                                 >
                                     Formula: {def.formula}
                                 </Typography>
@@ -195,7 +195,6 @@ export const DerivedSection: React.FC<DerivedSectionProps> = ({
                             {def && (
                                 <Box sx={{ ml: 1, mt: 0.5 }}>
                                     <Button
-                                        size="small"
                                         variant="outlined"
                                         startIcon={
                                             recomputing === def.id ? (

@@ -21,6 +21,7 @@ import {
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
+import { tokens } from '../../theme';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -309,9 +310,9 @@ export const DischargeTool = () => {
         { label: 'Time (s)' },
         {
           label: tracer === 'rhodamine' ? 'Concentration (ppb)' : 'Concentration (mg/L)',
-          stroke: tracer === 'rhodamine' ? '#e91e63' : '#2196f3',
+          stroke: tracer === 'rhodamine' ? tokens.dataViz[3] : tokens.dataViz[0],
           width: 2,
-          fill: tracer === 'rhodamine' ? 'rgba(233, 30, 99, 0.1)' : 'rgba(33, 150, 243, 0.1)',
+          fill: (tracer === 'rhodamine' ? tokens.dataViz[3] : tokens.dataViz[0]) + '1A',
           points: { show: true, size: 4 },
         },
       ],
@@ -421,7 +422,7 @@ export const DischargeTool = () => {
             <TextField
               select label="Tracer Type" value={tracer}
               onChange={(e) => setTracer(e.target.value as TracerType)}
-              size="small" sx={{ minWidth: 160 }}
+ sx={{ minWidth: 160 }}
             >
               <MenuItem value="salt">Salt (Conductivity)</MenuItem>
               <MenuItem value="rhodamine">Rhodamine WT</MenuItem>
@@ -429,16 +430,16 @@ export const DischargeTool = () => {
             <TextField
               select label="Site" value={siteId}
               onChange={(e) => setSiteId(e.target.value)}
-              size="small" sx={{ minWidth: 200 }}
+ sx={{ minWidth: 200 }}
             >
               <MenuItem value=""><em>Optional</em></MenuItem>
               {(sites ?? []).map((site) => (
                 <MenuItem key={site.id} value={site.id}>{site.name}</MenuItem>
               ))}
             </TextField>
-            <TextField label="Injected Volume (mL)" type="number" value={injectedVolume} onChange={(e) => setInjectedVolume(e.target.value)} size="small" sx={{ width: 180 }} />
-            <TextField label="Injected Conc. (g/L)" type="number" value={injectedConc} onChange={(e) => setInjectedConc(e.target.value)} size="small" sx={{ width: 180 }} />
-            <TextField label="Distance (m)" type="number" value={distance} onChange={(e) => setDistance(e.target.value)} size="small" sx={{ width: 140 }} helperText="For velocity calc" />
+            <TextField label="Injected Volume (mL)" type="number" value={injectedVolume} onChange={(e) => setInjectedVolume(e.target.value)} sx={{ width: 180 }} />
+            <TextField label="Injected Conc. (g/L)" type="number" value={injectedConc} onChange={(e) => setInjectedConc(e.target.value)} sx={{ width: 180 }} />
+            <TextField label="Distance (m)" type="number" value={distance} onChange={(e) => setDistance(e.target.value)} sx={{ width: 140 }} helperText="For velocity calc" />
           </Box>
         </CardContent>
       </Card>
@@ -451,18 +452,18 @@ export const DischargeTool = () => {
             <TextField
               select label="Method" value={bgMode}
               onChange={(e) => setBgMode(e.target.value as BackgroundMode)}
-              size="small" sx={{ minWidth: 200 }}
+ sx={{ minWidth: 200 }}
             >
               <MenuItem value="constant">Constant Value</MenuItem>
               <MenuItem value="regression">Linear Regression</MenuItem>
             </TextField>
             {bgMode === 'constant' && (
-              <TextField label="Background (mg/L)" type="number" value={backgroundConc} onChange={(e) => setBackgroundConc(e.target.value)} size="small" sx={{ width: 180 }} />
+              <TextField label="Background (mg/L)" type="number" value={backgroundConc} onChange={(e) => setBackgroundConc(e.target.value)} sx={{ width: 180 }} />
             )}
             {bgMode === 'regression' && (
               <>
-                <TextField label="Pre-injection pts" type="number" value={prePoints} onChange={(e) => setPrePoints(e.target.value)} size="small" sx={{ width: 160 }} helperText="First N points" />
-                <TextField label="Post-injection pts" type="number" value={postPoints} onChange={(e) => setPostPoints(e.target.value)} size="small" sx={{ width: 160 }} helperText="Last N points" />
+                <TextField label="Pre-injection pts" type="number" value={prePoints} onChange={(e) => setPrePoints(e.target.value)} sx={{ width: 160 }} helperText="First N points" />
+                <TextField label="Post-injection pts" type="number" value={postPoints} onChange={(e) => setPostPoints(e.target.value)} sx={{ width: 160 }} helperText="Last N points" />
               </>
             )}
           </Box>
@@ -475,9 +476,9 @@ export const DischargeTool = () => {
           <CardContent>
             <Typography variant="subtitle1" sx={{ mb: 2 }}>Temperature Correction (Rhodamine)</Typography>
             <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-              <TextField label="Water Temp (°C)" type="number" value={waterTemp} onChange={(e) => setWaterTemp(e.target.value)} size="small" required />
-              <TextField label="Ref Temp (°C)" type="number" value={refTemp} onChange={(e) => setRefTemp(e.target.value)} size="small" />
-              <TextField label="Correction Factor" type="number" value={tempCorrFactor} onChange={(e) => setTempCorrFactor(e.target.value)} size="small" helperText="Default 0.029/°C" />
+              <TextField label="Water Temp (°C)" type="number" value={waterTemp} onChange={(e) => setWaterTemp(e.target.value)} required />
+              <TextField label="Ref Temp (°C)" type="number" value={refTemp} onChange={(e) => setRefTemp(e.target.value)} />
+              <TextField label="Correction Factor" type="number" value={tempCorrFactor} onChange={(e) => setTempCorrFactor(e.target.value)} helperText="Default 0.029/°C" />
             </Box>
           </CardContent>
         </Card>
@@ -494,7 +495,7 @@ export const DischargeTool = () => {
             {applySmoothing && (
               <TextField
                 label="Window size" type="number" value={smoothWindow}
-                onChange={(e) => setSmoothWindow(e.target.value)} size="small" sx={{ width: 120 }}
+                onChange={(e) => setSmoothWindow(e.target.value)} sx={{ width: 120 }}
                 helperText="Odd number"
               />
             )}

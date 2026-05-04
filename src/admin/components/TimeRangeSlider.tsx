@@ -9,6 +9,7 @@ import {
   formatDateShort,
   resolveAggregation,
 } from '../utils/timeRange';
+import { tokens } from '../theme';
 
 interface TimeRangeSliderProps {
   /** Earliest available data timestamp (ms since epoch) */
@@ -33,17 +34,17 @@ interface TimeRangeSliderProps {
 
 const SLIDER_CSS = `
 .trs-slider .noUi-target {
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
+  background: ${tokens.brand.bg};
+  border: 1px solid ${tokens.brand.divider};
   box-shadow: none;
   height: 8px;
 }
 .trs-slider .noUi-connect {
-  background: #2563eb;
+  background: ${tokens.brand.primary};
 }
 .trs-slider .noUi-handle {
-  border: 2px solid #2563eb;
-  background: #fff;
+  border: 2px solid ${tokens.brand.primary};
+  background: ${tokens.brand.surface};
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
   width: 18px !important;
   height: 18px !important;
@@ -59,8 +60,8 @@ const SLIDER_CSS = `
 .trs-slider .noUi-tooltip {
   font-size: 0.65rem;
   padding: 2px 6px;
-  background: #1e293b;
-  color: #fff;
+  background: ${tokens.brand.text};
+  color: ${tokens.brand.surface};
   border: none;
   border-radius: 4px;
   white-space: nowrap;
@@ -72,11 +73,11 @@ const SLIDER_CSS = `
 .trs-slider .noUi-value-horizontal {
   transform: translateX(-50%);
   font-size: 0.6rem;
-  color: #64748b;
+  color: ${tokens.brand.textMuted};
 }
 .trs-slider .noUi-marker-horizontal.noUi-marker-large {
   height: 8px;
-  background: #e2e8f0;
+  background: ${tokens.brand.divider};
 }
 .trs-slider-compact .noUi-target {
   height: 6px;
@@ -288,14 +289,14 @@ export const TimeRangeSlider: React.FC<TimeRangeSliderProps> = ({
     if (compact || rangeDays <= 2) return null;
     if (rangeDays > 8) {
       return [
-        { width: '50%', color: '#94a3b8', label: 'History' },
-        { width: '30%', color: '#3b82f6', label: 'Last week' },
-        { width: '20%', color: '#10b981', label: 'Last day' },
+        { width: '50%', color: tokens.brand.textMuted, label: 'History' },
+        { width: '30%', color: tokens.brand.primary, label: 'Last week' },
+        { width: '20%', color: tokens.severity.ok.main, label: 'Last day' },
       ];
     }
     return [
-      { width: '70%', color: '#3b82f6', label: 'This week' },
-      { width: '30%', color: '#10b981', label: 'Last day' },
+      { width: '70%', color: tokens.brand.primary, label: 'This week' },
+      { width: '30%', color: tokens.severity.ok.main, label: 'Last day' },
     ];
   })();
 
@@ -379,7 +380,7 @@ export const TimeRangeSlider: React.FC<TimeRangeSliderProps> = ({
                     top: -2,
                     height: 10,
                     width: 1,
-                    backgroundColor: '#1e293b',
+                    backgroundColor: tokens.brand.text,
                     opacity: 0.3,
                   },
                 }}

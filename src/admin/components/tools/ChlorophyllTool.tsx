@@ -26,16 +26,16 @@ export const ChlorophyllTool = () => {
   return (
     <ToolLayout toolName="chlorophyll" description="Chlorophyll-a concentration from fluorescence with standard curve." inputs={inputs}>
       <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-        <TextField label="Method" value={method} onChange={(e) => setMethod(e.target.value)} select size="small" sx={{ minWidth: 120 }}>
+        <TextField label="Method" value={method} onChange={(e) => setMethod(e.target.value)} select sx={{ minWidth: 120 }}>
           <MenuItem value="acid">Acid correction</MenuItem>
           <MenuItem value="no_acid">No acid</MenuItem>
         </TextField>
-        <TextField label="Fluorescence (before)" value={fluorBefore} onChange={(e) => setFluorBefore(e.target.value)} type="number" size="small" required />
+        <TextField label="Fluorescence (before)" value={fluorBefore} onChange={(e) => setFluorBefore(e.target.value)} type="number" required />
         {method === 'acid' && (
-          <TextField label="Fluorescence (after acid)" value={fluorAfter} onChange={(e) => setFluorAfter(e.target.value)} type="number" size="small" required />
+          <TextField label="Fluorescence (after acid)" value={fluorAfter} onChange={(e) => setFluorAfter(e.target.value)} type="number" required />
         )}
-        <TextField label="Slope" value={slope} onChange={(e) => setSlope(e.target.value)} type="number" size="small" required />
-        <TextField label="Intercept" value={intercept} onChange={(e) => setIntercept(e.target.value)} type="number" size="small" required />
+        <TextField label="Slope" value={slope} onChange={(e) => setSlope(e.target.value)} type="number" required />
+        <TextField label="Intercept" value={intercept} onChange={(e) => setIntercept(e.target.value)} type="number" required />
         <LoadStandardCurveButton onLoad={handleLoadCurve} />
       </Box>
     </ToolLayout>

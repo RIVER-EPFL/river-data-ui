@@ -11,6 +11,7 @@ import {
     Loading,
 } from 'react-admin';
 import {
+    Autocomplete,
     Box,
     Typography,
     Grid2 as Grid,
@@ -51,6 +52,7 @@ import VerifiedIcon from '@mui/icons-material/Verified';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ScatterPlotIcon from '@mui/icons-material/ScatterPlot';
+import ScienceIcon from '@mui/icons-material/Science';
 import { useParams } from 'react-router-dom';
 import { StationHeader } from './StationHeader';
 import { SensorCard } from './SensorCard';
@@ -59,6 +61,7 @@ import { DataExportDialog } from './DataExportDialog';
 import { NotesSection } from './NotesSection';
 import { ScatterPlot } from '../../components/charts/ScatterPlot';
 import { StatusEventsTimeline } from './StatusEventsTimeline';
+import { GrabSamplesSection } from './GrabSamplesSection';
 import { AssignToSiteDialog } from '../derived_parameters/AssignToSiteDialog';
 import { useLatestReadings, useSensorGroups } from './hooks';
 import ChartsDashboard from '../../components/dashboard/ChartsDashboard';
@@ -154,7 +157,6 @@ const AddParameterDialog: React.FC<{
                         if (pt) setDisplayUnits(pt.default_units);
                     }}
                     fullWidth
-                    size="small"
                 >
                     {(paramTypes ?? []).map((pt) => (
                         <MenuItem key={pt.id} value={pt.id}>
@@ -167,14 +169,12 @@ const AddParameterDialog: React.FC<{
                     value={displayUnits}
                     onChange={(e) => setDisplayUnits(e.target.value)}
                     fullWidth
-                    size="small"
                 />
                 <TextField
                     label="Sensor Type"
                     value={sensorType}
                     onChange={(e) => setSensorType(e.target.value)}
                     fullWidth
-                    size="small"
                     placeholder="e.g. optical, electrochemical"
                 />
                 <TextField
@@ -183,7 +183,6 @@ const AddParameterDialog: React.FC<{
                     value={sampleInterval}
                     onChange={(e) => setSampleInterval(e.target.value)}
                     fullWidth
-                    size="small"
                 />
             </DialogContent>
             <DialogActions>
@@ -215,23 +214,49 @@ const DeploySensorDialog: React.FC<{
     const notify = useNotify();
     const refresh = useRefresh();
 
-    const [sensorId, setSensorId] = useState('');
+    const [selectedSensor, setSelectedSensor] = useState<SensorRecord | null>(null);
     const [parameterId, setParameterId] = useState('');
     const [deployedFrom, setDeployedFrom] = useState(new Date().toISOString().slice(0, 16));
     const [notes, setNotes] = useState('');
 
     const { data: allSensors } = useGetList<SensorRecord>('sensors', {
         filter: { is_active: true },
-        pagination: { page: 1, perPage: 200 },
+        pagination: { page: 1, perPage: 500 },
         sort: { field: 'serial_number', order: 'ASC' },
     });
 
+    const { data: allSites } = useGetList<SiteRecord>('sites', {
+        pagination: { page: 1, perPage: 200 },
+    });
+
+    const siteMap = useMemo(
+        () => new Map((allSites ?? []).map((s) => [s.id, s.name])),
+        [allSites],
+    );
+
+    const getActiveDeploy = (s: SensorRecord) =>
+        s.deployments?.find((d) => d.deployed_until === null);
+
+    const sortedSensors = useMemo(() => {
+        if (!allSensors) return [];
+        return [...allSensors].sort((a, b) => {
+            const aDeployed = !!getActiveDeploy(a);
+            const bDeployed = !!getActiveDeploy(b);
+            if (aDeployed !== bDeployed) return aDeployed ? 1 : -1;
+            return (a.serial_number ?? a.name ?? '').localeCompare(b.serial_number ?? b.name ?? '');
+        });
+    }, [allSensors]);
+
+    const sensorLabel = (s: SensorRecord) =>
+        s.serial_number ?? s.name ?? 'Unnamed';
+
     const handleSubmit = () => {
+        if (!selectedSensor) return;
         create(
             'sensor_deployments',
             {
                 data: {
-                    sensor_id: sensorId,
+                    sensor_id: selectedSensor.id,
                     site_id: siteId,
                     deployed_from: new Date(deployedFrom).toISOString(),
                     deployed_until: null,
@@ -253,7 +278,7 @@ const DeploySensorDialog: React.FC<{
     };
 
     const handleClose = () => {
-        setSensorId('');
+        setSelectedSensor(null);
         setParameterId('');
         setDeployedFrom(new Date().toISOString().slice(0, 16));
         setNotes('');
@@ -266,27 +291,51 @@ const DeploySensorDialog: React.FC<{
         <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
             <DialogTitle>Deploy Sensor</DialogTitle>
             <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
-                <TextField
-                    select
-                    label="Sensor"
-                    value={sensorId}
-                    onChange={(e) => setSensorId(e.target.value)}
-                    fullWidth
-                    size="small"
-                >
-                    {(allSensors ?? []).map((s) => (
-                        <MenuItem key={s.id} value={s.id}>
-                            {s.serial_number} {s.manufacturer ? `(${s.manufacturer} ${s.model ?? ''})`.trim() : ''}
-                        </MenuItem>
-                    ))}
-                </TextField>
+                <Autocomplete
+                    options={sortedSensors}
+                    value={selectedSensor}
+                    onChange={(_, v) => setSelectedSensor(v)}
+                    getOptionLabel={sensorLabel}
+                    groupBy={(s) => getActiveDeploy(s) ? 'Currently Deployed' : 'Available'}
+                    isOptionEqualToValue={(opt, val) => opt.id === val.id}
+                    renderOption={(props, s) => {
+                        const dep = getActiveDeploy(s);
+                        const depSiteName = dep ? siteMap.get(dep.site_id) ?? dep.site_id.slice(0, 8) : null;
+                        return (
+                            <li {...props} key={s.id}>
+                                <Box sx={{ width: '100%' }}>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                        <Typography variant="body2">
+                                            {sensorLabel(s)}
+                                        </Typography>
+                                        {dep && (
+                                            <Chip
+                                                label={dep.site_id === siteId ? 'This site' : depSiteName}
+                                                color={dep.site_id === siteId ? 'primary' : 'default'}
+                                                variant="outlined"
+                                            />
+                                        )}
+                                    </Box>
+                                    {(s.manufacturer || dep) && (
+                                        <Typography variant="caption" color="text.secondary">
+                                            {[
+                                                s.manufacturer ? `${s.manufacturer}${s.model ? ` ${s.model}` : ''}` : null,
+                                                dep ? `Since ${new Date(dep.deployed_from).toLocaleDateString()}` : null,
+                                            ].filter(Boolean).join(' · ')}
+                                        </Typography>
+                                    )}
+                                </Box>
+                            </li>
+                        );
+                    }}
+                    renderInput={(params) => <TextField {...params} label="Sensor" />}
+                />
                 <TextField
                     select
                     label="Target Parameter"
                     value={parameterId}
                     onChange={(e) => setParameterId(e.target.value)}
                     fullWidth
-                    size="small"
                 >
                     {nonDerivedParams.map((p) => (
                         <MenuItem key={p.id} value={p.id}>
@@ -300,7 +349,6 @@ const DeploySensorDialog: React.FC<{
                     value={deployedFrom}
                     onChange={(e) => setDeployedFrom(e.target.value)}
                     fullWidth
-                    size="small"
                     slotProps={{ inputLabel: { shrink: true } }}
                 />
                 <TextField
@@ -310,7 +358,6 @@ const DeploySensorDialog: React.FC<{
                     multiline
                     rows={2}
                     fullWidth
-                    size="small"
                 />
             </DialogContent>
             <DialogActions>
@@ -318,7 +365,7 @@ const DeploySensorDialog: React.FC<{
                 <Button
                     onClick={handleSubmit}
                     variant="contained"
-                    disabled={isPending || !sensorId || !parameterId}
+                    disabled={isPending || !selectedSensor || !parameterId}
                     startIcon={isPending ? <CircularProgress size={16} /> : undefined}
                 >
                     Deploy
@@ -346,7 +393,6 @@ const AssignDerivedButton: React.FC<{ siteId: string }> = ({ siteId }) => {
     return (
         <>
             <Button
-                size="small"
                 variant="outlined"
                 startIcon={<FunctionsIcon />}
                 onClick={() => setOpen(true)}
@@ -362,7 +408,6 @@ const AssignDerivedButton: React.FC<{ siteId: string }> = ({ siteId }) => {
                         value={selectedDefId}
                         onChange={(e) => setSelectedDefId(e.target.value)}
                         fullWidth
-                        size="small"
                         sx={{ mt: 1 }}
                     >
                         {(allDefs ?? []).map((d) => (
@@ -817,6 +862,7 @@ const StationHub = () => {
                     <Tab label="Status" />
                     <Tab label="Notes" />
                     <Tab icon={<ScatterPlotIcon />} iconPosition="start" label="Scatter" />
+                    <Tab icon={<ScienceIcon />} iconPosition="start" label="Grab Samples" />
                 </Tabs>
             </Paper>
 
@@ -887,6 +933,19 @@ const StationHub = () => {
                         At least 2 non-derived parameters are needed for scatter analysis.
                     </Alert>
                 )}
+            </TabPanel>
+
+            {/* Grab Samples tab */}
+            <TabPanel value={tab} index={5}>
+                <GrabSamplesSection
+                    siteId={id!}
+                    parameters={(parameters ?? []).map(p => ({
+                        id: p.id,
+                        parameter_id: p.parameter_id,
+                        name: p.name,
+                        display_units: p.display_units,
+                    }))}
+                />
             </TabPanel>
 
             {/* Dialogs (render in portal, unaffected by grid) */}

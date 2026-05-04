@@ -47,7 +47,6 @@ export const LoadStandardCurveButton: React.FC<LoadStandardCurveButtonProps> = (
   return (
     <>
       <Button
-        size="small"
         startIcon={<FileDownloadIcon />}
         onClick={(e) => setAnchorEl(e.currentTarget)}
       >
@@ -66,7 +65,6 @@ export const LoadStandardCurveButton: React.FC<LoadStandardCurveButtonProps> = (
             label="Parameter"
             value={parameterId}
             onChange={(e) => setParameterId(e.target.value)}
-            size="small"
             fullWidth
             disabled={paramsLoading}
           >
@@ -96,7 +94,6 @@ export const LoadStandardCurveButton: React.FC<LoadStandardCurveButtonProps> = (
 
           <Button
             variant="contained"
-            size="small"
             onClick={handleApply}
             disabled={!curves || curves.length === 0}
           >

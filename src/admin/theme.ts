@@ -1,4 +1,5 @@
 import { defaultTheme } from 'react-admin';
+import { deepmerge } from '@mui/utils';
 
 const BRAND = {
   primary: '#1F4E79',
@@ -57,8 +58,7 @@ export const tokens = {
   density: DENSITY,
 };
 
-export const theme = {
-  ...defaultTheme,
+export const theme = deepmerge(defaultTheme, {
   palette: {
     mode: 'light' as const,
     primary: { main: BRAND.primary, dark: BRAND.primaryDk, contrastText: '#FFF' },
@@ -144,19 +144,32 @@ export const theme = {
         sizeSmall: { fontSize: '0.7rem' },
       },
     },
+    MuiFormControl: {
+      defaultProps: { variant: 'outlined' as const },
+    },
     MuiTextField: {
-      defaultProps: { size: 'small' as const, variant: 'outlined' as const },
+      defaultProps: { variant: 'outlined' as const },
     },
     MuiOutlinedInput: {
       styleOverrides: {
-        root: { backgroundColor: BRAND.surface },
+        root: { backgroundColor: BRAND.surface, color: BRAND.text },
         input: { fontSize: '0.875rem' },
       },
     },
     MuiInputLabel: {
       styleOverrides: { root: { fontSize: '0.875rem' } },
     },
-    MuiSelect: { defaultProps: { size: 'small' as const } },
+    MuiSelect: {
+      defaultProps: { size: 'small' as const },
+      styleOverrides: {
+        select: { color: BRAND.text },
+      },
+    },
+    MuiMenuItem: {
+      styleOverrides: {
+        root: { color: BRAND.text },
+      },
+    },
     MuiTab: {
       styleOverrides: {
         root: {
@@ -201,4 +214,4 @@ export const theme = {
     },
   },
   sidebar: { width: 232, closedWidth: 56 },
-};
+});

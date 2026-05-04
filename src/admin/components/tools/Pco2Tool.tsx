@@ -84,7 +84,6 @@ export const Pco2Tool = () => {
           value={mode}
           onChange={(e) => setMode(e.target.value as 'simple' | 'full_pipeline')}
           select
-          size="small"
           sx={{ minWidth: 180 }}
         >
           <MenuItem value="simple">Simple (from CO2aq)</MenuItem>
@@ -94,14 +93,13 @@ export const Pco2Tool = () => {
 
       {mode === 'simple' && (
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-          <TextField label="CO2aq (uM)" value={co2aq} onChange={(e) => setCo2aq(e.target.value)} type="number" size="small" required error={isInvalidNumber(co2aq)} helperText={isInvalidNumber(co2aq) ? 'Must be a number' : undefined} />
-          <TextField label="Water temp (C)" value={waterTemp} onChange={(e) => setWaterTemp(e.target.value)} type="number" size="small" required error={isInvalidNumber(waterTemp)} helperText={isInvalidNumber(waterTemp) ? 'Must be a number' : undefined} />
+          <TextField label="CO2aq (uM)" value={co2aq} onChange={(e) => setCo2aq(e.target.value)} type="number" required error={isInvalidNumber(co2aq)} helperText={isInvalidNumber(co2aq) ? 'Must be a number' : undefined} />
+          <TextField label="Water temp (C)" value={waterTemp} onChange={(e) => setWaterTemp(e.target.value)} type="number" required error={isInvalidNumber(waterTemp)} helperText={isInvalidNumber(waterTemp) ? 'Must be a number' : undefined} />
           <TextField
             label="Variant"
             value={variant}
             onChange={(e) => setVariant(e.target.value)}
             select
-            size="small"
             sx={{ minWidth: 120 }}
           >
             <MenuItem value="simple">Simple</MenuItem>
@@ -109,7 +107,7 @@ export const Pco2Tool = () => {
             <MenuItem value="p2">P2 (inverse bp)</MenuItem>
           </TextField>
           {variant !== 'simple' && (
-            <TextField label="Pressure (hPa)" value={pressure} onChange={(e) => setPressure(e.target.value)} type="number" size="small" required />
+            <TextField label="Pressure (hPa)" value={pressure} onChange={(e) => setPressure(e.target.value)} type="number" required />
           )}
         </Box>
       )}
@@ -118,10 +116,10 @@ export const Pco2Tool = () => {
         <>
           <Typography variant="caption" color="text.secondary">Replicate A</Typography>
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-            <TextField label="CO2 (ppm)" value={co2ppm} onChange={(e) => setCo2ppm(e.target.value)} type="number" size="small" required error={isInvalidNumber(co2ppm)} helperText={isInvalidNumber(co2ppm) ? 'Must be a number' : undefined} />
-            <TextField label="H2O (%)" value={h2o} onChange={(e) => setH2o(e.target.value)} type="number" size="small" required error={isInvalidNumber(h2o)} helperText={isInvalidNumber(h2o) ? 'Must be a number' : undefined} />
-            <TextField label="CH4 (ppm)" value={ch4} onChange={(e) => setCh4(e.target.value)} type="number" size="small" required />
-            <TextField label="d13C-CO2 (permil)" value={d13co2} onChange={(e) => setD13co2(e.target.value)} type="number" size="small" />
+            <TextField label="CO2 (ppm)" value={co2ppm} onChange={(e) => setCo2ppm(e.target.value)} type="number" required error={isInvalidNumber(co2ppm)} helperText={isInvalidNumber(co2ppm) ? 'Must be a number' : undefined} />
+            <TextField label="H2O (%)" value={h2o} onChange={(e) => setH2o(e.target.value)} type="number" required error={isInvalidNumber(h2o)} helperText={isInvalidNumber(h2o) ? 'Must be a number' : undefined} />
+            <TextField label="CH4 (ppm)" value={ch4} onChange={(e) => setCh4(e.target.value)} type="number" required />
+            <TextField label="d13C-CO2 (permil)" value={d13co2} onChange={(e) => setD13co2(e.target.value)} type="number" />
           </Box>
 
           {showRepB && (
@@ -129,19 +127,19 @@ export const Pco2Tool = () => {
               <Divider sx={{ my: 1 }} />
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <Typography variant="caption" color="text.secondary">Replicate B</Typography>
-                <Button size="small" startIcon={<RemoveIcon />} onClick={() => setShowRepB(false)}>Remove</Button>
+                <Button startIcon={<RemoveIcon />} onClick={() => setShowRepB(false)}>Remove</Button>
               </Box>
               <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-                <TextField label="CO2 (ppm)" value={co2ppmB} onChange={(e) => setCo2ppmB(e.target.value)} type="number" size="small" required />
-                <TextField label="H2O (%)" value={h2oB} onChange={(e) => setH2oB(e.target.value)} type="number" size="small" required />
-                <TextField label="CH4 (ppm)" value={ch4B} onChange={(e) => setCh4B(e.target.value)} type="number" size="small" required />
-                <TextField label="d13C-CO2 (permil)" value={d13co2B} onChange={(e) => setD13co2B(e.target.value)} type="number" size="small" />
+                <TextField label="CO2 (ppm)" value={co2ppmB} onChange={(e) => setCo2ppmB(e.target.value)} type="number" required />
+                <TextField label="H2O (%)" value={h2oB} onChange={(e) => setH2oB(e.target.value)} type="number" required />
+                <TextField label="CH4 (ppm)" value={ch4B} onChange={(e) => setCh4B(e.target.value)} type="number" required />
+                <TextField label="d13C-CO2 (permil)" value={d13co2B} onChange={(e) => setD13co2B(e.target.value)} type="number" />
               </Box>
             </>
           )}
 
           {!showRepB && (
-            <Button size="small" startIcon={<AddIcon />} onClick={() => setShowRepB(true)} sx={{ alignSelf: 'flex-start' }}>
+            <Button startIcon={<AddIcon />} onClick={() => setShowRepB(true)} sx={{ alignSelf: 'flex-start' }}>
               Add Replicate B
             </Button>
           )}
@@ -149,12 +147,12 @@ export const Pco2Tool = () => {
           <Divider sx={{ my: 1 }} />
           <Typography variant="caption" color="text.secondary">Field & Lab Conditions</Typography>
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-            <TextField label="Water temp (C)" value={waterTemp} onChange={(e) => setWaterTemp(e.target.value)} type="number" size="small" required error={isInvalidNumber(waterTemp)} helperText={isInvalidNumber(waterTemp) ? 'Must be a number' : undefined} />
-            <TextField label="Field pressure (hPa)" value={pressure} onChange={(e) => setPressure(e.target.value)} type="number" size="small" required error={isInvalidNumber(pressure)} helperText={isInvalidNumber(pressure) ? 'Must be a number' : undefined} />
-            <TextField label="Lab temp (C)" value={labTemp} onChange={(e) => setLabTemp(e.target.value)} type="number" size="small" />
-            <TextField label="Lab pressure (atm)" value={labPressure} onChange={(e) => setLabPressure(e.target.value)} type="number" size="small" />
-            <TextField label="Vol SA (mL)" value={volSa} onChange={(e) => setVolSa(e.target.value)} type="number" size="small" />
-            <TextField label="Vol water (mL)" value={volWater} onChange={(e) => setVolWater(e.target.value)} type="number" size="small" />
+            <TextField label="Water temp (C)" value={waterTemp} onChange={(e) => setWaterTemp(e.target.value)} type="number" required error={isInvalidNumber(waterTemp)} helperText={isInvalidNumber(waterTemp) ? 'Must be a number' : undefined} />
+            <TextField label="Field pressure (hPa)" value={pressure} onChange={(e) => setPressure(e.target.value)} type="number" required error={isInvalidNumber(pressure)} helperText={isInvalidNumber(pressure) ? 'Must be a number' : undefined} />
+            <TextField label="Lab temp (C)" value={labTemp} onChange={(e) => setLabTemp(e.target.value)} type="number" />
+            <TextField label="Lab pressure (atm)" value={labPressure} onChange={(e) => setLabPressure(e.target.value)} type="number" />
+            <TextField label="Vol SA (mL)" value={volSa} onChange={(e) => setVolSa(e.target.value)} type="number" />
+            <TextField label="Vol water (mL)" value={volWater} onChange={(e) => setVolWater(e.target.value)} type="number" />
           </Box>
         </>
       )}

@@ -36,6 +36,7 @@ import {
   Stack,
 } from '@mui/material';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import { tokens } from '../../theme';
 
 // ---------- List ----------
 
@@ -106,11 +107,11 @@ const TokenShow = () => (
           const p = record.permissions;
           return (
             <Stack direction="row" spacing={1}>
-              {p.read_metadata && <Chip label="Read Metadata" size="small" color="primary" />}
-              {p.read_data && <Chip label="Read Data" size="small" color="primary" />}
-              {p.write_metadata && <Chip label="Write Metadata" size="small" color="secondary" />}
-              {p.write_data && <Chip label="Write Data" size="small" color="secondary" />}
-              {!p.read_metadata && !p.read_data && !p.write_metadata && !p.write_data && <Chip label="No permissions" size="small" color="default" />}
+              {p.read_metadata && <Chip label="Read Metadata" color="primary" />}
+              {p.read_data && <Chip label="Read Data" color="primary" />}
+              {p.write_metadata && <Chip label="Write Metadata" color="secondary" />}
+              {p.write_data && <Chip label="Write Data" color="secondary" />}
+              {!p.read_metadata && !p.read_data && !p.write_metadata && !p.write_data && <Chip label="No permissions" color="default" />}
             </Stack>
           );
         }}
@@ -275,15 +276,15 @@ const TokenCreate = () => {
               bgcolor: 'grey.100',
               p: 2,
               borderRadius: 1,
-              fontFamily: 'monospace',
-              fontSize: '0.85rem',
+              fontFamily: tokens.font.mono,
+              fontSize: '0.8125rem',
               wordBreak: 'break-all',
             }}
           >
-            <Typography sx={{ flex: 1, fontFamily: 'monospace', fontSize: '0.85rem' }}>
+            <Typography sx={{ flex: 1, fontFamily: tokens.font.mono, fontSize: '0.8125rem' }}>
               {rawToken}
             </Typography>
-            <IconButton onClick={handleCopy} size="small" sx={{ ml: 1 }}>
+            <IconButton onClick={handleCopy} sx={{ ml: 1 }}>
               <ContentCopyIcon fontSize="small" />
             </IconButton>
           </Box>
@@ -300,15 +301,14 @@ const TokenCreate = () => {
               bgcolor: 'grey.100',
               p: 2,
               borderRadius: 1,
-              fontFamily: 'monospace',
-              fontSize: '0.8rem',
+              fontFamily: tokens.font.mono,
+              fontSize: '0.8125rem',
               wordBreak: 'break-all',
             }}
           >
             curl -H &quot;Authorization: Bearer {'<token>'}&quot; {window.location.origin}/api/service/sites
           </Box>
           <Button
-            size="small"
             startIcon={<ContentCopyIcon />}
             onClick={handleCopyCurl}
             sx={{ mt: 0.5 }}

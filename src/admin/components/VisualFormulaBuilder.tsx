@@ -13,6 +13,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
 import { DragDropProvider, useDraggable, useDroppable } from '@dnd-kit/react';
 import type { DragEndEvent } from '@dnd-kit/dom';
+import { tokens } from '../theme';
 import type { ParameterTypeInfo } from './FormulaBuilder';
 
 /* ------------------------------------------------------------------ */
@@ -303,10 +304,7 @@ type DropData = { path: NodePath };
 /*  Visual Editor Component                                            */
 /* ------------------------------------------------------------------ */
 
-const VARIABLE_COLORS = [
-  '#1976d2', '#388e3c', '#d32f2f', '#7b1fa2', '#f57c00',
-  '#0097a7', '#5d4037', '#c2185b', '#303f9f', '#689f38',
-];
+const VARIABLE_COLORS = tokens.dataViz;
 
 const MATH_FUNCTIONS = ['sqrt', 'abs', 'ln', 'log', 'exp', 'sin', 'cos', 'tan', 'min', 'max'];
 const OPERATORS: Array<'+' | '-' | '*' | '/' | '^'> = ['+', '-', '*', '/', '^'];
@@ -541,22 +539,37 @@ export const VisualFormulaBuilder: React.FC<VisualFormulaBuilderProps> = ({
           Visual Formula Builder
         </Typography>
 
-        {/* Variable palette */}
+        {/* Variable palette — grouped by category */}
         {parameterTypes.length > 0 && (
           <Box sx={{ mb: 1.5 }}>
             <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
               Variables (drag or click to insert)
             </Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-              {parameterTypes.map((pt) => (
-                <DraggablePaletteChip
-                  key={pt.name}
-                  pt={pt}
-                  color={paramColorMap.get(pt.name) ?? '#757575'}
-                  onClick={() => handleVariableClick(pt.name)}
-                />
-              ))}
-            </Box>
+            {(() => {
+              const groups = new Map<string, typeof parameterTypes>();
+              for (const pt of parameterTypes) {
+                const cat = (pt as { category?: string }).category ?? 'Other';
+                if (!groups.has(cat)) groups.set(cat, []);
+                groups.get(cat)!.push(pt);
+              }
+              return Array.from(groups.entries()).map(([cat, pts]) => (
+                <Box key={cat} sx={{ mb: 0.75 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    {cat}
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.25 }}>
+                    {pts.map((pt) => (
+                      <DraggablePaletteChip
+                        key={pt.name}
+                        pt={pt}
+                        color={paramColorMap.get(pt.name) ?? tokens.brand.textMuted}
+                        onClick={() => handleVariableClick(pt.name)}
+                      />
+                    ))}
+                  </Box>
+                </Box>
+              ));
+            })()}
           </Box>
         )}
 
@@ -586,7 +599,6 @@ export const VisualFormulaBuilder: React.FC<VisualFormulaBuilderProps> = ({
             {OPERATORS.map((op) => (
               <Button
                 key={op}
-                size="small"
                 variant="outlined"
                 onClick={() => wrapWithOperator(op)}
                 disabled={!value}
@@ -594,8 +606,8 @@ export const VisualFormulaBuilder: React.FC<VisualFormulaBuilderProps> = ({
                   minWidth: 36,
                   px: 1,
                   py: 0.25,
-                  fontFamily: 'monospace',
-                  fontSize: '0.9rem',
+                  fontFamily: tokens.font.mono,
+                  fontSize: '0.875rem',
                   fontWeight: 'bold',
                 }}
               >
@@ -643,7 +655,7 @@ export const VisualFormulaBuilder: React.FC<VisualFormulaBuilderProps> = ({
           <Box sx={{ mt: 1 }}>
             <Typography variant="caption" color="text.secondary">
               Formula:{' '}
-              <Typography component="code" variant="caption" sx={{ fontFamily: 'monospace' }}>
+              <Typography component="code" variant="caption" sx={{ fontFamily: tokens.font.mono }}>
                 {serializeToMeval(value)}
               </Typography>
             </Typography>
@@ -678,13 +690,12 @@ const DraggablePaletteChip: React.FC<{
       <Chip
         ref={ref as React.Ref<HTMLDivElement>}
         label={pt.name}
-        size="small"
         clickable
         onClick={onClick}
         sx={{
           backgroundColor: color,
-          color: '#fff',
-          fontFamily: 'monospace',
+          color: 'common.white',
+          fontFamily: tokens.font.mono,
           opacity: isDragSource ? 0.4 : 1,
           cursor: 'grab',
           '&:hover': {
@@ -707,15 +718,14 @@ const DraggablePaletteButton: React.FC<{
   return (
     <Button
       ref={ref as React.Ref<HTMLButtonElement>}
-      size="small"
       variant="outlined"
       onClick={onClick}
       sx={{
         minWidth: 0,
         px: 1,
         py: 0.25,
-        fontFamily: 'monospace',
-        fontSize: '0.8rem',
+        fontFamily: tokens.font.mono,
+        fontSize: '0.8125rem',
         textTransform: 'none',
         opacity: isDragSource ? 0.4 : 1,
         cursor: 'grab',
@@ -733,7 +743,6 @@ const DraggableConstantButton: React.FC<{ onClick: () => void }> = ({ onClick })
   return (
     <Button
       ref={ref as React.Ref<HTMLButtonElement>}
-      size="small"
       variant="outlined"
       color="secondary"
       onClick={onClick}
@@ -741,8 +750,8 @@ const DraggableConstantButton: React.FC<{ onClick: () => void }> = ({ onClick })
         minWidth: 0,
         px: 1,
         py: 0.25,
-        fontFamily: 'monospace',
-        fontSize: '0.8rem',
+        fontFamily: tokens.font.mono,
+        fontSize: '0.8125rem',
         textTransform: 'none',
         opacity: isDragSource ? 0.4 : 1,
         cursor: 'grab',
@@ -829,7 +838,6 @@ const NodeRenderer: React.FC<NodeRendererProps> = ({
 }) => {
   const deleteButton = (
     <IconButton
-      size="small"
       onClick={(e) => {
         e.stopPropagation();
         onDelete(path);
@@ -857,15 +865,14 @@ const NodeRenderer: React.FC<NodeRendererProps> = ({
           <Box sx={{ display: 'inline-flex', alignItems: 'center' }}>
             <Chip
               label={node.name}
-              size="small"
               onClick={(e) => {
                 e.stopPropagation();
                 onSelectSlot(path);
               }}
               sx={{
-                backgroundColor: paramColorMap.get(node.name) ?? '#757575',
-                color: '#fff',
-                fontFamily: 'monospace',
+                backgroundColor: paramColorMap.get(node.name) ?? tokens.brand.textMuted,
+                color: 'common.white',
+                fontFamily: tokens.font.mono,
                 fontWeight: 'bold',
                 border: selectedSlot === path ? '2px solid' : 'none',
                 borderColor: 'primary.dark',
@@ -882,7 +889,6 @@ const NodeRenderer: React.FC<NodeRendererProps> = ({
         <DraggableDroppableNode path={path} node={node} selectedSlot={selectedSlot}>
           <Box sx={{ display: 'inline-flex', alignItems: 'center' }}>
             <TextField
-              size="small"
               type="number"
               value={node.value}
               onChange={(e) => {
@@ -899,8 +905,8 @@ const NodeRenderer: React.FC<NodeRendererProps> = ({
                 '& .MuiInputBase-input': {
                   py: 0.5,
                   px: 1,
-                  fontFamily: 'monospace',
-                  fontSize: '0.85rem',
+                  fontFamily: tokens.font.mono,
+                  fontSize: '0.8125rem',
                 },
                 border: selectedSlot === path ? '2px solid' : 'none',
                 borderColor: 'primary.main',
@@ -930,7 +936,7 @@ const NodeRenderer: React.FC<NodeRendererProps> = ({
               border: '1px solid',
               borderColor: selectedSlot === path ? 'primary.main' : 'grey.300',
               borderRadius: 1,
-              backgroundColor: '#fff',
+              backgroundColor: 'background.paper',
             }}
           >
             <NodeRenderer
@@ -947,7 +953,7 @@ const NodeRenderer: React.FC<NodeRendererProps> = ({
             <Typography
               component="span"
               sx={{
-                fontFamily: 'monospace',
+                fontFamily: tokens.font.mono,
                 fontWeight: 'bold',
                 fontSize: '1rem',
                 px: 0.5,
@@ -991,15 +997,15 @@ const NodeRenderer: React.FC<NodeRendererProps> = ({
               border: '1px solid',
               borderColor: selectedSlot === path ? 'primary.main' : 'grey.300',
               borderRadius: 1,
-              backgroundColor: '#fff',
+              backgroundColor: 'background.paper',
             }}
           >
             <Typography
               component="span"
               sx={{
-                fontFamily: 'monospace',
+                fontFamily: tokens.font.mono,
                 fontWeight: 'bold',
-                fontSize: '0.9rem',
+                fontSize: '0.875rem',
                 color: 'secondary.main',
               }}
             >
@@ -1011,7 +1017,7 @@ const NodeRenderer: React.FC<NodeRendererProps> = ({
                 {i > 0 && (
                   <Typography
                     component="span"
-                    sx={{ fontFamily: 'monospace', color: 'text.secondary', mx: 0.25 }}
+                    sx={{ fontFamily: tokens.font.mono, color: 'text.secondary', mx: 0.25 }}
                   >
                     ,
                   </Typography>
@@ -1031,7 +1037,6 @@ const NodeRenderer: React.FC<NodeRendererProps> = ({
 
             {MULTI_ARG_FUNCTIONS.has(node.name) && (
               <IconButton
-                size="small"
                 onClick={(e) => {
                   e.stopPropagation();
                   onAddArg(path);
@@ -1047,9 +1052,9 @@ const NodeRenderer: React.FC<NodeRendererProps> = ({
             <Typography
               component="span"
               sx={{
-                fontFamily: 'monospace',
+                fontFamily: tokens.font.mono,
                 fontWeight: 'bold',
-                fontSize: '0.9rem',
+                fontSize: '0.875rem',
                 color: 'secondary.main',
               }}
             >

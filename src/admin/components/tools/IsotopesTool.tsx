@@ -16,9 +16,9 @@ export const IsotopesTool = () => {
   return (
     <ToolLayout toolName="isotopes" description="Deuterium excess (d-excess = dD - 8*d18O) and 17O excess." inputs={inputs}>
       <Box sx={{ display: 'flex', gap: 2 }}>
-        <TextField label="dD (permil)" value={dD} onChange={(e) => setDD(e.target.value)} type="number" size="small" />
-        <TextField label="d18O (permil)" value={d18O} onChange={(e) => setD18O(e.target.value)} type="number" size="small" />
-        <TextField label="d17O (permil)" value={d17O} onChange={(e) => setD17O(e.target.value)} type="number" size="small" />
+        <TextField label="dD (permil)" value={dD} onChange={(e) => setDD(e.target.value)} type="number" />
+        <TextField label="d18O (permil)" value={d18O} onChange={(e) => setD18O(e.target.value)} type="number" />
+        <TextField label="d17O (permil)" value={d17O} onChange={(e) => setD17O(e.target.value)} type="number" />
       </Box>
     </ToolLayout>
   );

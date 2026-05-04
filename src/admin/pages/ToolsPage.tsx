@@ -39,8 +39,18 @@ import { BenthicTool } from '../components/tools/BenthicTool';
 import { NutrientsTool } from '../components/tools/NutrientsTool';
 import { ChlaBenthicTool } from '../components/tools/ChlaBenthicTool';
 import BiotechIcon from '@mui/icons-material/Biotech';
+import { tokens } from '../theme';
 
 type ToolDomain = 'Hydrology' | 'Carbon' | 'Nutrients' | 'Suspended' | 'Ions' | 'Field';
+
+const DOMAIN_COLORS: Record<ToolDomain, string> = {
+  Hydrology: tokens.dataViz[0],
+  Carbon: tokens.dataViz[1],
+  Nutrients: tokens.dataViz[2],
+  Suspended: tokens.dataViz[3],
+  Ions: tokens.dataViz[4],
+  Field: tokens.dataViz[5],
+};
 
 interface ToolDefinition {
   id: string;
@@ -67,7 +77,7 @@ const tools: ToolDefinition[] = [
     name: 'Field Data',
     description: 'Barometric pressure from altitude and CO2 correction',
     domain: 'Hydrology',
-    icon: <TerrainIcon sx={{ fontSize: 48, color: '#6D4C41' }} />,
+    icon: <TerrainIcon sx={{ fontSize: 48, color: DOMAIN_COLORS.Hydrology }} />,
     component: FieldDataTool,
   },
   {
@@ -75,7 +85,7 @@ const tools: ToolDefinition[] = [
     name: 'DOC',
     description: 'Dissolved Organic Carbon: replicate average/SD with standard curve correction',
     domain: 'Carbon',
-    icon: <OpacityIcon sx={{ fontSize: 48, color: '#8B4513' }} />,
+    icon: <OpacityIcon sx={{ fontSize: 48, color: DOMAIN_COLORS.Carbon }} />,
     component: DocTool,
   },
   {
@@ -83,7 +93,7 @@ const tools: ToolDefinition[] = [
     name: 'DIC',
     description: 'Dissolved Inorganic Carbon from acid digestion + Picarro analysis',
     domain: 'Carbon',
-    icon: <BubbleChartIcon sx={{ fontSize: 48, color: '#2196F3' }} />,
+    icon: <BubbleChartIcon sx={{ fontSize: 48, color: DOMAIN_COLORS.Carbon }} />,
     component: DicTool,
   },
   {
@@ -91,7 +101,7 @@ const tools: ToolDefinition[] = [
     name: 'pCO2',
     description: 'Partial pressure of CO2 from headspace equilibration',
     domain: 'Carbon',
-    icon: <Co2Icon sx={{ fontSize: 48, color: '#F44336' }} />,
+    icon: <Co2Icon sx={{ fontSize: 48, color: DOMAIN_COLORS.Carbon }} />,
     component: Pco2Tool,
   },
   {
@@ -99,7 +109,7 @@ const tools: ToolDefinition[] = [
     name: 'CO2/CH4 Air',
     description: 'CO2 and CH4 dry concentration from wet Picarro measurements',
     domain: 'Carbon',
-    icon: <AirIcon sx={{ fontSize: 48, color: '#78909C' }} />,
+    icon: <AirIcon sx={{ fontSize: 48, color: DOMAIN_COLORS.Carbon }} />,
     component: Co2AirTool,
   },
   {
@@ -107,7 +117,7 @@ const tools: ToolDefinition[] = [
     name: 'DOM Indices',
     description: 'SUVA and absorbance ratios (E2:E3, E4:E6) from UV-Vis measurements',
     domain: 'Carbon',
-    icon: <BlurOnIcon sx={{ fontSize: 48, color: '#FF9800' }} />,
+    icon: <BlurOnIcon sx={{ fontSize: 48, color: DOMAIN_COLORS.Carbon }} />,
     component: DomTool,
   },
   {
@@ -115,7 +125,7 @@ const tools: ToolDefinition[] = [
     name: 'Nutrients',
     description: 'Multi-species nutrient replicates (PO4, NH4, NOx, NO2, TDP, TDN) with NO3 computation',
     domain: 'Nutrients',
-    icon: <ScienceIcon sx={{ fontSize: 48, color: '#00897B' }} />,
+    icon: <ScienceIcon sx={{ fontSize: 48, color: DOMAIN_COLORS.Nutrients }} />,
     component: NutrientsTool,
   },
   {
@@ -123,7 +133,7 @@ const tools: ToolDefinition[] = [
     name: 'TSS / AFDM',
     description: 'Total Suspended Solids and Ash-Free Dry Mass from filter weights',
     domain: 'Suspended',
-    icon: <GrainIcon sx={{ fontSize: 48, color: '#795548' }} />,
+    icon: <GrainIcon sx={{ fontSize: 48, color: DOMAIN_COLORS.Suspended }} />,
     component: TssAfdmTool,
   },
   {
@@ -131,7 +141,7 @@ const tools: ToolDefinition[] = [
     name: 'Chlorophyll-a',
     description: 'Chlorophyll-a from fluorescence (acid and no-acid methods)',
     domain: 'Suspended',
-    icon: <ScienceIcon sx={{ fontSize: 48, color: '#4CAF50' }} />,
+    icon: <ScienceIcon sx={{ fontSize: 48, color: DOMAIN_COLORS.Suspended }} />,
     component: ChlorophyllTool,
   },
   {
@@ -139,7 +149,7 @@ const tools: ToolDefinition[] = [
     name: 'Chla-Benthic (Multi)',
     description: 'Unified Chlorophyll-Benthic: up to 5 replicates with acid/no-acid Chl-a, per-m² normalizations, AFDM, and averages/SDs',
     domain: 'Suspended',
-    icon: <BiotechIcon sx={{ fontSize: 48, color: '#388E3C' }} />,
+    icon: <BiotechIcon sx={{ fontSize: 48, color: DOMAIN_COLORS.Suspended }} />,
     component: ChlaBenthicTool,
   },
   {
@@ -147,7 +157,7 @@ const tools: ToolDefinition[] = [
     name: 'Benthic',
     description: 'Rock surface area and benthic AFDM/Chl-a per m² normalizations',
     domain: 'Suspended',
-    icon: <WavesIcon sx={{ fontSize: 48, color: '#26A69A' }} />,
+    icon: <WavesIcon sx={{ fontSize: 48, color: DOMAIN_COLORS.Suspended }} />,
     component: BenthicTool,
   },
   {
@@ -155,7 +165,7 @@ const tools: ToolDefinition[] = [
     name: 'Alkalinity',
     description: 'Gran titration alkalinity (meq/L and mg/L CaCO3)',
     domain: 'Ions',
-    icon: <BalanceIcon sx={{ fontSize: 48, color: '#607D8B' }} />,
+    icon: <BalanceIcon sx={{ fontSize: 48, color: DOMAIN_COLORS.Ions }} />,
     component: AlkalinityTool,
   },
   {
@@ -163,7 +173,7 @@ const tools: ToolDefinition[] = [
     name: 'Ion Charge Balance',
     description: 'IC ion charge balance verification (cations vs anions)',
     domain: 'Ions',
-    icon: <FilterDramaIcon sx={{ fontSize: 48, color: '#9C27B0' }} />,
+    icon: <FilterDramaIcon sx={{ fontSize: 48, color: DOMAIN_COLORS.Ions }} />,
     component: IonsTool,
   },
   {
@@ -171,7 +181,7 @@ const tools: ToolDefinition[] = [
     name: 'Isotopes',
     description: 'Deuterium excess and 17O excess calculations',
     domain: 'Field',
-    icon: <LandscapeIcon sx={{ fontSize: 48, color: '#00BCD4' }} />,
+    icon: <LandscapeIcon sx={{ fontSize: 48, color: DOMAIN_COLORS.Field }} />,
     component: IsotopesTool,
   },
 ];
@@ -187,7 +197,7 @@ export const ToolsPage = () => {
       <Box>
         <Title title={active.name} />
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1 }}>
-          <IconButton onClick={() => setActiveTool(null)} size="small">
+          <IconButton onClick={() => setActiveTool(null)}>
             <ArrowBackIcon />
           </IconButton>
           <Typography variant="h6">{active.name}</Typography>

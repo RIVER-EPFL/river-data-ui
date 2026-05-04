@@ -162,7 +162,7 @@ export const StatusEventsTimeline: React.FC<StatusEventsTimelineProps> = ({
                             <ToggleButton value="30d">30d</ToggleButton>
                         </ToggleButtonGroup>
                     )}
-                    <IconButton size="small">
+                    <IconButton>
                         {expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
                     </IconButton>
                 </Box>
@@ -216,7 +216,6 @@ export const StatusEventsTimeline: React.FC<StatusEventsTimelineProps> = ({
                                                 <TableCell>
                                                     <Chip
                                                         label={evt.value}
-                                                        size="small"
                                                         color={statusColor(evt.value)}
                                                         variant="outlined"
                                                     />

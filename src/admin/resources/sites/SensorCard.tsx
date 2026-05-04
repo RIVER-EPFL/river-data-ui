@@ -64,14 +64,23 @@ export interface SensorDeploymentRecord {
     notes: string | null;
 }
 
+export interface SensorDeploymentInfo {
+    id: string;
+    site_id: string;
+    deployed_from: string;
+    deployed_until: string | null;
+    deployment_type: string | null;
+}
+
 export interface SensorRecord {
     id: string;
-    serial_number: string;
+    serial_number: string | null;
     name: string | null;
     parameter_id: string | null;
     manufacturer: string | null;
     model: string | null;
     is_active: boolean;
+    deployments?: SensorDeploymentInfo[];
 }
 
 export interface AlarmThresholdRecord {
@@ -216,7 +225,7 @@ export const SensorCard: React.FC<SensorCardProps> = ({ group, thresholdsByParam
                                 {sensor?.serial_number ?? 'Unknown Sensor'}
                             </Typography>
                             {sensor?.is_active === false && (
-                                <Chip label="Inactive" size="small" color="default" />
+                                <Chip label="Inactive" color="default" />
                             )}
                         </Box>
                     }
@@ -275,7 +284,6 @@ export const SensorCard: React.FC<SensorCardProps> = ({ group, thresholdsByParam
                     <Tooltip title={!sensor ? 'Deploy a sensor first' : ''}>
                         <span>
                             <Button
-                                size="small"
                                 startIcon={<TuneIcon />}
                                 onClick={() => setCalibrateOpen(true)}
                                 disabled={!sensor}
@@ -287,7 +295,6 @@ export const SensorCard: React.FC<SensorCardProps> = ({ group, thresholdsByParam
                     <Tooltip title={!sensor ? 'No sensor to move' : ''}>
                         <span>
                             <Button
-                                size="small"
                                 startIcon={<SwapHorizIcon />}
                                 component={Link}
                                 to={sensor ? `/admin/sensors/${sensor.id}/move` : '#'}
@@ -300,7 +307,7 @@ export const SensorCard: React.FC<SensorCardProps> = ({ group, thresholdsByParam
                     {activeDeployment && sensor ? (
                         <RecallPopover
                             deploymentId={activeDeployment.id}
-                            sensorSerial={sensor.serial_number}
+                            sensorSerial={sensor.serial_number ?? undefined}
                             siteName={siteName}
                             existingNotes={activeDeployment.notes}
                             trigger={
@@ -320,7 +327,6 @@ export const SensorCard: React.FC<SensorCardProps> = ({ group, thresholdsByParam
                     )}
                     {sensor && (
                         <Button
-                            size="small"
                             component={Link}
                             to={`/admin/sensors/${sensor.id}/show`}
                         >
@@ -340,7 +346,7 @@ export const SensorCard: React.FC<SensorCardProps> = ({ group, thresholdsByParam
                     open={calibrateOpen}
                     onClose={() => setCalibrateOpen(false)}
                     sensorId={sensor.id}
-                    sensorSerial={sensor.serial_number}
+                    sensorSerial={sensor.serial_number ?? ''}
                 />
             )}
 

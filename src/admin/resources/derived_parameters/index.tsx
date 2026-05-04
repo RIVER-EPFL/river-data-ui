@@ -27,6 +27,7 @@ import { useRiverDataProvider } from '../../useRiverDataProvider';
 import { FormulaBuilder, type ParameterTypeInfo } from '../../components/FormulaBuilder';
 import { AssignToSiteDialog } from './AssignToSiteDialog';
 import { ConfirmPopover } from '../../components/ConfirmPopover';
+import { tokens } from '../../theme';
 
 const LazyFormulaPreviewChart = lazy(() =>
   import('../../components/FormulaPreviewChart').then((mod) => ({
@@ -60,7 +61,7 @@ const RecomputeButton = () => {
       confirmColor="warning"
       onConfirm={handleConfirm}
       trigger={
-        <Button size="small" color="primary">
+        <Button color="primary">
           Recompute
         </Button>
       }
@@ -78,7 +79,6 @@ const AssignToSiteButton = () => {
     <>
       <Button
         onClick={(e) => { e.stopPropagation(); setOpen(true); }}
-        size="small"
         color="secondary"
         startIcon={<AddLocationIcon />}
       >
@@ -100,17 +100,20 @@ const AssignToSiteButton = () => {
   );
 };
 
-/** Fetch parameter types for the formula builder variable palette */
+/** Fetch parameter types for the formula builder variable palette (excludes device_health) */
 const useParameterTypes = (): ParameterTypeInfo[] => {
   const { data } = useGetList('parameters', {
     pagination: { page: 1, perPage: 200 },
     sort: { field: 'name', order: 'ASC' },
   });
-  return data?.map((pt) => ({
-    name: pt.name as string,
-    display_name: pt.display_name as string | undefined,
-    default_units: pt.default_units as string | undefined,
-  })) ?? [];
+  return data
+    ?.filter((pt) => pt.category !== 'device_health')
+    .map((pt) => ({
+      name: pt.name as string,
+      display_name: pt.display_name as string | undefined,
+      default_units: pt.default_units as string | undefined,
+      category: pt.category as string | undefined,
+    })) ?? [];
 };
 
 const DerivedParameterList = () => (
@@ -157,7 +160,7 @@ const AssignmentRecomputeButton = () => {
       confirmColor="warning"
       onConfirm={handleConfirm}
       trigger={
-        <Button size="small" color="primary">
+        <Button color="primary">
           Recompute
         </Button>
       }
@@ -217,7 +220,6 @@ const PreviewSection = () => {
         <Box sx={{ mt: 2 }}>
           <Button
             variant="contained"
-            size="small"
             startIcon={<AddLocationIcon />}
             onClick={() => setAssignOpen(true)}
           >
@@ -254,8 +256,8 @@ const DerivedParameterShow = () => (
           bgcolor: 'grey.100',
           p: 1.5,
           borderRadius: 1,
-          fontFamily: 'monospace',
-          fontSize: '0.85rem',
+          fontFamily: tokens.font.mono,
+          fontSize: '0.8125rem',
           overflow: 'auto',
         }}
       >

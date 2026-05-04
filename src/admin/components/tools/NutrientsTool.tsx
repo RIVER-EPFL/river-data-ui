@@ -66,21 +66,18 @@ export const NutrientsTool = () => {
                 value={values[s.key][0]}
                 onChange={(e) => setReplicate(s.key, 0, e.target.value)}
                 type="number"
-                size="small"
               />
               <TextField
                 label="Rep B"
                 value={values[s.key][1]}
                 onChange={(e) => setReplicate(s.key, 1, e.target.value)}
                 type="number"
-                size="small"
               />
               <TextField
                 label="Rep C"
                 value={values[s.key][2]}
                 onChange={(e) => setReplicate(s.key, 2, e.target.value)}
                 type="number"
-                size="small"
               />
             </Box>
           </Box>

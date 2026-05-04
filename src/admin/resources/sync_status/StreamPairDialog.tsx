@@ -168,9 +168,9 @@ export const StreamPairDialog = ({ open, stream, onClose, onPaired }: StreamPair
   const statusChip = (match: Entity | null, name: string) => {
     if (!name.trim()) return null;
     return match ? (
-      <Chip label="exists" color="success" size="small" variant="outlined" />
+      <Chip label="exists" color="success" variant="outlined" />
     ) : (
-      <Chip label="will create" color="warning" size="small" variant="outlined" />
+      <Chip label="will create" color="warning" variant="outlined" />
     );
   };
 
@@ -198,7 +198,6 @@ export const StreamPairDialog = ({ open, stream, onClose, onPaired }: StreamPair
                 label="Project"
                 value={projectName}
                 onChange={(e) => setProjectName(e.target.value)}
-                size="small"
                 fullWidth
               />
               {statusChip(projectMatch, projectName)}
@@ -208,7 +207,6 @@ export const StreamPairDialog = ({ open, stream, onClose, onPaired }: StreamPair
                 label="Site"
                 value={siteName}
                 onChange={(e) => setSiteName(e.target.value)}
-                size="small"
                 fullWidth
               />
               {statusChip(siteMatch, siteName)}
@@ -218,7 +216,6 @@ export const StreamPairDialog = ({ open, stream, onClose, onPaired }: StreamPair
                 label="Parameter"
                 value={paramName}
                 onChange={(e) => setParamName(e.target.value)}
-                size="small"
                 fullWidth
               />
               {statusChip(paramMatch, paramName)}
@@ -227,7 +224,6 @@ export const StreamPairDialog = ({ open, stream, onClose, onPaired }: StreamPair
               label="Units"
               value={units}
               onChange={(e) => setUnits(e.target.value)}
-              size="small"
               fullWidth
             />
           </Box>

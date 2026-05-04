@@ -33,9 +33,9 @@ const IonRow = ({
   onRemove: () => void;
 }) => (
   <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-    <TextField label="Ion" value={entry.name} onChange={(e) => onChange({ ...entry, name: e.target.value })} size="small" sx={{ width: 100 }} />
-    <TextField label="mg/L" value={entry.concentration_mg_l} onChange={(e) => onChange({ ...entry, concentration_mg_l: e.target.value })} type="number" size="small" sx={{ width: 120 }} />
-    <IconButton size="small" onClick={onRemove}><DeleteIcon fontSize="small" /></IconButton>
+    <TextField label="Ion" value={entry.name} onChange={(e) => onChange({ ...entry, name: e.target.value })} sx={{ width: 100 }} />
+    <TextField label="mg/L" value={entry.concentration_mg_l} onChange={(e) => onChange({ ...entry, concentration_mg_l: e.target.value })} type="number" sx={{ width: 120 }} />
+    <IconButton onClick={onRemove}><DeleteIcon fontSize="small" /></IconButton>
   </Box>
 );
 
@@ -70,7 +70,7 @@ export const IonsTool = () => {
             {cations.map((c, i) => (
               <IonRow key={i} entry={c} onChange={(e) => updateIon(cations, setCations, i, e)} onRemove={() => setCations(cations.filter((_, j) => j !== i))} />
             ))}
-            <Button size="small" startIcon={<AddIcon />} onClick={() => setCations([...cations, { name: '', concentration_mg_l: '' }])}>
+            <Button startIcon={<AddIcon />} onClick={() => setCations([...cations, { name: '', concentration_mg_l: '' }])}>
               Add cation
             </Button>
           </Box>
@@ -81,7 +81,7 @@ export const IonsTool = () => {
             {anions.map((a, i) => (
               <IonRow key={i} entry={a} onChange={(e) => updateIon(anions, setAnions, i, e)} onRemove={() => setAnions(anions.filter((_, j) => j !== i))} />
             ))}
-            <Button size="small" startIcon={<AddIcon />} onClick={() => setAnions([...anions, { name: '', concentration_mg_l: '' }])}>
+            <Button startIcon={<AddIcon />} onClick={() => setAnions([...anions, { name: '', concentration_mg_l: '' }])}>
               Add anion
             </Button>
           </Box>

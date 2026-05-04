@@ -12,17 +12,7 @@ import SearchBar from './components/SearchBar';
 import { StatusIndicators } from './components/StatusIndicators';
 import { AlarmNotificationPanel } from './components/AlarmNotificationPanel';
 import { useRiverDataProvider } from './useRiverDataProvider';
-
-const sectionHeaderSx = {
-  px: 2,
-  pt: 2,
-  pb: 0.5,
-  fontSize: '0.7rem',
-  fontWeight: 700,
-  textTransform: 'uppercase' as const,
-  letterSpacing: '0.08em',
-  color: 'text.secondary',
-};
+import { snippets } from './themeSnippets';
 
 const BADGE_REFRESH_INTERVAL = 60_000;
 
@@ -66,17 +56,17 @@ const CustomAppBar = () => {
 const CustomMenu = () => (
   <Menu>
     <Menu.DashboardItem />
-    <Typography sx={sectionHeaderSx}>Monitor</Typography>
+    <Typography sx={snippets.navSectionLabel}>Monitor</Typography>
     <Menu.ResourceItem name="sites" />
     <Menu.ResourceItem name="sensors" />
     <Menu.Item to="/admin/streams" primaryText="Streams" leftIcon={<RssFeedIcon />} />
-    <Typography sx={sectionHeaderSx}>Field Work</Typography>
+    <Typography sx={snippets.navSectionLabel}>Field Work</Typography>
     <Menu.Item to="/admin/field-trip" primaryText="Field Trip Entry" leftIcon={<HikingIcon />} />
     <Menu.Item to="/admin/grab-samples" primaryText="Grab Samples" leftIcon={<ScienceIcon />} />
-    <Typography sx={sectionHeaderSx}>Analyze</Typography>
+    <Typography sx={snippets.navSectionLabel}>Analyze</Typography>
     <Menu.Item to="/admin/compare" primaryText="Compare Sites" leftIcon={<CompareArrowsIcon />} />
     <Menu.Item to="/admin/tools" primaryText="Tools" leftIcon={<BuildIcon />} />
-    <Typography sx={sectionHeaderSx}>Configure</Typography>
+    <Typography sx={snippets.navSectionLabel}>Configure</Typography>
     <Menu.ResourceItem name="parameters" />
     <Menu.ResourceItem name="derived_parameters" />
     <Menu.ResourceItem name="standard_curves" />

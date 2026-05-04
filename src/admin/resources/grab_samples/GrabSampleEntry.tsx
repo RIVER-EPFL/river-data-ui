@@ -21,8 +21,8 @@ import {
     Collapse,
     Chip,
     Tooltip,
-    Drawer,
-    Fab,
+    ToggleButton,
+    ToggleButtonGroup,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -31,14 +31,25 @@ import ScienceIcon from '@mui/icons-material/Science';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
-import BuildIcon from '@mui/icons-material/Build';
 import { useAuthFetch } from '../../hooks/useAuthFetch';
+
+interface ProjectRecord {
+    id: string;
+    name: string;
+}
 
 interface SiteRecord {
     id: string;
     name: string;
     project_id: string | null;
     altitude_m: number | null;
+}
+
+interface NestedParameter {
+    id: string;
+    name: string;
+    display_name: string;
+    category: string;
 }
 
 interface SiteParameterRecord {
@@ -49,6 +60,7 @@ interface SiteParameterRecord {
     display_units: string | null;
     is_active: boolean | null;
     is_derived: boolean | null;
+    parameter: NestedParameter[];
 }
 
 interface SensorRecord {
@@ -99,156 +111,12 @@ const isDepthParameter = (name: string): boolean =>
 
 const MAX_REPLICATES = 10;
 
-// Tool definitions: name matching is based on lowercase parameter names in the form
-const TOOL_DEFS: Array<{ name: string; displayName: string; apiName: string; match: (names: Set<string>) => boolean }> = [
-    { name: 'doc', displayName: 'DOC Calculator', apiName: 'doc', match: (ns) => [...ns].some(n => n.includes('doc') || n.includes('organic carbon')) },
-    { name: 'pco2', displayName: 'pCO2 Calculator', apiName: 'pco2', match: (ns) => [...ns].some(n => n.includes('co2') || n.includes('ph') || n.includes('alkalinity')) },
-    { name: 'dic', displayName: 'DIC Calculator', apiName: 'dic', match: (ns) => [...ns].some(n => n.includes('dic') || n.includes('alkalinity')) },
-    { name: 'chlorophyll', displayName: 'Chlorophyll Calculator', apiName: 'chlorophyll', match: (ns) => [...ns].some(n => n.includes('chlorophyll') || n.includes('chl')) },
-    { name: 'alkalinity', displayName: 'Alkalinity Calculator', apiName: 'alkalinity', match: (ns) => [...ns].some(n => n.includes('alkalinity') || n.includes('alk')) },
-    { name: 'tss_afdm', displayName: 'TSS / AFDM', apiName: 'tss_afdm', match: (ns) => [...ns].some(n => n.includes('tss') || n.includes('afdm') || n.includes('suspended')) },
-    { name: 'dom', displayName: 'DOM Processing', apiName: 'dom', match: (ns) => [...ns].some(n => n.includes('dom') || n.includes('dissolved organic')) },
-    { name: 'ions', displayName: 'Ions Calculator', apiName: 'ions', match: (ns) => [...ns].some(n => n.includes('ion') || n.includes('anion') || n.includes('cation')) },
-    { name: 'field_data', displayName: 'Field Data Processing', apiName: 'field_data', match: () => true },
-];
-
-interface ToolSidebarProps {
-    rows: ReadingRow[];
-    paramById: Map<string, SiteParameterRecord>;
-    siteId: string;
-    barometricPressure: number | null;
-    onApplyResult: (parameterId: string, value: number) => void;
-}
-
-const ToolSidebar: React.FC<ToolSidebarProps> = ({ rows, paramById, barometricPressure, onApplyResult }) => {
-    const authFetch = useAuthFetch();
-
-    const enteredParams = useMemo(() => {
-        return rows
-            .filter(r => r.parameter_id && r.value)
-            .map(r => ({
-                paramId: r.parameter_id,
-                name: paramById.get(r.parameter_id)?.name ?? '',
-                value: parseFloat(r.value),
-            }));
-    }, [rows, paramById]);
-
-    const applicableTools = useMemo(() => {
-        if (enteredParams.length === 0) return [];
-        const paramNames = new Set(enteredParams.map(p => p.name.toLowerCase()));
-        return TOOL_DEFS.filter(t => t.match(paramNames));
-    }, [enteredParams]);
-
-    const [expandedTool, setExpandedTool] = useState<string | null>(null);
-    const [calculating, setCalculating] = useState(false);
-    const [results, setResults] = useState<Record<string, unknown> | null>(null);
-    const [error, setError] = useState<string | null>(null);
-
-    const handleCalculate = async (apiName: string) => {
-        setCalculating(true);
-        setError(null);
-        setResults(null);
-        try {
-            const inputs: Record<string, unknown> = {};
-            for (const ep of enteredParams) {
-                inputs[ep.name.toLowerCase().replace(/\s/g, '_')] = ep.value;
-            }
-            if (barometricPressure != null) {
-                inputs['barometric_pressure'] = barometricPressure;
-            }
-
-            const resp = await authFetch(`/api/service/tools/${apiName}/calculate`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(inputs),
-            });
-            if (!resp.ok) {
-                const text = await resp.text();
-                throw new Error(text || `HTTP ${resp.status}`);
-            }
-            const data = await resp.json();
-            setResults(data.results);
-        } catch (e) {
-            setError(e instanceof Error ? e.message : 'Calculation failed');
-        } finally {
-            setCalculating(false);
-        }
-    };
-
-    return (
-        <Box sx={{ width: 350, p: 2 }}>
-            <Typography variant="h6" sx={{ mb: 2 }}>Calculation Tools</Typography>
-
-            {applicableTools.length === 0 ? (
-                <Alert severity="info">Enter parameter values to see applicable tools</Alert>
-            ) : (
-                applicableTools.map(tool => (
-                    <Paper key={tool.name} variant="outlined" sx={{ mb: 1.5 }}>
-                        <Button
-                            fullWidth
-                            onClick={() => {
-                                setExpandedTool(expandedTool === tool.name ? null : tool.name);
-                                setResults(null);
-                                setError(null);
-                            }}
-                            sx={{ justifyContent: 'space-between', textTransform: 'none', p: 1.5 }}
-                            endIcon={expandedTool === tool.name ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                        >
-                            {tool.displayName}
-                        </Button>
-                        <Collapse in={expandedTool === tool.name}>
-                            <Box sx={{ p: 1.5, pt: 0 }}>
-                                <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
-                                    Using values: {enteredParams.map(p => p.name).join(', ')}
-                                </Typography>
-                                <Button
-                                    size="small"
-                                    variant="contained"
-                                    onClick={() => handleCalculate(tool.apiName)}
-                                    disabled={calculating}
-                                    startIcon={calculating ? <CircularProgress size={14} /> : null}
-                                >
-                                    Calculate
-                                </Button>
-                                {error && <Alert severity="error" sx={{ mt: 1 }}>{error}</Alert>}
-                                {results && (
-                                    <Box sx={{ mt: 1 }}>
-                                        {Object.entries(results)
-                                            .filter(([, v]) => v != null && typeof v === 'number')
-                                            .map(([key, value]) => (
-                                                <Box key={key} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 0.5 }}>
-                                                    <Typography variant="body2">
-                                                        {key.replace(/_/g, ' ')}: <strong>{(value as number).toFixed(4)}</strong>
-                                                    </Typography>
-                                                    <Button
-                                                        size="small"
-                                                        onClick={() => {
-                                                            const match = [...paramById.entries()].find(([, sp]) =>
-                                                                sp.name.toLowerCase().replace(/[_\s]/g, '').includes(key.toLowerCase().replace(/_/g, ''))
-                                                            );
-                                                            if (match) onApplyResult(match[0], value as number);
-                                                        }}
-                                                        sx={{ textTransform: 'none', fontSize: '0.7rem', minWidth: 'auto' }}
-                                                    >
-                                                        Apply
-                                                    </Button>
-                                                </Box>
-                                            ))}
-                                    </Box>
-                                )}
-                            </Box>
-                        </Collapse>
-                    </Paper>
-                ))
-            )}
-        </Box>
-    );
-};
 
 const GrabSampleEntry: React.FC = () => {
     const notify = useNotify();
     const authFetch = useAuthFetch();
 
+    const [projectId, setProjectId] = useState('');
     const [siteId, setSiteId] = useState('');
     const [dateTime, setDateTime] = useState(() => {
         const now = new Date();
@@ -272,16 +140,24 @@ const GrabSampleEntry: React.FC = () => {
     const [overrideValues, setOverrideValues] = useState<Record<number, string>>({});
     // Quantile cache for distribution-based validation warnings
     const [quantileCache, setQuantileCache] = useState<Map<string, { p5: number; p95: number }>>(new Map());
-    // Tool sidebar state
-    const [toolDrawerOpen, setToolDrawerOpen] = useState(false);
 
-    // Fetch sites (including altitude_m)
+    // Fetch projects and sites
+    const { data: projects } = useGetList<ProjectRecord>('projects', {
+        pagination: { page: 1, perPage: 50 },
+        sort: { field: 'name', order: 'ASC' },
+    });
+
+    const siteFilter = useMemo(
+        () => projectId ? { project_id: projectId } : {},
+        [projectId],
+    );
     const { data: sites } = useGetList<SiteRecord>('sites', {
+        filter: siteFilter,
         pagination: { page: 1, perPage: 200 },
         sort: { field: 'name', order: 'ASC' },
     });
 
-    // Fetch parameters for selected site
+    // Fetch site parameters and global parameter catalog (for display_name)
     const { data: siteParameters } = useGetList<SiteParameterRecord>('site_parameters', {
         filter: { site_id: siteId, is_active: true },
         pagination: { page: 1, perPage: 200 },
@@ -487,12 +363,6 @@ const GrabSampleEntry: React.FC = () => {
         setOverrideValues({});
     };
 
-    const handleApplyToolResult = useCallback((parameterId: string, value: number) => {
-        setRows(prev => prev.map(r =>
-            r.parameter_id === parameterId ? { ...r, value: value.toString() } : r
-        ));
-        notify(`Applied ${value.toFixed(4)} to form`, { type: 'success' });
-    }, [notify]);
 
     const validate = (): string | null => {
         if (!siteId) return 'Please select a site';
@@ -528,12 +398,44 @@ const GrabSampleEntry: React.FC = () => {
         const validRows = rows.filter((r) => r.parameter_id && (r.value || getReplicateStats(r)));
         const timestamp = new Date(dateTime).toISOString();
 
-        const readings = validRows.map((row) => ({
-            parameter_id: row.parameter_id,
-            sensor_id: row.sensor_id || null,
-            value: getEffectiveValue(row),
-            time: timestamp,
-        }));
+        const readings: Array<{
+            parameter_id: string;
+            sensor_id: string | null;
+            value: number;
+            time: string;
+        }> = [];
+
+        for (const row of validRows) {
+            const reps = replicateInputs[row.id];
+            const hasReplicates = reps && reps.length > 0;
+
+            if (hasReplicates) {
+                // Send each replicate individually — server auto-creates a sample
+                const allValues = [row.value, ...reps]
+                    .map((v) => parseFloat(v))
+                    .filter((v) => !isNaN(v));
+
+                const curve = activeCurveMap.get(row.parameter_id);
+                const shouldCorrect = curve && correctionEnabled[row.id];
+
+                for (const raw of allValues) {
+                    const value = shouldCorrect ? applyCorrection(curve!, raw) : raw;
+                    readings.push({
+                        parameter_id: row.parameter_id,
+                        sensor_id: row.sensor_id || null,
+                        value,
+                        time: timestamp,
+                    });
+                }
+            } else {
+                readings.push({
+                    parameter_id: row.parameter_id,
+                    sensor_id: row.sensor_id || null,
+                    value: getEffectiveValue(row),
+                    time: timestamp,
+                });
+            }
+        }
 
         const payload = { site_id: siteId, readings };
 
@@ -552,7 +454,10 @@ const GrabSampleEntry: React.FC = () => {
 
             const result = await response.json();
             const siteName = sites?.find((s) => s.id === siteId)?.name ?? 'site';
-            setSuccessInfo({ count: result.inserted, siteName });
+            const samplesMsg = result.samples_created > 0
+                ? ` (${result.samples_created} sample${result.samples_created !== 1 ? 's' : ''} with aggregates)`
+                : '';
+            setSuccessInfo({ count: result.inserted, siteName: `${siteName}${samplesMsg}` });
             resetForm();
         } catch (e) {
             notify(`Failed: ${e instanceof Error ? e.message : 'Unknown error'}`, { type: 'error' });
@@ -571,7 +476,35 @@ const GrabSampleEntry: React.FC = () => {
             </Box>
 
             <Paper sx={{ p: 3, mb: 3 }}>
-                {/* Station and DateTime selectors */}
+                {/* Project toggle */}
+                <Box sx={{ mb: 2 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
+                        Project
+                    </Typography>
+                    <ToggleButtonGroup
+                        value={projectId}
+                        exclusive
+                        size="small"
+                        onChange={(_, val) => {
+                            setProjectId(val ?? '');
+                            setSiteId('');
+                            setQuantileCache(new Map());
+                            resetForm();
+                        }}
+                        sx={{ flexWrap: 'wrap', gap: 0.5 }}
+                    >
+                        <ToggleButton value="" sx={{ px: 1.5, py: 0.5, textTransform: 'none' }}>
+                            All
+                        </ToggleButton>
+                        {(projects ?? []).map((p) => (
+                            <ToggleButton key={p.id} value={p.id} sx={{ px: 1.5, py: 0.5, textTransform: 'none' }}>
+                                {p.name}
+                            </ToggleButton>
+                        ))}
+                    </ToggleButtonGroup>
+                </Box>
+
+                {/* Site + DateTime row */}
                 <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
                     <TextField
                         select
@@ -583,7 +516,7 @@ const GrabSampleEntry: React.FC = () => {
                             resetForm();
                         }}
                         sx={{ minWidth: 250 }}
-                        size="small"
+                        disabled={!sites?.length}
                     >
                         {(sites ?? []).map((s) => (
                             <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>
@@ -596,7 +529,6 @@ const GrabSampleEntry: React.FC = () => {
                             type="datetime-local"
                             value={dateTime}
                             onChange={(e) => setDateTime(e.target.value)}
-                            size="small"
                             slotProps={{ inputLabel: { shrink: true } }}
                             sx={{ minWidth: 220 }}
                         />
@@ -607,22 +539,6 @@ const GrabSampleEntry: React.FC = () => {
                         )}
                     </Box>
                 </Box>
-
-                {/* Barometric pressure from altitude */}
-                {siteId && (
-                    <TextField
-                        label="Barometric Pressure (est.)"
-                        value={
-                            barometricPressure != null
-                                ? `${barometricPressure.toFixed(1)} kPa (from ${selectedSite?.altitude_m} m altitude)`
-                                : 'N/A'
-                        }
-                        size="small"
-                        slotProps={{ input: { readOnly: true } }}
-                        sx={{ mb: 2, minWidth: 320 }}
-                        helperText={barometricPressure == null ? 'Site has no altitude configured' : undefined}
-                    />
-                )}
 
                 <Divider sx={{ mb: 2 }} />
 
@@ -640,7 +556,6 @@ const GrabSampleEntry: React.FC = () => {
 
                         {rows.map((row) => {
                             const selectedParam = paramById.get(row.parameter_id);
-                            const isDepth = selectedParam ? isDepthParameter(selectedParam.name) : false;
                             const activeCurve = row.parameter_id ? activeCurveMap.get(row.parameter_id) : undefined;
                             const repStats = getReplicateStats(row);
                             const reps = replicateInputs[row.id] ?? [];
@@ -663,28 +578,47 @@ const GrabSampleEntry: React.FC = () => {
                                             value={row.parameter_id}
                                             onChange={(e) => {
                                                 updateRow(row.id, 'parameter_id', e.target.value);
-                                                // Reset row-level state on parameter change
                                                 setCorrectionEnabled((prev) => { const n = { ...prev }; delete n[row.id]; return n; });
                                                 setOverrideValues((prev) => { const n = { ...prev }; delete n[row.id]; return n; });
                                                 setReplicateInputs((prev) => { const n = { ...prev }; delete n[row.id]; return n; });
                                                 setShowReplicates((prev) => { const n = new Set(prev); n.delete(row.id); return n; });
                                             }}
-                                            size="small"
                                             sx={{ flex: 3 }}
                                             placeholder="Select parameter"
+                                            slotProps={{
+                                                select: {
+                                                    renderValue: (val) => {
+                                                        const sp = paramById.get(val as string);
+                                                        const dn = sp?.parameter?.[0]?.display_name;
+                                                        return dn ? `${dn} — ${sp?.name}` : (sp?.name ?? '');
+                                                    },
+                                                },
+                                            }}
                                         >
-                                            {measurableParams.map((p) => (
-                                                <MenuItem key={p.parameter_id} value={p.parameter_id}>
-                                                    {p.name} {p.display_units ? `(${p.display_units})` : ''}
-                                                </MenuItem>
-                                            ))}
+                                            {measurableParams.map((p) => {
+                                                const dn = p.parameter?.[0]?.display_name;
+                                                return (
+                                                    <MenuItem key={p.parameter_id} value={p.parameter_id}>
+                                                        <Box>
+                                                            <Typography variant="body2">
+                                                                {dn ?? p.name}
+                                                                {p.display_units ? ` (${p.display_units})` : ''}
+                                                            </Typography>
+                                                            {dn && (
+                                                                <Typography variant="caption" color="text.secondary">
+                                                                    {p.name}
+                                                                </Typography>
+                                                            )}
+                                                        </Box>
+                                                    </MenuItem>
+                                                );
+                                            })}
                                         </TextField>
 
                                         <TextField
                                             select
                                             value={row.sensor_id}
                                             onChange={(e) => updateRow(row.id, 'sensor_id', e.target.value)}
-                                            size="small"
                                             sx={{ flex: 2 }}
                                         >
                                             <MenuItem value="">
@@ -701,7 +635,6 @@ const GrabSampleEntry: React.FC = () => {
                                         <TextField
                                             value={row.value}
                                             onChange={(e) => updateRow(row.id, 'value', e.target.value)}
-                                            size="small"
                                             type="number"
                                             sx={{ flex: 1.5 }}
                                             placeholder={selectedParam?.display_units ?? 'Value'}
@@ -718,7 +651,6 @@ const GrabSampleEntry: React.FC = () => {
                                         })()}
 
                                         <IconButton
-                                            size="small"
                                             onClick={() => removeRow(row.id)}
                                             disabled={rows.length <= 1}
                                         >
@@ -729,11 +661,9 @@ const GrabSampleEntry: React.FC = () => {
                                     {/* Sub-controls: replicates, correction, override */}
                                     {row.parameter_id && (
                                         <Box sx={{ ml: 1, mt: 0.5 }}>
-                                            {/* Depth replicates */}
-                                            {isDepth && (
-                                                <Box sx={{ mb: 0.5 }}>
+                                            {/* Replicates */}
+                                            <Box sx={{ mb: 0.5 }}>
                                                     <Button
-                                                        size="small"
                                                         onClick={() => {
                                                             setShowReplicates((prev) => {
                                                                 const next = new Set(prev);
@@ -750,13 +680,12 @@ const GrabSampleEntry: React.FC = () => {
                                                             }
                                                         }}
                                                         startIcon={isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                                                        sx={{ textTransform: 'none', fontSize: '0.8rem' }}
+                                                        sx={{ textTransform: 'none', fontSize: '0.8125rem' }}
                                                     >
-                                                        Depth Replicates
+                                                        Replicates
                                                         {repStats && (
                                                             <Chip
                                                                 label={`n=${repStats.count}`}
-                                                                size="small"
                                                                 sx={{ ml: 1, height: 20, fontSize: '0.7rem' }}
                                                             />
                                                         )}
@@ -771,16 +700,14 @@ const GrabSampleEntry: React.FC = () => {
                                                                 {reps.map((rep, i) => (
                                                                     <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                                                         <TextField
-                                                                            size="small"
                                                                             type="number"
                                                                             value={rep}
                                                                             onChange={(e) => updateReplicate(row.id, i, e.target.value)}
                                                                             placeholder={`Rep ${i + 2}`}
                                                                             sx={{ width: 90 }}
-                                                                            slotProps={{ input: { sx: { fontSize: '0.8rem' } } }}
+                                                                            slotProps={{ input: { sx: { fontSize: '0.8125rem' } } }}
                                                                         />
                                                                         <IconButton
-                                                                            size="small"
                                                                             onClick={() => removeReplicate(row.id, i)}
                                                                         >
                                                                             <DeleteIcon sx={{ fontSize: 16 }} />
@@ -789,7 +716,6 @@ const GrabSampleEntry: React.FC = () => {
                                                                 ))}
                                                                 {reps.length < MAX_REPLICATES - 1 && (
                                                                     <Button
-                                                                        size="small"
                                                                         onClick={() => addReplicate(row.id)}
                                                                         startIcon={<AddIcon />}
                                                                         sx={{ textTransform: 'none', fontSize: '0.75rem' }}
@@ -809,7 +735,6 @@ const GrabSampleEntry: React.FC = () => {
                                                         </Paper>
                                                     </Collapse>
                                                 </Box>
-                                            )}
 
                                             {/* Standard curve correction */}
                                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
@@ -838,7 +763,6 @@ const GrabSampleEntry: React.FC = () => {
                                                         {isCorrectionOn && correctedValue != null && !isNaN(baseValue) && (
                                                             <Chip
                                                                 label={`Corrected: ${correctedValue.toFixed(3)}`}
-                                                                size="small"
                                                                 color="info"
                                                                 sx={{ fontSize: '0.75rem', height: 24 }}
                                                             />
@@ -864,7 +788,6 @@ const GrabSampleEntry: React.FC = () => {
                                             {(repStats || (isCorrectionOn && activeCurve)) && (
                                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
                                                     <TextField
-                                                        size="small"
                                                         type="number"
                                                         label="Override final value"
                                                         value={overrideValues[row.id] ?? ''}
@@ -876,13 +799,12 @@ const GrabSampleEntry: React.FC = () => {
                                                         }
                                                         sx={{ width: 180 }}
                                                         slotProps={{
-                                                            input: { sx: { fontSize: '0.8rem' } },
+                                                            input: { sx: { fontSize: '0.8125rem' } },
                                                             inputLabel: { shrink: true },
                                                         }}
                                                     />
                                                     {hasOverride && (
                                                         <Button
-                                                            size="small"
                                                             onClick={() =>
                                                                 setOverrideValues((prev) => {
                                                                     const n = { ...prev };
@@ -909,7 +831,6 @@ const GrabSampleEntry: React.FC = () => {
                         })}
 
                         <Button
-                            size="small"
                             startIcon={<AddIcon />}
                             onClick={addRow}
                             sx={{ mt: 1 }}
@@ -947,30 +868,6 @@ const GrabSampleEntry: React.FC = () => {
                 </Alert>
             </Snackbar>
 
-            {siteId && (
-                <>
-                    <Fab
-                        color="primary"
-                        sx={{ position: 'fixed', bottom: 24, right: 24 }}
-                        onClick={() => setToolDrawerOpen(true)}
-                    >
-                        <BuildIcon />
-                    </Fab>
-                    <Drawer
-                        anchor="right"
-                        open={toolDrawerOpen}
-                        onClose={() => setToolDrawerOpen(false)}
-                    >
-                        <ToolSidebar
-                            rows={rows}
-                            paramById={paramById}
-                            siteId={siteId}
-                            barometricPressure={barometricPressure}
-                            onApplyResult={handleApplyToolResult}
-                        />
-                    </Drawer>
-                </>
-            )}
         </Box>
     );
 };

@@ -38,6 +38,7 @@ import { useSiteDataRange } from '../../hooks/useSiteDataRange';
 import { resolveAggregation as resolveAggregationAuto } from '../../utils/timeRange';
 import type { ReadingsResponse, AggregatesResponse } from '../../hooks/useSiteChartData';
 import { uPlotTheme } from '../../uPlotTheme';
+import { tokens } from '../../theme';
 
 interface AlarmThreshold {
   warning_min: number | null;
@@ -585,25 +586,25 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
             {},
             {
               label: `${parameterName} (avg)`,
-              stroke: '#2196f3',
+              stroke: tokens.dataViz[0],
               width: 2,
               points: { show: false },
             },
             {
               label: 'Min',
-              stroke: 'rgba(33, 150, 243, 0.3)',
+              stroke: tokens.dataViz[0] + '4D',
               width: 1,
               points: { show: false },
             },
             {
               label: 'Max',
-              stroke: 'rgba(33, 150, 243, 0.3)',
+              stroke: tokens.dataViz[0] + '4D',
               width: 1,
               points: { show: false },
             },
             {
               label: 'Grab Sample',
-              stroke: '#ff9800',
+              stroke: tokens.markers.grabSample.fill,
               width: 0,
               points: { show: false },
             },
@@ -698,13 +699,13 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
             {},
             {
               label: parameterName,
-              stroke: '#2196f3',
+              stroke: tokens.dataViz[0],
               width: 2,
               points: { show: false },
             },
             {
               label: 'Grab Sample',
-              stroke: '#ff9800',
+              stroke: tokens.markers.grabSample.fill,
               width: 0,
               points: { show: false },
             },
@@ -744,10 +745,10 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
 
     const observer = new ResizeObserver(() => {
       if (uplotRef.current && chartRef.current) {
-        uplotRef.current.setSize({
-          width: chartRef.current.clientWidth,
-          height: 200,
-        });
+        const newWidth = chartRef.current.clientWidth;
+        if (Math.abs(uplotRef.current.width - newWidth) > 4) {
+          uplotRef.current.setSize({ width: newWidth, height: 200 });
+        }
       }
     });
 
@@ -905,7 +906,7 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
           checked={showGrabSamples}
           onChange={(e) => { e.stopPropagation(); setShowGrabSamples(e.target.checked); }}
           onClick={(e) => e.stopPropagation()}
-          sx={{ p: 0.5, color: '#ff9800', '&.Mui-checked': { color: '#ff9800' } }}
+          sx={{ p: 0.5, color: tokens.markers.grabSample.fill, '&.Mui-checked': { color: tokens.markers.grabSample.fill } }}
           inputProps={{ 'aria-label': 'Toggle grab samples' }}
         />
       </Tooltip>
@@ -915,9 +916,9 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
           checked={showFlagged}
           onChange={(e) => { e.stopPropagation(); setShowFlagged(e.target.checked); }}
           onClick={(e) => e.stopPropagation()}
-          icon={<FlagIcon fontSize="small" sx={{ color: 'rgba(211, 47, 47, 0.4)' }} />}
+          icon={<FlagIcon fontSize="small" sx={{ color: tokens.severity.alarm.border }} />}
           checkedIcon={<FlagIcon fontSize="small" />}
-          sx={{ p: 0.5, color: '#d32f2f', '&.Mui-checked': { color: '#d32f2f' } }}
+          sx={{ p: 0.5, color: tokens.markers.flagged.stroke, '&.Mui-checked': { color: tokens.markers.flagged.stroke } }}
           inputProps={{ 'aria-label': 'Toggle flagged points' }}
         />
       </Tooltip>
@@ -948,17 +949,17 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
         </Box>
       )}
       <div style={{ position: 'relative', width: '100%', display: noData ? 'none' : 'block' }} onClick={handleChartClick}>
-        <div ref={chartRef} style={{ width: '100%' }} />
+        <div ref={chartRef} style={{ width: '100%', overflow: 'hidden' }} />
         <div
           ref={tooltipRef}
           style={{
             display: 'none',
             position: 'absolute',
-            background: 'rgba(0,0,0,0.8)',
-            color: '#fff',
-            padding: '4px 8px',
+            background: uPlotTheme.tooltipBg,
+            color: uPlotTheme.tooltipColor,
+            padding: uPlotTheme.tooltipPadding,
             borderRadius: 4,
-            fontSize: '0.75rem',
+            fontSize: uPlotTheme.tooltipFontSize,
             pointerEvents: 'none',
             zIndex: 10,
             maxWidth: 200,
@@ -972,14 +973,12 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
             Selected: {annotateRange.start.toLocaleString()} &ndash; {annotateRange.end.toLocaleString()}
           </Typography>
           <Button
-            size="small"
             variant="contained"
             onClick={() => setAnnotateDialogOpen(true)}
           >
             Annotate
           </Button>
           <Button
-            size="small"
             onClick={() => setAnnotateRange(null)}
           >
             Dismiss
@@ -1061,7 +1060,7 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
         >
           <Box sx={{ p: 2, minWidth: 260 }}>
             <Typography variant="subtitle2" sx={{ mb: 1 }}>
-              <FlagIcon fontSize="small" sx={{ verticalAlign: 'middle', mr: 0.5, color: '#d32f2f' }} />
+              <FlagIcon fontSize="small" sx={{ verticalAlign: 'middle', mr: 0.5, color: tokens.markers.flagged.stroke }} />
               {flagPointIdx != null && mergedFlaggedRef.current[flagPointIdx]
                 ? 'Flagged Reading'
                 : 'Flag Reading'}
@@ -1077,14 +1076,12 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
               <>
                 <TextField
                   label="Reason"
-                  size="small"
                   fullWidth
                   value={flagReason}
                   onChange={(e) => setFlagReason(e.target.value)}
                   sx={{ mb: 1 }}
                 />
                 <Button
-                  size="small"
                   variant="contained"
                   color="error"
                   disabled={flagBusy || !flagReason.trim()}
@@ -1103,7 +1100,6 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
                   </Typography>
                 )}
                 <Button
-                  size="small"
                   variant="outlined"
                   disabled={flagBusy}
                   onClick={() => unflagReadings([flagPointIdx])}
@@ -1153,7 +1149,7 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
             </FormControl>
           )}
           {expanded && chartControls}
-          <IconButton size="small">
+          <IconButton>
             {expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
           </IconButton>
         </Box>
@@ -1226,7 +1222,7 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
       >
         <Box sx={{ p: 2, minWidth: 260 }}>
           <Typography variant="subtitle2" sx={{ mb: 1 }}>
-            <FlagIcon fontSize="small" sx={{ verticalAlign: 'middle', mr: 0.5, color: '#d32f2f' }} />
+            <FlagIcon fontSize="small" sx={{ verticalAlign: 'middle', mr: 0.5, color: tokens.markers.flagged.stroke }} />
             {flagPointIdx != null && mergedFlaggedRef.current[flagPointIdx]
               ? 'Flagged Reading'
               : 'Flag Reading'}
@@ -1242,14 +1238,12 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
             <>
               <TextField
                 label="Reason"
-                size="small"
                 fullWidth
                 value={flagReason}
                 onChange={(e) => setFlagReason(e.target.value)}
                 sx={{ mb: 1 }}
               />
               <Button
-                size="small"
                 variant="contained"
                 color="error"
                 disabled={flagBusy || !flagReason.trim()}
@@ -1268,7 +1262,6 @@ export const ParameterChart: React.FC<ParameterChartProps> = ({
                 </Typography>
               )}
               <Button
-                size="small"
                 variant="outlined"
                 disabled={flagBusy}
                 onClick={() => unflagReadings([flagPointIdx])}
@@ -1293,7 +1286,7 @@ function addThresholdLines(
 ) {
   if (threshold.warning_min != null) {
     series.push({
-      stroke: 'rgba(255, 152, 0, 0.35)',
+      stroke: tokens.severity.warning.border,
       width: 1,
       label: 'Warn min',
       points: { show: false },
@@ -1302,7 +1295,7 @@ function addThresholdLines(
   }
   if (threshold.warning_max != null) {
     series.push({
-      stroke: 'rgba(255, 152, 0, 0.35)',
+      stroke: tokens.severity.warning.border,
       width: 1,
       label: 'Warn max',
       points: { show: false },
@@ -1311,7 +1304,7 @@ function addThresholdLines(
   }
   if (threshold.alarm_min != null) {
     series.push({
-      stroke: 'rgba(244, 67, 54, 0.35)',
+      stroke: tokens.severity.alarm.border,
       width: 1,
       label: 'Alarm min',
       points: { show: false },
@@ -1320,7 +1313,7 @@ function addThresholdLines(
   }
   if (threshold.alarm_max != null) {
     series.push({
-      stroke: 'rgba(244, 67, 54, 0.35)',
+      stroke: tokens.severity.alarm.border,
       width: 1,
       label: 'Alarm max',
       points: { show: false },

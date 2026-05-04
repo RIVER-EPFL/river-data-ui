@@ -18,7 +18,7 @@ import { FieldTripWizard } from './resources/field_trips';
 import { MoveSensorPage } from './resources/sensors/MoveSensorPage';
 import { Navigate } from 'react-router-dom';
 import { KeycloakContext } from './KeycloakContext';
-import { theme } from './theme';
+import { theme, tokens } from './theme';
 
 const initOptions = {
   onLoad: 'login-required' as const,
@@ -111,13 +111,13 @@ const AdminApp = () => {
           height: '100vh',
           flexDirection: 'column',
           fontSize: '18px',
-          color: '#d32f2f',
+          color: tokens.severity.alarm.main,
           textAlign: 'center',
           padding: '20px',
         }}
       >
         <p>Authentication Error</p>
-        <p style={{ fontSize: '14px', marginTop: '10px', color: '#666', maxWidth: '400px' }}>
+        <p style={{ fontSize: '14px', marginTop: '10px', color: tokens.brand.textMuted, maxWidth: '400px' }}>
           {initState.message}
         </p>
         <button
@@ -125,8 +125,8 @@ const AdminApp = () => {
           style={{
             marginTop: '20px',
             padding: '10px 20px',
-            backgroundColor: '#1F4E79',
-            color: 'white',
+            backgroundColor: tokens.brand.primary,
+            color: tokens.brand.surface,
             border: 'none',
             borderRadius: '4px',
             cursor: 'pointer',
@@ -148,11 +148,11 @@ const AdminApp = () => {
           height: '100vh',
           flexDirection: 'column',
           fontSize: '18px',
-          color: '#666',
+          color: tokens.brand.textMuted,
         }}
       >
         <p>Loading River Data Admin...</p>
-        <p style={{ fontSize: '14px', marginTop: '10px', color: '#999' }}>
+        <p style={{ fontSize: '14px', marginTop: '10px', color: tokens.brand.textMuted }}>
           Initializing...
         </p>
       </div>
@@ -167,6 +167,7 @@ const AdminApp = () => {
         title="River Data: Admin"
         layout={CustomLayout}
         theme={theme}
+        darkTheme={null}
         dashboard={Dashboard}
         basename="/admin"
       >

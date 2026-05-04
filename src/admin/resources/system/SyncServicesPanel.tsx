@@ -41,13 +41,14 @@ import CloudSyncIcon from '@mui/icons-material/CloudSync';
 import { useRiverDataProvider } from '../../useRiverDataProvider';
 import type { SyncService, SyncCommand, SyncEvent, ServiceCredential } from '../../dataProvider';
 import { formatRelativeTime } from '../../utils/formatRelativeTime';
+import { tokens } from '../../theme';
 
 const healthColor = (service: SyncService) => {
-  if (!service.last_heartbeat) return 'grey';
+  if (!service.last_heartbeat) return tokens.severity.unknown.main;
   const ageMs = Date.now() - new Date(service.last_heartbeat).getTime();
-  if (ageMs < 90_000) return '#4caf50';
-  if (ageMs < 300_000) return '#ff9800';
-  return '#f44336';
+  if (ageMs < 90_000) return tokens.severity.ok.main;
+  if (ageMs < 300_000) return tokens.severity.warning.main;
+  return tokens.severity.alarm.main;
 };
 
 const statusChipColor = (status: string): 'default' | 'primary' | 'success' | 'error' | 'warning' => {
@@ -244,7 +245,7 @@ export const SyncServicesPanel = () => {
                           {svc.service_type.charAt(0).toUpperCase() + svc.service_type.slice(1)} Sync
                         </Typography>
                       </Box>
-                      <Chip label={svc.status} color={statusChipColor(svc.status)} size="small" />
+                      <Chip label={svc.status} color={statusChipColor(svc.status)} />
                     </Box>
                     <Typography variant="body2" color="text.secondary" gutterBottom>
                       instance: {svc.instance_id}
@@ -267,7 +268,6 @@ export const SyncServicesPanel = () => {
                       <Tooltip title="Sync">
                         <span>
                           <IconButton
-                            size="small"
                             disabled={isBusy}
                             onClick={() => handleCommand(svc.id, 'trigger_sync')}
                           >
@@ -278,7 +278,6 @@ export const SyncServicesPanel = () => {
                       <Tooltip title="Full Sync">
                         <span>
                           <IconButton
-                            size="small"
                             disabled={isBusy}
                             onClick={() => setFullSyncTarget(svc)}
                           >
@@ -290,7 +289,6 @@ export const SyncServicesPanel = () => {
                         <Tooltip title="Resume">
                           <span>
                             <IconButton
-                              size="small"
                               color="success"
                               disabled={isBusy}
                               onClick={() => handleCommand(svc.id, 'resume')}
@@ -303,7 +301,6 @@ export const SyncServicesPanel = () => {
                         <Tooltip title="Pause">
                           <span>
                             <IconButton
-                              size="small"
                               color="warning"
                               disabled={isBusy}
                               onClick={() => handleCommand(svc.id, 'pause')}
@@ -330,7 +327,6 @@ export const SyncServicesPanel = () => {
             <Typography variant="h6">Service Credentials</Typography>
             <Button
               variant="contained"
-              size="small"
               onClick={() => {
                 setCreateDialogOpen(true);
                 setNewServiceType('');
@@ -355,7 +351,7 @@ export const SyncServicesPanel = () => {
               <TableBody>
                 {credentials.map((cred) => (
                   <TableRow key={cred.id}>
-                    <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                    <TableCell sx={{ fontFamily: tokens.font.mono, fontSize: '0.8125rem' }}>
                       {cred.client_id}
                     </TableCell>
                     <TableCell>{cred.service_type}</TableCell>
@@ -368,7 +364,6 @@ export const SyncServicesPanel = () => {
                       <Chip
                         label={cred.revoked ? 'Revoked' : 'Active'}
                         color={cred.revoked ? 'error' : 'success'}
-                        size="small"
                         variant={cred.revoked ? 'outlined' : 'filled'}
                       />
                     </TableCell>
@@ -376,7 +371,6 @@ export const SyncServicesPanel = () => {
                     <TableCell>
                       {!cred.revoked && (
                         <Button
-                          size="small"
                           color="error"
                           onClick={() => {
                             setRevokeTarget(cred);
@@ -439,7 +433,7 @@ export const SyncServicesPanel = () => {
                       <TableCell>
                         {services.find((s) => s.id === cmd.service_id)?.service_type || cmd.service_id.slice(0, 8)}
                       </TableCell>
-                      <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                      <TableCell sx={{ fontFamily: tokens.font.mono, fontSize: '0.8125rem' }}>
                         {cmd.command}
                       </TableCell>
                       <TableCell>
@@ -449,12 +443,11 @@ export const SyncServicesPanel = () => {
                           <Chip
                             label={cmd.status}
                             color={commandStatusColor(cmd)}
-                            size="small"
                             variant={cmd.status === 'expired' ? 'outlined' : 'filled'}
                           />
                         </Tooltip>
                       </TableCell>
-                      <TableCell sx={{ fontSize: '0.85rem' }}>{resultText}</TableCell>
+                      <TableCell sx={{ fontSize: '0.8125rem' }}>{resultText}</TableCell>
                       <TableCell>{formatDuration(cmd)}</TableCell>
                     </TableRow>
                   );
@@ -509,7 +502,6 @@ export const SyncServicesPanel = () => {
                       <TableCell>
                         <Chip
                           label={evt.event_type}
-                          size="small"
                           variant="outlined"
                           color={evt.event_type === 'full_sync' ? 'primary' : evt.event_type === 'triggered' ? 'info' : 'default'}
                         />
@@ -518,7 +510,6 @@ export const SyncServicesPanel = () => {
                         <Chip
                           label={evt.status}
                           color={syncEventStatusColor(evt.status)}
-                          size="small"
                         />
                       </TableCell>
                       <TableCell>{evt.readings_synced}</TableCell>
@@ -529,7 +520,6 @@ export const SyncServicesPanel = () => {
                           <Chip
                             label={`${errorList.length}`}
                             color="error"
-                            size="small"
                             variant="outlined"
                           />
                         ) : (
@@ -586,7 +576,6 @@ export const SyncServicesPanel = () => {
                 <Chip
                   label={selectedEvent.status}
                   color={syncEventStatusColor(selectedEvent.status)}
-                  size="small"
                   sx={{ ml: 1 }}
                 />
               </DialogTitle>
@@ -609,7 +598,6 @@ export const SyncServicesPanel = () => {
                     <Typography variant="body1">
                       <Chip
                         label={selectedEvent.event_type}
-                        size="small"
                         variant="outlined"
                         color={selectedEvent.event_type === 'full_sync' ? 'primary' : selectedEvent.event_type === 'triggered' ? 'info' : 'default'}
                       />
@@ -684,7 +672,7 @@ export const SyncServicesPanel = () => {
                             primary={entry}
                             primaryTypographyProps={{
                               variant: 'body2',
-                              sx: { fontFamily: 'monospace', fontSize: '0.85rem' },
+                              sx: { fontFamily: tokens.font.mono, fontSize: '0.8125rem' },
                             }}
                           />
                         </ListItem>
@@ -710,7 +698,7 @@ export const SyncServicesPanel = () => {
                             primary={err}
                             primaryTypographyProps={{
                               variant: 'body2',
-                              sx: { fontFamily: 'monospace', fontSize: '0.85rem', wordBreak: 'break-all' },
+                              sx: { fontFamily: tokens.font.mono, fontSize: '0.8125rem', wordBreak: 'break-all' },
                             }}
                           />
                         </ListItem>
@@ -721,7 +709,7 @@ export const SyncServicesPanel = () => {
 
                 {/* IDs */}
                 <Divider sx={{ my: 2 }} />
-                <Typography variant="caption" color="text.secondary" component="div" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                <Typography variant="caption" color="text.secondary" component="div" sx={{ fontFamily: tokens.font.mono, fontSize: '0.75rem' }}>
                   Event ID: {selectedEvent.id}
                   {selectedEvent.command_id && (<><br />Command ID: {selectedEvent.command_id}</>)}
                   <br />Service ID: {selectedEvent.service_id}
@@ -764,8 +752,7 @@ export const SyncServicesPanel = () => {
                 fullWidth
                 value={createdCredential.client_id}
                 InputProps={{ readOnly: true }}
-                size="small"
-                sx={{ mb: 2, fontFamily: 'monospace' }}
+                sx={{ mb: 2, fontFamily: tokens.font.mono }}
               />
               <Typography variant="body2" gutterBottom>
                 Client Secret:
@@ -776,9 +763,8 @@ export const SyncServicesPanel = () => {
                   value={createdCredential.client_secret}
                   InputProps={{
                     readOnly: true,
-                    sx: { fontFamily: 'monospace', fontSize: '0.85rem' },
+                    sx: { fontFamily: tokens.font.mono, fontSize: '0.8125rem' },
                   }}
-                  size="small"
                 />
                 <IconButton
                   onClick={() => {

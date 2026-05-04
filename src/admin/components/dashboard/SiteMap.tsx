@@ -6,6 +6,7 @@ import 'leaflet/dist/leaflet.css';
 import 'leaflet.markercluster';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
+import { tokens } from '../../theme';
 
 interface SiteRecord {
   id: string;
@@ -21,7 +22,7 @@ const isValidCoord = (s: SiteRecord): s is SiteRecord & { latitude: number; long
   s.longitude >= -180 && s.longitude <= 180;
 
 const MARKER_COLORS = {
-  green: '#4caf50',
+  green: tokens.severity.ok.main,
 } as const;
 
 interface SiteMapProps {

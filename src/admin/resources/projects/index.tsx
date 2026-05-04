@@ -40,6 +40,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import { Link } from 'react-router-dom';
 import { useRiverDataProvider } from '../../useRiverDataProvider';
+import { tokens } from '../../theme';
 
 // ---------------------------------------------------------------------------
 // Components
@@ -77,7 +78,6 @@ const PublicApiActions = () => {
     <Box sx={{ display: 'flex', gap: 1, mt: 1, mb: 2 }}>
       <Button
         variant="outlined"
-        size="small"
         startIcon={<CachedIcon />}
         onClick={handleInvalidate}
       >
@@ -85,7 +85,6 @@ const PublicApiActions = () => {
       </Button>
       <Button
         variant="outlined"
-        size="small"
         startIcon={<OpenInNewIcon />}
         href={`/api/public/${record.public_slug}/docs`}
         target="_blank"
@@ -105,7 +104,6 @@ const AddExposedParameterButton = () => {
     <Button
       component={Link}
       to={`/public_exposed_parameters/create?source=${encodeURIComponent(JSON.stringify({ project_id: record.id }))}`}
-      size="small"
       startIcon={<AddIcon />}
     >
       Add Exposed Parameter
@@ -152,7 +150,6 @@ const PublicApiPreview = () => {
           GET /api/public/{record.public_slug as string}/sites
         </Typography>
         <Button
-          size="small"
           variant="outlined"
           onClick={() => fetchPreview(record.public_slug as string)}
         >
@@ -171,7 +168,6 @@ const PublicApiPreview = () => {
         <Typography variant="subtitle1">API Response Preview</Typography>
         <Tooltip title="Refresh preview">
           <IconButton
-            size="small"
             onClick={() => fetchPreview(record.public_slug as string)}
             disabled={loading}
           >
@@ -204,8 +200,8 @@ const PublicApiPreview = () => {
               borderRadius: 1,
               overflow: 'auto',
               maxHeight: 400,
-              fontSize: '0.8rem',
-              fontFamily: 'monospace',
+              fontSize: '0.8125rem',
+              fontFamily: tokens.font.mono,
               m: 0,
             }}
           >
@@ -213,7 +209,6 @@ const PublicApiPreview = () => {
           </Box>
           {truncated && (
             <Button
-              size="small"
               onClick={() => setExpanded(!expanded)}
               startIcon={expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
               sx={{ mt: 0.5 }}
@@ -247,11 +242,11 @@ const PublicApiUrl = () => {
 
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
-      <Typography variant="body2" sx={{ fontFamily: 'monospace', bgcolor: 'action.hover', px: 1, py: 0.5, borderRadius: 1 }}>
+      <Typography variant="body2" sx={{ fontFamily: tokens.font.mono, bgcolor: 'action.hover', px: 1, py: 0.5, borderRadius: 1 }}>
         {url}
       </Typography>
       <Tooltip title="Copy URL">
-        <Button size="small" onClick={handleCopy} startIcon={<ContentCopyIcon />}>
+        <Button onClick={handleCopy} startIcon={<ContentCopyIcon />}>
           Copy
         </Button>
       </Tooltip>

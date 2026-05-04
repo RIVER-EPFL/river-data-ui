@@ -172,7 +172,6 @@ export const AssignToSiteDialog: React.FC<AssignToSiteDialogProps> = ({
           value={targetSiteId}
           onChange={(e) => setTargetSiteId(e.target.value)}
           fullWidth
-          size="small"
         >
           {(sites ?? []).map((s) => (
             <MenuItem key={s.id} value={s.id}>
@@ -203,7 +202,6 @@ export const AssignToSiteDialog: React.FC<AssignToSiteDialogProps> = ({
                 {item.siteParam && (
                   <Chip
                     label={item.siteParam.name}
-                    size="small"
                     color="success"
                     variant="outlined"
                   />

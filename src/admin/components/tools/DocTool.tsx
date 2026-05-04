@@ -32,9 +32,9 @@ export const DocTool = () => {
   return (
     <ToolLayout toolName="doc" description="Dissolved Organic Carbon: average and standard deviation from replicates with optional standard curve correction." inputs={inputs}>
       <Box sx={{ display: 'flex', gap: 2 }}>
-        <TextField label="Replicate 1" value={rep1} onChange={(e) => setRep1(e.target.value)} type="number" size="small" />
-        <TextField label="Replicate 2" value={rep2} onChange={(e) => setRep2(e.target.value)} type="number" size="small" />
-        <TextField label="Replicate 3" value={rep3} onChange={(e) => setRep3(e.target.value)} type="number" size="small" />
+        <TextField label="Replicate 1" value={rep1} onChange={(e) => setRep1(e.target.value)} type="number" />
+        <TextField label="Replicate 2" value={rep2} onChange={(e) => setRep2(e.target.value)} type="number" />
+        <TextField label="Replicate 3" value={rep3} onChange={(e) => setRep3(e.target.value)} type="number" />
       </Box>
       <FormControlLabel
         control={<Switch checked={useCurve} onChange={(e) => setUseCurve(e.target.checked)} />}
@@ -42,8 +42,8 @@ export const DocTool = () => {
       />
       {useCurve && (
         <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-          <TextField label="Slope" value={slope} onChange={(e) => setSlope(e.target.value)} type="number" size="small" />
-          <TextField label="Intercept" value={intercept} onChange={(e) => setIntercept(e.target.value)} type="number" size="small" />
+          <TextField label="Slope" value={slope} onChange={(e) => setSlope(e.target.value)} type="number" />
+          <TextField label="Intercept" value={intercept} onChange={(e) => setIntercept(e.target.value)} type="number" />
           <LoadStandardCurveButton onLoad={handleLoadCurve} />
         </Box>
       )}

@@ -393,7 +393,6 @@ export const DataExportDialog: React.FC<DataExportDialogProps> = ({
           value={startDate}
           onChange={(e) => setStartDate(e.target.value)}
           fullWidth
-          size="small"
           slotProps={{ inputLabel: { shrink: true } }}
         />
         <TextField
@@ -402,7 +401,6 @@ export const DataExportDialog: React.FC<DataExportDialogProps> = ({
           value={endDate}
           onChange={(e) => setEndDate(e.target.value)}
           fullWidth
-          size="small"
           slotProps={{ inputLabel: { shrink: true } }}
         />
 
@@ -412,7 +410,6 @@ export const DataExportDialog: React.FC<DataExportDialogProps> = ({
           value={aggregation}
           onChange={(e) => setAggregation(e.target.value as AggregationLevel)}
           fullWidth
-          size="small"
         >
           <MenuItem value="raw">Raw</MenuItem>
           <MenuItem value="hourly">Hourly</MenuItem>
@@ -438,10 +435,10 @@ export const DataExportDialog: React.FC<DataExportDialogProps> = ({
           <FormControl component="fieldset">
             <FormLabel component="legend">Parameters</FormLabel>
             <Box sx={{ display: 'flex', gap: 1, mb: 1, mt: 0.5 }}>
-              <Button size="small" onClick={handleSelectAll}>
+              <Button onClick={handleSelectAll}>
                 Select All
               </Button>
-              <Button size="small" onClick={handleDeselectAll}>
+              <Button onClick={handleDeselectAll}>
                 Deselect All
               </Button>
             </Box>
@@ -545,7 +542,6 @@ export const DataExportDialog: React.FC<DataExportDialogProps> = ({
               label="Parameter to Compare"
               value={comparisonParamId}
               onChange={(e) => setComparisonParamId(e.target.value)}
-              size="small"
               fullWidth
             >
               {nonDerivedParams.map((p) => (
@@ -557,7 +553,6 @@ export const DataExportDialog: React.FC<DataExportDialogProps> = ({
               type="number"
               value={comparisonTolerance}
               onChange={(e) => setComparisonTolerance(parseInt(e.target.value) || 10)}
-              size="small"
               sx={{ width: 200 }}
               inputProps={{ min: 1, max: 60 }}
             />

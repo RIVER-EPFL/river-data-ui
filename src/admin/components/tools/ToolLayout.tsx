@@ -241,7 +241,7 @@ const SaveToStationDialog: React.FC<SaveToStationDialogProps> = ({ open, onClose
         <Box sx={{ display: 'flex', gap: 2 }}>
           <MuiTextField
             select label="Site" value={siteId}
-            onChange={(e) => setSiteId(e.target.value)} size="small" fullWidth
+            onChange={(e) => setSiteId(e.target.value)} fullWidth
           >
             {(sites ?? []).map((s: any) => (
               <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>
@@ -250,14 +250,14 @@ const SaveToStationDialog: React.FC<SaveToStationDialogProps> = ({ open, onClose
 
           <MuiTextField
             label="Date / Time" type="datetime-local" value={dateTime}
-            onChange={(e) => setDateTime(e.target.value)} size="small" fullWidth
+            onChange={(e) => setDateTime(e.target.value)} fullWidth
             slotProps={{ inputLabel: { shrink: true } }}
           />
         </Box>
 
         <MuiTextField
           select label="Field Trip (optional)" value={fieldTripId}
-          onChange={(e) => setFieldTripId(e.target.value)} size="small" fullWidth
+          onChange={(e) => setFieldTripId(e.target.value)} fullWidth
         >
           <MenuItem value="">None</MenuItem>
           {(fieldTrips ?? []).map((ft: any) => (
@@ -274,7 +274,7 @@ const SaveToStationDialog: React.FC<SaveToStationDialogProps> = ({ open, onClose
                 <Alert severity="info" sx={{ flex: 1 }}>
                   {linkableMappings.length} parameter(s) exist but aren't linked to this site yet.
                 </Alert>
-                <Button size="small" variant="outlined" onClick={handleLinkAll} disabled={!!linking}>
+                <Button variant="outlined" onClick={handleLinkAll} disabled={!!linking}>
                   Link All
                 </Button>
               </Box>
@@ -304,7 +304,6 @@ const SaveToStationDialog: React.FC<SaveToStationDialogProps> = ({ open, onClose
                       {m.linkable && (
                         <Tooltip title="Click to link this parameter to the site">
                           <IconButton
-                            size="small"
                             onClick={() => handleLinkParameter(m)}
                             disabled={linking === m.key}
                           >
@@ -313,7 +312,7 @@ const SaveToStationDialog: React.FC<SaveToStationDialogProps> = ({ open, onClose
                         </Tooltip>
                       )}
                       {!m.linked && !m.linkable && (
-                        <Chip label="No match" size="small" variant="outlined" color="warning" />
+                        <Chip label="No match" variant="outlined" color="warning" />
                       )}
                     </TableCell>
                   </TableRow>
@@ -413,10 +412,10 @@ export const ToolLayout = ({ toolName, description, children, inputs, onResult }
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
               <Typography variant="subtitle2">Results</Typography>
               <Box sx={{ display: 'flex', gap: 1 }}>
-                <Button size="small" startIcon={<DownloadIcon />} onClick={handleExport}>
+                <Button startIcon={<DownloadIcon />} onClick={handleExport}>
                   Export CSV
                 </Button>
-                <Button size="small" startIcon={<SaveIcon />} onClick={() => setSaveOpen(true)}>
+                <Button startIcon={<SaveIcon />} onClick={() => setSaveOpen(true)}>
                   Save to Site
                 </Button>
               </Box>
