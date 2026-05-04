@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { Layout, AppBar, TitlePortal, Menu, LayoutProps } from 'react-admin';
 import { CssBaseline, Typography, IconButton, Badge } from '@mui/material';
 import SettingsIcon from '@mui/icons-material/Settings';
@@ -11,30 +11,12 @@ import RssFeedIcon from '@mui/icons-material/RssFeed';
 import SearchBar from './components/SearchBar';
 import { StatusIndicators } from './components/StatusIndicators';
 import { AlarmNotificationPanel } from './components/AlarmNotificationPanel';
-import { useRiverDataProvider } from './useRiverDataProvider';
+import { useAlarmBadgeCount } from './hooks/useAlarmBadgeCount';
 import { snippets } from './themeSnippets';
 
-const BADGE_REFRESH_INTERVAL = 60_000;
-
 const CustomAppBar = () => {
-  const dataProvider = useRiverDataProvider();
-  const [alarmCount, setAlarmCount] = useState(0);
+  const alarmCount = useAlarmBadgeCount();
   const [panelOpen, setPanelOpen] = useState(false);
-
-  const fetchCount = useCallback(async () => {
-    try {
-      const { data } = await dataProvider.getAlarmSummary();
-      setAlarmCount(data.total);
-    } catch (err) {
-      console.error('Failed to fetch alarm count:', err);
-    }
-  }, [dataProvider]);
-
-  useEffect(() => {
-    fetchCount();
-    const interval = setInterval(fetchCount, BADGE_REFRESH_INTERVAL);
-    return () => clearInterval(interval);
-  }, [fetchCount]);
 
   return (
     <>

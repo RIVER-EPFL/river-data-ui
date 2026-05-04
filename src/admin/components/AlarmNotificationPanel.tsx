@@ -57,6 +57,7 @@ function loadAcks(): AckEntry[] {
 
 function saveAcks(acks: AckEntry[]) {
   localStorage.setItem(ACK_STORAGE_KEY, JSON.stringify(acks));
+  window.dispatchEvent(new Event('alarm-ack-changed'));
 }
 
 function alarmKey(alarm: ActiveAlarm): string {
@@ -293,8 +294,3 @@ export const AlarmNotificationPanel = ({ open, onClose }: AlarmNotificationPanel
   );
 };
 
-/** Return the number of un-acknowledged active alarms (for badge count). */
-export function useUnackedAlarmCount(alarms: ActiveAlarm[]): number {
-  const acked = useMemo(() => new Set(loadAcks().map((a) => a.key)), []);
-  return alarms.filter((a) => !acked.has(alarmKey(a))).length;
-}
