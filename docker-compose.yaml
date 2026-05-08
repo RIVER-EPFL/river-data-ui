@@ -147,7 +147,7 @@ services:
 
   river-data-vaisala:
     build:
-      context: ../river-data-sync-vaisala
+      context: ../river-data-vaisala
     environment:
       # River Data API connection
       - API_BASE_URL=http://river-data-api:${API_PORT:-3000}
@@ -224,7 +224,7 @@ services:
   # ── Portal sync microservices ──────────────────────────────────────
   river-data-sync-cnet:
     build:
-      context: ../river-data-sync-rshiny
+      context: ../river-data-rshiny
     environment:
       - PORTAL_TYPE=cnet
       - PORTAL_DB_HOST=portal-db-cnet
@@ -249,7 +249,7 @@ services:
 
   river-data-sync-metalp:
     build:
-      context: ../river-data-sync-rshiny
+      context: ../river-data-rshiny
     environment:
       - PORTAL_TYPE=metalp
       - PORTAL_DB_HOST=portal-db-metalp
@@ -274,7 +274,7 @@ services:
 
   river-data-sync-nomis:
     build:
-      context: ../river-data-sync-rshiny
+      context: ../river-data-rshiny
     environment:
       - PORTAL_TYPE=nomis
       - PORTAL_DB_HOST=portal-db-nomis
