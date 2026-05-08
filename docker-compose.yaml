@@ -145,7 +145,7 @@ services:
       - ./index.html:/app/index.html
       - ./vite.config.ts:/app/vite.config.ts
 
-  river-data-sync-vaisala:
+  river-data-vaisala:
     build:
       context: ../river-data-sync-vaisala
     environment:
