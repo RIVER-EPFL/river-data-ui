@@ -73,9 +73,6 @@ services:
       - ../river-data-api/src:/app/src
       - ../river-data-api/migration:/app/migration
       - ../river-data-api/river-data-toolbox:/app/river-data-toolbox
-      - ../river-data-api/river-data-sync-common:/app/river-data-sync-common
-      - ../river-data-api/river-data-sync-vaisala:/app/river-data-sync-vaisala
-      - ../river-data-api/river-data-sync-portal:/app/river-data-sync-portal
       - ../river-data-api/Cargo.toml:/app/Cargo.toml
       - ../river-data-api/Cargo.lock:/app/Cargo.lock
       - ../river-data-api/bacon.toml:/app/bacon.toml
@@ -150,8 +147,7 @@ services:
 
   river-data-sync-vaisala:
     build:
-      context: ../river-data-api
-      dockerfile: river-data-sync-vaisala/Dockerfile
+      context: ../river-data-sync-vaisala
     environment:
       # River Data API connection
       - API_BASE_URL=http://river-data-api:${API_PORT:-3000}
@@ -228,8 +224,7 @@ services:
   # ── Portal sync microservices ──────────────────────────────────────
   river-data-sync-cnet:
     build:
-      context: ../river-data-api
-      dockerfile: river-data-sync-portal/Dockerfile
+      context: ../river-data-sync-rshiny
     environment:
       - PORTAL_TYPE=cnet
       - PORTAL_DB_HOST=portal-db-cnet
@@ -254,8 +249,7 @@ services:
 
   river-data-sync-metalp:
     build:
-      context: ../river-data-api
-      dockerfile: river-data-sync-portal/Dockerfile
+      context: ../river-data-sync-rshiny
     environment:
       - PORTAL_TYPE=metalp
       - PORTAL_DB_HOST=portal-db-metalp
@@ -280,8 +274,7 @@ services:
 
   river-data-sync-nomis:
     build:
-      context: ../river-data-api
-      dockerfile: river-data-sync-portal/Dockerfile
+      context: ../river-data-sync-rshiny
     environment:
       - PORTAL_TYPE=nomis
       - PORTAL_DB_HOST=portal-db-nomis
@@ -359,7 +352,6 @@ services:
       - ../river-data-api/tests:/app/tests
       - ../river-data-api/migration:/app/migration
       - ../river-data-api/river-data-toolbox:/app/river-data-toolbox
-      - ../river-data-api/river-data-sync-common:/app/river-data-sync-common
       - ../river-data-api/Cargo.toml:/app/Cargo.toml
       - ../river-data-api/Cargo.lock:/app/Cargo.lock
       - ../river-data-api/bacon.toml:/app/bacon.toml
