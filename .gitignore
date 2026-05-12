@@ -2,7 +2,8 @@
 node_modules/
 
 # Build output
-dist/
+build/
+.svelte-kit/
 
 # Environment variables
 .env
@@ -19,9 +20,6 @@ dist/
 # OS files
 .DS_Store
 Thumbs.db
-
-# Vite
-*.local
 
 # Logs
 npm-debug.log*

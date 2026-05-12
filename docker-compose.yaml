@@ -142,8 +142,8 @@ services:
       - "traefik.http.services.river-db-ui.loadbalancer.server.port=5173"
     volumes:
       - ./src:/app/src
-      - ./index.html:/app/index.html
       - ./vite.config.ts:/app/vite.config.ts
+      - ./svelte.config.js:/app/svelte.config.js
 
   river-data-vaisala:
     build:
