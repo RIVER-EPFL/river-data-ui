@@ -1,7 +1,5 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { base } from '$app/paths';
-	import { goto } from '$app/navigation';
 	import type { Site } from '$api/crud';
 	import { tokens } from '$lib/charts/tokens';
 
@@ -10,21 +8,32 @@
 		selectedSiteId = $bindable(undefined),
 		filterProjectId,
 		height = '300px',
+		onSiteClick,
+		siteAlarmSeverity,
 	}: {
 		sites: Site[];
 		selectedSiteId?: string;
 		filterProjectId?: string;
 		height?: string;
+		onSiteClick?: (siteId: string) => void;
+		siteAlarmSeverity?: (siteId: string) => 'ok' | 'warning' | 'alarm';
 	} = $props();
 
 	let el: HTMLDivElement;
 	let map: L.Map | null = null;
 	let markerGroup: any = null;
 
+	const severityColor: Record<string, string> = {
+		ok: tokens.severity.ok.main,
+		warning: tokens.severity.warning.main,
+		alarm: tokens.severity.alarm.main,
+	};
+
 	const filteredSites = $derived(
-		filterProjectId
-			? sites.filter((s) => s.project_id === filterProjectId && s.latitude && s.longitude)
-			: sites.filter((s) => s.latitude && s.longitude),
+		(filterProjectId
+			? sites.filter((s) => s.project_id === filterProjectId)
+			: sites
+		).filter((s) => s.latitude && s.longitude),
 	);
 
 	async function initMap() {
@@ -38,27 +47,46 @@
 
 		map = L.map(el, { zoomControl: true, attributionControl: false }).setView([46.2, 7.1], 10);
 
-		L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+		const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 			maxZoom: 18,
+			attribution: '&copy; OpenStreetMap',
+		});
+
+		const swisstopoRaster = L.tileLayer(
+			'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg',
+			{ maxZoom: 18, attribution: '&copy; swisstopo' },
+		);
+
+		const swisstopoAerial = L.tileLayer(
+			'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg',
+			{ maxZoom: 20, attribution: '&copy; swisstopo' },
+		);
+
+		osmLayer.addTo(map);
+		L.control.layers({
+			'OpenStreetMap': osmLayer,
+			'SwissTopo': swisstopoRaster,
+			'SwissTopo Aerial': swisstopoAerial,
 		}).addTo(map);
 
-		markerGroup = (L as any).markerClusterGroup({ maxClusterRadius: 40 });
+		markerGroup = (L as any).markerClusterGroup({ maxClusterRadius: 40, spiderfyOnMaxZoom: true });
 
 		for (const site of filteredSites) {
-			const isSelected = site.id === selectedSiteId;
+			const severity = siteAlarmSeverity?.(site.id) ?? 'ok';
+			const color = severityColor[severity];
+			const size = 22;
 			const icon = L.divIcon({
 				className: '',
-				html: `<div style="width:12px;height:12px;border-radius:50%;background:${isSelected ? tokens.brand.accent : tokens.brand.primary};border:2px solid white;box-shadow:0 1px 3px rgba(0,0,0,0.3);${isSelected ? 'transform:scale(1.5);' : ''}"></div>`,
-				iconSize: [12, 12],
-				iconAnchor: [6, 6],
+				html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3);cursor:pointer;transition:transform 0.15s;" onmouseenter="this.style.transform='scale(1.3)'" onmouseleave="this.style.transform='scale(1)'"></div>`,
+				iconSize: [size, size],
+				iconAnchor: [size / 2, size / 2],
 			});
 
 			const marker = L.marker([site.latitude!, site.longitude!], { icon })
-				.bindTooltip(site.name, { permanent: false, direction: 'top', offset: [0, -8] });
+				.bindTooltip(site.name, { permanent: false, direction: 'right', offset: [12, 0] });
 
 			marker.on('click', () => {
-				selectedSiteId = site.id;
-				goto(`${base}/sites/${site.id}`);
+				onSiteClick?.(site.id);
 			});
 
 			markerGroup.addLayer(marker);
@@ -68,12 +96,16 @@
 
 		if (filteredSites.length > 0) {
 			const bounds = L.latLngBounds(filteredSites.map((s) => [s.latitude!, s.longitude!]));
-			map.fitBounds(bounds, { padding: [30, 30], maxZoom: 14 });
+			map.fitBounds(bounds, { padding: [50, 50], maxZoom: 14, animate: true });
 		}
 	}
 
+	let mounted = false;
+	onMount(() => { mounted = true; });
+
 	$effect(() => {
-		if (el && filteredSites) initMap();
+		const _sites = filteredSites;
+		if (mounted && el) initMap();
 	});
 
 	onDestroy(() => { map?.remove(); });

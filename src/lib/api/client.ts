@@ -57,10 +57,7 @@ export function PUT<T>(path: string, body?: unknown): Promise<T> {
 }
 
 export function DELETE<T>(path: string): Promise<T> {
-	return request<T>(path, {
-		method: 'DELETE',
-		headers: { 'Content-Type': 'text/plain' },
-	});
+	return request<T>(path, { method: 'DELETE' });
 }
 
 export interface Paginated<T> {

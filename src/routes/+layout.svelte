@@ -29,6 +29,7 @@
 			label: 'Field Work',
 			items: [
 				{ href: `${base}/grab-samples`, label: 'Grab Samples', icon: 'flask' },
+				{ href: `${base}/upload`, label: 'Upload', icon: 'upload' },
 			],
 		},
 		{

@@ -1,6 +1,7 @@
 import { GET, POST, PATCH } from './client';
 
-const BASE = '/api/admin';
+const ADMIN = '/api/admin';
+const SERVICE = '/api/service';
 
 // Search
 export interface SearchResponse {
@@ -15,7 +16,7 @@ export interface SearchResponse {
 }
 
 export const search = (query: string) =>
-	GET<SearchResponse>(`${BASE}/search`, { q: query });
+	GET<SearchResponse>(`${ADMIN}/search`, { q: query });
 
 // Alarms
 export interface ActiveAlarm {
@@ -50,8 +51,8 @@ export interface AlarmSummaryResponse {
 	}>;
 }
 
-export const getActiveAlarms = () => GET<ActiveAlarmsResponse>(`${BASE}/alarms/active`);
-export const getAlarmSummary = () => GET<AlarmSummaryResponse>(`${BASE}/alarms/summary`);
+export const getActiveAlarms = () => GET<ActiveAlarmsResponse>(`${ADMIN}/alarms/active`);
+export const getAlarmSummary = () => GET<AlarmSummaryResponse>(`${ADMIN}/alarms/summary`);
 
 // Streams
 export interface StreamStats {
@@ -63,32 +64,32 @@ export interface StreamStats {
 }
 
 export const getStreamStats = (streamId: string) =>
-	GET<StreamStats>(`${BASE}/streams/${streamId}/stats`);
+	GET<StreamStats>(`${SERVICE}/streams/${streamId}/stats`);
 
 export const pairStream = (streamId: string, siteParameterId: string) =>
-	POST(`${BASE}/streams/${streamId}/pair`, { site_parameter_id: siteParameterId });
+	POST(`${SERVICE}/streams/${streamId}/pair`, { site_parameter_id: siteParameterId });
 
 export const unpairStream = (streamId: string) =>
-	POST(`${BASE}/streams/${streamId}/unpair`);
+	POST(`${SERVICE}/streams/${streamId}/unpair`);
 
 // Actions
 export const recalibrateCalibration = (id: string) =>
-	POST(`${BASE}/actions/sensor_calibrations/${id}/recalculate`);
+	POST(`${ADMIN}/actions/sensor_calibrations/${id}/recalculate`);
 
 export const rollbackDeployment = (deploymentId: string) =>
 	POST<{ status: string; readings_reassigned: number; previous_deployment_id: string | null }>(
-		`${BASE}/actions/rollback_deployment`,
+		`${ADMIN}/actions/rollback_deployment`,
 		{ deployment_id: deploymentId },
 	);
 
 export const recomputeDerived = (id: string) =>
-	POST(`${BASE}/actions/derived_parameters/${id}/recompute`);
+	POST(`${ADMIN}/actions/derived_parameters/${id}/recompute`);
 
 export const refreshAggregates = (full = false) =>
-	POST(`${BASE}/actions/refresh_aggregates`, { full });
+	POST(`${SERVICE}/actions/refresh_aggregates`, { full });
 
 export const invalidatePublicConfig = (slug: string) =>
-	POST(`${BASE}/actions/invalidate_public_config/${slug}`);
+	POST(`${ADMIN}/actions/invalidate_public_config/${slug}`);
 
 // Derived preview
 export interface PreviewDerivedRequest {
@@ -111,7 +112,7 @@ export interface PreviewDerivedResponse {
 }
 
 export const previewDerived = (params: PreviewDerivedRequest) =>
-	POST<PreviewDerivedResponse>(`${BASE}/actions/preview_derived`, params);
+	POST<PreviewDerivedResponse>(`${ADMIN}/actions/preview_derived`, params);
 
 // Sync
 export interface SyncService {
@@ -157,15 +158,15 @@ export interface SyncEvent {
 }
 
 export const issueSyncCommand = (serviceId: string, command: string, payload?: object) =>
-	POST<SyncCommand>(`${BASE}/sync/services/${serviceId}/commands`, { command, payload });
+	POST<SyncCommand>(`${ADMIN}/sync/services/${serviceId}/commands`, { command, payload });
 
 export const createServiceCredential = (serviceType: string) =>
-	POST<{ client_id: string; client_secret: string }>(`${BASE}/sync/credentials`, {
+	POST<{ client_id: string; client_secret: string }>(`${ADMIN}/sync/credentials`, {
 		service_type: serviceType,
 	});
 
 export const revokeSyncService = (credentialId: string) =>
-	POST(`${BASE}/sync/credentials/${credentialId}/revoke`);
+	POST(`${ADMIN}/sync/credentials/${credentialId}/revoke`);
 
 // Pairing plans
 export interface PairingPlanEntry {
@@ -230,25 +231,25 @@ export interface PlanEntryUpdate {
 }
 
 export const createPairingPlan = (sourceSystem: string) =>
-	POST<PairingPlan>(`${BASE}/sync/pairing-plans`, { source_system: sourceSystem });
+	POST<PairingPlan>(`${ADMIN}/sync/pairing-plans`, { source_system: sourceSystem });
 
 export const getPairingPlan = (id: string) =>
-	GET<PairingPlan>(`${BASE}/sync/pairing-plans/${id}`);
+	GET<PairingPlan>(`${ADMIN}/sync/pairing-plans/${id}`);
 
 export const updatePairingPlan = (id: string, updates: PlanEntryUpdate[]) =>
-	PATCH<PairingPlan>(`${BASE}/sync/pairing-plans/${id}`, { updates });
+	PATCH<PairingPlan>(`${ADMIN}/sync/pairing-plans/${id}`, { updates });
 
 export const applyPairingPlan = (id: string) =>
-	POST<PairingPlanApplyResult>(`${BASE}/sync/pairing-plans/${id}/apply`);
+	POST<PairingPlanApplyResult>(`${ADMIN}/sync/pairing-plans/${id}/apply`);
 
 export const revertPairingPlan = (id: string) =>
-	POST(`${BASE}/sync/pairing-plans/${id}/revert`);
+	POST(`${ADMIN}/sync/pairing-plans/${id}/revert`);
 
-export const listPairingPlans = () => GET<PairingPlan[]>(`${BASE}/sync/pairing-plans`);
+export const listPairingPlans = () => GET<PairingPlan[]>(`${ADMIN}/sync/pairing-plans`);
 
 export const getUnpairedSummary = () =>
 	GET<{ source_system: string; unpaired: number; paired: number }[]>(
-		`${BASE}/sync/unpaired-summary`,
+		`${ADMIN}/sync/unpaired-summary`,
 	);
 
 // Roles
@@ -257,6 +258,6 @@ export interface KeycloakRole {
 	name: string;
 }
 
-export const listRoles = () => GET<KeycloakRole[]>(`${BASE}/roles`);
+export const listRoles = () => GET<KeycloakRole[]>(`${ADMIN}/roles`);
 export const assignUserRoles = (userId: string, roles: string[]) =>
-	POST(`${BASE}/users/${userId}/roles`, { roles });
+	POST(`${ADMIN}/users/${userId}/roles`, { roles });

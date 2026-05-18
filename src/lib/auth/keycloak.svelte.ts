@@ -1,5 +1,6 @@
 import Keycloak, { type KeycloakTokenParsed } from 'keycloak-js';
 import { jwtDecode } from 'jwt-decode';
+import { base } from '$app/paths';
 
 type AuthState =
 	| { status: 'loading' }
@@ -96,13 +97,13 @@ export const auth = {
 
 	login() {
 		if (state.status !== 'authenticated') return;
-		const redirectUri = window.location.origin + '/admin/';
+		const redirectUri = window.location.origin + base + '/';
 		state.keycloak.login({ redirectUri });
 	},
 
 	logout() {
 		if (state.status !== 'authenticated') return;
-		const redirectUri = window.location.origin + '/admin/';
+		const redirectUri = window.location.origin + base + '/';
 		state.keycloak.logout({ redirectUri });
 	},
 };

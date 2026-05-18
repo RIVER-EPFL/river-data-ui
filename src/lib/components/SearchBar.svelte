@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
 	import { search, type SearchResponse } from '$api/service';
@@ -8,6 +9,8 @@
 	let open = $state(false);
 	let loading = $state(false);
 	let debounceTimer: ReturnType<typeof setTimeout>;
+
+	onDestroy(() => clearTimeout(debounceTimer));
 
 	function handleInput() {
 		clearTimeout(debounceTimer);

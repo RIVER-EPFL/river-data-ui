@@ -9,6 +9,7 @@
 	let calibrations = $state<SensorCalibration[]>([]);
 	let total = $state(0);
 	let loading = $state(true);
+	let error = $state<string | null>(null);
 	let currentPage = $state(1);
 	let sortField = $state('name');
 	let sortOrder = $state<'ASC' | 'DESC'>('ASC');
@@ -20,6 +21,7 @@
 
 	async function load() {
 		loading = true;
+		error = null;
 		try {
 			const filter: Record<string, unknown> = {};
 			if (searchQuery) filter.q = searchQuery;
@@ -34,6 +36,8 @@
 			total = result.total;
 			if (depResult) deployments = depResult.data;
 			if (calResult) calibrations = calResult.data;
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to load sensors';
 		} finally {
 			loading = false;
 		}
@@ -101,6 +105,8 @@
 			<tbody>
 				{#if loading}
 					<tr><td colspan="7" class="px-4 py-8 text-center text-brand-muted">Loading...</td></tr>
+				{:else if error}
+					<tr><td colspan="7" class="px-4 py-8 text-center text-severity-alarm">{error}</td></tr>
 				{:else if sensors.length === 0}
 					<tr><td colspan="7" class="px-4 py-8 text-center text-brand-muted">No sensors found</td></tr>
 				{:else}

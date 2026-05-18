@@ -8,6 +8,7 @@
 	let projects = $state<Project[]>([]);
 	let total = $state(0);
 	let loading = $state(true);
+	let error = $state<string | null>(null);
 	let currentPage = $state(1);
 	let sortField = $state<string>('name');
 	let sortOrder = $state<'ASC' | 'DESC'>('ASC');
@@ -17,6 +18,7 @@
 
 	async function load() {
 		loading = true;
+		error = null;
 		try {
 			const filter: Record<string, unknown> = {};
 			if (searchFilter) filter.q = searchFilter;
@@ -33,6 +35,8 @@
 			sites = result.data;
 			total = result.total;
 			if (projectResult) projects = projectResult.data;
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to load sites';
 		} finally {
 			loading = false;
 		}
@@ -106,6 +110,8 @@
 			<tbody>
 				{#if loading}
 					<tr><td colspan="4" class="px-4 py-8 text-center text-brand-muted">Loading...</td></tr>
+				{:else if error}
+					<tr><td colspan="4" class="px-4 py-8 text-center text-severity-alarm">{error}</td></tr>
 				{:else if sites.length === 0}
 					<tr><td colspan="4" class="px-4 py-8 text-center text-brand-muted">No sites found</td></tr>
 				{:else}

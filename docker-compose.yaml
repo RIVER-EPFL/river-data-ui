@@ -72,7 +72,6 @@ services:
     volumes:
       - ../river-data-api/src:/app/src
       - ../river-data-api/migration:/app/migration
-      - ../river-data-api/river-data-toolbox:/app/river-data-toolbox
       - ../river-data-api/Cargo.toml:/app/Cargo.toml
       - ../river-data-api/Cargo.lock:/app/Cargo.lock
       - ../river-data-api/bacon.toml:/app/bacon.toml
@@ -351,7 +350,6 @@ services:
       - ../river-data-api/src:/app/src
       - ../river-data-api/tests:/app/tests
       - ../river-data-api/migration:/app/migration
-      - ../river-data-api/river-data-toolbox:/app/river-data-toolbox
       - ../river-data-api/Cargo.toml:/app/Cargo.toml
       - ../river-data-api/Cargo.lock:/app/Cargo.lock
       - ../river-data-api/bacon.toml:/app/bacon.toml

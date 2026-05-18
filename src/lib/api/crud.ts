@@ -33,6 +33,8 @@ export const api = {
 	sensorCalibrations: crudClient<SensorCalibration>('sensor_calibrations'),
 	sensorDeployments: crudClient<SensorDeployment>('sensor_deployments'),
 	derivedParameters: crudClient<DerivedParameter>('derived_parameter_definitions'),
+	derivedParameterSources: crudClient<DerivedParameterSource>('derived_parameter_sources'),
+	samples: crudClient<Sample>('samples'),
 	standardCurves: crudClient<StandardCurve>('standard_curves'),
 	constants: crudClient<Constant>('constants'),
 	alarmThresholds: crudClient<AlarmThreshold>('alarm_thresholds'),
@@ -132,11 +134,39 @@ export interface SensorDeployment {
 export interface DerivedParameter {
 	id: string;
 	name: string;
+	display_name: string;
+	units: string;
 	formula: string;
 	output_parameter_id: string | null;
 	description: string | null;
+	sources: DerivedParameterSource[];
 	created_at: string;
 	updated_at: string;
+}
+
+export interface DerivedParameterSource {
+	id: string;
+	derived_definition_id: string;
+	parameter_id: string;
+	variable_name: string;
+	created_at: string;
+}
+
+export interface Sample {
+	id: string;
+	site_id: string;
+	parameter_id: string;
+	collected_at: string;
+	label: string | null;
+	notes: string | null;
+	created_by: string | null;
+	created_at: string | null;
+	mean: number | null;
+	stdev: number | null;
+	n: number;
+	min_value: number | null;
+	max_value: number | null;
+	updated_at: string | null;
 }
 
 export interface StandardCurve {

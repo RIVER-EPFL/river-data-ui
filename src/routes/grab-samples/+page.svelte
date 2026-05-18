@@ -10,21 +10,141 @@
 	let params = $state<Parameter[]>([]);
 	let standardCurves = $state<StandardCurve[]>([]);
 	let loading = $state(true);
+	let error = $state<string | null>(null);
 
-	// Form state
-	let selectedProjectId = $state('');
-	let selectedSiteId = $state('');
-	let sampleDate = $state(new Date().toISOString().slice(0, 16));
-	let rows = $state<Array<{
+	interface SampleRow {
 		paramId: string;
 		replicates: string[];
 		useStandardCurve: boolean;
 		curveId: string;
-	}>>([]);
+		overrideValue: string;
+	}
+
+	let selectedProjectId = $state('');
+	let selectedSiteId = $state('');
+	let sampleDate = $state(new Date().toISOString().slice(0, 16));
+	let rows = $state<SampleRow[]>([]);
 	let submitting = $state(false);
 
 	const filteredSites = $derived(selectedProjectId ? sites.filter((s) => s.project_id === selectedProjectId) : sites);
 	const filteredParams = $derived(selectedSiteId ? siteParams.filter((sp) => sp.site_id === selectedSiteId) : []);
+
+	function paramName(paramId: string): string {
+		return params.find((p) => p.id === paramId)?.display_name ?? paramId;
+	}
+
+	function paramUnits(sp: SiteParameter): string {
+		const param = params.find((p) => p.id === sp.parameter_id);
+		return sp.display_units ?? param?.default_units ?? '';
+	}
+
+	function curvesForParam(paramId: string): StandardCurve[] {
+		return standardCurves
+			.filter((c) => c.parameter_id === paramId)
+			.sort((a, b) => new Date(b.valid_from).getTime() - new Date(a.valid_from).getTime());
+	}
+
+	function activeCurveForParam(paramId: string): StandardCurve | undefined {
+		const sampleTime = new Date(sampleDate).getTime();
+		return curvesForParam(paramId).find((c) => new Date(c.valid_from).getTime() <= sampleTime);
+	}
+
+	function replicateStats(row: SampleRow): { values: number[]; mean: number; sd: number; n: number } | null {
+		const values = row.replicates.map(Number).filter((v) => !isNaN(v) && v !== 0);
+		if (values.length === 0) return null;
+		const n = values.length;
+		const mean = values.reduce((a, b) => a + b, 0) / n;
+		const sd = n > 1 ? Math.sqrt(values.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1)) : 0;
+		return { values, mean, sd, n };
+	}
+
+	function correctedValue(row: SampleRow): number | null {
+		const stats = replicateStats(row);
+		if (!stats) return null;
+		let val = stats.mean;
+
+		if (row.useStandardCurve) {
+			const curve = row.curveId
+				? standardCurves.find((c) => c.id === row.curveId)
+				: activeCurveForParam(row.paramId);
+			if (curve) {
+				val = curve.slope * val + curve.intercept;
+			}
+		}
+		return val;
+	}
+
+	function finalValue(row: SampleRow): number | null {
+		if (row.overrideValue) return Number(row.overrideValue);
+		return correctedValue(row);
+	}
+
+	function addRow() {
+		rows = [...rows, { paramId: '', replicates: [''], useStandardCurve: false, curveId: '', overrideValue: '' }];
+	}
+
+	function removeRow(index: number) {
+		rows = rows.filter((_, i) => i !== index);
+	}
+
+	function addReplicate(rowIndex: number) {
+		if (rows[rowIndex].replicates.length < 10) {
+			rows[rowIndex].replicates = [...rows[rowIndex].replicates, ''];
+		}
+	}
+
+	function removeReplicate(rowIndex: number, repIndex: number) {
+		if (rows[rowIndex].replicates.length > 1) {
+			rows[rowIndex].replicates = rows[rowIndex].replicates.filter((_, i) => i !== repIndex);
+		}
+	}
+
+	async function handleSubmit() {
+		if (!selectedSiteId || rows.length === 0) return;
+		submitting = true;
+		try {
+			const readings = rows.flatMap((row) => {
+				const sp = filteredParams.find((fp) => fp.parameter_id === row.paramId);
+				if (!sp) return [];
+
+				const fv = finalValue(row);
+				if (fv == null) return [];
+
+				const stats = replicateStats(row);
+				if (!stats) return [];
+
+				return stats.values.map((rawVal, idx) => {
+					let val = rawVal;
+					if (row.useStandardCurve) {
+						const curve = row.curveId
+							? standardCurves.find((c) => c.id === row.curveId)
+							: activeCurveForParam(row.paramId);
+						if (curve) val = curve.slope * rawVal + curve.intercept;
+					}
+					return {
+						parameter_id: row.paramId,
+						time: new Date(sampleDate).toISOString(),
+						value: val,
+						replicate_index: idx,
+					};
+				});
+			});
+
+			if (readings.length === 0) {
+				toastStore.error('No readings to submit');
+				return;
+			}
+
+			const res = await POST<{ inserted: number; samples_created: number }>(
+				'/api/service/grab_samples',
+				{ site_id: selectedSiteId, readings },
+			);
+			toastStore.success(`Submitted ${res.inserted} readings (${res.samples_created} samples created)`);
+			rows = [];
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Submit failed');
+		} finally { submitting = false; }
+	}
 
 	onMount(async () => {
 		try {
@@ -40,72 +160,21 @@
 			siteParams = sp.data;
 			params = par.data;
 			standardCurves = sc.data;
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to load';
 		} finally { loading = false; }
 	});
-
-	function paramName(paramId: string): string {
-		return params.find((p) => p.id === paramId)?.display_name ?? paramId;
-	}
-
-	function paramUnits(sp: SiteParameter): string {
-		const param = params.find((p) => p.id === sp.parameter_id);
-		return sp.display_units ?? param?.default_units ?? '';
-	}
-
-	function addRow() {
-		rows = [...rows, { paramId: '', replicates: [''], useStandardCurve: false, curveId: '' }];
-	}
-
-	function removeRow(index: number) {
-		rows = rows.filter((_, i) => i !== index);
-	}
-
-	function addReplicate(rowIndex: number) {
-		if (rows[rowIndex].replicates.length < 10) {
-			rows[rowIndex].replicates = [...rows[rowIndex].replicates, ''];
-		}
-	}
-
-	async function handleSubmit() {
-		if (!selectedSiteId || rows.length === 0) return;
-		submitting = true;
-		try {
-			const readings = rows.flatMap((row) => {
-				const sp = filteredParams.find((fp) => fp.parameter_id === row.paramId);
-				if (!sp) return [];
-				return row.replicates
-					.filter((v) => v !== '')
-					.map((value, idx) => ({
-						site_id: selectedSiteId,
-						parameter_id: row.paramId,
-						time: new Date(sampleDate).toISOString(),
-						raw_value: Number(value),
-						replicate_index: idx,
-						sample_id: crypto.randomUUID(),
-					}));
-			});
-
-			if (readings.length === 0) {
-				toastStore.error('No readings to submit');
-				return;
-			}
-
-			await POST('/api/service/grab_samples', { readings });
-			toastStore.success(`Submitted ${readings.length} readings`);
-			rows = [];
-		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Submit failed');
-		} finally { submitting = false; }
-	}
 </script>
 
 <svelte:head><title>Grab Samples | River Data</title></svelte:head>
 
-<div class="space-y-6 max-w-3xl">
+<div class="space-y-6 max-w-4xl">
 	<h2 class="text-xl font-semibold">Grab Sample Entry</h2>
 
 	{#if loading}
 		<p class="text-brand-muted">Loading...</p>
+	{:else if error}
+		<p class="text-severity-alarm">{error}</p>
 	{:else}
 		<!-- Header fields -->
 		<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -119,7 +188,7 @@
 			<div>
 				<label for="site" class="text-sm font-medium block mb-1">Site <span class="text-severity-alarm">*</span></label>
 				<select id="site" bind:value={selectedSiteId} class="w-full px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
-					<option value="">— Select site —</option>
+					<option value="">-- Select site --</option>
 					{#each filteredSites as s}<option value={s.id}>{s.name}</option>{/each}
 				</select>
 			</div>
@@ -137,10 +206,15 @@
 			</div>
 
 			{#each rows as row, i}
-				<div class="rounded-md border border-brand-divider bg-brand-surface p-3 space-y-2">
+				{@const stats = replicateStats(row)}
+				{@const corrected = correctedValue(row)}
+				{@const final_ = finalValue(row)}
+				{@const availableCurves = curvesForParam(row.paramId)}
+				<div class="rounded-md border border-brand-divider bg-brand-surface p-3 space-y-3">
+					<!-- Parameter selector + remove -->
 					<div class="flex items-center gap-3">
 						<select bind:value={row.paramId} class="flex-1 px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
-							<option value="">— Parameter —</option>
+							<option value="">-- Parameter --</option>
 							{#each filteredParams as sp}
 								<option value={sp.parameter_id}>{paramName(sp.parameter_id)} ({paramUnits(sp)})</option>
 							{/each}
@@ -149,21 +223,87 @@
 					</div>
 
 					<!-- Replicates -->
-					<div class="flex items-center gap-2 flex-wrap">
-						<span class="text-xs text-brand-muted w-16">Replicates:</span>
-						{#each row.replicates as _, j}
-							<input
-								type="number"
-								step="any"
-								bind:value={row.replicates[j]}
-								placeholder="Value"
-								class="w-24 px-2 py-1 border border-brand-divider rounded text-sm bg-brand-surface"
-							/>
-						{/each}
-						{#if row.replicates.length < 10}
-							<button onclick={() => addReplicate(i)} class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline">+ Rep</button>
-						{/if}
+					<div class="space-y-1.5">
+						<span class="text-xs text-brand-muted font-semibold">Replicates</span>
+						<div class="flex items-center gap-2 flex-wrap">
+							{#each row.replicates as _, j}
+								<div class="flex items-center gap-0.5">
+									<input
+										type="number"
+										step="any"
+										bind:value={row.replicates[j]}
+										placeholder="Rep {j + 1}"
+										class="w-24 px-2 py-1 border border-brand-divider rounded text-sm bg-brand-surface"
+									/>
+									{#if row.replicates.length > 1}
+										<button onclick={() => removeReplicate(i, j)} class="text-xs text-severity-alarm bg-transparent border-none cursor-pointer">x</button>
+									{/if}
+								</div>
+							{/each}
+							{#if row.replicates.length < 10}
+								<button onclick={() => addReplicate(i)} class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline">+ Rep</button>
+							{/if}
+						</div>
 					</div>
+
+					<!-- Inline statistics -->
+					{#if stats}
+						<div class="flex gap-4 text-xs bg-brand-bg rounded px-3 py-1.5">
+							<span><span class="text-brand-muted">n:</span> {stats.n}</span>
+							<span><span class="text-brand-muted">Mean:</span> <span class="font-mono">{stats.mean.toPrecision(5)}</span></span>
+							{#if stats.n > 1}
+								<span><span class="text-brand-muted">SD:</span> <span class="font-mono">{stats.sd.toPrecision(4)}</span></span>
+							{/if}
+						</div>
+					{/if}
+
+					<!-- Standard curve correction -->
+					{#if row.paramId && availableCurves.length > 0}
+						<div class="flex items-center gap-3">
+							<label class="flex items-center gap-1.5 text-xs cursor-pointer">
+								<input type="checkbox" bind:checked={row.useStandardCurve} class="accent-brand-primary" />
+								Standard curve correction
+							</label>
+							{#if row.useStandardCurve}
+								<select bind:value={row.curveId} class="px-2 py-1 border border-brand-divider rounded text-xs bg-brand-surface">
+									<option value="">Auto (latest valid)</option>
+									{#each availableCurves as curve}
+										<option value={curve.id}>
+											{new Date(curve.valid_from).toLocaleDateString()} (y={curve.slope.toFixed(4)}x+{curve.intercept.toFixed(4)}, R²={curve.r_squared?.toFixed(4) ?? '?'})
+										</option>
+									{/each}
+								</select>
+							{/if}
+						</div>
+					{/if}
+
+					<!-- Corrected value + override -->
+					{#if stats}
+						<div class="flex items-center gap-4 text-xs">
+							{#if corrected != null}
+								<span>
+									<span class="text-brand-muted">{row.useStandardCurve ? 'Corrected:' : 'Value:'}</span>
+									<span class="font-mono font-semibold">{corrected.toPrecision(5)}</span>
+								</span>
+							{/if}
+							<div class="flex items-center gap-1.5">
+								<label for="override-{i}" class="text-brand-muted">Override:</label>
+								<input
+									id="override-{i}"
+									type="number"
+									step="any"
+									bind:value={row.overrideValue}
+									placeholder="--"
+									class="w-28 px-2 py-0.5 border border-brand-divider rounded text-xs bg-brand-surface"
+								/>
+							</div>
+							{#if final_ != null}
+								<span class="ml-auto font-semibold text-severity-ok">
+									Final: <span class="font-mono">{final_.toPrecision(5)}</span>
+								</span>
+							{/if}
+						</div>
+					{/if}
 				</div>
 			{/each}
 
