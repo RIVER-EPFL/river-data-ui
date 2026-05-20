@@ -32,7 +32,7 @@ export const api = {
 	sensors: crudClient<Sensor>('sensors'),
 	sensorCalibrations: crudClient<SensorCalibration>('sensor_calibrations'),
 	sensorDeployments: crudClient<SensorDeployment>('sensor_deployments'),
-	derivedParameters: crudClient<DerivedParameter>('derived_parameter_definitions'),
+	derivedParameters: crudClient<DerivedParameter>('derived_parameters'),
 	derivedParameterSources: crudClient<DerivedParameterSource>('derived_parameter_sources'),
 	samples: crudClient<Sample>('samples'),
 	standardCurves: crudClient<StandardCurve>('standard_curves'),
@@ -50,10 +50,15 @@ export interface Project {
 	id: string;
 	name: string;
 	description: string | null;
-	public_api_slug: string | null;
-	public_api_enabled: boolean;
+	data_source: string | null;
+	is_public: boolean;
+	public_slug: string | null;
+	public_api_title: string | null;
+	public_api_description: string | null;
+	public_api_version: string | null;
+	public_contact_email: string | null;
 	created_at: string;
-	updated_at: string;
+	discovered_at: string | null;
 }
 
 export interface Site {
@@ -64,8 +69,8 @@ export interface Site {
 	latitude: number | null;
 	longitude: number | null;
 	altitude_m: number | null;
+	public_slug: string | null;
 	created_at: string;
-	updated_at: string;
 }
 
 export interface Parameter {
@@ -88,12 +93,16 @@ export interface SiteParameter {
 	id: string;
 	site_id: string;
 	parameter_id: string;
+	name: string | null;
+	sensor_type: string | null;
 	display_units: string | null;
 	channel_id: number | null;
 	sample_interval_sec: number | null;
 	decimal_places: number | null;
+	is_derived: boolean | null;
+	derived_definition_id: string | null;
+	is_active: boolean | null;
 	created_at: string;
-	updated_at: string;
 }
 
 export interface Sensor {
@@ -254,6 +263,12 @@ export interface PublicExposedParameter {
 	id: string;
 	project_id: string;
 	parameter_id: string;
+	public_name: string;
+	public_units: string;
+	description: string | null;
+	sort_order: number;
+	conversion_factor: number | null;
+	conversion_offset: number | null;
+	include_derived: boolean;
 	created_at: string;
-	updated_at: string;
 }

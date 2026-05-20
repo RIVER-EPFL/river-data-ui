@@ -19,6 +19,7 @@
 		{ key: 'latitude', label: 'Latitude', type: 'number', step: 'any' },
 		{ key: 'longitude', label: 'Longitude', type: 'number', step: 'any' },
 		{ key: 'altitude_m', label: 'Altitude (m)', type: 'number', step: 'any' },
+		{ key: 'public_slug', label: 'Public API Slug', helperText: 'URL-safe slug for public API access (e.g. "les_dailles")' },
 	]);
 </script>
 

@@ -59,15 +59,15 @@
 							</td>
 							<td class="px-4 py-2 text-brand-muted">{project.description ?? '—'}</td>
 							<td class="px-4 py-2">
-								{#if project.public_api_enabled}
+								{#if project.is_public}
 									<span class="px-2 py-0.5 text-xs font-medium rounded-full bg-severity-ok-soft text-severity-ok">
-										{project.public_api_slug}
+										{project.public_slug}
 									</span>
 								{:else}
 									<span class="text-brand-muted text-xs">Disabled</span>
 								{/if}
 							</td>
-							<td class="px-4 py-2 text-brand-muted text-xs">{formatRelativeTime(project.updated_at)}</td>
+							<td class="px-4 py-2 text-brand-muted text-xs">{formatRelativeTime(project.created_at)}</td>
 						</tr>
 					{/each}
 				{/if}

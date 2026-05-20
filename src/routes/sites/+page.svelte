@@ -101,9 +101,9 @@
 					<th class="text-left px-4 py-2 font-semibold">Coordinates</th>
 					<th
 						class="text-left px-4 py-2 font-semibold cursor-pointer select-none hover:text-brand-primary"
-						onclick={() => toggleSort('updated_at')}
+						onclick={() => toggleSort('created_at')}
 					>
-						Updated {sortField === 'updated_at' ? (sortOrder === 'ASC' ? '↑' : '↓') : ''}
+						Created {sortField === 'created_at' ? (sortOrder === 'ASC' ? '↑' : '↓') : ''}
 					</th>
 				</tr>
 			</thead>
@@ -130,7 +130,7 @@
 									—
 								{/if}
 							</td>
-							<td class="px-4 py-2 text-brand-muted text-xs">{formatRelativeTime(site.updated_at)}</td>
+							<td class="px-4 py-2 text-brand-muted text-xs">{formatRelativeTime(site.created_at)}</td>
 						</tr>
 					{/each}
 				{/if}

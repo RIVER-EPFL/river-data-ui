@@ -236,6 +236,25 @@ export const createPairingPlan = (sourceSystem: string) =>
 export const getPairingPlan = (id: string) =>
 	GET<PairingPlan>(`${ADMIN}/sync/pairing-plans/${id}`);
 
+export interface SiteMetadata {
+	site_name: string;
+	latitude: number | null;
+	longitude: number | null;
+	altitude_m: number | null;
+	glacier_name: string | null;
+	glacier_rgi: string | null;
+	location_type: string | null;
+	catchment: string | null;
+	full_name: string | null;
+	elevation: number | null;
+	device_serial: string | null;
+	channel_id: string | null;
+	sample_interval_sec: number | null;
+}
+
+export const getPlanSiteMetadata = (planId: string) =>
+	GET<SiteMetadata[]>(`${ADMIN}/sync/pairing-plans/${planId}/site-metadata`);
+
 export const updatePairingPlan = (id: string, updates: PlanEntryUpdate[]) =>
 	PATCH<PairingPlan>(`${ADMIN}/sync/pairing-plans/${id}`, { updates });
 

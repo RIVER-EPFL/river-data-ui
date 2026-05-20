@@ -212,12 +212,15 @@
 			notes = n.data;
 			thresholds = th.data;
 
-			// Fetch derived definitions (all — filter client-side)
-			const [derivedResult, samplesResult] = await Promise.all([
+			const [derivedResult, derivedSourcesResult, samplesResult] = await Promise.all([
 				api.derivedParameters.list({ perPage: 200 }),
+				api.derivedParameterSources.list({ perPage: 500 }),
 				api.samples.list({ perPage: 200, filter: { site_id: siteId }, sort: ['collected_at', 'DESC'] }),
 			]);
-			derivedDefs = derivedResult.data;
+			derivedDefs = derivedResult.data.map((d) => ({
+				...d,
+				sources: derivedSourcesResult.data.filter((s) => s.derived_definition_id === d.id),
+			}));
 			samples = samplesResult.data;
 
 			const now = new Date();
@@ -306,15 +309,32 @@
 		finally { exportLoading = false; }
 	}
 
-	// Derived parameters relevant to this site: has at least one source parameter matching a site parameter
+	// Derived parameters
 	const siteParameterIds = $derived(new Set(siteParameters.map((sp) => sp.parameter_id)));
-	const siteDerivedDefs = $derived(
-		derivedDefs.filter((d) =>
-			d.sources?.some((s) => siteParameterIds.has(s.parameter_id))
-		)
+	const assignedDerivedIds = $derived(new Set(
+		siteParameters.filter((sp) => sp.is_derived && sp.derived_definition_id).map((sp) => sp.derived_definition_id!)
+	));
+
+	// Derived defs that are assigned to this site
+	const assignedDerivedDefs = $derived(
+		derivedDefs.filter((d) => assignedDerivedIds.has(d.id))
 	);
 
-	// Recompute derived parameter
+	// Availability check for each unassigned derived def
+	const availableDerivedDefs = $derived(
+		derivedDefs
+			.filter((d) => !assignedDerivedIds.has(d.id))
+			.map((d) => {
+				const sources = d.sources ?? [];
+				const present = sources.filter((s) => siteParameterIds.has(s.parameter_id));
+				const missing = sources.filter((s) => !siteParameterIds.has(s.parameter_id));
+				return { def: d, allPresent: missing.length === 0 && sources.length > 0, present, missing };
+			})
+	);
+
+	let showAssignDerived = $state(false);
+	let assigningId = $state<string | null>(null);
+
 	async function handleRecompute(id: string) {
 		recomputingId = id;
 		try {
@@ -324,6 +344,46 @@
 			toastStore.error('Failed to recompute derived parameter');
 		} finally {
 			recomputingId = null;
+		}
+	}
+
+	async function assignDerived(def: DerivedParameter) {
+		if (!def.output_parameter_id) {
+			toastStore.error('No output parameter — recompute the definition first');
+			return;
+		}
+		assigningId = def.id;
+		try {
+			await api.siteParameters.create({
+				site_id: siteId,
+				parameter_id: def.output_parameter_id,
+				is_derived: true,
+				derived_definition_id: def.id,
+				display_units: def.units || null,
+				name: def.name,
+				sensor_type: 'derived',
+			});
+			toastStore.success(`${def.display_name || def.name} assigned`);
+			const sp = await api.siteParameters.list({ perPage: 200, filter: { site_id: siteId } });
+			siteParameters = sp.data;
+			showAssignDerived = false;
+			await recomputeDerived(def.id);
+			toastStore.success('Recomputation triggered');
+		} catch (e) {
+			toastStore.error(`Failed: ${e instanceof Error ? e.message : 'unknown error'}`);
+		} finally {
+			assigningId = null;
+		}
+	}
+
+	async function unassignDerived(sp: SiteParameter) {
+		try {
+			await api.siteParameters.remove(sp.id);
+			toastStore.success('Derived parameter removed');
+			const result = await api.siteParameters.list({ perPage: 200, filter: { site_id: siteId } });
+			siteParameters = result.data;
+		} catch {
+			toastStore.error('Failed to remove');
 		}
 	}
 
@@ -568,7 +628,7 @@
 						<th class="text-left px-4 py-2 font-semibold">Thresholds</th>
 					</tr></thead>
 					<tbody>
-						{#each siteParameters as sp}
+						{#each siteParameters.filter((sp) => !sp.is_derived) as sp}
 							{@const th = thresholds.find((t) => t.parameter_id === sp.parameter_id)}
 							<tr class="border-b border-brand-divider last:border-b-0">
 								<td class="px-4 py-2 font-semibold">{paramName(sp.parameter_id)}</td>
@@ -584,7 +644,7 @@
 								</td>
 							</tr>
 						{/each}
-						{#if siteParameters.length === 0}
+						{#if siteParameters.filter((sp) => !sp.is_derived).length === 0}
 							<tr><td colspan="4" class="px-4 py-6 text-center text-brand-muted">No parameters configured</td></tr>
 						{/if}
 					</tbody>
@@ -592,47 +652,87 @@
 			</div>
 
 			<!-- Derived Parameters -->
-				{#if siteDerivedDefs.length > 0}
-					<div class="mt-4">
-						<h3 class="text-sm font-semibold mb-2">Derived Parameters</h3>
-						<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
-							<table class="w-full text-sm">
-								<thead><tr class="bg-brand-bg border-b border-brand-divider">
-									<th class="text-left px-4 py-2 font-semibold">Name</th>
-									<th class="text-left px-4 py-2 font-semibold">Formula</th>
-									<th class="text-left px-4 py-2 font-semibold">Output</th>
-									<th class="text-left px-4 py-2 font-semibold">Sources</th>
-									<th class="text-right px-4 py-2 font-semibold">Actions</th>
-								</tr></thead>
-								<tbody>
-									{#each siteDerivedDefs as d}
-										{@const outputParam = d.output_parameter_id ? parameters.find((p) => p.id === d.output_parameter_id) : null}
-										<tr class="border-b border-brand-divider last:border-b-0">
-											<td class="px-4 py-2 font-medium">{d.display_name}</td>
-											<td class="px-4 py-2 font-mono text-xs text-brand-muted">{d.formula}</td>
-											<td class="px-4 py-2 text-brand-muted">{outputParam?.display_name ?? '—'}</td>
-											<td class="px-4 py-2 text-xs text-brand-muted">
-												{#each d.sources ?? [] as src}
-													<span class="inline-block mr-1.5">
-														<span class="font-mono">{src.variable_name}</span>={paramName(src.parameter_id)}
-													</span>
-												{/each}
-											</td>
-											<td class="px-4 py-2 text-right">
-												<ConfirmPopover message="Recompute this derived parameter?" confirmLabel="Recompute" onconfirm={() => handleRecompute(d.id)}>
-													<button
-														disabled={recomputingId === d.id}
-														class="px-2 py-1 text-xs rounded border border-brand-divider bg-brand-bg cursor-pointer hover:bg-brand-surface disabled:opacity-50"
-													>{recomputingId === d.id ? 'Computing...' : 'Recompute'}</button>
-												</ConfirmPopover>
-											</td>
-										</tr>
-									{/each}
-								</tbody>
-							</table>
-						</div>
+				<div class="mt-4 rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
+					<div class="flex items-center justify-between px-4 py-3 bg-brand-bg border-b border-brand-divider">
+						<span class="text-sm font-semibold">Derived Parameters ({assignedDerivedDefs.length})</span>
+						<button
+							onclick={() => showAssignDerived = !showAssignDerived}
+							class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface cursor-pointer hover:bg-brand-bg"
+						>{showAssignDerived ? 'Cancel' : 'Assign'}</button>
 					</div>
-				{/if}
+
+					{#if showAssignDerived}
+						<div class="p-4 border-b border-brand-divider bg-brand-bg/50 space-y-2">
+							<p class="text-xs text-brand-muted">Select a derived parameter to assign to this site. Greyed out entries are missing required source parameters.</p>
+							{#each availableDerivedDefs as { def, allPresent, missing }}
+								<div class="flex items-center justify-between p-2 rounded border border-brand-divider {allPresent ? 'bg-brand-surface' : 'bg-brand-bg opacity-60'}">
+									<div class="flex-1">
+										<span class="text-sm font-medium">{def.display_name || def.name}</span>
+										<span class="text-xs font-mono text-brand-muted ml-2">{def.formula}</span>
+										{#if missing.length > 0}
+											<p class="text-xs text-severity-alarm mt-0.5">
+												Missing: {missing.map((s) => s.variable_name).join(', ')}
+											</p>
+										{/if}
+									</div>
+									<button
+										onclick={() => assignDerived(def)}
+										disabled={!allPresent || assigningId === def.id}
+										class="px-2 py-1 text-xs rounded bg-brand-primary text-white cursor-pointer hover:bg-brand-primary-dark disabled:opacity-40 disabled:cursor-not-allowed"
+									>{assigningId === def.id ? 'Assigning...' : 'Assign'}</button>
+								</div>
+							{:else}
+								<p class="text-xs text-brand-muted py-2">No unassigned derived parameters available. <a href="{base}/derived/new" class="text-brand-primary no-underline hover:underline">Create one</a></p>
+							{/each}
+						</div>
+					{/if}
+
+					{#if assignedDerivedDefs.length > 0}
+						<table class="w-full text-sm">
+							<thead><tr class="bg-brand-bg border-b border-brand-divider">
+								<th class="text-left px-4 py-2 font-semibold">Name</th>
+								<th class="text-left px-4 py-2 font-semibold">Formula</th>
+								<th class="text-left px-4 py-2 font-semibold">Sources</th>
+								<th class="text-right px-4 py-2 font-semibold">Actions</th>
+							</tr></thead>
+							<tbody>
+								{#each assignedDerivedDefs as d}
+									{@const sp = siteParameters.find((s) => s.derived_definition_id === d.id)}
+									<tr class="border-b border-brand-divider last:border-b-0">
+										<td class="px-4 py-2 font-medium">
+											<a href="{base}/derived/{d.id}" class="text-brand-primary no-underline hover:underline">{d.display_name || d.name}</a>
+										</td>
+										<td class="px-4 py-2 font-mono text-xs text-brand-muted">{d.formula}</td>
+										<td class="px-4 py-2 text-xs text-brand-muted">
+											{#each d.sources ?? [] as src}
+												{@const available = siteParameterIds.has(src.parameter_id)}
+												<span class="inline-block mr-1.5" class:text-severity-alarm={!available}>
+													<span class="font-mono">{src.variable_name}</span>
+													{#if !available}(missing){/if}
+												</span>
+											{/each}
+										</td>
+										<td class="px-4 py-2 text-right whitespace-nowrap">
+											<ConfirmPopover message="Recompute this derived parameter?" confirmLabel="Recompute" onconfirm={() => handleRecompute(d.id)}>
+												<button
+													disabled={recomputingId === d.id}
+													class="px-2 py-1 text-xs rounded border border-brand-divider bg-brand-bg cursor-pointer hover:bg-brand-surface disabled:opacity-50"
+												>{recomputingId === d.id ? 'Computing...' : 'Recompute'}</button>
+											</ConfirmPopover>
+											{#if sp}
+												<ConfirmPopover message="Remove this derived parameter from the site?" confirmLabel="Remove" confirmVariant="alarm" onconfirm={() => unassignDerived(sp)}>
+													<button class="px-2 py-1 text-xs text-severity-alarm cursor-pointer hover:underline ml-1">Remove</button>
+												</ConfirmPopover>
+											{/if}
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					{:else if !showAssignDerived}
+						<p class="text-sm text-brand-muted px-4 py-4">No derived parameters assigned.</p>
+					{/if}
+				</div>
 
 		<!-- Sensors tab -->
 		{:else if activeTab === 2}

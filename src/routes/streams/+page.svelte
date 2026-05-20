@@ -6,8 +6,8 @@
 	import { api, type DataStream, type SiteParameter, type Site, type Parameter } from '$api/crud';
 	import {
 		pairStream, unpairStream, getStreamStats, createPairingPlan, updatePairingPlan,
-		applyPairingPlan, revertPairingPlan, getUnpairedSummary,
-		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type PairingPlanApplyResult, type StreamStats,
+		applyPairingPlan, revertPairingPlan, getUnpairedSummary, getPlanSiteMetadata,
+		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
 	} from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatRelativeTime } from '$lib/utils';
@@ -181,6 +181,35 @@
 		}
 		return [...map.entries()].map(([message, v]) => ({ message, paramName: v.paramName, count: v.count }));
 	});
+
+	function jumpToParamRow(paramName: string) {
+		reviewTab = 'parameters';
+		setTimeout(() => {
+			const row = document.getElementById(`param-row-${paramName}`);
+			if (!row) return;
+			row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+			row.classList.add('flash-highlight');
+			setTimeout(() => row.classList.remove('flash-highlight'), 1600);
+		}, 0);
+	}
+
+	function jumpToWarnings(messages: string[]) {
+		reviewTab = 'warnings';
+		const unique = [...new Set(messages)];
+		setTimeout(() => {
+			let firstRow: HTMLElement | null = null;
+			for (const msg of unique) {
+				const row = document.querySelector<HTMLElement>(
+					`[data-warning="${CSS.escape(msg)}"]`
+				);
+				if (!row) continue;
+				if (!firstRow) firstRow = row;
+				row.classList.add('flash-highlight');
+				setTimeout(() => row.classList.remove('flash-highlight'), 1600);
+			}
+			firstRow?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+		}, 0);
+	}
 
 	function renameGlobalParam(oldName: string, newName: string) {
 		if (!newName.trim() || newName === oldName) return;
@@ -425,6 +454,7 @@
 
 	let existingParams = $state<Parameter[]>([]);
 	let existingSites = $state<Site[]>([]);
+	let siteMetadataMap = $state<Map<string, SiteMetadata>>(new Map());
 
 	async function createPlan(sourceSystem: string) {
 		planLoading = true;
@@ -446,6 +476,11 @@
 			sitePage = 0;
 			applyResult = null;
 			setMode('review');
+			getPlanSiteMetadata(plan.id).then((meta) => {
+				const map = new Map<string, SiteMetadata>();
+				for (const m of meta) map.set(m.site_name, m);
+				siteMetadataMap = map;
+			}).catch(() => {});
 		} catch { toastStore.error('Failed to create plan'); }
 		finally { planLoading = false; }
 	}
@@ -714,7 +749,14 @@
 										</select>
 									{/if}
 									<span class="text-xs text-brand-muted ml-2">{group.entries.length} params</span>
-									{#if group.warningCount > 0}<span class="text-xs text-severity-warning ml-2">{group.warningCount} warn</span>{/if}
+									{#if group.warningCount > 0}
+										<button
+											type="button"
+											onclick={(e) => { e.stopPropagation(); jumpToWarnings(group.entries.flatMap((en) => en.warnings)); }}
+											class="text-xs text-severity-warning ml-2 bg-transparent border-none cursor-pointer hover:underline p-0"
+											title="View affected warnings"
+										>{group.warningCount} warn</button>
+									{/if}
 								</div>
 								<span class="text-xs text-brand-muted px-2">{group.project}</span>
 								<button onclick={() => toggleSiteAction(group)} class="px-2 py-0.5 text-xs rounded cursor-pointer border-none {allPair ? 'bg-severity-ok-soft text-severity-ok' : 'bg-brand-bg text-brand-muted opacity-50'}">Pair</button>
@@ -723,6 +765,19 @@
 									class="px-2 py-0.5 text-xs rounded cursor-pointer border-none {allSkip ? 'bg-severity-alarm-soft text-severity-alarm' : 'bg-brand-bg text-brand-muted opacity-50'}">Skip</button>
 							</div>
 							{#if isExpanded}
+								{@const meta = siteMetadataMap.get(group.siteName)}
+								{#if meta && (meta.full_name || meta.catchment || meta.glacier_name || meta.latitude || meta.elevation || meta.device_serial)}
+									<div class="pl-10 pr-2 py-2 border-b border-brand-divider bg-brand-primary/5 text-xs flex flex-wrap gap-x-5 gap-y-1 text-brand-muted">
+										{#if meta.full_name}<span><span class="font-medium text-brand-text">{meta.full_name}</span></span>{/if}
+										{#if meta.catchment}<span>Catchment: {meta.catchment}</span>{/if}
+										{#if meta.glacier_name}<span>Glacier: {meta.glacier_name}{meta.glacier_rgi ? ` (${meta.glacier_rgi})` : ''}</span>{/if}
+										{#if meta.location_type}<span>Location: {meta.location_type}</span>{/if}
+										{#if meta.latitude && meta.longitude}<span class="font-mono">{meta.latitude.toFixed(4)}, {meta.longitude.toFixed(4)}</span>{/if}
+										{#if meta.altitude_m ?? meta.elevation}<span>Elevation: {meta.altitude_m ?? meta.elevation}m</span>{/if}
+										{#if meta.device_serial}<span>Device: {meta.device_serial}</span>{/if}
+										{#if meta.sample_interval_sec}<span>Interval: {meta.sample_interval_sec}s</span>{/if}
+									</div>
+								{/if}
 								{#each group.entries as entry}
 								{@const entryMatched = existingParams.find((p) => p.name === entry.parameter.name)}
 								{@const entryEditing = editingParam?.streamId === entry.stream_id}
@@ -784,7 +839,12 @@
 											{/if}
 										</div>
 										{#if entry.warnings.length > 0}
-											<span class="text-severity-warning shrink-0" title={entry.warnings.join(', ')}>warn</span>
+											<button
+												type="button"
+												onclick={(e) => { e.stopPropagation(); jumpToWarnings(entry.warnings); }}
+												class="text-severity-warning shrink-0 bg-transparent border-none cursor-pointer hover:underline p-0"
+												title={entry.warnings.join(', ')}
+											>warn</button>
 										{/if}
 										<button onclick={() => setEntryAction(entry, 'pair')} class="px-1.5 py-0.5 rounded cursor-pointer border-none shrink-0 {entry.action === 'pair' ? 'bg-severity-ok-soft text-severity-ok' : 'bg-brand-bg text-brand-muted opacity-50'}">Pair</button>
 										<button
@@ -890,6 +950,9 @@
 					{#if uniqueWarnings.length === 0}
 						<p class="text-sm text-severity-ok">No warnings in this plan.</p>
 					{:else}
+						<p class="text-xs text-brand-muted mb-2">
+							Click a warning to jump to the parameter. Resolve by renaming it (creates a new parameter with the source's units) or keep the mapping if the difference is only notation.
+						</p>
 						<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 							<table class="w-full text-sm">
 								<thead><tr class="bg-brand-bg border-b border-brand-divider">
@@ -899,9 +962,14 @@
 								</tr></thead>
 								<tbody>
 									{#each uniqueWarnings as w}
-										<tr class="border-b border-brand-divider last:border-b-0">
+										<tr
+											data-warning={w.message}
+											class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 cursor-pointer"
+											onclick={() => jumpToParamRow(w.paramName)}
+											title="Jump to {w.paramName} in Parameters tab"
+										>
 											<td class="px-4 py-2 text-severity-warning text-xs">{w.message}</td>
-											<td class="px-4 py-2 font-medium">{w.paramName}</td>
+											<td class="px-4 py-2 font-medium text-brand-primary underline-offset-2 hover:underline">{w.paramName}</td>
 											<td class="px-4 py-2 text-right text-brand-muted">{w.count.toLocaleString()}</td>
 										</tr>
 									{/each}
@@ -1017,3 +1085,14 @@
 		<button onclick={() => statsDialogOpen = false} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface">Close</button>
 	{/snippet}
 </Dialog>
+
+<style>
+	:global(.flash-highlight) {
+		animation: flash-highlight 1.6s ease-out;
+	}
+	@keyframes flash-highlight {
+		0%   { background-color: rgba(199, 119, 0, 0.28); box-shadow: inset 0 0 0 2px rgba(199, 119, 0, 0.6); }
+		60%  { background-color: rgba(199, 119, 0, 0.12); box-shadow: inset 0 0 0 2px rgba(199, 119, 0, 0.3); }
+		100% { background-color: transparent;             box-shadow: inset 0 0 0 2px transparent; }
+	}
+</style>
