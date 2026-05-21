@@ -14,6 +14,7 @@
 	let loading = $state(true);
 	let activeTab = $state(0);
 	let showAddForm = $state(false);
+	let showAdvanced = $state(false);
 
 	let editingSlugs = $state<Record<string, string>>({});
 	let savingSiteId = $state<string | null>(null);
@@ -344,14 +345,6 @@
 									<label for="ep-sort" class="text-xs text-brand-muted block mb-1">Sort Order</label>
 									<input id="ep-sort" type="number" bind:value={newParam.sort_order} class="w-full px-2 py-1.5 text-sm border border-brand-divider rounded bg-brand-surface" />
 								</div>
-								<div>
-									<label for="ep-factor" class="text-xs text-brand-muted block mb-1">Conversion Factor</label>
-									<input id="ep-factor" type="number" step="any" bind:value={newParam.conversion_factor} class="w-full px-2 py-1.5 text-sm border border-brand-divider rounded bg-brand-surface" />
-								</div>
-								<div>
-									<label for="ep-offset" class="text-xs text-brand-muted block mb-1">Conversion Offset</label>
-									<input id="ep-offset" type="number" step="any" bind:value={newParam.conversion_offset} class="w-full px-2 py-1.5 text-sm border border-brand-divider rounded bg-brand-surface" />
-								</div>
 							</div>
 							<div>
 								<label for="ep-desc" class="text-xs text-brand-muted block mb-1">Description</label>
@@ -361,6 +354,21 @@
 								<input id="ep-derived" type="checkbox" bind:checked={newParam.include_derived} />
 								<label for="ep-derived" class="text-xs text-brand-muted">Include derived parameters</label>
 							</div>
+							<button type="button" onclick={() => showAdvanced = !showAdvanced} class="text-xs text-brand-muted bg-transparent border-none cursor-pointer hover:text-brand-primary">
+								{showAdvanced ? 'Hide' : 'Show'} advanced options
+							</button>
+							{#if showAdvanced}
+								<div class="grid grid-cols-2 gap-3 pt-1">
+									<div>
+										<label for="ep-factor" class="text-xs text-brand-muted block mb-1">Conversion Factor</label>
+										<input id="ep-factor" type="number" step="any" bind:value={newParam.conversion_factor} class="w-full px-2 py-1.5 text-sm border border-brand-divider rounded bg-brand-surface" />
+									</div>
+									<div>
+										<label for="ep-offset" class="text-xs text-brand-muted block mb-1">Conversion Offset</label>
+										<input id="ep-offset" type="number" step="any" bind:value={newParam.conversion_offset} class="w-full px-2 py-1.5 text-sm border border-brand-divider rounded bg-brand-surface" />
+									</div>
+								</div>
+							{/if}
 							<button
 								onclick={addExposedParam}
 								disabled={!newParam.parameter_id || !newParam.public_name || !newParam.public_units}

@@ -21,7 +21,7 @@
 	const paramVars = $derived(
 		allParams
 			.filter((p) => p.category !== 'device_health')
-			.map((p) => ({ name: p.name, label: p.display_name || p.name }))
+			.map((p) => ({ name: p.name, label: p.display_name || p.name, category: p.category }))
 	);
 
 	const previewSites = $derived(allSites.map((s) => ({ id: s.id, name: s.name })));

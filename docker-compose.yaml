@@ -75,6 +75,7 @@ services:
       - ../river-data-api/Cargo.toml:/app/Cargo.toml
       - ../river-data-api/Cargo.lock:/app/Cargo.lock
       - ../river-data-api/bacon.toml:/app/bacon.toml
+      - /home/ejthomas/projects/personal/crudcrate/crudcrate:/home/ejthomas/projects/personal/crudcrate/crudcrate:ro
       - river-db-rust-data:/app/target
     labels:
       - "traefik.http.routers.river-data-api.rule=PathPrefix(`/api`) || PathPrefix(`/docs`)"

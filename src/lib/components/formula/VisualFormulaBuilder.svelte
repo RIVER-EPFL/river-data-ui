@@ -7,16 +7,29 @@
 		variables = [],
 	}: {
 		value: string;
-		variables: Array<{ name: string; label: string }>;
+		variables: Array<{ name: string; label: string; category?: string }>;
 	} = $props();
 
 	let root = $state<FormulaNode>(value ? parseFromMeval(value) : { type: 'empty' });
 	let selectedPath = $state<string | null>(null);
 	let paletteSearch = $state('');
+	let editingConstantPath = $state<string | null>(null);
+	let editingConstantValue = $state('');
 
 	const FUNCTIONS = ['sqrt', 'abs', 'ln', 'log', 'sin', 'cos', 'tan', 'exp', 'floor', 'ceil', 'round', 'min', 'max'];
+	const MULTI_ARG_FUNCTIONS = new Set(['min', 'max']);
 	const filteredVars = $derived(variables.filter((v) => !paletteSearch || v.label.toLowerCase().includes(paletteSearch.toLowerCase()) || v.name.toLowerCase().includes(paletteSearch.toLowerCase())));
 	const filteredFns = $derived(FUNCTIONS.filter((f) => !paletteSearch || f.includes(paletteSearch.toLowerCase())));
+
+	const groupedVars = $derived.by(() => {
+		const groups = new Map<string, typeof filteredVars>();
+		for (const v of filteredVars) {
+			const cat = v.category ?? 'Other';
+			if (!groups.has(cat)) groups.set(cat, []);
+			groups.get(cat)!.push(v);
+		}
+		return groups;
+	});
 
 	function syncText() {
 		value = serializeToMeval(root);
@@ -98,6 +111,21 @@
 		syncText();
 	}
 
+	function updateConstant(path: string, newValue: number) {
+		root = replaceAtPath(root, path, { type: 'constant', value: newValue });
+		editingConstantPath = null;
+		syncText();
+	}
+
+	function addFunctionArg(path: string) {
+		const node = getNodeFromPath(path);
+		if (node && node.type === 'function') {
+			node.args.push({ type: 'empty' });
+			root = { ...root };
+			syncText();
+		}
+	}
+
 	function clearAll() {
 		root = { type: 'empty' };
 		selectedPath = null;
@@ -140,19 +168,20 @@
 				class="w-full px-2 py-1.5 border border-brand-divider rounded text-xs bg-brand-surface focus:outline-none focus:ring-1 focus:ring-brand-primary/30"
 			/>
 
-			<!-- Variables -->
-			{#if filteredVars.length > 0}
+			<!-- Variables grouped by category -->
+			{#each [...groupedVars.entries()] as [category, vars]}
 				<div>
-					<div class="text-xs font-semibold text-brand-muted mb-1.5 uppercase tracking-wider">Variables</div>
+					<div class="text-xs font-semibold text-brand-muted mb-1.5 uppercase tracking-wider">{category}</div>
 					<div class="space-y-1">
-						{#each filteredVars as v, i}
+						{#each vars as v}
+							{@const vi = variables.indexOf(v)}
 							<button
 								onclick={() => insertVariable(v.name)}
 								class="w-full text-left px-2 py-1.5 rounded cursor-pointer border-none text-xs hover:ring-1 hover:ring-brand-primary/50 flex items-center gap-2 group"
-								style:background="{colorForVar(i)}18"
+								style:background="{colorForVar(vi)}18"
 								title="Click to insert {v.name}"
 							>
-								<span class="w-2 h-2 rounded-full shrink-0" style:background={colorForVar(i)}></span>
+								<span class="w-2 h-2 rounded-full shrink-0" style:background={colorForVar(vi)}></span>
 								<span class="flex-1 min-w-0">
 									<span class="block font-medium text-brand-text truncate">{v.label}</span>
 									<span class="block font-mono text-brand-muted text-[10px] truncate">{v.name}</span>
@@ -161,7 +190,7 @@
 						{/each}
 					</div>
 				</div>
-			{/if}
+			{/each}
 
 			<!-- Operators -->
 			<div>
@@ -244,15 +273,29 @@
 			<button onclick={(e) => { e.stopPropagation(); deleteAtPath(path); }} class="text-white/60 hover:text-white bg-transparent border-none cursor-pointer text-xs ml-0.5">&times;</button>
 		</span>
 	{:else if node.type === 'constant'}
-		<span
-			class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-mono bg-brand-surface border border-brand-divider cursor-pointer transition-shadow {selectedPath === path ? 'ring-2 ring-brand-accent shadow-md' : 'hover:shadow-sm'}"
-			role="button" tabindex="0"
-			onclick={() => selectedPath = path}
-			onkeydown={(e) => e.key === 'Enter' && (selectedPath = path)}
-		>
-			{node.value}
-			<button onclick={(e) => { e.stopPropagation(); deleteAtPath(path); }} class="text-brand-muted hover:text-brand-text bg-transparent border-none cursor-pointer text-xs">&times;</button>
-		</span>
+		{#if editingConstantPath === path}
+			<input
+				type="number"
+				step="any"
+				value={node.value}
+				class="w-20 px-1.5 py-0.5 text-xs font-mono border border-brand-primary rounded bg-brand-surface focus:outline-none focus:ring-1 focus:ring-brand-primary"
+				autofocus
+				onblur={(e) => { const v = parseFloat((e.target as HTMLInputElement).value); if (!isNaN(v)) updateConstant(path, v); else editingConstantPath = null; }}
+				onkeydown={(e) => { if (e.key === 'Enter') { const v = parseFloat((e.target as HTMLInputElement).value); if (!isNaN(v)) updateConstant(path, v); } if (e.key === 'Escape') editingConstantPath = null; }}
+			/>
+		{:else}
+			<span
+				class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-mono bg-brand-surface border border-brand-divider cursor-pointer transition-shadow {selectedPath === path ? 'ring-2 ring-brand-accent shadow-md' : 'hover:shadow-sm'}"
+				role="button" tabindex="0"
+				onclick={() => selectedPath = path}
+				ondblclick={() => { editingConstantPath = path; editingConstantValue = String(node.value); }}
+				onkeydown={(e) => e.key === 'Enter' && (selectedPath = path)}
+				title="Double-click to edit value"
+			>
+				{node.value}
+				<button onclick={(e) => { e.stopPropagation(); deleteAtPath(path); }} class="text-brand-muted hover:text-brand-text bg-transparent border-none cursor-pointer text-xs">&times;</button>
+			</span>
+		{/if}
 	{:else if node.type === 'binary'}
 		<span class="inline-flex items-center gap-1.5 flex-wrap">
 			{@render nodeView(node.left, `${path}.left`)}
@@ -266,6 +309,13 @@
 				{#if i > 0}<span class="text-xs text-brand-muted">,&nbsp;</span>{/if}
 				{@render nodeView(arg, `${path}.args.${i}`)}
 			{/each}
+			{#if MULTI_ARG_FUNCTIONS.has(node.name)}
+				<button
+					onclick={(e) => { e.stopPropagation(); addFunctionArg(path); }}
+					class="w-4 h-4 text-xs rounded-full bg-brand-bg border border-brand-divider text-brand-muted cursor-pointer hover:text-brand-primary hover:border-brand-primary flex items-center justify-center ml-0.5"
+					title="Add argument"
+				>+</button>
+			{/if}
 			<span class="text-xs font-bold text-brand-primary">)</span>
 		</span>
 	{:else}

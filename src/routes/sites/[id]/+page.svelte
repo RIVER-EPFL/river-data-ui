@@ -219,7 +219,7 @@
 			]);
 			derivedDefs = derivedResult.data.map((d) => ({
 				...d,
-				sources: derivedSourcesResult.data.filter((s) => s.derived_definition_id === d.id),
+				sources: d.sources?.length ? d.sources : derivedSourcesResult.data.filter((s) => s.derived_definition_id === d.id),
 			}));
 			samples = samplesResult.data;
 
