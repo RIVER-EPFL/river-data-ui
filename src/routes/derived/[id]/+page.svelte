@@ -63,6 +63,7 @@
 			<a href="{base}/derived" class="text-sm text-brand-muted hover:text-brand-primary no-underline">&larr; Derived Parameters</a>
 			<div class="flex items-center gap-3 mt-1">
 				<h2 class="text-xl font-semibold">{def.display_name || def.name}</h2>
+				<a href="{base}/derived/{defId}/edit" class="px-3 py-1 text-sm border border-brand-divider bg-brand-surface rounded-md no-underline text-brand-text hover:bg-brand-bg">Edit</a>
 				<ConfirmPopover message="Recompute all readings?" confirmLabel="Recompute" confirmVariant="primary" onconfirm={handleRecompute}>
 					<button class="px-3 py-1 text-sm bg-brand-primary text-white rounded-md cursor-pointer border-none">Recompute</button>
 				</ConfirmPopover>
