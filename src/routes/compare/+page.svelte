@@ -1,8 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import type uPlot from 'uplot';
 	import { api, type Site, type Parameter, type SiteParameter } from '$api/crud';
 	import { GET } from '$api/client';
 	import ScatterPlot from '$components/charts/ScatterPlot.svelte';
+	import UPlotChart from '$components/charts/UPlotChart.svelte';
+	import { uPlotTheme, makeSeries, makeAxis } from '$lib/charts/uPlotTheme';
 
 	let sites = $state<Site[]>([]);
 	let params = $state<Parameter[]>([]);
@@ -178,6 +181,38 @@
 	});
 
 	function siteName(id: string): string { return sites.find((s) => s.id === id)?.name ?? id; }
+
+	const chartUPlotData = $derived.by((): uPlot.AlignedData => {
+		if (chartData.length === 0) return [[]];
+		const allTimes = new Set<number>();
+		for (const s of chartData) for (const t of s.times) allTimes.add(t);
+		const sorted = Array.from(allTimes).sort((a, b) => a - b);
+		const xs = sorted.map((t) => t / 1000);
+		const ys: (number | null)[][] = chartData.map((s) => {
+			const lookup = new Map<number, number>();
+			for (let i = 0; i < s.times.length; i++) lookup.set(s.times[i], s.values[i]);
+			return sorted.map((t) => lookup.get(t) ?? null);
+		});
+		return [xs, ...ys] as uPlot.AlignedData;
+	});
+
+	const chartUPlotOptions = $derived.by((): uPlot.Options => {
+		const param = params.find((p) => p.id === selectedParamId);
+		const units = param?.default_units ?? '';
+		const yLabel = param ? `${param.display_name}${units ? ' (' + units + ')' : ''}` : '';
+		return {
+			width: 800,
+			height: 350,
+			scales: { x: { time: true }, y: { auto: true } },
+			axes: [makeAxis({}), makeAxis({ size: 60, label: yLabel })],
+			series: [
+				{ label: 'Time' },
+				...chartData.map((s, i) => makeSeries(i, s.site, units)),
+			],
+			legend: { show: uPlotTheme.legendShow },
+			cursor: { drag: { x: true, y: false } },
+		};
+	});
 </script>
 
 <svelte:head><title>Compare Sites | River Data</title></svelte:head>
@@ -257,10 +292,7 @@
 									</div>
 								{/each}
 							</div>
-							<div class="h-[350px] bg-brand-bg rounded flex items-center justify-center text-sm text-brand-muted">
-								Chart: {chartData.map((s) => s.site).join(' vs ')} -- {chartData.reduce((sum, s) => sum + s.values.length, 0)} data points loaded
-								<br />(uPlot chart integration pending)
-							</div>
+							<UPlotChart options={chartUPlotOptions} data={chartUPlotData} class="h-[350px]" />
 						</div>
 					{/if}
 				</div>

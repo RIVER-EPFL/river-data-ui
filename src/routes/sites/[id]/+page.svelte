@@ -10,6 +10,7 @@
 	import Tabs from '$components/ui/Tabs.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
+	import ThresholdDialog from '$components/dialogs/ThresholdDialog.svelte';
 	import ParameterChart, { type ChartData } from '$components/charts/ParameterChart.svelte';
 	import SharedChartTooltip from '$components/charts/SharedChartTooltip.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
@@ -35,6 +36,23 @@
 	// Scatter tab state
 	let scatterXParamId = $state('');
 	let scatterYParamId = $state('');
+
+	// Threshold editor state
+	let thresholdDialogOpen = $state(false);
+	let thresholdEditingParamId = $state('');
+	let thresholdEditingParamName = $state('');
+
+	function openThresholdDialog(parameterId: string, parameterName: string) {
+		thresholdEditingParamId = parameterId;
+		thresholdEditingParamName = parameterName;
+		thresholdDialogOpen = true;
+	}
+
+	async function reloadThresholds() {
+		if (!site) return;
+		const th = await api.alarmThresholds.list({ perPage: 100, filter: { site_id: site.id } });
+		thresholds = th.data;
+	}
 
 	// Shared chart state
 	const cursorSyncKey = 'site-charts';
@@ -180,6 +198,10 @@
 	let exportFormat = $state<'csv' | 'json' | 'ndjson'>('csv');
 	let exportResolution = $state<'raw' | 'hourly' | 'daily'>('hourly');
 	let exportLoading = $state(false);
+	let exportSelectedParamIds = $state<string[]>([]);
+	let exportIncludeFlagged = $state(true);
+	let exportIncludeReplicates = $state(false);
+	let exportMeasurementType = $state<'all' | 'continuous' | 'spot' | 'derived'>('all');
 
 	// Status events
 	let statusEvents = $state<Array<{ time: string; stream_id: string; status: string }>>([]);
@@ -291,12 +313,35 @@
 		if (!exportStart || !exportEnd) return;
 		exportLoading = true;
 		try {
+			const params = new URLSearchParams({
+				start: new Date(exportStart).toISOString(),
+				end: new Date(exportEnd).toISOString(),
+				format: exportFormat,
+			});
+			if (exportSelectedParamIds.length > 0) {
+				params.set('parameter_ids', exportSelectedParamIds.join(','));
+			}
+			if (exportResolution === 'raw') {
+				params.set('include_flagged', String(exportIncludeFlagged));
+				params.set('include_replicates', String(exportIncludeReplicates));
+				if (exportMeasurementType !== 'all') {
+					params.set('measurement_type', exportMeasurementType);
+				}
+			}
 			const path = exportResolution === 'raw'
 				? `/api/service/sites/${siteId}/readings`
 				: `/api/service/sites/${siteId}/aggregates/${exportResolution}`;
-			const url = `${path}?start=${new Date(exportStart).toISOString()}&end=${new Date(exportEnd).toISOString()}&format=${exportFormat}`;
+			const url = `${path}?${params.toString()}`;
 
-			const response = await fetch(url, { headers: { 'Authorization': `Bearer ${(await import('$auth/keycloak.svelte')).auth.token}` } });
+			const { auth } = await import('$auth/keycloak.svelte');
+			await auth.ensureToken();
+			const response = await fetch(url, {
+				headers: auth.token ? { Authorization: `Bearer ${auth.token}` } : undefined,
+			});
+			if (!response.ok) {
+				const detail = await response.text().catch(() => response.statusText);
+				throw new Error(`${response.status}: ${detail.slice(0, 200)}`);
+			}
 			const blob = await response.blob();
 			const a = document.createElement('a');
 			a.href = URL.createObjectURL(blob);
@@ -305,7 +350,7 @@
 			URL.revokeObjectURL(a.href);
 			toastStore.success('Export downloaded');
 			exportOpen = false;
-		} catch { toastStore.error('Export failed'); }
+		} catch (e) { toastStore.error(e instanceof Error ? `Export failed: ${e.message}` : 'Export failed'); }
 		finally { exportLoading = false; }
 	}
 
@@ -626,6 +671,7 @@
 						<th class="text-left px-4 py-2 font-semibold">Units</th>
 						<th class="text-left px-4 py-2 font-semibold">Interval</th>
 						<th class="text-left px-4 py-2 font-semibold">Thresholds</th>
+						<th class="text-right px-4 py-2 font-semibold">Actions</th>
 					</tr></thead>
 					<tbody>
 						{#each siteParameters.filter((sp) => !sp.is_derived) as sp}
@@ -642,10 +688,16 @@
 										—
 									{/if}
 								</td>
+								<td class="px-4 py-2 text-right">
+									<button
+										onclick={() => openThresholdDialog(sp.parameter_id, paramName(sp.parameter_id))}
+										class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface cursor-pointer hover:bg-brand-bg"
+									>{th ? 'Edit' : 'Set'} thresholds</button>
+								</td>
 							</tr>
 						{/each}
 						{#if siteParameters.filter((sp) => !sp.is_derived).length === 0}
-							<tr><td colspan="4" class="px-4 py-6 text-center text-brand-muted">No parameters configured</td></tr>
+							<tr><td colspan="5" class="px-4 py-6 text-center text-brand-muted">No parameters configured</td></tr>
 						{/if}
 					</tbody>
 				</table>
@@ -969,6 +1021,19 @@
 					</div>
 				</div>
 				<div>
+					<label class="text-sm font-medium block mb-1">Parameters</label>
+					<div class="max-h-32 overflow-y-auto border border-brand-divider rounded-md p-2 space-y-1">
+						<label class="flex items-center gap-2 cursor-pointer text-xs text-brand-muted">
+							<input type="checkbox" checked={exportSelectedParamIds.length === 0} onchange={() => exportSelectedParamIds = []} /> All parameters
+						</label>
+						{#each siteParameters.filter((sp) => !sp.is_derived) as sp}
+							<label class="flex items-center gap-2 cursor-pointer text-xs">
+								<input type="checkbox" value={sp.parameter_id} bind:group={exportSelectedParamIds} /> {paramName(sp.parameter_id)}
+							</label>
+						{/each}
+					</div>
+				</div>
+				<div>
 					<label for="exp-res" class="text-sm font-medium block mb-1">Resolution</label>
 					<select id="exp-res" bind:value={exportResolution} class="w-full px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
 						<option value="raw">Raw</option>
@@ -976,6 +1041,25 @@
 						<option value="daily">Daily</option>
 					</select>
 				</div>
+				{#if exportResolution === 'raw'}
+					<div>
+						<label for="exp-mt" class="text-sm font-medium block mb-1">Measurement type</label>
+						<select id="exp-mt" bind:value={exportMeasurementType} class="w-full px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
+							<option value="all">All (sensor + grab samples)</option>
+							<option value="continuous">Continuous (sensor only)</option>
+							<option value="spot">Spot (grab samples only)</option>
+							<option value="derived">Derived</option>
+						</select>
+					</div>
+					<div class="flex flex-col gap-1">
+						<label class="flex items-center gap-2 cursor-pointer text-sm">
+							<input type="checkbox" bind:checked={exportIncludeFlagged} /> Include flagged readings (with flag metadata)
+						</label>
+						<label class="flex items-center gap-2 cursor-pointer text-sm">
+							<input type="checkbox" bind:checked={exportIncludeReplicates} /> Include replicate readings
+						</label>
+					</div>
+				{/if}
 				<div>
 					<label class="text-sm font-medium block mb-1">Format</label>
 					<div class="flex gap-3">
@@ -993,4 +1077,15 @@
 			<button onclick={handleExport} disabled={exportLoading} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm cursor-pointer border-none disabled:opacity-50">{exportLoading ? 'Exporting...' : 'Download'}</button>
 		{/snippet}
 	</Dialog>
+
+	{#if site}
+		<ThresholdDialog
+			bind:open={thresholdDialogOpen}
+			siteId={site.id}
+			parameterId={thresholdEditingParamId}
+			parameterName={thresholdEditingParamName}
+			existing={thresholds.find((t) => t.parameter_id === thresholdEditingParamId) ?? null}
+			onsuccess={reloadThresholds}
+		/>
+	{/if}
 {/if}

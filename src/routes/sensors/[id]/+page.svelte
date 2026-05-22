@@ -8,6 +8,7 @@
 	import { formatDateTime } from '$lib/utils';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
+	import Dialog from '$components/ui/Dialog.svelte';
 
 	let sensor = $state<Sensor | null>(null);
 	let calibrations = $state<SensorCalibration[]>([]);
@@ -17,6 +18,54 @@
 	let activeTab = $state(0);
 
 	const sensorId = page.params.id!;
+
+	// Add-calibration dialog
+	let addCalOpen = $state(false);
+	let newCalValidFrom = $state(new Date().toISOString().slice(0, 16));
+	let newCalSlope = $state('1');
+	let newCalIntercept = $state('0');
+	let addingCal = $state(false);
+
+	async function reloadCalibrations() {
+		const cals = await api.sensorCalibrations.list({
+			perPage: 100,
+			filter: { sensor_id: sensorId },
+			sort: ['valid_from', 'DESC'],
+		});
+		calibrations = cals.data;
+	}
+
+	async function handleAddCalibration() {
+		const slope = Number(newCalSlope);
+		const intercept = Number(newCalIntercept);
+		if (!Number.isFinite(slope) || slope === 0) {
+			toastStore.error('Slope must be a non-zero number');
+			return;
+		}
+		if (!Number.isFinite(intercept)) {
+			toastStore.error('Intercept must be a number');
+			return;
+		}
+		addingCal = true;
+		try {
+			await api.sensorCalibrations.create({
+				sensor_id: sensorId,
+				valid_from: new Date(newCalValidFrom).toISOString(),
+				slope,
+				intercept,
+			});
+			toastStore.success('Calibration added — readings will be recomputed in the background');
+			addCalOpen = false;
+			newCalSlope = '1';
+			newCalIntercept = '0';
+			newCalValidFrom = new Date().toISOString().slice(0, 16);
+			await reloadCalibrations();
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Failed to add calibration');
+		} finally {
+			addingCal = false;
+		}
+	}
 
 	onMount(async () => {
 		try {
@@ -120,6 +169,9 @@
 				</table>
 			</div>
 		{:else if activeTab === 2}
+			<div class="flex justify-end mb-2">
+				<button onclick={() => addCalOpen = true} class="px-3 py-1 text-sm bg-brand-primary text-white rounded-md cursor-pointer border-none">+ Add Calibration</button>
+			</div>
 			<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 				<table class="w-full text-sm">
 					<thead><tr class="bg-brand-bg border-b border-brand-divider">
@@ -153,4 +205,30 @@
 			</div>
 		{/if}
 	</div>
+
+	<Dialog bind:open={addCalOpen} title="Add Calibration" maxWidth="sm">
+		{#snippet children()}
+			<div class="space-y-3">
+				<div class="flex flex-col gap-1">
+					<label for="cal-valid-from" class="text-xs text-brand-muted">Valid from</label>
+					<input id="cal-valid-from" type="datetime-local" bind:value={newCalValidFrom} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" />
+				</div>
+				<div class="grid grid-cols-2 gap-3">
+					<div class="flex flex-col gap-1">
+						<label for="cal-slope" class="text-xs text-brand-muted">Slope (m)</label>
+						<input id="cal-slope" type="number" step="any" bind:value={newCalSlope} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" />
+					</div>
+					<div class="flex flex-col gap-1">
+						<label for="cal-intercept" class="text-xs text-brand-muted">Intercept (b)</label>
+						<input id="cal-intercept" type="number" step="any" bind:value={newCalIntercept} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" />
+					</div>
+				</div>
+				<p class="text-xs text-brand-muted">Calibrated value = slope &times; raw + intercept. Adding this calibration will recompute existing readings in its time window in the background.</p>
+			</div>
+		{/snippet}
+		{#snippet actions()}
+			<button onclick={() => addCalOpen = false} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface">Cancel</button>
+			<button onclick={handleAddCalibration} disabled={addingCal} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm cursor-pointer border-none disabled:opacity-50">{addingCal ? 'Adding...' : 'Add'}</button>
+		{/snippet}
+	</Dialog>
 {/if}

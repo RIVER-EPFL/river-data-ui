@@ -50,12 +50,24 @@
 	}
 
 	function replicateStats(row: SampleRow): { values: number[]; mean: number; sd: number; n: number } | null {
-		const values = row.replicates.map(Number).filter((v) => !isNaN(v) && v !== 0);
+		const values: number[] = [];
+		for (const rep of row.replicates) {
+			if (rep === '' || rep === null || rep === undefined) continue;
+			const v = Number(rep);
+			if (!Number.isFinite(v)) continue;
+			values.push(v);
+		}
 		if (values.length === 0) return null;
 		const n = values.length;
 		const mean = values.reduce((a, b) => a + b, 0) / n;
 		const sd = n > 1 ? Math.sqrt(values.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1)) : 0;
 		return { values, mean, sd, n };
+	}
+
+	function isRowEmpty(row: SampleRow): boolean {
+		return !row.paramId
+			&& row.replicates.every((r) => r === '' || r === null || r === undefined)
+			&& !row.overrideValue;
 	}
 
 	function correctedValue(row: SampleRow): number | null {
@@ -103,35 +115,41 @@
 		if (!selectedSiteId || rows.length === 0) return;
 		submitting = true;
 		try {
-			const readings = rows.flatMap((row) => {
+			const issues: string[] = [];
+			const readings: { parameter_id: string; time: string; value: number; replicate_index: number }[] = [];
+
+			rows.forEach((row, idx) => {
+				if (isRowEmpty(row)) return;
+				const label = `Row ${idx + 1}`;
 				const sp = filteredParams.find((fp) => fp.parameter_id === row.paramId);
-				if (!sp) return [];
-
-				const fv = finalValue(row);
-				if (fv == null) return [];
-
+				if (!sp) {
+					issues.push(`${label}: select a parameter`);
+					return;
+				}
 				const stats = replicateStats(row);
-				if (!stats) return [];
-
-				return stats.values.map((rawVal, idx) => {
-					let val = rawVal;
+				if (!stats) {
+					issues.push(`${label} (${paramName(row.paramId)}): enter at least one numeric replicate`);
+					return;
+				}
+				const time = new Date(sampleDate).toISOString();
+				for (let i = 0; i < stats.values.length; i++) {
+					let val = stats.values[i];
 					if (row.useStandardCurve) {
 						const curve = row.curveId
 							? standardCurves.find((c) => c.id === row.curveId)
 							: activeCurveForParam(row.paramId);
-						if (curve) val = curve.slope * rawVal + curve.intercept;
+						if (curve) val = curve.slope * stats.values[i] + curve.intercept;
 					}
-					return {
-						parameter_id: row.paramId,
-						time: new Date(sampleDate).toISOString(),
-						value: val,
-						replicate_index: idx,
-					};
-				});
+					readings.push({ parameter_id: row.paramId, time, value: val, replicate_index: i });
+				}
 			});
 
+			if (issues.length > 0) {
+				toastStore.error(`Fix the following before submitting: ${issues.join('; ')}`);
+				return;
+			}
 			if (readings.length === 0) {
-				toastStore.error('No readings to submit');
+				toastStore.error('No readings to submit — add a parameter row with at least one replicate');
 				return;
 			}
 

@@ -43,6 +43,7 @@ export const api = {
 	notes: crudClient<Note>('notes'),
 	apiTokens: crudClient<ApiToken>('api_tokens'),
 	publicExposedParameters: crudClient<PublicExposedParameter>('public_exposed_parameters'),
+	reprocessingJobs: crudClient<ReprocessingJob>('reprocessing_jobs'),
 };
 
 // Entity types
@@ -231,13 +232,14 @@ export interface DataStream {
 
 export interface Annotation {
 	id: string;
-	site_parameter_id: string;
+	site_id: string;
+	parameter_id: string;
 	start_time: string;
-	end_time: string | null;
+	end_time: string;
 	text: string;
-	author: string | null;
-	created_at: string;
-	updated_at: string;
+	category: string;
+	created_by: string | null;
+	created_at: string | null;
 }
 
 export interface Note {
@@ -271,4 +273,16 @@ export interface PublicExposedParameter {
 	conversion_offset: number | null;
 	include_derived: boolean;
 	created_at: string;
+}
+
+export interface ReprocessingJob {
+	id: string;
+	sensor_id: string;
+	trigger_type: string;
+	trigger_id: string | null;
+	status: string;
+	readings_updated: number | null;
+	error_message: string | null;
+	created_at: string;
+	completed_at: string | null;
 }

@@ -2,7 +2,7 @@
 	import { onMount, onDestroy, tick } from 'svelte';
 	import uPlot from 'uplot';
 	import 'uplot/dist/uPlot.min.css';
-	import { PATCH } from '$api/client';
+	import { PATCH, POST } from '$api/client';
 	import { uPlotTheme, makeSeries, makeAxis } from '$lib/charts/uPlotTheme';
 	import { tokens } from '$lib/charts/tokens';
 	import { getChartSyncGroup } from '$lib/charts/chart-sync.svelte';
@@ -46,6 +46,7 @@
 
 	let el: HTMLDivElement;
 	let chart: uPlot | null = null;
+	let lastSelection: { startMs: number; endMs: number } | null = null;
 
 	const hasData = $derived(chartData != null && chartData.times.length > 0);
 	const dataPoints = $derived(chartData?.times.length ?? 0);
@@ -162,6 +163,7 @@
 						if (u.select.width > 0) {
 							const left = u.posToVal(u.select.left, 'x');
 							const right = u.posToVal(u.select.left + u.select.width, 'x');
+							lastSelection = { startMs: left * 1000, endMs: right * 1000 };
 							onZoomSelect?.(left * 1000, right * 1000);
 							u.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false);
 						}
@@ -183,22 +185,69 @@
 		if (w > 0) chart.setSize({ width: w, height: 220 });
 	}
 
+	function selectedTimeRangeMs(): { startMs: number; endMs: number } | null {
+		if (!lastSelection) { toastStore.info('Drag on the chart to select a time range first'); return null; }
+		return lastSelection;
+	}
+
+	function readingsInRange(startMs: number, endMs: number): Array<{ site_id: string; parameter_id: string; time: string }> {
+		const times = chartData?.times ?? [];
+		const out: Array<{ site_id: string; parameter_id: string; time: string }> = [];
+		for (const t of times) {
+			if (t >= startMs && t <= endMs) {
+				out.push({ site_id: siteId, parameter_id: parameterId, time: new Date(t).toISOString() });
+			}
+		}
+		return out;
+	}
+
 	async function handleFlag(flag: boolean) {
-		if (!chart) return;
-		const sel = chart.select;
-		if (!sel || sel.width === 0) { toastStore.info('Drag to select a time range first'); return; }
-		const startTime = new Date(chart.posToVal(sel.left, 'x') * 1000).toISOString();
-		const endTime = new Date(chart.posToVal(sel.left + sel.width, 'x') * 1000).toISOString();
+		const range = selectedTimeRangeMs();
+		if (!range) return;
+		const readings = readingsInRange(range.startMs, range.endMs);
+		if (readings.length === 0) {
+			toastStore.info('No readings in the selected range');
+			return;
+		}
+		let reason = '';
+		if (flag) {
+			const r = window.prompt(`Flag ${readings.length} reading(s). Reason:`, '');
+			if (r === null) return;
+			if (r.trim() === '') { toastStore.error('Reason is required to flag readings'); return; }
+			reason = r.trim();
+		}
 		try {
-			await PATCH(`/api/service/readings/${flag ? 'flag' : 'unflag'}`, {
-				site_id: siteId, parameter_id: parameterId, start: startTime, end: endTime,
+			const body = flag ? { readings, reason } : { readings };
+			const res = await PATCH<{ updated: number }>(`/api/service/readings/${flag ? 'flag' : 'unflag'}`, body);
+			toastStore.success(`${flag ? 'Flagged' : 'Unflagged'} ${res.updated} reading(s)`);
+		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Failed to update flags'); }
+	}
+
+	async function handleAnnotate() {
+		const range = selectedTimeRangeMs();
+		if (!range) return;
+		const text = window.prompt('Annotation text:', '');
+		if (text === null) return;
+		if (text.trim() === '') { toastStore.error('Annotation text is required'); return; }
+		const categoryRaw = window.prompt('Category (maintenance, quality_issue, environmental, other):', 'other');
+		if (categoryRaw === null) return;
+		const category = categoryRaw.trim() || 'other';
+		try {
+			await POST('/api/service/annotations', {
+				site_id: siteId,
+				parameter_id: parameterId,
+				start_time: new Date(range.startMs).toISOString(),
+				end_time: new Date(range.endMs).toISOString(),
+				text: text.trim(),
+				category,
 			});
-			toastStore.success(flag ? 'Readings flagged' : 'Readings unflagged');
-		} catch { toastStore.error('Failed to update flags'); }
+			toastStore.success('Annotation saved');
+		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Failed to save annotation'); }
 	}
 
 	$effect(() => {
 		if (hasData) {
+			lastSelection = null;
 			syncGroup?.update(chartId, {
 				times: chartData!.times,
 				values: chartData!.values,
@@ -235,6 +284,7 @@
 			{#if hasData}<span class="text-xs text-brand-muted font-normal ml-2">{dataPoints} pts</span>{/if}
 		</span>
 		<div class="flex items-center gap-1.5">
+			<button onclick={handleAnnotate} class="px-1.5 py-0.5 text-xs text-brand-primary bg-transparent border border-brand-primary/50 rounded cursor-pointer hover:bg-brand-primary/5" title="Annotate selected range">Annotate</button>
 			<button onclick={() => handleFlag(true)} class="px-1.5 py-0.5 text-xs text-severity-alarm bg-transparent border border-severity-alarm-border rounded cursor-pointer hover:bg-severity-alarm-soft">Flag</button>
 			<button onclick={() => handleFlag(false)} class="px-1.5 py-0.5 text-xs text-brand-muted bg-transparent border border-brand-divider rounded cursor-pointer hover:bg-brand-bg">Unflag</button>
 		</div>
