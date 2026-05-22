@@ -30,6 +30,23 @@
 		return 'ok';
 	}
 
+	function siteStatus(siteId: string) {
+		const entry = alarms?.by_site.find((s) => s.site_id === siteId);
+		const site = sites.find((s) => s.id === siteId);
+		const project = site ? projects.find((p) => p.id === site.project_id) : undefined;
+		const alarmCount = entry?.alarm_count ?? 0;
+		const warningCount = entry?.warning_count ?? 0;
+		const severity: 'ok' | 'warning' | 'alarm' =
+			alarmCount > 0 ? 'alarm' : warningCount > 0 ? 'warning' : 'ok';
+		return {
+			severity,
+			alarmCount,
+			warningCount,
+			latestReadingTime: entry?.latest_reading_time ?? null,
+			projectName: project?.name ?? null,
+		};
+	}
+
 	function onSiteClick(siteId: string) {
 		goto(`${base}/sites/${siteId}`);
 	}
@@ -92,7 +109,7 @@
 					{filterProjectId}
 					height="450px"
 					onSiteClick={onSiteClick}
-					siteAlarmSeverity={siteAlarmSeverity}
+					siteStatus={siteStatus}
 				/>
 			{:else}
 				<div class="h-[200px] rounded-md border border-brand-divider bg-brand-bg flex items-center justify-center text-sm text-brand-muted">

@@ -48,6 +48,7 @@ export interface AlarmSummaryResponse {
 		site_name: string;
 		warning_count: number;
 		alarm_count: number;
+		latest_reading_time?: string | null;
 	}>;
 }
 
