@@ -25,6 +25,7 @@
 				{ href: `${base}/sensor-deployments`, label: 'Deployments', icon: 'pin' },
 				{ href: `${base}/sensor-calibrations`, label: 'Calibrations', icon: 'cpu' },
 				{ href: `${base}/streams`, label: 'Streams', icon: 'rss' },
+				{ href: `${base}/jobs`, label: 'Jobs', icon: 'clock' },
 			],
 		},
 		{
@@ -51,7 +52,6 @@
 				{ href: `${base}/constants`, label: 'Constants', icon: 'hash' },
 				{ href: `${base}/projects`, label: 'Projects', icon: 'folder' },
 				{ href: `${base}/users`, label: 'Users', icon: 'users' },
-				{ href: `${base}/jobs`, label: 'Jobs', icon: 'clock' },
 				{ href: `${base}/system`, label: 'System', icon: 'settings' },
 			],
 		},
