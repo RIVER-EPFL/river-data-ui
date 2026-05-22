@@ -3,20 +3,20 @@ import noUiSlider, { PipsMode, type Options as NoUiSliderOptions } from 'nouisli
 import { tokens } from './tokens';
 import { uPlotTheme } from './uPlotTheme';
 
-/** Minimal project shape returned by /api/service/projects */
+/** Minimal project shape returned by /api/v1/projects */
 interface DashboardProject {
   id: string;
   name: string;
 }
 
-/** Minimal site shape returned by /api/service/sites */
+/** Minimal site shape returned by /api/v1/sites */
 interface DashboardSite {
   id: string;
   name: string;
   project_id: string;
 }
 
-/** Site detail returned by /api/service/sites/{id}/detail */
+/** Site detail returned by /api/v1/sites/{id}/detail */
 interface SiteDetail {
   id: string;
   name: string;
@@ -296,7 +296,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
   }
 
   async function downloadExport(siteId: string, format: 'csv' | 'ndjson', start: string, end: string) {
-    const url = `/api/service/sites/${siteId}/readings?format=${format}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
+    const url = `/api/v1/sites/${siteId}/readings?format=${format}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
     try {
       const res = await authFetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -372,8 +372,8 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     }
 
     const [projects, sites] = await Promise.all([
-      api('/api/service/projects') as Promise<DashboardProject[]>,
-      api('/api/service/sites') as Promise<DashboardSite[]>,
+      api('/api/v1/projects') as Promise<DashboardProject[]>,
+      api('/api/v1/sites') as Promise<DashboardSite[]>,
     ]);
 
     const container = $('site-groups');
@@ -441,7 +441,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
   }
 
   async function loadSite(siteId: string) {
-    const site = await api(`/api/service/sites/${siteId}/detail`, true) as SiteDetail;
+    const site = await api(`/api/v1/sites/${siteId}/detail`, true) as SiteDetail;
     state.site = site;
     updateExportToolbar();
 
@@ -756,9 +756,9 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
       resolution = 'weekly avg';
     }
 
-    const url = `/api/service/sites/${state.site.id}/${endpoint}?start=${state.start.toISOString()}&end=${state.end.toISOString()}&alarms=true`;
-    const grabUrl = `/api/service/sites/${state.site.id}/readings?start=${state.start.toISOString()}&end=${state.end.toISOString()}&measurement_type=spot`;
-    const samplesUrl = `/api/service/samples?filter=${encodeURIComponent(JSON.stringify({ site_id: state.site.id }))}&range=[0,999]&sort=["collected_at","DESC"]`;
+    const url = `/api/v1/sites/${state.site.id}/${endpoint}?start=${state.start.toISOString()}&end=${state.end.toISOString()}&alarms=true`;
+    const grabUrl = `/api/v1/sites/${state.site.id}/readings?start=${state.start.toISOString()}&end=${state.end.toISOString()}&measurement_type=spot`;
+    const samplesUrl = `/api/v1/samples?filter=${encodeURIComponent(JSON.stringify({ site_id: state.site.id }))}&range=[0,999]&sort=["collected_at","DESC"]`;
 
     showLoading();
 
@@ -771,7 +771,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
 
       let mainData = data;
       if (!mainData.times?.length && endpoint !== 'readings') {
-        const fallbackUrl = `/api/service/sites/${state.site.id}/readings?start=${state.start.toISOString()}&end=${state.end.toISOString()}&alarms=true`;
+        const fallbackUrl = `/api/v1/sites/${state.site.id}/readings?start=${state.start.toISOString()}&end=${state.end.toISOString()}&alarms=true`;
         mainData = await api(fallbackUrl) as ReadingsData;
         resolution = '10-min raw (fallback)';
       }

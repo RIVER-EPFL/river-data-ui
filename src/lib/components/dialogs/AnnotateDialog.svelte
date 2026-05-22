@@ -44,7 +44,7 @@
 		}
 		saving = true;
 		try {
-			await POST('/api/service/annotations', {
+			await POST('/api/v1/annotations', {
 				site_id: siteId,
 				parameter_id: parameterId,
 				start_time: startIso,

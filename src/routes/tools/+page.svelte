@@ -326,7 +326,7 @@
 					else if (v) payload[inp.key] = v;
 				}
 			}
-			const res = await POST<{ results: Record<string, unknown> }>(`/api/service/tools/${activeTool.name}/calculate`, payload);
+			const res = await POST<{ results: Record<string, unknown> }>(`/api/v1/tools/${activeTool.name}/calculate`, payload);
 			result = res.results;
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Calculation failed');

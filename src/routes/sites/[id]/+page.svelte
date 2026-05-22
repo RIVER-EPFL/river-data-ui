@@ -117,9 +117,9 @@
 			const map = new Map<string, ChartData>();
 
 			const dataPromise = res === 'raw'
-				? GET<ReadingsResponse>(`/api/service/sites/${siteId}/readings`, { start: startDate, end: endDate })
-				: GET<AggregatesResponse>(`/api/service/sites/${siteId}/aggregates/${res}`, { start: startDate, end: endDate });
-			const annotationsPromise = GET<Annotation[]>(`/api/service/sites/${siteId}/annotations`, { start: startDate, end: endDate })
+				? GET<ReadingsResponse>(`/api/v1/sites/${siteId}/readings`, { start: startDate, end: endDate })
+				: GET<AggregatesResponse>(`/api/v1/sites/${siteId}/aggregates/${res}`, { start: startDate, end: endDate });
+			const annotationsPromise = GET<Annotation[]>(`/api/v1/sites/${siteId}/annotations`, { start: startDate, end: endDate })
 				.catch(() => [] as Annotation[]);
 
 			const [result, anns] = await Promise.all([dataPromise, annotationsPromise]);
@@ -312,7 +312,7 @@
 			const spIds = siteParameters.map((sp) => sp.id).join(',');
 			if (!spIds) { statusEvents = []; return; }
 			const result = await GET<{ data: Array<{ time: string; stream_id: string; status: string }> }>(
-				`/api/service/sites/${siteId}/status_events`, { start, page_size: 200 }
+				`/api/v1/sites/${siteId}/status_events`, { start, page_size: 200 }
 			);
 			statusEvents = result.data ?? [];
 		} catch { statusEvents = []; }
@@ -340,8 +340,8 @@
 				}
 			}
 			const path = exportResolution === 'raw'
-				? `/api/service/sites/${siteId}/readings`
-				: `/api/service/sites/${siteId}/aggregates/${exportResolution}`;
+				? `/api/v1/sites/${siteId}/readings`
+				: `/api/v1/sites/${siteId}/aggregates/${exportResolution}`;
 			const url = `${path}?${params.toString()}`;
 
 			const { auth } = await import('$auth/keycloak.svelte');

@@ -1,7 +1,10 @@
 import { GET, POST, PATCH } from './client';
 
-const ADMIN = '/api/admin';
-const SERVICE = '/api/service';
+// Single versioned API tier. The `ADMIN` and `SERVICE` constants alias the same path —
+// retained as documentation hints about which Keycloak role/token scope each endpoint
+// requires (see `require_admin` vs scoped middleware on the backend).
+const ADMIN = '/api/v1';
+const SERVICE = '/api/v1';
 
 // Search
 export interface SearchResponse {

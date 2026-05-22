@@ -286,13 +286,13 @@
 				let endpoint: string;
 
 				if (entityType === 'readings') {
-					endpoint = '/api/service/readings/batch';
+					endpoint = '/api/v1/readings/batch';
 					body = { readings: chunk };
 				} else if (entityType === 'grab_samples') {
-					endpoint = '/api/service/grab_samples';
+					endpoint = '/api/v1/grab_samples';
 					body = { site_id: singleSiteId, readings: chunk };
 				} else {
-					endpoint = '/api/service/status_events/batch';
+					endpoint = '/api/v1/status_events/batch';
 					body = { events: chunk };
 				}
 
@@ -315,7 +315,7 @@
 	// --- Compute derived ---
 	async function computeDerived() {
 		try {
-			await POST('/api/service/actions/compute_derived', {});
+			await POST('/api/v1/actions/compute_derived', {});
 			toastStore.success('Derived parameters computation triggered');
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Failed to trigger derived computation');
