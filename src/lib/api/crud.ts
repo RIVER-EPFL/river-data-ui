@@ -277,11 +277,13 @@ export interface PublicExposedParameter {
 
 export interface ReprocessingJob {
 	id: string;
-	sensor_id: string;
+	sensor_id: string | null;
 	trigger_type: string;
 	trigger_id: string | null;
 	status: string;
 	readings_updated: number | null;
+	progress: number | null;
+	total: number | null;
 	error_message: string | null;
 	created_at: string;
 	completed_at: string | null;

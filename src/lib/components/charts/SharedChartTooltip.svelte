@@ -9,17 +9,42 @@
 
 	const visible = $derived(group.cursor != null);
 
+	interface AnnotationRow {
+		id: string;
+		text: string;
+		category: string;
+		bg: string;
+	}
+
+	interface Row {
+		name: string;
+		value: string;
+		units: string;
+		color: string;
+		severity: 'alarm' | 'warning' | null;
+		flagged: boolean;
+		flagReason: string | null;
+		annotations: AnnotationRow[];
+	}
+
+	const cursorTimeSec = $derived.by(() => {
+		const c = group.cursor;
+		if (!c) return null;
+		for (const [, reg] of group.registrations) {
+			const ts = reg.times[c.idx];
+			if (ts != null) return ts;
+		}
+		return null;
+	});
+
 	const rows = $derived.by(() => {
 		const c = group.cursor;
-		if (!c) return [];
+		if (!c) return [] as Row[];
+		const ts = cursorTimeSec;
+		const tMs = ts != null ? ts * 1000 : null;
+		const colors = uPlotTheme.annotationCategoryColors as Record<string, string>;
 
-		const result: Array<{
-			name: string;
-			value: string;
-			units: string;
-			color: string;
-			severity: 'alarm' | 'warning' | null;
-		}> = [];
+		const result: Row[] = [];
 
 		for (const [, reg] of group.registrations) {
 			const val = reg.values[c.idx];
@@ -35,30 +60,46 @@
 				}
 			}
 
+			const flagged = reg.flags?.[c.idx] === true;
+			const flagReason = flagged ? (reg.flagReasons?.[c.idx] ?? null) : null;
+
+			const rowAnns: AnnotationRow[] = [];
+			if (tMs != null) {
+				for (const a of reg.annotations ?? []) {
+					const start = new Date(a.start_time).getTime();
+					const end = new Date(a.end_time).getTime();
+					if (tMs >= start && tMs <= end) {
+						rowAnns.push({
+							id: a.id,
+							text: a.text,
+							category: a.category,
+							bg: colors[a.category] ?? colors.other,
+						});
+					}
+				}
+			}
+
 			result.push({
 				name: reg.parameterName,
 				value: val != null ? val.toFixed(2) : '--',
 				units: reg.units,
 				color,
 				severity,
+				flagged,
+				flagReason,
+				annotations: rowAnns,
 			});
 		}
 		return result;
 	});
 
 	const timeLabel = $derived.by(() => {
-		const c = group.cursor;
-		if (!c) return '';
-		for (const [, reg] of group.registrations) {
-			const ts = reg.times[c.idx];
-			if (ts != null) {
-				return new Date(ts * 1000).toLocaleString('en-US', {
-					month: 'short', day: 'numeric', year: 'numeric',
-					hour: '2-digit', minute: '2-digit',
-				});
-			}
-		}
-		return '';
+		const ts = cursorTimeSec;
+		if (ts == null) return '';
+		return new Date(ts * 1000).toLocaleString('en-US', {
+			month: 'short', day: 'numeric', year: 'numeric',
+			hour: '2-digit', minute: '2-digit',
+		});
 	});
 
 	const position = $derived.by(() => {
@@ -66,7 +107,8 @@
 		if (!c) return { left: 0, top: 0 };
 		let left = c.mouseX + 20;
 		let top = c.mouseY + 20;
-		const w = 220, h = rows.length * 22 + 32;
+		const extraRows = rows.reduce((acc, r) => acc + r.annotations.length + (r.flagged ? 1 : 0), 0);
+		const w = 280, h = (rows.length + extraRows) * 22 + 32;
 		if (left + w > window.innerWidth - 10) left = c.mouseX - w - 20;
 		if (top + h > window.innerHeight - 10) top = c.mouseY - h - 20;
 		if (left < 10) left = 10;
@@ -78,7 +120,7 @@
 {#if visible && rows.length > 0}
 	<div
 		class="fixed z-50 pointer-events-none"
-		style="left:{position.left}px;top:{position.top}px;background:{uPlotTheme.tooltipBg};padding:6px 10px;border-radius:{uPlotTheme.tooltipRadius}px;white-space:nowrap;min-width:160px"
+		style="left:{position.left}px;top:{position.top}px;background:{uPlotTheme.tooltipBg};padding:6px 10px;border-radius:{uPlotTheme.tooltipRadius}px;white-space:nowrap;min-width:180px;max-width:380px"
 	>
 		<div style="font-size:11px;color:{uPlotTheme.tooltipColor};opacity:0.6;margin-bottom:4px">{timeLabel}</div>
 		{#each rows as row}
@@ -91,9 +133,21 @@
 					{:else if row.severity === 'warning'}
 						<span style="font-size:9px;padding:0 4px;border-radius:3px;background:{tokens.severity.warning.main};color:white;font-weight:700">WARN</span>
 					{/if}
+					{#if row.flagged}
+						<span style="font-size:9px;padding:0 4px;border-radius:3px;background:{tokens.markers.flagged.stroke};color:white;font-weight:700">FLAG</span>
+					{/if}
 				</span>
 				<span style="color:{uPlotTheme.tooltipColor};font-weight:600;font-variant-numeric:tabular-nums">{row.value} <span style="opacity:0.6;font-weight:400">{row.units}</span></span>
 			</div>
+			{#if row.flagged && row.flagReason}
+				<div style="font-size:10px;color:{uPlotTheme.tooltipColor};opacity:0.7;padding-left:14px;white-space:normal;line-height:14px;margin-bottom:2px">{row.flagReason}</div>
+			{/if}
+			{#each row.annotations as a}
+				<div style="font-size:10px;color:{uPlotTheme.tooltipColor};line-height:14px;white-space:normal;padding-left:14px;margin-bottom:2px" class="flex items-start gap-1.5">
+					<span style="display:inline-block;width:6px;height:6px;border-radius:2px;background:{a.bg};flex-shrink:0;margin-top:4px"></span>
+					<span><span style="opacity:0.7">{a.category}:</span> {a.text}</span>
+				</div>
+			{/each}
 		{/each}
 	</div>
 {/if}

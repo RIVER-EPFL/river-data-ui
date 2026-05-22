@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
-	import { api, type Site, type Project, type SiteParameter, type Parameter, type Sensor, type SensorDeployment, type SensorCalibration, type Note, type AlarmThreshold, type DerivedParameter, type Sample } from '$api/crud';
+	import { api, type Site, type Project, type SiteParameter, type Parameter, type Sensor, type SensorDeployment, type SensorCalibration, type Note, type AlarmThreshold, type DerivedParameter, type Sample, type Annotation } from '$api/crud';
 	import { GET, POST, PATCH } from '$api/client';
 	import { recomputeDerived } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
@@ -87,15 +87,16 @@
 	// Shared data fetch — one request for all charts
 	interface ReadingsResponse {
 		times: string[];
-		parameters: Array<{ id: string; name: string; units: string | null; values: (number | null)[] }>;
+		parameters: Array<{ id: string; name: string; units: string | null; values: (number | null)[]; flagged?: (boolean | null)[] | null; flag_reasons?: (string | null)[] | null }>;
 	}
 	interface AggregatesResponse {
 		times: string[];
-		parameters: Array<{ id: string; name: string; units: string | null; avg: (number | null)[]; min: (number | null)[]; max: (number | null)[]; count: number[] }>;
+		parameters: Array<{ id: string; name: string; units: string | null; avg: (number | null)[]; min: (number | null)[]; max: (number | null)[]; count: number[]; flagged_count?: number[] }>;
 	}
 
 	let chartLoading = $state(false);
 	let chartDataMap = $state<Map<string, ChartData>>(new Map());
+	let annotationsByParam = $state<Map<string, Annotation[]>>(new Map());
 	let fetchGeneration = 0;
 	let fetchTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -115,37 +116,43 @@
 			let parsedTimes: number[] = [];
 			const map = new Map<string, ChartData>();
 
-			if (res === 'raw') {
-				const result = await GET<ReadingsResponse>(
-					`/api/service/sites/${siteId}/readings`,
-					{ start: startDate, end: endDate },
-				);
-				if (gen !== fetchGeneration) return;
-				if (result.times?.length) {
-					parsedTimes = result.times.map((t) => new Date(t).getTime() / 1000);
-					for (const p of result.parameters ?? []) {
-						map.set(p.id, { times: parsedTimes, values: p.values });
+			const dataPromise = res === 'raw'
+				? GET<ReadingsResponse>(`/api/service/sites/${siteId}/readings`, { start: startDate, end: endDate })
+				: GET<AggregatesResponse>(`/api/service/sites/${siteId}/aggregates/${res}`, { start: startDate, end: endDate });
+			const annotationsPromise = GET<Annotation[]>(`/api/service/sites/${siteId}/annotations`, { start: startDate, end: endDate })
+				.catch(() => [] as Annotation[]);
+
+			const [result, anns] = await Promise.all([dataPromise, annotationsPromise]);
+			if (gen !== fetchGeneration) return;
+
+			if (result.times?.length) {
+				parsedTimes = result.times.map((t) => new Date(t).getTime() / 1000);
+				if (res === 'raw') {
+					for (const p of (result as ReadingsResponse).parameters ?? []) {
+						map.set(p.id, { times: parsedTimes, values: p.values, flags: p.flagged ?? null, flagReasons: p.flag_reasons ?? null });
 					}
-				}
-			} else {
-				const result = await GET<AggregatesResponse>(
-					`/api/service/sites/${siteId}/aggregates/${res}`,
-					{ start: startDate, end: endDate },
-				);
-				if (gen !== fetchGeneration) return;
-				if (result.times?.length) {
-					parsedTimes = result.times.map((t) => new Date(t).getTime() / 1000);
-					for (const p of result.parameters ?? []) {
-						map.set(p.id, { times: parsedTimes, values: p.avg, mins: p.min, maxs: p.max });
+				} else {
+					for (const p of (result as AggregatesResponse).parameters ?? []) {
+						const flags = p.flagged_count ? p.flagged_count.map((n) => n > 0) : null;
+						map.set(p.id, { times: parsedTimes, values: p.avg, mins: p.min, maxs: p.max, flags });
 					}
 				}
 			}
 
 			chartDataMap = map;
+
+			const annMap = new Map<string, Annotation[]>();
+			for (const a of anns) {
+				const list = annMap.get(a.parameter_id) ?? [];
+				list.push(a);
+				annMap.set(a.parameter_id, list);
+			}
+			annotationsByParam = annMap;
 		} catch (e) {
 			if (gen === fetchGeneration) {
 				toastStore.error('Failed to load chart data');
 				chartDataMap = new Map();
+				annotationsByParam = new Map();
 			}
 		} finally {
 			if (gen === fetchGeneration) chartLoading = false;
@@ -234,6 +241,16 @@
 			notes = n.data;
 			thresholds = th.data;
 
+			const now = new Date();
+			exportEnd = now.toISOString().slice(0, 16);
+			exportStart = new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 16);
+
+			scheduleFetch();
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to load site';
+		} finally { loading = false; }
+
+		try {
 			const [derivedResult, derivedSourcesResult, samplesResult] = await Promise.all([
 				api.derivedParameters.list({ perPage: 200 }),
 				api.derivedParameterSources.list({ perPage: 500 }),
@@ -244,15 +261,9 @@
 				sources: d.sources?.length ? d.sources : derivedSourcesResult.data.filter((s) => s.derived_definition_id === d.id),
 			}));
 			samples = samplesResult.data;
-
-			const now = new Date();
-			exportEnd = now.toISOString().slice(0, 16);
-			exportStart = new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 16);
-
-			scheduleFetch();
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to load site';
-		} finally { loading = false; }
+			toastStore.error(e instanceof Error ? `Failed to load derived parameters / samples: ${e.message}` : 'Failed to load derived parameters / samples');
+		}
 	});
 
 	function paramName(paramId: string): string { return parameters.find((p) => p.id === paramId)?.display_name ?? '—'; }
@@ -407,17 +418,31 @@
 				display_units: def.units || null,
 				name: def.name,
 				sensor_type: 'derived',
+				is_active: true,
 			});
 			toastStore.success(`${def.display_name || def.name} assigned`);
 			const sp = await api.siteParameters.list({ perPage: 200, filter: { site_id: siteId } });
 			siteParameters = sp.data;
 			showAssignDerived = false;
 			await recomputeDerived(def.id);
-			toastStore.success('Recomputation triggered');
+			toastStore.success('Recomputation triggered — chart will update as data fills');
+			pollForDerivedData(def.output_parameter_id);
 		} catch (e) {
 			toastStore.error(`Failed: ${e instanceof Error ? e.message : 'unknown error'}`);
 		} finally {
 			assigningId = null;
+		}
+	}
+
+	async function pollForDerivedData(outputParameterId: string, attempts = 12, intervalMs = 5000) {
+		for (let i = 0; i < attempts; i++) {
+			await new Promise((r) => setTimeout(r, intervalMs));
+			await doFetch();
+			const sp = siteParameters.find((s) => s.parameter_id === outputParameterId);
+			if (sp) {
+				const data = chartDataMap.get(sp.id);
+				if (data && data.values.some((v) => v != null)) return;
+			}
 		}
 	}
 
@@ -645,12 +670,14 @@
 							parameterName={param.display_name}
 							units={sp.display_units ?? param.default_units}
 							threshold={th}
+							annotations={annotationsByParam.get(sp.parameter_id) ?? []}
 							seriesIndex={i}
 							syncKey={cursorSyncKey}
 							chartData={chartDataMap.get(sp.id) ?? null}
 							loading={chartLoading}
 							onZoomSelect={onChartZoomSelect}
 							onResetZoom={onChartResetZoom}
+							onSaved={scheduleFetch}
 						/>
 					{/if}
 				{/each}

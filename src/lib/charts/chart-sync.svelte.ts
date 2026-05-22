@@ -1,4 +1,4 @@
-import type { AlarmThreshold } from '$api/crud';
+import type { AlarmThreshold, Annotation } from '$api/crud';
 
 export interface ChartRegistration {
 	id: string;
@@ -8,6 +8,9 @@ export interface ChartRegistration {
 	times: number[];
 	values: (number | null)[];
 	threshold?: AlarmThreshold | null;
+	flags?: (boolean | null)[] | null;
+	flagReasons?: (string | null)[] | null;
+	annotations?: Annotation[];
 }
 
 export interface CursorState {
