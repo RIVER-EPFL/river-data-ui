@@ -154,7 +154,7 @@
 			}
 
 			const res = await POST<{ inserted: number; samples_created: number }>(
-				'/api/v1/grab_samples',
+				'/api/grab_samples',
 				{ site_id: selectedSiteId, readings },
 			);
 			toastStore.success(`Submitted ${res.inserted} readings (${res.samples_created} samples created)`);

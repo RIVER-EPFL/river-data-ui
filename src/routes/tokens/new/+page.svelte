@@ -37,7 +37,7 @@
 			if (projectScope) payload.project_scope = projectScope;
 			if (expiryMode === 'custom' && expiresAt) payload.expires_at = new Date(expiresAt).toISOString();
 
-			const result = await POST<{ id: string; token: string }>('/api/v1/api_tokens', payload);
+			const result = await POST<{ id: string; token: string }>('/api/api_tokens', payload);
 			createdToken = result.token;
 			showTokenDialog = true;
 		} catch (e: unknown) {
@@ -112,7 +112,7 @@
 			</div>
 			<div class="p-3 bg-brand-bg rounded-md font-mono text-xs break-all select-all">{createdToken}</div>
 			<div class="text-xs text-brand-muted">
-				Example: <code class="bg-brand-bg px-1 rounded">curl -H "Authorization: Bearer {createdToken.slice(0, 8)}..." /api/v1/sites</code>
+				Example: <code class="bg-brand-bg px-1 rounded">curl -H "Authorization: Bearer {createdToken.slice(0, 8)}..." /api/sites</code>
 			</div>
 		</div>
 	{/snippet}

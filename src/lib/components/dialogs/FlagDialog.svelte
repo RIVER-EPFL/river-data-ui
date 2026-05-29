@@ -49,7 +49,7 @@
 				end_time: new Date(endMs).toISOString(),
 			};
 			if (mode === 'flag') body.reason = reason.trim();
-			const res = await PATCH<{ updated: number }>(`/api/v1/readings/${mode}_range`, body);
+			const res = await PATCH<{ updated: number }>(`/api/readings/${mode}_range`, body);
 			if (res.updated === 0) {
 				toastStore.info(mode === 'flag' ? 'No readings in range to flag' : 'No flagged readings in range');
 			} else {

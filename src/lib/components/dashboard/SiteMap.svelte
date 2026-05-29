@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import type { Site } from '$api/crud';
 	import { tokens } from '$lib/charts/tokens';
 
@@ -17,19 +17,28 @@
 		filterProjectId,
 		height = '300px',
 		onSiteClick,
-		siteStatus,
+		statusBySite,
 	}: {
 		sites: Site[];
 		selectedSiteId?: string;
 		filterProjectId?: string;
 		height?: string;
 		onSiteClick?: (siteId: string) => void;
-		siteStatus?: (siteId: string) => SiteStatus;
+		statusBySite?: Map<string, SiteStatus>;
 	} = $props();
 
 	let el: HTMLDivElement;
 	let map: L.Map | null = null;
 	let markerGroup: any = null;
+	let mapReady = $state(false);
+
+	const defaultStatus: SiteStatus = {
+		severity: 'ok',
+		alarmCount: 0,
+		warningCount: 0,
+		latestReadingTime: null,
+		projectName: null,
+	};
 
 	const severityColor: Record<string, string> = {
 		ok: tokens.severity.ok.main,
@@ -71,33 +80,34 @@
 		const name = escapeHtml(site.name);
 		const project = status.projectName ? escapeHtml(status.projectName) : '';
 		const header = project
-			? `<div style="font-weight:600;font-size:13px;">${name}</div><div style="color:#9ca3af;font-size:11px;margin-bottom:6px;">${project}</div>`
-			: `<div style="font-weight:600;font-size:13px;margin-bottom:6px;">${name}</div>`;
+			? `<div style="font-weight:600;font-size:13px;color:${tokens.brand.text};">${name}</div><div style="color:${tokens.brand.textMuted};font-size:11px;margin-bottom:6px;">${project}</div>`
+			: `<div style="font-weight:600;font-size:13px;margin-bottom:6px;color:${tokens.brand.text};">${name}</div>`;
 
 		const chips: string[] = [];
 		if (status.alarmCount > 0) {
-			chips.push(`<span style="background:${tokens.severity.alarm.main};color:white;padding:2px 6px;border-radius:10px;font-size:11px;font-weight:600;">${status.alarmCount} alarm${status.alarmCount === 1 ? '' : 's'}</span>`);
+			chips.push(`<span style="background:${tokens.severity.alarm.main};color:#fff;padding:2px 6px;border-radius:10px;font-size:11px;font-weight:600;">${status.alarmCount} alarm${status.alarmCount === 1 ? '' : 's'}</span>`);
 		}
 		if (status.warningCount > 0) {
-			chips.push(`<span style="background:${tokens.severity.warning.main};color:white;padding:2px 6px;border-radius:10px;font-size:11px;font-weight:600;">${status.warningCount} warning${status.warningCount === 1 ? '' : 's'}</span>`);
+			chips.push(`<span style="background:${tokens.severity.warning.main};color:#fff;padding:2px 6px;border-radius:10px;font-size:11px;font-weight:600;">${status.warningCount} warning${status.warningCount === 1 ? '' : 's'}</span>`);
 		}
 		const chipRow = chips.length
 			? `<div style="display:flex;gap:4px;margin-bottom:6px;">${chips.join('')}</div>`
 			: '';
 
-		const last = `<div style="font-size:11px;color:#d1d5db;">Last data: ${relativeTime(status.latestReadingTime)}</div>`;
+		const last = `<div style="font-size:11px;color:${tokens.brand.textMuted};">Last data: ${relativeTime(status.latestReadingTime)}</div>`;
 
-		return `<div style="min-width:140px;">${header}${chipRow}${last}</div>`;
+		return `<div style="min-width:140px;color:${tokens.brand.text};">${header}${chipRow}${last}</div>`;
 	}
 
-	async function initMap() {
-		const L = await import('leaflet');
-		await import('leaflet.markercluster');
+	let L: typeof import('leaflet') | null = null;
+
+	async function setupMap() {
+		const Lmod = await import('leaflet');
 		await import('leaflet/dist/leaflet.css');
 		await import('leaflet.markercluster/dist/MarkerCluster.css');
 		await import('leaflet.markercluster/dist/MarkerCluster.Default.css');
-
-		if (map) { map.remove(); map = null; }
+		L = (Lmod as any).default ?? Lmod;
+		await import('leaflet.markercluster');
 
 		map = L.map(el, { zoomControl: true, attributionControl: false }).setView([46.2, 7.1], 10);
 
@@ -124,15 +134,15 @@
 		}).addTo(map);
 
 		markerGroup = (L as any).markerClusterGroup({ maxClusterRadius: 40, spiderfyOnMaxZoom: true });
+		map.addLayer(markerGroup);
+	}
+
+	function renderMarkers() {
+		if (!L || !map || !markerGroup) return;
+		markerGroup.clearLayers();
 
 		for (const site of filteredSites) {
-			const status: SiteStatus = siteStatus?.(site.id) ?? {
-				severity: 'ok',
-				alarmCount: 0,
-				warningCount: 0,
-				latestReadingTime: null,
-				projectName: null,
-			};
+			const status: SiteStatus = statusBySite?.get(site.id) ?? defaultStatus;
 			const color = severityColor[status.severity];
 			const size = 22;
 			const icon = L.divIcon({
@@ -157,18 +167,21 @@
 			markerGroup.addLayer(marker);
 		}
 
-		map.addLayer(markerGroup);
-
-		if (filteredSites.length > 0) {
+		if (filteredSites.length > 0 && L) {
 			const bounds = L.latLngBounds(filteredSites.map((s) => [s.latitude!, s.longitude!]));
 			map.fitBounds(bounds, { padding: [50, 50], maxZoom: 14, animate: true });
 		}
 	}
 
+	onMount(async () => {
+		await setupMap();
+		mapReady = true;
+	});
+
 	$effect(() => {
 		const _sites = filteredSites;
-		const _status = siteStatus;
-		if (el) initMap();
+		const _status = statusBySite;
+		if (mapReady) renderMarkers();
 	});
 
 	onDestroy(() => { map?.remove(); });
@@ -177,15 +190,25 @@
 <div bind:this={el} style:height class="w-full rounded-md border border-brand-divider overflow-hidden"></div>
 
 <style>
-	:global(.site-status-tooltip) {
-		background: rgba(17, 24, 39, 0.95);
-		color: #f3f4f6;
-		border: 1px solid rgba(255, 255, 255, 0.08);
+	:global(.leaflet-tooltip.site-status-tooltip) {
+		background: #ffffff;
+		color: #1b2330;
+		border: 1px solid #e2e5ea;
 		border-radius: 6px;
 		padding: 8px 10px;
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+		font-family: 'Inter', 'Roboto', 'Helvetica Neue', system-ui, sans-serif;
 	}
-	:global(.site-status-tooltip::before) {
-		border-right-color: rgba(17, 24, 39, 0.95) !important;
+	:global(.leaflet-tooltip-right.site-status-tooltip::before) {
+		border-right-color: #ffffff;
+	}
+	:global(.leaflet-tooltip-left.site-status-tooltip::before) {
+		border-left-color: #ffffff;
+	}
+	:global(.leaflet-tooltip-top.site-status-tooltip::before) {
+		border-top-color: #ffffff;
+	}
+	:global(.leaflet-tooltip-bottom.site-status-tooltip::before) {
+		border-bottom-color: #ffffff;
 	}
 </style>

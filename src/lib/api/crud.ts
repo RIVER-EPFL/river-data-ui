@@ -13,7 +13,7 @@ export interface CrudClient<T> {
 	remove: (id: string) => Promise<void>;
 }
 
-export function crudClient<T>(entity: string, base = '/api/v1'): CrudClient<T> {
+export function crudClient<T>(entity: string, base = '/api'): CrudClient<T> {
 	const path = `${base}/${entity}`;
 	return {
 		list: (opts) => getList<T>(path, opts),

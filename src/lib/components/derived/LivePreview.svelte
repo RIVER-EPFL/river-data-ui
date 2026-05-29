@@ -1,7 +1,7 @@
 <script lang="ts">
 	import uPlot from 'uplot';
 	import UPlotChart from '$lib/components/charts/UPlotChart.svelte';
-	import { previewDerived, type PreviewDerivedResponse } from '$lib/api/v1';
+	import { previewDerived, type PreviewDerivedResponse } from '$api/service';
 	import { tokens } from '$lib/charts/tokens';
 
 	let {

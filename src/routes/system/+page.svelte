@@ -27,10 +27,10 @@
 	async function loadData() {
 		try {
 			const [svc, cmd, evt, cred, str] = await Promise.all([
-				getList<SyncService>('/api/v1/sync_services', { perPage: 50 }),
-				getList<SyncCommand>('/api/v1/sync_commands', { perPage: 50, sort: ['created_at', 'DESC'] }),
-				getList<SyncEvent>('/api/v1/sync_events', { perPage: 50, sort: ['started_at', 'DESC'] }),
-				getList<Record<string, unknown>>('/api/v1/sync_service_credentials', { perPage: 50 }),
+				getList<SyncService>('/api/sync_services', { perPage: 50 }),
+				getList<SyncCommand>('/api/sync_commands', { perPage: 50, sort: ['created_at', 'DESC'] }),
+				getList<SyncEvent>('/api/sync_events', { perPage: 50, sort: ['started_at', 'DESC'] }),
+				getList<Record<string, unknown>>('/api/sync_service_credentials', { perPage: 50 }),
 				api.dataStreams.list({ perPage: 500, filter: { is_active: true } }),
 			]);
 			services = svc.data;

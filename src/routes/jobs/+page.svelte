@@ -57,6 +57,16 @@
 		}
 	}
 
+	function triggerLabel(triggerType: string): string {
+		switch (triggerType) {
+			case 'janitor_run': return 'Janitor sweep';
+			case 'derived_recompute': return 'Derived recompute';
+			case 'calibration_update': return 'Calibration update';
+			case 'deployment_update': return 'Deployment update';
+			default: return triggerType;
+		}
+	}
+
 	function jobTarget(job: ReprocessingJob): { label: string; href: string | null } {
 		if (job.trigger_type === 'derived_recompute' && job.trigger_id) {
 			return { label: derivedMap.get(job.trigger_id) ?? job.trigger_id, href: `${base}/derived/${job.trigger_id}` };
@@ -123,7 +133,7 @@
 									{target.label}
 								{/if}
 							</td>
-							<td class="px-4 py-2 text-xs text-brand-muted">{job.trigger_type}</td>
+							<td class="px-4 py-2 text-xs text-brand-muted">{triggerLabel(job.trigger_type)}</td>
 							<td class="px-4 py-2">
 								<span class="px-2 py-0.5 text-xs font-medium rounded-full {statusClass(job.status)}">{job.status}</span>
 							</td>

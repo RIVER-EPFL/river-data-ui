@@ -88,8 +88,8 @@
 				selectedSiteIds.map(async (siteId) => {
 					const site = sites.find((s) => s.id === siteId);
 					const path = resolution === 'raw'
-						? `/api/v1/sites/${siteId}/readings`
-						: `/api/v1/sites/${siteId}/aggregates/${resolution}`;
+						? `/api/sites/${siteId}/readings`
+						: `/api/sites/${siteId}/aggregates/${resolution}`;
 					const data = await GET<{ data: Array<{ time: string; value: number }> }>(path, {
 						start: new Date(start).toISOString(),
 						end: new Date(end).toISOString(),
@@ -119,7 +119,7 @@
 				parameters: Array<{ id: string; name: string; units: string | null; values: (number | null)[] }>;
 			}
 			const result = await GET<ReadingsResponse>(
-				`/api/v1/sites/${scatterSiteId}/readings`,
+				`/api/sites/${scatterSiteId}/readings`,
 				{
 					start: new Date(start).toISOString(),
 					end: new Date(end).toISOString(),
