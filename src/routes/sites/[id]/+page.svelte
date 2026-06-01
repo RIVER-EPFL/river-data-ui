@@ -32,6 +32,7 @@
 	let activeTab = $state(0);
 	let statsOpen = $state(false);
 	let recomputingId = $state<string | null>(null);
+	let confirmingRemove = $state<string | null>(null);
 
 	// Scatter tab state
 	let scatterXParamId = $state('');
@@ -59,7 +60,7 @@
 	let resolutionOverride = $state<'auto' | 'raw' | 'hourly' | 'daily'>('auto');
 
 	const sliderMax = $state(Date.now());
-	const sliderMin = $state(Date.now() - 90 * 86400000);
+	let sliderMin = $state(Date.now() - 90 * 86400000);
 	let chartStart = $state(Date.now() - 604800000);
 	let chartEnd = $state(Date.now());
 
@@ -244,6 +245,14 @@
 			const now = new Date();
 			exportEnd = now.toISOString().slice(0, 16);
 			exportStart = new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 16);
+
+			// Set slider range from actual data extent
+			try {
+				const detailRes = await GET<{ data_start: string | null }>(`/api/sites/${siteId}/detail`);
+				if (detailRes.data_start) {
+					sliderMin = new Date(detailRes.data_start).getTime();
+				}
+			} catch { /* non-critical */ }
 
 			scheduleFetch();
 		} catch (e) {
@@ -800,9 +809,13 @@
 												>{recomputingId === d.id ? 'Computing...' : 'Recompute'}</button>
 											</ConfirmPopover>
 											{#if sp}
-												<ConfirmPopover message="Remove this derived parameter from the site?" confirmLabel="Remove" confirmVariant="alarm" onconfirm={() => unassignDerived(sp)}>
-													<button class="px-2 py-1 text-xs text-severity-alarm cursor-pointer hover:underline ml-1">Remove</button>
-												</ConfirmPopover>
+												{@const confirmKey = `remove-${sp.id}`}
+												{#if confirmingRemove === confirmKey}
+													<button class="px-2 py-1 text-xs bg-severity-alarm text-white rounded cursor-pointer border-none ml-1" onclick={() => { confirmingRemove = null; unassignDerived(sp); }}>Confirm</button>
+													<button class="px-2 py-1 text-xs text-brand-muted cursor-pointer hover:underline ml-1" onclick={() => confirmingRemove = null}>Cancel</button>
+												{:else}
+													<button class="px-2 py-1 text-xs text-severity-alarm cursor-pointer hover:underline ml-1" onclick={() => confirmingRemove = confirmKey}>Remove</button>
+												{/if}
 											{/if}
 										</td>
 									</tr>

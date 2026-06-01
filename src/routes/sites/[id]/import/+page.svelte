@@ -69,13 +69,16 @@
 				api.parameters.list({ perPage: 500 }),
 			]);
 			site = s;
-			const nameById = new Map(params.data.map((p: Parameter) => [p.id, p.display_name || p.name]));
+			const unitsById = new Map(params.data.map((p: Parameter) => [p.id, p.default_units]));
 			siteParamOptions = sp.data
 				.filter((p: SiteParameter) => !p.is_derived)
-				.map((p: SiteParameter) => ({
-					id: p.parameter_id,
-					label: nameById.get(p.parameter_id) ?? p.name ?? p.parameter_id,
-				}));
+				.map((p: SiteParameter) => {
+					const units = unitsById.get(p.parameter_id) ?? '';
+					return {
+						id: p.parameter_id,
+						label: units ? `${p.name} (${units})` : p.name,
+					};
+				});
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Failed to load site');
 		} finally {
@@ -358,6 +361,7 @@
 						<span class="text-brand-muted">
 							Recomputing derived parameters &amp; refreshing aggregates{#if job?.total}: {job.progress ?? 0}/{job.total}{/if}…
 						</span>
+						<p class="text-xs text-brand-muted mt-1">This runs in the background — you can navigate away safely.</p>
 					{/if}
 				</div>
 			{/if}
