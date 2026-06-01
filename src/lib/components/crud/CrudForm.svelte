@@ -6,7 +6,7 @@
 	export interface Field {
 		key: string;
 		label: string;
-		type?: 'text' | 'number' | 'textarea' | 'select' | 'boolean' | 'datetime' | 'email' | 'password';
+		type?: 'text' | 'number' | 'textarea' | 'select' | 'boolean' | 'datetime' | 'email' | 'password' | 'tags';
 		required?: boolean;
 		placeholder?: string;
 		helperText?: string;
@@ -143,6 +143,38 @@
 								<option value={opt.value}>{opt.label}</option>
 							{/each}
 						</select>
+					{:else if field.type === 'tags'}
+						{@const tags = (Array.isArray(values[field.key]) ? values[field.key] : []) as string[]}
+						<div class="flex flex-wrap gap-1.5 px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface min-h-[36px] items-center">
+							{#each tags as tag, i}
+								<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-brand-primary/10 text-brand-primary text-xs font-mono">
+									{tag}
+									<button
+										type="button"
+										onclick={() => { values[field.key] = tags.filter((_, j) => j !== i); }}
+										class="ml-0.5 text-brand-primary/60 hover:text-severity-alarm cursor-pointer bg-transparent border-none p-0 text-xs leading-none"
+									>&times;</button>
+								</span>
+							{/each}
+							<input
+								type="text"
+								placeholder={tags.length === 0 ? (field.placeholder ?? 'Type and press Enter') : ''}
+								disabled={field.disabled}
+								class="flex-1 min-w-[100px] bg-transparent border-none text-sm focus:outline-none p-0"
+								onkeydown={(e) => {
+									const input = e.target as HTMLInputElement;
+									if (e.key === 'Enter' && input.value.trim()) {
+										e.preventDefault();
+										const v = input.value.trim();
+										if (!tags.includes(v)) { values[field.key] = [...tags, v]; }
+										input.value = '';
+									}
+									if (e.key === 'Backspace' && !input.value && tags.length > 0) {
+										values[field.key] = tags.slice(0, -1);
+									}
+								}}
+							/>
+						</div>
 					{:else if field.type === 'boolean'}
 						<label class="flex items-center gap-2 cursor-pointer">
 							<input
