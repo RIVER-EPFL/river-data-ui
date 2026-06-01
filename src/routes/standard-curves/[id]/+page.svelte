@@ -16,9 +16,9 @@
 	const fields: Field[] = $derived([
 		{ key: 'parameter_id', label: 'Parameter', type: 'select', required: true, options: paramOptions },
 		{ key: 'valid_from', label: 'Valid From', type: 'datetime', required: true },
-		{ key: 'slope', label: 'Slope', type: 'number', required: true, step: 'any' },
-		{ key: 'intercept', label: 'Intercept', type: 'number', required: true, step: 'any' },
-		{ key: 'r_squared', label: 'R²', type: 'number', step: 'any' },
+		{ key: 'slope', label: 'Slope', type: 'number', required: true, step: 'any', helperText: 'Reference curve slope' },
+		{ key: 'intercept', label: 'Intercept', type: 'number', required: true, step: 'any', helperText: 'Reference curve intercept' },
+		{ key: 'r_squared', label: 'R²', type: 'number', step: 'any', helperText: 'Coefficient of determination (0-1)' },
 		{ key: 'notes', label: 'Notes', type: 'textarea' },
 	]);
 </script>

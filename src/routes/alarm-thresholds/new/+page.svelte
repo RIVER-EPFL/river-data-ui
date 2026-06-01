@@ -18,16 +18,16 @@
 	});
 
 	const fields: Field[] = $derived([
-		{ key: 'parameter_id', label: 'Parameter', type: 'select', required: true, options: paramOptions },
+		{ key: 'parameter_id', label: 'Parameter', type: 'select', required: true, options: paramOptions, helperText: 'The parameter these thresholds apply to' },
 		{ key: 'site_id', label: 'Site', type: 'select', options: siteOptions, helperText: 'Leave empty for a global default threshold' },
 		{ key: 'alarm_type', label: 'Type', type: 'select', required: true, options: [
 			{ value: 'numeric', label: 'Numeric' },
 			{ value: 'string', label: 'String' },
-		], defaultValue: 'numeric' },
-		{ key: 'warning_min', label: 'Warning Min', type: 'number', step: 'any' },
-		{ key: 'warning_max', label: 'Warning Max', type: 'number', step: 'any' },
-		{ key: 'alarm_min', label: 'Alarm Min', type: 'number', step: 'any' },
-		{ key: 'alarm_max', label: 'Alarm Max', type: 'number', step: 'any' },
+		], defaultValue: 'numeric', helperText: 'Threshold type for grouping' },
+		{ key: 'warning_min', label: 'Warning Min', type: 'number', step: 'any', helperText: 'Below this value triggers a warning (severity 1)' },
+		{ key: 'warning_max', label: 'Warning Max', type: 'number', step: 'any', helperText: 'Above this value triggers a warning (severity 1)' },
+		{ key: 'alarm_min', label: 'Alarm Min', type: 'number', step: 'any', helperText: 'Below this value triggers an alarm (severity 2)' },
+		{ key: 'alarm_max', label: 'Alarm Max', type: 'number', step: 'any', helperText: 'Above this value triggers an alarm (severity 2)' },
 	]);
 </script>
 

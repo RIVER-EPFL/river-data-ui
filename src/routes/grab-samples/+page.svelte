@@ -30,7 +30,9 @@
 	const filteredParams = $derived(selectedSiteId ? siteParams.filter((sp) => sp.site_id === selectedSiteId) : []);
 
 	function paramName(paramId: string): string {
-		return params.find((p) => p.id === paramId)?.display_name ?? paramId;
+		const p = params.find((p) => p.id === paramId);
+		if (!p) return paramId;
+		return p.default_units ? `${p.display_name} (${p.default_units})` : p.display_name;
 	}
 
 	function paramUnits(sp: SiteParameter): string {

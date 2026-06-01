@@ -32,7 +32,11 @@
 	});
 
 	function siteName(siteId: string): string { return sites.find((s) => s.id === siteId)?.name ?? siteId; }
-	function paramName(paramId: string): string { return params.find((p) => p.id === paramId)?.display_name ?? paramId; }
+	function paramName(paramId: string): string {
+		const p = params.find((p) => p.id === paramId);
+		if (!p) return paramId;
+		return p.default_units ? `${p.display_name} (${p.default_units})` : p.display_name;
+	}
 
 	const assignedSites = $derived(
 		assignedSiteParams

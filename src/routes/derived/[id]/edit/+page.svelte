@@ -27,7 +27,7 @@
 	const paramVars = $derived(
 		allParams
 			.filter((p) => p.category !== 'device_health')
-			.map((p) => ({ name: p.name, label: p.display_name || p.name, category: p.category }))
+			.map((p) => ({ name: p.name, label: `${p.display_name || p.name}${p.default_units ? ' (' + p.default_units + ')' : ''}`, category: p.category }))
 	);
 
 	const variableNamesInFormula = $derived.by(() => {

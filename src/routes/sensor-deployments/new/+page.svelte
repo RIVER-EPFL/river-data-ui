@@ -20,8 +20,8 @@
 	const fields: Field[] = $derived([
 		{ key: 'sensor_id', label: 'Sensor', type: 'select', required: true, options: sensorOptions },
 		{ key: 'site_id', label: 'Site', type: 'select', required: true, options: siteOptions },
-		{ key: 'deployed_from', label: 'Deployed From', type: 'datetime', required: true },
-		{ key: 'deployed_until', label: 'Deployed Until', type: 'datetime', helperText: 'Leave empty for current deployment' },
+		{ key: 'deployed_from', label: 'Deployed From', type: 'datetime', required: true, helperText: 'When the sensor was installed at this site' },
+		{ key: 'deployed_until', label: 'Deployed Until', type: 'datetime', helperText: 'When removed, auto-set on next deployment' },
 		{ key: 'notes', label: 'Notes', type: 'textarea' },
 	]);
 </script>

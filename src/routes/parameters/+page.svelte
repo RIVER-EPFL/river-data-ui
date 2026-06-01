@@ -81,7 +81,7 @@
 		<table class="w-full text-sm">
 			<thead>
 				<tr class="bg-brand-bg border-b border-brand-divider">
-					{#each [['name', 'Name'], ['display_name', 'Display Name'], ['default_units', 'Units'], ['category', 'Category'], ['data_type', 'Type'], ['created_at', 'Created']] as [key, label]}
+					{#each [['name', 'Name'], ['display_name', 'Display Name'], ['category', 'Category'], ['data_type', 'Type'], ['created_at', 'Created']] as [key, label]}
 						<th class="text-left px-4 py-2 font-semibold cursor-pointer select-none hover:text-brand-primary" onclick={() => toggleSort(key)}>
 							{label} {sortField === key ? (sortOrder === 'ASC' ? '↑' : '↓') : ''}
 						</th>
@@ -97,8 +97,7 @@
 					{#each parameters as param}
 						<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50">
 							<td class="px-4 py-2"><a href="{base}/parameters/{param.id}" class="text-brand-primary font-semibold no-underline hover:underline">{param.name}</a></td>
-							<td class="px-4 py-2">{param.display_name}</td>
-							<td class="px-4 py-2 text-brand-muted">{param.default_units}</td>
+							<td class="px-4 py-2">{param.display_name}{param.default_units ? ` (${param.default_units})` : ''}</td>
 							<td class="px-4 py-2"><span class="px-2 py-0.5 text-xs font-medium rounded-full bg-brand-bg text-brand-muted">{param.category}</span></td>
 							<td class="px-4 py-2 text-brand-muted text-xs font-mono">{param.data_type}</td>
 							<td class="px-4 py-2 text-brand-muted text-xs">{formatRelativeTime(param.created_at)}</td>

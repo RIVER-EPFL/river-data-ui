@@ -17,9 +17,9 @@
 		{ key: 'project_id', label: 'Project', type: 'select', required: true, options: projectOptions },
 		{ key: 'name', label: 'Name', required: true },
 		{ key: 'description', label: 'Description', type: 'textarea' },
-		{ key: 'latitude', label: 'Latitude', type: 'number', step: 'any' },
-		{ key: 'longitude', label: 'Longitude', type: 'number', step: 'any' },
-		{ key: 'altitude_m', label: 'Altitude (m)', type: 'number', step: 'any' },
+		{ key: 'latitude', label: 'Latitude', type: 'number', step: 'any', helperText: 'WGS84 coordinate' },
+		{ key: 'longitude', label: 'Longitude', type: 'number', step: 'any', helperText: 'WGS84 coordinate' },
+		{ key: 'altitude_m', label: 'Altitude (m)', type: 'number', step: 'any', helperText: 'Elevation in meters above sea level' },
 		{ key: 'public_slug', label: 'Public API Slug', helperText: 'URL-safe slug for public API access (e.g. "les_dailles")' },
 	]);
 </script>

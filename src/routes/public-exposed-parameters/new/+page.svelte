@@ -20,13 +20,13 @@
 	const fields: Field[] = $derived([
 		{ key: 'project_id', label: 'Project', type: 'select', required: true, options: projectOptions },
 		{ key: 'parameter_id', label: 'Parameter', type: 'select', required: true, options: paramOptions },
-		{ key: 'public_name', label: 'Public Name', required: true },
-		{ key: 'public_units', label: 'Public Units', required: true },
+		{ key: 'public_name', label: 'Public Name', required: true, helperText: 'Column name in public API exports, e.g. DOuM' },
+		{ key: 'public_units', label: 'Public Units', required: true, helperText: 'Units displayed in public API, may differ from internal' },
 		{ key: 'description', label: 'Description', type: 'textarea' },
-		{ key: 'sort_order', label: 'Sort Order', type: 'number', defaultValue: 0 },
-		{ key: 'conversion_factor', label: 'Conversion Factor', type: 'number', step: 'any', helperText: 'Optional unit conversion: public = factor × internal + offset' },
-		{ key: 'conversion_offset', label: 'Conversion Offset', type: 'number', step: 'any' },
-		{ key: 'include_derived', label: 'Include Derived', type: 'boolean', defaultValue: false },
+		{ key: 'sort_order', label: 'Sort Order', type: 'number', defaultValue: 0, helperText: 'Display order in public API output (lower = first)' },
+		{ key: 'conversion_factor', label: 'Conversion Factor', type: 'number', step: 'any', helperText: 'Multiply internal value by this factor for public output' },
+		{ key: 'conversion_offset', label: 'Conversion Offset', type: 'number', step: 'any', helperText: 'Add this offset after applying the conversion factor' },
+		{ key: 'include_derived', label: 'Include Derived', type: 'boolean', defaultValue: false, helperText: 'Include derived values for this parameter in public output' },
 	]);
 </script>
 

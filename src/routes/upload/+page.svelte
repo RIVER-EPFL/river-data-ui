@@ -355,7 +355,8 @@
 
 	function resolvedParamName(row: Record<string, string>): string {
 		if (mappingMode === 'single') {
-			return params.find((p) => p.id === singleParameterId)?.display_name ?? '—';
+			const p = params.find((p) => p.id === singleParameterId);
+			return p ? (p.default_units ? `${p.display_name} (${p.default_units})` : p.display_name) : '—';
 		}
 		return row[paramColumn] ?? '—';
 	}

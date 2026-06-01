@@ -63,7 +63,7 @@
 					{#each items as item}
 						{@const count = siteCounts[item.id] ?? 0}
 						<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50">
-							<td class="px-4 py-2"><a href="{base}/derived/{item.id}" class="text-brand-primary font-semibold no-underline hover:underline">{item.display_name || item.name}</a></td>
+							<td class="px-4 py-2"><a href="{base}/derived/{item.id}" class="text-brand-primary font-semibold no-underline hover:underline">{item.display_name || item.name}{item.units ? ` (${item.units})` : ''}</a></td>
 							<td class="px-4 py-2 font-mono text-xs text-brand-muted max-w-[300px] truncate">{item.formula}</td>
 							<td class="px-4 py-2 text-center">
 								{#if count > 0}

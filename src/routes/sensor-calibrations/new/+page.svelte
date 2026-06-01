@@ -14,10 +14,10 @@
 
 	const fields: Field[] = $derived([
 		{ key: 'sensor_id', label: 'Sensor', type: 'select', required: true, options: sensorOptions },
-		{ key: 'valid_from', label: 'Valid From', type: 'datetime', required: true },
-		{ key: 'valid_until', label: 'Valid Until', type: 'datetime', helperText: 'Leave empty for open-ended' },
-		{ key: 'slope', label: 'Slope (m)', type: 'number', required: true, step: 'any' },
-		{ key: 'intercept', label: 'Intercept (b)', type: 'number', required: true, step: 'any', helperText: 'calibrated = slope × raw + intercept' },
+		{ key: 'valid_from', label: 'Valid From', type: 'datetime', required: true, helperText: 'Start of calibration validity period' },
+		{ key: 'valid_until', label: 'Valid Until', type: 'datetime', helperText: 'End of validity, auto-set when a new calibration is created' },
+		{ key: 'slope', label: 'Slope (m)', type: 'number', required: true, step: 'any', helperText: 'calibrated = slope * raw + intercept' },
+		{ key: 'intercept', label: 'Intercept (b)', type: 'number', required: true, step: 'any', helperText: 'Linear calibration intercept' },
 		{ key: 'notes', label: 'Notes', type: 'textarea' },
 	]);
 </script>

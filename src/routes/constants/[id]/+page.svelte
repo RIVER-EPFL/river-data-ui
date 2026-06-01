@@ -13,9 +13,9 @@
 	title="Edit Constant"
 	backHref="{base}/constants"
 	fields={[
-		{ key: 'name', label: 'Name', required: true },
-		{ key: 'value', label: 'Value', type: 'number', required: true, step: 'any' },
-		{ key: 'units', label: 'Units' },
+		{ key: 'name', label: 'Name', required: true, helperText: 'Identifier used in formulas, e.g. molar_weight_o2' },
+		{ key: 'value', label: 'Value', type: 'number', required: true, step: 'any', helperText: 'Numeric constant value' },
+		{ key: 'units', label: 'Units', helperText: 'Unit of the constant, e.g. g/mol' },
 		{ key: 'description', label: 'Description', type: 'textarea' },
 	]}
 />

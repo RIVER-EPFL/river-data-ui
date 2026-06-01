@@ -20,12 +20,12 @@
 	const fields: Field[] = $derived([
 		{ key: 'site_id', label: 'Site', type: 'select', required: true, options: siteOptions },
 		{ key: 'parameter_id', label: 'Parameter', type: 'select', required: true, options: paramOptions },
-		{ key: 'display_units', label: 'Display Units', helperText: 'Overrides the parameter default' },
-		{ key: 'sample_interval_sec', label: 'Sample Interval (seconds)', type: 'number' },
-		{ key: 'decimal_places', label: 'Decimal Places', type: 'number' },
-		{ key: 'channel_id', label: 'Channel ID', type: 'number' },
-		{ key: 'sensor_type', label: 'Sensor Type' },
-		{ key: 'is_active', label: 'Active', type: 'boolean', defaultValue: true },
+		{ key: 'display_units', label: 'Display Units', helperText: 'Overrides the parameter default units for this site' },
+		{ key: 'sample_interval_sec', label: 'Sample Interval (seconds)', type: 'number', helperText: 'Expected interval between readings in seconds' },
+		{ key: 'decimal_places', label: 'Decimal Places', type: 'number', helperText: 'Number of decimal places for display' },
+		{ key: 'channel_id', label: 'Channel ID', type: 'number', helperText: 'External channel identifier from the data source' },
+		{ key: 'sensor_type', label: 'Sensor Type', helperText: 'Measurement type label' },
+		{ key: 'is_active', label: 'Active', type: 'boolean', defaultValue: true, helperText: 'Inactive site-parameters are hidden from data views' },
 	]);
 </script>
 
