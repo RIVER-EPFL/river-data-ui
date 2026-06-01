@@ -95,6 +95,21 @@ export const refreshAggregates = (full = false) =>
 export const invalidatePublicConfig = (slug: string) =>
 	POST(`${ADMIN}/actions/invalidate_public_config/${slug}`);
 
+// Merge parameters
+export interface MergeParametersResponse {
+	sites_merged: number;
+	sites_reassigned: number;
+	readings_moved: number;
+	streams_updated: number;
+	source_deleted: boolean;
+}
+
+export const mergeParameters = (sourceParameterId: string, targetParameterId: string) =>
+	POST<MergeParametersResponse>(`${SERVICE}/actions/merge_parameters`, {
+		source_parameter_id: sourceParameterId,
+		target_parameter_id: targetParameterId,
+	});
+
 // Derived preview
 export interface PreviewDerivedRequest {
 	formula: string;
@@ -187,9 +202,10 @@ export interface PairingPlanEntry {
 		longitude: number | null;
 		altitude_m: number | null;
 	};
-	parameter: { id: string | null; name: string; create: boolean; units: string };
+	parameter: { id: string | null; name: string; create: boolean; units: string; group_key: string | null; original_names: string[] };
 	confidence: string;
 	warnings: string[];
+	original_parameter_name: string | null;
 }
 
 export interface PairingPlanSummary {
@@ -232,6 +248,7 @@ export interface PlanEntryUpdate {
 	site_name?: string;
 	parameter_name?: string;
 	parameter_units?: string;
+	parameter_id?: string;
 }
 
 export const createPairingPlan = (sourceSystem: string) =>
