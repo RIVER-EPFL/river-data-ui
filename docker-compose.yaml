@@ -48,7 +48,7 @@ services:
       - CACHE_MAX_BYTES=${CACHE_MAX_BYTES:-209715200}
       # Application
       - DEPLOYMENT=${DEPLOYMENT:-dev}
-      - RUST_LOG=${RUST_LOG:-info,river_db=debug,sea_orm=warn,sqlx=warn}
+      - RUST_LOG=${LOG_LEVEL:-warn}
       # Authentication (points to local Keycloak)
       - KEYCLOAK_URL=http://river-db-keycloak:8080/
       - KEYCLOAK_REALM=river-data
@@ -167,13 +167,14 @@ services:
       - RETRY_MAX=${RETRY_MAX:-3}
       - RETRY_DELAY_SECONDS=${RETRY_DELAY_SECONDS:-60}
       # Logging
-      - RUST_LOG=${SYNC_RUST_LOG:-info}
+      - RUST_LOG=${LOG_LEVEL:-warn}
     depends_on:
       river-data-api:
         condition: service_healthy
 
   # ── Portal source databases ─────────────────────────────────────────
   portal-db-cnet:
+    profiles: [portal]
     image: mariadb:10.3
     environment:
       MYSQL_ROOT_PASSWORD: root
@@ -190,6 +191,7 @@ services:
       retries: 10
 
   portal-db-metalp:
+    profiles: [portal]
     image: mariadb:10.3
     environment:
       MYSQL_ROOT_PASSWORD: root
@@ -206,6 +208,7 @@ services:
       retries: 10
 
   portal-db-nomis:
+    profiles: [portal]
     image: mariadb:10.3
     environment:
       MYSQL_ROOT_PASSWORD: root
@@ -223,6 +226,7 @@ services:
 
   # ── Portal sync microservices ──────────────────────────────────────
   river-data-sync-cnet:
+    profiles: [portal]
     build:
       context: ../river-data-rshiny
     environment:
@@ -240,7 +244,7 @@ services:
       - HEARTBEAT_INTERVAL_SECONDS=30
       - RETRY_MAX=3
       - RETRY_DELAY_SECONDS=60
-      - RUST_LOG=${SYNC_RUST_LOG:-info}
+      - RUST_LOG=${LOG_LEVEL:-warn}
     depends_on:
       river-data-api:
         condition: service_healthy
@@ -248,6 +252,7 @@ services:
         condition: service_healthy
 
   river-data-sync-metalp:
+    profiles: [portal]
     build:
       context: ../river-data-rshiny
     environment:
@@ -265,7 +270,7 @@ services:
       - HEARTBEAT_INTERVAL_SECONDS=30
       - RETRY_MAX=3
       - RETRY_DELAY_SECONDS=60
-      - RUST_LOG=${SYNC_RUST_LOG:-info}
+      - RUST_LOG=${LOG_LEVEL:-warn}
     depends_on:
       river-data-api:
         condition: service_healthy
@@ -273,6 +278,7 @@ services:
         condition: service_healthy
 
   river-data-sync-nomis:
+    profiles: [portal]
     build:
       context: ../river-data-rshiny
     environment:
@@ -290,7 +296,7 @@ services:
       - HEARTBEAT_INTERVAL_SECONDS=30
       - RETRY_MAX=3
       - RETRY_DELAY_SECONDS=60
-      - RUST_LOG=${SYNC_RUST_LOG:-info}
+      - RUST_LOG=${LOG_LEVEL:-warn}
     depends_on:
       river-data-api:
         condition: service_healthy
@@ -317,10 +323,9 @@ services:
       retries: 15
       start_period: 30s
 
-  # ── Test infrastructure (profile: test) ─────────────────────────────
+  # ── Test infrastructure ──────────────────────────────────────────────
   river-db-test-db:
     image: timescale/timescaledb:${TIMESCALEDB_VERSION:-2.23.0-pg18}
-    profiles: [test]
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=psql
@@ -329,6 +334,8 @@ services:
       - "5444:5432"
     tmpfs:
       - /var/lib/postgresql/data
+    # Suppress materialization/refresh chatter; remove for debugging
+    command: ["postgres", "-c", "log_min_messages=fatal", "-c", "log_statement=none"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -339,10 +346,9 @@ services:
     build:
       context: ../river-data-api
       dockerfile: Dockerfile.dev
-    profiles: [test]
     environment:
       - DATABASE_URL=postgresql://postgres:psql@river-db-test-db:5432/river_test
-      - RUST_LOG=warn
+      - RUST_LOG=${LOG_LEVEL:-warn}
     depends_on:
       river-db-test-db:
         condition: service_healthy
@@ -354,6 +360,7 @@ services:
       - ../river-data-api/Cargo.toml:/app/Cargo.toml
       - ../river-data-api/Cargo.lock:/app/Cargo.lock
       - ../river-data-api/bacon.toml:/app/bacon.toml
+      - /home/ejthomas/projects/personal/crudcrate/crudcrate:/home/ejthomas/projects/personal/crudcrate/crudcrate:ro
       - river-db-test-rust-data:/app/target
 
 volumes:
