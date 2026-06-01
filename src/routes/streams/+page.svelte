@@ -67,6 +67,10 @@
 	let editingParam = $state<{ site: string; streamId: string } | null>(null);
 	let editingGlobalParam = $state<string | null>(null);
 	let editValue = $state('');
+	let customParamInput = $state<string | null>(null);
+	let expandedParamGroups = $state<Set<string>>(new Set());
+	let splitParamInput = $state<{ groupName: string; sourceName: string } | null>(null);
+	let splitParamValue = $state('');
 	let sitePage = $state(0);
 	const sitesPerPage = 50;
 	let reviewTab = $state<'sites' | 'parameters' | 'warnings'>('sites');
@@ -144,6 +148,8 @@
 	interface ParamGroup {
 		name: string;
 		originalName: string;
+		originalNames: string[];
+		groupKey: string | null;
 		units: string;
 		create: boolean;
 		confidence: 'exact' | 'none' | 'mixed';
@@ -153,11 +159,12 @@
 	}
 
 	const paramGroups = $derived.by((): ParamGroup[] => {
-		const map = new Map<string, { originalName: string; units: string; create: boolean; confs: Set<string>; siteNames: Set<string>; streamIds: string[]; warnings: Set<string> }>();
+		const map = new Map<string, { originalName: string; originalNames: Set<string>; groupKey: string | null; units: string; create: boolean; confs: Set<string>; siteNames: Set<string>; streamIds: string[]; warnings: Set<string> }>();
 		for (const e of planEntries) {
 			const key = e.parameter.name;
 			let g = map.get(key);
-			if (!g) { g = { originalName: e.source_name ?? e.source_key, units: e.parameter.units, create: e.parameter.create, confs: new Set(), siteNames: new Set(), streamIds: [], warnings: new Set() }; map.set(key, g); }
+			if (!g) { g = { originalName: e.source_name ?? e.source_key, originalNames: new Set(), groupKey: e.parameter.group_key ?? null, units: e.parameter.units, create: e.parameter.create, confs: new Set(), siteNames: new Set(), streamIds: [], warnings: new Set() }; map.set(key, g); }
+			if (e.original_parameter_name) g.originalNames.add(e.original_parameter_name);
 			g.confs.add(e.confidence);
 			g.siteNames.add(e.site.name);
 			g.streamIds.push(e.stream_id);
@@ -166,7 +173,7 @@
 		const groups: ParamGroup[] = [];
 		for (const [name, g] of map) {
 			const confidence = g.confs.size === 1 ? (g.confs.has('exact') ? 'exact' : 'none') : 'mixed';
-			groups.push({ name, originalName: g.originalName, units: g.units, create: g.create, confidence, siteCount: g.siteNames.size, streamIds: g.streamIds, warnings: [...g.warnings] });
+			groups.push({ name, originalName: g.originalName, originalNames: [...g.originalNames], groupKey: g.groupKey, units: g.units, create: g.create, confidence, siteCount: g.siteNames.size, streamIds: g.streamIds, warnings: [...g.warnings] });
 		}
 		return groups.sort((a, b) => a.name.localeCompare(b.name));
 	});
@@ -224,6 +231,23 @@
 		}
 		planEntries = [...planEntries];
 		queueUpdate(updates);
+	}
+
+	function splitSourceToNewParam(sourceName: string, newParamName: string) {
+		if (!newParamName.trim()) return;
+		const updates: PlanEntryUpdate[] = [];
+		for (const e of planEntries) {
+			if (e.original_parameter_name === sourceName) {
+				(e.parameter as any).name = newParamName.trim();
+				(e.parameter as any).create = true;
+				(e.parameter as any).id = null;
+				updates.push({ stream_id: e.stream_id, parameter_name: newParamName.trim() });
+			}
+		}
+		planEntries = [...planEntries];
+		queueUpdate(updates);
+		splitParamInput = null;
+		splitParamValue = '';
 	}
 
 	function startEditGlobalParam(name: string) {
@@ -784,43 +808,71 @@
 									<div class="flex items-center gap-2 pl-10 pr-2 py-1.5 border-b border-brand-divider bg-brand-bg/30 text-xs {entry.action === 'skip' ? 'opacity-50' : ''}">
 										<div class="flex-1 min-w-0 flex items-center gap-1.5">
 											{#if entryEditing}
-												<select
-													value={entryMatched ? `db:${entryMatched.id}` : `new:${entry.parameter.name}`}
-													onchange={(e) => {
-														const val = (e.target as HTMLSelectElement).value;
-														editingParam = null;
-														if (val.startsWith('db:')) {
-															const ep = existingParams.find((p) => p.id === val.slice(3));
-															if (ep && ep.name !== entry.parameter.name) {
-																(entry.parameter as any).name = ep.name;
-																(entry.parameter as any).create = false;
-																planEntries = [...planEntries];
-																queueUpdate([{ stream_id: entry.stream_id, parameter_name: ep.name }]);
-															}
-														} else if (val.startsWith('new:')) {
-															const newName = val.slice(4);
-															if (newName !== entry.parameter.name) {
-																(entry.parameter as any).name = newName;
+												{#if customParamInput !== null}
+													<input
+														type="text"
+														bind:value={customParamInput}
+														placeholder="New parameter name"
+														class="px-1 py-0.5 rounded text-xs bg-brand-surface border border-brand-primary max-w-[180px]"
+														autofocus
+														onkeydown={(e) => {
+															if (e.key === 'Enter' && customParamInput?.trim()) {
+																const name = customParamInput.trim();
+																(entry.parameter as any).name = name;
 																(entry.parameter as any).create = true;
 																planEntries = [...planEntries];
-																queueUpdate([{ stream_id: entry.stream_id, parameter_name: newName }]);
+																queueUpdate([{ stream_id: entry.stream_id, parameter_name: name }]);
+																customParamInput = null;
+																editingParam = null;
 															}
-														}
-													}}
-													class="px-1 py-0.5 rounded text-xs bg-brand-surface border border-brand-primary max-w-[220px]"
-													autofocus
-												>
-													<optgroup label="Existing">
-														{#each existingParams as ep}
-															<option value="db:{ep.id}">{ep.display_name} ({ep.default_units})</option>
-														{/each}
-													</optgroup>
-													<optgroup label="New">
-														{#each paramGroups.filter((p) => !existingParams.some((ep) => ep.name === p.name)) as newP}
-															<option value="new:{newP.name}">+ {newP.name} ({newP.units})</option>
-														{/each}
-													</optgroup>
-												</select>
+															if (e.key === 'Escape') { customParamInput = null; editingParam = null; }
+														}}
+													/>
+													<button onclick={() => { customParamInput = null; }} class="text-[10px] text-brand-muted cursor-pointer bg-transparent border-none">cancel</button>
+												{:else}
+													<select
+														value={entryMatched ? `db:${entryMatched.id}` : `new:${entry.parameter.name}`}
+														onchange={(e) => {
+															const val = (e.target as HTMLSelectElement).value;
+															if (val === 'custom') {
+																customParamInput = '';
+																return;
+															}
+															editingParam = null;
+															if (val.startsWith('db:')) {
+																const ep = existingParams.find((p) => p.id === val.slice(3));
+																if (ep && ep.name !== entry.parameter.name) {
+																	(entry.parameter as any).name = ep.name;
+																	(entry.parameter as any).create = false;
+																	planEntries = [...planEntries];
+																	queueUpdate([{ stream_id: entry.stream_id, parameter_name: ep.name }]);
+																}
+															} else if (val.startsWith('new:')) {
+																const newName = val.slice(4);
+																if (newName !== entry.parameter.name) {
+																	(entry.parameter as any).name = newName;
+																	(entry.parameter as any).create = true;
+																	planEntries = [...planEntries];
+																	queueUpdate([{ stream_id: entry.stream_id, parameter_name: newName }]);
+																}
+															}
+														}}
+														class="px-1 py-0.5 rounded text-xs bg-brand-surface border border-brand-primary max-w-[220px]"
+														autofocus
+													>
+														<optgroup label="Existing">
+															{#each existingParams as ep}
+																<option value="db:{ep.id}">{ep.display_name} ({ep.default_units})</option>
+															{/each}
+														</optgroup>
+														<optgroup label="New">
+															{#each paramGroups.filter((p) => !existingParams.some((ep) => ep.name === p.name)) as newP}
+																<option value="new:{newP.name}">+ {newP.name} ({newP.units})</option>
+															{/each}
+														</optgroup>
+														<option value="custom">Custom name...</option>
+													</select>
+												{/if}
 											{:else}
 												<button
 													onclick={() => { editingParam = { site: group.siteName, streamId: entry.stream_id }; }}
@@ -886,7 +938,53 @@
 								{#each paramGroups as pg}
 									{@const matched = existingParams.find((p) => p.name === pg.name)}
 									<tr id="param-row-{pg.name}" class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 transition-shadow">
-										<td class="px-3 py-2 text-xs text-brand-muted font-mono truncate max-w-[140px]" title={pg.originalName}>{pg.originalName}</td>
+										<td class="px-3 py-2 text-xs text-brand-muted font-mono max-w-[250px]">
+										{#if pg.originalNames.length > 1}
+											<button
+												onclick={() => {
+													const s = new Set(expandedParamGroups);
+													if (s.has(pg.name)) s.delete(pg.name); else s.add(pg.name);
+													expandedParamGroups = s;
+												}}
+												class="bg-transparent border-none cursor-pointer text-brand-muted hover:text-brand-primary text-xs p-0"
+												title="Expand to split individual sources"
+											>
+												{expandedParamGroups.has(pg.name) ? '▾' : '▸'} {pg.originalNames.length} sources
+											</button>
+											{#if expandedParamGroups.has(pg.name)}
+												<div class="mt-1 space-y-1 pl-2 border-l-2 border-brand-divider">
+													{#each pg.originalNames as src}
+														<div class="flex items-center gap-1">
+															<span class="font-mono text-[11px]">{src}</span>
+															{#if splitParamInput?.sourceName === src && splitParamInput?.groupName === pg.name}
+																<input
+																	type="text"
+																	bind:value={splitParamValue}
+																	placeholder="New parameter name"
+																	class="px-1 py-0.5 rounded text-[11px] bg-brand-surface border border-brand-primary w-28"
+																	autofocus
+																	onkeydown={(e) => {
+																		if (e.key === 'Enter') splitSourceToNewParam(src, splitParamValue);
+																		if (e.key === 'Escape') { splitParamInput = null; splitParamValue = ''; }
+																	}}
+																/>
+																<button onclick={() => { splitParamInput = null; splitParamValue = ''; }} class="text-[10px] text-brand-muted cursor-pointer bg-transparent border-none">cancel</button>
+															{:else}
+																<button
+																	onclick={() => { splitParamInput = { groupName: pg.name, sourceName: src }; splitParamValue = src; }}
+																	class="text-[10px] text-brand-primary cursor-pointer bg-transparent border-none hover:underline"
+																>split</button>
+															{/if}
+														</div>
+													{/each}
+												</div>
+											{:else}
+												<div class="text-[10px] opacity-70 truncate">{pg.originalNames.join(', ')}</div>
+											{/if}
+										{:else}
+											{pg.originalNames[0] ?? pg.originalName}
+										{/if}
+									</td>
 										<td class="px-3 py-2">
 											{#if matched}
 												<span class="font-medium text-brand-text" title="Already exists in the database — edit via the Parameters page">{matched.display_name}</span>
