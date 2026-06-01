@@ -133,7 +133,9 @@
 	}
 
 	function fmtDateShort(d: Date): string {
-		return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+		const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
+		if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+		return d.toLocaleDateString('en-US', opts);
 	}
 
 	function fmtDateTimeFull(v: number): string {
