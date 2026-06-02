@@ -84,6 +84,8 @@ interface DashboardState {
   expandedCharts: Set<string>;
   start: Date | null;
   end: Date | null;
+  dataMinTs: number | null;
+  dataMaxTs: number | null;
   charts: Record<string, uPlot>;
   chartData: Record<string, ChartDataEntry>;
   slider: ReturnType<typeof noUiSlider.create> | null;
@@ -218,6 +220,8 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     expandedCharts: new Set(),
     start: null,
     end: null,
+    dataMinTs: null,
+    dataMaxTs: null,
     charts: {},
     chartData: {},
     slider: null,
@@ -479,6 +483,8 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
 
     const minTs = new Date(site.data_start).getTime();
     const maxTs = new Date(site.data_end).getTime();
+    state.dataMinTs = minTs;
+    state.dataMaxTs = maxTs;
 
     $('min-date').textContent = formatDate(minTs);
     $('max-date').textContent = formatDate(maxTs);
@@ -631,8 +637,12 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     });
 
     state.slider.on('update', (values: (string | number)[]) => {
-      state.start = new Date(Number(values[0]));
-      state.end = new Date(Number(values[1]));
+      const lo = state.dataMinTs ?? minTs;
+      const hi = state.dataMaxTs ?? maxTs;
+      const startTs = Math.min(Math.max(Number(values[0]), lo), hi);
+      const endTs = Math.min(Math.max(Number(values[1]), lo), hi);
+      state.start = new Date(startTs);
+      state.end = new Date(endTs);
       updateWindowInfo();
       fetchData();
     });
@@ -1089,10 +1099,8 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
         }, { signal });
 
         chartDiv.querySelector('.chart-area')!.addEventListener('dblclick', () => {
-          if (!state.site?.data_start || !state.site?.data_end || !state.slider) return;
-          const siteMinTs = new Date(state.site.data_start).getTime();
-          const siteMaxTs = new Date(state.site.data_end).getTime();
-          state.slider.set([siteMinTs, siteMaxTs]);
+          if (state.dataMinTs == null || state.dataMaxTs == null || !state.slider) return;
+          state.slider.set([state.dataMinTs, state.dataMaxTs]);
         }, { signal });
       }
 
@@ -1199,7 +1207,11 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
                 if (u.select.width > 0) {
                   const left = u.posToVal(u.select.left, 'x');
                   const right = u.posToVal(u.select.left + u.select.width, 'x');
-                  state.slider?.set([left * 1000, right * 1000]);
+                  const lo = state.dataMinTs ?? -Infinity;
+                  const hi = state.dataMaxTs ?? Infinity;
+                  const selStart = Math.min(Math.max(left * 1000, lo), hi);
+                  const selEnd = Math.min(Math.max(right * 1000, lo), hi);
+                  state.slider?.set([selStart, selEnd]);
                   u.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false);
                 }
               },
@@ -1212,8 +1224,8 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
 
         // Attach dblclick to uPlot root (u-over div may absorb events on .chart-area)
         state.charts[type].root.addEventListener('dblclick', () => {
-          if (!state.site?.data_start || !state.site?.data_end || !state.slider) return;
-          state.slider.set([new Date(state.site.data_start).getTime(), new Date(state.site.data_end).getTime()]);
+          if (state.dataMinTs == null || state.dataMaxTs == null || !state.slider) return;
+          state.slider.set([state.dataMinTs, state.dataMaxTs]);
         }, { signal });
       }
     });
@@ -1269,6 +1281,8 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
       state.chartData = {};
       state.data = null;
       state.site = null;
+      state.dataMinTs = null;
+      state.dataMaxTs = null;
       state.alarms = [];
       if (state.slider) { state.slider.destroy(); state.slider = null; }
       ($('slider-section')).style.display = 'none';
