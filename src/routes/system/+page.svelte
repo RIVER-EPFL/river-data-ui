@@ -207,6 +207,7 @@
 													<td class="py-1">{evt.event_type}</td>
 													<td class="py-1"><span class="px-2 py-0.5 rounded-full {evt.status === 'completed' ? 'bg-severity-ok-soft text-severity-ok' : evt.status === 'failed' ? 'bg-severity-alarm-soft text-severity-alarm' : 'bg-brand-bg text-brand-muted'}">{evt.status}</span></td>
 													<td class="py-1">{evt.readings_synced} readings</td>
+													<td class="py-1">{evt.status_events_synced} status events</td>
 													<td class="py-1 text-brand-muted">{formatRelativeTime(evt.started_at)}</td>
 												</tr>
 											{/each}

@@ -52,6 +52,7 @@
 				{ href: `${base}/constants`, label: 'Constants', icon: 'hash' },
 				{ href: `${base}/projects`, label: 'Projects', icon: 'folder' },
 				{ href: `${base}/users`, label: 'Users', icon: 'users' },
+				{ href: `${base}/tokens`, label: 'Tokens', icon: 'settings' },
 				{ href: `${base}/system`, label: 'System', icon: 'settings' },
 			],
 		},
