@@ -12,8 +12,10 @@
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import ThresholdDialog from '$components/dialogs/ThresholdDialog.svelte';
 	import ParameterChart, { type ChartData } from '$components/charts/ParameterChart.svelte';
+	import ScatterPlot from '$components/charts/ScatterPlot.svelte';
 	import SharedChartTooltip from '$components/charts/SharedChartTooltip.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
+	import type { StatusEventsResponse } from '$lib/api/types';
 
 	let site = $state<Site | null>(null);
 	let project = $state<Project | null>(null);
@@ -59,10 +61,25 @@
 	const cursorSyncKey = 'site-charts';
 	let resolutionOverride = $state<'auto' | 'raw' | 'hourly' | 'daily'>('auto');
 
-	const sliderMax = $state(Date.now());
+	let sliderMax = $state(Date.now());
 	let sliderMin = $state(Date.now() - 90 * 86400000);
 	let chartStart = $state(Date.now() - 604800000);
 	let chartEnd = $state(Date.now());
+
+	interface SiteDetailParameter {
+		id: string;
+		data_start?: string | null;
+		data_end?: string | null;
+		reading_count?: number | null;
+	}
+	interface SiteDetailResponse {
+		data_start: string | null;
+		data_end: string | null;
+		reading_count: number;
+		parameters: SiteDetailParameter[];
+	}
+
+	let paramExtents = $state<Map<string, SiteDetailParameter>>(new Map());
 
 	let sliderRef: TimeRangeSlider | undefined = $state();
 
@@ -212,9 +229,17 @@
 	let exportMeasurementType = $state<'all' | 'continuous' | 'spot' | 'derived'>('all');
 
 	// Status events
-	let statusEvents = $state<Array<{ time: string; stream_id: string; status: string }>>([]);
+	let statusEvents = $state<StatusEventsResponse['events']>([]);
 	let statusTimeRange = $state<'24h' | '7d' | '30d'>('24h');
 	let statusLoading = $state(false);
+	let statusLoaded = $state(false);
+
+	$effect(() => {
+		if (activeTab === 4 && site && !statusLoaded) {
+			statusLoaded = true;
+			loadStatusEvents();
+		}
+	});
 
 	const siteId = $derived(page.params.id!);
 
@@ -246,12 +271,16 @@
 			exportEnd = now.toISOString().slice(0, 16);
 			exportStart = new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 16);
 
-			// Set slider range from actual data extent
+			// Bound the slider to the site's actual data extent
 			try {
-				const detailRes = await GET<{ data_start: string | null }>(`/api/sites/${siteId}/detail`);
-				if (detailRes.data_start) {
-					sliderMin = new Date(detailRes.data_start).getTime();
-				}
+				const detailRes = await GET<SiteDetailResponse>(`/api/sites/${siteId}/detail`);
+				if (detailRes.data_start) sliderMin = new Date(detailRes.data_start).getTime();
+				if (detailRes.data_end) sliderMax = new Date(detailRes.data_end).getTime();
+				if (chartStart < sliderMin) chartStart = sliderMin;
+				if (chartEnd > sliderMax) chartEnd = sliderMax;
+				const extents = new Map<string, SiteDetailParameter>();
+				for (const p of detailRes.parameters ?? []) extents.set(p.id, p);
+				paramExtents = extents;
 			} catch { /* non-critical */ }
 
 			scheduleFetch();
@@ -318,14 +347,19 @@
 		const hours = statusTimeRange === '24h' ? 24 : statusTimeRange === '7d' ? 168 : 720;
 		const start = new Date(Date.now() - hours * 3600000).toISOString();
 		try {
-			const spIds = siteParameters.map((sp) => sp.id).join(',');
-			if (!spIds) { statusEvents = []; return; }
-			const result = await GET<{ data: Array<{ time: string; stream_id: string; status: string }> }>(
+			const result = await GET<StatusEventsResponse>(
 				`/api/sites/${siteId}/status_events`, { start, page_size: 200 }
 			);
-			statusEvents = result.data ?? [];
-		} catch { statusEvents = []; }
+			statusEvents = result.events ?? [];
+		} catch (e) {
+			statusEvents = [];
+			toastStore.error(e instanceof Error ? `Failed to load status events: ${e.message}` : 'Failed to load status events');
+		}
 		finally { statusLoading = false; }
+	}
+
+	function statusEventParamName(parameterId: string): string {
+		return parameters.find((p) => p.id === parameterId)?.display_name ?? parameterId;
 	}
 
 	// Export
@@ -541,11 +575,29 @@
 		return from <= now && (until == null || until > now);
 	}
 
-	// Measurement params for charts (exclude device_health)
+	let showDiagnostics = $state(false);
+
+	function hasData(sp: SiteParameter): boolean {
+		const extent = paramExtents.get(sp.id);
+		if (!extent) return true;
+		if (typeof extent.reading_count === 'number') return extent.reading_count > 0;
+		if (extent.data_start !== undefined) return extent.data_start !== null;
+		return true;
+	}
+
+	// Measurement params for charts (exclude device_health, only those with data)
 	const measurementParams = $derived(
 		siteParameters.filter((sp) => {
 			const param = parameters.find((p) => p.id === sp.parameter_id);
-			return param && param.category !== 'device_health';
+			return param && param.category !== 'device_health' && hasData(sp);
+		})
+	);
+
+	// Diagnostic (device_health) params, only those with data
+	const diagnosticParams = $derived(
+		siteParameters.filter((sp) => {
+			const param = parameters.find((p) => p.id === sp.parameter_id);
+			return param && param.category === 'device_health' && hasData(sp);
 		})
 	);
 </script>
@@ -621,6 +673,14 @@
 								>{label}{resolutionOverride === 'auto' && val === 'auto' ? ` (${chartResolution})` : ''}</button>
 							{/each}
 						</div>
+
+						{#if diagnosticParams.length > 0}
+							<div class="w-px h-5 bg-brand-divider mx-1"></div>
+							<label class="flex items-center gap-1.5 cursor-pointer text-xs text-brand-muted">
+								<input type="checkbox" bind:checked={showDiagnostics} />
+								Show diagnostics
+							</label>
+						{/if}
 
 						<span class="text-xs text-brand-muted ml-auto font-mono">
 							{windowLabel} · {new Date(chartStart).toLocaleDateString()} — {new Date(chartEnd).toLocaleDateString()}
@@ -703,6 +763,37 @@
 				{/each}
 				{#if measurementParams.length === 0}
 					<p class="text-sm text-brand-muted">No parameters configured for this site.</p>
+				{/if}
+
+				<!-- Diagnostics -->
+				{#if showDiagnostics && diagnosticParams.length > 0}
+					<div class="pt-2">
+						<h3 class="text-xs font-semibold uppercase tracking-wider text-brand-muted mb-2">Diagnostics</h3>
+						<div class="space-y-3">
+							{#each diagnosticParams as sp, i}
+								{@const param = parameters.find((p) => p.id === sp.parameter_id)}
+								{@const th = thresholds.find((t) => t.parameter_id === sp.parameter_id)}
+								{#if param}
+									<ParameterChart
+										siteId={siteId}
+										siteParameterId={sp.id}
+										parameterId={sp.parameter_id}
+										parameterName={param.display_name}
+										units={sp.display_units ?? param.default_units}
+										threshold={th}
+										annotations={annotationsByParam.get(sp.parameter_id) ?? []}
+										seriesIndex={measurementParams.length + i}
+										syncKey={cursorSyncKey}
+										chartData={chartDataMap.get(sp.id) ?? null}
+										loading={chartLoading}
+										onZoomSelect={onChartZoomSelect}
+										onResetZoom={onChartResetZoom}
+										onSaved={scheduleFetch}
+									/>
+								{/if}
+							{/each}
+						</div>
+					</div>
 				{/if}
 			</div>
 
@@ -939,19 +1030,24 @@
 				{#if statusLoading}
 					<p class="text-sm text-brand-muted">Loading events...</p>
 				{:else if statusEvents.length === 0}
-					<p class="text-sm text-brand-muted">No status events. Click a time range to load.</p>
+					<div class="rounded-md border border-brand-divider bg-brand-surface p-4 text-sm text-brand-muted space-y-1">
+						<p class="font-medium text-brand-text">No status events in this range.</p>
+						<p>Status events are non-numeric device messages recorded over time — firmware and connection status, sensor health strings, and error codes. They are separate from the numeric readings shown in the charts.</p>
+					</div>
 				{:else}
 					<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 						<table class="w-full text-sm">
 							<thead><tr class="bg-brand-bg border-b border-brand-divider">
 								<th class="text-left px-4 py-2 font-semibold">Time</th>
+								<th class="text-left px-4 py-2 font-semibold">Parameter</th>
 								<th class="text-left px-4 py-2 font-semibold">Status</th>
 							</tr></thead>
 							<tbody>
 								{#each statusEvents as evt}
 									<tr class="border-b border-brand-divider last:border-b-0">
 										<td class="px-4 py-2 text-xs">{formatDateTime(evt.time)}</td>
-										<td class="px-4 py-2"><span class="px-2 py-0.5 text-xs rounded-full bg-brand-bg text-brand-muted">{evt.status}</span></td>
+										<td class="px-4 py-2 text-xs">{statusEventParamName(evt.parameter_id)}</td>
+										<td class="px-4 py-2"><span class="px-2 py-0.5 text-xs rounded-full bg-brand-bg text-brand-muted">{evt.value}</span></td>
 									</tr>
 								{/each}
 							</tbody>
