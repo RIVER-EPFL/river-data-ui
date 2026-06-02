@@ -123,7 +123,7 @@
 				{@const projectSites = filteredSites.filter((s) => s.project_id === project.id)}
 				{#if projectSites.length > 0}
 					<div>
-						<h3 class="text-sm font-semibold text-brand-muted mb-1">{project.name}</h3>
+						<h3 class="text-sm font-semibold mb-1"><a href="{base}/projects/{project.id}" class="text-brand-muted no-underline hover:underline hover:text-brand-primary">{project.name}</a></h3>
 						<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 							<table class="w-full text-sm">
 								<tbody>
