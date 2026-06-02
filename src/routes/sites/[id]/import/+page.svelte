@@ -220,18 +220,7 @@
 			}
 			result = await POST<ImportPlan>('/api/readings/import_csv', body);
 			step = 'done';
-			{
-				const parts: string[] = [];
-				if (result.inserted_total > 0)
-					parts.push(`${result.inserted_total} new reading${result.inserted_total === 1 ? '' : 's'} imported`);
-				if (result.overwritten > 0)
-					parts.push(`${result.overwritten} overwritten`);
-				if (result.overlaps_identical > 0)
-					parts.push(`${result.overlaps_identical} identical skipped`);
-				if (result.overlaps_differing > 0 && result.overwritten === 0)
-					parts.push(`${result.overlaps_differing} differing skipped`);
-				toastStore.success(parts.join(', ') || 'Import complete');
-			}
+			toastStore.success('Import started');
 			if (result.derived_job_id) pollJob(result.derived_job_id);
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : 'Import failed';
@@ -534,10 +523,24 @@
 		</div>
 	{:else if step === 'done' && result}
 		<div class="rounded-md border border-brand-divider bg-white p-4">
-			{#if result.inserted_total > 0}
-				<div class="rounded-md bg-severity-ok-soft px-3 py-2 text-sm text-severity-ok">
-					Imported <strong>{result.inserted_total}</strong> new reading{result.inserted_total === 1 ? '' : 's'}
-					({Object.keys(result.mapped_columns).length} parameters){#if result.duplicates > 0}, skipped <strong>{result.duplicates}</strong> duplicate{result.duplicates === 1 ? '' : 's'}{/if}.
+			{#if result.derived_job_id}
+				<div class="text-sm">
+					{#if job && job.status === 'completed'}
+						<div class="rounded-md bg-severity-ok-soft px-3 py-2 text-severity-ok">
+							Import complete - <strong>{job.readings_updated ?? 0}</strong> reading{(job.readings_updated ?? 0) === 1 ? '' : 's'} written ({Object.keys(result.mapped_columns).length} parameters).
+						</div>
+					{:else if job && job.status === 'failed'}
+						<div class="rounded-md bg-severity-alarm-soft px-3 py-2 text-severity-alarm">
+							Import failed{#if job.error_message}: {job.error_message}{/if}
+						</div>
+					{:else}
+						<div class="rounded-md bg-brand-bg px-3 py-2">
+							<span class="text-brand-muted">
+								Importing readings{#if job?.total}: {job?.progress ?? 0}/{job.total}{/if}…
+							</span>
+							<p class="text-xs text-brand-muted mt-1">This runs in the background - you can navigate away safely.</p>
+						</div>
+					{/if}
 				</div>
 			{:else}
 				<div class="rounded-md bg-severity-warning-soft px-3 py-2 text-sm">
@@ -545,28 +548,9 @@
 				</div>
 			{/if}
 
-			{#if result.overwritten > 0}
-				<div class="mt-2 rounded-md bg-severity-warning-soft px-3 py-2 text-sm text-severity-warning">
-					Overwrote <strong>{result.overwritten}</strong> reading{result.overwritten === 1 ? '' : 's'} with imported values.
-				</div>
-			{:else if result.overlaps_differing > 0}
+			{#if result.overlaps_identical > 0 || result.overlaps_differing > 0}
 				<div class="mt-2 text-sm text-brand-muted">
-					{result.overlaps_differing} differing reading{result.overlaps_differing === 1 ? ' was' : 's were'} skipped (stored values kept).
-				</div>
-			{/if}
-
-			{#if result.derived_job_id}
-				<div class="mt-3 text-sm">
-					{#if job && job.status === 'completed'}
-						<span class="text-severity-ok">✓ Derived parameters recomputed &amp; aggregates refreshed.</span>
-					{:else if job && job.status === 'failed'}
-						<span class="text-severity-alarm">Derived recompute failed - see the Jobs page.</span>
-					{:else}
-						<span class="text-brand-muted">
-							Recomputing derived parameters &amp; refreshing aggregates{#if job?.total}: {job.progress ?? 0}/{job.total}{/if}…
-						</span>
-						<p class="text-xs text-brand-muted mt-1">This runs in the background - you can navigate away safely.</p>
-					{/if}
+					{#if result.overlaps_identical > 0}{result.overlaps_identical} identical skipped{/if}{#if result.overlaps_identical > 0 && result.overlaps_differing > 0}, {/if}{#if result.overlaps_differing > 0}{result.overlaps_differing} differing {conflictMode === 'overwrite' ? 'overwritten' : 'skipped'}{/if}
 				</div>
 			{/if}
 
