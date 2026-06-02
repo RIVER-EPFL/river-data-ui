@@ -300,6 +300,7 @@
 		const opts: uPlot.Options = {
 			width: rect.width,
 			height: 220,
+			tzDate: (ts: number) => uPlot.tzDate(new Date(ts * 1000), 'UTC'),
 			plugins: [
 				annotationBandPlugin(annotations),
 				thresholdBandPlugin(),
@@ -409,9 +410,9 @@
 	function annotationRangeLabel(a: Annotation): string {
 		const start = new Date(a.start_time);
 		const end = new Date(a.end_time);
-		const sameDay = start.toDateString() === end.toDateString();
-		const fmt = (d: Date) => d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-		return sameDay ? `${fmt(start)} – ${end.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}` : `${fmt(start)} → ${fmt(end)}`;
+		const sameDay = start.toLocaleDateString('en-US', { timeZone: 'UTC' }) === end.toLocaleDateString('en-US', { timeZone: 'UTC' });
+		const fmt = (d: Date) => d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+		return sameDay ? `${fmt(start)} – ${end.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })} UTC` : `${fmt(start)} → ${fmt(end)} UTC`;
 	}
 
 	function handleResize() {

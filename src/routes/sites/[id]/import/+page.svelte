@@ -67,6 +67,11 @@
 	let conflictMode = $state<'skip' | 'overwrite'>('skip');
 	let planStale = $state(false);
 
+	// Timezone: offset (hours) of source timestamps relative to UTC
+	let tzOffsetHours = $state(0);
+	let tzAutoDetected = $state(false);
+	let tzAutoLabel = $state('');
+
 	const dataColumns = $derived(previewHeaders.filter((h) => !isDateTimeColumn(h)));
 	const paramNameById = $derived(new Map(siteParamOptions.map((o) => [o.id, o.label])));
 
@@ -108,11 +113,40 @@
 		parseError = '';
 		overrides = {};
 		plan = null;
+		tzAutoDetected = false;
+		tzAutoLabel = '';
+		tzOffsetHours = 0;
 		try {
-			csvText = await file.text();
+			const rawBytes = await file.arrayBuffer();
+			let text: string;
+
+			// Vaisala TSV exports are UTF-16 LE with a timezone header line.
+			const u16 = new Uint8Array(rawBytes);
+			if (u16.length >= 2 && u16[0] === 0xff && u16[1] === 0xfe) {
+				text = new TextDecoder('utf-16le').decode(rawBytes);
+			} else {
+				text = new TextDecoder('utf-8').decode(rawBytes);
+			}
+
+			// Auto-detect timezone from Vaisala TSV header
+			const firstLine = text.split(/\r?\n/)[0];
+			const tzMatch = firstLine.match(/Time zone:.*\(UTC([+-]\d{2}):(\d{2})\)/i);
+			if (tzMatch) {
+				const hours = parseInt(tzMatch[1], 10);
+				const minutes = parseInt(tzMatch[2], 10);
+				tzOffsetHours = hours + (hours < 0 ? -1 : 1) * (minutes / 60);
+				tzAutoDetected = true;
+				tzAutoLabel = firstLine.match(/\(([^)]+)\)/)?.[1] ?? `UTC${tzOffsetHours >= 0 ? '+' : ''}${tzOffsetHours}`;
+				// Strip the timezone metadata line before parsing
+				text = text.split(/\r?\n/).slice(1).join('\n');
+			}
+
+			csvText = text;
+			const isTsv = file.name.endsWith('.tsv') || tzAutoDetected;
 			const parsed = Papa.parse<Record<string, string>>(csvText, {
 				header: true,
 				skipEmptyLines: true,
+				delimiter: isTsv ? '\t' : undefined,
 				preview: 6,
 			});
 			if (parsed.errors.length > 0) {
@@ -125,6 +159,28 @@
 		} catch (e) {
 			parseError = e instanceof Error ? e.message : 'Failed to read file';
 		}
+	}
+
+	function shiftCsvTimestamps(csv: string): string {
+		if (tzOffsetHours === 0) return csv;
+		const offsetMs = tzOffsetHours * 3_600_000;
+		const isTsv = csvText.includes('\t');
+		const parsed = Papa.parse<Record<string, string>>(csv, {
+			header: true,
+			skipEmptyLines: true,
+			delimiter: isTsv ? '\t' : undefined,
+		});
+		if (!parsed.meta.fields) return csv;
+		const timeCol = parsed.meta.fields.find((h) => isDateTimeColumn(h));
+		if (!timeCol) return csv;
+		for (const row of parsed.data) {
+			const raw = row[timeCol];
+			if (!raw) continue;
+			const d = new Date(raw);
+			if (isNaN(d.getTime())) continue;
+			row[timeCol] = new Date(d.getTime() - offsetMs).toISOString().replace(/\.\d{3}Z$/, 'Z');
+		}
+		return Papa.unparse(parsed.data, { columns: parsed.meta.fields });
 	}
 
 	// Build the mapping object the API expects: column -> parameter id, or null to skip.
@@ -142,7 +198,7 @@
 		try {
 			plan = await POST<ImportPlan>('/api/readings/import_csv', {
 				site: siteId,
-				csv: csvText,
+				csv: shiftCsvTimestamps(csvText),
 				mapping: buildMapping(),
 				dry_run: true,
 			});
@@ -161,7 +217,7 @@
 		try {
 			result = await POST<ImportPlan>('/api/readings/import_csv', {
 				site: siteId,
-				csv: csvText,
+				csv: shiftCsvTimestamps(csvText),
 				mapping: buildMapping(),
 				conflict: conflictMode,
 			});
@@ -249,6 +305,9 @@
 		job = null;
 		conflictMode = 'skip';
 		planStale = false;
+		tzOffsetHours = 0;
+		tzAutoDetected = false;
+		tzAutoLabel = '';
 	}
 </script>
 
@@ -268,11 +327,11 @@
 		<p class="text-brand-muted">Loading…</p>
 	{:else if step === 'select'}
 		<div class="rounded-md border border-brand-divider bg-white p-4">
-			<label class="block text-sm font-medium" for="csv-file">CSV file</label>
+			<label class="block text-sm font-medium" for="csv-file">CSV / TSV file</label>
 			<input
 				id="csv-file"
 				type="file"
-				accept=".csv,text/csv"
+				accept=".csv,.tsv,text/csv,text/tab-separated-values"
 				onchange={handleFile}
 				class="mt-1 block w-full text-sm"
 			/>
@@ -281,6 +340,33 @@
 			{/if}
 
 			{#if previewHeaders.length > 0 && !parseError}
+				<!-- Timezone selector -->
+				<div class="mt-3 space-y-2">
+					<div class="flex items-center gap-3">
+						<label for="tz-offset" class="text-sm font-medium whitespace-nowrap">Timestamp timezone</label>
+						<select
+							id="tz-offset"
+							value={tzOffsetHours}
+							onchange={(e) => { tzOffsetHours = Number((e.target as HTMLSelectElement).value); }}
+							class="rounded-md border border-brand-divider px-2 py-1 text-sm"
+						>
+							<option value={0}>UTC +00:00</option>
+							<option value={1}>CET +01:00</option>
+							<option value={2}>CEST +02:00</option>
+							<option value={-1}>UTC -01:00</option>
+							<option value={3}>UTC +03:00</option>
+						</select>
+						{#if tzOffsetHours !== 0}
+							<span class="text-xs text-brand-muted">Timestamps will be shifted by {tzOffsetHours > 0 ? '-' : '+'}{Math.abs(tzOffsetHours)}h to UTC</span>
+						{/if}
+					</div>
+					{#if tzAutoDetected}
+						<div class="rounded-md border border-brand-primary/30 bg-brand-primary/5 px-3 py-2 text-sm">
+							Detected from file header: <span class="font-medium">{tzAutoLabel}</span>
+						</div>
+					{/if}
+				</div>
+
 				<p class="mt-3 text-sm text-brand-muted">{fileName} — {previewHeaders.length} columns</p>
 				<div class="mt-2 overflow-x-auto rounded-md border border-brand-divider">
 					<table class="w-full text-left text-xs">

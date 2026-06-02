@@ -39,6 +39,11 @@
 	let valueColumn = $state('');
 	let calibratedColumn = $state('');
 
+	// Timezone: offset (hours) of source timestamps relative to UTC
+	let tzOffsetHours = $state(0);
+	let tzAutoDetected = $state(false);
+	let tzAutoLabel = $state('');
+
 	// --- Step 3: Validation ---
 	interface ValidationError {
 		row: number;
@@ -86,8 +91,35 @@
 		}
 	});
 
+	// --- Timezone auto-detection from file header ---
+	function detectTimezoneFromHeader(file: File): Promise<void> {
+		return new Promise((resolve) => {
+			tzAutoDetected = false;
+			tzAutoLabel = '';
+			tzOffsetHours = 0;
+
+			const reader = new FileReader();
+			reader.onload = () => {
+				const text = reader.result as string;
+				const firstLine = text.split(/\r?\n/)[0];
+				const match = firstLine.match(/Time zone:.*\(UTC([+-]\d{2}):(\d{2})\)/i);
+				if (match) {
+					const hours = parseInt(match[1], 10);
+					const minutes = parseInt(match[2], 10);
+					tzOffsetHours = hours + (hours < 0 ? -1 : 1) * (minutes / 60);
+					tzAutoDetected = true;
+					const sign = tzOffsetHours >= 0 ? '+' : '';
+					tzAutoLabel = firstLine.match(/\(([^)]+)\)/)?.[1] ?? `UTC${sign}${tzOffsetHours}`;
+				}
+				resolve();
+			};
+			reader.onerror = () => resolve();
+			reader.readAsText(file.slice(0, 512), 'utf-16le');
+		});
+	}
+
 	// --- CSV parsing ---
-	function handleFileSelect(event: Event) {
+	async function handleFileSelect(event: Event) {
 		const input = event.target as HTMLInputElement;
 		const file = input.files?.[0];
 		if (!file) return;
@@ -97,9 +129,14 @@
 		csvHeaders = [];
 		csvData = [];
 
+		if (file.name.endsWith('.tsv')) {
+			await detectTimezoneFromHeader(file);
+		}
+
 		Papa.parse<Record<string, string>>(file, {
 			header: true,
 			skipEmptyLines: true,
+			delimiter: file.name.endsWith('.tsv') ? '\t' : undefined,
 			complete(results) {
 				if (results.errors.length > 0) {
 					parseError = results.errors.map((e) => e.message).join('; ');
@@ -232,7 +269,8 @@
 				parameterId = param!.id;
 			}
 
-			const time = new Date(row[timeColumn]).toISOString();
+			const raw = new Date(row[timeColumn]);
+			const time = new Date(raw.getTime() - tzOffsetHours * 3_600_000).toISOString();
 			const rawValue = Number(row[valueColumn]);
 
 			if (entityType === 'readings') {
@@ -341,6 +379,9 @@
 		singleSiteId = '';
 		singleParameterId = '';
 		mappingMode = 'single';
+		tzOffsetHours = 0;
+		tzAutoDetected = false;
+		tzAutoLabel = '';
 		validationErrors = [];
 		uploadProgress = 0;
 		uploadResult = null;
@@ -409,7 +450,7 @@
 					</div>
 					<div>
 						<label for="csvFile" class="text-sm font-medium block mb-1">CSV File</label>
-						<input id="csvFile" type="file" accept=".csv" onchange={handleFileSelect} class="w-full text-sm file:mr-3 file:py-1.5 file:px-3 file:border-0 file:rounded-md file:bg-brand-primary file:text-white file:text-sm file:cursor-pointer" />
+						<input id="csvFile" type="file" accept=".csv,.tsv" onchange={handleFileSelect} class="w-full text-sm file:mr-3 file:py-1.5 file:px-3 file:border-0 file:rounded-md file:bg-brand-primary file:text-white file:text-sm file:cursor-pointer" />
 					</div>
 				</div>
 
@@ -535,6 +576,38 @@
 					{/if}
 				</div>
 
+				<!-- Timezone offset -->
+				<div class="space-y-2">
+					<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+						<div>
+							<!-- svelte-ignore a11y_label_has_associated_control -->
+							<label class="text-sm font-medium block mb-1">Timestamp Timezone</label>
+							<select
+								value={tzOffsetHours}
+								onchange={(e) => { tzOffsetHours = Number((e.target as HTMLSelectElement).value); }}
+								class="w-full px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
+							>
+								<option value={0}>UTC +00:00</option>
+								<option value={1}>CET +01:00</option>
+								<option value={2}>CEST +02:00</option>
+								<option value={-1}>UTC -01:00</option>
+								<option value={3}>UTC +03:00</option>
+								<option value={5.5}>IST +05:30</option>
+							</select>
+						</div>
+					</div>
+					{#if tzAutoDetected}
+						<div class="rounded-md border border-brand-primary/30 bg-brand-primary/5 px-3 py-2 text-sm">
+							Detected from file header: <span class="font-medium">{tzAutoLabel}</span>
+						</div>
+					{/if}
+					{#if tzOffsetHours !== 0}
+						<p class="text-xs text-brand-muted">
+							Timestamps will be shifted by {tzOffsetHours > 0 ? '-' : '+'}{Math.abs(tzOffsetHours)}h to convert to UTC for storage.
+						</p>
+					{/if}
+				</div>
+
 				<div class="flex gap-3">
 					<button onclick={() => goToStep('file')} class="px-4 py-2 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface text-brand-text hover:bg-brand-bg">
 						Back
@@ -577,7 +650,10 @@
 								<th class="px-3 py-2 text-left font-medium text-brand-muted">#</th>
 								<th class="px-3 py-2 text-left font-medium text-brand-muted">Site</th>
 								<th class="px-3 py-2 text-left font-medium text-brand-muted">Parameter</th>
-								<th class="px-3 py-2 text-left font-medium text-brand-muted">Time</th>
+								<th class="px-3 py-2 text-left font-medium text-brand-muted">{tzOffsetHours !== 0 ? 'Original Time' : 'Time'}</th>
+								{#if tzOffsetHours !== 0}
+									<th class="px-3 py-2 text-left font-medium text-brand-muted">Stored (UTC)</th>
+								{/if}
 								<th class="px-3 py-2 text-left font-medium text-brand-muted">Value</th>
 								{#if entityType === 'readings' && calibratedColumn}
 									<th class="px-3 py-2 text-left font-medium text-brand-muted">Calibrated</th>
@@ -591,6 +667,9 @@
 									<td class="px-3 py-1.5">{resolvedSiteName(row)}</td>
 									<td class="px-3 py-1.5">{resolvedParamName(row)}</td>
 									<td class="px-3 py-1.5 font-mono text-xs">{row[timeColumn] ?? '—'}</td>
+									{#if tzOffsetHours !== 0}
+										<td class="px-3 py-1.5 font-mono text-xs text-brand-primary">{row[timeColumn] ? new Date(new Date(row[timeColumn]).getTime() - tzOffsetHours * 3_600_000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC' : '—'}</td>
+									{/if}
 									<td class="px-3 py-1.5 font-mono">{row[valueColumn] ?? '—'}</td>
 									{#if entityType === 'readings' && calibratedColumn}
 										<td class="px-3 py-1.5 font-mono">{row[calibratedColumn] ?? '—'}</td>

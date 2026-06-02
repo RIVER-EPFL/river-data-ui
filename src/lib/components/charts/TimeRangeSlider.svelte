@@ -23,7 +23,7 @@
 	let suppressUpdate = false;
 
 	const rangeDays = $derived((max - min) / 86400000);
-	const todayStart = $derived(new Date(new Date(max).setHours(0, 0, 0, 0)).getTime());
+	const todayStart = $derived(new Date(new Date(max).setUTCHours(0, 0, 0, 0)).getTime());
 	const weekStart = $derived(todayStart - 7 * 86400000);
 
 	// Matching the React dashboard: grey (history), blue (week), green (today)
@@ -89,7 +89,7 @@
 						const d = new Date(v);
 						const hoursFromEnd = (max - v) / 3600000;
 						if (hoursFromEnd <= 24) {
-							const h = d.getHours();
+							const h = d.getUTCHours();
 							if (h === 0) return fmtDateShort(d);
 							if (h === 6 || h === 12 || h === 18) return h + ':00';
 							return '';
@@ -108,7 +108,7 @@
 						const d = new Date(v);
 						const hoursFromEnd = (max - v) / 3600000;
 						if (hoursFromEnd <= 24) {
-							const h = d.getHours();
+							const h = d.getUTCHours();
 							if (h === 0) return fmtDateShort(d);
 							if (h === 12) return '12:00';
 							return '';
@@ -125,7 +125,7 @@
 			format: {
 				to: (v: number) => {
 					const d = new Date(v);
-					if (rangeDays < 1) return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+					if (rangeDays < 1) return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
 					return fmtDateShort(d);
 				},
 			},
@@ -133,8 +133,8 @@
 	}
 
 	function fmtDateShort(d: Date): string {
-		const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
-		if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+		const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric', timeZone: 'UTC' };
+		if (d.getUTCFullYear() !== new Date().getUTCFullYear()) opts.year = 'numeric';
 		return d.toLocaleDateString('en-US', opts);
 	}
 
@@ -142,6 +142,7 @@
 		return new Date(v).toLocaleString('en-US', {
 			month: 'short', day: 'numeric', year: 'numeric',
 			hour: '2-digit', minute: '2-digit',
+			timeZone: 'UTC',
 		});
 	}
 
