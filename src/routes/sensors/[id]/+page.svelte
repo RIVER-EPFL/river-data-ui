@@ -3,7 +3,7 @@
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
 	import { api, type Sensor, type SensorCalibration, type SensorDeployment, type Site } from '$api/crud';
-	import { recalibrateCalibration, rollbackDeployment } from '$api/service';
+	import { recalibrateCalibration, rollbackDeployment, reprocessSensor } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatDateTime } from '$lib/utils';
 	import Tabs from '$components/ui/Tabs.svelte';
@@ -124,6 +124,13 @@
 			await reloadDeployments();
 		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Recall failed'); }
 	}
+
+	async function handleReprocess() {
+		try {
+			await reprocessSensor(sensorId);
+			toastStore.success('Reprocessing started — track it in the Operations indicator');
+		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Reprocess failed'); }
+	}
 </script>
 
 <svelte:head><title>{sensor?.name ?? sensor?.serial_number ?? 'Sensor'} | River Data</title></svelte:head>
@@ -146,6 +153,9 @@
 				{/if}
 			</div>
 			<div class="flex gap-2 items-center">
+				<ConfirmPopover message="Reprocess all of this sensor's readings? Re-derives calibration and deployment by time window." confirmLabel="Reprocess" confirmVariant="primary" onconfirm={handleReprocess}>
+					<button class="px-3 py-1 text-sm border border-brand-divider rounded-md cursor-pointer bg-brand-surface hover:bg-brand-bg">Reprocess</button>
+				</ConfirmPopover>
 				<button onclick={() => (deployOpen = true)} class="px-3 py-1 text-sm border border-brand-divider rounded-md cursor-pointer bg-brand-surface hover:bg-brand-bg">Deploy / Move…</button>
 				<span class="px-2 py-0.5 text-xs font-medium rounded-full {sensor.is_active ? 'bg-severity-ok-soft text-severity-ok' : 'bg-brand-bg text-brand-muted'}">
 					{sensor.is_active ? 'Active' : 'Inactive'}

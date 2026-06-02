@@ -110,6 +110,25 @@ export const mergeParameters = (sourceParameterId: string, targetParameterId: st
 		target_parameter_id: targetParameterId,
 	});
 
+// Merge site parameters (same site)
+export interface MergeSiteParametersResponse {
+	merged_readings: number;
+	merged_status_events: number;
+	streams_updated: number;
+	deployments_moved: number;
+	source_deleted: boolean;
+}
+
+export const mergeSiteParameters = (sourceSiteParameterId: string, targetSiteParameterId: string) =>
+	POST<MergeSiteParametersResponse>(`${SERVICE}/actions/merge_site_parameters`, {
+		source_site_parameter_id: sourceSiteParameterId,
+		target_site_parameter_id: targetSiteParameterId,
+	});
+
+// Reprocess a sensor's readings (re-derive calibration/deployment by time window)
+export const reprocessSensor = (sensorId: string) =>
+	POST<{ job_id: string; status: string }>(`${SERVICE}/actions/reprocess`, { sensor_id: sensorId });
+
 // Derived preview
 export interface PreviewDerivedRequest {
 	formula: string;
