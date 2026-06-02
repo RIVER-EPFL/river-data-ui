@@ -175,6 +175,67 @@
 		syncText();
 	}
 
+	function firstEmptyPath(node: FormulaNode, path: string): string | null {
+		if (node.type === 'empty') return path;
+		if (node.type === 'binary') {
+			return firstEmptyPath(node.left, `${path}.left`) ?? firstEmptyPath(node.right, `${path}.right`);
+		}
+		if (node.type === 'function') {
+			for (let i = 0; i < node.args.length; i++) {
+				const found = firstEmptyPath(node.args[i], `${path}.args.${i}`);
+				if (found) return found;
+			}
+		}
+		return null;
+	}
+
+	function clickPalette(payload: DragPayload) {
+		if (selectedPath) {
+			const existing = getNodeFromPath(selectedPath);
+			const node = payloadToNode(payload, existing);
+			root = replaceAtPath(root, selectedPath, node);
+			selectedPath = payload.kind === 'operator' ? `${selectedPath}.right` : null;
+			if (node.type === 'constant') editingConstantPath = selectedPath;
+			syncText();
+			return;
+		}
+
+		if (root.type === 'empty') {
+			root = payloadToNode(payload, null);
+			if (root.type === 'constant') editingConstantPath = 'root';
+			syncText();
+			return;
+		}
+
+		if (payload.kind === 'operator') {
+			root = wrapWithOp(root, payload.op);
+			selectedPath = 'root.right';
+			syncText();
+			return;
+		}
+
+		const slot = firstEmptyPath(root, 'root');
+		if (slot) {
+			const node = payloadToNode(payload, null);
+			root = replaceAtPath(root, slot, node);
+			if (node.type === 'constant') editingConstantPath = slot;
+			syncText();
+			return;
+		}
+
+		const node = payloadToNode(payload, null);
+		root = { type: 'binary', op: '*', left: root, right: node };
+		if (node.type === 'constant') editingConstantPath = 'root.right';
+		syncText();
+	}
+
+	function paletteKeydown(e: KeyboardEvent, payload: DragPayload) {
+		if (e.key === 'Enter' || e.key === ' ') {
+			e.preventDefault();
+			clickPalette(payload);
+		}
+	}
+
 	function clearAll() {
 		root = { type: 'empty' };
 		selectedPath = null;
@@ -238,9 +299,11 @@
 								role="button"
 								tabindex="0"
 								ondragstart={(e) => onDragStart(e, { kind: 'variable', name: v.name })}
+								onclick={() => clickPalette({ kind: 'variable', name: v.name })}
+								onkeydown={(e) => paletteKeydown(e, { kind: 'variable', name: v.name })}
 								class="px-2 py-1.5 rounded text-xs cursor-grab active:cursor-grabbing border border-transparent hover:border-brand-primary/40 flex items-center gap-2"
 								style:background="{colorForVar(v.name)}18"
-								title="Drag into formula"
+								title="Click or drag into formula"
 							>
 								<span class="w-2 h-2 rounded-full shrink-0" style:background={colorForVar(v.name)}></span>
 								<span class="flex-1 min-w-0">
@@ -263,8 +326,10 @@
 								role="button"
 								tabindex="0"
 								ondragstart={(e) => onDragStart(e, { kind: 'function', name: fn })}
+								onclick={() => clickPalette({ kind: 'function', name: fn })}
+								onkeydown={(e) => paletteKeydown(e, { kind: 'function', name: fn })}
 								class="px-2 py-1 text-xs rounded cursor-grab active:cursor-grabbing border border-brand-divider bg-brand-surface text-brand-text hover:bg-brand-bg"
-								title="Drag {fn}() into formula; drop onto a token to wrap it"
+								title="Click or drag {fn}() into formula; drop onto a token to wrap it"
 							>{fn}()</div>
 						{/each}
 					</div>
@@ -280,6 +345,8 @@
 							role="button"
 							tabindex="0"
 							ondragstart={(e) => onDragStart(e, { kind: 'operator', op })}
+							onclick={() => clickPalette({ kind: 'operator', op })}
+							onkeydown={(e) => paletteKeydown(e, { kind: 'operator', op })}
 							class="w-9 h-9 text-sm font-mono rounded cursor-grab active:cursor-grabbing border border-brand-divider bg-brand-surface hover:bg-brand-bg flex items-center justify-center font-bold"
 						>{op}</div>
 					{/each}
@@ -296,6 +363,8 @@
 								role="button"
 								tabindex="0"
 								ondragstart={(e) => onDragStart(e, { kind: 'constant', name: c.name })}
+								onclick={() => clickPalette({ kind: 'constant', name: c.name })}
+								onkeydown={(e) => paletteKeydown(e, { kind: 'constant', name: c.name })}
 								class="px-2 py-1 rounded cursor-grab active:cursor-grabbing border border-brand-divider bg-brand-surface flex items-baseline justify-between gap-2"
 								title={c.description || c.name}
 							>
