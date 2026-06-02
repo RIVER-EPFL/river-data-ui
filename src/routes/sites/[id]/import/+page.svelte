@@ -12,6 +12,13 @@
 		message: string;
 	}
 
+	interface OverlapDiff {
+		time: string;
+		parameter_id: string;
+		existing: number;
+		incoming: number;
+	}
+
 	interface ImportPlan {
 		site_id: string;
 		site_name: string;
@@ -27,6 +34,10 @@
 		derived_job_id: string | null;
 		derived_timestamps: number;
 		duplicates: number;
+		overlaps_identical: number;
+		overlaps_differing: number;
+		overlap_sample: OverlapDiff[];
+		overwritten: number;
 		errors: RowError[];
 		error_count: number;
 	}
@@ -53,8 +64,11 @@
 	let busy = $state(false);
 	let result = $state<ImportPlan | null>(null);
 	let job = $state<ReprocessingJob | null>(null);
+	let conflictMode = $state<'skip' | 'overwrite'>('skip');
+	let planStale = $state(false);
 
 	const dataColumns = $derived(previewHeaders.filter((h) => !isDateTimeColumn(h)));
+	const paramNameById = $derived(new Map(siteParamOptions.map((o) => [o.id, o.label])));
 
 	function isDateTimeColumn(h: string): boolean {
 		const l = h.toLowerCase();
@@ -132,6 +146,7 @@
 				mapping: buildMapping(),
 				dry_run: true,
 			});
+			planStale = false;
 			step = 'review';
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Preview failed');
@@ -148,12 +163,21 @@
 				site: siteId,
 				csv: csvText,
 				mapping: buildMapping(),
+				conflict: conflictMode,
 			});
 			step = 'done';
-			toastStore.success(
-				`Imported ${result.inserted_total} new reading${result.inserted_total === 1 ? '' : 's'}` +
-					(result.duplicates > 0 ? ` (${result.duplicates} duplicates skipped)` : ''),
-			);
+			{
+				const parts: string[] = [];
+				if (result.inserted_total > 0)
+					parts.push(`${result.inserted_total} new reading${result.inserted_total === 1 ? '' : 's'} imported`);
+				if (result.overwritten > 0)
+					parts.push(`${result.overwritten} overwritten`);
+				if (result.overlaps_identical > 0)
+					parts.push(`${result.overlaps_identical} identical skipped`);
+				if (result.overlaps_differing > 0 && result.overwritten === 0)
+					parts.push(`${result.overlaps_differing} differing skipped`);
+				toastStore.success(parts.join(', ') || 'Import complete');
+			}
 			if (result.derived_job_id) pollJob(result.derived_job_id);
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Import failed');
@@ -175,9 +199,34 @@
 		}
 	}
 
-	// Re-run the preview when the operator changes a column override.
-	function onOverrideChange() {
-		preview();
+	function applyLocalOverride(col: string) {
+		if (!plan) return;
+		const val = overrides[col];
+
+		// Remove col from all classification lists first.
+		const remove = (arr: string[]) => {
+			const idx = arr.indexOf(col);
+			if (idx !== -1) arr.splice(idx, 1);
+		};
+		remove(plan.skipped_columns);
+		remove(plan.unmapped_columns);
+
+		if (val === '') {
+			// Explicit skip.
+			delete plan.mapped_columns[col];
+			plan.skipped_columns = [...plan.skipped_columns, col];
+		} else if (val) {
+			// Mapped to a specific parameter.
+			const label = paramNameById.get(val);
+			if (label) plan.mapped_columns[col] = label;
+		} else {
+			// Reverted to (auto) — can't resolve locally.
+			delete plan.mapped_columns[col];
+			plan.unmapped_columns = [...plan.unmapped_columns, col];
+		}
+
+		plan = { ...plan };
+		planStale = true;
 	}
 
 	function resolvedLabel(col: string): string {
@@ -198,6 +247,8 @@
 		plan = null;
 		result = null;
 		job = null;
+		conflictMode = 'skip';
+		planStale = false;
 	}
 </script>
 
@@ -288,7 +339,7 @@
 								<td class="px-3 py-2">
 									<select
 										bind:value={overrides[col]}
-										onchange={onOverrideChange}
+										onchange={() => applyLocalOverride(col)}
 										class="rounded-md border border-brand-divider px-2 py-1 text-sm"
 									>
 										<option value={undefined}>(auto)</option>
@@ -321,6 +372,77 @@
 				</div>
 			{/if}
 
+			{#if planStale}
+				<div class="mt-3 flex items-center gap-2 rounded-md bg-brand-bg px-3 py-2 text-sm text-brand-muted">
+					<span>Mapping changed — overlap counts may be outdated.</span>
+					<button
+						class="rounded-md border border-brand-divider px-2 py-1 text-xs font-medium"
+						disabled={busy}
+						onclick={preview}
+					>
+						{busy ? 'Analysing…' : 'Re-analyze'}
+					</button>
+				</div>
+			{/if}
+
+			{#if plan.overlaps_identical > 0 || plan.overlaps_differing > 0}
+				<div class="mt-3 space-y-2">
+					{#if plan.overlaps_identical > 0}
+						<div class="rounded-md bg-severity-ok-soft px-3 py-2 text-sm text-severity-ok">
+							<strong>{plan.overlaps_identical}</strong> reading{plan.overlaps_identical === 1 ? '' : 's'} already in DB with identical values — will be skipped.
+						</div>
+					{/if}
+
+					{#if plan.overlaps_differing > 0}
+						<div class="rounded-md bg-severity-warning-soft px-3 py-2 text-sm">
+							<p><strong>{plan.overlaps_differing}</strong> reading{plan.overlaps_differing === 1 ? '' : 's'} differ from stored values.</p>
+							<fieldset class="mt-2 flex gap-4">
+								<label class="flex items-center gap-1.5 text-sm">
+									<input type="radio" name="conflict" value="skip" bind:group={conflictMode} />
+									Skip (keep stored values)
+								</label>
+								<label class="flex items-center gap-1.5 text-sm">
+									<input type="radio" name="conflict" value="overwrite" bind:group={conflictMode} />
+									Overwrite with imported values
+								</label>
+							</fieldset>
+
+							{#if plan.overlap_sample.length > 0}
+								<details class="mt-2">
+									<summary class="cursor-pointer text-xs font-medium text-brand-muted">
+										Show {plan.overlap_sample.length} sample diff{plan.overlap_sample.length === 1 ? '' : 's'}
+									</summary>
+									<div class="mt-1 overflow-x-auto rounded-md border border-brand-divider">
+										<table class="w-full text-left text-xs">
+											<thead class="bg-brand-bg">
+												<tr>
+													<th class="px-2 py-1 font-medium">Time</th>
+													<th class="px-2 py-1 font-medium">Parameter</th>
+													<th class="px-2 py-1 font-medium text-right">Stored</th>
+													<th class="px-2 py-1 font-medium text-right">Incoming</th>
+												</tr>
+											</thead>
+											<tbody>
+												{#each plan.overlap_sample as diff}
+													<tr class="border-t border-brand-divider">
+														<td class="px-2 py-1 font-mono">{diff.time}</td>
+														<td class="px-2 py-1">{paramNameById.get(diff.parameter_id) ?? diff.parameter_id.slice(0, 8)}</td>
+														<td class="px-2 py-1 text-right">{diff.existing}</td>
+														<td class="px-2 py-1 text-right">{diff.incoming}</td>
+													</tr>
+												{/each}
+											</tbody>
+										</table>
+									</div>
+								</details>
+							{/if}
+						</div>
+					{/if}
+				</div>
+			{:else if !planStale && plan.row_count > 0}
+				<p class="mt-3 text-sm text-brand-muted">No overlap with existing data — all readings are new.</p>
+			{/if}
+
 			{#if Object.keys(plan.mapped_columns).length === 0}
 				<p class="mt-3 rounded-md bg-severity-alarm-soft px-3 py-2 text-sm text-severity-alarm">
 					No columns resolve to a parameter — map at least one column before importing.
@@ -347,7 +469,17 @@
 				</div>
 			{:else}
 				<div class="rounded-md bg-severity-warning-soft px-3 py-2 text-sm">
-					No new readings — all <strong>{result.duplicates}</strong> already present (idempotent).
+					No new readings — {#if result.overlaps_identical > 0}<strong>{result.overlaps_identical}</strong> identical{/if}{#if result.overlaps_identical > 0 && result.overlaps_differing > 0} + {/if}{#if result.overlaps_differing > 0}<strong>{result.overlaps_differing}</strong> differing{/if} already present.
+				</div>
+			{/if}
+
+			{#if result.overwritten > 0}
+				<div class="mt-2 rounded-md bg-severity-warning-soft px-3 py-2 text-sm text-severity-warning">
+					Overwrote <strong>{result.overwritten}</strong> reading{result.overwritten === 1 ? '' : 's'} with imported values.
+				</div>
+			{:else if result.overlaps_differing > 0}
+				<div class="mt-2 text-sm text-brand-muted">
+					{result.overlaps_differing} differing reading{result.overlaps_differing === 1 ? ' was' : 's were'} skipped (stored values kept).
 				</div>
 			{/if}
 
