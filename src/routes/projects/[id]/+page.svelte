@@ -5,6 +5,7 @@
 	import { api, type Project, type Site, type SiteParameter, type Parameter } from '$api/crud';
 	import { invalidatePublicConfig } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import Markdown from '$lib/components/Markdown.svelte';
 
 	let project = $state<Project | null>(null);
 	let sites = $state<Site[]>([]);
@@ -65,20 +66,6 @@
 			toastStore.success(newVal ? 'Public API enabled' : 'Public API disabled');
 		} catch {
 			toastStore.error('Failed to update project');
-		} finally {
-			savingField = null;
-		}
-	}
-
-	async function saveProjectField(field: keyof Project, value: string | null) {
-		if (!project) return;
-		savingField = field;
-		try {
-			await api.projects.update(project.id, { [field]: value || null });
-			(project as any)[field] = value || null;
-			project = { ...project };
-		} catch {
-			toastStore.error(`Failed to update ${field}`);
 		} finally {
 			savingField = null;
 		}
@@ -233,63 +220,29 @@
 
 			{#if project.is_public}
 				<div class="p-4 space-y-4">
-					<!-- Config fields -->
+					<!-- Config fields are read-only here; edit via the Edit button (top right) -->
 					<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl">
-						<label class="block">
+						<div>
 							<span class="text-xs text-brand-muted">Slug</span>
-							<input
-								type="text"
-								value={project.public_slug ?? ''}
-								onblur={(e) => saveProjectField('public_slug', (e.target as HTMLInputElement).value)}
-								onkeydown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-								class="mt-0.5 block w-full px-2 py-1.5 text-sm font-mono border border-brand-divider rounded bg-brand-surface focus:border-brand-primary focus:outline-none"
-								placeholder="project_slug"
-							/>
-						</label>
-						<label class="block">
+							<p class="mt-0.5 text-sm font-mono">{project.public_slug ?? '---'}</p>
+						</div>
+						<div>
 							<span class="text-xs text-brand-muted">API Title</span>
-							<input
-								type="text"
-								value={project.public_api_title ?? ''}
-								onblur={(e) => saveProjectField('public_api_title', (e.target as HTMLInputElement).value)}
-								onkeydown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-								class="mt-0.5 block w-full px-2 py-1.5 text-sm border border-brand-divider rounded bg-brand-surface focus:border-brand-primary focus:outline-none"
-								placeholder="Public API title"
-							/>
-						</label>
-						<label class="block">
+							<p class="mt-0.5 text-sm">{project.public_api_title ?? '---'}</p>
+						</div>
+						<div>
 							<span class="text-xs text-brand-muted">Version</span>
-							<input
-								type="text"
-								value={project.public_api_version ?? ''}
-								onblur={(e) => saveProjectField('public_api_version', (e.target as HTMLInputElement).value)}
-								onkeydown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-								class="mt-0.5 block w-full px-2 py-1.5 text-sm font-mono border border-brand-divider rounded bg-brand-surface focus:border-brand-primary focus:outline-none"
-								placeholder="1.0.0"
-							/>
-						</label>
-						<label class="block">
+							<p class="mt-0.5 text-sm font-mono">{project.public_api_version ?? '---'}</p>
+						</div>
+						<div>
 							<span class="text-xs text-brand-muted">Contact Email</span>
-							<input
-								type="email"
-								value={project.public_contact_email ?? ''}
-								onblur={(e) => saveProjectField('public_contact_email', (e.target as HTMLInputElement).value)}
-								onkeydown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-								class="mt-0.5 block w-full px-2 py-1.5 text-sm border border-brand-divider rounded bg-brand-surface focus:border-brand-primary focus:outline-none"
-								placeholder="contact@example.com"
-							/>
-						</label>
+							<p class="mt-0.5 text-sm">{project.public_contact_email ?? '---'}</p>
+						</div>
 					</div>
-					<label class="block max-w-2xl">
+					<div class="max-w-2xl">
 						<span class="text-xs text-brand-muted">Description (markdown)</span>
-						<textarea
-							value={project.public_api_description ?? ''}
-							onblur={(e) => saveProjectField('public_api_description', (e.target as HTMLTextAreaElement).value)}
-							class="mt-0.5 block w-full px-2 py-1.5 text-sm border border-brand-divider rounded bg-brand-surface focus:border-brand-primary focus:outline-none resize-y"
-							rows="3"
-							placeholder="API description (shown in docs page)"
-						></textarea>
-					</label>
+						<Markdown class="mt-0.5" source={project.public_api_description} />
+					</div>
 
 					{#if project.public_slug}
 						<p class="text-xs text-brand-muted font-mono">/api/public/{project.public_slug}</p>
