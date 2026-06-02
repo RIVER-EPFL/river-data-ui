@@ -3,23 +3,29 @@
 	import { base } from '$app/paths';
 	import { api, type ReprocessingJob } from '$api/crud';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import { eventBus } from '$lib/stores/events.svelte';
 	import { formatRelativeTime } from '$lib/utils';
 
-	const ACTIVE_POLL_MS = 6000;
-	const IDLE_POLL_MS = 30000;
-	const RECENT_LINGER_MS = 8000;
+	const POLL_MS = 10_000;
+	const RECENT_LINGER_MS = 5000;
 
 	let jobs = $state<ReprocessingJob[]>([]);
 	let open = $state(false);
+	let closeTimer: ReturnType<typeof setTimeout> | null = null;
 	let pollTimer: ReturnType<typeof setTimeout> | null = null;
 	let recentlyFinished = $state<Map<string, number>>(new Map());
 	let seenTerminal = new Set<string>();
+	let consecutiveErrors = $state(0);
+	let initialLoad = true;
 
 	const activeJobs = $derived(jobs.filter((j) => j.status === 'pending' || j.status === 'running'));
 	const recentJobs = $derived(
 		jobs.filter((j) => recentlyFinished.has(j.id) && j.status !== 'pending' && j.status !== 'running'),
 	);
-	const visibleJobs = $derived([...activeJobs, ...recentJobs]);
+	const recentJobIds = $derived(new Set(recentJobs.map((j) => j.id)));
+	const completedJobs = $derived(
+		jobs.filter((j) => (j.status === 'completed' || j.status === 'failed') && !recentJobIds.has(j.id)).slice(0, 3),
+	);
 	const badgeCount = $derived(activeJobs.length);
 
 	function triggerLabel(triggerType: string): string {
@@ -62,26 +68,30 @@
 				const terminal = job.status === 'completed' || job.status === 'failed';
 				if (terminal && !seenTerminal.has(job.id)) {
 					seenTerminal.add(job.id);
-					linger.set(job.id, now + RECENT_LINGER_MS);
-					if (job.status === 'failed') {
-						toastStore.error(`Reprocessing failed: ${job.error_message ?? triggerLabel(job.trigger_type)}`);
+					if (!initialLoad) {
+						linger.set(job.id, now + RECENT_LINGER_MS);
+						if (job.status === 'failed') {
+							toastStore.error(`Reprocessing failed: ${job.error_message ?? triggerLabel(job.trigger_type)}`);
+						}
 					}
 				}
 			}
+			initialLoad = false;
 			for (const [id, until] of linger) {
 				if (until <= now) linger.delete(id);
 			}
 			recentlyFinished = linger;
 			jobs = fetched;
+			if (seenTerminal.size > 200) seenTerminal.clear();
+			consecutiveErrors = 0;
 		} catch {
-			/* ignore polling errors */
+			consecutiveErrors++;
 		}
 	}
 
 	function schedule() {
 		if (pollTimer) clearTimeout(pollTimer);
-		const delay = activeJobs.length > 0 || recentJobs.length > 0 ? ACTIVE_POLL_MS : IDLE_POLL_MS;
-		pollTimer = setTimeout(tick, delay);
+		pollTimer = setTimeout(tick, POLL_MS);
 	}
 
 	async function tick() {
@@ -89,20 +99,45 @@
 		schedule();
 	}
 
+	function openPanel() {
+		if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
+		open = true;
+	}
+
+	function closePanel() {
+		if (closeTimer) clearTimeout(closeTimer);
+		closeTimer = setTimeout(() => { open = false; closeTimer = null; }, 200);
+	}
+
+	let unsubCreated: (() => void) | null = null;
+	let unsubCompleted: (() => void) | null = null;
+	let unsubProgress: (() => void) | null = null;
+
 	onMount(() => {
 		tick();
+
+		unsubCreated = eventBus.subscribe('job_created', () => { load(); });
+		unsubCompleted = eventBus.subscribe('job_completed', () => { load(); });
+		unsubProgress = eventBus.subscribe('job_progress', (event) => {
+			const e = event as { job_id: string; status: string; progress: number | null; total: number | null };
+			jobs = jobs.map(j => j.id === e.job_id ? { ...j, status: e.status, progress: e.progress, total: e.total } : j);
+		});
 	});
 
 	onDestroy(() => {
 		if (pollTimer) clearTimeout(pollTimer);
+		if (closeTimer) clearTimeout(closeTimer);
+		unsubCreated?.();
+		unsubCompleted?.();
+		unsubProgress?.();
 	});
 </script>
 
 <div
 	class="relative"
 	role="group"
-	onmouseenter={() => (open = true)}
-	onmouseleave={() => (open = false)}
+	onmouseenter={openPanel}
+	onmouseleave={closePanel}
 >
 	<button
 		type="button"
@@ -129,11 +164,14 @@
 				<span class="text-sm font-semibold">Operations</span>
 				<a href="{base}/jobs" class="text-xs text-brand-primary no-underline hover:underline">View all</a>
 			</div>
-			<div class="max-h-80 overflow-y-auto">
-				{#if visibleJobs.length === 0}
+			{#if consecutiveErrors > 5}
+				<div class="px-3 py-1 text-xs text-severity-warning bg-severity-warning-soft">Connection issue — retrying</div>
+			{/if}
+			<div class="max-h-96 overflow-y-auto">
+				{#if activeJobs.length === 0 && recentJobs.length === 0 && completedJobs.length === 0}
 					<p class="px-3 py-6 text-sm text-brand-muted text-center">No active operations</p>
 				{:else}
-					{#each visibleJobs as job (job.id)}
+					{#each [...activeJobs, ...recentJobs] as job (job.id)}
 						{@const pct = progressPercent(job)}
 						<div class="px-3 py-2 border-b border-brand-divider last:border-b-0">
 							<div class="flex items-center gap-2">
@@ -157,6 +195,21 @@
 							{/if}
 						</div>
 					{/each}
+					{#if completedJobs.length > 0}
+						<div class="px-3 py-1.5 text-xs font-semibold text-brand-muted bg-brand-bg">Recent</div>
+						{#each completedJobs as job (job.id)}
+							<div class="px-3 py-2 border-b border-brand-divider last:border-b-0 opacity-60">
+								<div class="flex items-center gap-2">
+									<span class="w-2 h-2 rounded-full shrink-0 {statusDotClass(job.status)}"></span>
+									<span class="text-sm">{triggerLabel(job.trigger_type)}</span>
+									<span class="ml-auto text-[10px] text-brand-muted">{job.completed_at ? formatRelativeTime(job.completed_at) : formatRelativeTime(job.created_at)}</span>
+								</div>
+								{#if job.status === 'failed' && job.error_message}
+									<p class="mt-1 text-xs text-severity-alarm break-words">{job.error_message}</p>
+								{/if}
+							</div>
+						{/each}
+					{/if}
 				{/if}
 			</div>
 		</div>

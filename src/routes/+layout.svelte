@@ -6,12 +6,11 @@
 	import { onMount } from 'svelte';
 	import ToastContainer from '$components/ui/ToastContainer.svelte';
 	import SearchBar from '$components/SearchBar.svelte';
-	import AlarmPanel from '$components/AlarmPanel.svelte';
+	import AlarmIndicator from '$components/AlarmIndicator.svelte';
 	import OperationsIndicator from '$components/OperationsIndicator.svelte';
 
 	let { children } = $props();
 	let sidebarCollapsed = $state(false);
-	let alarmPanelOpen = $state(false);
 
 	onMount(() => {
 		auth.init();
@@ -145,13 +144,7 @@
 				<div class="flex-1"></div>
 				<SearchBar />
 				<OperationsIndicator />
-				<button
-					onclick={() => alarmPanelOpen = true}
-					class="relative p-1 text-white/80 hover:text-white bg-transparent border-none cursor-pointer"
-					title="Alarm notifications"
-				>
-					&#128276;
-				</button>
+				<AlarmIndicator />
 				{#if auth.identity}
 					<span class="text-sm opacity-80">{auth.identity.fullName}</span>
 				{/if}
@@ -164,7 +157,6 @@
 					</button>
 				{/if}
 			</header>
-			<AlarmPanel bind:open={alarmPanelOpen} />
 
 			<!-- Page content -->
 			<main class="flex-1 overflow-y-auto p-[var(--spacing-page-gutter)]">

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
 	import { api, type Site, type Project, type SiteParameter, type Parameter, type Sensor, type SensorDeployment, type SensorCalibration, type Note, type AlarmThreshold, type DerivedParameter, type Sample, type Annotation } from '$api/crud';
@@ -17,6 +17,7 @@
 	import SharedChartTooltip from '$components/charts/SharedChartTooltip.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
 	import type { StatusEventsResponse } from '$lib/api/types';
+	import { eventBus } from '$lib/stores/events.svelte';
 
 	let site = $state<Site | null>(null);
 	let project = $state<Project | null>(null);
@@ -36,6 +37,18 @@
 	let statsOpen = $state(false);
 	let recomputingId = $state<string | null>(null);
 	let confirmingRemove = $state<string | null>(null);
+
+	let autoUpdate = $state(typeof localStorage !== 'undefined' && localStorage.getItem('river-data-auto-update') !== 'false');
+	let newDataAvailable = $state(false);
+
+	function toggleAutoUpdate() {
+		autoUpdate = !autoUpdate;
+		localStorage.setItem('river-data-auto-update', String(autoUpdate));
+		if (autoUpdate && newDataAvailable) {
+			newDataAvailable = false;
+			scheduleFetch();
+		}
+	}
 
 	// Scatter tab state
 	let scatterXParamId = $state('');
@@ -263,6 +276,8 @@
 
 	const siteId = $derived(page.params.id!);
 
+	let unsubEvents: (() => void) | null = null;
+
 	onMount(async () => {
 		try {
 			const s = await api.sites.get(siteId);
@@ -302,6 +317,20 @@
 			} catch { /* non-critical */ }
 
 			scheduleFetch();
+
+			unsubEvents = eventBus.subscribe('data_ingested', (event: any) => {
+				if (!site) return;
+				if (event.site_id === site.id) {
+					if (autoUpdate) {
+						const wasAtMax = Math.abs(chartEnd - sliderMax) < 60000;
+						sliderMax = Date.now();
+						if (wasAtMax) chartEnd = sliderMax;
+						scheduleFetch();
+					} else {
+						newDataAvailable = true;
+					}
+				}
+			});
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load site';
 		} finally { loading = false; }
@@ -320,6 +349,10 @@
 		} catch (e) {
 			toastStore.error(e instanceof Error ? `Failed to load derived parameters / samples: ${e.message}` : 'Failed to load derived parameters / samples');
 		}
+	});
+
+	onDestroy(() => {
+		unsubEvents?.();
 	});
 
 	function paramName(paramId: string): string { return parameters.find((p) => p.id === paramId)?.display_name ?? '—'; }
@@ -700,6 +733,16 @@
 							</label>
 						{/if}
 
+						<div class="w-px h-5 bg-brand-divider mx-1"></div>
+						<button
+							onclick={toggleAutoUpdate}
+							class="flex items-center gap-1.5 px-2 py-1 text-xs rounded-md cursor-pointer border-none {autoUpdate ? 'bg-severity-ok-soft text-severity-ok' : 'bg-brand-bg text-brand-muted'}"
+							title={autoUpdate ? 'Auto-update: ON' : 'Auto-update: OFF'}
+						>
+							<span class="w-1.5 h-1.5 rounded-full {autoUpdate ? 'bg-severity-ok' : 'bg-brand-muted'}"></span>
+							Live
+						</button>
+
 						<span class="text-xs text-brand-muted ml-auto font-mono">
 							{windowLabel} · {new Date(chartStart).toLocaleDateString()} — {new Date(chartEnd).toLocaleDateString()}
 						</span>
@@ -753,6 +796,17 @@
 								</table>
 							</div>
 						{/if}
+					</div>
+				{/if}
+
+				<!-- New data banner -->
+				{#if newDataAvailable}
+					<div class="flex items-center gap-2 px-3 py-2 text-sm bg-brand-primary/5 text-brand-primary rounded-md border border-brand-primary/20">
+						<span>New data available</span>
+						<button
+							onclick={() => { newDataAvailable = false; scheduleFetch(); }}
+							class="px-2 py-0.5 text-xs bg-brand-primary text-white rounded cursor-pointer border-none"
+						>Refresh</button>
 					</div>
 				{/if}
 
