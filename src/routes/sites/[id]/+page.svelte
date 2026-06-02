@@ -12,6 +12,7 @@
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import ThresholdDialog from '$components/dialogs/ThresholdDialog.svelte';
 	import ParameterChart, { type ChartData } from '$components/charts/ParameterChart.svelte';
+	import { GAP_THRESHOLDS } from '$lib/charts/uPlotTheme';
 	import ScatterPlot from '$components/charts/ScatterPlot.svelte';
 	import SharedChartTooltip from '$components/charts/SharedChartTooltip.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
@@ -93,6 +94,8 @@
 	const chartResolution = $derived<'raw' | 'hourly' | 'daily'>(
 		resolutionOverride === 'auto' ? autoResolution(chartStart, chartEnd) : resolutionOverride
 	);
+
+	const gapThreshold = $derived(GAP_THRESHOLDS[chartResolution] ?? 0);
 
 	const windowDuration = $derived((chartEnd - chartStart) / 86400000);
 	const windowLabel = $derived.by(() => {
@@ -754,6 +757,7 @@
 							seriesIndex={i}
 							syncKey={cursorSyncKey}
 							chartData={chartDataMap.get(sp.id) ?? null}
+							{gapThreshold}
 							loading={chartLoading}
 							onZoomSelect={onChartZoomSelect}
 							onResetZoom={onChartResetZoom}
@@ -785,6 +789,7 @@
 										seriesIndex={measurementParams.length + i}
 										syncKey={cursorSyncKey}
 										chartData={chartDataMap.get(sp.id) ?? null}
+										{gapThreshold}
 										loading={chartLoading}
 										onZoomSelect={onChartZoomSelect}
 										onResetZoom={onChartResetZoom}

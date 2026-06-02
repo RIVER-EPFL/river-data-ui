@@ -50,6 +50,28 @@ export function makeSeries(
   };
 }
 
+export const GAP_THRESHOLDS: Record<string, number> = {
+  raw: 1800,
+  hourly: 10800,
+  daily: 259200,
+  weekly: 1814400,
+};
+
+export function makeGaps(thresholdSeconds: number): uPlot.Series.GapsRefiner {
+  return (self, _seriesIdx, idx0, idx1, nullGaps) => {
+    const times = self.data[0] as number[];
+    const gaps: uPlot.Series.Gaps = [...nullGaps];
+    for (let i = idx0 + 1; i <= idx1; i++) {
+      if (times[i] - times[i - 1] > thresholdSeconds) {
+        const fromPx = self.valToPos(times[i - 1], 'x', true);
+        const toPx = self.valToPos(times[i], 'x', true);
+        gaps.push([fromPx, toPx]);
+      }
+    }
+    return gaps;
+  };
+}
+
 export function makeAxis(opts: Partial<uPlot.Axis> = {}): uPlot.Axis {
   return {
     stroke: uPlotTheme.axisStrokeColor,

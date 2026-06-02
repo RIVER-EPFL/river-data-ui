@@ -1,7 +1,7 @@
 import uPlot from 'uplot';
 import noUiSlider, { PipsMode, type Options as NoUiSliderOptions } from 'nouislider';
 import { tokens } from './tokens';
-import { uPlotTheme } from './uPlotTheme';
+import { uPlotTheme, makeGaps, GAP_THRESHOLDS } from './uPlotTheme';
 
 /** Minimal project shape returned by /api/projects */
 interface DashboardProject {
@@ -96,6 +96,7 @@ interface DashboardState {
   showAlarms: boolean;
   singlePoint: boolean;
   parametersCollapsed: boolean;
+  gapThreshold: number;
 }
 
 type ApiFn = (url: string, noCache?: boolean) => Promise<unknown>;
@@ -232,6 +233,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     showAlarms: true,
     singlePoint: false,
     parametersCollapsed: true,
+    gapThreshold: 0,
   };
 
   const CHART_HEIGHT_NORMAL = 180;
@@ -755,15 +757,19 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     if (days <= 14) {
       endpoint = 'readings';
       resolution = '10-min raw';
+      state.gapThreshold = GAP_THRESHOLDS.raw;
     } else if (days <= 120) {
       endpoint = 'aggregates/hourly';
       resolution = 'hourly avg';
+      state.gapThreshold = GAP_THRESHOLDS.hourly;
     } else if (days <= 1095) {
       endpoint = 'aggregates/daily';
       resolution = 'daily avg';
+      state.gapThreshold = GAP_THRESHOLDS.daily;
     } else {
       endpoint = 'aggregates/weekly';
       resolution = 'weekly avg';
+      state.gapThreshold = GAP_THRESHOLDS.weekly;
     }
 
     const url = `/api/sites/${state.site.id}/${endpoint}?start=${state.start.toISOString()}&end=${state.end.toISOString()}&alarms=true`;
@@ -1125,6 +1131,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
 
       const seriesData: uPlot.AlignedData = [mergedTimes];
       const seriesOpts: uPlot.Series[] = [{}];
+      const gaps = state.gapThreshold > 0 ? makeGaps(state.gapThreshold) : undefined;
 
       typeParams.forEach((param) => {
         const rawValues = param.values || param.avg || [];
@@ -1136,6 +1143,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
           width: 1.5,
           points: isSingleTimestamp ? { show: true, size: 8 } : undefined,
           value: (_u: uPlot, v: number | null) => v == null ? '--' : v.toFixed(2) + (param.units ? ' ' + param.units : ''),
+          gaps,
         });
       });
 

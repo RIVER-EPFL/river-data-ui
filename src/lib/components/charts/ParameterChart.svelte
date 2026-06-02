@@ -2,7 +2,7 @@
 	import { onMount, tick } from 'svelte';
 	import uPlot from 'uplot';
 	import 'uplot/dist/uPlot.min.css';
-	import { uPlotTheme, makeSeries, makeAxis } from '$lib/charts/uPlotTheme';
+	import { uPlotTheme, makeSeries, makeAxis, makeGaps } from '$lib/charts/uPlotTheme';
 	import { tokens } from '$lib/charts/tokens';
 	import { getChartSyncGroup } from '$lib/charts/chart-sync.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
@@ -30,6 +30,7 @@
 		seriesIndex = 0,
 		syncKey = '',
 		chartData,
+		gapThreshold = 0,
 		loading: externalLoading = false,
 		onZoomSelect,
 		onResetZoom,
@@ -45,6 +46,7 @@
 		seriesIndex?: number;
 		syncKey?: string;
 		chartData?: ChartData | null;
+		gapThreshold?: number;
 		loading?: boolean;
 		onZoomSelect?: (startMs: number, endMs: number) => void;
 		onResetZoom?: () => void;
@@ -279,16 +281,18 @@
 		const toU = (arr: (number | null)[]): (number | undefined)[] => arr.map((v) => v ?? undefined);
 		const hasMinMax = mins && maxs;
 
+		const gaps = gapThreshold > 0 ? makeGaps(gapThreshold) : undefined;
+
 		const seriesDefs: uPlot.Series[] = [
 			{},
-			makeSeries(seriesIndex, parameterName, units),
+			{ ...makeSeries(seriesIndex, parameterName, units), gaps },
 		];
 		const data: uPlot.AlignedData = [times, toU(values)] as any;
 
 		if (hasMinMax) {
 			seriesDefs.push(
-				{ label: 'min', stroke: 'transparent', show: true, width: 0, points: { show: false } },
-				{ label: 'max', stroke: 'transparent', show: true, width: 0, points: { show: false } },
+				{ label: 'min', stroke: 'transparent', show: true, width: 0, points: { show: false }, gaps },
+				{ label: 'max', stroke: 'transparent', show: true, width: 0, points: { show: false }, gaps },
 			);
 			(data as any[]).push(toU(mins!), toU(maxs!));
 		}
