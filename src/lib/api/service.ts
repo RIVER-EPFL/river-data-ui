@@ -176,6 +176,15 @@ export interface SyncEvent {
 	duration_ms: number | null;
 }
 
+export interface SyncServiceCredential {
+	id: string;
+	client_id: string;
+	service_type: string;
+	service_id: string | null;
+	revoked: boolean;
+	created_at: string;
+}
+
 export const issueSyncCommand = (serviceId: string, command: string, payload?: object) =>
 	POST<SyncCommand>(`${ADMIN}/sync/services/${serviceId}/commands`, { command, payload });
 
