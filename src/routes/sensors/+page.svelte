@@ -15,6 +15,7 @@
 	let sortOrder = $state<'ASC' | 'DESC'>('ASC');
 	let searchQuery = $state('');
 	let filterActive = $state<'' | 'true' | 'false'>('');
+	let quickFilter = $state<'' | 'undeployed' | 'needs_cal'>('');
 
 	const perPage = 25;
 	const totalPages = $derived(Math.ceil(total / perPage));
@@ -61,6 +62,16 @@
 		return 'alarm';
 	}
 
+	// Client-side quick filters over the current page (the list is server-paginated).
+	const filteredSensors = $derived(
+		sensors.filter((s) => {
+			if (quickFilter === 'undeployed') return !currentDeployment(s.id);
+			if (quickFilter === 'needs_cal')
+				return !calibrations.some((c) => c.sensor_id === s.id && !(c.slope === 1 && c.intercept === 0));
+			return true;
+		})
+	);
+
 	function toggleSort(field: string) {
 		if (sortField === field) sortOrder = sortOrder === 'ASC' ? 'DESC' : 'ASC';
 		else { sortField = field; sortOrder = 'ASC'; }
@@ -87,6 +98,12 @@
 			<option value="true">Active</option>
 			<option value="false">Inactive</option>
 		</select>
+		<select bind:value={quickFilter} title="Applied within the current page"
+			class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
+			<option value="">No quick filter</option>
+			<option value="undeployed">Undeployed</option>
+			<option value="needs_cal">Needs calibration</option>
+		</select>
 	</div>
 
 	<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
@@ -107,10 +124,10 @@
 					<tr><td colspan="7" class="px-4 py-8 text-center text-brand-muted">Loading...</td></tr>
 				{:else if error}
 					<tr><td colspan="7" class="px-4 py-8 text-center text-severity-alarm">{error}</td></tr>
-				{:else if sensors.length === 0}
+				{:else if filteredSensors.length === 0}
 					<tr><td colspan="7" class="px-4 py-8 text-center text-brand-muted">No sensors found</td></tr>
 				{:else}
-					{#each sensors as sensor}
+					{#each filteredSensors as sensor}
 						{@const dep = currentDeployment(sensor.id)}
 						{@const cal = lastCalibration(sensor.id)}
 						{@const calAge = calibrationAge(cal)}

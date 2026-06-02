@@ -11,6 +11,7 @@
 	import Dialog from '$components/ui/Dialog.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import ThresholdDialog from '$components/dialogs/ThresholdDialog.svelte';
+	import DeployMoveSensorDialog from '$components/dialogs/DeployMoveSensorDialog.svelte';
 	import ParameterChart, { type ChartData } from '$components/charts/ParameterChart.svelte';
 	import { GAP_THRESHOLDS } from '$lib/charts/uPlotTheme';
 	import ScatterPlot from '$components/charts/ScatterPlot.svelte';
@@ -367,6 +368,26 @@
 
 	function sensorLatestCalibration(sensorId: string): SensorCalibration | undefined {
 		return calibrations.filter((c) => c.sensor_id === sensorId).sort((a, b) => new Date(b.valid_from).getTime() - new Date(a.valid_from).getTime())[0];
+	}
+
+	// Deploy / move / recall sensors at this site
+	let deployHereOpen = $state(false);
+	let moveOpen = $state(false);
+	let moveSensor = $state<Sensor | null>(null);
+
+	async function reloadDeployments() {
+		const deps = await api.sensorDeployments.list({ perPage: 200, filter: { site_id: siteId } });
+		deployments = deps.data;
+	}
+
+	async function handleRecallDeployment(sId: string) {
+		const dep = sensorDeployment(sId);
+		if (!dep) return;
+		try {
+			await api.sensorDeployments.update(dep.id, { deployed_until: new Date().toISOString() });
+			toastStore.success('Sensor recalled — readings will be re-coordinated in the background');
+			await reloadDeployments();
+		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Recall failed'); }
 	}
 
 	// Notes
@@ -1065,6 +1086,10 @@
 
 		<!-- Sensors tab -->
 		{:else if activeTab === 2}
+			<div class="flex items-center justify-between mb-3">
+				<span class="text-sm font-semibold">Deployed sensors ({deployedSensors.length})</span>
+				<button onclick={() => (deployHereOpen = true)} class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface cursor-pointer hover:bg-brand-bg">Deploy sensor here</button>
+			</div>
 			<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
 				{#each deployedSensors as sensor}
 					{@const dep = sensorDeployment(sensor.id)}
@@ -1107,6 +1132,13 @@
 								</div>
 							</div>
 						{/if}
+
+						<div class="mt-3 border-t border-brand-divider pt-2 flex gap-2 justify-end">
+							<button onclick={() => { moveSensor = sensor; moveOpen = true; }} class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface cursor-pointer hover:bg-brand-bg">Move…</button>
+							<ConfirmPopover message="End this deployment now? The sensor leaves this site." confirmLabel="Recall" confirmVariant="primary" onconfirm={() => handleRecallDeployment(sensor.id)}>
+								<button class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface cursor-pointer hover:bg-brand-bg text-brand-primary">Recall</button>
+							</ConfirmPopover>
+						</div>
 					</div>
 				{/each}
 				{#if deployedSensors.length === 0}
@@ -1379,5 +1411,26 @@
 			existing={thresholds.find((t) => t.parameter_id === thresholdEditingParamId) ?? null}
 			onsuccess={reloadThresholds}
 		/>
+
+		{#if deployHereOpen}
+			<DeployMoveSensorDialog
+				bind:open={deployHereOpen}
+				mode="site"
+				siteId={site.id}
+				siteName={site.name}
+				onsuccess={reloadDeployments}
+			/>
+		{/if}
+
+		{#if moveOpen && moveSensor}
+			<DeployMoveSensorDialog
+				bind:open={moveOpen}
+				mode="sensor"
+				sensorId={moveSensor.id}
+				sensorName={moveSensor.name ?? moveSensor.serial_number ?? 'sensor'}
+				currentSiteName={site.name}
+				onsuccess={reloadDeployments}
+			/>
+		{/if}
 	{/if}
 {/if}

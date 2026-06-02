@@ -136,6 +136,7 @@ export interface SensorDeployment {
 	site_id: string;
 	deployed_from: string;
 	deployed_until: string | null;
+	deployment_type: string;
 	notes: string | null;
 	created_at: string;
 	updated_at: string;

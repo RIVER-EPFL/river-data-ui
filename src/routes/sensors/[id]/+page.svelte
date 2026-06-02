@@ -9,6 +9,7 @@
 	import Tabs from '$components/ui/Tabs.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
+	import DeployMoveSensorDialog from '$components/dialogs/DeployMoveSensorDialog.svelte';
 
 	let sensor = $state<Sensor | null>(null);
 	let calibrations = $state<SensorCalibration[]>([]);
@@ -25,6 +26,19 @@
 	let newCalSlope = $state('1');
 	let newCalIntercept = $state('0');
 	let addingCal = $state(false);
+
+	// Deploy / move dialog
+	let deployOpen = $state(false);
+	const currentDeployment = $derived(deployments.find((d) => !d.deployed_until));
+
+	async function reloadDeployments() {
+		const deps = await api.sensorDeployments.list({
+			perPage: 100,
+			filter: { sensor_id: sensorId },
+			sort: ['deployed_from', 'DESC'],
+		});
+		deployments = deps.data;
+	}
 
 	async function reloadCalibrations() {
 		const cals = await api.sensorCalibrations.list({
@@ -99,7 +113,16 @@
 		try {
 			const result = await rollbackDeployment(depId);
 			toastStore.success(`Rolled back: ${result.readings_reassigned} readings reassigned`);
+			await reloadDeployments();
 		} catch { toastStore.error('Rollback failed'); }
+	}
+
+	async function handleRecall(depId: string) {
+		try {
+			await api.sensorDeployments.update(depId, { deployed_until: new Date().toISOString() });
+			toastStore.success('Sensor recalled — readings will be re-coordinated in the background');
+			await reloadDeployments();
+		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Recall failed'); }
 	}
 </script>
 
@@ -116,8 +139,14 @@
 				{#if sensor.manufacturer || sensor.model}
 					<p class="text-sm text-brand-muted">{[sensor.manufacturer, sensor.model].filter(Boolean).join(' ')}</p>
 				{/if}
+				{#if currentDeployment}
+					<p class="text-sm mt-0.5">Currently at <a href="{base}/sites/{currentDeployment.site_id}" class="text-brand-primary no-underline hover:underline">{siteName(currentDeployment.site_id)}</a> since {formatDateTime(currentDeployment.deployed_from)}</p>
+				{:else}
+					<p class="text-sm mt-0.5 text-brand-muted">Not currently deployed</p>
+				{/if}
 			</div>
 			<div class="flex gap-2 items-center">
+				<button onclick={() => (deployOpen = true)} class="px-3 py-1 text-sm border border-brand-divider rounded-md cursor-pointer bg-brand-surface hover:bg-brand-bg">Deploy / Move…</button>
 				<span class="px-2 py-0.5 text-xs font-medium rounded-full {sensor.is_active ? 'bg-severity-ok-soft text-severity-ok' : 'bg-brand-bg text-brand-muted'}">
 					{sensor.is_active ? 'Active' : 'Inactive'}
 				</span>
@@ -155,9 +184,14 @@
 								<td class="px-4 py-2 text-xs text-brand-muted">{dep.deployed_until ? formatDateTime(dep.deployed_until) : 'Current'}</td>
 								<td class="px-4 py-2">
 									{#if !dep.deployed_until}
-										<ConfirmPopover message="Rollback this deployment?" confirmLabel="Rollback" onconfirm={() => handleRollback(dep.id)}>
-											<button class="text-xs text-severity-alarm bg-transparent border-none cursor-pointer hover:underline">Rollback</button>
-										</ConfirmPopover>
+										<div class="flex gap-3">
+											<ConfirmPopover message="End this deployment now? The sensor will be marked as no longer in the field." confirmLabel="Recall" confirmVariant="primary" onconfirm={() => handleRecall(dep.id)}>
+												<button class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline">Recall</button>
+											</ConfirmPopover>
+											<ConfirmPopover message="Roll back this deployment? This deletes it and restores the previous one." confirmLabel="Rollback" onconfirm={() => handleRollback(dep.id)}>
+												<button class="text-xs text-severity-alarm bg-transparent border-none cursor-pointer hover:underline">Rollback</button>
+											</ConfirmPopover>
+										</div>
 									{/if}
 								</td>
 							</tr>
@@ -231,4 +265,14 @@
 			<button onclick={handleAddCalibration} disabled={addingCal} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm cursor-pointer border-none disabled:opacity-50">{addingCal ? 'Adding...' : 'Add'}</button>
 		{/snippet}
 	</Dialog>
+
+	<DeployMoveSensorDialog
+		bind:open={deployOpen}
+		mode="sensor"
+		sensorId={sensor.id}
+		sensorName={sensor.name ?? sensor.serial_number ?? 'sensor'}
+		sites={sites}
+		currentSiteName={currentDeployment ? siteName(currentDeployment.site_id) : ''}
+		onsuccess={reloadDeployments}
+	/>
 {/if}
