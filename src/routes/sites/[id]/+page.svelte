@@ -12,6 +12,7 @@
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import ThresholdDialog from '$components/dialogs/ThresholdDialog.svelte';
 	import DeployMoveSensorDialog from '$components/dialogs/DeployMoveSensorDialog.svelte';
+	import MergeSiteParameterDialog from '$components/dialogs/MergeSiteParameterDialog.svelte';
 	import ParameterChart, { type ChartData } from '$components/charts/ParameterChart.svelte';
 	import { GAP_THRESHOLDS } from '$lib/charts/uPlotTheme';
 	import ScatterPlot from '$components/charts/ScatterPlot.svelte';
@@ -388,6 +389,20 @@
 			toastStore.success('Sensor recalled — readings will be re-coordinated in the background');
 			await reloadDeployments();
 		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Recall failed'); }
+	}
+
+	// Merge site parameters (same site)
+	let mergeOpen = $state(false);
+	let mergeSource = $state<{ id: string; label: string } | null>(null);
+
+	function openMergeSiteParameter(sp: SiteParameter) {
+		mergeSource = { id: sp.id, label: paramName(sp.parameter_id) };
+		mergeOpen = true;
+	}
+
+	async function reloadSiteParameters() {
+		const sp = await api.siteParameters.list({ perPage: 200, filter: { site_id: siteId } });
+		siteParameters = sp.data;
 	}
 
 	// Notes
@@ -984,6 +999,10 @@
 										class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface cursor-pointer hover:bg-brand-bg"
 									>{th ? 'Edit' : 'Set'} thresholds</button>
 									<button
+										onclick={() => openMergeSiteParameter(sp)}
+										class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface cursor-pointer hover:bg-brand-bg"
+									>Merge…</button>
+									<button
 										onclick={() => removeParameter(sp.id)}
 										class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface cursor-pointer hover:bg-brand-bg text-severity-alarm"
 									>Remove</button>
@@ -1430,6 +1449,15 @@
 				sensorName={moveSensor.name ?? moveSensor.serial_number ?? 'sensor'}
 				currentSiteName={site.name}
 				onsuccess={reloadDeployments}
+			/>
+		{/if}
+
+		{#if mergeOpen && mergeSource}
+			<MergeSiteParameterDialog
+				bind:open={mergeOpen}
+				source={mergeSource}
+				candidates={siteParameters.filter((s) => !s.is_derived).map((s) => ({ id: s.id, label: paramName(s.parameter_id) }))}
+				onsuccess={reloadSiteParameters}
 			/>
 		{/if}
 	{/if}
