@@ -4,7 +4,7 @@
 	import { api, type ReprocessingJob } from '$api/crud';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { eventBus } from '$lib/stores/events.svelte';
-	import { formatRelativeTime } from '$lib/utils';
+	import { formatRelativeTime, triggerLabel } from '$lib/utils';
 
 	const POLL_MS = 10_000;
 	const RECENT_LINGER_MS = 5000;
@@ -27,16 +27,6 @@
 		jobs.filter((j) => (j.status === 'completed' || j.status === 'failed') && !recentJobIds.has(j.id)).slice(0, 3),
 	);
 	const badgeCount = $derived(activeJobs.length);
-
-	function triggerLabel(triggerType: string): string {
-		switch (triggerType) {
-			case 'janitor_run': return 'Janitor sweep';
-			case 'derived_recompute': return 'Derived recompute';
-			case 'calibration_update': return 'Calibration update';
-			case 'deployment_update': return 'Deployment update';
-			default: return triggerType;
-		}
-	}
 
 	function progressPercent(job: ReprocessingJob): number | null {
 		if (job.total && job.total > 0 && job.progress != null) {

@@ -2,7 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { base } from '$app/paths';
 	import { api, type Sensor, type ReprocessingJob } from '$api/crud';
-	import { formatRelativeTime, formatDateTime } from '$lib/utils';
+	import { formatRelativeTime, formatDateTime, triggerLabel } from '$lib/utils';
 
 	let jobs = $state<ReprocessingJob[]>([]);
 	let sensorMap = $state<Map<string, string>>(new Map());
@@ -54,16 +54,6 @@
 			case 'running': return 'bg-severity-warning-soft text-severity-warning';
 			case 'pending': return 'bg-brand-bg text-brand-muted';
 			default: return 'bg-brand-bg text-brand-muted';
-		}
-	}
-
-	function triggerLabel(triggerType: string): string {
-		switch (triggerType) {
-			case 'janitor_run': return 'Janitor sweep';
-			case 'derived_recompute': return 'Derived recompute';
-			case 'calibration_update': return 'Calibration update';
-			case 'deployment_update': return 'Deployment update';
-			default: return triggerType;
 		}
 	}
 

@@ -28,3 +28,24 @@ export function formatDateTime(date: string | Date): string {
 		timeZoneName: 'short',
 	});
 }
+
+export function triggerLabel(triggerType: string): string {
+	switch (triggerType) {
+		case 'janitor_run': return 'Janitor sweep';
+		case 'derived_recompute': return 'Derived recompute';
+		case 'derived_assignment': return 'Derived assignment';
+		case 'calibration_create': return 'Calibration added';
+		case 'calibration_update': return 'Calibration update';
+		case 'calibration_delete': return 'Calibration removed';
+		case 'deployment_create': return 'Deployment added';
+		case 'deployment_update': return 'Deployment update';
+		case 'deployment_delete': return 'Deployment removed';
+		case 'manual_reprocess': return 'Manual reprocess';
+		case 'refresh_aggregates': return 'Aggregate refresh';
+		case 'refresh_aggregates_full': return 'Full aggregate refresh';
+		case 'compute_derived': return 'Compute derived';
+		case 'csv_import': return 'CSV import';
+		case 'pairing_backfill': return 'Pairing backfill';
+		default: return triggerType;
+	}
+}
