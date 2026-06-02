@@ -482,6 +482,40 @@
 			})
 	);
 
+	let showAddParameter = $state(false);
+	let addParamId = $state('');
+	let addingParam = $state(false);
+
+	const unassignedParameters = $derived(
+		parameters.filter((p) => p.category === 'measurement' && !siteParameterIds.has(p.id))
+	);
+
+	async function addParameter() {
+		if (!addParamId) return;
+		addingParam = true;
+		try {
+			await api.siteParameters.create({ site_id: siteId, parameter_id: addParamId });
+			const sp = await api.siteParameters.list({ perPage: 200, filter: { site_id: siteId } });
+			siteParameters = sp.data;
+			addParamId = '';
+			showAddParameter = false;
+			toastStore.success('Parameter added');
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Failed to add parameter');
+		} finally { addingParam = false; }
+	}
+
+	async function removeParameter(spId: string) {
+		try {
+			await api.siteParameters.remove(spId);
+			const sp = await api.siteParameters.list({ perPage: 200, filter: { site_id: siteId } });
+			siteParameters = sp.data;
+			toastStore.success('Parameter removed');
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Failed to remove parameter');
+		}
+	}
+
 	let showAssignDerived = $state(false);
 	let assigningId = $state<string | null>(null);
 
@@ -877,6 +911,33 @@
 		<!-- Parameters tab -->
 		{:else if activeTab === 1}
 			<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
+				<div class="flex items-center justify-between px-4 py-3 bg-brand-bg border-b border-brand-divider">
+					<span class="text-sm font-semibold">Parameters ({siteParameters.filter((sp) => !sp.is_derived).length})</span>
+					<button
+						onclick={() => showAddParameter = !showAddParameter}
+						class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface cursor-pointer hover:bg-brand-bg"
+					>{showAddParameter ? 'Cancel' : 'Add'}</button>
+				</div>
+
+				{#if showAddParameter}
+					<div class="p-4 border-b border-brand-divider bg-brand-bg/50 flex items-end gap-3">
+						<div class="flex-1">
+							<label for="add-param-select" class="text-xs font-medium block mb-1">Parameter</label>
+							<select id="add-param-select" bind:value={addParamId} class="w-full px-3 py-1.5 text-sm border border-brand-divider rounded bg-brand-surface">
+								<option value="">Select a parameter...</option>
+								{#each unassignedParameters as p}
+									<option value={p.id}>{p.display_name}</option>
+								{/each}
+							</select>
+						</div>
+						<button
+							onclick={addParameter}
+							disabled={!addParamId || addingParam}
+							class="px-3 py-1.5 text-xs rounded bg-brand-primary text-white cursor-pointer hover:bg-brand-primary-dark disabled:opacity-40 disabled:cursor-not-allowed"
+						>{addingParam ? 'Adding...' : 'Add'}</button>
+					</div>
+				{/if}
+
 				<table class="w-full text-sm">
 					<thead><tr class="bg-brand-bg border-b border-brand-divider">
 						<th class="text-left px-4 py-2 font-semibold">Parameter</th>
@@ -900,11 +961,15 @@
 										—
 									{/if}
 								</td>
-								<td class="px-4 py-2 text-right">
+								<td class="px-4 py-2 text-right space-x-1">
 									<button
 										onclick={() => openThresholdDialog(sp.parameter_id, paramName(sp.parameter_id))}
 										class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface cursor-pointer hover:bg-brand-bg"
 									>{th ? 'Edit' : 'Set'} thresholds</button>
+									<button
+										onclick={() => removeParameter(sp.id)}
+										class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface cursor-pointer hover:bg-brand-bg text-severity-alarm"
+									>Remove</button>
 								</td>
 							</tr>
 						{/each}
