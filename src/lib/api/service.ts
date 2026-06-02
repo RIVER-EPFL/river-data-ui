@@ -329,3 +329,26 @@ export interface KeycloakRole {
 export const listRoles = () => GET<KeycloakRole[]>(`${ADMIN}/roles`);
 export const assignUserRoles = (userId: string, roles: string[]) =>
 	POST(`${ADMIN}/users/${userId}/roles`, { roles });
+
+// Grab samples
+export interface GrabSampleReading {
+	parameter_id: string;
+	time: string;
+	value: number;
+	replicate_index?: number;
+	sensor_id?: string;
+}
+
+export interface GrabSampleRequest {
+	site_id: string;
+	created_by?: string;
+	readings: GrabSampleReading[];
+}
+
+export interface GrabSampleResponse {
+	inserted: number;
+	samples_created: number;
+}
+
+export const saveGrabSample = (req: GrabSampleRequest) =>
+	POST<GrabSampleResponse>(`${SERVICE}/grab_samples`, req);

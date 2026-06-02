@@ -2,6 +2,7 @@
 	import { POST } from '$api/client';
 	import { api } from '$api/crud';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import SaveToStationDialog from '$components/dialogs/SaveToStationDialog.svelte';
 
 	interface ToolInput {
 		key: string;
@@ -251,6 +252,7 @@
 	let arrayValues = $state<Record<string, string[]>>({});
 	let result = $state<Record<string, unknown> | null>(null);
 	let calculating = $state(false);
+	let showSaveDialog = $state(false);
 
 	// Ion charge balance state
 	let ionRows = $state<{
@@ -492,7 +494,13 @@
 			<div>
 				{#if result}
 					<div class="rounded-md border border-brand-divider bg-brand-surface p-4">
-						<h3 class="text-sm font-semibold mb-3">Results</h3>
+						<div class="flex items-center justify-between mb-3">
+							<h3 class="text-sm font-semibold">Results</h3>
+							<button
+								onclick={() => (showSaveDialog = true)}
+								class="px-3 py-1 bg-brand-primary text-white rounded-md text-xs font-semibold cursor-pointer border-none"
+							>Save to Station</button>
+						</div>
 						<div class="space-y-2">
 							{#each Object.entries(result).filter(([, v]) => v != null) as [key, value]}
 								<div class="flex justify-between text-sm border-b border-brand-divider pb-1 last:border-b-0">
@@ -511,3 +519,6 @@
 		</div>
 	{/if}
 </div>
+
+<SaveToStationDialog bind:open={showSaveDialog} toolTitle={activeTool?.title ?? ''} results={result} />
+
