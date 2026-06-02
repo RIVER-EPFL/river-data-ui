@@ -7,6 +7,7 @@
 	import ToastContainer from '$components/ui/ToastContainer.svelte';
 	import SearchBar from '$components/SearchBar.svelte';
 	import AlarmPanel from '$components/AlarmPanel.svelte';
+	import OperationsIndicator from '$components/OperationsIndicator.svelte';
 
 	let { children } = $props();
 	let sidebarCollapsed = $state(false);
@@ -143,6 +144,7 @@
 				<h1 class="text-[0.95rem] font-semibold">River Data: Admin</h1>
 				<div class="flex-1"></div>
 				<SearchBar />
+				<OperationsIndicator />
 				<button
 					onclick={() => alarmPanelOpen = true}
 					class="relative p-1 text-white/80 hover:text-white bg-transparent border-none cursor-pointer"
