@@ -3,8 +3,10 @@
 	import type uPlot from 'uplot';
 	import { api, type Site, type Parameter, type SiteParameter } from '$api/crud';
 	import { GET } from '$api/client';
+	import type { ReadingsResponse, AggregatesResponse } from '$lib/api/types';
 	import ScatterPlot from '$components/charts/ScatterPlot.svelte';
 	import UPlotChart from '$components/charts/UPlotChart.svelte';
+	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
 	import { uPlotTheme, makeSeries, makeAxis } from '$lib/charts/uPlotTheme';
 
 	let sites = $state<Site[]>([]);
@@ -16,9 +18,18 @@
 	// Selection
 	let selectedSiteIds = $state<string[]>([]);
 	let selectedParamId = $state('');
-	let start = $state('');
-	let end = $state('');
 	let resolution = $state<'raw' | 'hourly' | 'daily'>('hourly');
+
+	// Shared time range, stored as epoch milliseconds
+	let start = $state(0);
+	let end = $state(0);
+
+	// Slider bounds derived from selected sites' data extent
+	let boundMin = $state(0);
+	let boundMax = $state(0);
+
+	// Cache of per-site data extents from /detail
+	const siteExtents = new Map<string, { min: number | null; max: number | null }>();
 
 	// Scatter selection
 	let scatterSiteId = $state('');
@@ -26,7 +37,7 @@
 	let scatterYParamId = $state('');
 
 	// Data
-	let chartData = $state<Array<{ site: string; times: number[]; values: number[] }>>([]);
+	let chartData = $state<Array<{ site: string; times: number[]; values: (number | null)[] }>>([]);
 	let loadingData = $state(false);
 
 	// Scatter data
@@ -57,16 +68,100 @@
 			params = p.data;
 			siteParams = sp.data;
 
-			const now = new Date();
-			end = now.toISOString().slice(0, 16);
-			start = new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 16);
+			const now = Date.now();
+			boundMin = now - 7 * 86400000;
+			boundMax = now;
+			start = boundMin;
+			end = boundMax;
 		} finally { loading = false; }
 	});
 
+	async function fetchExtent(siteId: string): Promise<{ min: number | null; max: number | null }> {
+		const cached = siteExtents.get(siteId);
+		if (cached) return cached;
+		let extent: { min: number | null; max: number | null } = { min: null, max: null };
+		try {
+			const detail = await GET<{ data_start: string | null; data_end: string | null }>(
+				`/api/sites/${siteId}/detail`,
+			);
+			extent = {
+				min: detail.data_start ? new Date(detail.data_start).getTime() : null,
+				max: detail.data_end ? new Date(detail.data_end).getTime() : null,
+			};
+		} catch { /* non-critical: fall back to default bounds */ }
+		siteExtents.set(siteId, extent);
+		return extent;
+	}
+
+	function clamp(value: number): number {
+		if (boundMin >= boundMax) return value;
+		return Math.min(boundMax, Math.max(boundMin, value));
+	}
+
+	async function refreshBounds(siteIds: string[]) {
+		if (siteIds.length === 0) return;
+		const extents = await Promise.all(siteIds.map(fetchExtent));
+		const mins = extents.map((e) => e.min).filter((v): v is number => v != null);
+		const maxs = extents.map((e) => e.max).filter((v): v is number => v != null);
+		if (mins.length === 0 || maxs.length === 0) return;
+		const newMin = Math.min(...mins);
+		const newMax = Math.max(...maxs);
+		if (newMin >= newMax) return;
+		boundMin = newMin;
+		boundMax = newMax;
+		if (start < boundMin || start > boundMax) start = boundMin;
+		if (end > boundMax || end < boundMin) end = boundMax;
+		if (start >= end) { start = boundMin; end = boundMax; }
+	}
+
+	// Recompute slider bounds whenever the active site selection changes
+	$effect(() => {
+		const active = mode === 'time' ? selectedSiteIds : scatterSiteId ? [scatterSiteId] : [];
+		void refreshBounds(active);
+	});
+
+	function onSliderChange(s: number, e: number) {
+		start = s;
+		end = e;
+	}
+
+	// Manual datetime entry uses datetime-local strings, clamped to bounds
+	function toLocalInput(ms: number): string {
+		if (!ms) return '';
+		const d = new Date(ms - new Date(ms).getTimezoneOffset() * 60000);
+		return d.toISOString().slice(0, 16);
+	}
+
+	function onStartInput(event: Event) {
+		const value = (event.currentTarget as HTMLInputElement).value;
+		if (!value) return;
+		const ms = clamp(new Date(value).getTime());
+		start = Math.min(ms, end);
+	}
+
+	function onEndInput(event: Event) {
+		const value = (event.currentTarget as HTMLInputElement).value;
+		if (!value) return;
+		const ms = clamp(new Date(value).getTime());
+		end = Math.max(ms, start);
+	}
+
 	const availableParams = $derived(() => {
 		if (selectedSiteIds.length === 0) return params;
-		const paramIds = new Set(siteParams.filter((sp) => selectedSiteIds.includes(sp.site_id)).map((sp) => sp.parameter_id));
-		return params.filter((p) => paramIds.has(p.id));
+		const common = selectedSiteIds.reduce<Set<string> | null>((acc, siteId) => {
+			const siteIds = new Set(
+				siteParams.filter((sp) => sp.site_id === siteId).map((sp) => sp.parameter_id),
+			);
+			if (acc === null) return siteIds;
+			return new Set([...acc].filter((id) => siteIds.has(id)));
+		}, null) ?? new Set<string>();
+		return params.filter((p) => common.has(p.id));
+	});
+
+	$effect(() => {
+		if (selectedParamId && !availableParams().some((p) => p.id === selectedParamId)) {
+			selectedParamId = '';
+		}
 	});
 
 	const scatterSiteParams = $derived(() => {
@@ -79,32 +174,56 @@
 		return params.filter((p) => spIds.has(p.id));
 	});
 
+	let chartError = $state<string | null>(null);
+
 	async function loadChartData() {
 		if (selectedSiteIds.length === 0 || !selectedParamId || !start || !end) return;
 		loadingData = true;
+		chartError = null;
 		chartData = [];
 		try {
+			const startIso = new Date(start).toISOString();
+			const endIso = new Date(end).toISOString();
 			const results = await Promise.all(
 				selectedSiteIds.map(async (siteId) => {
 					const site = sites.find((s) => s.id === siteId);
-					const path = resolution === 'raw'
-						? `/api/sites/${siteId}/readings`
-						: `/api/sites/${siteId}/aggregates/${resolution}`;
-					const data = await GET<{ data: Array<{ time: string; value: number }> }>(path, {
-						start: new Date(start).toISOString(),
-						end: new Date(end).toISOString(),
-						parameter_ids: selectedParamId,
-					});
-					return {
-						site: site?.name ?? siteId,
-						times: data.data.map((r) => new Date(r.time).getTime()),
-						values: data.data.map((r) => r.value),
-					};
+					const sp = siteParams.find(
+						(s) => s.site_id === siteId && s.parameter_id === selectedParamId,
+					);
+					const params_arg = { start: startIso, end: endIso, parameter_ids: selectedParamId };
+
+					let times: number[] = [];
+					let values: (number | null)[] = [];
+					if (resolution === 'raw') {
+						const result = await GET<ReadingsResponse>(`/api/sites/${siteId}/readings`, params_arg);
+						const series = result.parameters?.find(
+							(p) => p.id === sp?.id || p.parameter_id === selectedParamId,
+						);
+						if (series && result.times?.length) {
+							times = result.times.map((t) => new Date(t).getTime());
+							values = series.values;
+						}
+					} else {
+						const result = await GET<AggregatesResponse>(`/api/sites/${siteId}/aggregates/${resolution}`, params_arg);
+						const series = result.parameters?.find(
+							(p) => p.id === sp?.id || p.parameter_id === selectedParamId,
+						);
+						if (series && result.times?.length) {
+							times = result.times.map((t) => new Date(t).getTime());
+							values = series.avg;
+						}
+					}
+
+					return { site: site?.name ?? siteId, times, values };
 				}),
 			);
 			chartData = results;
+			if (results.every((r) => r.times.length === 0)) {
+				chartError = 'No data available for the selected sites, parameter, and time range.';
+			}
 		} catch {
 			chartData = [];
+			chartError = 'Failed to load comparison data.';
 		} finally { loadingData = false; }
 	}
 
@@ -114,10 +233,6 @@
 		scatterError = null;
 		scatterData = null;
 		try {
-			interface ReadingsResponse {
-				times: string[];
-				parameters: Array<{ id: string; name: string; units: string | null; values: (number | null)[] }>;
-			}
 			const result = await GET<ReadingsResponse>(
 				`/api/sites/${scatterSiteId}/readings`,
 				{
@@ -130,16 +245,16 @@
 
 			const xParam = params.find((p) => p.id === scatterXParamId);
 			const yParam = params.find((p) => p.id === scatterYParamId);
-			const xSeries = result.parameters?.find((p) => p.id === scatterXParamId);
-			const ySeries = result.parameters?.find((p) => p.id === scatterYParamId);
+			const xSp = siteParams.find((sp) => sp.site_id === scatterSiteId && sp.parameter_id === scatterXParamId);
+			const ySp = siteParams.find((sp) => sp.site_id === scatterSiteId && sp.parameter_id === scatterYParamId);
+
+			const xSeries = result.parameters?.find((p) => p.id === xSp?.id || p.parameter_id === scatterXParamId);
+			const ySeries = result.parameters?.find((p) => p.id === ySp?.id || p.parameter_id === scatterYParamId);
 
 			if (!result.times?.length || !xSeries || !ySeries) {
 				scatterError = 'No data available for the selected parameters and time range.';
 				return;
 			}
-
-			const xSp = siteParams.find((sp) => sp.site_id === scatterSiteId && sp.parameter_id === scatterXParamId);
-			const ySp = siteParams.find((sp) => sp.site_id === scatterSiteId && sp.parameter_id === scatterYParamId);
 
 			scatterData = {
 				xValues: xSeries.values,
@@ -155,6 +270,34 @@
 		} finally { scatterLoading = false; }
 	}
 
+	// Debounced auto-refresh: re-run the active load whenever any input changes
+	let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+	$effect(() => {
+		if (mode === 'time') {
+			// track dependencies
+			void selectedSiteIds.length;
+			void selectedParamId;
+			void resolution;
+			void start;
+			void end;
+			if (selectedSiteIds.length === 0 || !selectedParamId || !start || !end) return;
+		} else {
+			void scatterSiteId;
+			void scatterXParamId;
+			void scatterYParamId;
+			void start;
+			void end;
+			if (!scatterSiteId || !scatterXParamId || !scatterYParamId || !start || !end) return;
+		}
+		const activeMode = mode;
+		clearTimeout(debounceTimer);
+		debounceTimer = setTimeout(() => {
+			if (activeMode === 'time') void loadChartData();
+			else void loadScatterData();
+		}, 100);
+		return () => clearTimeout(debounceTimer);
+	});
+
 	// Per-parameter statistics for the stats panel
 	interface ParamStats {
 		site: string;
@@ -167,7 +310,7 @@
 
 	const compareStats = $derived.by((): ParamStats[] => {
 		return chartData.map((series) => {
-			const vals = series.values.filter((v) => v != null && isFinite(v));
+			const vals = series.values.filter((v): v is number => v != null && isFinite(v));
 			const n = vals.length;
 			if (n === 0) return { site: series.site, n: 0, mean: 0, min: 0, max: 0, stddev: 0 };
 			const sum = vals.reduce((a, b) => a + b, 0);
@@ -180,8 +323,6 @@
 		});
 	});
 
-	function siteName(id: string): string { return sites.find((s) => s.id === id)?.name ?? id; }
-
 	const chartUPlotData = $derived.by((): uPlot.AlignedData => {
 		if (chartData.length === 0) return [[]];
 		const allTimes = new Set<number>();
@@ -189,7 +330,7 @@
 		const sorted = Array.from(allTimes).sort((a, b) => a - b);
 		const xs = sorted.map((t) => t / 1000);
 		const ys: (number | null)[][] = chartData.map((s) => {
-			const lookup = new Map<number, number>();
+			const lookup = new Map<number, number | null>();
 			for (let i = 0; i < s.times.length; i++) lookup.set(s.times[i], s.values[i]);
 			return sorted.map((t) => lookup.get(t) ?? null);
 		});
@@ -216,6 +357,43 @@
 </script>
 
 <svelte:head><title>Compare Sites | River Data</title></svelte:head>
+
+{#snippet timeControls()}
+	<div>
+		<span class="text-sm font-medium block mb-1">Time range</span>
+		{#if boundMin < boundMax}
+			<div class="px-1 pb-6">
+				<TimeRangeSlider min={boundMin} max={boundMax} bind:start bind:end onchange={onSliderChange} />
+			</div>
+		{:else}
+			<p class="text-xs text-brand-muted">Select a site to set the time range.</p>
+		{/if}
+		<div class="grid grid-cols-2 gap-2 mt-1">
+			<label class="block">
+				<span class="text-xs text-brand-muted block mb-1">Start</span>
+				<input
+					type="datetime-local"
+					value={toLocalInput(start)}
+					min={boundMin ? toLocalInput(boundMin) : undefined}
+					max={boundMax ? toLocalInput(boundMax) : undefined}
+					oninput={onStartInput}
+					class="w-full px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-xs"
+				/>
+			</label>
+			<label class="block">
+				<span class="text-xs text-brand-muted block mb-1">End</span>
+				<input
+					type="datetime-local"
+					value={toLocalInput(end)}
+					min={boundMin ? toLocalInput(boundMin) : undefined}
+					max={boundMax ? toLocalInput(boundMax) : undefined}
+					oninput={onEndInput}
+					class="w-full px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-xs"
+				/>
+			</label>
+		</div>
+	</div>
+{/snippet}
 
 <div class="space-y-4">
 	<h2 class="text-xl font-semibold">Compare Sites</h2>
@@ -252,16 +430,7 @@
 							{/each}
 						</select>
 					</div>
-					<div class="grid grid-cols-2 gap-2">
-						<div>
-							<label for="start" class="text-sm font-medium block mb-1">Start</label>
-							<input id="start" type="datetime-local" bind:value={start} class="w-full px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-xs" />
-						</div>
-						<div>
-							<label for="end" class="text-sm font-medium block mb-1">End</label>
-							<input id="end" type="datetime-local" bind:value={end} class="w-full px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-xs" />
-						</div>
-					</div>
+					{@render timeControls()}
 					<div>
 						<label for="res" class="text-sm font-medium block mb-1">Resolution</label>
 						<select id="res" bind:value={resolution} class="w-full px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
@@ -278,9 +447,13 @@
 
 				<!-- Chart area -->
 				<div class="md:col-span-3 rounded-md border border-brand-divider bg-brand-surface p-4 min-h-[400px]">
-					{#if chartData.length === 0}
+					{#if loadingData}
+						<div class="flex items-center justify-center h-full text-brand-muted text-sm">Loading...</div>
+					{:else if chartError}
+						<div class="flex items-center justify-center h-full text-brand-muted text-sm">{chartError}</div>
+					{:else if chartData.length === 0}
 						<div class="flex items-center justify-center h-full text-brand-muted text-sm">
-							Select sites and a parameter, then click Compare
+							Select sites and a parameter to compare
 						</div>
 					{:else}
 						<div class="space-y-2">
@@ -371,16 +544,7 @@
 							{/each}
 						</select>
 					</div>
-					<div class="grid grid-cols-2 gap-2">
-						<div>
-							<label for="scatter-start" class="text-sm font-medium block mb-1">Start</label>
-							<input id="scatter-start" type="datetime-local" bind:value={start} class="w-full px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-xs" />
-						</div>
-						<div>
-							<label for="scatter-end" class="text-sm font-medium block mb-1">End</label>
-							<input id="scatter-end" type="datetime-local" bind:value={end} class="w-full px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-xs" />
-						</div>
-					</div>
+					{@render timeControls()}
 					<button onclick={loadScatterData} disabled={!scatterSiteId || !scatterXParamId || !scatterYParamId || scatterLoading}
 						class="w-full px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm font-semibold cursor-pointer border-none disabled:opacity-50">
 						{scatterLoading ? 'Loading...' : 'Plot'}
@@ -405,7 +569,7 @@
 						/>
 					{:else}
 						<div class="flex items-center justify-center h-full text-brand-muted text-sm">
-							Select a site and two parameters, then click Plot
+							Select a site and two parameters
 						</div>
 					{/if}
 				</div>
