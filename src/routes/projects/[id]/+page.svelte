@@ -192,69 +192,6 @@
 			<div><span class="text-sm text-brand-muted">Created</span><p class="text-sm">{new Date(project.created_at).toLocaleString()}</p></div>
 		</div>
 
-		<!-- Public API ────────────────────────────────────────────── -->
-		<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
-			<div class="px-4 py-3 bg-brand-bg border-b border-brand-divider flex items-center justify-between">
-				<div class="flex items-center gap-3">
-					<span class="text-sm font-semibold">Public API</span>
-					<button
-						onclick={togglePublicApi}
-						disabled={savingField === 'is_public'}
-						class="cursor-pointer disabled:opacity-50"
-						title={project.is_public ? 'Disable public API' : 'Enable public API'}
-					>
-						{#if project.is_public}
-							<span class="px-2 py-0.5 text-xs font-medium rounded-full bg-severity-ok-soft text-severity-ok">Enabled</span>
-						{:else}
-							<span class="px-2 py-0.5 text-xs font-medium rounded-full bg-brand-bg text-brand-muted border border-brand-divider">Disabled</span>
-						{/if}
-					</button>
-				</div>
-				{#if project.is_public && project.public_slug}
-					<div class="flex gap-2">
-						<a href="/api/public/{project.public_slug}/docs" target="_blank" class="px-3 py-1.5 text-xs bg-brand-primary text-white rounded-md no-underline hover:bg-brand-primary-dark">API Docs ↗</a>
-						<button onclick={handleInvalidateCache} class="px-3 py-1.5 text-xs border border-brand-divider rounded-md bg-brand-surface cursor-pointer hover:bg-brand-bg">Invalidate Cache</button>
-					</div>
-				{/if}
-			</div>
-
-			{#if project.is_public}
-				<div class="p-4 space-y-4">
-					<!-- Config fields are read-only here; edit via the Edit button (top right) -->
-					<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl">
-						<div>
-							<span class="text-xs text-brand-muted">Slug</span>
-							<p class="mt-0.5 text-sm font-mono">{project.public_slug ?? '---'}</p>
-						</div>
-						<div>
-							<span class="text-xs text-brand-muted">API Title</span>
-							<p class="mt-0.5 text-sm">{project.public_api_title ?? '---'}</p>
-						</div>
-						<div>
-							<span class="text-xs text-brand-muted">Version</span>
-							<p class="mt-0.5 text-sm font-mono">{project.public_api_version ?? '---'}</p>
-						</div>
-						<div>
-							<span class="text-xs text-brand-muted">Contact Email</span>
-							<p class="mt-0.5 text-sm">{project.public_contact_email ?? '---'}</p>
-						</div>
-					</div>
-					<div class="max-w-2xl">
-						<span class="text-xs text-brand-muted">Description (markdown)</span>
-						<Markdown class="mt-0.5" source={project.public_api_description} />
-					</div>
-
-					{#if project.public_slug}
-						<p class="text-xs text-brand-muted font-mono">/api/public/{project.public_slug}</p>
-					{/if}
-				</div>
-			{:else}
-				<div class="px-4 py-6 text-center text-sm text-brand-muted">
-					Enable to configure public API access for this project.
-				</div>
-			{/if}
-		</div>
-
 		<!-- Sites ─────────────────────────────────────────────────── -->
 		<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 			<div class="px-4 py-3 bg-brand-bg border-b border-brand-divider">
@@ -289,10 +226,10 @@
 									<a
 										href="/api/public/{project.public_slug}/sites/{site.public_slug}"
 										target="_blank"
-										class="ml-1 text-xs text-brand-muted hover:text-brand-primary no-underline"
+										class="ml-2 px-2 py-0.5 text-xs font-medium rounded-full bg-severity-ok-soft text-severity-ok no-underline hover:underline"
 										onclick={(e) => e.stopPropagation()}
 										title="View in public API"
-									>↗</a>
+									>Public ↗</a>
 								{/if}
 							</td>
 							<td class="px-4 py-2 text-brand-muted font-mono text-xs">
@@ -397,6 +334,67 @@
 					{/if}
 				</tbody>
 			</table>
+		</div>
+
+		<!-- Public API ────────────────────────────────────────────── -->
+		<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
+			<div class="px-4 py-3 bg-brand-bg border-b border-brand-divider flex items-center justify-between">
+				<div class="flex items-center gap-3">
+					<span class="text-sm font-semibold">Public API</span>
+					<button
+						onclick={togglePublicApi}
+						disabled={savingField === 'is_public'}
+						class="cursor-pointer disabled:opacity-50"
+						title={project.is_public ? 'Disable public API' : 'Enable public API'}
+					>
+						{#if project.is_public}
+							<span class="px-2 py-0.5 text-xs font-medium rounded-full bg-severity-ok-soft text-severity-ok">Enabled</span>
+						{:else}
+							<span class="px-2 py-0.5 text-xs font-medium rounded-full bg-brand-bg text-brand-muted border border-brand-divider">Disabled</span>
+						{/if}
+					</button>
+					{#if project.is_public && project.public_slug}
+						<a href="/api/public/{project.public_slug}" target="_blank" class="text-xs text-brand-muted font-mono no-underline hover:text-brand-primary hover:underline">/api/public/{project.public_slug}</a>
+					{/if}
+				</div>
+				{#if project.is_public && project.public_slug}
+					<div class="flex gap-2">
+						<a href="/api/public/{project.public_slug}/docs" target="_blank" class="px-3 py-1.5 text-xs bg-brand-primary text-white rounded-md no-underline hover:bg-brand-primary-dark">API Docs ↗</a>
+						<button onclick={handleInvalidateCache} class="px-3 py-1.5 text-xs border border-brand-divider rounded-md bg-brand-surface cursor-pointer hover:bg-brand-bg">Invalidate Cache</button>
+					</div>
+				{/if}
+			</div>
+
+			{#if project.is_public}
+				<div class="p-4 space-y-4">
+					<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl">
+						<div>
+							<span class="text-xs text-brand-muted">Slug</span>
+							<p class="mt-0.5 text-sm font-mono">{project.public_slug ?? '---'}</p>
+						</div>
+						<div>
+							<span class="text-xs text-brand-muted">API Title</span>
+							<p class="mt-0.5 text-sm">{project.public_api_title ?? '---'}</p>
+						</div>
+						<div>
+							<span class="text-xs text-brand-muted">Version</span>
+							<p class="mt-0.5 text-sm font-mono">{project.public_api_version ?? '---'}</p>
+						</div>
+						<div>
+							<span class="text-xs text-brand-muted">Contact Email</span>
+							<p class="mt-0.5 text-sm">{project.public_contact_email ?? '---'}</p>
+						</div>
+					</div>
+					<div class="max-w-2xl">
+						<span class="text-xs text-brand-muted">Description (markdown)</span>
+						<Markdown class="mt-0.5" source={project.public_api_description} />
+					</div>
+				</div>
+			{:else}
+				<div class="px-4 py-6 text-center text-sm text-brand-muted">
+					Enable to configure public API access for this project.
+				</div>
+			{/if}
 		</div>
 	</div>
 {/if}

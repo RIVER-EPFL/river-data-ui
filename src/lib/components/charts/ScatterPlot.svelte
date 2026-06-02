@@ -14,6 +14,8 @@
 		xUnits,
 		yUnits,
 		times,
+		xColorIndex = 0,
+		yColorIndex = 1,
 		height = 400,
 		showRegression = true,
 	}: {
@@ -24,6 +26,8 @@
 		xUnits: string;
 		yUnits: string;
 		times?: number[];
+		xColorIndex?: number;
+		yColorIndex?: number;
 		height?: number;
 		showRegression?: boolean;
 	} = $props();
@@ -93,10 +97,8 @@
 						}
 						const xVal = u.data[0][idx];
 						const yVal = u.data[1][idx];
-						const ts = tsArr[idx];
-						const timeLine = ts ? `<b>${new Date(ts * 1000).toLocaleString()}</b><br/>` : '';
 						tooltip.innerHTML =
-							`${timeLine}${xLabel}: ${xVal?.toFixed(3)} ${xUnits}<br/>${yLabel}: ${yVal?.toFixed(3)} ${yUnits}`;
+							`${xLabel}: ${xVal?.toFixed(3)} ${xUnits}<br/>${yLabel}: ${yVal?.toFixed(3)} ${yUnits}`;
 						tooltip.style.display = 'block';
 						const left = u.cursor.left ?? 0;
 						const top = u.cursor.top ?? 0;
@@ -132,7 +134,7 @@
 			stroke.arc(cx, cy, radius + 0.5, 0, Math.PI * 2);
 		}
 
-		return { fill: () => fill, stroke: () => stroke, clip: undefined as unknown as Path2D };
+		return { fill, stroke, clip: undefined as unknown as Path2D };
 	}
 
 	function renderChart() {
@@ -147,13 +149,14 @@
 		const xAxisLabel = `${xLabel} (${xUnits})`;
 		const yAxisLabel = `${yLabel} (${yUnits})`;
 
+		const yColor = tokens.dataViz[yColorIndex % tokens.dataViz.length];
 		const plotData: uPlot.AlignedData = [xs, ys];
 		const seriesDefs: uPlot.Series[] = [
 			{ label: xAxisLabel },
 			{
 				label: yAxisLabel,
-				stroke: tokens.dataViz[0],
-				fill: tokens.dataViz[0] + '80',
+				stroke: yColor,
+				fill: yColor + '80',
 				width: 0,
 				paths: scatterPaths,
 				points: { show: false },
@@ -173,6 +176,7 @@
 			});
 		}
 
+		const xColor = tokens.dataViz[xColorIndex % tokens.dataViz.length];
 		const opts: uPlot.Options = {
 			width: rect.width,
 			height,
@@ -180,10 +184,13 @@
 			series: seriesDefs,
 			scales: { x: { time: false } },
 			axes: [
-				{ ...makeAxis(), label: xAxisLabel, labelSize: 14, size: 40 },
-				{ ...makeAxis(), label: yAxisLabel, labelSize: 14, size: 60 },
+				{ ...makeAxis(), label: xAxisLabel, labelSize: 14, size: 40, stroke: xColor },
+				{ ...makeAxis(), label: yAxisLabel, labelSize: 14, size: 60, stroke: yColor },
 			],
-			cursor: { drag: { x: true, y: true } },
+			cursor: {
+				drag: { x: true, y: true },
+				points: { show: false },
+			},
 			legend: { show: false },
 		};
 

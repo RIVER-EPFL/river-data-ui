@@ -171,6 +171,22 @@
 			end = Number(values[1]);
 			onchange?.(start, end);
 		});
+		slider!.on('update', () => requestAnimationFrame(clampTooltips));
+	}
+
+	function clampTooltips() {
+		const container = el?.parentElement;
+		if (!container) return;
+		const bounds = container.getBoundingClientRect();
+		container.querySelectorAll<HTMLElement>('.noUi-tooltip').forEach((tt) => {
+			tt.style.transform = 'translate(-50%, 0)';
+			const r = tt.getBoundingClientRect();
+			if (r.left < bounds.left) {
+				tt.style.transform = `translate(calc(-50% + ${bounds.left - r.left}px), 0)`;
+			} else if (r.right > bounds.right) {
+				tt.style.transform = `translate(calc(-50% - ${r.right - bounds.right}px), 0)`;
+			}
+		});
 	}
 
 	$effect(() => { if (el && min < max) initSlider(); });

@@ -221,8 +221,8 @@
 
 	// Export dialog
 	let exportOpen = $state(false);
-	let exportStart = $state('');
-	let exportEnd = $state('');
+	let exportStartMs = $state(Date.now() - 7 * 86400000);
+	let exportEndMs = $state(Date.now());
 	let exportFormat = $state<'csv' | 'json' | 'ndjson'>('csv');
 	let exportResolution = $state<'raw' | 'hourly' | 'daily'>('hourly');
 	let exportLoading = $state(false);
@@ -230,6 +230,23 @@
 	let exportIncludeFlagged = $state(true);
 	let exportIncludeReplicates = $state(false);
 	let exportMeasurementType = $state<'all' | 'continuous' | 'spot' | 'derived'>('all');
+
+	function msToLocalDatetimeStr(ms: number): string {
+		if (!ms) return '';
+		const d = new Date(ms);
+		return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+	}
+	const exportStartStr = $derived(msToLocalDatetimeStr(exportStartMs));
+	const exportEndStr = $derived(msToLocalDatetimeStr(exportEndMs));
+
+	function onExportStartInput(e: Event) {
+		const val = (e.target as HTMLInputElement).value;
+		if (val) exportStartMs = new Date(val).getTime();
+	}
+	function onExportEndInput(e: Event) {
+		const val = (e.target as HTMLInputElement).value;
+		if (val) exportEndMs = new Date(val).getTime();
+	}
 
 	// Status events
 	let statusEvents = $state<StatusEventsResponse['events']>([]);
@@ -270,10 +287,6 @@
 			notes = n.data;
 			thresholds = th.data;
 
-			const now = new Date();
-			exportEnd = now.toISOString().slice(0, 16);
-			exportStart = new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 16);
-
 			// Bound the slider to the site's actual data extent
 			try {
 				const detailRes = await GET<SiteDetailResponse>(`/api/sites/${siteId}/detail`);
@@ -281,6 +294,8 @@
 				if (detailRes.data_end) sliderMax = new Date(detailRes.data_end).getTime();
 				if (chartStart < sliderMin) chartStart = sliderMin;
 				if (chartEnd > sliderMax) chartEnd = sliderMax;
+				exportStartMs = sliderMin;
+				exportEndMs = sliderMax;
 				const extents = new Map<string, SiteDetailParameter>();
 				for (const p of detailRes.parameters ?? []) extents.set(p.id, p);
 				paramExtents = extents;
@@ -367,12 +382,12 @@
 
 	// Export
 	async function handleExport() {
-		if (!exportStart || !exportEnd) return;
+		if (!exportStartMs || !exportEndMs) return;
 		exportLoading = true;
 		try {
 			const params = new URLSearchParams({
-				start: new Date(exportStart).toISOString(),
-				end: new Date(exportEnd).toISOString(),
+				start: new Date(exportStartMs).toISOString(),
+				end: new Date(exportEndMs).toISOString(),
 				format: exportFormat,
 			});
 			if (exportSelectedParamIds.length > 0) {
@@ -622,7 +637,7 @@
 				<div class="flex items-center gap-2 text-sm text-brand-muted mb-1">
 					<a href="{base}/sites" class="hover:text-brand-primary no-underline">Sites</a>
 					<span>/</span>
-					{#if project}<span>{project.name}</span><span>/</span>{/if}
+					{#if project}<a href="{base}/projects/{project.id}" class="hover:text-brand-primary no-underline">{project.name}</a><span>/</span>{/if}
 				</div>
 				<h2 class="text-xl font-semibold">
 					{site.name}
@@ -1133,6 +1148,8 @@
 								xUnits={xSp.display_units ?? xParam.default_units}
 								yUnits={ySp.display_units ?? yParam.default_units}
 								times={xChartData.times}
+								xColorIndex={measurementParams.indexOf(xSp)}
+								yColorIndex={measurementParams.indexOf(ySp)}
 							/>
 						</div>
 					{:else}
@@ -1162,14 +1179,22 @@
 	<Dialog bind:open={exportOpen} title="Export Data" maxWidth="sm">
 		{#snippet children()}
 			<div class="space-y-3">
+				<div class="rounded-md border border-brand-divider bg-brand-bg px-3 py-3 overflow-hidden">
+					<TimeRangeSlider
+						min={sliderMin}
+						max={sliderMax}
+						bind:start={exportStartMs}
+						bind:end={exportEndMs}
+					/>
+				</div>
 				<div class="grid grid-cols-2 gap-3">
 					<div>
 						<label for="exp-start" class="text-sm font-medium block mb-1">Start</label>
-						<input id="exp-start" type="datetime-local" bind:value={exportStart} class="w-full px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm" />
+						<input id="exp-start" type="datetime-local" value={exportStartStr} onchange={onExportStartInput} class="w-full px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm" />
 					</div>
 					<div>
 						<label for="exp-end" class="text-sm font-medium block mb-1">End</label>
-						<input id="exp-end" type="datetime-local" bind:value={exportEnd} class="w-full px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm" />
+						<input id="exp-end" type="datetime-local" value={exportEndStr} onchange={onExportEndInput} class="w-full px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm" />
 					</div>
 				</div>
 				<div>
@@ -1208,7 +1233,7 @@
 							<input type="checkbox" bind:checked={exportIncludeFlagged} /> Include flagged readings (with flag metadata)
 						</label>
 						<label class="flex items-center gap-2 cursor-pointer text-sm">
-							<input type="checkbox" bind:checked={exportIncludeReplicates} /> Include replicate readings
+							<input type="checkbox" bind:checked={exportIncludeReplicates} /> Include all replicates (multiple measurements per time point)
 						</label>
 					</div>
 				{/if}
