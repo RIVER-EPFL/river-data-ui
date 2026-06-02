@@ -292,7 +292,7 @@
 	<div class="mb-4 flex items-center justify-between">
 		<div>
 			<a href="{base}/sites/{siteId}" class="text-sm text-brand-muted hover:underline">← Back to site</a>
-			<h1 class="text-xl font-semibold">Import CSV{site ? ` — ${site.name}` : ''}</h1>
+			<h1 class="text-xl font-semibold">Import CSV{site ? ` - ${site.name}` : ''}</h1>
 			<p class="text-sm text-brand-muted">
 				Upload a wide CSV (a <code>DateTime</code> column plus one column per parameter). Columns are
 				aligned to this site's parameters; derived parameters are recomputed, not imported.
@@ -344,7 +344,7 @@
 					{/if}
 				</div>
 
-				<p class="mt-3 text-sm text-brand-muted">{fileName} — {previewHeaders.length} columns</p>
+				<p class="mt-3 text-sm text-brand-muted">{fileName} - {previewHeaders.length} columns</p>
 				<div class="mt-2 overflow-x-auto rounded-md border border-brand-divider">
 					<table class="w-full text-left text-xs">
 						<thead class="bg-brand-bg">
@@ -372,8 +372,8 @@
 		<div class="rounded-md border border-brand-divider bg-white p-4">
 			<div class="mb-3 grid grid-cols-3 gap-4 text-sm">
 				<div><span class="block text-xs text-brand-muted">Rows</span><span class="text-lg font-semibold">{plan.row_count}</span></div>
-				<div><span class="block text-xs text-brand-muted">Earliest</span><span>{plan.earliest ?? '—'}</span></div>
-				<div><span class="block text-xs text-brand-muted">Latest</span><span>{plan.latest ?? '—'}</span></div>
+				<div><span class="block text-xs text-brand-muted">Earliest</span><span>{plan.earliest ?? '-'}</span></div>
+				<div><span class="block text-xs text-brand-muted">Latest</span><span>{plan.latest ?? '-'}</span></div>
 			</div>
 
 			<div class="mb-3 flex items-center gap-3">
@@ -449,7 +449,7 @@
 
 			{#if plan.errors.length > 0}
 				<div class="mt-3 rounded-md bg-severity-alarm-soft px-3 py-2 text-sm">
-					<p class="font-medium">{plan.error_count} row problem{plan.error_count === 1 ? '' : 's'} — these rows are skipped on import:</p>
+					<p class="font-medium">{plan.error_count} row problem{plan.error_count === 1 ? '' : 's'} - these rows are skipped on import:</p>
 					<ul class="list-disc pl-5">{#each plan.errors.slice(0, 10) as e}<li>Row {e.row}: {e.message}</li>{/each}</ul>
 					{#if plan.errors.length < plan.error_count}
 						<p class="text-xs text-brand-muted">…and {plan.error_count - plan.errors.length} more</p>
@@ -461,7 +461,7 @@
 				<div class="mt-3 space-y-2">
 					{#if plan.overlaps_identical > 0}
 						<div class="rounded-md bg-severity-ok-soft px-3 py-2 text-sm text-severity-ok">
-							<strong>{plan.overlaps_identical}</strong> reading{plan.overlaps_identical === 1 ? '' : 's'} already in DB with identical values — will be skipped.
+							<strong>{plan.overlaps_identical}</strong> reading{plan.overlaps_identical === 1 ? '' : 's'} already in DB with identical values - will be skipped.
 						</div>
 					{/if}
 
@@ -512,12 +512,12 @@
 					{/if}
 				</div>
 			{:else if plan.row_count > 0}
-				<p class="mt-3 text-sm text-brand-muted">No overlap with existing data — all readings are new.</p>
+				<p class="mt-3 text-sm text-brand-muted">No overlap with existing data - all readings are new.</p>
 			{/if}
 
 			{#if Object.keys(plan.mapped_columns).length === 0}
 				<p class="mt-3 rounded-md bg-severity-alarm-soft px-3 py-2 text-sm text-severity-alarm">
-					No columns resolve to a parameter — map at least one column before importing.
+					No columns resolve to a parameter - map at least one column before importing.
 				</p>
 			{/if}
 
@@ -541,7 +541,7 @@
 				</div>
 			{:else}
 				<div class="rounded-md bg-severity-warning-soft px-3 py-2 text-sm">
-					No new readings — {#if result.overlaps_identical > 0}<strong>{result.overlaps_identical}</strong> identical{/if}{#if result.overlaps_identical > 0 && result.overlaps_differing > 0} + {/if}{#if result.overlaps_differing > 0}<strong>{result.overlaps_differing}</strong> differing{/if} already present.
+					No new readings - {#if result.overlaps_identical > 0}<strong>{result.overlaps_identical}</strong> identical{/if}{#if result.overlaps_identical > 0 && result.overlaps_differing > 0} + {/if}{#if result.overlaps_differing > 0}<strong>{result.overlaps_differing}</strong> differing{/if} already present.
 				</div>
 			{/if}
 
@@ -560,19 +560,19 @@
 					{#if job && job.status === 'completed'}
 						<span class="text-severity-ok">✓ Derived parameters recomputed &amp; aggregates refreshed.</span>
 					{:else if job && job.status === 'failed'}
-						<span class="text-severity-alarm">Derived recompute failed — see the Jobs page.</span>
+						<span class="text-severity-alarm">Derived recompute failed - see the Jobs page.</span>
 					{:else}
 						<span class="text-brand-muted">
 							Recomputing derived parameters &amp; refreshing aggregates{#if job?.total}: {job.progress ?? 0}/{job.total}{/if}…
 						</span>
-						<p class="text-xs text-brand-muted mt-1">This runs in the background — you can navigate away safely.</p>
+						<p class="text-xs text-brand-muted mt-1">This runs in the background - you can navigate away safely.</p>
 					{/if}
 				</div>
 			{/if}
 
 			{#if result.error_count > 0}
 				<div class="mt-3 rounded-md bg-severity-alarm-soft px-3 py-2 text-sm">
-					<p class="font-medium">{result.error_count} row{result.error_count === 1 ? '' : 's'} skipped — fix in the source and re-import:</p>
+					<p class="font-medium">{result.error_count} row{result.error_count === 1 ? '' : 's'} skipped - fix in the source and re-import:</p>
 					<ul class="list-disc pl-5">{#each result.errors as e}<li>Row {e.row}: {e.message}</li>{/each}</ul>
 					{#if result.errors.length < result.error_count}
 						<p class="text-xs text-brand-muted">…and {result.error_count - result.errors.length} more</p>
@@ -582,8 +582,8 @@
 
 			<div class="mt-3 grid grid-cols-3 gap-4 text-sm">
 				<div><span class="block text-xs text-brand-muted">Rows</span><span class="text-lg font-semibold">{result.row_count}</span></div>
-				<div><span class="block text-xs text-brand-muted">Earliest</span><span>{result.earliest ?? '—'}</span></div>
-				<div><span class="block text-xs text-brand-muted">Latest</span><span>{result.latest ?? '—'}</span></div>
+				<div><span class="block text-xs text-brand-muted">Earliest</span><span>{result.earliest ?? '-'}</span></div>
+				<div><span class="block text-xs text-brand-muted">Latest</span><span>{result.latest ?? '-'}</span></div>
 			</div>
 			<div class="mt-4 flex gap-2">
 				<a href="{base}/sites/{siteId}" class="rounded-md bg-brand-primary px-4 py-2 text-sm font-medium text-white">View site</a>
