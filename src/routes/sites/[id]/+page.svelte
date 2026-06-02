@@ -569,7 +569,17 @@
 					<span>/</span>
 					{#if project}<span>{project.name}</span><span>/</span>{/if}
 				</div>
-				<h2 class="text-xl font-semibold">{site.name}</h2>
+				<h2 class="text-xl font-semibold">
+					{site.name}
+					{#if site.public_slug && project?.public_slug}
+						<a
+							href="/api/public/{project.public_slug}/sites/{site.public_slug}"
+							target="_blank"
+							class="ml-2 px-2 py-0.5 text-xs font-medium rounded-full bg-severity-ok-soft text-severity-ok no-underline hover:underline"
+							title="View in public API"
+						>Public ↗</a>
+					{/if}
+				</h2>
 				{#if site.description}<p class="text-sm text-brand-muted mt-1">{site.description}</p>{/if}
 				{#if site.latitude && site.longitude}
 					<p class="text-xs font-mono text-brand-muted mt-1">{site.latitude.toFixed(6)}, {site.longitude.toFixed(6)} {site.altitude_m ? `· ${site.altitude_m}m` : ''}</p>

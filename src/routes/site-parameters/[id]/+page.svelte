@@ -27,6 +27,7 @@
 		{ key: 'channel_id', label: 'Channel ID', type: 'number', helperText: 'External channel identifier from the data source' },
 		{ key: 'sensor_type', label: 'Sensor Type', helperText: 'Measurement type label' },
 		{ key: 'is_active', label: 'Active', type: 'boolean', helperText: 'Inactive site-parameters are hidden from data views' },
+		{ key: 'is_public', label: 'Public', type: 'boolean', helperText: 'Expose this parameter in the public read-only API' },
 	]);
 </script>
 

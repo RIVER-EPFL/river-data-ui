@@ -42,7 +42,6 @@ export const api = {
 	annotations: crudClient<Annotation>('annotations'),
 	notes: crudClient<Note>('notes'),
 	apiTokens: crudClient<ApiToken>('api_tokens'),
-	publicExposedParameters: crudClient<PublicExposedParameter>('public_exposed_parameters'),
 	reprocessingJobs: crudClient<ReprocessingJob>('reprocessing_jobs'),
 };
 
@@ -103,6 +102,7 @@ export interface SiteParameter {
 	is_derived: boolean | null;
 	derived_definition_id: string | null;
 	is_active: boolean | null;
+	is_public: boolean;
 	created_at: string;
 }
 
@@ -259,20 +259,6 @@ export interface ApiToken {
 	expires_at: string | null;
 	created_at: string;
 	updated_at: string;
-}
-
-export interface PublicExposedParameter {
-	id: string;
-	project_id: string;
-	parameter_id: string;
-	public_name: string;
-	public_units: string;
-	description: string | null;
-	sort_order: number;
-	conversion_factor: number | null;
-	conversion_offset: number | null;
-	include_derived: boolean;
-	created_at: string;
 }
 
 export interface ReprocessingJob {
