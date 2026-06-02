@@ -336,15 +336,11 @@
 		} finally { loading = false; }
 
 		try {
-			const [derivedResult, derivedSourcesResult, samplesResult] = await Promise.all([
+			const [derivedResult, samplesResult] = await Promise.all([
 				api.derivedParameters.list({ perPage: 200 }),
-				api.derivedParameterSources.list({ perPage: 500 }),
 				api.samples.list({ perPage: 200, filter: { site_id: siteId }, sort: ['collected_at', 'DESC'] }),
 			]);
-			derivedDefs = derivedResult.data.map((d) => ({
-				...d,
-				sources: d.sources?.length ? d.sources : derivedSourcesResult.data.filter((s) => s.derived_definition_id === d.id),
-			}));
+			derivedDefs = derivedResult.data;
 			samples = samplesResult.data;
 		} catch (e) {
 			toastStore.error(e instanceof Error ? `Failed to load derived parameters / samples: ${e.message}` : 'Failed to load derived parameters / samples');

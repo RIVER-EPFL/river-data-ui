@@ -138,7 +138,7 @@
 			loadingSiteParams = site.id;
 			try {
 				const result = await api.siteParameters.list({ perPage: 200, filter: { site_id: site.id } });
-				siteParams[site.id] = result.data.filter((sp) => !sp.is_derived);
+				siteParams[site.id] = result.data;
 				siteParams = { ...siteParams };
 			} catch {
 				toastStore.error('Failed to load parameters');
