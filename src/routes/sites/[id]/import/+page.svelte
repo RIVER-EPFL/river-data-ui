@@ -23,6 +23,7 @@
 		site_id: string;
 		site_name: string;
 		dry_run: boolean;
+		session_id: string | null;
 		mapped_columns: Record<string, string>;
 		skipped_columns: string[];
 		unmapped_columns: string[];
@@ -65,7 +66,8 @@
 	let result = $state<ImportPlan | null>(null);
 	let job = $state<ReprocessingJob | null>(null);
 	let conflictMode = $state<'skip' | 'overwrite'>('skip');
-	let planStale = $state(false);
+
+	let stagingSessionId = $state<string | null>(null);
 
 	// Timezone: offset (hours) of source timestamps relative to UTC
 	let tzOffsetHours = $state(0);
@@ -161,28 +163,6 @@
 		}
 	}
 
-	function shiftCsvTimestamps(csv: string): string {
-		if (tzOffsetHours === 0) return csv;
-		const offsetMs = tzOffsetHours * 3_600_000;
-		const isTsv = csvText.includes('\t');
-		const parsed = Papa.parse<Record<string, string>>(csv, {
-			header: true,
-			skipEmptyLines: true,
-			delimiter: isTsv ? '\t' : undefined,
-		});
-		if (!parsed.meta.fields) return csv;
-		const timeCol = parsed.meta.fields.find((h) => isDateTimeColumn(h));
-		if (!timeCol) return csv;
-		for (const row of parsed.data) {
-			const raw = row[timeCol];
-			if (!raw) continue;
-			const d = new Date(raw);
-			if (isNaN(d.getTime())) continue;
-			row[timeCol] = new Date(d.getTime() - offsetMs).toISOString().replace(/\.\d{3}Z$/, 'Z');
-		}
-		return Papa.unparse(parsed.data, { columns: parsed.meta.fields });
-	}
-
 	// Build the mapping object the API expects: column -> parameter id, or null to skip.
 	function buildMapping(): Record<string, string | null> | undefined {
 		const m: Record<string, string | null> = {};
@@ -196,16 +176,28 @@
 	async function preview() {
 		busy = true;
 		try {
-			plan = await POST<ImportPlan>('/api/readings/import_csv', {
+			const body: Record<string, unknown> = {
 				site: siteId,
-				csv: shiftCsvTimestamps(csvText),
 				mapping: buildMapping(),
 				dry_run: true,
-			});
-			planStale = false;
+				tz_offset_hours: tzOffsetHours || undefined,
+			};
+			if (stagingSessionId) {
+				body.session_id = stagingSessionId;
+			} else {
+				body.csv = csvText;
+			}
+			plan = await POST<ImportPlan>('/api/readings/import_csv', body);
+			stagingSessionId = plan.session_id;
+
 			step = 'review';
 		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Preview failed');
+			const msg = e instanceof Error ? e.message : 'Preview failed';
+			if (stagingSessionId && msg.includes('expired')) {
+				stagingSessionId = null;
+				return preview();
+			}
+			toastStore.error(msg);
 		} finally {
 			busy = false;
 		}
@@ -215,12 +207,18 @@
 		busy = true;
 		job = null;
 		try {
-			result = await POST<ImportPlan>('/api/readings/import_csv', {
+			const body: Record<string, unknown> = {
 				site: siteId,
-				csv: shiftCsvTimestamps(csvText),
 				mapping: buildMapping(),
 				conflict: conflictMode,
-			});
+				tz_offset_hours: tzOffsetHours || undefined,
+			};
+			if (stagingSessionId) {
+				body.session_id = stagingSessionId;
+			} else {
+				body.csv = csvText;
+			}
+			result = await POST<ImportPlan>('/api/readings/import_csv', body);
 			step = 'done';
 			{
 				const parts: string[] = [];
@@ -236,7 +234,12 @@
 			}
 			if (result.derived_job_id) pollJob(result.derived_job_id);
 		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Import failed');
+			const msg = e instanceof Error ? e.message : 'Import failed';
+			if (stagingSessionId && msg.includes('expired')) {
+				stagingSessionId = null;
+				return runImport();
+			}
+			toastStore.error(msg);
 		} finally {
 			busy = false;
 		}
@@ -255,34 +258,8 @@
 		}
 	}
 
-	function applyLocalOverride(col: string) {
-		if (!plan) return;
-		const val = overrides[col];
-
-		// Remove col from all classification lists first.
-		const remove = (arr: string[]) => {
-			const idx = arr.indexOf(col);
-			if (idx !== -1) arr.splice(idx, 1);
-		};
-		remove(plan.skipped_columns);
-		remove(plan.unmapped_columns);
-
-		if (val === '') {
-			// Explicit skip.
-			delete plan.mapped_columns[col];
-			plan.skipped_columns = [...plan.skipped_columns, col];
-		} else if (val) {
-			// Mapped to a specific parameter.
-			const label = paramNameById.get(val);
-			if (label) plan.mapped_columns[col] = label;
-		} else {
-			// Reverted to (auto) — can't resolve locally.
-			delete plan.mapped_columns[col];
-			plan.unmapped_columns = [...plan.unmapped_columns, col];
-		}
-
-		plan = { ...plan };
-		planStale = true;
+	function applyLocalOverride(_col: string) {
+		preview();
 	}
 
 	function resolvedLabel(col: string): string {
@@ -304,7 +281,7 @@
 		result = null;
 		job = null;
 		conflictMode = 'skip';
-		planStale = false;
+		stagingSessionId = null;
 		tzOffsetHours = 0;
 		tzAutoDetected = false;
 		tzAutoLabel = '';
@@ -399,6 +376,28 @@
 				<div><span class="block text-xs text-brand-muted">Latest</span><span>{plan.latest ?? '—'}</span></div>
 			</div>
 
+			<div class="mb-3 flex items-center gap-3">
+				<label for="tz-offset-review" class="text-sm font-medium whitespace-nowrap">Timestamp timezone</label>
+				<select
+					id="tz-offset-review"
+					value={tzOffsetHours}
+					onchange={(e) => { tzOffsetHours = Number((e.target as HTMLSelectElement).value); preview(); }}
+					class="rounded-md border border-brand-divider px-2 py-1 text-sm"
+				>
+					<option value={0}>UTC +00:00</option>
+					<option value={1}>CET +01:00</option>
+					<option value={2}>CEST +02:00</option>
+					<option value={-1}>UTC -01:00</option>
+					<option value={3}>UTC +03:00</option>
+				</select>
+				{#if tzOffsetHours !== 0}
+					<span class="text-xs text-brand-muted">Timestamps shifted by {tzOffsetHours > 0 ? '-' : '+'}{Math.abs(tzOffsetHours)}h to UTC</span>
+				{/if}
+				{#if tzAutoDetected}
+					<span class="text-xs text-brand-muted">(detected: {tzAutoLabel})</span>
+				{/if}
+			</div>
+
 			<p class="mb-2 text-sm font-medium">Column alignment</p>
 			<div class="overflow-x-auto rounded-md border border-brand-divider">
 				<table class="w-full text-left text-sm">
@@ -458,19 +457,6 @@
 				</div>
 			{/if}
 
-			{#if planStale}
-				<div class="mt-3 flex items-center gap-2 rounded-md bg-brand-bg px-3 py-2 text-sm text-brand-muted">
-					<span>Mapping changed — overlap counts may be outdated.</span>
-					<button
-						class="rounded-md border border-brand-divider px-2 py-1 text-xs font-medium"
-						disabled={busy}
-						onclick={preview}
-					>
-						{busy ? 'Analysing…' : 'Re-analyze'}
-					</button>
-				</div>
-			{/if}
-
 			{#if plan.overlaps_identical > 0 || plan.overlaps_differing > 0}
 				<div class="mt-3 space-y-2">
 					{#if plan.overlaps_identical > 0}
@@ -525,7 +511,7 @@
 						</div>
 					{/if}
 				</div>
-			{:else if !planStale && plan.row_count > 0}
+			{:else if plan.row_count > 0}
 				<p class="mt-3 text-sm text-brand-muted">No overlap with existing data — all readings are new.</p>
 			{/if}
 
