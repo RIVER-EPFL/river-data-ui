@@ -30,7 +30,7 @@
 
 			const [result, depResult, calResult] = await Promise.all([
 				api.sensors.list({ page: currentPage, perPage, sort: [sortField, sortOrder], filter }),
-				deployments.length === 0 ? api.sensorDeployments.list({ perPage: 500, filter: { deployed_until: '__null__' } }) : Promise.resolve(null),
+				deployments.length === 0 ? api.sensorDeployments.list({ perPage: 500, filter: { deployed_until: null } }) : Promise.resolve(null),
 				calibrations.length === 0 ? api.sensorCalibrations.list({ perPage: 500 }) : Promise.resolve(null),
 			]);
 			sensors = result.data;
