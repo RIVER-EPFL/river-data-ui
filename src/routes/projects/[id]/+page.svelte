@@ -41,9 +41,11 @@
 	});
 
 	function paramName(parameterId: string): string {
-		return parameters.find((p) => p.id === parameterId)?.display_name
-			?? parameters.find((p) => p.id === parameterId)?.name
-			?? parameterId;
+		return parameters.find((p) => p.id === parameterId)?.name ?? parameterId;
+	}
+
+	function paramCode(parameterId: string): string {
+		return parameters.find((p) => p.id === parameterId)?.code ?? '';
 	}
 
 	function paramUnits(sp: SiteParameter): string {
@@ -294,14 +296,21 @@
 										{:else if siteParams[site.id]?.length}
 											<table class="w-full text-sm">
 												<thead><tr class="border-b border-brand-divider">
-													<th class="text-left px-8 py-1.5 text-xs font-medium text-brand-muted">Parameter</th>
+													<th class="text-left px-8 py-1.5 text-xs font-medium text-brand-muted">Code</th>
+													<th class="text-left px-4 py-1.5 text-xs font-medium text-brand-muted">Name</th>
 													<th class="text-left px-4 py-1.5 text-xs font-medium text-brand-muted">Units</th>
 													<th class="text-center px-4 py-1.5 text-xs font-medium text-brand-muted">Public</th>
 												</tr></thead>
 												<tbody>
 													{#each siteParams[site.id] as sp}
 														<tr class="border-b border-brand-divider last:border-b-0">
-															<td class="px-8 py-1.5">{paramName(sp.parameter_id)}</td>
+															<td class="px-8 py-1.5 font-mono text-xs">{paramCode(sp.parameter_id)}</td>
+															<td class="px-4 py-1.5">
+																{paramName(sp.parameter_id)}
+																{#if sp.is_derived}
+																	<span class="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-brand-accent/15 text-brand-accent align-middle">derived</span>
+																{/if}
+															</td>
 															<td class="px-4 py-1.5 text-brand-muted text-xs">{paramUnits(sp)}</td>
 															<td class="px-4 py-1.5 text-center">
 																<button

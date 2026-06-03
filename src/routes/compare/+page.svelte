@@ -260,8 +260,8 @@
 				xValues: xSeries.values,
 				yValues: ySeries.values,
 				times: result.times.map((t) => new Date(t).getTime() / 1000),
-				xLabel: xParam?.display_name ?? 'X',
-				yLabel: yParam?.display_name ?? 'Y',
+				xLabel: xParam?.name ?? 'X',
+				yLabel: yParam?.name ?? 'Y',
 				xUnits: xSp?.display_units ?? xParam?.default_units ?? '',
 				yUnits: ySp?.display_units ?? yParam?.default_units ?? '',
 			};
@@ -340,7 +340,7 @@
 	const chartUPlotOptions = $derived.by((): uPlot.Options => {
 		const param = params.find((p) => p.id === selectedParamId);
 		const units = param?.default_units ?? '';
-		const yLabel = param ? `${param.display_name}${units ? ' (' + units + ')' : ''}` : '';
+		const yLabel = param ? `${param.name}${units ? ' (' + units + ')' : ''}` : '';
 		return {
 			width: 800,
 			height: 350,
@@ -426,7 +426,7 @@
 						<select id="param" bind:value={selectedParamId} class="w-full px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
 							<option value="">-- Select --</option>
 							{#each availableParams() as p}
-								<option value={p.id}>{p.display_name} ({p.default_units})</option>
+								<option value={p.id}>{p.name} ({p.default_units})</option>
 							{/each}
 						</select>
 					</div>
@@ -531,7 +531,7 @@
 						<select id="scatter-x" bind:value={scatterXParamId} disabled={!scatterSiteId} class="w-full px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm disabled:opacity-50">
 							<option value="">-- Select --</option>
 							{#each scatterAvailableParams() as p}
-								<option value={p.id} disabled={p.id === scatterYParamId}>{p.display_name} ({p.default_units})</option>
+								<option value={p.id} disabled={p.id === scatterYParamId}>{p.name} ({p.default_units})</option>
 							{/each}
 						</select>
 					</div>
@@ -540,7 +540,7 @@
 						<select id="scatter-y" bind:value={scatterYParamId} disabled={!scatterSiteId} class="w-full px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm disabled:opacity-50">
 							<option value="">-- Select --</option>
 							{#each scatterAvailableParams() as p}
-								<option value={p.id} disabled={p.id === scatterXParamId}>{p.display_name} ({p.default_units})</option>
+								<option value={p.id} disabled={p.id === scatterXParamId}>{p.name} ({p.default_units})</option>
 							{/each}
 						</select>
 					</div>

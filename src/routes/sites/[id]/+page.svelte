@@ -5,6 +5,7 @@
 	import { api, type Site, type Project, type SiteParameter, type Parameter, type Sensor, type SensorDeployment, type SensorCalibration, type Note, type AlarmThreshold, type DerivedParameter, type Sample, type Annotation } from '$api/crud';
 	import { GET, POST, PATCH } from '$api/client';
 	import { recomputeDerived } from '$api/service';
+	import { getSiteSensorIdentity, type SensorIdentityResponse } from '$api/sensors';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatRelativeTime, formatDateTime } from '$lib/utils';
 	import Tabs from '$components/ui/Tabs.svelte';
@@ -84,6 +85,11 @@
 
 	interface SiteDetailParameter {
 		id: string;
+		code?: string;
+		name?: string;
+		units?: string | null;
+		is_derived?: boolean;
+		sensor_type?: string | null;
 		data_start?: string | null;
 		data_end?: string | null;
 		reading_count?: number | null;
@@ -133,6 +139,9 @@
 	let chartLoading = $state(false);
 	let chartDataMap = $state<Map<string, ChartData>>(new Map());
 	let annotationsByParam = $state<Map<string, Annotation[]>>(new Map());
+	let showSensorVectors = $state(false);
+	let showCalibrationMarkers = $state(false);
+	let sensorIdentity = $state<SensorIdentityResponse | null>(null);
 	let fetchGeneration = 0;
 	let fetchTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -140,6 +149,12 @@
 		if (fetchTimer) clearTimeout(fetchTimer);
 		fetchTimer = setTimeout(() => { fetchTimer = null; doFetch(); }, 50);
 	}
+
+	$effect(() => {
+		// Touch toggles so flipping them triggers a refetch (identity is window-scoped).
+		void showSensorVectors; void showCalibrationMarkers;
+		if (site) scheduleFetch();
+	});
 
 	async function doFetch() {
 		chartLoading = true;
@@ -157,8 +172,12 @@
 				: GET<AggregatesResponse>(`/api/sites/${siteId}/aggregates/${res}`, { start: startDate, end: endDate });
 			const annotationsPromise = GET<Annotation[]>(`/api/sites/${siteId}/annotations`, { start: startDate, end: endDate })
 				.catch(() => [] as Annotation[]);
+			const identityPromise = (showSensorVectors || showCalibrationMarkers)
+				? getSiteSensorIdentity(siteId, { start: startDate, end: endDate }).catch(() => null)
+				: Promise.resolve(null);
 
-			const [result, anns] = await Promise.all([dataPromise, annotationsPromise]);
+			const [result, anns, identity] = await Promise.all([dataPromise, annotationsPromise, identityPromise]);
+			if (gen === fetchGeneration) sensorIdentity = identity;
 			if (gen !== fetchGeneration) return;
 
 			if (result.times?.length) {
@@ -353,7 +372,8 @@
 		unsubEvents?.();
 	});
 
-	function paramName(paramId: string): string { return parameters.find((p) => p.id === paramId)?.display_name ?? '—'; }
+	function paramName(paramId: string): string { return parameters.find((p) => p.id === paramId)?.name ?? '—'; }
+	function paramCode(paramId: string): string { return parameters.find((p) => p.id === paramId)?.code ?? ''; }
 	function paramUnits(sp: SiteParameter): string {
 		const param = parameters.find((p) => p.id === sp.parameter_id);
 		return sp.display_units ?? param?.default_units ?? '';
@@ -442,7 +462,7 @@
 	}
 
 	function statusEventParamName(parameterId: string): string {
-		return parameters.find((p) => p.id === parameterId)?.display_name ?? parameterId;
+		return parameters.find((p) => p.id === parameterId)?.name ?? parameterId;
 	}
 
 	// Export
@@ -580,7 +600,7 @@
 				sensor_type: 'derived',
 				is_active: true,
 			});
-			toastStore.success(`${def.display_name || def.name} assigned`);
+			toastStore.success(`${def.name || def.code} assigned`);
 			const sp = await api.siteParameters.list({ perPage: 200, filter: { site_id: siteId } });
 			siteParameters = sp.data;
 			showAssignDerived = false;
@@ -666,7 +686,7 @@
 			if (!data) continue;
 			const vals = data.values;
 			result.push({
-				name: param.display_name,
+				name: param.name,
 				units: sp.display_units ?? param.default_units ?? '',
 				count: vals.length,
 				mean: calcMean(vals),
@@ -800,6 +820,14 @@
 						{/if}
 
 						<div class="w-px h-5 bg-brand-divider mx-1"></div>
+						<label class="flex items-center gap-1.5 cursor-pointer text-xs text-brand-muted" title="Colour the time axis by which sensor was deployed">
+							<input type="checkbox" bind:checked={showSensorVectors} /> Sensor bands
+						</label>
+						<label class="flex items-center gap-1.5 cursor-pointer text-xs text-brand-muted" title="Mark calibration changes">
+							<input type="checkbox" bind:checked={showCalibrationMarkers} /> Calibration markers
+						</label>
+
+						<div class="w-px h-5 bg-brand-divider mx-1"></div>
 						<button
 							onclick={toggleAutoUpdate}
 							class="flex items-center gap-1.5 px-2 py-1 text-xs rounded-md cursor-pointer border-none {autoUpdate ? 'bg-severity-ok-soft text-severity-ok' : 'bg-brand-bg text-brand-muted'}"
@@ -885,7 +913,8 @@
 							siteId={siteId}
 							siteParameterId={sp.id}
 							parameterId={sp.parameter_id}
-							parameterName={param.display_name}
+							parameterName={param.name}
+							parameterCode={param.code}
 							units={sp.display_units ?? param.default_units}
 							threshold={th}
 							annotations={annotationsByParam.get(sp.parameter_id) ?? []}
@@ -897,6 +926,10 @@
 							onZoomSelect={onChartZoomSelect}
 							onResetZoom={onChartResetZoom}
 							onSaved={scheduleFetch}
+							sensorBands={sensorIdentity?.bands[sp.parameter_id] ?? []}
+							calibrationMarkers={sensorIdentity?.calibrations[sp.parameter_id] ?? []}
+							{showSensorVectors}
+							{showCalibrationMarkers}
 						/>
 					{/if}
 				{/each}
@@ -917,7 +950,8 @@
 										siteId={siteId}
 										siteParameterId={sp.id}
 										parameterId={sp.parameter_id}
-										parameterName={param.display_name}
+										parameterName={param.name}
+										parameterCode={param.code}
 										units={sp.display_units ?? param.default_units}
 										threshold={th}
 										annotations={annotationsByParam.get(sp.parameter_id) ?? []}
@@ -929,6 +963,10 @@
 										onZoomSelect={onChartZoomSelect}
 										onResetZoom={onChartResetZoom}
 										onSaved={scheduleFetch}
+										sensorBands={sensorIdentity?.bands[sp.parameter_id] ?? []}
+										calibrationMarkers={sensorIdentity?.calibrations[sp.parameter_id] ?? []}
+										{showSensorVectors}
+										{showCalibrationMarkers}
 									/>
 								{/if}
 							{/each}
@@ -958,7 +996,7 @@
 							<select id="add-param-select" bind:value={addParamId} class="w-full px-3 py-1.5 text-sm border border-brand-divider rounded bg-brand-surface">
 								<option value="">Select a parameter...</option>
 								{#each unassignedParameters as p}
-									<option value={p.id}>{p.display_name}</option>
+									<option value={p.id}>{p.name} ({p.code})</option>
 								{/each}
 							</select>
 						</div>
@@ -972,6 +1010,7 @@
 
 				<table class="w-full text-sm">
 					<thead><tr class="bg-brand-bg border-b border-brand-divider">
+						<th class="text-left px-4 py-2 font-semibold">Code</th>
 						<th class="text-left px-4 py-2 font-semibold">Parameter</th>
 						<th class="text-left px-4 py-2 font-semibold">Units</th>
 						<th class="text-left px-4 py-2 font-semibold">Interval</th>
@@ -982,6 +1021,7 @@
 						{#each siteParameters.filter((sp) => !sp.is_derived) as sp}
 							{@const th = thresholds.find((t) => t.parameter_id === sp.parameter_id)}
 							<tr class="border-b border-brand-divider last:border-b-0">
+								<td class="px-4 py-2 font-mono text-xs">{paramCode(sp.parameter_id)}</td>
 								<td class="px-4 py-2 font-semibold">{paramName(sp.parameter_id)}</td>
 								<td class="px-4 py-2 text-brand-muted">{paramUnits(sp)}</td>
 								<td class="px-4 py-2 text-brand-muted">{sp.sample_interval_sec ? `${sp.sample_interval_sec}s` : '—'}</td>
@@ -1010,7 +1050,7 @@
 							</tr>
 						{/each}
 						{#if siteParameters.filter((sp) => !sp.is_derived).length === 0}
-							<tr><td colspan="5" class="px-4 py-6 text-center text-brand-muted">No parameters configured</td></tr>
+							<tr><td colspan="6" class="px-4 py-6 text-center text-brand-muted">No parameters configured</td></tr>
 						{/if}
 					</tbody>
 				</table>
@@ -1032,7 +1072,7 @@
 							{#each availableDerivedDefs as { def, allPresent, missing }}
 								<div class="flex items-center justify-between p-2 rounded border border-brand-divider {allPresent ? 'bg-brand-surface' : 'bg-brand-bg opacity-60'}">
 									<div class="flex-1">
-										<span class="text-sm font-medium">{def.display_name || def.name}</span>
+										<span class="text-sm font-medium">{def.name || def.code}</span>
 										<span class="text-xs font-mono text-brand-muted ml-2">{def.formula}</span>
 										{#if missing.length > 0}
 											<p class="text-xs text-severity-alarm mt-0.5">
@@ -1065,7 +1105,7 @@
 									{@const sp = siteParameters.find((s) => s.derived_definition_id === d.id)}
 									<tr class="border-b border-brand-divider last:border-b-0">
 										<td class="px-4 py-2 font-medium">
-											<a href="{base}/derived/{d.id}" class="text-brand-primary no-underline hover:underline">{d.display_name || d.name}</a>
+											<a href="{base}/derived/{d.id}" class="text-brand-primary no-underline hover:underline">{d.name || d.code}</a>
 										</td>
 										<td class="px-4 py-2 font-mono text-xs text-brand-muted">{d.formula}</td>
 										<td class="px-4 py-2 text-xs text-brand-muted">
@@ -1275,7 +1315,7 @@
 							{#each measurementParams as sp}
 								{@const param = parameters.find((p) => p.id === sp.parameter_id)}
 								{#if param}
-									<option value={sp.id} disabled={sp.id === scatterYParamId}>{param.display_name} ({sp.display_units ?? param.default_units})</option>
+									<option value={sp.id} disabled={sp.id === scatterYParamId}>{param.name} ({sp.display_units ?? param.default_units})</option>
 								{/if}
 							{/each}
 						</select>
@@ -1288,7 +1328,7 @@
 							{#each measurementParams as sp}
 								{@const param = parameters.find((p) => p.id === sp.parameter_id)}
 								{#if param}
-									<option value={sp.id} disabled={sp.id === scatterXParamId}>{param.display_name} ({sp.display_units ?? param.default_units})</option>
+									<option value={sp.id} disabled={sp.id === scatterXParamId}>{param.name} ({sp.display_units ?? param.default_units})</option>
 								{/if}
 							{/each}
 						</select>
@@ -1309,8 +1349,8 @@
 							<ScatterPlot
 								xData={xChartData.values}
 								yData={yChartData.values}
-								xLabel={xParam.display_name}
-								yLabel={yParam.display_name}
+								xLabel={xParam.name}
+								yLabel={yParam.name}
 								xUnits={xSp.display_units ?? xParam.default_units}
 								yUnits={ySp.display_units ?? yParam.default_units}
 								times={xChartData.times}

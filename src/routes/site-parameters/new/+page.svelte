@@ -14,7 +14,7 @@
 			api.parameters.list({ perPage: 500 }),
 		]);
 		siteOptions = sites.data.map((s) => ({ value: s.id, label: s.name }));
-		paramOptions = params.data.map((p) => ({ value: p.id, label: p.display_name }));
+		paramOptions = params.data.map((p) => ({ value: p.id, label: p.name }));
 	});
 
 	const fields: Field[] = $derived([

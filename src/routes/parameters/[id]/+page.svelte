@@ -7,11 +7,11 @@
 	import { api } from '$api/crud';
 
 	let mergeOpen = $state(false);
-	let paramData = $state<{ id: string; name: string; display_name: string; default_units: string } | null>(null);
+	let paramData = $state<{ id: string; code: string; name: string; default_units: string } | null>(null);
 
 	$effect(() => {
 		api.parameters.get(page.params.id).then((p) => {
-			paramData = { id: p.id, name: p.name, display_name: p.display_name, default_units: p.default_units };
+			paramData = { id: p.id, code: p.code, name: p.name, default_units: p.default_units };
 		});
 	});
 </script>
@@ -24,18 +24,12 @@
 	title="Edit Parameter"
 	backHref="{base}/parameters"
 	fields={[
-		{ key: 'name', label: 'Name', required: true, helperText: 'Canonical ID for formulas and API queries, e.g. dissolved_oxygen' },
-		{ key: 'display_name', label: 'Display Name', required: true, helperText: 'Shown in the UI alongside units, e.g. Dissolved Oxygen' },
+		{ key: 'code', label: 'Code', required: true, helperText: 'Short machine code for formulas and API queries, e.g. DOmgL' },
+		{ key: 'name', label: 'Name', required: true, helperText: 'Human label shown in the UI, e.g. Dissolved Oxygen' },
 		{ key: 'default_units', label: 'Default Units', required: true, helperText: 'Measurement unit, e.g. uM, mg/L, NTU' },
 		{ key: 'category', label: 'Category', type: 'select', helperText: 'Groups parameters in the UI and public API', options: [
 			{ value: 'measurement', label: 'Measurement' },
 			{ value: 'device_health', label: 'Device Health' },
-		] },
-		{ key: 'data_type', label: 'Data Type', type: 'select', helperText: 'Determines how values are stored and validated', options: [
-			{ value: 'float', label: 'Float' },
-			{ value: 'int', label: 'Integer' },
-			{ value: 'string', label: 'String' },
-			{ value: 'bool', label: 'Boolean' },
 		] },
 		{ key: 'aliases', label: 'Aliases', type: 'tags', helperText: 'Alternative names that resolve to this parameter during CSV import and stream pairing' },
 		{ key: 'description', label: 'Description', type: 'textarea' },

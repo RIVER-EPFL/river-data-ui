@@ -13,7 +13,7 @@
 			api.parameters.list({ perPage: 500 }),
 		]);
 		siteMap = new Map(sites.data.map((s: Site) => [s.id, s.name]));
-		paramMap = new Map(params.data.map((p: Parameter) => [p.id, p.display_name]));
+		paramMap = new Map(params.data.map((p: Parameter) => [p.id, p.name]));
 	});
 </script>
 

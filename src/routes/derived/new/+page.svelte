@@ -14,8 +14,8 @@
 	let loading = $state(true);
 	let saving = $state(false);
 
+	let code = $state('');
 	let name = $state('');
-	let displayName = $state('');
 	let units = $state('');
 	let formula = $state('');
 	let description = $state('');
@@ -23,7 +23,7 @@
 	const paramVars = $derived(
 		allParams
 			.filter((p) => p.category !== 'device_health')
-			.map((p) => ({ name: p.name, label: `${p.display_name || p.name}${p.default_units ? ' (' + p.default_units + ')' : ''}`, category: p.category }))
+			.map((p) => ({ name: p.code, label: `${p.name}${p.default_units ? ' (' + p.default_units + ')' : ''}`, category: p.category }))
 	);
 
 	const variableNamesInFormula = $derived.by(() => {
@@ -43,7 +43,7 @@
 				.filter((sp) => sp.site_id === s.id && sp.is_active)
 				.map((sp) => sp.parameter_id);
 			const paramNames = paramIds
-				.map((pid) => allParams.find((p) => p.id === pid)?.name)
+				.map((pid) => allParams.find((p) => p.id === pid)?.code)
 				.filter((n): n is string => !!n);
 			return { id: s.id, name: s.name, availableParamNames: paramNames };
 		})
@@ -67,12 +67,12 @@
 	});
 
 	async function handleSubmit() {
-		if (!name || !formula) return;
+		if (!code || !formula) return;
 		saving = true;
 		try {
 			await api.derivedParameters.create({
-				name,
-				display_name: displayName || name,
+				code,
+				name: name || code,
 				units,
 				formula,
 				description: description || undefined,
@@ -100,12 +100,12 @@
 	{:else}
 		<div class="grid grid-cols-3 gap-3 max-w-2xl">
 			<div>
-				<label for="dp-name" class="text-sm text-brand-muted block mb-1">Name <span class="text-severity-alarm">*</span></label>
-				<input id="dp-name" bind:value={name} placeholder="e.g. DOmgL" class="w-full px-3 py-2 text-sm border border-brand-divider rounded bg-brand-surface" />
+				<label for="dp-code" class="text-sm text-brand-muted block mb-1">Code <span class="text-severity-alarm">*</span></label>
+				<input id="dp-code" bind:value={code} placeholder="e.g. DOmgL" class="w-full px-3 py-2 text-sm border border-brand-divider rounded bg-brand-surface" />
 			</div>
 			<div>
-				<label for="dp-display" class="text-sm text-brand-muted block mb-1">Display Name</label>
-				<input id="dp-display" bind:value={displayName} placeholder="e.g. Dissolved Oxygen (mg/L)" class="w-full px-3 py-2 text-sm border border-brand-divider rounded bg-brand-surface" />
+				<label for="dp-name" class="text-sm text-brand-muted block mb-1">Name</label>
+				<input id="dp-name" bind:value={name} placeholder="e.g. Dissolved Oxygen (mg/L)" class="w-full px-3 py-2 text-sm border border-brand-divider rounded bg-brand-surface" />
 			</div>
 			<div>
 				<label for="dp-units" class="text-sm text-brand-muted block mb-1">Units</label>
@@ -125,7 +125,7 @@
 
 		<button
 			onclick={handleSubmit}
-			disabled={saving || !name || !formula}
+			disabled={saving || !code || !formula}
 			class="px-4 py-2 text-sm bg-brand-primary text-white rounded cursor-pointer hover:bg-brand-primary-dark disabled:opacity-50 disabled:cursor-not-allowed"
 		>
 			{saving ? 'Creating...' : 'Create'}

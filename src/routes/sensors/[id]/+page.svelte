@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
-	import { api, type Sensor, type SensorCalibration, type SensorDeployment, type Site } from '$api/crud';
+	import { api, type Sensor, type SensorCalibration, type SensorDeployment, type Site, type Parameter } from '$api/crud';
 	import { recalibrateCalibration, rollbackDeployment, reprocessSensor } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatDateTime } from '$lib/utils';
@@ -10,6 +10,11 @@
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import DeployMoveSensorDialog from '$components/dialogs/DeployMoveSensorDialog.svelte';
+	import SensorSeriesChart from '$components/charts/SensorSeriesChart.svelte';
+	import CalibrationWindowEditor from '$components/charts/CalibrationWindowEditor.svelte';
+	import AdoptSensorDialog from '$components/dialogs/AdoptSensorDialog.svelte';
+	import { getSensorReadings, getSensorDeploymentBands, type SensorReadingsResponse, type SensorDeploymentBand } from '$api/sensors';
+	import type { SensorIdentityBand, CalibrationMarker } from '$api/sensors';
 
 	let sensor = $state<Sensor | null>(null);
 	let calibrations = $state<SensorCalibration[]>([]);
@@ -18,7 +23,33 @@
 	let loading = $state(true);
 	let activeTab = $state(0);
 
+	let parameters = $state<Parameter[]>([]);
+	let series = $state<SensorReadingsResponse | null>(null);
+	let depBands = $state<SensorDeploymentBand[]>([]);
+	let seriesLoading = $state(true);
+	let adoptOpen = $state(false);
+	let editingCalId = $state<string | null>(null);
+
 	const sensorId = page.params.id!;
+
+	const sensorUnits = $derived(parameters.find((p) => p.id === sensor?.parameter_id)?.default_units ?? '');
+
+	// Adapt deployment bands → the SensorIdentityBand shape the chart plugin expects.
+	const identityBands = $derived<SensorIdentityBand[]>(
+		depBands.map((d) => ({
+			deployment_id: d.deployment_id, sensor_id: sensorId,
+			sensor_serial: sensor?.serial_number ?? null, sensor_name: sensor?.name ?? null,
+			site_id: d.site_id, site_name: d.site_name, parameter_id: sensor?.parameter_id ?? '',
+			from: d.from, until: d.until,
+		})),
+	);
+	const calMarkers = $derived<CalibrationMarker[]>(
+		calibrations.map((c) => ({
+			calibration_id: c.id, sensor_id: c.sensor_id, slope: c.slope, intercept: c.intercept,
+			valid_from: c.valid_from, valid_until: c.valid_until,
+		})),
+	);
+	const seriesTimes = $derived(series?.times.map((t) => new Date(t).getTime() / 1000) ?? []);
 
 	// Add-calibration dialog
 	let addCalOpen = $state(false);
@@ -83,18 +114,32 @@
 
 	onMount(async () => {
 		try {
-			const [s, cals, deps, sitesResult] = await Promise.all([
+			const [s, cals, deps, sitesResult, params] = await Promise.all([
 				api.sensors.get(sensorId),
 				api.sensorCalibrations.list({ perPage: 100, filter: { sensor_id: sensorId }, sort: ['valid_from', 'DESC'] }),
 				api.sensorDeployments.list({ perPage: 100, filter: { sensor_id: sensorId }, sort: ['deployed_from', 'DESC'] }),
 				api.sites.list({ perPage: 200 }),
+				api.parameters.list({ perPage: 500 }),
 			]);
 			sensor = s;
 			calibrations = cals.data;
 			deployments = deps.data;
 			sites = sitesResult.data;
+			parameters = params.data;
 		} finally {
 			loading = false;
+		}
+		try {
+			const [sr, db] = await Promise.all([
+				getSensorReadings(sensorId, { include_raw: true }),
+				getSensorDeploymentBands(sensorId),
+			]);
+			series = sr;
+			depBands = db.bands;
+		} catch (e) {
+			toastStore.error(e instanceof Error ? `Failed to load sensor series: ${e.message}` : 'Failed to load sensor series');
+		} finally {
+			seriesLoading = false;
 		}
 	});
 
@@ -153,6 +198,7 @@
 				{/if}
 			</div>
 			<div class="flex gap-2 items-center">
+				<button onclick={() => (adoptOpen = true)} class="px-3 py-1 text-sm border border-brand-divider rounded-md cursor-pointer bg-brand-surface hover:bg-brand-bg">Add data…</button>
 				<ConfirmPopover message="Reprocess all of this sensor's readings? Re-derives calibration and deployment by time window." confirmLabel="Reprocess" confirmVariant="primary" onconfirm={handleReprocess}>
 					<button class="px-3 py-1 text-sm border border-brand-divider rounded-md cursor-pointer bg-brand-surface hover:bg-brand-bg">Reprocess</button>
 				</ConfirmPopover>
@@ -166,6 +212,18 @@
 		<Tabs tabs={['Overview', 'Deployments', 'Calibrations']} bind:active={activeTab} />
 
 		{#if activeTab === 0}
+			{#if !seriesLoading}
+				<SensorSeriesChart
+					times={seriesTimes}
+					raw={series?.raw ?? []}
+					calibrated={series?.calibrated ?? []}
+					units={sensorUnits}
+					deploymentBands={identityBands}
+					calibrationMarkers={calMarkers}
+				/>
+			{:else}
+				<div class="rounded-md border border-brand-divider bg-brand-surface p-6 text-center text-sm text-brand-muted">Loading series…</div>
+			{/if}
 			<div class="rounded-md border border-brand-divider bg-brand-surface p-4 space-y-3 max-w-xl">
 				<div class="grid grid-cols-2 gap-4 text-sm">
 					<div><span class="text-brand-muted block">Serial Number</span><span class="font-mono">{sensor.serial_number ?? '—'}</span></div>
@@ -173,8 +231,8 @@
 					<div><span class="text-brand-muted block">Manufacturer</span>{sensor.manufacturer ?? '—'}</div>
 					<div><span class="text-brand-muted block">Model</span>{sensor.model ?? '—'}</div>
 				</div>
-				{#if sensor.description}
-					<div><span class="text-sm text-brand-muted block">Description</span><p class="text-sm">{sensor.description}</p></div>
+				{#if sensor.notes}
+					<div><span class="text-sm text-brand-muted block">Notes</span><p class="text-sm">{sensor.notes}</p></div>
 				{/if}
 			</div>
 		{:else if activeTab === 1}
@@ -234,12 +292,20 @@
 								<td class="px-4 py-2 font-mono text-xs">{cal.slope}</td>
 								<td class="px-4 py-2 font-mono text-xs">{cal.intercept}</td>
 								<td class="px-4 py-2 font-mono text-xs">y = {cal.slope}x + {cal.intercept}</td>
-								<td class="px-4 py-2">
+								<td class="px-4 py-2 space-x-3">
+									<button class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline" onclick={() => editingCalId = editingCalId === cal.id ? null : cal.id}>{editingCalId === cal.id ? 'Close' : 'Edit window'}</button>
 									<ConfirmPopover message="Recalibrate readings?" confirmLabel="Recalibrate" confirmVariant="primary" onconfirm={() => handleRecalibrate(cal.id)}>
 										<button class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline">Recalibrate</button>
 									</ConfirmPopover>
 								</td>
 							</tr>
+							{#if editingCalId === cal.id}
+								<tr class="border-b border-brand-divider bg-brand-bg/40">
+									<td colspan="6" class="px-4 py-3">
+										<CalibrationWindowEditor calibration={cal} units={sensorUnits} onchanged={reloadCalibrations} />
+									</td>
+								</tr>
+							{/if}
 						{/each}
 						{#if calibrations.length === 0}
 							<tr><td colspan="6" class="px-4 py-6 text-center text-brand-muted">No calibrations</td></tr>
@@ -285,4 +351,8 @@
 		currentSiteName={currentDeployment ? siteName(currentDeployment.site_id) : ''}
 		onsuccess={reloadDeployments}
 	/>
+
+	{#if sensor}
+		<AdoptSensorDialog bind:open={adoptOpen} {sensor} {sites} {parameters} onsuccess={reloadDeployments} />
+	{/if}
 {/if}

@@ -9,6 +9,12 @@
 	import { api, type AlarmThreshold, type Annotation } from '$api/crud';
 	import AnnotateDialog from '$components/dialogs/AnnotateDialog.svelte';
 	import FlagDialog from '$components/dialogs/FlagDialog.svelte';
+	import {
+		sensorVectorBandPlugin, calibrationMarkerPlugin, bandAtTime,
+		type OverlayVisibility,
+	} from '$lib/charts/overlay-plugins';
+	import type { SensorIdentityBand, CalibrationMarker } from '$api/sensors';
+	import { base } from '$app/paths';
 
 	export interface ChartData {
 		times: number[];
@@ -24,6 +30,7 @@
 		siteParameterId,
 		parameterId,
 		parameterName,
+		parameterCode = '',
 		units = '',
 		threshold,
 		annotations = [],
@@ -35,11 +42,16 @@
 		onZoomSelect,
 		onResetZoom,
 		onSaved,
+		sensorBands = [],
+		calibrationMarkers = [],
+		showSensorVectors = false,
+		showCalibrationMarkers = false,
 	}: {
 		siteId: string;
 		siteParameterId: string;
 		parameterId: string;
 		parameterName: string;
+		parameterCode?: string;
 		units?: string;
 		threshold?: AlarmThreshold | null;
 		annotations?: Annotation[];
@@ -51,6 +63,10 @@
 		onZoomSelect?: (startMs: number, endMs: number) => void;
 		onResetZoom?: () => void;
 		onSaved?: () => void;
+		sensorBands?: SensorIdentityBand[];
+		calibrationMarkers?: CalibrationMarker[];
+		showSensorVectors?: boolean;
+		showCalibrationMarkers?: boolean;
 	} = $props();
 
 	let el: HTMLDivElement;
@@ -60,6 +76,24 @@
 	let selectionMode = $state<Mode>('zoom');
 	let selectionModeRef = { current: 'zoom' as Mode };
 	$effect(() => { selectionModeRef.current = selectionMode; });
+
+	// Optional overlay layers — DEFAULT OFF. visRef/bandsRef/markersRef are read live inside
+	// the draw-hook closures, so toggling visibility only needs chart.redraw() (no rebuild).
+	const overlayVisRef: { current: OverlayVisibility } = {
+		current: { sensorVectors: showSensorVectors, calibrationMarkers: showCalibrationMarkers },
+	};
+	$effect(() => {
+		overlayVisRef.current = { sensorVectors: showSensorVectors, calibrationMarkers: showCalibrationMarkers };
+		chart?.redraw();
+	});
+	const sensorBandsRef: { current: SensorIdentityBand[] } = { current: sensorBands };
+	const calMarkersRef: { current: CalibrationMarker[] } = { current: calibrationMarkers };
+	$effect(() => { sensorBandsRef.current = sensorBands; chart?.redraw(); });
+	$effect(() => { calMarkersRef.current = calibrationMarkers; chart?.redraw(); });
+
+	// Hover-on-band → tooltip with a link to the sensor/calibration config page.
+	let hoverBand = $state<SensorIdentityBand | null>(null);
+	let hoverBandPos = $state<{ x: number; y: number } | null>(null);
 
 	let dialogMode = $state<'annotate' | 'flag' | 'unflag'>('annotate');
 	let annotateOpen = $state(false);
@@ -212,6 +246,27 @@
 		};
 	}
 
+	function bandHoverPlugin(): uPlot.Plugin {
+		return {
+			hooks: {
+				setCursor: [
+					(u: uPlot) => {
+						if (!overlayVisRef.current.sensorVectors || sensorBandsRef.current.length === 0) {
+							if (hoverBand) { hoverBand = null; hoverBandPos = null; }
+							return;
+						}
+						const left = u.cursor.left ?? -1;
+						if (left < 0) { hoverBand = null; hoverBandPos = null; return; }
+						const tsSec = u.posToVal(left, 'x');
+						const b = bandAtTime(sensorBandsRef.current, tsSec);
+						hoverBand = b;
+						hoverBandPos = b ? { x: left, y: u.cursor.top ?? 0 } : null;
+					},
+				],
+			},
+		};
+	}
+
 	let dragOverlayEl: HTMLDivElement | null = null;
 
 	function setupCustomSelection(u: uPlot) {
@@ -302,10 +357,13 @@
 			height: 220,
 			tzDate: (ts: number) => uPlot.tzDate(new Date(ts * 1000), 'UTC'),
 			plugins: [
+				sensorVectorBandPlugin(sensorBandsRef, overlayVisRef),
 				annotationBandPlugin(annotations),
 				thresholdBandPlugin(),
+				calibrationMarkerPlugin(calMarkersRef, overlayVisRef),
 				flaggedPointPlugin(flags),
 				cursorSyncPlugin(),
+				bandHoverPlugin(),
 			],
 			cursor: {
 				show: true,
@@ -472,6 +530,7 @@
 	<div class="flex items-center justify-between px-3 py-1.5 border-b border-brand-divider bg-brand-bg">
 		<span class="text-sm font-semibold">
 			{parameterName} <span class="text-brand-muted font-normal">({units})</span>
+			{#if parameterCode}<span class="text-xs text-brand-muted font-normal font-mono ml-1.5">{parameterCode}</span>{/if}
 			{#if hasData}<span class="text-xs text-brand-muted font-normal ml-2">{dataPoints} pts</span>{/if}
 		</span>
 		<div class="flex items-center gap-1.5">
@@ -537,6 +596,15 @@
 	{/if}
 	<div class="px-1 py-1 relative {selectionMode !== 'zoom' ? 'cursor-crosshair' : ''}">
 		<div bind:this={el} class="w-full" style="min-height:220px"></div>
+		{#if hoverBand && hoverBandPos}
+			<a
+				href="{base}/sensors/{hoverBand.sensor_id}"
+				class="absolute z-20 px-2 py-1 text-xs rounded bg-brand-text text-white no-underline shadow-md pointer-events-auto"
+				style="left:{hoverBandPos.x + 12}px; top:{hoverBandPos.y}px"
+			>
+				{hoverBand.sensor_name ?? hoverBand.sensor_serial ?? 'sensor'} ↗
+			</a>
+		{/if}
 		{#if !hasData && !externalLoading}
 			<div class="absolute inset-0 flex items-center justify-center text-sm text-brand-muted pointer-events-none">No data for selected range</div>
 		{/if}

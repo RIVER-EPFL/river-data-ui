@@ -42,7 +42,6 @@
 			const payload = {
 				site_id: siteId,
 				parameter_id: parameterId,
-				alarm_type: 'numeric',
 				warning_min: num(warningMin),
 				warning_max: num(warningMax),
 				alarm_min: num(alarmMin),

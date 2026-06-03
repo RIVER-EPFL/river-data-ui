@@ -75,12 +75,12 @@ export interface Site {
 
 export interface Parameter {
 	id: string;
+	code: string;
 	name: string;
-	display_name: string;
 	description: string | null;
 	default_units: string;
 	category: string;
-	data_type: string;
+	aliases: string[] | null;
 	default_warning_min: number | null;
 	default_warning_max: number | null;
 	default_alarm_min: number | null;
@@ -110,12 +110,22 @@ export interface Sensor {
 	id: string;
 	serial_number: string | null;
 	name: string | null;
+	parameter_id: string;
 	manufacturer: string | null;
 	model: string | null;
-	description: string | null;
-	is_active: boolean;
-	created_at: string;
-	updated_at: string;
+	is_active: boolean | null;
+	is_lab_instrument: boolean | null;
+	notes: string | null;
+	metadata: Record<string, unknown> | null;
+	created_at: string | null;
+	// read-only enrichment (populated by the API, never sent on create/update)
+	deployments?: SensorDeployment[];
+	reading_count?: number | null;
+	last_reading_at?: string | null;
+	last_calibration_at?: string | null;
+	current_site_id?: string | null;
+	current_site_name?: string | null;
+	last_reading_value?: number | null;
 }
 
 export interface SensorCalibration {
@@ -134,6 +144,8 @@ export interface SensorDeployment {
 	id: string;
 	sensor_id: string;
 	site_id: string;
+	/** Denormalized from the sensor's parameter (DB trigger set_deployment_parameter_id). Read-only. */
+	parameter_id: string;
 	deployed_from: string;
 	deployed_until: string | null;
 	deployment_type: string;
@@ -144,8 +156,8 @@ export interface SensorDeployment {
 
 export interface DerivedParameter {
 	id: string;
+	code: string;
 	name: string;
-	display_name: string;
 	units: string;
 	formula: string;
 	output_parameter_id: string | null;
@@ -207,12 +219,10 @@ export interface AlarmThreshold {
 	id: string;
 	site_id: string | null;
 	parameter_id: string | null;
-	alarm_type: string;
 	warning_min: number | null;
 	warning_max: number | null;
 	alarm_min: number | null;
 	alarm_max: number | null;
-	string_alarm_values: string[] | null;
 	created_at: string;
 	updated_at: string;
 }

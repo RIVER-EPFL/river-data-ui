@@ -10,7 +10,7 @@
 
 	onMount(async () => {
 		const result = await api.parameters.list({ perPage: 500 });
-		paramOptions = result.data.map((p) => ({ value: p.id, label: p.display_name }));
+		paramOptions = result.data.map((p) => ({ value: p.id, label: p.name }));
 	});
 
 	const fields: Field[] = $derived([

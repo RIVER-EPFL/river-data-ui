@@ -262,7 +262,7 @@
 	}
 
 	function mapParamToExisting(oldName: string, existingParam: Parameter) {
-		renameGlobalParam(oldName, existingParam.name);
+		renameGlobalParam(oldName, existingParam.code);
 	}
 
 	function goToParam(paramName: string) {
@@ -444,7 +444,7 @@
 		if (!sp) return spId;
 		const site = sites.find((s) => s.id === sp.site_id);
 		const param = params.find((p) => p.id === sp.parameter_id);
-		return `${site?.name ?? '?'} / ${param?.display_name ?? '?'}`;
+		return `${site?.name ?? '?'} / ${param?.name ?? '?'}`;
 	}
 
 	function openPairDialog(stream: DataStream) { pairStream_ = stream; selectedSiteParam = ''; pairDialogOpen = true; }
@@ -803,7 +803,7 @@
 									</div>
 								{/if}
 								{#each group.entries as entry}
-								{@const entryMatched = existingParams.find((p) => p.name === entry.parameter.name)}
+								{@const entryMatched = existingParams.find((p) => p.code === entry.parameter.name)}
 								{@const entryEditing = editingParam?.streamId === entry.stream_id}
 									<div class="flex items-center gap-2 pl-10 pr-2 py-1.5 border-b border-brand-divider bg-brand-bg/30 text-xs {entry.action === 'skip' ? 'opacity-50' : ''}">
 										<div class="flex-1 min-w-0 flex items-center gap-1.5">
@@ -841,11 +841,11 @@
 															editingParam = null;
 															if (val.startsWith('db:')) {
 																const ep = existingParams.find((p) => p.id === val.slice(3));
-																if (ep && ep.name !== entry.parameter.name) {
-																	(entry.parameter as any).name = ep.name;
+																if (ep && ep.code !== entry.parameter.name) {
+																	(entry.parameter as any).name = ep.code;
 																	(entry.parameter as any).create = false;
 																	planEntries = [...planEntries];
-																	queueUpdate([{ stream_id: entry.stream_id, parameter_name: ep.name }]);
+																	queueUpdate([{ stream_id: entry.stream_id, parameter_name: ep.code }]);
 																}
 															} else if (val.startsWith('new:')) {
 																const newName = val.slice(4);
@@ -862,11 +862,11 @@
 													>
 														<optgroup label="Existing">
 															{#each existingParams as ep}
-																<option value="db:{ep.id}">{ep.display_name} ({ep.default_units})</option>
+																<option value="db:{ep.id}">{ep.name} ({ep.default_units})</option>
 															{/each}
 														</optgroup>
 														<optgroup label="New">
-															{#each paramGroups.filter((p) => !existingParams.some((ep) => ep.name === p.name)) as newP}
+															{#each paramGroups.filter((p) => !existingParams.some((ep) => ep.code === p.name)) as newP}
 																<option value="new:{newP.name}">+ {newP.name} ({newP.units})</option>
 															{/each}
 														</optgroup>
@@ -936,7 +936,7 @@
 							</tr></thead>
 							<tbody>
 								{#each paramGroups as pg}
-									{@const matched = existingParams.find((p) => p.name === pg.name)}
+									{@const matched = existingParams.find((p) => p.code === pg.name)}
 									<tr id="param-row-{pg.name}" class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 transition-shadow">
 										<td class="px-3 py-2 text-xs text-brand-muted font-mono max-w-[250px]">
 										{#if pg.originalNames.length > 1}
@@ -987,7 +987,7 @@
 									</td>
 										<td class="px-3 py-2">
 											{#if matched}
-												<span class="font-medium text-brand-text" title="Already exists in the database — edit via the Parameters page">{matched.display_name}</span>
+												<span class="font-medium text-brand-text" title="Already exists in the database — edit via the Parameters page">{matched.name}</span>
 											{:else if editingGlobalParam === pg.name}
 												<input type="text" bind:value={editValue} onkeydown={(e) => { if (e.key === 'Enter') commitEditGlobalParam(); if (e.key === 'Escape') editingGlobalParam = null; }} onblur={commitEditGlobalParam} class="px-1 py-0.5 border border-brand-primary rounded text-sm bg-brand-surface w-40" autofocus />
 											{:else}
@@ -1023,11 +1023,11 @@
 											>
 												<optgroup label="Existing parameters">
 													{#each existingParams as ep}
-														<option value="db:{ep.id}">{ep.display_name} ({ep.default_units})</option>
+														<option value="db:{ep.id}">{ep.name} ({ep.default_units})</option>
 													{/each}
 												</optgroup>
 												<optgroup label="Will be created">
-													{#each paramGroups.filter((p) => !existingParams.some((ep) => ep.name === p.name)) as newP}
+													{#each paramGroups.filter((p) => !existingParams.some((ep) => ep.code === p.name)) as newP}
 														<option value="new:{newP.name}">+ {newP.name} ({newP.units})</option>
 													{/each}
 												</optgroup>

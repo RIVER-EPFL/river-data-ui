@@ -68,7 +68,7 @@
 			{#if results.results.parameters.length > 0}
 				<div class="px-3 py-1.5 text-xs font-semibold text-brand-muted bg-brand-bg">Parameters</div>
 				{#each results.results.parameters as item}
-					<button onclick={() => navigate('parameters', item.id)} class="w-full text-left px-3 py-1.5 text-sm text-brand-text hover:bg-brand-bg cursor-pointer bg-transparent border-none">{item.display_name}</button>
+					<button onclick={() => navigate('parameters', item.id)} class="w-full text-left px-3 py-1.5 text-sm text-brand-text hover:bg-brand-bg cursor-pointer bg-transparent border-none">{item.name} <span class="text-xs text-brand-muted font-mono">{item.code}</span></button>
 				{/each}
 			{/if}
 			{#if results.results.projects.length > 0}

@@ -32,7 +32,7 @@
 	function paramName(paramId: string): string {
 		const p = params.find((p) => p.id === paramId);
 		if (!p) return paramId;
-		return p.default_units ? `${p.display_name} (${p.default_units})` : p.display_name;
+		return p.default_units ? `${p.name} (${p.default_units})` : p.name;
 	}
 
 	function paramUnits(sp: SiteParameter): string {

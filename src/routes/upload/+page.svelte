@@ -397,7 +397,7 @@
 	function resolvedParamName(row: Record<string, string>): string {
 		if (mappingMode === 'single') {
 			const p = params.find((p) => p.id === singleParameterId);
-			return p ? (p.default_units ? `${p.display_name} (${p.default_units})` : p.display_name) : '—';
+			return p ? (p.default_units ? `${p.name} (${p.default_units})` : p.name) : '—';
 		}
 		return row[paramColumn] ?? '—';
 	}
@@ -515,7 +515,7 @@
 							<select id="singleParam" bind:value={singleParameterId} class="w-full px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
 								<option value="">-- Select parameter --</option>
 								{#each params as p}
-									<option value={p.id}>{p.display_name} ({p.default_units})</option>
+									<option value={p.id}>{p.name} ({p.default_units})</option>
 								{/each}
 							</select>
 						</div>

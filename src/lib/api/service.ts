@@ -12,7 +12,7 @@ export interface SearchResponse {
 	results: {
 		sites: Array<{ id: string; name: string }>;
 		sensors: Array<{ id: string; serial_number: string | null; name: string | null }>;
-		parameters: Array<{ id: string; name: string; display_name: string }>;
+		parameters: Array<{ id: string; code: string; name: string }>;
 		projects: Array<{ id: string; name: string }>;
 	};
 	total: number;

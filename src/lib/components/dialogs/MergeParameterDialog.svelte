@@ -11,7 +11,7 @@
 		onsuccess,
 	}: {
 		open: boolean;
-		sourceParameter: { id: string; name: string; display_name: string; default_units: string };
+		sourceParameter: { id: string; code: string; name: string; default_units: string };
 		onsuccess?: (targetId: string) => void;
 	} = $props();
 
@@ -48,7 +48,7 @@
 			if (result.sites_merged > 0) parts.push(`${result.sites_merged} sites merged`);
 			if (result.sites_reassigned > 0) parts.push(`${result.sites_reassigned} sites reassigned`);
 			if (result.streams_updated > 0) parts.push(`${result.streams_updated} streams updated`);
-			toastStore.success(`Merged ${sourceParameter.display_name} into ${target?.display_name ?? 'target'}. ${parts.join(', ')}.`);
+			toastStore.success(`Merged ${sourceParameter.name} into ${target?.name ?? 'target'}. ${parts.join(', ')}.`);
 			open = false;
 			onsuccess?.(targetId);
 		} catch (e) {
@@ -63,7 +63,7 @@
 	{#snippet children()}
 		<div class="space-y-4">
 			<p class="text-sm">
-				Merge <strong>{sourceParameter.display_name}{sourceParameter.default_units ? ` (${sourceParameter.default_units})` : ''}</strong> into another parameter.
+				Merge <strong>{sourceParameter.name}{sourceParameter.default_units ? ` (${sourceParameter.default_units})` : ''}</strong> into another parameter.
 				All readings, streams, site assignments, and references will be reassigned to the target. The source parameter will be deleted.
 			</p>
 
@@ -75,7 +75,7 @@
 					<select bind:value={targetId} class="mt-1 block w-full rounded-md border border-brand-divider bg-brand-bg px-3 py-2 text-sm">
 						<option value="">Select target...</option>
 						{#each candidates as p}
-							<option value={p.id}>{p.display_name}{p.default_units ? ` (${p.default_units})` : ''}</option>
+							<option value={p.id}>{p.name}{p.default_units ? ` (${p.default_units})` : ''}</option>
 						{/each}
 					</select>
 				</label>
@@ -86,7 +86,7 @@
 					<p class="font-medium text-severity-alarm">This cannot be undone.</p>
 					<p class="mt-1 text-brand-muted">
 						<strong>{sourceParameter.name}</strong> will be absorbed into <strong>{target.name}</strong>.
-						The source name will be added as an alias on the target.
+						The source code will be added as an alias on the target.
 					</p>
 				</div>
 			{/if}
@@ -100,7 +100,7 @@
 			</button>
 			{#if target}
 				<ConfirmPopover
-					message="All data will be moved to {target.display_name}. This is irreversible."
+					message="All data will be moved to {target.name}. This is irreversible."
 					confirmLabel="Merge"
 					confirmVariant="alarm"
 					onconfirm={doMerge}

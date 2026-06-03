@@ -18,8 +18,8 @@
 	let loading = $state(true);
 	let saving = $state(false);
 
+	let code = $state('');
 	let name = $state('');
-	let displayName = $state('');
 	let units = $state('');
 	let formula = $state('');
 	let description = $state('');
@@ -27,7 +27,7 @@
 	const paramVars = $derived(
 		allParams
 			.filter((p) => p.category !== 'device_health')
-			.map((p) => ({ name: p.name, label: `${p.display_name || p.name}${p.default_units ? ' (' + p.default_units + ')' : ''}`, category: p.category }))
+			.map((p) => ({ name: p.code, label: `${p.name}${p.default_units ? ' (' + p.default_units + ')' : ''}`, category: p.category }))
 	);
 
 	const variableNamesInFormula = $derived.by(() => {
@@ -47,7 +47,7 @@
 				.filter((sp) => sp.site_id === s.id && sp.is_active)
 				.map((sp) => sp.parameter_id);
 			const paramNames = paramIds
-				.map((pid) => allParams.find((p) => p.id === pid)?.name)
+				.map((pid) => allParams.find((p) => p.id === pid)?.code)
 				.filter((n): n is string => !!n);
 			return { id: s.id, name: s.name, availableParamNames: paramNames };
 		})
@@ -67,8 +67,8 @@
 			allSites = s.data;
 			allSiteParams = sp.data;
 			constants = c.data;
-			name = d.name;
-			displayName = d.display_name ?? '';
+			code = d.code;
+			name = d.name ?? '';
 			units = d.units ?? '';
 			formula = d.formula ?? '';
 			description = d.description ?? '';
@@ -78,12 +78,12 @@
 	});
 
 	async function handleSave() {
-		if (!name || !formula) return;
+		if (!code || !formula) return;
 		saving = true;
 		try {
 			await api.derivedParameters.update(defId, {
-				name,
-				display_name: displayName || name,
+				code,
+				name: name || code,
 				units,
 				formula,
 				description: description || undefined,
@@ -103,7 +103,7 @@
 <div class="space-y-4">
 	<div>
 		<a href="{base}/derived/{defId}" class="text-sm text-brand-muted hover:text-brand-primary no-underline">&larr; Back</a>
-		<h2 class="text-xl font-semibold mt-1">Edit {def?.display_name || def?.name || ''}</h2>
+		<h2 class="text-xl font-semibold mt-1">Edit {def?.name || def?.code || ''}</h2>
 	</div>
 
 	{#if loading}
@@ -111,12 +111,12 @@
 	{:else}
 		<div class="grid grid-cols-3 gap-3 max-w-2xl">
 			<div>
-				<label for="dp-name" class="text-sm text-brand-muted block mb-1">Name <span class="text-severity-alarm">*</span></label>
-				<input id="dp-name" bind:value={name} class="w-full px-3 py-2 text-sm border border-brand-divider rounded bg-brand-surface" />
+				<label for="dp-code" class="text-sm text-brand-muted block mb-1">Code <span class="text-severity-alarm">*</span></label>
+				<input id="dp-code" bind:value={code} class="w-full px-3 py-2 text-sm border border-brand-divider rounded bg-brand-surface" />
 			</div>
 			<div>
-				<label for="dp-display" class="text-sm text-brand-muted block mb-1">Display Name</label>
-				<input id="dp-display" bind:value={displayName} class="w-full px-3 py-2 text-sm border border-brand-divider rounded bg-brand-surface" />
+				<label for="dp-name" class="text-sm text-brand-muted block mb-1">Name</label>
+				<input id="dp-name" bind:value={name} class="w-full px-3 py-2 text-sm border border-brand-divider rounded bg-brand-surface" />
 			</div>
 			<div>
 				<label for="dp-units" class="text-sm text-brand-muted block mb-1">Units</label>
@@ -137,7 +137,7 @@
 		<div class="flex gap-2">
 			<button
 				onclick={handleSave}
-				disabled={saving || !name || !formula}
+				disabled={saving || !code || !formula}
 				class="px-4 py-2 text-sm bg-brand-primary text-white rounded cursor-pointer hover:bg-brand-primary-dark disabled:opacity-50 disabled:cursor-not-allowed"
 			>
 				{saving ? 'Saving...' : 'Save'}

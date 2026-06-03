@@ -13,7 +13,7 @@
 			api.parameters.list({ perPage: 500 }),
 		]);
 		siteMap = new Map(sites.data.map((s: Site) => [s.id, s.name]));
-		paramMap = new Map(params.data.map((p: Parameter) => [p.id, p.display_name]));
+		paramMap = new Map(params.data.map((p: Parameter) => [p.id, p.name]));
 	});
 </script>
 
@@ -26,7 +26,6 @@
 	columns={[
 		{ key: 'parameter_id', label: 'Parameter', render: (_, row) => paramMap.get(row.parameter_id) ?? '—' },
 		{ key: 'site_id', label: 'Site', render: (_, row) => row.site_id ? siteMap.get(row.site_id) ?? '—' : 'Global default' },
-		{ key: 'alarm_type', label: 'Type' },
 		{ key: 'warning_min', label: 'W Min' },
 		{ key: 'warning_max', label: 'W Max' },
 		{ key: 'alarm_min', label: 'A Min' },

@@ -13,17 +13,13 @@
 			api.parameters.list({ perPage: 500 }),
 			api.sites.list({ perPage: 200 }),
 		]);
-		paramOptions = params.data.map((p) => ({ value: p.id, label: p.display_name }));
+		paramOptions = params.data.map((p) => ({ value: p.id, label: p.name }));
 		siteOptions = sites.data.map((s) => ({ value: s.id, label: s.name }));
 	});
 
 	const fields: Field[] = $derived([
 		{ key: 'parameter_id', label: 'Parameter', type: 'select', required: true, options: paramOptions, helperText: 'The parameter these thresholds apply to' },
 		{ key: 'site_id', label: 'Site', type: 'select', options: siteOptions, helperText: 'Leave empty for a global default threshold' },
-		{ key: 'alarm_type', label: 'Type', type: 'select', required: true, options: [
-			{ value: 'numeric', label: 'Numeric' },
-			{ value: 'string', label: 'String' },
-		], defaultValue: 'numeric', helperText: 'Threshold type for grouping' },
 		{ key: 'warning_min', label: 'Warning Min', type: 'number', step: 'any', helperText: 'Below this value triggers a warning (severity 1)' },
 		{ key: 'warning_max', label: 'Warning Max', type: 'number', step: 'any', helperText: 'Above this value triggers a warning (severity 1)' },
 		{ key: 'alarm_min', label: 'Alarm Min', type: 'number', step: 'any', helperText: 'Below this value triggers an alarm (severity 2)' },

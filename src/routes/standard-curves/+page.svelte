@@ -13,7 +13,7 @@
 
 	function paramName(val: unknown): string {
 		if (!val) return '—';
-		return params.find((p) => p.id === val)?.display_name ?? String(val);
+		return params.find((p) => p.id === val)?.name ?? String(val);
 	}
 
 	function curveStatus(row: Record<string, unknown>): string {

@@ -33,7 +33,7 @@
 			api.derivedParameters.list({ perPage: 500 }),
 		]);
 		sensorMap = new Map(sensors.data.map((s: Sensor) => [s.id, s.name ?? s.serial_number ?? s.id]));
-		derivedMap = new Map(derived.data.map((d) => [d.id, d.display_name || d.name]));
+		derivedMap = new Map(derived.data.map((d) => [d.id, d.name || d.code]));
 		await load();
 		// Poll every 5 seconds for in-flight jobs
 		pollTimer = setInterval(() => {

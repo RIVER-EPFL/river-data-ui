@@ -8,11 +8,12 @@
 	let total = $state(0);
 	let loading = $state(true);
 	let currentPage = $state(1);
-	let sortField = $state('name');
+	let sortField = $state('code');
 	let sortOrder = $state<'ASC' | 'DESC'>('ASC');
 	let searchQuery = $state('');
 	let categoryFilter = $state('');
 	let categories = $state<string[]>([]);
+	let derivedOutputIds = $state<Set<string>>(new Set());
 
 	const perPage = 25;
 	const totalPages = $derived(Math.ceil(total / perPage));
@@ -35,6 +36,13 @@
 			if (categories.length === 0) {
 				const all = await api.parameters.list({ perPage: 500 });
 				categories = [...new Set(all.data.map((p) => p.category))].sort();
+			}
+
+			if (derivedOutputIds.size === 0) {
+				const derived = await api.derivedParameters.list({ perPage: 500 });
+				derivedOutputIds = new Set(
+					derived.data.map((d) => d.output_parameter_id).filter((id): id is string => !!id)
+				);
 			}
 		} finally {
 			loading = false;
@@ -81,7 +89,7 @@
 		<table class="w-full text-sm">
 			<thead>
 				<tr class="bg-brand-bg border-b border-brand-divider">
-					{#each [['name', 'Name'], ['display_name', 'Display Name'], ['category', 'Category'], ['data_type', 'Type'], ['created_at', 'Created']] as [key, label]}
+					{#each [['code', 'Code'], ['name', 'Name'], ['default_units', 'Unit'], ['category', 'Category'], ['created_at', 'Created']] as [key, label]}
 						<th class="text-left px-4 py-2 font-semibold cursor-pointer select-none hover:text-brand-primary" onclick={() => toggleSort(key)}>
 							{label} {sortField === key ? (sortOrder === 'ASC' ? '↑' : '↓') : ''}
 						</th>
@@ -90,16 +98,21 @@
 			</thead>
 			<tbody>
 				{#if loading}
-					<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">Loading...</td></tr>
+					<tr><td colspan="5" class="px-4 py-8 text-center text-brand-muted">Loading...</td></tr>
 				{:else if parameters.length === 0}
-					<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">No parameters found</td></tr>
+					<tr><td colspan="5" class="px-4 py-8 text-center text-brand-muted">No parameters found</td></tr>
 				{:else}
 					{#each parameters as param}
 						<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50">
-							<td class="px-4 py-2"><a href="{base}/parameters/{param.id}" class="text-brand-primary font-semibold no-underline hover:underline">{param.name}</a></td>
-							<td class="px-4 py-2">{param.display_name}{param.default_units ? ` (${param.default_units})` : ''}</td>
+							<td class="px-4 py-2"><a href="{base}/parameters/{param.id}" class="text-brand-primary font-semibold font-mono no-underline hover:underline">{param.code}</a></td>
+							<td class="px-4 py-2">
+								{param.name}
+								{#if derivedOutputIds.has(param.id)}
+									<span class="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-brand-accent/15 text-brand-accent align-middle">derived</span>
+								{/if}
+							</td>
+							<td class="px-4 py-2 text-brand-muted">{param.default_units || '—'}</td>
 							<td class="px-4 py-2"><span class="px-2 py-0.5 text-xs font-medium rounded-full bg-brand-bg text-brand-muted">{param.category}</span></td>
-							<td class="px-4 py-2 text-brand-muted text-xs font-mono">{param.data_type}</td>
 							<td class="px-4 py-2 text-brand-muted text-xs">{formatRelativeTime(param.created_at)}</td>
 						</tr>
 					{/each}
