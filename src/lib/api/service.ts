@@ -122,6 +122,16 @@ export const pairStream = (streamId: string, siteParameterId: string) =>
 export const unpairStream = (streamId: string) =>
 	POST(`${SERVICE}/streams/${streamId}/unpair`);
 
+export interface ImportStreamResponse {
+	sensor_id: string;
+	attributed: number;
+}
+
+/** Import a stream's device into the sensor inventory (creates sensor + identity calibration,
+ *  stamps existing readings) WITHOUT pairing it to a site. Separate from pairing/adopt. */
+export const importStream = (streamId: string, parameterId: string) =>
+	POST<ImportStreamResponse>(`${SERVICE}/streams/${streamId}/import`, { parameter_id: parameterId });
+
 // Actions
 export const recalibrateCalibration = (id: string) =>
 	POST(`${ADMIN}/actions/sensor_calibrations/${id}/recalculate`);

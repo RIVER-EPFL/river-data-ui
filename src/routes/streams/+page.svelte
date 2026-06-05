@@ -5,7 +5,7 @@
 	import { page } from '$app/state';
 	import { api, type DataStream, type SiteParameter, type Site, type Parameter } from '$api/crud';
 	import {
-		pairStream, unpairStream, getStreamStats, createPairingPlan, updatePairingPlan,
+		pairStream, unpairStream, importStream, getStreamStats, createPairingPlan, updatePairingPlan,
 		applyPairingPlan, revertPairingPlan, getUnpairedSummary, getPlanSiteMetadata,
 		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
 	} from '$api/service';
@@ -31,6 +31,12 @@
 	let pairStream_ = $state<DataStream | null>(null);
 	let selectedSiteParam = $state('');
 	let pairing = $state(false);
+
+	// ── Import dialog (register the stream's device into inventory, no site) ──
+	let importDialogOpen = $state(false);
+	let importStream_ = $state<DataStream | null>(null);
+	let importParamId = $state('');
+	let importing = $state(false);
 
 	// ── Stats dialog ──
 	let statsDialogOpen = $state(false);
@@ -457,6 +463,20 @@
 		finally { pairing = false; }
 	}
 
+	function openImportDialog(stream: DataStream) { importStream_ = stream; importParamId = ''; importDialogOpen = true; }
+
+	async function handleImport() {
+		if (!importStream_ || !importParamId) return;
+		importing = true;
+		try {
+			const res = await importStream(importStream_.id, importParamId);
+			toastStore.success(`Sensor imported · ${res.attributed} reading${res.attributed === 1 ? '' : 's'} attributed`);
+			importDialogOpen = false;
+			load();
+		} catch { toastStore.error('Import failed'); }
+		finally { importing = false; }
+	}
+
 	async function handleUnpair(streamId: string) {
 		try { await unpairStream(streamId); toastStore.success('Stream unpaired'); load(); }
 		catch { toastStore.error('Unpair failed'); }
@@ -588,6 +608,7 @@
 										</ConfirmPopover>
 									{:else}
 										<button onclick={() => openPairDialog(stream)} class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline">Pair</button>
+										<button onclick={() => openImportDialog(stream)} class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline">Import</button>
 									{/if}
 								</td>
 							</tr>
@@ -1158,6 +1179,28 @@
 	{#snippet actions()}
 		<button onclick={() => pairDialogOpen = false} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface">Cancel</button>
 		<button onclick={handlePair} disabled={!selectedSiteParam || pairing} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm cursor-pointer border-none disabled:opacity-50">{pairing ? 'Pairing...' : 'Pair'}</button>
+	{/snippet}
+</Dialog>
+
+<Dialog bind:open={importDialogOpen} title="Import Sensor" maxWidth="sm">
+	{#snippet children()}
+		{#if importStream_}
+			<div class="space-y-3">
+				<div class="text-sm"><span class="text-brand-muted">Stream:</span> <span class="font-mono">{importStream_.source_key}</span></div>
+				<p class="text-xs text-brand-muted">Registers this stream's device into the sensor inventory (creates the sensor + identity calibration and stamps its existing readings) without assigning it to a site. Pair the stream separately to attribute its data to a site.</p>
+				<div class="flex flex-col gap-1">
+					<label for="import-param" class="text-sm font-medium">Parameter</label>
+					<select id="import-param" bind:value={importParamId} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
+						<option value="">-- Select --</option>
+						{#each params as p}<option value={p.id}>{p.name} ({p.code})</option>{/each}
+					</select>
+				</div>
+			</div>
+		{/if}
+	{/snippet}
+	{#snippet actions()}
+		<button onclick={() => importDialogOpen = false} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface">Cancel</button>
+		<button onclick={handleImport} disabled={!importParamId || importing} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm cursor-pointer border-none disabled:opacity-50">{importing ? 'Importing...' : 'Import'}</button>
 	{/snippet}
 </Dialog>
 
