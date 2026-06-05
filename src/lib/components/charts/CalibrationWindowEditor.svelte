@@ -4,6 +4,7 @@
 	import { getCalibrationWindow, type CalibrationWindowResponse } from '$api/sensors';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import ScatterPlot from '$components/charts/ScatterPlot.svelte';
+	import SensorSeriesChart from '$components/charts/SensorSeriesChart.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
 
 	let { calibration, units = '', rangeMin, rangeMax, onchanged }: {
@@ -81,6 +82,21 @@
 		<button onclick={save} disabled={saving} class="px-3 py-1 text-sm bg-brand-primary text-white rounded-md cursor-pointer border-none disabled:opacity-50">{saving ? 'Saving…' : 'Save & recompute'}</button>
 	</div>
 	{#if win && win.points.length > 0}
+		<!-- What the calibration does to the actual data over time: raw vs the live preview. With an
+		     identity (1/0) calibration the two lines coincide; changing slope/intercept diverges them. -->
+		<SensorSeriesChart
+			times={times}
+			raw={rawArr}
+			calibrated={previewCal}
+			{units}
+			deploymentBands={[]}
+			calibrationMarkers={[]}
+			showSensorVectors={false}
+			showCalibrationMarkers={false}
+			gapThreshold={0}
+			height={240}
+		/>
+		<!-- Transfer view: raw → calibrated mapping (a straight line for any linear calibration). -->
 		<ScatterPlot xData={rawArr} yData={previewCal} xLabel="Raw" yLabel="Calibrated (preview)" xUnits={units} yUnits={units} {times} height={260} />
 	{:else if win}
 		<p class="text-xs text-brand-muted">No readings resolved by this window.</p>

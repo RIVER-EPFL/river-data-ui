@@ -275,6 +275,59 @@
 			toastStore.success('Reprocessing started — track it in the Operations indicator');
 		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Reprocess failed'); }
 	}
+
+	// Unattributed history exists when the slot's earliest reading (any sensor) predates the open
+	// deployment's start. Backdating deployed_from to it lets the slot reprocess claim those rows.
+	// (Use slot_data_start, NOT data_start — data_start only sees readings already attributed to
+	// this sensor, so it can never reveal the orphaned history.)
+	const needsBackdate = $derived(
+		!!series?.slot_data_start && !!currentDeployment &&
+		new Date(series.slot_data_start).getTime() < new Date(currentDeployment.deployed_from).getTime() - 60000,
+	);
+	let backdating = $state(false);
+	async function backdateToFirstReading() {
+		if (!currentDeployment || !series?.slot_data_start) return;
+		backdating = true;
+		try {
+			await api.sensorDeployments.update(currentDeployment.id, { deployed_from: series.slot_data_start });
+			toastStore.success('Deployment backdated — historical readings are being attributed in the background');
+			await reloadDeployments();
+			scheduleFetch();
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Backdate failed');
+		} finally {
+			backdating = false;
+		}
+	}
+
+	// Inline deployment date editing (Deployments tab).
+	let editingDepId = $state<string | null>(null);
+	let editDepFrom = $state('');
+	let editDepUntil = $state('');
+	let savingDep = $state(false);
+	function startEditDep(dep: SensorDeployment) {
+		editingDepId = dep.id;
+		editDepFrom = dep.deployed_from.slice(0, 16);
+		editDepUntil = dep.deployed_until ? dep.deployed_until.slice(0, 16) : '';
+	}
+	async function saveDep(depId: string) {
+		if (!editDepFrom) { toastStore.error('Deployed from is required'); return; }
+		savingDep = true;
+		try {
+			await api.sensorDeployments.update(depId, {
+				deployed_from: new Date(editDepFrom).toISOString(),
+				deployed_until: editDepUntil ? new Date(editDepUntil).toISOString() : null,
+			});
+			toastStore.success('Deployment dates updated — readings re-attributed in the background');
+			editingDepId = null;
+			await reloadDeployments();
+			scheduleFetch();
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Update failed');
+		} finally {
+			savingDep = false;
+		}
+	}
 </script>
 
 <svelte:head><title>{sensor?.name ?? sensor?.serial_number ?? 'Sensor'} | River Data</title></svelte:head>
@@ -311,6 +364,12 @@
 		<Tabs tabs={['Overview', 'Deployments', 'Calibrations']} bind:active={activeTab} />
 
 		{#if activeTab === 0}
+			{#if needsBackdate && currentDeployment}
+				<div class="flex items-center gap-3 px-3 py-2 text-sm bg-brand-primary/5 text-brand-primary rounded-md border border-brand-primary/20">
+					<span>Readings exist before this deployment started ({formatDateTime(currentDeployment.deployed_from)}) — they aren't attributed to this sensor.</span>
+					<button onclick={backdateToFirstReading} disabled={backdating} class="ml-auto px-2 py-0.5 text-xs bg-brand-primary text-white rounded cursor-pointer border-none disabled:opacity-50 whitespace-nowrap">{backdating ? 'Backdating…' : 'Backdate to first reading'}</button>
+				</div>
+			{/if}
 			<div class="rounded-md border border-brand-divider bg-brand-surface px-4 py-3 space-y-3">
 				<div class="flex items-center gap-3 flex-wrap">
 					<span class="text-xs text-brand-muted font-semibold uppercase tracking-wider">Range</span>
@@ -405,18 +464,31 @@
 								<td class="px-4 py-2 text-xs text-brand-muted">{formatDateTime(dep.deployed_from)}</td>
 								<td class="px-4 py-2 text-xs text-brand-muted">{dep.deployed_until ? formatDateTime(dep.deployed_until) : 'Current'}</td>
 								<td class="px-4 py-2">
-									{#if !dep.deployed_until}
-										<div class="flex gap-3">
+									<div class="flex gap-3">
+										<button class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline" onclick={() => editingDepId === dep.id ? (editingDepId = null) : startEditDep(dep)}>{editingDepId === dep.id ? 'Close' : 'Edit dates'}</button>
+										{#if !dep.deployed_until}
 											<ConfirmPopover message="End this deployment now? The sensor will be marked as no longer in the field." confirmLabel="Recall" confirmVariant="primary" onconfirm={() => handleRecall(dep.id)}>
 												<button class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline">Recall</button>
 											</ConfirmPopover>
 											<ConfirmPopover message="Roll back this deployment? This deletes it and restores the previous one." confirmLabel="Rollback" onconfirm={() => handleRollback(dep.id)}>
 												<button class="text-xs text-severity-alarm bg-transparent border-none cursor-pointer hover:underline">Rollback</button>
 											</ConfirmPopover>
-										</div>
-									{/if}
+										{/if}
+									</div>
 								</td>
 							</tr>
+							{#if editingDepId === dep.id}
+								<tr class="border-b border-brand-divider bg-brand-bg/40">
+									<td colspan="4" class="px-4 py-3">
+										<div class="flex items-end gap-3 flex-wrap">
+											<label class="flex flex-col gap-1 text-xs text-brand-muted">Deployed from<input type="datetime-local" bind:value={editDepFrom} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm" /></label>
+											<label class="flex flex-col gap-1 text-xs text-brand-muted">Deployed until <span class="text-[10px]">(blank = open)</span><input type="datetime-local" bind:value={editDepUntil} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm" /></label>
+											<button onclick={() => saveDep(dep.id)} disabled={savingDep} class="px-3 py-1 text-sm bg-brand-primary text-white rounded-md cursor-pointer border-none disabled:opacity-50">{savingDep ? 'Saving…' : 'Save & reprocess'}</button>
+											<span class="text-[11px] text-brand-muted">Changing dates re-attributes readings in the affected range in the background.</span>
+										</div>
+									</td>
+								</tr>
+							{/if}
 						{/each}
 						{#if deployments.length === 0}
 							<tr><td colspan="4" class="px-4 py-6 text-center text-brand-muted">No deployments</td></tr>

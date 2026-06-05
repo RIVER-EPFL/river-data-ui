@@ -66,9 +66,12 @@ export interface SensorReadingsResponse {
 	calibrated_max: (number | null)[];
 	/** Per-point site assignment (deployment_id resolves a site); null when unpaired. */
 	site_ids: (string | null)[];
-	/** Full reading extent for this sensor (independent of the query window). */
+	/** Full reading extent attributed to this sensor (independent of the query window). */
 	data_start: string | null;
 	data_end: string | null;
+	/** Earliest reading at the sensor's open deployment slot (site+parameter, any sensor) — the
+	 * backdate target; may precede data_start when history isn't yet attributed. Null if no open deployment. */
+	slot_data_start: string | null;
 }
 
 export const getSensorReadings = (

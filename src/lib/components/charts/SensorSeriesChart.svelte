@@ -154,13 +154,27 @@
 		if (onResetZoom) chart.root.addEventListener('dblclick', () => onResetZoom());
 	}
 
-	function onResize() {
-		if (chart && el) { const w = el.getBoundingClientRect().width; if (w > 0) chart.setSize({ width: w, height }); }
-	}
+	// Re-render whenever the data changes (incl. the live calibration preview). Touch every array so
+	// the effect tracks them, not just `times`.
+	$effect(() => {
+		void times; void raw; void calibrated; void rawMin; void rawMax; void calMin; void calMax;
+		tick().then(render);
+	});
 
-	$effect(() => { if (times) tick().then(render); });
-	onMount(() => window.addEventListener('resize', onResize));
-	onDestroy(() => { window.removeEventListener('resize', onResize); chart?.destroy(); });
+	// A ResizeObserver renders/resizes when the container gets (or changes) a real width — covers
+	// charts mounted in initially-zero-width containers (e.g. a just-expanded table row) where a
+	// window-resize listener would never fire.
+	let ro: ResizeObserver | null = null;
+	onMount(() => {
+		ro = new ResizeObserver(() => {
+			const w = el?.getBoundingClientRect().width ?? 0;
+			if (w === 0) return;
+			if (chart) chart.setSize({ width: w, height });
+			else render();
+		});
+		if (el) ro.observe(el);
+	});
+	onDestroy(() => { ro?.disconnect(); chart?.destroy(); });
 </script>
 
 <div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
