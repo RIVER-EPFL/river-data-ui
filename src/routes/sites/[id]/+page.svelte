@@ -937,6 +937,7 @@
 							parameterName={param.name}
 							parameterCode={param.code}
 							units={sp.display_units ?? param.default_units}
+							isDerived={sp.is_derived ?? false}
 							threshold={th}
 							annotations={annotationsByParam.get(sp.parameter_id) ?? []}
 							seriesIndex={i}

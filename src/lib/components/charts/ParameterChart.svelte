@@ -50,6 +50,7 @@
 		showSensorVectors = false,
 		showCalibrationMarkers = false,
 		showAlarmBands = true,
+		isDerived = false,
 	}: {
 		siteId: string;
 		siteParameterId: string;
@@ -72,6 +73,7 @@
 		showSensorVectors?: boolean;
 		showCalibrationMarkers?: boolean;
 		showAlarmBands?: boolean;
+		isDerived?: boolean;
 	} = $props();
 
 	let el: HTMLDivElement;
@@ -580,6 +582,7 @@
 	<div class="flex items-center justify-between px-3 py-1.5 border-b border-brand-divider bg-brand-bg">
 		<span class="text-sm font-semibold">
 			{parameterName} <span class="text-brand-muted font-normal">({units})</span>
+			{#if isDerived}<span class="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-brand-accent/15 text-brand-accent align-middle">derived</span>{/if}
 			{#if parameterCode}<span class="text-xs text-brand-muted font-normal font-mono ml-1.5">{parameterCode}</span>{/if}
 			{#if hasData}<span class="text-xs text-brand-muted font-normal ml-2">{dataPoints} pts</span>{/if}
 		</span>
