@@ -49,10 +49,10 @@
 	let chart: uPlot | null = null;
 
 	const visRef: { current: OverlayVisibility } = {
-		current: { sensorVectors: showSensorVectors, calibrationMarkers: showCalibrationMarkers },
+		current: { sensorVectors: showSensorVectors, calibrationMarkers: showCalibrationMarkers, alarmBands: false },
 	};
 	$effect(() => {
-		visRef.current = { sensorVectors: showSensorVectors, calibrationMarkers: showCalibrationMarkers };
+		visRef.current = { sensorVectors: showSensorVectors, calibrationMarkers: showCalibrationMarkers, alarmBands: false };
 		chart?.redraw();
 	});
 

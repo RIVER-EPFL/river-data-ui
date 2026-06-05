@@ -26,6 +26,7 @@
 				{ href: `${base}/sensor-calibrations`, label: 'Calibrations', icon: 'cpu' },
 				{ href: `${base}/streams`, label: 'Streams', icon: 'rss' },
 				{ href: `${base}/jobs`, label: 'Jobs', icon: 'clock' },
+				{ href: `${base}/alarms`, label: 'Alarms', icon: 'bell' },
 			],
 		},
 		{
@@ -48,7 +49,6 @@
 				{ href: `${base}/parameters`, label: 'Parameters', icon: 'sliders' },
 				{ href: `${base}/derived`, label: 'Derived', icon: 'function' },
 				{ href: `${base}/standard-curves`, label: 'Standard Curves', icon: 'chart' },
-				{ href: `${base}/alarm-thresholds`, label: 'Alarm Thresholds', icon: 'bell' },
 				{ href: `${base}/constants`, label: 'Constants', icon: 'hash' },
 				{ href: `${base}/projects`, label: 'Projects', icon: 'folder' },
 				{ href: `${base}/users`, label: 'Users', icon: 'users' },

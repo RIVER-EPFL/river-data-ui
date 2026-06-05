@@ -36,6 +36,20 @@ export interface ActiveAlarm {
 	};
 	severity: number;
 	since: string;
+	/** Persisted alarm-event id; present once the sweeper has recorded this breach. */
+	event_id?: string;
+	/** True when the open event has been acknowledged. */
+	acknowledged: boolean;
+	acknowledged_at?: string | null;
+	acknowledged_by?: string | null;
+	/** Highest severity seen while this event has been open (1=warning, 2=alarm). */
+	max_severity?: number | null;
+}
+
+export interface AcknowledgedAlarmResponse {
+	event_id: string;
+	acknowledged_at: string;
+	acknowledged_by: string;
 }
 
 export interface ActiveAlarmsResponse {
@@ -52,11 +66,43 @@ export interface AlarmSummaryResponse {
 		warning_count: number;
 		alarm_count: number;
 		latest_reading_time?: string | null;
+		last_warning_at?: string | null;
+		last_alarm_at?: string | null;
 	}>;
+}
+
+export interface AlarmEvent {
+	id: string;
+	site_id: string;
+	site_name: string;
+	parameter_id: string;
+	parameter_name: string;
+	severity: number;
+	max_severity: number;
+	started_at: string;
+	last_seen_at: string;
+	value_at_start: number;
+	last_value: number;
+	resolved_at: string | null;
+	resolved_value: number | null;
+	acknowledged_at: string | null;
+	acknowledged_by: string | null;
+}
+
+export interface AlarmEventsResponse {
+	events: AlarmEvent[];
+	total: number;
 }
 
 export const getActiveAlarms = () => GET<ActiveAlarmsResponse>(`${ADMIN}/alarms/active`);
 export const getAlarmSummary = () => GET<AlarmSummaryResponse>(`${ADMIN}/alarms/summary`);
+
+export const getAlarmEvents = (opts?: { site_id?: string; severity?: number; status?: string; limit?: number }) =>
+	GET<AlarmEventsResponse>(`${ADMIN}/alarms/events`, { ...opts });
+
+/** Acknowledge an open alarm event (require_write_data). */
+export const acknowledgeAlarm = (eventId: string) =>
+	POST<AcknowledgedAlarmResponse>(`${ADMIN}/alarms/${eventId}/acknowledge`);
 
 // Streams
 export interface StreamStats {

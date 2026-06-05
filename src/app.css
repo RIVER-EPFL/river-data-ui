@@ -16,9 +16,9 @@
 	--color-severity-ok: #2E7D32;
 	--color-severity-ok-soft: rgba(46, 125, 50, 0.10);
 	--color-severity-ok-border: rgba(46, 125, 50, 0.45);
-	--color-severity-warning: #B26A00;
-	--color-severity-warning-soft: rgba(178, 106, 0, 0.12);
-	--color-severity-warning-border: rgba(178, 106, 0, 0.55);
+	--color-severity-warning: #CA8A04;
+	--color-severity-warning-soft: rgba(202, 138, 4, 0.16);
+	--color-severity-warning-border: rgba(202, 138, 4, 0.65);
 	--color-severity-alarm: #C62828;
 	--color-severity-alarm-soft: rgba(198, 40, 40, 0.12);
 	--color-severity-alarm-border: rgba(198, 40, 40, 0.65);

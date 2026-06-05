@@ -4,7 +4,10 @@
 	import { goto } from '$app/navigation';
 	import { api, type Site, type Project } from '$api/crud';
 	import { getAlarmSummary, type AlarmSummaryResponse } from '$api/service';
+	import { formatRelativeTime, formatDateTime } from '$lib/utils';
 	import SiteMap, { type SiteStatus } from '$components/dashboard/SiteMap.svelte';
+
+	type SiteSummary = AlarmSummaryResponse['by_site'][number];
 
 	let projects = $state<Project[]>([]);
 	let sites = $state<Site[]>([]);
@@ -21,9 +24,14 @@
 		filterProjectId ? sites.filter((s) => s.project_id === filterProjectId) : sites,
 	);
 
+	const summaryBySite = $derived.by(() => {
+		const map = new Map<string, SiteSummary>();
+		for (const entry of alarms?.by_site ?? []) map.set(entry.site_id, entry);
+		return map;
+	});
+
 	function siteAlarmSeverity(siteId: string): 'ok' | 'warning' | 'alarm' {
-		if (!alarms) return 'ok';
-		const entry = alarms.by_site.find((s) => s.site_id === siteId);
+		const entry = summaryBySite.get(siteId);
 		if (!entry) return 'ok';
 		if (entry.alarm_count > 0) return 'alarm';
 		if (entry.warning_count > 0) return 'warning';
@@ -126,20 +134,46 @@
 						<h3 class="text-sm font-semibold mb-1"><a href="{base}/projects/{project.id}" class="text-brand-muted no-underline hover:underline hover:text-brand-primary">{project.name}</a></h3>
 						<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 							<table class="w-full text-sm">
+								<thead>
+									<tr class="border-b border-brand-divider">
+										<th class="px-4 py-1.5 text-left text-xs font-medium text-brand-muted">Site</th>
+										<th class="px-4 py-1.5 text-right text-xs font-medium text-brand-muted">Last data</th>
+										<th class="px-4 py-1.5 text-right text-xs font-medium text-brand-muted">Last alarm</th>
+										<th class="px-4 py-1.5 text-right text-xs font-medium text-brand-muted">Last warning</th>
+									</tr>
+								</thead>
 								<tbody>
 									{#each projectSites as site}
 										{@const severity = siteAlarmSeverity(site.id)}
+										{@const entry = summaryBySite.get(site.id)}
 										<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50">
 											<td class="px-4 py-2">
 												<span class="inline-block w-2.5 h-2.5 rounded-full mr-2 {severity === 'alarm' ? 'bg-severity-alarm' : severity === 'warning' ? 'bg-severity-warning' : 'bg-severity-ok'}"></span>
 												<a href="{base}/sites/{site.id}" class="font-semibold text-brand-primary no-underline hover:underline">{site.name}</a>
 												{#if site.description}<span class="text-brand-muted ml-2">{site.description}</span>{/if}
+												{#if !site.latitude || !site.longitude}
+													<span class="text-xs text-severity-warning ml-2">no coords</span>
+												{/if}
 											</td>
 											<td class="px-4 py-2 text-right">
-												{#if site.latitude && site.longitude}
-													<span class="text-xs font-mono text-brand-muted">{site.latitude.toFixed(4)}, {site.longitude.toFixed(4)}{site.altitude_m ? ` (${site.altitude_m}m)` : ''}</span>
+												{#if entry?.latest_reading_time}
+													<a href="{base}/sites/{site.id}" title={formatDateTime(entry.latest_reading_time)} class="text-xs text-brand-primary no-underline hover:underline">{formatRelativeTime(entry.latest_reading_time)}</a>
 												{:else}
-													<span class="text-xs text-severity-warning">No coordinates</span>
+													<span class="text-xs text-brand-muted">—</span>
+												{/if}
+											</td>
+											<td class="px-4 py-2 text-right">
+												{#if entry?.last_alarm_at}
+													<a href="{base}/alarms?site_id={site.id}&severity=alarm" title={formatDateTime(entry.last_alarm_at)} class="text-xs text-brand-primary no-underline hover:underline">{formatRelativeTime(entry.last_alarm_at)}</a>
+												{:else}
+													<span class="text-xs text-brand-muted">—</span>
+												{/if}
+											</td>
+											<td class="px-4 py-2 text-right">
+												{#if entry?.last_warning_at}
+													<a href="{base}/alarms?site_id={site.id}&severity=warning" title={formatDateTime(entry.last_warning_at)} class="text-xs text-brand-primary no-underline hover:underline">{formatRelativeTime(entry.last_warning_at)}</a>
+												{:else}
+													<span class="text-xs text-brand-muted">—</span>
 												{/if}
 											</td>
 										</tr>

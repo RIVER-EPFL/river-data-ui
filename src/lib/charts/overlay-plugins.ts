@@ -5,6 +5,7 @@ import type { SensorIdentityBand, CalibrationMarker } from '$api/sensors';
 export interface OverlayVisibility {
 	sensorVectors: boolean;
 	calibrationMarkers: boolean;
+	alarmBands: boolean;
 }
 
 /** Stable colour for a deployment id → one of the colorblind-safe dataViz hues, low alpha. */
@@ -125,6 +126,115 @@ export function calibrationMarkerPlugin(
 			],
 		},
 	};
+}
+
+// ── Warning/alarm severity bands ──────────────────────────────────────────────
+// Contiguous time spans where the plotted value breached its threshold, painted along
+// the x-axis like sensor-identity bands. Severity is derived from the same threshold the
+// tooltip uses, so the bands and the tooltip badge always agree.
+
+export interface AlarmSeverityBand {
+	/** Inclusive span in epoch seconds. */
+	fromTs: number;
+	toTs: number;
+	/** 1 = warning, 2 = alarm. */
+	severity: 1 | 2;
+}
+
+interface ThresholdLike {
+	warning_min?: number | null;
+	warning_max?: number | null;
+	alarm_min?: number | null;
+	alarm_max?: number | null;
+}
+
+/** Severity of a single value against a threshold: 0 ok, 1 warning, 2 alarm (alarm wins). */
+export function severityForValue(v: number | null | undefined, t: ThresholdLike | null | undefined): 0 | 1 | 2 {
+	if (v == null || t == null) return 0;
+	if ((t.alarm_min != null && v < t.alarm_min) || (t.alarm_max != null && v > t.alarm_max)) return 2;
+	if ((t.warning_min != null && v < t.warning_min) || (t.warning_max != null && v > t.warning_max)) return 1;
+	return 0;
+}
+
+/** Coalesce per-point breaches into contiguous same-severity time bands. Nulls/gaps close a band. */
+export function computeSeverityBands(
+	times: number[],
+	values: (number | null)[],
+	t: ThresholdLike | null | undefined,
+): AlarmSeverityBand[] {
+	if (t == null || times.length === 0) return [];
+	const bands: AlarmSeverityBand[] = [];
+	let cur: AlarmSeverityBand | null = null;
+	for (let i = 0; i < times.length; i++) {
+		const sev = severityForValue(values[i], t);
+		if (sev > 0) {
+			if (cur && cur.severity === sev) {
+				cur.toTs = times[i];
+			} else {
+				if (cur) bands.push(cur);
+				cur = { fromTs: times[i], toTs: times[i], severity: sev as 1 | 2 };
+			}
+		} else if (cur) {
+			bands.push(cur);
+			cur = null;
+		}
+	}
+	if (cur) bands.push(cur);
+	return bands;
+}
+
+const severityFill = { 1: tokens.severity.warning.soft, 2: tokens.severity.alarm.soft } as const;
+const severityStrip = { 1: tokens.severity.warning.main, 2: tokens.severity.alarm.main } as const;
+
+/** Height (CSS px) of the solid strip along the bottom edge marking a breach span. */
+export const ALARM_STRIP_CSS = 4;
+
+/**
+ * Warning/alarm severity bands. Mirrors sensorVectorBandPlugin: a full-height severity tint plus
+ * a thin solid strip at the BOTTOM edge (sensor bands own the top strip), read live via refs.
+ */
+export function alarmBandPlugin(
+	bandsRef: { current: AlarmSeverityBand[] },
+	visRef: { current: OverlayVisibility },
+): uPlot.Plugin {
+	return {
+		hooks: {
+			draw: [
+				(u: uPlot) => {
+					if (!visRef.current.alarmBands) return;
+					const bands = bandsRef.current;
+					if (!bands.length) return;
+					const ctx = u.ctx;
+					const dpr = (u as unknown as { pxRatio?: number }).pxRatio ?? (typeof window !== 'undefined' ? window.devicePixelRatio : 1) ?? 1;
+					const stripH = ALARM_STRIP_CSS * dpr;
+					const { left, top, width, height } = u.bbox;
+					ctx.save();
+					ctx.beginPath();
+					ctx.rect(left, top, width, height);
+					ctx.clip();
+					for (const b of bands) {
+						const x0 = Math.max(u.valToPos(b.fromTs, 'x', true), left);
+						let x1 = Math.min(u.valToPos(b.toTs, 'x', true), left + width);
+						if (x1 < x0) continue;
+						if (x1 - x0 < 2 * dpr) x1 = x0 + 2 * dpr; // keep single-point breaches visible
+						ctx.fillStyle = severityFill[b.severity];
+						ctx.fillRect(x0, top, x1 - x0, height);
+						ctx.fillStyle = severityStrip[b.severity];
+						ctx.fillRect(x0, top + height - stripH, x1 - x0, stripH);
+					}
+					ctx.restore();
+				},
+			],
+		},
+	};
+}
+
+/** Hit-test: the severity band covering an x timestamp (seconds), for the tooltip. */
+export function severityBandAtTime(bands: AlarmSeverityBand[], tsSec: number): AlarmSeverityBand | null {
+	for (const b of bands) {
+		if (tsSec >= b.fromTs && tsSec <= b.toTs) return b;
+	}
+	return null;
 }
 
 /** Hit-test: which band contains an x timestamp (seconds), for hover → config link. */

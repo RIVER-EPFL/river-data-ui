@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { base } from '$app/paths';
-	import { getActiveAlarms, type ActiveAlarm } from '$api/service';
+	import { getActiveAlarms, acknowledgeAlarm, type ActiveAlarm } from '$api/service';
 	import { formatRelativeTime } from '$lib/utils';
 	import { eventBus } from '$lib/stores/events.svelte';
 
@@ -46,6 +46,24 @@
 		}
 	}
 
+	let acking = $state<Set<string>>(new Set());
+
+	async function ack(eventId: string, e: Event) {
+		e.stopPropagation();
+		e.preventDefault();
+		acking = new Set(acking).add(eventId);
+		try {
+			await acknowledgeAlarm(eventId);
+			await loadAlarms();
+		} catch {
+			/* ignore — the breach stays unacknowledged and can be retried */
+		} finally {
+			const next = new Set(acking);
+			next.delete(eventId);
+			acking = next;
+		}
+	}
+
 	function schedule() {
 		if (pollTimer) clearTimeout(pollTimer);
 		pollTimer = setTimeout(async () => {
@@ -87,7 +105,7 @@
 		</svg>
 		{#if badgeCount > 0}
 			<span
-				class="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full {maxSeverity >= 2 ? 'bg-severity-alarm' : 'bg-severity-warning'} text-white text-[10px] font-semibold flex items-center justify-center"
+				class="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full {maxSeverity >= 2 ? 'bg-severity-alarm text-white' : 'bg-severity-warning text-[#3a2a00]'} text-[10px] font-semibold flex items-center justify-center"
 			>{badgeCount}</span>
 		{/if}
 	</button>
@@ -98,7 +116,7 @@
 		>
 			<div class="flex items-center justify-between px-3 py-2 border-b border-brand-divider">
 				<span class="text-sm font-semibold">Alarms</span>
-				<a href="{base}/alarm-thresholds" class="text-xs text-brand-primary no-underline hover:underline">View all</a>
+				<a href="{base}/alarms" class="text-xs text-brand-primary no-underline hover:underline">View all</a>
 			</div>
 			<div class="max-h-80 overflow-y-auto">
 				{#if sortedAlarms.length === 0}
@@ -114,7 +132,19 @@
 								>{alarm.site_name}</a>
 								<span class="ml-auto text-[10px] text-brand-muted whitespace-nowrap">{formatRelativeTime(alarm.since)}</span>
 							</div>
-							<div class="ml-4 text-xs text-brand-muted truncate">{alarm.parameter_name}: {alarm.current_value}</div>
+							<div class="ml-4 flex items-center gap-2">
+								<span class="text-xs text-brand-muted truncate">{alarm.parameter_name}: {alarm.current_value}</span>
+								{#if alarm.acknowledged}
+									<span class="ml-auto text-[10px] text-brand-muted whitespace-nowrap" title={alarm.acknowledged_by ? `by ${alarm.acknowledged_by}` : undefined}>✓ acknowledged</span>
+								{:else if alarm.event_id}
+									<button
+										type="button"
+										onclick={(e) => ack(alarm.event_id!, e)}
+										disabled={acking.has(alarm.event_id)}
+										class="ml-auto text-[10px] text-brand-primary bg-transparent border border-brand-divider rounded px-1.5 py-0.5 cursor-pointer hover:bg-brand-bg disabled:opacity-50"
+									>{acking.has(alarm.event_id) ? '…' : 'Acknowledge'}</button>
+								{/if}
+							</div>
 						</div>
 					{/each}
 				{/if}

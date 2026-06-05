@@ -146,7 +146,7 @@
 					{#if row.severity === 'alarm'}
 						<span style="font-size:9px;padding:0 4px;border-radius:3px;background:{tokens.severity.alarm.main};color:white;font-weight:700">ALARM</span>
 					{:else if row.severity === 'warning'}
-						<span style="font-size:9px;padding:0 4px;border-radius:3px;background:{tokens.severity.warning.main};color:white;font-weight:700">WARN</span>
+						<span style="font-size:9px;padding:0 4px;border-radius:3px;background:{tokens.severity.warning.main};color:#3a2a00;font-weight:700">WARN</span>
 					{/if}
 					{#if row.flagged}
 						<span style="font-size:9px;padding:0 4px;border-radius:3px;background:{tokens.markers.flagged.stroke};color:white;font-weight:700">FLAG</span>

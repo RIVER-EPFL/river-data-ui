@@ -11,6 +11,7 @@
 	import FlagDialog from '$components/dialogs/FlagDialog.svelte';
 	import {
 		sensorVectorBandPlugin, calibrationMarkerPlugin, bandAtTime, BAND_STRIP_CSS,
+		alarmBandPlugin, computeSeverityBands, type AlarmSeverityBand,
 		type OverlayVisibility,
 	} from '$lib/charts/overlay-plugins';
 	import type { SensorIdentityBand, CalibrationMarker } from '$api/sensors';
@@ -47,6 +48,7 @@
 		calibrationMarkers = [],
 		showSensorVectors = false,
 		showCalibrationMarkers = false,
+		showAlarmBands = true,
 	}: {
 		siteId: string;
 		siteParameterId: string;
@@ -68,6 +70,7 @@
 		calibrationMarkers?: CalibrationMarker[];
 		showSensorVectors?: boolean;
 		showCalibrationMarkers?: boolean;
+		showAlarmBands?: boolean;
 	} = $props();
 
 	let el: HTMLDivElement;
@@ -81,16 +84,24 @@
 	// Optional overlay layers — DEFAULT OFF. visRef/bandsRef/markersRef are read live inside
 	// the draw-hook closures, so toggling visibility only needs chart.redraw() (no rebuild).
 	const overlayVisRef: { current: OverlayVisibility } = {
-		current: { sensorVectors: showSensorVectors, calibrationMarkers: showCalibrationMarkers },
+		current: { sensorVectors: showSensorVectors, calibrationMarkers: showCalibrationMarkers, alarmBands: showAlarmBands },
 	};
 	$effect(() => {
-		overlayVisRef.current = { sensorVectors: showSensorVectors, calibrationMarkers: showCalibrationMarkers };
+		overlayVisRef.current = { sensorVectors: showSensorVectors, calibrationMarkers: showCalibrationMarkers, alarmBands: showAlarmBands };
 		chart?.redraw();
 	});
 	const sensorBandsRef: { current: SensorIdentityBand[] } = { current: sensorBands };
 	const calMarkersRef: { current: CalibrationMarker[] } = { current: calibrationMarkers };
 	$effect(() => { sensorBandsRef.current = sensorBands; chart?.redraw(); });
 	$effect(() => { calMarkersRef.current = calibrationMarkers; chart?.redraw(); });
+
+	// Warning/alarm severity bands derived from the plotted values + threshold (same logic as the
+	// tooltip badge). Read live in the draw hook, so recompute + redraw on data/threshold change.
+	const alarmBandsRef: { current: AlarmSeverityBand[] } = { current: [] };
+	const alarmSeverityBands = $derived(
+		computeSeverityBands(chartData?.times ?? [], chartData?.values ?? [], threshold),
+	);
+	$effect(() => { alarmBandsRef.current = alarmSeverityBands; chart?.redraw(); });
 
 	let dialogMode = $state<'annotate' | 'flag' | 'unflag'>('annotate');
 	let annotateOpen = $state(false);
@@ -135,7 +146,9 @@
 		};
 	}
 
-	function thresholdBandPlugin(): uPlot.Plugin {
+	// Thin dashed reference lines at each threshold limit, so the breach levels are visible without
+	// shading the whole plot (the time-period severity bands convey when the value actually breached).
+	function thresholdLinePlugin(): uPlot.Plugin {
 		if (!threshold) return { hooks: {} };
 		return {
 			hooks: {
@@ -144,20 +157,24 @@
 						if (si !== 1) return;
 						const ctx = u.ctx;
 						const { left, width, top, height } = u.bbox;
-						const yPos = (val: number | null) => val == null ? null : u.valToPos(val, 'y', true);
-
-						if (threshold!.warning_min != null || threshold!.warning_max != null) {
-							const y0 = yPos(threshold!.warning_min) ?? (top + height);
-							const y1 = yPos(threshold!.warning_max) ?? top;
-							ctx.fillStyle = uPlotTheme.warningBandFill;
-							ctx.fillRect(left, Math.min(y0, y1), width, Math.abs(y1 - y0));
-						}
-						if (threshold!.alarm_min != null || threshold!.alarm_max != null) {
-							const y0 = yPos(threshold!.alarm_min) ?? (top + height);
-							const y1 = yPos(threshold!.alarm_max) ?? top;
-							ctx.fillStyle = uPlotTheme.alarmBandFill;
-							ctx.fillRect(left, Math.min(y0, y1), width, Math.abs(y1 - y0));
-						}
+						const limitLine = (val: number | null | undefined, color: string) => {
+							if (val == null) return;
+							const y = u.valToPos(val, 'y', true);
+							if (y < top || y > top + height) return; // off-scale → skip
+							ctx.save();
+							ctx.strokeStyle = color;
+							ctx.lineWidth = 1;
+							ctx.setLineDash([5, 4]);
+							ctx.beginPath();
+							ctx.moveTo(left, y);
+							ctx.lineTo(left + width, y);
+							ctx.stroke();
+							ctx.restore();
+						};
+						limitLine(threshold!.warning_min, uPlotTheme.warningBandStroke);
+						limitLine(threshold!.warning_max, uPlotTheme.warningBandStroke);
+						limitLine(threshold!.alarm_min, uPlotTheme.alarmBandStroke);
+						limitLine(threshold!.alarm_max, uPlotTheme.alarmBandStroke);
 					},
 				],
 			},
@@ -333,9 +350,10 @@
 			height: 220,
 			tzDate: (ts: number) => uPlot.tzDate(new Date(ts * 1000), 'UTC'),
 			plugins: [
+				alarmBandPlugin(alarmBandsRef, overlayVisRef),
 				sensorVectorBandPlugin(sensorBandsRef, overlayVisRef),
 				annotationBandPlugin(annotations),
-				thresholdBandPlugin(),
+				thresholdLinePlugin(),
 				calibrationMarkerPlugin(calMarkersRef, overlayVisRef),
 				flaggedPointPlugin(flags),
 				cursorSyncPlugin(),

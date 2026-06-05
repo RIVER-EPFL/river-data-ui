@@ -88,7 +88,7 @@
 			chips.push(`<span style="background:${tokens.severity.alarm.main};color:#fff;padding:2px 6px;border-radius:10px;font-size:11px;font-weight:600;">${status.alarmCount} alarm${status.alarmCount === 1 ? '' : 's'}</span>`);
 		}
 		if (status.warningCount > 0) {
-			chips.push(`<span style="background:${tokens.severity.warning.main};color:#fff;padding:2px 6px;border-radius:10px;font-size:11px;font-weight:600;">${status.warningCount} warning${status.warningCount === 1 ? '' : 's'}</span>`);
+			chips.push(`<span style="background:${tokens.severity.warning.main};color:#3a2a00;padding:2px 6px;border-radius:10px;font-size:11px;font-weight:700;">${status.warningCount} warning${status.warningCount === 1 ? '' : 's'}</span>`);
 		}
 		const chipRow = chips.length
 			? `<div style="display:flex;gap:4px;margin-bottom:6px;">${chips.join('')}</div>`
