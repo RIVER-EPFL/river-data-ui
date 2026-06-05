@@ -10,7 +10,7 @@
 	let paramData = $state<{ id: string; code: string; name: string; default_units: string } | null>(null);
 
 	$effect(() => {
-		api.parameters.get(page.params.id).then((p) => {
+		api.parameters.get(page.params.id!).then((p) => {
 			paramData = { id: p.id, code: p.code, name: p.name, default_units: p.default_units };
 		});
 	});

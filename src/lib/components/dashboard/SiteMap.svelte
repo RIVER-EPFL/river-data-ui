@@ -106,28 +106,29 @@
 		await import('leaflet/dist/leaflet.css');
 		await import('leaflet.markercluster/dist/MarkerCluster.css');
 		await import('leaflet.markercluster/dist/MarkerCluster.Default.css');
-		L = (Lmod as any).default ?? Lmod;
+		const Llib = ((Lmod as any).default ?? Lmod) as typeof import('leaflet');
+		L = Llib;
 		await import('leaflet.markercluster');
 
-		map = L.map(el, { zoomControl: true, attributionControl: false }).setView([46.2, 7.1], 10);
+		map = Llib.map(el, { zoomControl: true, attributionControl: false }).setView([46.2, 7.1], 10);
 
-		const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+		const osmLayer = Llib.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 			maxZoom: 18,
 			attribution: '&copy; OpenStreetMap',
 		});
 
-		const swisstopoRaster = L.tileLayer(
+		const swisstopoRaster = Llib.tileLayer(
 			'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg',
 			{ maxZoom: 18, attribution: '&copy; swisstopo' },
 		);
 
-		const swisstopoAerial = L.tileLayer(
+		const swisstopoAerial = Llib.tileLayer(
 			'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg',
 			{ maxZoom: 20, attribution: '&copy; swisstopo' },
 		);
 
 		osmLayer.addTo(map);
-		L.control.layers({
+		Llib.control.layers({
 			'OpenStreetMap': osmLayer,
 			'SwissTopo': swisstopoRaster,
 			'SwissTopo Aerial': swisstopoAerial,

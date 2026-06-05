@@ -95,9 +95,10 @@
 				.filter((p: SiteParameter) => !p.is_derived)
 				.map((p: SiteParameter) => {
 					const units = unitsById.get(p.parameter_id) ?? '';
+					const name = p.name ?? '';
 					return {
 						id: p.parameter_id,
-						label: units ? `${p.name} (${units})` : p.name,
+						label: units ? `${name} (${units})` : name,
 					};
 				});
 		} catch (e) {

@@ -43,12 +43,12 @@
 	function curvesForParam(paramId: string): StandardCurve[] {
 		return standardCurves
 			.filter((c) => c.parameter_id === paramId)
-			.sort((a, b) => new Date(b.valid_from).getTime() - new Date(a.valid_from).getTime());
+			.sort((a, b) => new Date(b.valid_from ?? 0).getTime() - new Date(a.valid_from ?? 0).getTime());
 	}
 
 	function activeCurveForParam(paramId: string): StandardCurve | undefined {
 		const sampleTime = new Date(sampleDate).getTime();
-		return curvesForParam(paramId).find((c) => new Date(c.valid_from).getTime() <= sampleTime);
+		return curvesForParam(paramId).find((c) => new Date(c.valid_from ?? 0).getTime() <= sampleTime);
 	}
 
 	function replicateStats(row: SampleRow): { values: number[]; mean: number; sd: number; n: number } | null {
@@ -289,7 +289,7 @@
 									<option value="">Auto (latest valid)</option>
 									{#each availableCurves as curve}
 										<option value={curve.id}>
-											{new Date(curve.valid_from).toLocaleDateString()} (y={curve.slope.toFixed(4)}x+{curve.intercept.toFixed(4)}, R²={curve.r_squared?.toFixed(4) ?? '?'})
+											{new Date(curve.valid_from ?? 0).toLocaleDateString()} (y={curve.slope.toFixed(4)}x+{curve.intercept.toFixed(4)}, R²={curve.r_squared?.toFixed(4) ?? '?'})
 										</option>
 									{/each}
 								</select>
