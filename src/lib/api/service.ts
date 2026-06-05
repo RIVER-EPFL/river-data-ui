@@ -129,6 +129,40 @@ export const mergeSiteParameters = (sourceSiteParameterId: string, targetSitePar
 export const reprocessSensor = (sensorId: string) =>
 	POST<{ job_id: string; status: string }>(`${SERVICE}/actions/reprocess`, { sensor_id: sensorId });
 
+// Bulk historical attribution: list open deployments with claimable pre-deployment history.
+export interface BackfillCandidate {
+	deployment_id: string;
+	sensor_id: string;
+	site_id: string;
+	parameter_id: string;
+	deployed_from: string;
+	target_from: string;
+	claimable_count: number;
+}
+export interface BackfillSiteSummary {
+	site_id: string;
+	deployments: number;
+	claimable_count: number;
+}
+export interface BackfillCandidatesResponse {
+	candidates: BackfillCandidate[];
+	by_site: BackfillSiteSummary[];
+	total_candidates: number;
+	total_claimable: number;
+}
+export const getBackfillCandidates = () =>
+	GET<BackfillCandidatesResponse>(`${SERVICE}/actions/backfill_candidates`);
+
+export interface BackfillAttributionResponse {
+	job_id: string;
+	status: string;
+	deployments_updated: number;
+	estimated_readings: number;
+}
+// Backdate the matching open deployments + window-reprocess so historical orphans get attributed.
+export const backfillAttribution = (body: { all?: boolean; site_id?: string; deployment_ids?: string[] }) =>
+	POST<BackfillAttributionResponse>(`${SERVICE}/actions/backfill_attribution`, body);
+
 // Derived preview
 export interface PreviewDerivedRequest {
 	formula: string;
