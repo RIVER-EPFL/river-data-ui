@@ -20,7 +20,7 @@
 		{ key: 'latitude', label: 'Latitude', type: 'number', step: 'any', helperText: 'WGS84 coordinate' },
 		{ key: 'longitude', label: 'Longitude', type: 'number', step: 'any', helperText: 'WGS84 coordinate' },
 		{ key: 'altitude_m', label: 'Altitude (m)', type: 'number', step: 'any', helperText: 'Elevation in meters above sea level' },
-		{ key: 'public_slug', label: 'Public API Slug', helperText: 'URL-safe slug for public API access (e.g. "les_dailles")' },
+		{ key: 'public_code', label: 'Public API Code', helperText: 'URL-safe code for public API access (e.g. "les_dailles")' },
 	]);
 </script>
 

@@ -778,9 +778,9 @@
 				</div>
 				<h2 class="text-xl font-semibold">
 					{site.name}
-					{#if site.public_slug && project?.public_slug}
+					{#if site.public_code && project?.public_code}
 						<a
-							href="/api/public/{project.public_slug}/sites/{site.public_slug}"
+							href="/api/public/{project.public_code}/sites/{site.public_code}"
 							target="_blank"
 							class="ml-2 px-2 py-0.5 text-xs font-medium rounded-full bg-severity-ok-soft text-severity-ok no-underline hover:underline"
 							title="View in public API"

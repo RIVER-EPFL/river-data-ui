@@ -148,8 +148,8 @@ export const recomputeDerived = (id: string) =>
 export const refreshAggregates = (full = false) =>
 	POST(`${SERVICE}/actions/refresh_aggregates`, { full });
 
-export const invalidatePublicConfig = (slug: string) =>
-	POST(`${ADMIN}/actions/invalidate_public_config/${slug}`);
+export const invalidatePublicConfig = (code: string) =>
+	POST(`${ADMIN}/actions/invalidate_public_config/${code}`);
 
 // Merge parameters
 export interface MergeParametersResponse {

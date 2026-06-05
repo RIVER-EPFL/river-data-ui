@@ -52,7 +52,7 @@ export interface Project {
 	description: string | null;
 	data_source: string | null;
 	is_public: boolean;
-	public_slug: string | null;
+	public_code: string | null;
 	public_api_title: string | null;
 	public_api_description: string | null;
 	public_api_version: string | null;
@@ -69,7 +69,7 @@ export interface Site {
 	latitude: number | null;
 	longitude: number | null;
 	altitude_m: number | null;
-	public_slug: string | null;
+	public_code: string | null;
 	created_at: string;
 }
 

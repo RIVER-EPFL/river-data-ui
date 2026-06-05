@@ -13,7 +13,7 @@
 	let loading = $state(true);
 
 	// Inline editing state
-	let editingSlugs = $state<Record<string, string>>({});
+	let editingCodes = $state<Record<string, string>>({});
 	let savingSiteId = $state<string | null>(null);
 	let savingField = $state<string | null>(null);
 
@@ -60,8 +60,8 @@
 		try {
 			const newVal = !project.is_public;
 			const update: Partial<Project> = { is_public: newVal };
-			if (newVal && !project.public_slug) {
-				update.public_slug = project.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+			if (newVal && !project.public_code) {
+				update.public_code = project.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
 			}
 			await api.projects.update(project.id, update);
 			project = { ...project, ...update };
@@ -74,9 +74,9 @@
 	}
 
 	async function handleInvalidateCache() {
-		if (!project?.public_slug) return;
+		if (!project?.public_code) return;
 		try {
-			await invalidatePublicConfig(project.public_slug);
+			await invalidatePublicConfig(project.public_code);
 			toastStore.success('Public API cache invalidated');
 		} catch {
 			toastStore.error('Failed to invalidate cache');
@@ -88,12 +88,12 @@
 	async function toggleSitePublic(site: Site) {
 		savingSiteId = site.id;
 		try {
-			const newSlug = site.public_slug ? null : site.name.toLowerCase().replace(/\s+/g, '_');
-			await api.sites.update(site.id, { public_slug: newSlug });
-			site.public_slug = newSlug;
+			const newCode = site.public_code ? null : site.name.toLowerCase().replace(/\s+/g, '_');
+			await api.sites.update(site.id, { public_code: newCode });
+			site.public_code = newCode;
 			sites = [...sites];
-			if (!newSlug && expandedSiteId === site.id) expandedSiteId = null;
-			toastStore.success(newSlug ? `${site.name} enabled` : `${site.name} disabled`);
+			if (!newCode && expandedSiteId === site.id) expandedSiteId = null;
+			toastStore.success(newCode ? `${site.name} enabled` : `${site.name} disabled`);
 		} catch {
 			toastStore.error('Failed to update site');
 		} finally {
@@ -101,31 +101,31 @@
 		}
 	}
 
-	async function saveSiteSlug(site: Site) {
+	async function saveSiteCode(site: Site) {
 		savingSiteId = site.id;
 		try {
-			const slug = editingSlugs[site.id] ?? site.public_slug;
-			await api.sites.update(site.id, { public_slug: slug || null });
-			site.public_slug = slug || null;
+			const code = editingCodes[site.id] ?? site.public_code;
+			await api.sites.update(site.id, { public_code: code || null });
+			site.public_code = code || null;
 			sites = [...sites];
-			delete editingSlugs[site.id];
-			editingSlugs = { ...editingSlugs };
-			toastStore.success('Slug updated');
+			delete editingCodes[site.id];
+			editingCodes = { ...editingCodes };
+			toastStore.success('Code updated');
 		} catch {
-			toastStore.error('Failed to update slug');
+			toastStore.error('Failed to update code');
 		} finally {
 			savingSiteId = null;
 		}
 	}
 
-	function startEditingSlug(site: Site) {
-		editingSlugs[site.id] = site.public_slug ?? site.name.toLowerCase().replace(/\s+/g, '_');
-		editingSlugs = { ...editingSlugs };
+	function startEditingCode(site: Site) {
+		editingCodes[site.id] = site.public_code ?? site.name.toLowerCase().replace(/\s+/g, '_');
+		editingCodes = { ...editingCodes };
 	}
 
-	function cancelEditingSlug(siteId: string) {
-		delete editingSlugs[siteId];
-		editingSlugs = { ...editingSlugs };
+	function cancelEditingCode(siteId: string) {
+		delete editingCodes[siteId];
+		editingCodes = { ...editingCodes };
 	}
 
 	// ── Site parameter expand/toggle ─────────────────────────────────
@@ -205,7 +205,7 @@
 					<th class="text-left px-4 py-2 font-semibold">Name</th>
 					<th class="text-left px-4 py-2 font-semibold">Coordinates</th>
 					{#if project.is_public}
-						<th class="text-left px-4 py-2 font-semibold">Slug</th>
+						<th class="text-left px-4 py-2 font-semibold">Code</th>
 						<th class="text-center px-4 py-2 font-semibold">Public</th>
 						<th class="text-center px-4 py-2 font-semibold">Params</th>
 					{/if}
@@ -214,19 +214,19 @@
 					{#each sites as site}
 						{@const counts = publicParamCount(site.id)}
 						<tr
-							class="border-b border-brand-divider last:border-b-0 {project.is_public && site.public_slug ? 'cursor-pointer hover:bg-brand-bg/50' : ''}"
-							onclick={() => { if (project?.is_public && site.public_slug) toggleExpand(site); }}
+							class="border-b border-brand-divider last:border-b-0 {project.is_public && site.public_code ? 'cursor-pointer hover:bg-brand-bg/50' : ''}"
+							onclick={() => { if (project?.is_public && site.public_code) toggleExpand(site); }}
 						>
 							<td class="px-4 py-2 text-brand-muted text-xs w-8">
-								{#if project.is_public && site.public_slug}
+								{#if project.is_public && site.public_code}
 									<span class="inline-block transition-transform {expandedSiteId === site.id ? 'rotate-90' : ''}">▸</span>
 								{/if}
 							</td>
 							<td class="px-4 py-2">
 								<a href="{base}/sites/{site.id}" class="text-brand-primary no-underline hover:underline" onclick={(e) => e.stopPropagation()}>{site.name}</a>
-								{#if project.is_public && site.public_slug && project.public_slug}
+								{#if project.is_public && site.public_code && project.public_code}
 									<a
-										href="/api/public/{project.public_slug}/sites/{site.public_slug}"
+										href="/api/public/{project.public_code}/sites/{site.public_code}"
 										target="_blank"
 										class="ml-2 px-2 py-0.5 text-xs font-medium rounded-full bg-severity-ok-soft text-severity-ok no-underline hover:underline"
 										onclick={(e) => e.stopPropagation()}
@@ -243,19 +243,19 @@
 							</td>
 							{#if project.is_public}
 								<td class="px-4 py-2" onclick={(e) => e.stopPropagation()}>
-									{#if site.id in editingSlugs}
+									{#if site.id in editingCodes}
 										<div class="flex items-center gap-1">
 											<input
-												bind:value={editingSlugs[site.id]}
+												bind:value={editingCodes[site.id]}
 												class="px-2 py-1 text-sm font-mono border border-brand-divider rounded bg-brand-surface w-36"
-												onkeydown={(e) => { if (e.key === 'Enter') saveSiteSlug(site); if (e.key === 'Escape') cancelEditingSlug(site.id); }}
+												onkeydown={(e) => { if (e.key === 'Enter') saveSiteCode(site); if (e.key === 'Escape') cancelEditingCode(site.id); }}
 												onclick={(e) => e.stopPropagation()}
 											/>
-											<button onclick={() => saveSiteSlug(site)} disabled={savingSiteId === site.id} class="text-xs text-brand-primary cursor-pointer hover:underline disabled:opacity-50">Save</button>
-											<button onclick={() => cancelEditingSlug(site.id)} class="text-xs text-brand-muted cursor-pointer hover:underline">Cancel</button>
+											<button onclick={() => saveSiteCode(site)} disabled={savingSiteId === site.id} class="text-xs text-brand-primary cursor-pointer hover:underline disabled:opacity-50">Save</button>
+											<button onclick={() => cancelEditingCode(site.id)} class="text-xs text-brand-muted cursor-pointer hover:underline">Cancel</button>
 										</div>
-									{:else if site.public_slug}
-										<button onclick={() => startEditingSlug(site)} class="font-mono text-xs text-brand-text cursor-pointer hover:text-brand-primary" title="Click to edit">{site.public_slug}</button>
+									{:else if site.public_code}
+										<button onclick={() => startEditingCode(site)} class="font-mono text-xs text-brand-text cursor-pointer hover:text-brand-primary" title="Click to edit">{site.public_code}</button>
 									{:else}
 										<span class="text-xs text-brand-muted">---</span>
 									{/if}
@@ -265,9 +265,9 @@
 										onclick={() => toggleSitePublic(site)}
 										disabled={savingSiteId === site.id}
 										class="cursor-pointer disabled:opacity-50"
-										title={site.public_slug ? 'Disable public access' : 'Enable public access'}
+										title={site.public_code ? 'Disable public access' : 'Enable public access'}
 									>
-										{#if site.public_slug}
+										{#if site.public_code}
 											<span class="px-2 py-0.5 text-xs font-medium rounded-full bg-severity-ok-soft text-severity-ok">On</span>
 										{:else}
 											<span class="px-2 py-0.5 text-xs font-medium rounded-full bg-brand-bg text-brand-muted">Off</span>
@@ -275,9 +275,9 @@
 									</button>
 								</td>
 								<td class="px-4 py-2 text-center text-xs text-brand-muted">
-									{#if site.public_slug && counts}
+									{#if site.public_code && counts}
 										<span class="{counts.pub > 0 ? 'text-severity-ok' : ''}">{counts.pub}</span>/{counts.total}
-									{:else if site.public_slug}
+									{:else if site.public_code}
 										<span class="text-brand-muted">...</span>
 									{:else}
 										—
@@ -362,13 +362,13 @@
 							<span class="px-2 py-0.5 text-xs font-medium rounded-full bg-brand-bg text-brand-muted border border-brand-divider">Disabled</span>
 						{/if}
 					</button>
-					{#if project.is_public && project.public_slug}
-						<a href="/api/public/{project.public_slug}" target="_blank" class="text-xs text-brand-muted font-mono no-underline hover:text-brand-primary hover:underline">/api/public/{project.public_slug}</a>
+					{#if project.is_public && project.public_code}
+						<a href="/api/public/{project.public_code}" target="_blank" class="text-xs text-brand-muted font-mono no-underline hover:text-brand-primary hover:underline">/api/public/{project.public_code}</a>
 					{/if}
 				</div>
-				{#if project.is_public && project.public_slug}
+				{#if project.is_public && project.public_code}
 					<div class="flex gap-2">
-						<a href="/api/public/{project.public_slug}/docs" target="_blank" class="px-3 py-1.5 text-xs bg-brand-primary text-white rounded-md no-underline hover:bg-brand-primary-dark">API Docs ↗</a>
+						<a href="/api/public/{project.public_code}/docs" target="_blank" class="px-3 py-1.5 text-xs bg-brand-primary text-white rounded-md no-underline hover:bg-brand-primary-dark">API Docs ↗</a>
 						<button onclick={handleInvalidateCache} class="px-3 py-1.5 text-xs border border-brand-divider rounded-md bg-brand-surface cursor-pointer hover:bg-brand-bg">Invalidate Cache</button>
 					</div>
 				{/if}
@@ -378,8 +378,8 @@
 				<div class="p-4 space-y-4">
 					<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl">
 						<div>
-							<span class="text-xs text-brand-muted">Slug</span>
-							<p class="mt-0.5 text-sm font-mono">{project.public_slug ?? '---'}</p>
+							<span class="text-xs text-brand-muted">Code</span>
+							<p class="mt-0.5 text-sm font-mono">{project.public_code ?? '---'}</p>
 						</div>
 						<div>
 							<span class="text-xs text-brand-muted">API Title</span>
