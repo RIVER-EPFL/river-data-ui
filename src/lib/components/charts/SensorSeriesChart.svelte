@@ -6,6 +6,7 @@
 	import {
 		sensorVectorBandPlugin, calibrationMarkerPlugin, calibrationWindowBandPlugin,
 		bandAtTime, calibrationAtTime,
+		BAND_STRIP_CSS, CALIBRATION_STRIP_CSS,
 		type OverlayVisibility, type CalibrationWindowBand,
 	} from '$lib/charts/overlay-plugins';
 	import type { SensorIdentityBand, CalibrationMarker } from '$api/sensors';
@@ -29,6 +30,7 @@
 		windowBand,
 		onZoomSelect,
 		onResetZoom,
+		onCalibrationClick,
 	}: {
 		times: number[];
 		raw: (number | null)[];
@@ -48,6 +50,7 @@
 		windowBand?: CalibrationWindowBand | null;
 		onZoomSelect?: (startMs: number, endMs: number) => void;
 		onResetZoom?: () => void;
+		onCalibrationClick?: (marker: CalibrationMarker) => void;
 	} = $props();
 
 	let el: HTMLDivElement;
@@ -135,9 +138,12 @@
 			];
 		}
 
+		const stripPad = (showSensorVectors ? BAND_STRIP_CSS : 0) + (showCalibrationMarkers ? CALIBRATION_STRIP_CSS : 0);
+
 		const opts: uPlot.Options = {
 			width: rect.width,
 			height,
+			padding: [stripPad, 0, 0, 0],
 			tzDate: (ts) => uPlot.tzDate(new Date(ts * 1000), 'UTC'),
 			plugins: [
 				sensorVectorBandPlugin(bandsRef, visRef),
@@ -166,6 +172,44 @@
 		};
 		chart = new uPlot(opts, data, el);
 		if (onResetZoom) chart.root.addEventListener('dblclick', () => onResetZoom());
+		setupCalibrationClick(chart);
+	}
+
+	let teardownCalClick: (() => void) | null = null;
+
+	function calStripAt(u: uPlot, xCss: number, yCss: number): CalibrationMarker | null {
+		if (!visRef.current.calibrationMarkers || !onCalibrationClick) return null;
+		if (yCss < BAND_STRIP_CSS || yCss > BAND_STRIP_CSS + CALIBRATION_STRIP_CSS) return null;
+		return calibrationAtTime(markersRef.current, u.posToVal(xCss, 'x'));
+	}
+
+	function setupCalibrationClick(u: uPlot) {
+		teardownCalClick?.();
+		if (!onCalibrationClick) return;
+		const over = u.over;
+		let downX: number | null = null;
+		const onDown = (e: MouseEvent) => { downX = e.clientX; };
+		const onMove = (e: MouseEvent) => {
+			const rect = over.getBoundingClientRect();
+			const hit = calStripAt(u, e.clientX - rect.left, e.clientY - rect.top);
+			over.style.cursor = hit ? 'pointer' : '';
+		};
+		const onUp = (e: MouseEvent) => {
+			const start = downX;
+			downX = null;
+			if (start == null || Math.abs(e.clientX - start) > 4) return;
+			const rect = over.getBoundingClientRect();
+			const hit = calStripAt(u, e.clientX - rect.left, e.clientY - rect.top);
+			if (hit) onCalibrationClick!(hit);
+		};
+		over.addEventListener('mousedown', onDown);
+		over.addEventListener('mousemove', onMove);
+		over.addEventListener('mouseup', onUp);
+		teardownCalClick = () => {
+			over.removeEventListener('mousedown', onDown);
+			over.removeEventListener('mousemove', onMove);
+			over.removeEventListener('mouseup', onUp);
+		};
 	}
 
 	// Re-render whenever the data changes (incl. the live calibration preview). Touch every array so
@@ -188,7 +232,7 @@
 		});
 		if (el) ro.observe(el);
 	});
-	onDestroy(() => { ro?.disconnect(); chart?.destroy(); });
+	onDestroy(() => { teardownCalClick?.(); ro?.disconnect(); chart?.destroy(); });
 </script>
 
 <div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">

@@ -51,6 +51,7 @@ export function sensorVectorBandPlugin(
 					ctx.clip();
 					ctx.textBaseline = 'middle';
 					ctx.font = `600 ${11 * dpr}px ${tokens.font.body}`;
+					const divW = 1.5 * dpr;
 					for (const b of bands) {
 						const ts0 = new Date(b.from).getTime() / 1000;
 						const ts1 = b.until ? new Date(b.until).getTime() / 1000 : u.scales.x.max!;
@@ -61,14 +62,16 @@ export function sensorVectorBandPlugin(
 						ctx.fillRect(x0, top, x1 - x0, height);
 						ctx.fillStyle = bandColor(b.deployment_id, 0.92);
 						ctx.fillRect(x0, top, x1 - x0, stripH);
-						// Sensor name inside the strip (clipped to the band's width).
+						ctx.fillStyle = tokens.brand.surface;
+						ctx.fillRect(x0, top, divW, stripH);
+						ctx.fillRect(x1 - divW, top, divW, stripH);
 						if (x1 - x0 > 24 * dpr) {
 							ctx.save();
 							ctx.beginPath();
-							ctx.rect(x0, top, x1 - x0, stripH);
+							ctx.rect(x0 + divW, top, x1 - x0 - 2 * divW, stripH);
 							ctx.clip();
 							ctx.fillStyle = '#ffffff';
-							ctx.fillText(`${bandLabel(b)} ↗`, x0 + 5 * dpr, top + stripH / 2 + dpr);
+							ctx.fillText(`${bandLabel(b)} ↗`, x0 + divW + 4 * dpr, top + stripH / 2 + dpr);
 							ctx.restore();
 						}
 					}
@@ -108,6 +111,7 @@ export function calibrationMarkerPlugin(
 					ctx.clip();
 					ctx.textBaseline = 'middle';
 					ctx.font = `600 ${10 * dpr}px ${tokens.font.body}`;
+					const calDivW = 2 * dpr;
 					for (const m of markers) {
 						const ts0 = new Date(m.valid_from).getTime() / 1000;
 						const ts1 = m.valid_until ? new Date(m.valid_until).getTime() / 1000 : u.scales.x.max!;
@@ -116,13 +120,16 @@ export function calibrationMarkerPlugin(
 						if (x1 <= x0) continue;
 						ctx.fillStyle = `rgba(199,119,0,0.85)`;
 						ctx.fillRect(x0, stripTop, x1 - x0, calStripH);
+						ctx.fillStyle = tokens.brand.surface;
+						ctx.fillRect(x0, stripTop, calDivW, calStripH);
+						ctx.fillRect(x1 - calDivW, stripTop, calDivW, calStripH);
 						if (x1 - x0 > 20 * dpr) {
 							ctx.save();
 							ctx.beginPath();
-							ctx.rect(x0, stripTop, x1 - x0, calStripH);
+							ctx.rect(x0 + calDivW, stripTop, x1 - x0 - 2 * calDivW, calStripH);
 							ctx.clip();
 							ctx.fillStyle = '#ffffff';
-							ctx.fillText(calLabel(m), x0 + 4 * dpr, stripTop + calStripH / 2 + dpr);
+							ctx.fillText(calLabel(m), x0 + calDivW + 3 * dpr, stripTop + calStripH / 2 + dpr);
 							ctx.restore();
 						}
 					}

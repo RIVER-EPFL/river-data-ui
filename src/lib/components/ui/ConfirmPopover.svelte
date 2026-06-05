@@ -3,12 +3,14 @@
 		message = 'Are you sure?',
 		confirmLabel = 'Confirm',
 		confirmVariant = 'alarm',
+		above = false,
 		onconfirm,
 		children,
 	}: {
 		message?: string;
 		confirmLabel?: string;
 		confirmVariant?: 'alarm' | 'primary';
+		above?: boolean;
 		onconfirm: () => void;
 		children: import('svelte').Snippet;
 	} = $props();
@@ -26,7 +28,7 @@
 		{@render children()}
 	</div>
 	{#if open}
-		<div class="absolute z-40 top-full mt-1 right-0 bg-brand-surface border border-brand-divider rounded-md shadow-lg p-3 min-w-[200px]">
+		<div class="absolute z-40 right-0 bg-brand-surface border border-brand-divider rounded-md shadow-lg p-3 min-w-[200px] {above ? 'bottom-full mb-1' : 'top-full mt-1'}">
 			<p class="text-sm mb-3">{message}</p>
 			<div class="flex gap-2 justify-end">
 				<button

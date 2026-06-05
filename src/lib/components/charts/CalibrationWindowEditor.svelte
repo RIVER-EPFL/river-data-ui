@@ -2,27 +2,33 @@
 	import { api, type SensorCalibration } from '$api/crud';
 	import { recalibrateCalibration } from '$api/service';
 	import { getSensorReadings, type SensorReadingsResponse } from '$api/sensors';
+	import type { CalibrationMarker } from '$api/sensors';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { GAP_THRESHOLDS } from '$lib/charts/uPlotTheme';
 	import ScatterPlot from '$components/charts/ScatterPlot.svelte';
 	import SensorSeriesChart from '$components/charts/SensorSeriesChart.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
 
-	let { calibration, units = '', sensorId, rangeMin, rangeMax, onchanged }: {
-		calibration: SensorCalibration;
+	let { mode = 'edit', calibration, allCalibrations = [], units = '', sensorId, rangeMin, rangeMax, onchanged, onswitchcalibration }: {
+		mode?: 'edit' | 'create';
+		calibration?: SensorCalibration;
+		allCalibrations?: SensorCalibration[];
 		units?: string;
 		sensorId: string;
 		rangeMin: number;
 		rangeMax: number;
 		onchanged?: () => void;
+		onswitchcalibration?: (calibrationId: string) => void;
 	} = $props();
 
-	let slope = $state(String(calibration.slope));
-	let intercept = $state(String(calibration.intercept));
+	let slope = $state(calibration ? String(calibration.slope) : '1');
+	let intercept = $state(calibration ? String(calibration.intercept) : '0');
 	let saving = $state(false);
 
-	const initFrom = Math.min(Math.max(new Date(calibration.valid_from).getTime(), rangeMin), rangeMax);
-	const initUntil = calibration.valid_until ? new Date(calibration.valid_until).getTime() : rangeMax;
+	const initFrom = calibration
+		? Math.min(Math.max(new Date(calibration.valid_from).getTime(), rangeMin), rangeMax)
+		: Math.max(rangeMin, rangeMax - 30 * 86400000);
+	const initUntil = calibration?.valid_until ? new Date(calibration.valid_until).getTime() : rangeMax;
 	let startMs = $state(initFrom);
 	let endMs = $state(Math.min(Math.max(initUntil, rangeMin), rangeMax));
 
@@ -40,7 +46,7 @@
 	let fetchTimer: ReturnType<typeof setTimeout> | null = null;
 	let sliderRef = $state<{ setRange: (s: number, e: number) => void } | null>(null);
 
-	const calFromMs = new Date(calibration.valid_from).getTime();
+	const calFromMs = calibration ? new Date(calibration.valid_from).getTime() : initFrom;
 	let chartStart = $state(Math.max(rangeMin, calFromMs - 30 * 86400000));
 	let chartEnd = $state(Math.min(rangeMax, calFromMs + 30 * 86400000));
 
@@ -122,6 +128,36 @@
 		return chartTimes.map((t, i) => t >= from && t < until ? chartPreview[i] : null);
 	});
 
+	// Recompute neighbor calibration windows in real-time as the user drags, mirroring the
+	// API's LEAD(valid_from) logic so the chart shows exactly what save will produce.
+	const effectiveNeighborMarkers = $derived.by<CalibrationMarker[]>(() => {
+		if (!allCalibrations.length) return [];
+		const sorted = allCalibrations
+			.map(c => ({ ...c, _fromMs: new Date(c.valid_from).getTime() }))
+			.sort((a, b) => a._fromMs - b._fromMs);
+
+		const currentId = calibration?.id ?? '__new__';
+		const allEntries = [
+			...sorted.filter(c => c.id !== currentId).map(c => ({ ms: c._fromMs, id: c.id })),
+			{ ms: startMs, id: currentId },
+		].sort((a, b) => a.ms - b.ms);
+
+		const result: CalibrationMarker[] = [];
+		for (let j = 0; j < allEntries.length; j++) {
+			const entry = allEntries[j];
+			if (entry.id === currentId) continue;
+			const cal = sorted.find(c => c.id === entry.id)!;
+			const nextFrom = j + 1 < allEntries.length ? allEntries[j + 1].ms : null;
+			result.push({
+				calibration_id: cal.id, sensor_id: cal.sensor_id,
+				slope: cal.slope, intercept: cal.intercept,
+				valid_from: new Date(entry.ms).toISOString(),
+				valid_until: nextFrom != null ? new Date(nextFrom).toISOString() : null,
+			});
+		}
+		return result;
+	});
+
 	const activeRange = $derived.by(() => {
 		const rangeMs: Record<string, number> = { '24h': 86400000, '7d': 604800000, '30d': 2592000000, '90d': 7776000000 };
 		const dur = chartEnd - chartStart;
@@ -137,13 +173,19 @@
 		scheduleFetch();
 	}
 
-	async function save() {
+	function validateParams(): { s: number; b: number } | null {
 		const s = Number(slope), b = Number(intercept);
-		if (!Number.isFinite(s) || s === 0 || !Number.isFinite(b)) { toastStore.error('Slope must be non-zero, intercept numeric'); return; }
+		if (!Number.isFinite(s) || s === 0 || !Number.isFinite(b)) { toastStore.error('Slope must be non-zero, intercept numeric'); return null; }
+		return { s, b };
+	}
+
+	async function save() {
+		const p = validateParams();
+		if (!p || !calibration) return;
 		saving = true;
 		try {
 			await api.sensorCalibrations.update(calibration.id, {
-				slope: s, intercept: b,
+				slope: p.s, intercept: p.b,
 				valid_from: new Date(startMs).toISOString(),
 				valid_until: isOpenEnded ? null : new Date(endMs).toISOString(),
 			});
@@ -152,6 +194,22 @@
 			scheduleFetch();
 			onchanged?.();
 		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Update failed'); }
+		finally { saving = false; }
+	}
+
+	async function create() {
+		const p = validateParams();
+		if (!p) return;
+		saving = true;
+		try {
+			await api.sensorCalibrations.create({
+				sensor_id: sensorId,
+				valid_from: new Date(startMs).toISOString(),
+				slope: p.s, intercept: p.b,
+			});
+			toastStore.success('Calibration added — readings will be recomputed in the background');
+			onchanged?.();
+		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Create failed'); }
 		finally { saving = false; }
 	}
 </script>
@@ -165,12 +223,18 @@
 		<label class="flex flex-col gap-1 text-xs text-brand-muted">Valid until {#if isOpenEnded}<span class="text-[10px] normal-case">(open / auto-managed)</span>{/if}<input type="datetime-local" value={msToLocal(endMs)} oninput={(e) => endMs = localToMs(e.currentTarget.value)} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm" /></label>
 	</div>
 
-	<!-- Calibration window slider -->
+	<!-- Stacked sliders: calibration window + view range -->
 	{#if rangeMax > rangeMin}
-		<div>
-			<span class="text-[11px] font-semibold text-brand-muted">Calibration window</span>
-			<TimeRangeSlider min={rangeMin} max={rangeMax} bind:start={startMs} bind:end={endMs} />
-			<p class="text-[11px] text-brand-muted">Drag to set this calibration's window. Drag the right handle to the far edge for open-ended.</p>
+		<div class="space-y-1">
+			<div>
+				<span class="text-[11px] font-semibold text-brand-muted">Calibration window</span>
+				<TimeRangeSlider min={rangeMin} max={rangeMax} bind:start={startMs} bind:end={endMs} />
+				<p class="text-[11px] text-brand-muted">Drag to set this calibration's window. The end boundary is auto-managed to the next calibration's start.</p>
+			</div>
+			<div>
+				<span class="text-[11px] font-semibold text-brand-muted">View range</span>
+				<TimeRangeSlider bind:this={sliderRef} min={rangeMin} max={rangeMax} bind:start={chartStart} bind:end={chartEnd} onchange={onSliderChange} />
+			</div>
 		</div>
 	{/if}
 
@@ -194,14 +258,6 @@
 		</div>
 	</div>
 
-	<!-- Chart navigation slider -->
-	{#if rangeMax > rangeMin}
-		<div>
-			<span class="text-[11px] font-semibold text-brand-muted">View range</span>
-			<TimeRangeSlider bind:this={sliderRef} min={rangeMin} max={rangeMax} bind:start={chartStart} bind:end={chartEnd} onchange={onSliderChange} />
-		</div>
-	{/if}
-
 	<!-- Time-series chart: Raw + Calibrated (DB) + Preview (live formula within window) -->
 	{#if seriesLoading && !series}
 		<div class="rounded-md border border-brand-divider bg-brand-surface p-6 text-center text-sm text-brand-muted">Loading readings…</div>
@@ -217,14 +273,15 @@
 			calMax={series?.calibrated_max ?? []}
 			{units}
 			deploymentBands={[]}
-			calibrationMarkers={[]}
+			calibrationMarkers={effectiveNeighborMarkers}
 			showSensorVectors={false}
-			showCalibrationMarkers={false}
+			showCalibrationMarkers={true}
 			{gapThreshold}
 			{windowBand}
 			height={300}
 			onZoomSelect={onChartZoomSelect}
 			onResetZoom={onChartResetZoom}
+			onCalibrationClick={onswitchcalibration ? (m) => onswitchcalibration!(m.calibration_id) : undefined}
 		/>
 		<ScatterPlot xData={scatterRaw} yData={scatterPreview} xLabel="Raw" yLabel="Preview" xUnits={units} yUnits={units} times={chartTimes} height={260} />
 	{:else if series}
@@ -233,6 +290,6 @@
 
 	<div class="flex items-center justify-between">
 		<span class="text-xs text-brand-muted">{seriesLoading ? 'Loading…' : series ? `${chartTimes.length} readings in view` : ''}</span>
-		<button onclick={save} disabled={saving} class="px-3 py-1 text-sm bg-brand-primary text-white rounded-md cursor-pointer border-none disabled:opacity-50">{saving ? 'Saving…' : 'Save & recompute'}</button>
+		<button onclick={mode === 'create' ? create : save} disabled={saving} class="px-3 py-1 text-sm bg-brand-primary text-white rounded-md cursor-pointer border-none disabled:opacity-50">{saving ? (mode === 'create' ? 'Adding…' : 'Saving…') : (mode === 'create' ? 'Add calibration' : 'Save & recompute')}</button>
 	</div>
 </div>

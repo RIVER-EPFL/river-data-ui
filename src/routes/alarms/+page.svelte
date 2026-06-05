@@ -8,6 +8,7 @@
 		getActiveAlarms,
 		getAlarmEvents,
 		acknowledgeAlarm,
+		unacknowledgeAlarm,
 		type ActiveAlarm,
 		type AlarmEvent,
 	} from '$api/service';
@@ -127,6 +128,45 @@
 		}
 	}
 
+	async function handleUnacknowledge(eventId: string) {
+		try {
+			await unacknowledgeAlarm(eventId);
+			await loadEvents();
+		} catch (e) {
+			eventsError = e instanceof Error ? e.message : 'Failed to unacknowledge';
+		}
+	}
+
+	async function handleAcknowledgeActive(eventId: string) {
+		try {
+			await acknowledgeAlarm(eventId);
+			await loadActive();
+		} catch (e) {
+			activeError = e instanceof Error ? e.message : 'Failed to acknowledge';
+		}
+	}
+
+	async function handleUnacknowledgeActive(eventId: string) {
+		try {
+			await unacknowledgeAlarm(eventId);
+			await loadActive();
+		} catch (e) {
+			activeError = e instanceof Error ? e.message : 'Failed to unacknowledge';
+		}
+	}
+
+	function formatDuration(from: string, to?: string | null): string {
+		const start = new Date(from).getTime();
+		const end = to ? new Date(to).getTime() : Date.now();
+		const ms = end - start;
+		const minutes = Math.floor(ms / 60_000);
+		if (minutes < 60) return `${minutes}m`;
+		const hours = Math.floor(minutes / 60);
+		if (hours < 24) return `${hours}h ${minutes % 60}m`;
+		const days = Math.floor(hours / 24);
+		return `${days}d ${hours % 24}h`;
+	}
+
 	function onFiltersChanged() {
 		syncUrl();
 		loadEvents();
@@ -201,14 +241,15 @@
 						<th class="text-left px-4 py-2 font-semibold">Parameter</th>
 						<th class="text-right px-4 py-2 font-semibold">Value</th>
 						<th class="text-left px-4 py-2 font-semibold">Severity</th>
-						<th class="text-right px-4 py-2 font-semibold">Since</th>
+						<th class="text-right px-4 py-2 font-semibold">Duration</th>
+						<th class="px-4 py-2"></th>
 					</tr>
 				</thead>
 				<tbody>
 					{#if activeLoading}
-						<tr><td colspan="5" class="px-4 py-8 text-center text-brand-muted">Loading...</td></tr>
+						<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">Loading...</td></tr>
 					{:else if filteredActive.length === 0}
-						<tr><td colspan="5" class="px-4 py-8 text-center text-brand-muted">No active alarms</td></tr>
+						<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">No active alarms</td></tr>
 					{:else}
 						{#each filteredActive as alarm (alarm.site_id + ':' + alarm.parameter_id)}
 							<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50">
@@ -221,9 +262,31 @@
 									<span class="inline-flex items-center gap-1.5">
 										<span class="inline-block w-2.5 h-2.5 rounded-full {severityDot(alarm.severity)}"></span>
 										{severityLabel(alarm.severity)}
+										{#if alarm.acknowledged}
+											<span class="text-brand-muted text-[10px]">ack'd</span>
+										{/if}
 									</span>
 								</td>
-								<td class="px-4 py-2 text-right text-brand-muted" title={formatDateTime(alarm.since)}>{formatRelativeTime(alarm.since)}</td>
+								<td class="px-4 py-2 text-right text-brand-muted" title={alarm.started_at ? `Last reading: ${formatRelativeTime(alarm.since)}` : formatDateTime(alarm.since)}>
+									{#if alarm.started_at}
+										{formatDuration(alarm.started_at)}
+									{:else}
+										{formatRelativeTime(alarm.since)}
+									{/if}
+								</td>
+								<td class="px-4 py-2 text-right">
+									{#if alarm.acknowledged && alarm.event_id}
+										<button
+											onclick={() => handleUnacknowledgeActive(alarm.event_id!)}
+											class="text-xs text-brand-muted bg-transparent border-none cursor-pointer hover:underline"
+										>Unacknowledge</button>
+									{:else if !alarm.acknowledged && alarm.event_id}
+										<button
+											onclick={() => handleAcknowledgeActive(alarm.event_id!)}
+											class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline"
+										>Acknowledge</button>
+									{/if}
+								</td>
 							</tr>
 						{/each}
 					{/if}
@@ -274,6 +337,7 @@
 						<th class="text-left px-4 py-2 font-semibold">Parameter</th>
 						<th class="text-left px-4 py-2 font-semibold">Severity</th>
 						<th class="text-right px-4 py-2 font-semibold">Started</th>
+						<th class="text-right px-4 py-2 font-semibold">Duration</th>
 						<th class="text-right px-4 py-2 font-semibold">Last seen</th>
 						<th class="text-left px-4 py-2 font-semibold">Status</th>
 						<th class="text-right px-4 py-2 font-semibold">Last value</th>
@@ -282,9 +346,9 @@
 				</thead>
 				<tbody>
 					{#if eventsLoading}
-						<tr><td colspan="8" class="px-4 py-8 text-center text-brand-muted">Loading...</td></tr>
+						<tr><td colspan="9" class="px-4 py-8 text-center text-brand-muted">Loading...</td></tr>
 					{:else if events.length === 0}
-						<tr><td colspan="8" class="px-4 py-8 text-center text-brand-muted">No alarm events</td></tr>
+						<tr><td colspan="9" class="px-4 py-8 text-center text-brand-muted">No alarm events</td></tr>
 					{:else}
 						{#each events as event (event.id)}
 							{@const sev = event.max_severity ?? event.severity}
@@ -300,6 +364,7 @@
 									</span>
 								</td>
 								<td class="px-4 py-2 text-right text-brand-muted" title={formatDateTime(event.started_at)}>{formatRelativeTime(event.started_at)}</td>
+								<td class="px-4 py-2 text-right text-brand-muted">{formatDuration(event.started_at, event.resolved_at)}</td>
 								<td class="px-4 py-2 text-right text-brand-muted" title={formatDateTime(event.last_seen_at)}>{formatRelativeTime(event.last_seen_at)}</td>
 								<td class="px-4 py-2">
 									{#if event.resolved_at}
@@ -318,6 +383,11 @@
 											onclick={() => handleAcknowledge(event.id)}
 											class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline"
 										>Acknowledge</button>
+									{:else if !event.resolved_at && event.acknowledged_at}
+										<button
+											onclick={() => handleUnacknowledge(event.id)}
+											class="text-xs text-brand-muted bg-transparent border-none cursor-pointer hover:underline"
+										>Unacknowledge</button>
 									{/if}
 								</td>
 							</tr>

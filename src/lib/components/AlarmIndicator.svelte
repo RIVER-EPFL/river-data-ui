@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { base } from '$app/paths';
-	import { getActiveAlarms, acknowledgeAlarm, type ActiveAlarm } from '$api/service';
+	import { getActiveAlarms, acknowledgeAlarm, unacknowledgeAlarm, type ActiveAlarm } from '$api/service';
 	import { formatRelativeTime } from '$lib/utils';
 	import { eventBus } from '$lib/stores/events.svelte';
 
@@ -60,6 +60,22 @@
 			await loadAlarms();
 		} catch {
 			/* ignore — the breach stays unacknowledged and can be retried */
+		} finally {
+			const next = new Set(acking);
+			next.delete(eventId);
+			acking = next;
+		}
+	}
+
+	async function unack(eventId: string, e: Event) {
+		e.stopPropagation();
+		e.preventDefault();
+		acking = new Set(acking).add(eventId);
+		try {
+			await unacknowledgeAlarm(eventId);
+			await loadAlarms();
+		} catch {
+			/* ignore */
 		} finally {
 			const next = new Set(acking);
 			next.delete(eventId);
@@ -128,12 +144,17 @@
 						href="{base}/sites/{alarm.site_id}"
 						class="text-sm font-medium text-brand-text no-underline hover:underline truncate"
 					>{alarm.site_name}</a>
-					<span class="ml-auto text-[10px] text-brand-muted whitespace-nowrap">{formatRelativeTime(alarm.since)}</span>
+					<span class="ml-auto text-[10px] text-brand-muted whitespace-nowrap" title={alarm.started_at ? `Last reading: ${formatRelativeTime(alarm.since)}` : undefined}>{formatRelativeTime(alarm.started_at ?? alarm.since)}</span>
 				</div>
 				<div class="ml-4 flex items-center gap-2">
 					<span class="text-xs text-brand-muted truncate">{alarm.parameter_name}: {alarm.current_value}</span>
-					{#if alarm.acknowledged}
-						<span class="ml-auto text-[10px] text-brand-muted whitespace-nowrap" title={alarm.acknowledged_by ? `by ${alarm.acknowledged_by}` : undefined}>✓ acknowledged</span>
+					{#if alarm.acknowledged && alarm.event_id}
+						<button
+							type="button"
+							onclick={(e) => unack(alarm.event_id!, e)}
+							disabled={acking.has(alarm.event_id)}
+							class="ml-auto text-[10px] text-brand-muted bg-transparent border border-brand-divider rounded px-1.5 py-0.5 cursor-pointer hover:bg-brand-bg disabled:opacity-50"
+						>{acking.has(alarm.event_id) ? '…' : 'Unacknowledge'}</button>
 					{:else if alarm.event_id}
 						<button
 							type="button"

@@ -10,7 +10,8 @@
 	import AnnotateDialog from '$components/dialogs/AnnotateDialog.svelte';
 	import FlagDialog from '$components/dialogs/FlagDialog.svelte';
 	import {
-		sensorVectorBandPlugin, calibrationMarkerPlugin, bandAtTime, BAND_STRIP_CSS,
+		sensorVectorBandPlugin, calibrationMarkerPlugin, bandAtTime, calibrationAtTime,
+		BAND_STRIP_CSS, CALIBRATION_STRIP_CSS,
 		alarmBandPlugin, computeSeverityBands, type AlarmSeverityBand,
 		type OverlayVisibility,
 	} from '$lib/charts/overlay-plugins';
@@ -345,9 +346,12 @@
 			(data as any[]).push(toU(mins!), toU(maxs!));
 		}
 
+		const stripPad = (showSensorVectors ? BAND_STRIP_CSS : 0) + (showCalibrationMarkers ? CALIBRATION_STRIP_CSS : 0);
+
 		const opts: uPlot.Options = {
 			width: rect.width,
 			height: 220,
+			padding: [stripPad, 0, 0, 0],
 			tzDate: (ts: number) => uPlot.tzDate(new Date(ts * 1000), 'UTC'),
 			plugins: [
 				alarmBandPlugin(alarmBandsRef, overlayVisRef),
@@ -404,13 +408,18 @@
 		}
 	}
 
-	// The band's dark top strip is the only click target → open that sensor's Calibrations tab,
-	// pre-opening the calibration covering the clicked time. A plain click on the strip only
-	// (not a drag, not the data area below it).
 	function bandStripAt(u: uPlot, xCss: number, yCss: number): SensorIdentityBand | null {
 		if (!overlayVisRef.current.sensorVectors) return null;
 		if (yCss < 0 || yCss > BAND_STRIP_CSS) return null;
 		return bandAtTime(sensorBandsRef.current, u.posToVal(xCss, 'x'));
+	}
+
+	function calStripAt(u: uPlot, xCss: number, yCss: number): { sensorId: string; calId: string } | null {
+		if (!overlayVisRef.current.calibrationMarkers) return null;
+		if (yCss < BAND_STRIP_CSS || yCss > BAND_STRIP_CSS + CALIBRATION_STRIP_CSS) return null;
+		const m = calibrationAtTime(calMarkersRef.current, u.posToVal(xCss, 'x'));
+		if (!m) return null;
+		return { sensorId: m.sensor_id, calId: m.calibration_id };
 	}
 
 	function setupConfigClick(u: uPlot): () => void {
@@ -419,18 +428,22 @@
 		const onDown = (e: MouseEvent) => { downX = e.clientX; };
 		const onMove = (e: MouseEvent) => {
 			const rect = over.getBoundingClientRect();
-			over.style.cursor = bandStripAt(u, e.clientX - rect.left, e.clientY - rect.top) ? 'pointer' : '';
+			const xCss = e.clientX - rect.left;
+			const yCss = e.clientY - rect.top;
+			over.style.cursor = bandStripAt(u, xCss, yCss) || calStripAt(u, xCss, yCss) ? 'pointer' : '';
 		};
 		const onUp = (e: MouseEvent) => {
 			const start = downX;
 			downX = null;
-			if (start == null || Math.abs(e.clientX - start) > 4) return; // a drag, not a click
+			if (start == null || Math.abs(e.clientX - start) > 4) return;
 			if (selectionModeRef.current !== 'zoom') return;
 			const rect = over.getBoundingClientRect();
 			const xCss = e.clientX - rect.left;
-			const band = bandStripAt(u, xCss, e.clientY - rect.top);
-			if (!band) return;
-			goto(`${base}/sensors/${band.sensor_id}`);
+			const yCss = e.clientY - rect.top;
+			const band = bandStripAt(u, xCss, yCss);
+			if (band) { goto(`${base}/sensors/${band.sensor_id}`); return; }
+			const cal = calStripAt(u, xCss, yCss);
+			if (cal) { goto(`${base}/sensors/${cal.sensorId}?tab=calibrations&cal=${cal.calId}`); return; }
 		};
 		over.addEventListener('mousedown', onDown);
 		over.addEventListener('mousemove', onMove);
