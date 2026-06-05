@@ -70,8 +70,17 @@
 
 	async function reloadThresholds() {
 		if (!site) return;
-		const th = await api.alarmThresholds.list({ perPage: 100, filter: { site_id: site.id } });
+		// Load all thresholds (global + every site); effectiveThreshold() resolves precedence per param.
+		const th = await api.alarmThresholds.list({ perPage: 200 });
 		thresholds = th.data;
+	}
+
+	// Site-specific threshold wins over a global (site_id null) default for the same parameter.
+	function effectiveThreshold(parameterId: string): AlarmThreshold | undefined {
+		return (
+			thresholds.find((t) => t.parameter_id === parameterId && t.site_id === site?.id) ??
+			thresholds.find((t) => t.parameter_id === parameterId && t.site_id == null)
+		);
 	}
 
 	// Shared chart state
@@ -141,6 +150,7 @@
 	let annotationsByParam = $state<Map<string, Annotation[]>>(new Map());
 	let showSensorVectors = $state(false);
 	let showCalibrationMarkers = $state(false);
+	let showAlarmBands = $state(true);
 	let sensorIdentity = $state<SensorIdentityResponse | null>(null);
 	let fetchGeneration = 0;
 	let fetchTimer: ReturnType<typeof setTimeout> | null = null;
@@ -312,7 +322,7 @@
 				api.sensorDeployments.list({ perPage: 200, filter: { site_id: siteId } }),
 				api.sensorCalibrations.list({ perPage: 500 }),
 				api.notes.list({ perPage: 50, filter: { site_id: siteId }, sort: ['created_at', 'DESC'] }),
-				api.alarmThresholds.list({ perPage: 100, filter: { site_id: siteId } }),
+				api.alarmThresholds.list({ perPage: 200 }),
 			]);
 			project = proj;
 			siteParameters = sp.data;
@@ -712,6 +722,14 @@
 		return from <= now && (until == null || until > now);
 	}
 
+	let expandedSensors = $state(new Set<string>());
+	function toggleSensorExpanded(id: string) {
+		const next = new Set(expandedSensors);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		expandedSensors = next;
+	}
+
 	let showDiagnostics = $state(false);
 
 	function hasData(sp: SiteParameter): boolean {
@@ -820,6 +838,9 @@
 						{/if}
 
 						<div class="w-px h-5 bg-brand-divider mx-1"></div>
+						<label class="flex items-center gap-1.5 cursor-pointer text-xs text-brand-muted" title="Shade the periods a reading was in warning or alarm">
+							<input type="checkbox" bind:checked={showAlarmBands} /> Alarm bands
+						</label>
 						<label class="flex items-center gap-1.5 cursor-pointer text-xs text-brand-muted" title="Colour the time axis by which sensor was deployed">
 							<input type="checkbox" bind:checked={showSensorVectors} /> Sensor bands
 						</label>
@@ -907,7 +928,7 @@
 				<!-- Charts -->
 				{#each measurementParams as sp, i}
 					{@const param = parameters.find((p) => p.id === sp.parameter_id)}
-					{@const th = thresholds.find((t) => t.parameter_id === sp.parameter_id)}
+					{@const th = effectiveThreshold(sp.parameter_id)}
 					{#if param}
 						<ParameterChart
 							siteId={siteId}
@@ -930,6 +951,7 @@
 							calibrationMarkers={sensorIdentity?.calibrations[sp.parameter_id] ?? []}
 							{showSensorVectors}
 							{showCalibrationMarkers}
+							{showAlarmBands}
 						/>
 					{/if}
 				{/each}
@@ -1149,60 +1171,70 @@
 				<span class="text-sm font-semibold">Deployed sensors ({deployedSensors.length})</span>
 				<button onclick={() => (deployHereOpen = true)} class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface cursor-pointer hover:bg-brand-bg">Deploy sensor here</button>
 			</div>
-			<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-				{#each deployedSensors as sensor}
-					{@const dep = sensorDeployment(sensor.id)}
-					{@const cal = sensorLatestCalibration(sensor.id)}
-					{@const cals = sensorCalibrations(sensor.id)}
-					<div class="rounded-md border border-brand-divider bg-brand-surface p-4">
-						<div class="flex items-center justify-between mb-2">
-							<a href="{base}/sensors/{sensor.id}" class="font-semibold text-sm text-brand-primary no-underline hover:underline">
-								{sensor.name ?? sensor.serial_number ?? 'Sensor'}
-							</a>
-							<span class="text-xs text-brand-muted">{sensor.manufacturer} {sensor.model}</span>
-						</div>
-						<div class="text-xs text-brand-muted space-y-1">
-							{#if sensor.serial_number}<div>S/N: <span class="font-mono">{sensor.serial_number}</span></div>{/if}
-							{#if dep}<div>Deployed: {formatRelativeTime(dep.deployed_from)}</div>{/if}
-							{#if cal}
-								<div>
-									Calibration: y = {cal.slope}x + {cal.intercept}
-									<span class="text-brand-muted ml-1">({formatRelativeTime(cal.valid_from)})</span>
-								</div>
-							{/if}
-						</div>
-
-						<!-- Calibration timeline -->
-						{#if cals.length > 0}
-							<div class="mt-3 border-t border-brand-divider pt-2">
-								<div class="text-xs font-semibold text-brand-muted mb-1.5">Calibration History</div>
-								<div class="space-y-1">
-									{#each cals as c}
-										{@const active = isActiveCalibration(c)}
-										<div class="flex items-center gap-2 text-xs {active ? 'bg-brand-primary/10 rounded px-1.5 py-1 -mx-1.5' : 'px-0 py-0.5'}">
-											<span class="w-1.5 h-1.5 rounded-full shrink-0 {active ? 'bg-brand-primary' : 'bg-brand-divider'}"></span>
-											<span class="font-mono text-brand-muted">{formatDateTime(c.valid_from)}</span>
-											<span class="text-brand-muted">to</span>
-											<span class="font-mono text-brand-muted">{c.valid_until ? formatDateTime(c.valid_until) : 'present'}</span>
-											<span class="ml-auto font-mono">{c.slope}x + {c.intercept}</span>
-											{#if active}<span class="text-brand-primary font-semibold ml-1">Active</span>{/if}
+			<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
+				<table class="w-full text-sm">
+					<thead><tr class="bg-brand-bg border-b border-brand-divider">
+						<th class="w-8 px-2 py-2"></th>
+						<th class="text-left px-4 py-2 font-semibold">Sensor</th>
+						<th class="text-left px-4 py-2 font-semibold">Make / Model</th>
+						<th class="text-left px-4 py-2 font-semibold">S/N</th>
+						<th class="text-left px-4 py-2 font-semibold">Deployed</th>
+						<th class="text-left px-4 py-2 font-semibold">Calibration</th>
+						<th class="px-4 py-2"></th>
+					</tr></thead>
+					<tbody>
+						{#each deployedSensors as sensor}
+							{@const dep = sensorDeployment(sensor.id)}
+							{@const cal = sensorLatestCalibration(sensor.id)}
+							{@const cals = sensorCalibrations(sensor.id)}
+							{@const expanded = expandedSensors.has(sensor.id)}
+							<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 {cals.length ? 'cursor-pointer' : ''}" onclick={() => cals.length && toggleSensorExpanded(sensor.id)}>
+								<td class="px-2 py-2 text-center text-brand-muted">{#if cals.length}{expanded ? '▾' : '▸'}{/if}</td>
+								<td class="px-4 py-2">
+									<a href="{base}/sensors/{sensor.id}" onclick={(e) => e.stopPropagation()} class="font-semibold text-brand-primary no-underline hover:underline">
+										{sensor.name ?? sensor.serial_number ?? 'Sensor'}
+									</a>
+								</td>
+								<td class="px-4 py-2 text-brand-muted">{sensor.manufacturer} {sensor.model}</td>
+								<td class="px-4 py-2 font-mono text-brand-muted">{sensor.serial_number ?? '—'}</td>
+								<td class="px-4 py-2 text-brand-muted">{dep ? formatRelativeTime(dep.deployed_from) : '—'}</td>
+								<td class="px-4 py-2">
+									{#if cal}<span class="font-mono">{cal.slope}x + {cal.intercept}</span> <span class="text-brand-muted text-xs">({formatRelativeTime(cal.valid_from)})</span>{:else}<span class="text-brand-muted">—</span>{/if}
+								</td>
+								<td class="px-4 py-2 text-right whitespace-nowrap" onclick={(e) => e.stopPropagation()}>
+									<button onclick={() => { moveSensor = sensor; moveOpen = true; }} class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface cursor-pointer hover:bg-brand-bg">Move…</button>
+									<ConfirmPopover message="End this deployment now? The sensor leaves this site." confirmLabel="Recall" confirmVariant="primary" onconfirm={() => handleRecallDeployment(sensor.id)}>
+										<button class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface cursor-pointer hover:bg-brand-bg text-brand-primary">Recall</button>
+									</ConfirmPopover>
+								</td>
+							</tr>
+							{#if expanded}
+								<tr class="border-b border-brand-divider last:border-b-0 bg-brand-bg/40">
+									<td></td>
+									<td colspan="6" class="px-4 py-2">
+										<div class="text-xs font-semibold text-brand-muted mb-1.5">Calibration History</div>
+										<div class="space-y-1">
+											{#each cals as c}
+												{@const active = isActiveCalibration(c)}
+												<div class="flex items-center gap-2 text-xs {active ? 'bg-brand-primary/10 rounded px-1.5 py-1 -mx-1.5' : 'px-0 py-0.5'}">
+													<span class="w-1.5 h-1.5 rounded-full shrink-0 {active ? 'bg-brand-primary' : 'bg-brand-divider'}"></span>
+													<span class="font-mono text-brand-muted">{formatDateTime(c.valid_from)}</span>
+													<span class="text-brand-muted">to</span>
+													<span class="font-mono text-brand-muted">{c.valid_until ? formatDateTime(c.valid_until) : 'present'}</span>
+													<span class="ml-auto font-mono">{c.slope}x + {c.intercept}</span>
+													{#if active}<span class="text-brand-primary font-semibold ml-1">Active</span>{/if}
+												</div>
+											{/each}
 										</div>
-									{/each}
-								</div>
-							</div>
+									</td>
+								</tr>
+							{/if}
+						{/each}
+						{#if deployedSensors.length === 0}
+							<tr><td colspan="7" class="px-4 py-4 text-center text-brand-muted">No sensors currently deployed at this site</td></tr>
 						{/if}
-
-						<div class="mt-3 border-t border-brand-divider pt-2 flex gap-2 justify-end">
-							<button onclick={() => { moveSensor = sensor; moveOpen = true; }} class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface cursor-pointer hover:bg-brand-bg">Move…</button>
-							<ConfirmPopover message="End this deployment now? The sensor leaves this site." confirmLabel="Recall" confirmVariant="primary" onconfirm={() => handleRecallDeployment(sensor.id)}>
-								<button class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface cursor-pointer hover:bg-brand-bg text-brand-primary">Recall</button>
-							</ConfirmPopover>
-						</div>
-					</div>
-				{/each}
-				{#if deployedSensors.length === 0}
-					<p class="text-sm text-brand-muted col-span-full">No sensors currently deployed at this site</p>
-				{/if}
+					</tbody>
+				</table>
 			</div>
 
 		<!-- Samples tab -->
