@@ -104,18 +104,16 @@
 		if (rect.width === 0) return;
 
 		const gaps = gapThreshold > 0 ? makeGaps(gapThreshold) : undefined;
-		// Calibrated is the solid primary line; Raw rides on top as a dashed overlay so it stays legible
-		// against white even when it coincides with calibrated (identity calibration) or calibrated is absent.
 		const series: uPlot.Series[] = [
 			{},
-			{ ...makeSeries(0, 'Calibrated', units), gaps },
-			{ ...makeSeries(1, 'Raw', units), width: 1, dash: [3, 2], gaps },
+			{ ...makeSeries(4, 'Raw', units), width: 1, dash: [3, 2], ...(gaps ? { gaps } : {}) },
+			{ ...makeSeries(0, 'Calibrated', units), ...(gaps ? { gaps } : {}) },
 		];
-		const data: uPlot.AlignedData = [times, toU(calibrated), toU(raw)] as uPlot.AlignedData;
+		const data: uPlot.AlignedData = [times, toU(raw), toU(calibrated)] as uPlot.AlignedData;
 		let bands: uPlot.Band[] | undefined;
 		if (hasBands) {
 			// Hidden envelope series + bands: [max, min] for raw, then calibrated.
-			const hidden = (): uPlot.Series => ({ stroke: 'transparent', width: 0, points: { show: false }, gaps });
+			const hidden = (): uPlot.Series => ({ label: '', stroke: 'transparent', width: 0, points: { show: false }, ...(gaps ? { gaps } : {}), class: 'hidden-series' });
 			series.push(hidden(), hidden(), hidden(), hidden()); // 3 rawMin, 4 rawMax, 5 calMin, 6 calMax
 			(data as unknown[]).push(toU(rawMin), toU(rawMax), toU(calMin), toU(calMax));
 			bands = [
@@ -218,3 +216,7 @@
 		{/if}
 	</div>
 </div>
+
+<style>
+	:global(.u-legend .hidden-series) { display: none; }
+</style>
