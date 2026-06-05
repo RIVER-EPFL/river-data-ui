@@ -3,12 +3,11 @@
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
 	import { api, type Sensor, type SensorCalibration, type SensorDeployment, type Site, type Parameter } from '$api/crud';
-	import { recalibrateCalibration, rollbackDeployment, reprocessSensor } from '$api/service';
+	import { recalibrateCalibration, rollbackDeployment, reprocessSensor, getCalibrationCandidates } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatDateTime } from '$lib/utils';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
-	import Dialog from '$components/ui/Dialog.svelte';
 	import DeployMoveSensorDialog from '$components/dialogs/DeployMoveSensorDialog.svelte';
 	import SensorSeriesChart from '$components/charts/SensorSeriesChart.svelte';
 	import CalibrationWindowEditor from '$components/charts/CalibrationWindowEditor.svelte';
@@ -24,6 +23,7 @@
 	let sites = $state<Site[]>([]);
 	let loading = $state(true);
 	let activeTab = $state(0);
+	let uncalibratedCount = $state(0);
 
 	let parameters = $state<Parameter[]>([]);
 	let series = $state<SensorReadingsResponse | null>(null);
@@ -146,18 +146,7 @@
 		sliderRef?.setRange(sliderMin, sliderMax);
 		scheduleFetch();
 	}
-
-	const msToLocal = (ms: number) => new Date(ms).toISOString().slice(0, 16);
-	const localToMs = (s: string) => new Date(s).getTime();
-
-	// Add-calibration dialog
 	let addCalOpen = $state(false);
-	let newCalFromMs = $state(Date.now());
-	let newCalEndMs = $state(0);
-	$effect(() => { if (newCalEndMs === 0 && seriesExtent.max > 0) newCalEndMs = seriesExtent.max; });
-	let newCalSlope = $state('1');
-	let newCalIntercept = $state('0');
-	let addingCal = $state(false);
 
 	// Deploy / move dialog
 	let deployOpen = $state(false);
@@ -179,37 +168,16 @@
 			sort: ['valid_from', 'DESC'],
 		});
 		calibrations = cals.data;
+		await loadUncalibratedCount();
 	}
 
-	async function handleAddCalibration() {
-		const slope = Number(newCalSlope);
-		const intercept = Number(newCalIntercept);
-		if (!Number.isFinite(slope) || slope === 0) {
-			toastStore.error('Slope must be a non-zero number');
-			return;
-		}
-		if (!Number.isFinite(intercept)) {
-			toastStore.error('Intercept must be a number');
-			return;
-		}
-		addingCal = true;
+	async function loadUncalibratedCount() {
 		try {
-			await api.sensorCalibrations.create({
-				sensor_id: sensorId,
-				valid_from: new Date(newCalFromMs).toISOString(),
-				slope,
-				intercept,
-			});
-			toastStore.success('Calibration added — readings will be recomputed in the background');
-			addCalOpen = false;
-			newCalSlope = '1';
-			newCalIntercept = '0';
-			newCalFromMs = Date.now();
-			await reloadCalibrations();
-		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Failed to add calibration');
-		} finally {
-			addingCal = false;
+			const res = await getCalibrationCandidates();
+			const match = res.candidates.find((c) => c.sensor_id === sensorId);
+			uncalibratedCount = match?.uncalibrated_count ?? 0;
+		} catch {
+			uncalibratedCount = 0;
 		}
 	}
 
@@ -239,6 +207,7 @@
 			const db = await getSensorDeploymentBands(sensorId);
 			depBands = db.bands;
 		} catch { /* bands are non-critical */ }
+		void loadUncalibratedCount();
 		void fetchSeries();
 	});
 
@@ -433,6 +402,7 @@
 					{gapThreshold}
 					onZoomSelect={onChartZoomSelect}
 					onResetZoom={onChartResetZoom}
+					onCalibrationClick={(m) => { activeTab = 2; editingCalId = m.calibration_id; }}
 				/>
 			{:else}
 				<div class="rounded-md border border-brand-divider bg-brand-surface p-6 text-center text-sm text-brand-muted">Loading series…</div>
@@ -497,9 +467,56 @@
 				</table>
 			</div>
 		{:else if activeTab === 2}
+			{#if !seriesLoading || series}
+				<SensorSeriesChart
+					times={seriesTimes}
+					raw={series?.raw ?? []}
+					calibrated={series?.calibrated ?? []}
+					rawMin={series?.raw_min ?? []}
+					rawMax={series?.raw_max ?? []}
+					calMin={series?.calibrated_min ?? []}
+					calMax={series?.calibrated_max ?? []}
+					units={sensorUnits}
+					deploymentBands={[]}
+					calibrationMarkers={calMarkers}
+					showSensorVectors={false}
+					showCalibrationMarkers={true}
+					{gapThreshold}
+					height={240}
+					onZoomSelect={onChartZoomSelect}
+					onResetZoom={onChartResetZoom}
+					onCalibrationClick={(m) => {
+						const from = new Date(m.valid_from).getTime();
+						const until = m.valid_until ? new Date(m.valid_until).getTime() : sliderMax;
+						chartStart = from;
+						chartEnd = until;
+						sliderRef?.setRange(from, until);
+						scheduleFetch();
+					}}
+				/>
+			{/if}
+			{#if uncalibratedCount > 0}
+				<div class="rounded-md bg-severity-warning-soft border border-severity-warning/20 px-3 py-2 mb-2 text-xs text-severity-warning">
+					{uncalibratedCount.toLocaleString()} reading{uncalibratedCount === 1 ? '' : 's'} before the first calibration — using raw values (identity 1x+0)
+				</div>
+			{/if}
 			<div class="flex justify-end mb-2">
-				<button onclick={() => addCalOpen = true} class="px-3 py-1 text-sm bg-brand-primary text-white rounded-md cursor-pointer border-none">+ Add Calibration</button>
+				<button onclick={() => addCalOpen = !addCalOpen} class="px-3 py-1 text-sm {addCalOpen ? 'bg-brand-bg text-brand-muted border border-brand-divider' : 'bg-brand-primary text-white border-none'} rounded-md cursor-pointer">{addCalOpen ? 'Cancel' : '+ Add Calibration'}</button>
 			</div>
+			{#if addCalOpen}
+				<div class="rounded-md border border-brand-primary/30 bg-brand-primary/5 p-4 mb-3">
+					<h3 class="text-sm font-semibold mb-2">New Calibration</h3>
+					<CalibrationWindowEditor
+						mode="create"
+						allCalibrations={calibrations}
+						units={sensorUnits}
+						{sensorId}
+						rangeMin={seriesExtent.min}
+						rangeMax={seriesExtent.max}
+						onchanged={() => { addCalOpen = false; reloadCalibrations(); }}
+					/>
+				</div>
+			{/if}
 			<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 				<table class="w-full text-sm">
 					<thead><tr class="bg-brand-bg border-b border-brand-divider">
@@ -520,15 +537,13 @@
 								<td class="px-4 py-2 font-mono text-xs">y = {cal.slope}x + {cal.intercept}</td>
 								<td class="px-4 py-2 space-x-3">
 									<button class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline" onclick={() => editingCalId = editingCalId === cal.id ? null : cal.id}>{editingCalId === cal.id ? 'Close' : 'Edit window'}</button>
-									<ConfirmPopover message="Recalibrate readings?" confirmLabel="Recalibrate" confirmVariant="primary" onconfirm={() => handleRecalibrate(cal.id)}>
-										<button class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline">Recalibrate</button>
-									</ConfirmPopover>
+									<button class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline" onclick={() => handleRecalibrate(cal.id)}>Reprocess</button>
 								</td>
 							</tr>
 							{#if editingCalId === cal.id}
 								<tr class="border-b border-brand-divider bg-brand-bg/40">
 									<td colspan="6" class="px-4 py-3">
-										<CalibrationWindowEditor calibration={cal} units={sensorUnits} {sensorId} rangeMin={seriesExtent.min} rangeMax={seriesExtent.max} onchanged={reloadCalibrations} />
+										<CalibrationWindowEditor calibration={cal} allCalibrations={calibrations} units={sensorUnits} {sensorId} rangeMin={seriesExtent.min} rangeMax={seriesExtent.max} onchanged={reloadCalibrations} onswitchcalibration={(id) => editingCalId = id} />
 									</td>
 								</tr>
 							{/if}
@@ -541,36 +556,6 @@
 			</div>
 		{/if}
 	</div>
-
-	<Dialog bind:open={addCalOpen} title="Add Calibration" maxWidth="sm">
-		{#snippet children()}
-			<div class="space-y-3">
-				<div class="flex flex-col gap-1">
-					<label for="cal-valid-from" class="text-xs text-brand-muted">Valid from</label>
-					<input id="cal-valid-from" type="datetime-local" value={msToLocal(newCalFromMs)} oninput={(e) => newCalFromMs = localToMs(e.currentTarget.value)} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" />
-					{#if seriesExtent.max > seriesExtent.min}
-						<TimeRangeSlider min={seriesExtent.min} max={seriesExtent.max} bind:start={newCalFromMs} bind:end={newCalEndMs} />
-						<span class="text-[10px] text-brand-muted">Drag the left handle to set when this calibration takes effect. It applies until the next calibration starts.</span>
-					{/if}
-				</div>
-				<div class="grid grid-cols-2 gap-3">
-					<div class="flex flex-col gap-1">
-						<label for="cal-slope" class="text-xs text-brand-muted">Slope (m)</label>
-						<input id="cal-slope" type="number" step="any" bind:value={newCalSlope} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" />
-					</div>
-					<div class="flex flex-col gap-1">
-						<label for="cal-intercept" class="text-xs text-brand-muted">Intercept (b)</label>
-						<input id="cal-intercept" type="number" step="any" bind:value={newCalIntercept} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" />
-					</div>
-				</div>
-				<p class="text-xs text-brand-muted">Calibrated value = slope &times; raw + intercept. Adding this calibration will recompute existing readings in its time window in the background.</p>
-			</div>
-		{/snippet}
-		{#snippet actions()}
-			<button onclick={() => addCalOpen = false} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface">Cancel</button>
-			<button onclick={handleAddCalibration} disabled={addingCal} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm cursor-pointer border-none disabled:opacity-50">{addingCal ? 'Adding...' : 'Add'}</button>
-		{/snippet}
-	</Dialog>
 
 	<DeployMoveSensorDialog
 		bind:open={deployOpen}

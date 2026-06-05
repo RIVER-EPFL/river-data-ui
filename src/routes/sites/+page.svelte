@@ -198,18 +198,23 @@
 							</td>
 							<td class="px-4 py-2 text-brand-muted text-xs">{formatRelativeTime(site.created_at)}</td>
 							<td class="px-4 py-2">
-								{#if backfillBySite.get(site.id)}
-									{@const bf = backfillBySite.get(site.id)!}
-									<button
-										onclick={() => runBackfill({ site_id: site.id }, site.id)}
-										disabled={backfilling !== null}
-										title="Attribute {bf.claimable_count.toLocaleString()} unattributed readings across {bf.deployments} deployment(s)"
-										class="px-2 py-0.5 text-xs rounded bg-severity-warning-soft text-severity-warning cursor-pointer border-none hover:opacity-80 disabled:opacity-50 whitespace-nowrap"
-									>{backfilling === site.id ? '…' : `Backfill (${bf.claimable_count.toLocaleString()})`}</button>
-								{:else if sensorCountBySite.get(site.id)}
-									<a href="{base}/sites/{site.id}" class="text-xs text-brand-muted no-underline hover:text-brand-primary hover:underline">
-										{sensorCountBySite.get(site.id)} sensor{sensorCountBySite.get(site.id) === 1 ? '' : 's'}
-									</a>
+								{#if backfillBySite.get(site.id) || sensorCountBySite.get(site.id)}
+									<div class="flex flex-col gap-0.5">
+										{#if backfillBySite.get(site.id)}
+											{@const bf = backfillBySite.get(site.id)!}
+											<button
+												onclick={() => runBackfill({ site_id: site.id }, site.id)}
+												disabled={backfilling !== null}
+												title="Attribute {bf.claimable_count.toLocaleString()} unattributed readings across {bf.deployments} deployment(s)"
+												class="px-2 py-0.5 text-xs rounded bg-severity-warning-soft text-severity-warning cursor-pointer border-none hover:opacity-80 disabled:opacity-50 whitespace-nowrap"
+											>{backfilling === site.id ? '…' : `Backfill (${bf.claimable_count.toLocaleString()})`}</button>
+										{/if}
+										{#if sensorCountBySite.get(site.id)}
+											<a href="{base}/sites/{site.id}" class="text-xs text-brand-muted no-underline hover:text-brand-primary hover:underline">
+												{sensorCountBySite.get(site.id)} sensor{sensorCountBySite.get(site.id) === 1 ? '' : 's'}
+											</a>
+										{/if}
+									</div>
 								{:else}
 									<span class="text-xs text-brand-muted">—</span>
 								{/if}

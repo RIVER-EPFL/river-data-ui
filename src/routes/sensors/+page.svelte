@@ -2,7 +2,10 @@
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
 	import { api, type Sensor, type SensorDeployment, type SensorCalibration } from '$api/crud';
+	import { getCalibrationCandidates, backfillCalibrations, type CalibrationBackfillCandidate } from '$api/service';
 	import { formatRelativeTime } from '$lib/utils';
+	import { toastStore } from '$lib/stores/toast.svelte';
+	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 
 	let sensors = $state<Sensor[]>([]);
 	let deployments = $state<SensorDeployment[]>([]);
@@ -16,6 +19,10 @@
 	let searchQuery = $state('');
 	let filterActive = $state<'' | 'true' | 'false'>('');
 	let quickFilter = $state<'' | 'undeployed' | 'needs_cal'>('');
+
+	let calBackfillBySensor = $state<Map<string, CalibrationBackfillCandidate>>(new Map());
+	let totalUncalibrated = $state(0);
+	let backfilling = $state<string | null>(null);
 
 	const perPage = 25;
 	const totalPages = $derived(Math.ceil(total / perPage));
@@ -44,22 +51,38 @@
 		}
 	}
 
+	async function loadCalBackfill() {
+		try {
+			const res = await getCalibrationCandidates();
+			calBackfillBySensor = new Map(res.candidates.map((c) => [c.sensor_id, c]));
+			totalUncalibrated = res.total_uncalibrated;
+		} catch {
+			calBackfillBySensor = new Map();
+			totalUncalibrated = 0;
+		}
+	}
+
+	async function runCalBackfill(body: { all?: boolean; sensor_id?: string }, key: string) {
+		backfilling = key;
+		try {
+			const res = await backfillCalibrations(body);
+			toastStore.success(
+				`Backfilling calibrations for ${res.sensors_updated} sensor(s) — ~${res.estimated_readings.toLocaleString()} readings`
+			);
+			await loadCalBackfill();
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Calibration backfill failed');
+		} finally {
+			backfilling = null;
+		}
+	}
+
 	function currentDeployment(sensorId: string): SensorDeployment | undefined {
 		return deployments.find((d) => d.sensor_id === sensorId && !d.deployed_until);
 	}
 
-	function lastCalibration(sensorId: string): SensorCalibration | undefined {
-		return calibrations
-			.filter((c) => c.sensor_id === sensorId)
-			.sort((a, b) => new Date(b.valid_from).getTime() - new Date(a.valid_from).getTime())[0];
-	}
-
-	function calibrationAge(cal: SensorCalibration | undefined): 'ok' | 'warning' | 'alarm' | 'unknown' {
-		if (!cal) return 'unknown';
-		const days = (Date.now() - new Date(cal.valid_from).getTime()) / 86400000;
-		if (days < 30) return 'ok';
-		if (days < 90) return 'warning';
-		return 'alarm';
+	function calibrationCount(sensorId: string): number {
+		return calibrations.filter((c) => c.sensor_id === sensorId).length;
 	}
 
 	// Client-side quick filters over the current page (the list is server-paginated).
@@ -78,7 +101,7 @@
 		currentPage = 1; load();
 	}
 
-	onMount(load);
+	onMount(() => { load(); loadCalBackfill(); });
 </script>
 
 <svelte:head><title>Sensors | River Data</title></svelte:head>
@@ -86,7 +109,22 @@
 <div class="space-y-4">
 	<div class="flex items-center justify-between">
 		<h2 class="text-xl font-semibold">Sensors</h2>
-		<a href="{base}/sensors/new" class="px-3 py-1.5 bg-brand-primary text-white rounded-md no-underline text-sm font-semibold hover:bg-brand-primary-dark">Create</a>
+		<div class="flex items-center gap-2">
+			{#if totalUncalibrated > 0}
+				<ConfirmPopover
+					message="Backfill calibrations for {totalUncalibrated.toLocaleString()} uncalibrated readings across all sensors?"
+					confirmLabel="Backfill all"
+					confirmVariant="primary"
+					onconfirm={() => runCalBackfill({ all: true }, 'all')}
+				>
+					<button
+						disabled={backfilling !== null}
+						class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface hover:bg-brand-bg disabled:opacity-50"
+					>{backfilling === 'all' ? 'Backfilling…' : `Backfill all (${totalUncalibrated.toLocaleString()})`}</button>
+				</ConfirmPopover>
+			{/if}
+			<a href="{base}/sensors/new" class="px-3 py-1.5 bg-brand-primary text-white rounded-md no-underline text-sm font-semibold hover:bg-brand-primary-dark">Create</a>
+		</div>
 	</div>
 
 	<div class="flex gap-3 items-center flex-wrap">
@@ -129,8 +167,6 @@
 				{:else}
 					{#each filteredSensors as sensor}
 						{@const dep = currentDeployment(sensor.id)}
-						{@const cal = lastCalibration(sensor.id)}
-						{@const calAge = calibrationAge(cal)}
 						<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50">
 							<td class="px-4 py-2">
 								<a href="{base}/sensors/{sensor.id}" class="text-brand-primary font-semibold no-underline hover:underline font-mono text-xs">{sensor.serial_number ?? '—'}</a>
@@ -140,8 +176,18 @@
 							<td class="px-4 py-2 text-brand-muted">{sensor.model ?? '—'}</td>
 							<td class="px-4 py-2 text-brand-muted text-xs">{dep ? formatRelativeTime(dep.deployed_from) : 'Undeployed'}</td>
 							<td class="px-4 py-2">
-								<span class="inline-block w-2 h-2 rounded-full mr-1 {calAge === 'ok' ? 'bg-severity-ok' : calAge === 'warning' ? 'bg-severity-warning' : calAge === 'alarm' ? 'bg-severity-alarm' : 'bg-severity-unknown'}"></span>
-								<span class="text-xs text-brand-muted">{cal ? formatRelativeTime(cal.valid_from) : 'None'}</span>
+								<div class="flex items-center gap-1.5">
+									<span class="text-xs text-brand-muted">{calibrationCount(sensor.id)} calibration{calibrationCount(sensor.id) === 1 ? '' : 's'}</span>
+									{#if calBackfillBySensor.get(sensor.id)}
+										{@const cb = calBackfillBySensor.get(sensor.id)!}
+										<button
+											onclick={() => runCalBackfill({ sensor_id: sensor.id }, sensor.id)}
+											disabled={backfilling !== null}
+											title="Backfill calibration for {cb.uncalibrated_count.toLocaleString()} uncalibrated readings"
+											class="px-2 py-0.5 text-xs rounded bg-severity-warning-soft text-severity-warning cursor-pointer border-none hover:opacity-80 disabled:opacity-50 whitespace-nowrap"
+										>{backfilling === sensor.id ? '…' : `Backfill (${cb.uncalibrated_count.toLocaleString()})`}</button>
+									{/if}
+								</div>
 							</td>
 							<td class="px-4 py-2">{sensor.is_active ? '✓' : '—'}</td>
 						</tr>

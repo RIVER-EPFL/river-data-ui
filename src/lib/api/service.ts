@@ -1,4 +1,4 @@
-import { GET, POST, PATCH } from './client';
+import { GET, POST, PATCH, DELETE } from './client';
 
 // Single unified API tier. The `ADMIN` and `SERVICE` constants alias the same path —
 // retained as documentation hints about which Keycloak role/token scope each endpoint
@@ -36,6 +36,8 @@ export interface ActiveAlarm {
 	};
 	severity: number;
 	since: string;
+	/** When the breach started (from persisted alarm event). */
+	started_at?: string | null;
 	/** Persisted alarm-event id; present once the sweeper has recorded this breach. */
 	event_id?: string;
 	/** True when the open event has been acknowledged. */
@@ -103,6 +105,10 @@ export const getAlarmEvents = (opts?: { site_id?: string; severity?: number; sta
 /** Acknowledge an open alarm event (require_write_data). */
 export const acknowledgeAlarm = (eventId: string) =>
 	POST<AcknowledgedAlarmResponse>(`${ADMIN}/alarms/${eventId}/acknowledge`);
+
+/** Remove acknowledgement from an open alarm event (require_write_data). */
+export const unacknowledgeAlarm = (eventId: string) =>
+	DELETE<void>(`${ADMIN}/alarms/${eventId}/acknowledge`);
 
 // Streams
 export interface StreamStats {
@@ -218,6 +224,31 @@ export interface BackfillAttributionResponse {
 // Backdate the matching open deployments + window-reprocess so historical orphans get attributed.
 export const backfillAttribution = (body: { all?: boolean; site_id?: string; deployment_ids?: string[] }) =>
 	POST<BackfillAttributionResponse>(`${SERVICE}/actions/backfill_attribution`, body);
+
+// Calibration backfill: sensors with readings missing calibration_id.
+export interface CalibrationBackfillCandidate {
+	sensor_id: string;
+	uncalibrated_count: number;
+	target_from: string;
+	earliest_calibration_from: string | null;
+	is_identity: boolean;
+}
+export interface CalibrationBackfillCandidatesResponse {
+	candidates: CalibrationBackfillCandidate[];
+	total_candidates: number;
+	total_uncalibrated: number;
+}
+export const getCalibrationCandidates = () =>
+	GET<CalibrationBackfillCandidatesResponse>(`${SERVICE}/actions/calibration_candidates`);
+
+export interface BackfillCalibrationsResponse {
+	job_id: string;
+	status: string;
+	sensors_updated: number;
+	estimated_readings: number;
+}
+export const backfillCalibrations = (body: { all?: boolean; sensor_id?: string; sensor_ids?: string[] }) =>
+	POST<BackfillCalibrationsResponse>(`${SERVICE}/actions/backfill_calibrations`, body);
 
 // Derived preview
 export interface PreviewDerivedRequest {
