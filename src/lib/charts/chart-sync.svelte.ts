@@ -1,4 +1,5 @@
 import type { AlarmThreshold, Annotation } from '$api/crud';
+import type { SensorIdentityBand, CalibrationMarker } from '$api/sensors';
 
 export interface ChartRegistration {
 	id: string;
@@ -11,6 +12,8 @@ export interface ChartRegistration {
 	flags?: (boolean | null)[] | null;
 	flagReasons?: (string | null)[] | null;
 	annotations?: Annotation[];
+	sensorBands?: SensorIdentityBand[];
+	calibrationMarkers?: CalibrationMarker[];
 }
 
 export interface CursorState {

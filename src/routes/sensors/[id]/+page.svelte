@@ -12,9 +12,11 @@
 	import DeployMoveSensorDialog from '$components/dialogs/DeployMoveSensorDialog.svelte';
 	import SensorSeriesChart from '$components/charts/SensorSeriesChart.svelte';
 	import CalibrationWindowEditor from '$components/charts/CalibrationWindowEditor.svelte';
+	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
 	import AdoptSensorDialog from '$components/dialogs/AdoptSensorDialog.svelte';
 	import { getSensorReadings, getSensorDeploymentBands, type SensorReadingsResponse, type SensorDeploymentBand } from '$api/sensors';
 	import type { SensorIdentityBand, CalibrationMarker } from '$api/sensors';
+	import { GAP_THRESHOLDS } from '$lib/charts/uPlotTheme';
 
 	let sensor = $state<Sensor | null>(null);
 	let calibrations = $state<SensorCalibration[]>([]);
@@ -51,9 +53,108 @@
 	);
 	const seriesTimes = $derived(series?.times.map((t) => new Date(t).getTime() / 1000) ?? []);
 
+	// Sensor reading extent (ms) — full data span, bounds for calibration-window sliders.
+	const seriesExtent = $derived.by(() => {
+		const ds = series?.data_start ? new Date(series.data_start).getTime() : null;
+		const de = series?.data_end ? new Date(series.data_end).getTime() : null;
+		if (ds != null && de != null && de > ds) return { min: ds, max: de };
+		const now = Date.now();
+		return { min: now - 90 * 86400000, max: now };
+	});
+
+	// ─── Time control (parity with the site plot) ───
+	let resolutionOverride = $state<'auto' | 'raw' | 'hourly' | 'daily'>('auto');
+	let sliderMin = $state(Date.now() - 90 * 86400000);
+	let sliderMax = $state(Date.now());
+	let chartStart = $state(Date.now() - 604800000);
+	let chartEnd = $state(Date.now());
+	let showSensorVectors = $state(true);
+	let showCalibrationMarkers = $state(true);
+	let extentSeeded = false;
+	let fetchGeneration = 0;
+	let fetchTimer: ReturnType<typeof setTimeout> | null = null;
+	let sliderRef = $state<{ setRange: (s: number, e: number) => void } | null>(null);
+
+	function autoResolution(startMs: number, endMs: number): 'raw' | 'hourly' | 'daily' {
+		const days = (endMs - startMs) / 86400000;
+		if (days <= 14) return 'raw';
+		if (days <= 120) return 'hourly';
+		return 'daily';
+	}
+	const chartResolution = $derived<'raw' | 'hourly' | 'daily'>(
+		resolutionOverride === 'auto' ? autoResolution(chartStart, chartEnd) : resolutionOverride,
+	);
+	const gapThreshold = $derived(GAP_THRESHOLDS[chartResolution] ?? 0);
+	const windowLabel = $derived.by(() => {
+		const days = (chartEnd - chartStart) / 86400000;
+		if (days < 1) return `${Math.round(days * 24)}h`;
+		if (days < 60) return `${Math.round(days)}d`;
+		return `${(days / 30).toFixed(1)}mo`;
+	});
+	const activeRange = $derived.by(() => {
+		const rangeMs: Record<string, number> = { '24h': 86400000, '7d': 604800000, '30d': 2592000000, '90d': 7776000000 };
+		const dur = chartEnd - chartStart;
+		for (const [key, ms] of Object.entries(rangeMs)) if (Math.abs(dur - ms) < 60000) return key;
+		return null;
+	});
+
+	function scheduleFetch() {
+		if (fetchTimer) clearTimeout(fetchTimer);
+		fetchTimer = setTimeout(() => { fetchTimer = null; void fetchSeries(); }, 50);
+	}
+
+	async function fetchSeries() {
+		seriesLoading = true;
+		const gen = ++fetchGeneration;
+		const startDate = new Date(chartStart).toISOString();
+		const endDate = new Date(chartEnd).toISOString();
+		try {
+			const sr = await getSensorReadings(sensorId, {
+				start: startDate, end: endDate, resolution: chartResolution, include_raw: true,
+			});
+			if (gen !== fetchGeneration) return;
+			series = sr;
+			// Seed slider bounds from the full data extent once.
+			if (!extentSeeded && sr.data_start && sr.data_end) {
+				sliderMin = new Date(sr.data_start).getTime();
+				sliderMax = new Date(sr.data_end).getTime();
+				if (chartStart < sliderMin) chartStart = sliderMin;
+				if (chartEnd > sliderMax) chartEnd = sliderMax;
+				extentSeeded = true;
+			}
+		} catch (e) {
+			if (gen === fetchGeneration) toastStore.error(e instanceof Error ? `Failed to load sensor series: ${e.message}` : 'Failed to load sensor series');
+		} finally {
+			if (gen === fetchGeneration) seriesLoading = false;
+		}
+	}
+
+	function updateChartRange(range: string) {
+		const rangeMs: Record<string, number> = { '24h': 86400000, '7d': 604800000, '30d': 2592000000, '90d': 7776000000 };
+		chartEnd = sliderMax;
+		chartStart = Math.max(sliderMin, chartEnd - rangeMs[range]);
+		scheduleFetch();
+	}
+	function onSliderChange(start: number, end: number) { chartStart = start; chartEnd = end; scheduleFetch(); }
+	function onChartZoomSelect(startMs: number, endMs: number) {
+		chartStart = startMs; chartEnd = endMs;
+		sliderRef?.setRange(startMs, endMs);
+		scheduleFetch();
+	}
+	function onChartResetZoom() {
+		chartStart = sliderMin; chartEnd = sliderMax;
+		sliderRef?.setRange(sliderMin, sliderMax);
+		scheduleFetch();
+	}
+
+	const msToLocal = (ms: number) => new Date(ms).toISOString().slice(0, 16);
+	const localToMs = (s: string) => new Date(s).getTime();
+
 	// Add-calibration dialog
 	let addCalOpen = $state(false);
-	let newCalValidFrom = $state(new Date().toISOString().slice(0, 16));
+	let newCalFromMs = $state(Date.now());
+	let newCalEndMs = $state(0);
+	$effect(() => { if (newCalEndMs === 0 && seriesExtent.max > 0) newCalEndMs = seriesExtent.max; });
 	let newCalSlope = $state('1');
 	let newCalIntercept = $state('0');
 	let addingCal = $state(false);
@@ -95,7 +196,7 @@
 		try {
 			await api.sensorCalibrations.create({
 				sensor_id: sensorId,
-				valid_from: new Date(newCalValidFrom).toISOString(),
+				valid_from: new Date(newCalFromMs).toISOString(),
 				slope,
 				intercept,
 			});
@@ -103,7 +204,7 @@
 			addCalOpen = false;
 			newCalSlope = '1';
 			newCalIntercept = '0';
-			newCalValidFrom = new Date().toISOString().slice(0, 16);
+			newCalFromMs = Date.now();
 			await reloadCalibrations();
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Failed to add calibration');
@@ -113,6 +214,11 @@
 	}
 
 	onMount(async () => {
+		// Deep link from a chart band/calibration-marker click: ?tab=calibrations&cal=<id>
+		if (page.url.searchParams.get('tab') === 'calibrations') activeTab = 2;
+		const calParam = page.url.searchParams.get('cal');
+		if (calParam) editingCalId = calParam;
+
 		try {
 			const [s, cals, deps, sitesResult, params] = await Promise.all([
 				api.sensors.get(sensorId),
@@ -130,17 +236,10 @@
 			loading = false;
 		}
 		try {
-			const [sr, db] = await Promise.all([
-				getSensorReadings(sensorId, { include_raw: true }),
-				getSensorDeploymentBands(sensorId),
-			]);
-			series = sr;
+			const db = await getSensorDeploymentBands(sensorId);
 			depBands = db.bands;
-		} catch (e) {
-			toastStore.error(e instanceof Error ? `Failed to load sensor series: ${e.message}` : 'Failed to load sensor series');
-		} finally {
-			seriesLoading = false;
-		}
+		} catch { /* bands are non-critical */ }
+		void fetchSeries();
 	});
 
 	function siteName(siteId: string): string {
@@ -212,14 +311,69 @@
 		<Tabs tabs={['Overview', 'Deployments', 'Calibrations']} bind:active={activeTab} />
 
 		{#if activeTab === 0}
-			{#if !seriesLoading}
+			<div class="rounded-md border border-brand-divider bg-brand-surface px-4 py-3 space-y-3">
+				<div class="flex items-center gap-3 flex-wrap">
+					<span class="text-xs text-brand-muted font-semibold uppercase tracking-wider">Range</span>
+					<div class="flex gap-0.5">
+						{#each ['24h', '7d', '30d', '90d'] as range}
+							<button
+								onclick={() => updateChartRange(range)}
+								class="px-2.5 py-1 text-xs rounded cursor-pointer border-none {activeRange === range ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
+							>{range}</button>
+						{/each}
+					</div>
+
+					<div class="w-px h-5 bg-brand-divider mx-1"></div>
+
+					<span class="text-xs text-brand-muted font-semibold uppercase tracking-wider">Resolution</span>
+					<div class="flex gap-0.5">
+						{#each [['auto', 'Auto'], ['raw', 'Raw'], ['hourly', 'Hourly'], ['daily', 'Daily']] as [val, label]}
+							<button
+								onclick={() => { resolutionOverride = val as typeof resolutionOverride; scheduleFetch(); }}
+								class="px-2 py-1 text-xs rounded cursor-pointer border-none {resolutionOverride === val ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
+							>{label}{resolutionOverride === 'auto' && val === 'auto' ? ` (${chartResolution})` : ''}</button>
+						{/each}
+					</div>
+
+					<div class="w-px h-5 bg-brand-divider mx-1"></div>
+					<label class="flex items-center gap-1.5 cursor-pointer text-xs text-brand-muted" title="Colour the time axis by which site the sensor was deployed at">
+						<input type="checkbox" bind:checked={showSensorVectors} /> Site bands
+					</label>
+					<label class="flex items-center gap-1.5 cursor-pointer text-xs text-brand-muted" title="Mark calibration changes">
+						<input type="checkbox" bind:checked={showCalibrationMarkers} /> Calibration markers
+					</label>
+
+					<span class="text-xs text-brand-muted ml-auto font-mono">
+						{windowLabel} · {new Date(chartStart).toLocaleDateString()} — {new Date(chartEnd).toLocaleDateString()}
+					</span>
+				</div>
+				<TimeRangeSlider
+					bind:this={sliderRef}
+					min={sliderMin}
+					max={sliderMax}
+					bind:start={chartStart}
+					bind:end={chartEnd}
+					onchange={onSliderChange}
+				/>
+			</div>
+
+			{#if !seriesLoading || series}
 				<SensorSeriesChart
 					times={seriesTimes}
 					raw={series?.raw ?? []}
 					calibrated={series?.calibrated ?? []}
+					rawMin={series?.raw_min ?? []}
+					rawMax={series?.raw_max ?? []}
+					calMin={series?.calibrated_min ?? []}
+					calMax={series?.calibrated_max ?? []}
 					units={sensorUnits}
 					deploymentBands={identityBands}
 					calibrationMarkers={calMarkers}
+					{showSensorVectors}
+					{showCalibrationMarkers}
+					{gapThreshold}
+					onZoomSelect={onChartZoomSelect}
+					onResetZoom={onChartResetZoom}
 				/>
 			{:else}
 				<div class="rounded-md border border-brand-divider bg-brand-surface p-6 text-center text-sm text-brand-muted">Loading series…</div>
@@ -302,7 +456,7 @@
 							{#if editingCalId === cal.id}
 								<tr class="border-b border-brand-divider bg-brand-bg/40">
 									<td colspan="6" class="px-4 py-3">
-										<CalibrationWindowEditor calibration={cal} units={sensorUnits} onchanged={reloadCalibrations} />
+										<CalibrationWindowEditor calibration={cal} units={sensorUnits} rangeMin={seriesExtent.min} rangeMax={seriesExtent.max} onchanged={reloadCalibrations} />
 									</td>
 								</tr>
 							{/if}
@@ -321,7 +475,11 @@
 			<div class="space-y-3">
 				<div class="flex flex-col gap-1">
 					<label for="cal-valid-from" class="text-xs text-brand-muted">Valid from</label>
-					<input id="cal-valid-from" type="datetime-local" bind:value={newCalValidFrom} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" />
+					<input id="cal-valid-from" type="datetime-local" value={msToLocal(newCalFromMs)} oninput={(e) => newCalFromMs = localToMs(e.currentTarget.value)} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" />
+					{#if seriesExtent.max > seriesExtent.min}
+						<TimeRangeSlider min={seriesExtent.min} max={seriesExtent.max} bind:start={newCalFromMs} bind:end={newCalEndMs} />
+						<span class="text-[10px] text-brand-muted">Drag the left handle to set when this calibration takes effect. It applies until the next calibration starts.</span>
+					{/if}
 				</div>
 				<div class="grid grid-cols-2 gap-3">
 					<div class="flex flex-col gap-1">

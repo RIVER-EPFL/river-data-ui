@@ -10,11 +10,12 @@
 	import AnnotateDialog from '$components/dialogs/AnnotateDialog.svelte';
 	import FlagDialog from '$components/dialogs/FlagDialog.svelte';
 	import {
-		sensorVectorBandPlugin, calibrationMarkerPlugin, bandAtTime,
+		sensorVectorBandPlugin, calibrationMarkerPlugin, bandAtTime, BAND_STRIP_CSS,
 		type OverlayVisibility,
 	} from '$lib/charts/overlay-plugins';
 	import type { SensorIdentityBand, CalibrationMarker } from '$api/sensors';
 	import { base } from '$app/paths';
+	import { goto } from '$app/navigation';
 
 	export interface ChartData {
 		times: number[];
@@ -90,10 +91,6 @@
 	const calMarkersRef: { current: CalibrationMarker[] } = { current: calibrationMarkers };
 	$effect(() => { sensorBandsRef.current = sensorBands; chart?.redraw(); });
 	$effect(() => { calMarkersRef.current = calibrationMarkers; chart?.redraw(); });
-
-	// Hover-on-band → tooltip with a link to the sensor/calibration config page.
-	let hoverBand = $state<SensorIdentityBand | null>(null);
-	let hoverBandPos = $state<{ x: number; y: number } | null>(null);
 
 	let dialogMode = $state<'annotate' | 'flag' | 'unflag'>('annotate');
 	let annotateOpen = $state(false);
@@ -246,27 +243,6 @@
 		};
 	}
 
-	function bandHoverPlugin(): uPlot.Plugin {
-		return {
-			hooks: {
-				setCursor: [
-					(u: uPlot) => {
-						if (!overlayVisRef.current.sensorVectors || sensorBandsRef.current.length === 0) {
-							if (hoverBand) { hoverBand = null; hoverBandPos = null; }
-							return;
-						}
-						const left = u.cursor.left ?? -1;
-						if (left < 0) { hoverBand = null; hoverBandPos = null; return; }
-						const tsSec = u.posToVal(left, 'x');
-						const b = bandAtTime(sensorBandsRef.current, tsSec);
-						hoverBand = b;
-						hoverBandPos = b ? { x: left, y: u.cursor.top ?? 0 } : null;
-					},
-				],
-			},
-		};
-	}
-
 	let dragOverlayEl: HTMLDivElement | null = null;
 
 	function setupCustomSelection(u: uPlot) {
@@ -363,7 +339,6 @@
 				calibrationMarkerPlugin(calMarkersRef, overlayVisRef),
 				flaggedPointPlugin(flags),
 				cursorSyncPlugin(),
-				bandHoverPlugin(),
 			],
 			cursor: {
 				show: true,
@@ -402,11 +377,51 @@
 		};
 
 		chart = new uPlot(opts, data, el);
-		teardownCustomSelection = setupCustomSelection(chart);
+		const teardownSelect = setupCustomSelection(chart);
+		const teardownClick = setupConfigClick(chart);
+		teardownCustomSelection = () => { teardownSelect(); teardownClick(); };
 
 		if (onResetZoom) {
 			chart.root.addEventListener('dblclick', () => onResetZoom!());
 		}
+	}
+
+	// The band's dark top strip is the only click target → open that sensor's Calibrations tab,
+	// pre-opening the calibration covering the clicked time. A plain click on the strip only
+	// (not a drag, not the data area below it).
+	function bandStripAt(u: uPlot, xCss: number, yCss: number): SensorIdentityBand | null {
+		if (!overlayVisRef.current.sensorVectors) return null;
+		if (yCss < 0 || yCss > BAND_STRIP_CSS) return null;
+		return bandAtTime(sensorBandsRef.current, u.posToVal(xCss, 'x'));
+	}
+
+	function setupConfigClick(u: uPlot): () => void {
+		const over = u.over;
+		let downX: number | null = null;
+		const onDown = (e: MouseEvent) => { downX = e.clientX; };
+		const onMove = (e: MouseEvent) => {
+			const rect = over.getBoundingClientRect();
+			over.style.cursor = bandStripAt(u, e.clientX - rect.left, e.clientY - rect.top) ? 'pointer' : '';
+		};
+		const onUp = (e: MouseEvent) => {
+			const start = downX;
+			downX = null;
+			if (start == null || Math.abs(e.clientX - start) > 4) return; // a drag, not a click
+			if (selectionModeRef.current !== 'zoom') return;
+			const rect = over.getBoundingClientRect();
+			const xCss = e.clientX - rect.left;
+			const band = bandStripAt(u, xCss, e.clientY - rect.top);
+			if (!band) return;
+			goto(`${base}/sensors/${band.sensor_id}`);
+		};
+		over.addEventListener('mousedown', onDown);
+		over.addEventListener('mousemove', onMove);
+		over.addEventListener('mouseup', onUp);
+		return () => {
+			over.removeEventListener('mousedown', onDown);
+			over.removeEventListener('mousemove', onMove);
+			over.removeEventListener('mouseup', onUp);
+		};
 	}
 
 	function handleSelection(startMs: number, endMs: number) {
@@ -488,6 +503,8 @@
 				flags: chartData!.flags ?? null,
 				flagReasons: chartData!.flagReasons ?? null,
 				annotations,
+				sensorBands: showSensorVectors ? sensorBands : [],
+				calibrationMarkers: showCalibrationMarkers ? calibrationMarkers : [],
 			});
 			tick().then(() => renderChart());
 		}
@@ -505,6 +522,8 @@
 			flags: null,
 			flagReasons: null,
 			annotations: [],
+			sensorBands: [],
+			calibrationMarkers: [],
 		});
 
 		window.addEventListener('resize', handleResize);
@@ -596,15 +615,6 @@
 	{/if}
 	<div class="px-1 py-1 relative {selectionMode !== 'zoom' ? 'cursor-crosshair' : ''}">
 		<div bind:this={el} class="w-full" style="min-height:220px"></div>
-		{#if hoverBand && hoverBandPos}
-			<a
-				href="{base}/sensors/{hoverBand.sensor_id}"
-				class="absolute z-20 px-2 py-1 text-xs rounded bg-brand-text text-white no-underline shadow-md pointer-events-auto"
-				style="left:{hoverBandPos.x + 12}px; top:{hoverBandPos.y}px"
-			>
-				{hoverBand.sensor_name ?? hoverBand.sensor_serial ?? 'sensor'} ↗
-			</a>
-		{/if}
 		{#if !hasData && !externalLoading}
 			<div class="absolute inset-0 flex items-center justify-center text-sm text-brand-muted pointer-events-none">No data for selected range</div>
 		{/if}

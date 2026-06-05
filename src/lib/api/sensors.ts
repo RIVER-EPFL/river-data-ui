@@ -52,17 +52,28 @@ export interface SensorReadingsResponse {
 	sensor_id: string;
 	parameter_id: string;
 	units: string | null;
+	/** Resolution applied: 'raw' (per-point) or 'hourly'/'daily'/'weekly'/'monthly' (bucketed). */
+	resolution: string;
 	times: string[];
+	/** Per-point value, or per-bucket average when aggregated. */
 	raw: (number | null)[];
 	/** Present when include_raw or always; calibrated_value materialized on readings. */
 	calibrated: (number | null)[];
+	/** Per-bucket min/max envelopes; empty in raw mode. */
+	raw_min: (number | null)[];
+	raw_max: (number | null)[];
+	calibrated_min: (number | null)[];
+	calibrated_max: (number | null)[];
 	/** Per-point site assignment (deployment_id resolves a site); null when unpaired. */
 	site_ids: (string | null)[];
+	/** Full reading extent for this sensor (independent of the query window). */
+	data_start: string | null;
+	data_end: string | null;
 }
 
 export const getSensorReadings = (
 	sensorId: string,
-	params: { start?: string; end?: string; include_raw?: boolean },
+	params: { start?: string; end?: string; include_raw?: boolean; resolution?: string },
 ) => GET<SensorReadingsResponse>(`/api/sensors/${sensorId}/readings`, params);
 
 /** Site-assignment bands for a single sensor (deployment windows). */
