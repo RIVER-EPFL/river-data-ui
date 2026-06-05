@@ -4,8 +4,9 @@
 	import 'uplot/dist/uPlot.min.css';
 	import { makeSeries, makeAxis, makeGaps, uPlotTheme } from '$lib/charts/uPlotTheme';
 	import {
-		sensorVectorBandPlugin, calibrationMarkerPlugin, bandAtTime, calibrationAtTime,
-		type OverlayVisibility,
+		sensorVectorBandPlugin, calibrationMarkerPlugin, calibrationWindowBandPlugin,
+		bandAtTime, calibrationAtTime,
+		type OverlayVisibility, type CalibrationWindowBand,
 	} from '$lib/charts/overlay-plugins';
 	import type { SensorIdentityBand, CalibrationMarker } from '$api/sensors';
 
@@ -13,6 +14,7 @@
 		times,            // seconds
 		raw,
 		calibrated,
+		preview,
 		rawMin = [],
 		rawMax = [],
 		calMin = [],
@@ -24,12 +26,14 @@
 		showCalibrationMarkers = true,
 		gapThreshold = 0,
 		height = 320,
+		windowBand,
 		onZoomSelect,
 		onResetZoom,
 	}: {
 		times: number[];
 		raw: (number | null)[];
 		calibrated: (number | null)[];
+		preview?: (number | null)[];
 		rawMin?: (number | null)[];
 		rawMax?: (number | null)[];
 		calMin?: (number | null)[];
@@ -41,6 +45,7 @@
 		showCalibrationMarkers?: boolean;
 		gapThreshold?: number;
 		height?: number;
+		windowBand?: CalibrationWindowBand | null;
 		onZoomSelect?: (startMs: number, endMs: number) => void;
 		onResetZoom?: () => void;
 	} = $props();
@@ -58,10 +63,13 @@
 
 	const bandsRef = { current: deploymentBands };
 	const markersRef = { current: calibrationMarkers };
+	const windowBandRef: { current: CalibrationWindowBand | null } = { current: windowBand ?? null };
 	$effect(() => { bandsRef.current = deploymentBands; chart?.redraw(); });
 	$effect(() => { markersRef.current = calibrationMarkers; chart?.redraw(); });
+	$effect(() => { windowBandRef.current = windowBand ?? null; chart?.redraw(); });
 
 	const hasBands = $derived(rawMin.length === times.length && rawMin.length > 0);
+	const hasPreview = $derived(!!preview && preview.length === times.length);
 
 	// Hover tooltip (self-contained — this chart isn't in a ChartSyncGroup).
 	let hover = $state<{ idx: number; x: number; y: number } | null>(null);
@@ -78,6 +86,7 @@
 			}),
 			raw: fmtNum(raw[hover.idx]),
 			calibrated: fmtNum(calibrated[hover.idx]),
+			preview: hasPreview ? fmtNum(preview![hover.idx]) : null,
 			band, cal,
 		};
 	});
@@ -110,15 +119,19 @@
 			{ ...makeSeries(0, 'Calibrated', units), ...(gaps ? { gaps } : {}) },
 		];
 		const data: uPlot.AlignedData = [times, toU(raw), toU(calibrated)] as uPlot.AlignedData;
+		if (hasPreview) {
+			series.push({ ...makeSeries(5, 'Preview', units), width: 2, dash: [6, 2], ...(gaps ? { gaps } : {}) });
+			(data as unknown[]).push(toU(preview!));
+		}
 		let bands: uPlot.Band[] | undefined;
 		if (hasBands) {
-			// Hidden envelope series + bands: [max, min] for raw, then calibrated.
+			const envStart = hasPreview ? 4 : 3;
 			const hidden = (): uPlot.Series => ({ label: '', stroke: 'transparent', width: 0, points: { show: false }, ...(gaps ? { gaps } : {}), class: 'hidden-series' });
-			series.push(hidden(), hidden(), hidden(), hidden()); // 3 rawMin, 4 rawMax, 5 calMin, 6 calMax
+			series.push(hidden(), hidden(), hidden(), hidden());
 			(data as unknown[]).push(toU(rawMin), toU(rawMax), toU(calMin), toU(calMax));
 			bands = [
-				{ series: [4, 3], fill: uPlotTheme.minMaxBandFill },
-				{ series: [6, 5], fill: uPlotTheme.minMaxBandFill },
+				{ series: [envStart + 1, envStart], fill: uPlotTheme.minMaxBandFill },
+				{ series: [envStart + 3, envStart + 2], fill: uPlotTheme.minMaxBandFill },
 			];
 		}
 
@@ -129,6 +142,7 @@
 			plugins: [
 				sensorVectorBandPlugin(bandsRef, visRef),
 				calibrationMarkerPlugin(markersRef, visRef),
+				...(windowBand != null ? [calibrationWindowBandPlugin(windowBandRef)] : []),
 				tooltipPlugin(),
 			],
 			scales: { x: { time: true }, y: {} },
@@ -195,6 +209,11 @@
 				<div class="flex items-center justify-between gap-4" style="font-size:12px;line-height:20px;color:{uPlotTheme.tooltipColor}">
 					<span>Calibrated</span><span style="font-weight:600;font-variant-numeric:tabular-nums">{hoverInfo.calibrated} <span style="opacity:0.6;font-weight:400">{units}</span></span>
 				</div>
+				{#if hoverInfo.preview != null}
+					<div class="flex items-center justify-between gap-4" style="font-size:12px;line-height:20px;color:#E69F00">
+						<span>Preview</span><span style="font-weight:600;font-variant-numeric:tabular-nums">{hoverInfo.preview} <span style="opacity:0.6;font-weight:400">{units}</span></span>
+					</div>
+				{/if}
 				{#if hoverInfo.band || hoverInfo.cal}
 					<div style="margin-top:5px;padding-top:5px;border-top:1px solid rgba(255,255,255,0.15)">
 						{#if hoverInfo.band}

@@ -79,7 +79,12 @@ export function sensorVectorBandPlugin(
 	};
 }
 
-/** Vertical dashed markers at each calibration valid_from. */
+export const CALIBRATION_STRIP_CSS = 14;
+
+const calLabel = (m: CalibrationMarker) =>
+	m.intercept >= 0 ? `${m.slope}x + ${m.intercept}` : `${m.slope}x − ${Math.abs(m.intercept)}`;
+
+/** Calibration-window strips drawn below the deployment strip. */
 export function calibrationMarkerPlugin(
 	markersRef: { current: CalibrationMarker[] },
 	visRef: { current: OverlayVisibility },
@@ -92,35 +97,78 @@ export function calibrationMarkerPlugin(
 					const markers = markersRef.current;
 					if (!markers.length) return;
 					const ctx = u.ctx;
-					const { left, top, width, height } = u.bbox;
+					const dpr = (u as unknown as { pxRatio?: number }).pxRatio ?? (typeof window !== 'undefined' ? window.devicePixelRatio : 1) ?? 1;
+					const sensorStripH = BAND_STRIP_CSS * dpr;
+					const calStripH = CALIBRATION_STRIP_CSS * dpr;
+					const { left, top, width } = u.bbox;
+					const stripTop = top + sensorStripH;
 					ctx.save();
 					ctx.beginPath();
-					ctx.rect(left, top, width, height + 4);
+					ctx.rect(left, top, width, u.bbox.height);
 					ctx.clip();
-					const dpr = (u as unknown as { pxRatio?: number }).pxRatio ?? (typeof window !== 'undefined' ? window.devicePixelRatio : 1) ?? 1;
+					ctx.textBaseline = 'middle';
+					ctx.font = `600 ${10 * dpr}px ${tokens.font.body}`;
 					for (const m of markers) {
-						const ts = new Date(m.valid_from).getTime() / 1000;
-						let x = u.valToPos(ts, 'x', true);
-						if (x > left + width + 1) continue; // genuinely off the right
-						if (x < left - 2 * dpr) continue;   // genuinely off the left
-						x = Math.max(x, left + 0.5 * dpr);   // nudge an at-edge marker into view
-						ctx.strokeStyle = tokens.brand.accent;
-						ctx.lineWidth = 1;
-						ctx.setLineDash([4, 3]);
-						ctx.beginPath();
-						ctx.moveTo(x, top);
-						ctx.lineTo(x, top + height);
-						ctx.stroke();
-						// Small solid tag at the top so the marker reads as a calibration change.
-						ctx.setLineDash([]);
-						ctx.fillStyle = tokens.brand.accent;
-						ctx.beginPath();
-						ctx.moveTo(x, top);
-						ctx.lineTo(x + 5 * dpr, top);
-						ctx.lineTo(x, top + 5 * dpr);
-						ctx.closePath();
-						ctx.fill();
+						const ts0 = new Date(m.valid_from).getTime() / 1000;
+						const ts1 = m.valid_until ? new Date(m.valid_until).getTime() / 1000 : u.scales.x.max!;
+						const x0 = Math.max(u.valToPos(ts0, 'x', true), left);
+						const x1 = Math.min(u.valToPos(ts1, 'x', true), left + width);
+						if (x1 <= x0) continue;
+						ctx.fillStyle = `rgba(199,119,0,0.85)`;
+						ctx.fillRect(x0, stripTop, x1 - x0, calStripH);
+						if (x1 - x0 > 20 * dpr) {
+							ctx.save();
+							ctx.beginPath();
+							ctx.rect(x0, stripTop, x1 - x0, calStripH);
+							ctx.clip();
+							ctx.fillStyle = '#ffffff';
+							ctx.fillText(calLabel(m), x0 + 4 * dpr, stripTop + calStripH / 2 + dpr);
+							ctx.restore();
+						}
 					}
+					ctx.restore();
+				},
+			],
+		},
+	};
+}
+
+// ── Calibration editor window band ──────────────────────────────────────────
+
+export interface CalibrationWindowBand {
+	fromSec: number;
+	toSec: number;
+}
+
+/** Shaded rectangle over the editable calibration window. */
+export function calibrationWindowBandPlugin(
+	bandRef: { current: CalibrationWindowBand | null },
+): uPlot.Plugin {
+	return {
+		hooks: {
+			draw: [
+				(u: uPlot) => {
+					const band = bandRef.current;
+					if (!band) return;
+					const ctx = u.ctx;
+					const dpr = (u as unknown as { pxRatio?: number }).pxRatio ?? (typeof window !== 'undefined' ? window.devicePixelRatio : 1) ?? 1;
+					const { left, top, width, height } = u.bbox;
+					const ts1 = band.toSec === Infinity ? u.scales.x.max! : band.toSec;
+					const x0 = Math.max(u.valToPos(band.fromSec, 'x', true), left);
+					const x1 = Math.min(u.valToPos(ts1, 'x', true), left + width);
+					if (x1 <= x0) return;
+					ctx.save();
+					ctx.fillStyle = `rgba(199,119,0,0.08)`;
+					ctx.fillRect(x0, top, x1 - x0, height);
+					ctx.strokeStyle = `rgba(199,119,0,0.5)`;
+					ctx.lineWidth = 1;
+					ctx.setLineDash([]);
+					ctx.beginPath();
+					ctx.moveTo(x0, top);
+					ctx.lineTo(x0, top + height);
+					ctx.moveTo(x1, top);
+					ctx.lineTo(x1, top + height);
+					ctx.stroke();
 					ctx.restore();
 				},
 			],

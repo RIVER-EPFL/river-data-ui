@@ -528,7 +528,7 @@
 							{#if editingCalId === cal.id}
 								<tr class="border-b border-brand-divider bg-brand-bg/40">
 									<td colspan="6" class="px-4 py-3">
-										<CalibrationWindowEditor calibration={cal} units={sensorUnits} rangeMin={seriesExtent.min} rangeMax={seriesExtent.max} onchanged={reloadCalibrations} />
+										<CalibrationWindowEditor calibration={cal} units={sensorUnits} {sensorId} rangeMin={seriesExtent.min} rangeMax={seriesExtent.max} onchanged={reloadCalibrations} />
 									</td>
 								</tr>
 							{/if}

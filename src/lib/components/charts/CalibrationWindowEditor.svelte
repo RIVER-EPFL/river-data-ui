@@ -1,51 +1,141 @@
 <script lang="ts">
 	import { api, type SensorCalibration } from '$api/crud';
 	import { recalibrateCalibration } from '$api/service';
-	import { getCalibrationWindow, type CalibrationWindowResponse } from '$api/sensors';
+	import { getSensorReadings, type SensorReadingsResponse } from '$api/sensors';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import { GAP_THRESHOLDS } from '$lib/charts/uPlotTheme';
 	import ScatterPlot from '$components/charts/ScatterPlot.svelte';
 	import SensorSeriesChart from '$components/charts/SensorSeriesChart.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
 
-	let { calibration, units = '', rangeMin, rangeMax, onchanged }: {
+	let { calibration, units = '', sensorId, rangeMin, rangeMax, onchanged }: {
 		calibration: SensorCalibration;
 		units?: string;
-		/** Sensor reading extent (ms) — slider bounds. */
+		sensorId: string;
 		rangeMin: number;
 		rangeMax: number;
 		onchanged?: () => void;
 	} = $props();
 
-	let win = $state<CalibrationWindowResponse | null>(null);
-	let loading = $state(false);
 	let slope = $state(String(calibration.slope));
 	let intercept = $state(String(calibration.intercept));
 	let saving = $state(false);
 
-	// Window as epoch-ms; the right handle at (or past) rangeMax means open-ended (valid_until = null).
 	const initFrom = Math.min(Math.max(new Date(calibration.valid_from).getTime(), rangeMin), rangeMax);
 	const initUntil = calibration.valid_until ? new Date(calibration.valid_until).getTime() : rangeMax;
 	let startMs = $state(initFrom);
 	let endMs = $state(Math.min(Math.max(initUntil, rangeMin), rangeMax));
 
-	const OPEN_EPS = 60_000; // within 1 min of the far edge → treat as open-ended
+	const OPEN_EPS = 60_000;
 	const isOpenEnded = $derived(endMs >= rangeMax - OPEN_EPS);
 
 	const msToLocal = (ms: number) => new Date(ms).toISOString().slice(0, 16);
 	const localToMs = (s: string) => new Date(s).getTime();
 
-	async function loadWindow() {
-		loading = true;
-		try { win = await getCalibrationWindow(calibration.id); }
-		catch (e) { toastStore.error(e instanceof Error ? e.message : 'Failed to load calibration window'); }
-		finally { loading = false; }
-	}
-	$effect(() => { if (calibration.id) loadWindow(); });
+	// ─── Chart data explorer ───
+	let resolutionOverride = $state<'auto' | 'raw' | 'hourly' | 'daily'>('auto');
+	let series = $state<SensorReadingsResponse | null>(null);
+	let seriesLoading = $state(false);
+	let fetchGeneration = 0;
+	let fetchTimer: ReturnType<typeof setTimeout> | null = null;
+	let sliderRef = $state<{ setRange: (s: number, e: number) => void } | null>(null);
 
-	// Preview calibrated = slope*raw + intercept for the loaded points, live.
-	const rawArr = $derived(win?.points.map((p) => p.raw_value) ?? []);
-	const previewCal = $derived(win?.points.map((p) => Number(slope) * p.raw_value + Number(intercept)) ?? []);
-	const times = $derived(win?.points.map((p) => new Date(p.time).getTime() / 1000) ?? []);
+	const calFromMs = new Date(calibration.valid_from).getTime();
+	let chartStart = $state(Math.max(rangeMin, calFromMs - 30 * 86400000));
+	let chartEnd = $state(Math.min(rangeMax, calFromMs + 30 * 86400000));
+
+	function autoResolution(s: number, e: number): 'raw' | 'hourly' | 'daily' {
+		const days = (e - s) / 86400000;
+		if (days <= 14) return 'raw';
+		if (days <= 120) return 'hourly';
+		return 'daily';
+	}
+	const chartResolution = $derived<'raw' | 'hourly' | 'daily'>(
+		resolutionOverride === 'auto' ? autoResolution(chartStart, chartEnd) : resolutionOverride,
+	);
+	const gapThreshold = $derived(GAP_THRESHOLDS[chartResolution] ?? 0);
+
+	function scheduleFetch() {
+		if (fetchTimer) clearTimeout(fetchTimer);
+		fetchTimer = setTimeout(() => { fetchTimer = null; void fetchSeries(); }, 50);
+	}
+
+	async function fetchSeries() {
+		seriesLoading = true;
+		const gen = ++fetchGeneration;
+		try {
+			const sr = await getSensorReadings(sensorId, {
+				start: new Date(chartStart).toISOString(),
+				end: new Date(chartEnd).toISOString(),
+				resolution: chartResolution,
+				include_raw: true,
+			});
+			if (gen !== fetchGeneration) return;
+			series = sr;
+		} catch (e) {
+			if (gen === fetchGeneration) toastStore.error(e instanceof Error ? e.message : 'Failed to load readings');
+		} finally {
+			if (gen === fetchGeneration) seriesLoading = false;
+		}
+	}
+
+	$effect(() => { if (sensorId) scheduleFetch(); });
+
+	function onSliderChange(s: number, e: number) { chartStart = s; chartEnd = e; scheduleFetch(); }
+	function onChartZoomSelect(startSec: number, endSec: number) {
+		chartStart = startSec; chartEnd = endSec;
+		sliderRef?.setRange(startSec, endSec);
+		scheduleFetch();
+	}
+	function onChartResetZoom() {
+		chartStart = rangeMin; chartEnd = rangeMax;
+		sliderRef?.setRange(rangeMin, rangeMax);
+		scheduleFetch();
+	}
+
+	// ─── Derived chart arrays ───
+	const chartTimes = $derived(series?.times.map((t) => new Date(t).getTime() / 1000) ?? []);
+	const chartRaw = $derived(series?.raw ?? []);
+	const chartCalibrated = $derived(series?.calibrated ?? []);
+
+	const windowFromSec = $derived(startMs / 1000);
+	const windowUntilSec = $derived(isOpenEnded ? Infinity : endMs / 1000);
+
+	const chartPreview = $derived.by(() => {
+		const s = Number(slope), b = Number(intercept);
+		if (!Number.isFinite(s) || !Number.isFinite(b)) return [];
+		const from = windowFromSec, until = windowUntilSec;
+		return chartTimes.map((t, i) => {
+			const r = chartRaw[i];
+			return r != null && t >= from && t < until ? s * r + b : null;
+		});
+	});
+
+	const windowBand = $derived({ fromSec: windowFromSec, toSec: windowUntilSec === Infinity ? (chartTimes.length > 0 ? chartTimes[chartTimes.length - 1] + 3600 : windowFromSec + 1) : windowUntilSec });
+
+	const scatterRaw = $derived.by(() => {
+		const from = windowFromSec, until = windowUntilSec;
+		return chartTimes.map((t, i) => t >= from && t < until ? chartRaw[i] : null);
+	});
+	const scatterPreview = $derived.by(() => {
+		const from = windowFromSec, until = windowUntilSec;
+		return chartTimes.map((t, i) => t >= from && t < until ? chartPreview[i] : null);
+	});
+
+	const activeRange = $derived.by(() => {
+		const rangeMs: Record<string, number> = { '24h': 86400000, '7d': 604800000, '30d': 2592000000, '90d': 7776000000 };
+		const dur = chartEnd - chartStart;
+		for (const [key, ms] of Object.entries(rangeMs)) if (Math.abs(dur - ms) < 60000) return key;
+		return null;
+	});
+
+	function updateChartRange(range: string) {
+		const rangeMs: Record<string, number> = { '24h': 86400000, '7d': 604800000, '30d': 2592000000, '90d': 7776000000 };
+		chartEnd = rangeMax;
+		chartStart = Math.max(rangeMin, chartEnd - rangeMs[range]);
+		sliderRef?.setRange(chartStart, chartEnd);
+		scheduleFetch();
+	}
 
 	async function save() {
 		const s = Number(slope), b = Number(intercept);
@@ -59,7 +149,7 @@
 			});
 			await recalibrateCalibration(calibration.id);
 			toastStore.success('Calibration updated — readings recomputed in the background');
-			await loadWindow();
+			scheduleFetch();
 			onchanged?.();
 		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Update failed'); }
 		finally { saving = false; }
@@ -67,38 +157,82 @@
 </script>
 
 <div class="space-y-3">
+	<!-- Calibration parameters -->
 	<div class="grid grid-cols-4 gap-3">
 		<label class="flex flex-col gap-1 text-xs text-brand-muted">Slope<input type="number" step="any" bind:value={slope} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm" /></label>
 		<label class="flex flex-col gap-1 text-xs text-brand-muted">Intercept<input type="number" step="any" bind:value={intercept} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm" /></label>
 		<label class="flex flex-col gap-1 text-xs text-brand-muted">Valid from<input type="datetime-local" value={msToLocal(startMs)} oninput={(e) => startMs = localToMs(e.currentTarget.value)} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm" /></label>
 		<label class="flex flex-col gap-1 text-xs text-brand-muted">Valid until {#if isOpenEnded}<span class="text-[10px] normal-case">(open / auto-managed)</span>{/if}<input type="datetime-local" value={msToLocal(endMs)} oninput={(e) => endMs = localToMs(e.currentTarget.value)} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm" /></label>
 	</div>
+
+	<!-- Calibration window slider -->
 	{#if rangeMax > rangeMin}
-		<TimeRangeSlider min={rangeMin} max={rangeMax} bind:start={startMs} bind:end={endMs} />
-		<p class="text-[11px] text-brand-muted">Drag to set this calibration's window. <code>valid_from</code> is authoritative; <code>valid_until</code> is normally re-derived from the next calibration's start when readings are reprocessed — drag the right handle to the far edge for open-ended.</p>
+		<div>
+			<span class="text-[11px] font-semibold text-brand-muted">Calibration window</span>
+			<TimeRangeSlider min={rangeMin} max={rangeMax} bind:start={startMs} bind:end={endMs} />
+			<p class="text-[11px] text-brand-muted">Drag to set this calibration's window. Drag the right handle to the far edge for open-ended.</p>
+		</div>
 	{/if}
-	<div class="flex items-center justify-between">
-		<span class="text-xs text-brand-muted">{loading ? 'Loading…' : win ? `${win.point_count} readings in saved window` : ''}</span>
-		<button onclick={save} disabled={saving} class="px-3 py-1 text-sm bg-brand-primary text-white rounded-md cursor-pointer border-none disabled:opacity-50">{saving ? 'Saving…' : 'Save & recompute'}</button>
+
+	<!-- Chart controls -->
+	<div class="flex items-center justify-between flex-wrap gap-2">
+		<div class="flex gap-1">
+			{#each ['24h', '7d', '30d', '90d'] as range}
+				<button
+					onclick={() => updateChartRange(range)}
+					class="px-2 py-1 text-xs rounded cursor-pointer border-none {activeRange === range ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
+				>{range}</button>
+			{/each}
+		</div>
+		<div class="flex gap-0.5">
+			{#each [['auto', 'Auto'], ['raw', 'Raw'], ['hourly', 'Hourly'], ['daily', 'Daily']] as [val, label]}
+				<button
+					onclick={() => { resolutionOverride = val as typeof resolutionOverride; scheduleFetch(); }}
+					class="px-2 py-1 text-xs rounded cursor-pointer border-none {resolutionOverride === val ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
+				>{label}{resolutionOverride === 'auto' && val === 'auto' ? ` (${chartResolution})` : ''}</button>
+			{/each}
+		</div>
 	</div>
-	{#if win && win.points.length > 0}
-		<!-- What the calibration does to the actual data over time: raw vs the live preview. With an
-		     identity (1/0) calibration the two lines coincide; changing slope/intercept diverges them. -->
+
+	<!-- Chart navigation slider -->
+	{#if rangeMax > rangeMin}
+		<div>
+			<span class="text-[11px] font-semibold text-brand-muted">View range</span>
+			<TimeRangeSlider bind:this={sliderRef} min={rangeMin} max={rangeMax} bind:start={chartStart} bind:end={chartEnd} onchange={onSliderChange} />
+		</div>
+	{/if}
+
+	<!-- Time-series chart: Raw + Calibrated (DB) + Preview (live formula within window) -->
+	{#if seriesLoading && !series}
+		<div class="rounded-md border border-brand-divider bg-brand-surface p-6 text-center text-sm text-brand-muted">Loading readings…</div>
+	{:else if chartTimes.length > 0}
 		<SensorSeriesChart
-			times={times}
-			raw={rawArr}
-			calibrated={previewCal}
+			times={chartTimes}
+			raw={chartRaw}
+			calibrated={chartCalibrated}
+			preview={chartPreview}
+			rawMin={series?.raw_min ?? []}
+			rawMax={series?.raw_max ?? []}
+			calMin={series?.calibrated_min ?? []}
+			calMax={series?.calibrated_max ?? []}
 			{units}
 			deploymentBands={[]}
 			calibrationMarkers={[]}
 			showSensorVectors={false}
 			showCalibrationMarkers={false}
-			gapThreshold={0}
-			height={240}
+			{gapThreshold}
+			{windowBand}
+			height={300}
+			onZoomSelect={onChartZoomSelect}
+			onResetZoom={onChartResetZoom}
 		/>
-		<!-- Transfer view: raw → calibrated mapping (a straight line for any linear calibration). -->
-		<ScatterPlot xData={rawArr} yData={previewCal} xLabel="Raw" yLabel="Calibrated (preview)" xUnits={units} yUnits={units} {times} height={260} />
-	{:else if win}
-		<p class="text-xs text-brand-muted">No readings resolved by this window.</p>
+		<ScatterPlot xData={scatterRaw} yData={scatterPreview} xLabel="Raw" yLabel="Preview" xUnits={units} yUnits={units} times={chartTimes} height={260} />
+	{:else if series}
+		<p class="text-xs text-brand-muted">No readings in this time range.</p>
 	{/if}
+
+	<div class="flex items-center justify-between">
+		<span class="text-xs text-brand-muted">{seriesLoading ? 'Loading…' : series ? `${chartTimes.length} readings in view` : ''}</span>
+		<button onclick={save} disabled={saving} class="px-3 py-1 text-sm bg-brand-primary text-white rounded-md cursor-pointer border-none disabled:opacity-50">{saving ? 'Saving…' : 'Save & recompute'}</button>
+	</div>
 </div>
