@@ -23,12 +23,15 @@
 		closeTimer = setTimeout(() => { open = false; closeTimer = null; }, 200);
 	}
 
-	const sortedAlarms = $derived(
-		[...alarms].sort((a, b) => b.severity - a.severity),
+	const unacknowledged = $derived(
+		alarms.filter(a => !a.acknowledged).sort((a, b) => b.severity - a.severity),
 	);
-	const badgeCount = $derived(alarms.length);
+	const acknowledged = $derived(
+		alarms.filter(a => a.acknowledged).sort((a, b) => b.severity - a.severity),
+	);
+	const badgeCount = $derived(unacknowledged.length);
 	const maxSeverity = $derived(
-		alarms.reduce((max, a) => Math.max(max, a.severity), 0),
+		unacknowledged.reduce((max, a) => Math.max(max, a.severity), 0),
 	);
 
 	function severityDotClass(severity: number): string {
@@ -118,35 +121,47 @@
 				<span class="text-sm font-semibold">Alarms</span>
 				<a href="{base}/alarms" class="text-xs text-brand-primary no-underline hover:underline">View all</a>
 			</div>
+			{#snippet alarmRow(alarm: ActiveAlarm)}
+				<div class="flex items-center gap-2">
+					<span class="w-2 h-2 rounded-full shrink-0 {severityDotClass(alarm.severity)}"></span>
+					<a
+						href="{base}/sites/{alarm.site_id}"
+						class="text-sm font-medium text-brand-text no-underline hover:underline truncate"
+					>{alarm.site_name}</a>
+					<span class="ml-auto text-[10px] text-brand-muted whitespace-nowrap">{formatRelativeTime(alarm.since)}</span>
+				</div>
+				<div class="ml-4 flex items-center gap-2">
+					<span class="text-xs text-brand-muted truncate">{alarm.parameter_name}: {alarm.current_value}</span>
+					{#if alarm.acknowledged}
+						<span class="ml-auto text-[10px] text-brand-muted whitespace-nowrap" title={alarm.acknowledged_by ? `by ${alarm.acknowledged_by}` : undefined}>✓ acknowledged</span>
+					{:else if alarm.event_id}
+						<button
+							type="button"
+							onclick={(e) => ack(alarm.event_id!, e)}
+							disabled={acking.has(alarm.event_id)}
+							class="ml-auto text-[10px] text-brand-primary bg-transparent border border-brand-divider rounded px-1.5 py-0.5 cursor-pointer hover:bg-brand-bg disabled:opacity-50"
+						>{acking.has(alarm.event_id) ? '…' : 'Acknowledge'}</button>
+					{/if}
+				</div>
+			{/snippet}
+
 			<div class="max-h-80 overflow-y-auto">
-				{#if sortedAlarms.length === 0}
+				{#if alarms.length === 0}
 					<p class="px-3 py-6 text-sm text-brand-muted text-center">No active alarms</p>
 				{:else}
-					{#each sortedAlarms as alarm (alarm.site_id + ':' + alarm.parameter_id)}
+					{#each unacknowledged as alarm (alarm.site_id + ':' + alarm.parameter_id)}
 						<div class="px-3 py-2 border-b border-brand-divider last:border-b-0">
-							<div class="flex items-center gap-2">
-								<span class="w-2 h-2 rounded-full shrink-0 {severityDotClass(alarm.severity)}"></span>
-								<a
-									href="{base}/sites/{alarm.site_id}"
-									class="text-sm font-medium text-brand-text no-underline hover:underline truncate"
-								>{alarm.site_name}</a>
-								<span class="ml-auto text-[10px] text-brand-muted whitespace-nowrap">{formatRelativeTime(alarm.since)}</span>
-							</div>
-							<div class="ml-4 flex items-center gap-2">
-								<span class="text-xs text-brand-muted truncate">{alarm.parameter_name}: {alarm.current_value}</span>
-								{#if alarm.acknowledged}
-									<span class="ml-auto text-[10px] text-brand-muted whitespace-nowrap" title={alarm.acknowledged_by ? `by ${alarm.acknowledged_by}` : undefined}>✓ acknowledged</span>
-								{:else if alarm.event_id}
-									<button
-										type="button"
-										onclick={(e) => ack(alarm.event_id!, e)}
-										disabled={acking.has(alarm.event_id)}
-										class="ml-auto text-[10px] text-brand-primary bg-transparent border border-brand-divider rounded px-1.5 py-0.5 cursor-pointer hover:bg-brand-bg disabled:opacity-50"
-									>{acking.has(alarm.event_id) ? '…' : 'Acknowledge'}</button>
-								{/if}
-							</div>
+							{@render alarmRow(alarm)}
 						</div>
 					{/each}
+					{#if acknowledged.length > 0}
+						<div class="px-3 py-1.5 text-xs font-semibold text-brand-muted bg-brand-bg">Acknowledged</div>
+						{#each acknowledged as alarm (alarm.site_id + ':' + alarm.parameter_id)}
+							<div class="px-3 py-2 border-b border-brand-divider last:border-b-0 opacity-60">
+								{@render alarmRow(alarm)}
+							</div>
+						{/each}
+					{/if}
 				{/if}
 			</div>
 		</div>
