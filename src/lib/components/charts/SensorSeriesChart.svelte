@@ -171,7 +171,7 @@
 	// Re-render whenever the data changes (incl. the live calibration preview). Touch every array so
 	// the effect tracks them, not just `times`.
 	$effect(() => {
-		void times; void raw; void calibrated; void rawMin; void rawMax; void calMin; void calMax;
+		void times; void raw; void calibrated; void preview; void rawMin; void rawMax; void calMin; void calMax; void windowBand;
 		tick().then(render);
 	});
 
