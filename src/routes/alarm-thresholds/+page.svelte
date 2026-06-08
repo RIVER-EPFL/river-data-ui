@@ -4,7 +4,7 @@
 	import { goto } from '$app/navigation';
 
 	onMount(() => {
-		goto(`${base}/alarms?tab=2`, { replaceState: true });
+		goto(`${base}/alarms?tab=thresholds`, { replaceState: true });
 	});
 </script>
 

@@ -91,7 +91,7 @@
 
 <div class="space-y-4">
 	<div>
-		<a href="{base}/derived" class="text-sm text-brand-muted hover:text-brand-primary no-underline">&larr; Derived Parameters</a>
+		<a href="{base}/parameters?type=derived" class="text-sm text-brand-muted hover:text-brand-primary no-underline">&larr; Parameters (derived)</a>
 		<h2 class="text-xl font-semibold mt-1">New Derived Parameter</h2>
 	</div>
 

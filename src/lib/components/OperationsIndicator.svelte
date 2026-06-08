@@ -152,7 +152,7 @@
 		>
 			<div class="flex items-center justify-between px-3 py-2 border-b border-brand-divider">
 				<span class="text-sm font-semibold">Operations</span>
-				<a href="{base}/jobs" class="text-xs text-brand-primary no-underline hover:underline">View all</a>
+				<a href="{base}/logs?tab=jobs" class="text-xs text-brand-primary no-underline hover:underline">View all</a>
 			</div>
 			{#if consecutiveErrors > 5}
 				<div class="px-3 py-1 text-xs text-severity-warning bg-severity-warning-soft">Connection issue — retrying</div>

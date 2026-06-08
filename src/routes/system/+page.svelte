@@ -5,11 +5,9 @@
 	import { getList } from '$api/client';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatRelativeTime, formatDateTime } from '$lib/utils';
-	import Tabs from '$components/ui/Tabs.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 
-	let activeTab = $state(0);
 	let services = $state<SyncService[]>([]);
 	let commands = $state<SyncCommand[]>([]);
 	let events = $state<SyncEvent[]>([]);
@@ -108,11 +106,10 @@
 
 <div class="space-y-4">
 	<h2 class="text-xl font-semibold">System</h2>
-	<Tabs tabs={['Services', 'API Tokens']} bind:active={activeTab} />
 
 	{#if loading}
 		<p class="text-brand-muted">Loading...</p>
-	{:else if activeTab === 0}
+	{:else}
 		<div class="flex justify-end">
 			<button onclick={() => openCreateDialog()} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm cursor-pointer border-none">New service credential</button>
 		</div>
@@ -259,12 +256,6 @@
 					</tbody>
 				</table>
 			{/if}
-		</div>
-
-	{:else if activeTab === 1}
-		<div class="flex flex-col gap-2 text-sm text-brand-muted">
-			<a href="{base}/tokens" class="text-brand-primary no-underline hover:underline">Manage API Tokens &rarr;</a>
-			<a href="{base}/system/logs" class="text-brand-primary no-underline hover:underline">View API audit &amp; sync logs &rarr;</a>
 		</div>
 	{/if}
 </div>

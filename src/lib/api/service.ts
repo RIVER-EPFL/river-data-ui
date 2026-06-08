@@ -100,8 +100,24 @@ export interface AlarmEventsResponse {
 export const getActiveAlarms = () => GET<ActiveAlarmsResponse>(`${ADMIN}/alarms/active`);
 export const getAlarmSummary = () => GET<AlarmSummaryResponse>(`${ADMIN}/alarms/summary`);
 
-export const getAlarmEvents = (opts?: { site_id?: string; severity?: number; status?: string; limit?: number }) =>
-	GET<AlarmEventsResponse>(`${ADMIN}/alarms/events`, { ...opts });
+export const getAlarmEvents = (opts?: {
+	site_id?: string;
+	severity?: number;
+	status?: string;
+	parameter_id?: string;
+	start?: string;
+	end?: string;
+	limit?: number;
+	offset?: number;
+}) => GET<AlarmEventsResponse>(`${ADMIN}/alarms/events`, { ...opts });
+
+/** Rebuild persisted alarm events from raw readings over a window (tracked job). */
+export const rebuildAlarmEvents = (body: {
+	site_id?: string;
+	parameter_id?: string;
+	start?: string;
+	end?: string;
+}) => POST<{ job_id: string; status: string }>(`${ADMIN}/actions/rebuild_alarm_events`, body);
 
 /** Acknowledge an open alarm event (require_write_data). */
 export const acknowledgeAlarm = (eventId: string) =>

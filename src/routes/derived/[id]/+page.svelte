@@ -64,7 +64,7 @@
 {:else if def}
 	<div class="space-y-6">
 		<div>
-			<a href="{base}/derived" class="text-sm text-brand-muted hover:text-brand-primary no-underline">&larr; Derived Parameters</a>
+			<a href="{base}/parameters?type=derived" class="text-sm text-brand-muted hover:text-brand-primary no-underline">&larr; Parameters (derived)</a>
 			<div class="flex items-center gap-3 mt-1">
 				<h2 class="text-xl font-semibold">{def.name || def.code}</h2>
 				<a href="{base}/derived/{defId}/edit" class="px-3 py-1 text-sm border border-brand-divider bg-brand-surface rounded-md no-underline text-brand-text hover:bg-brand-bg">Edit</a>

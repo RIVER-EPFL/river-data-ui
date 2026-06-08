@@ -75,12 +75,57 @@
 		thresholds = th.data;
 	}
 
-	// Site-specific threshold wins over a global (site_id null) default for the same parameter.
+	function isThresholdDisabled(th: AlarmThreshold): boolean {
+		return th.warning_min == null && th.warning_max == null && th.alarm_min == null && th.alarm_max == null;
+	}
+
+	async function disableAlarms(parameterId: string) {
+		if (!site) return;
+		try {
+			const existing = thresholds.find((t) => t.parameter_id === parameterId && t.site_id === site!.id);
+			const payload = { site_id: site.id, parameter_id: parameterId, warning_min: null, warning_max: null, alarm_min: null, alarm_max: null };
+			if (existing) {
+				await api.alarmThresholds.update(existing.id, payload);
+			} else {
+				await api.alarmThresholds.create(payload);
+			}
+			toastStore.success('Alarms disabled');
+			await reloadThresholds();
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Failed to disable alarms');
+		}
+	}
+
+	// Mirror the backend's 3-tier resolution: site-specific row → global row (site_id null) →
+	// the parameter's own default_* columns. The last tier matters because thresholds are no longer
+	// auto-materialised into rows — a parameter with only defaults still has an effective threshold.
 	function effectiveThreshold(parameterId: string): AlarmThreshold | undefined {
-		return (
+		const row =
 			thresholds.find((t) => t.parameter_id === parameterId && t.site_id === site?.id) ??
-			thresholds.find((t) => t.parameter_id === parameterId && t.site_id == null)
-		);
+			thresholds.find((t) => t.parameter_id === parameterId && t.site_id == null);
+		if (row) return row;
+
+		const p = parameters.find((x) => x.id === parameterId);
+		if (
+			p &&
+			(p.default_warning_min != null ||
+				p.default_warning_max != null ||
+				p.default_alarm_min != null ||
+				p.default_alarm_max != null)
+		) {
+			return {
+				id: '',
+				parameter_id: parameterId,
+				site_id: null,
+				warning_min: p.default_warning_min,
+				warning_max: p.default_warning_max,
+				alarm_min: p.default_alarm_min,
+				alarm_max: p.default_alarm_max,
+				created_at: '',
+				updated_at: '',
+			};
+		}
+		return undefined;
 	}
 
 	// Shared chart state
@@ -158,6 +203,13 @@
 	function scheduleFetch() {
 		if (fetchTimer) clearTimeout(fetchTimer);
 		fetchTimer = setTimeout(() => { fetchTimer = null; doFetch(); }, 50);
+	}
+
+	function scrollToParameter(parameterId: string) {
+		// Deep link from the alarm Event Log: bring the focused parameter's chart into view once charts mount.
+		setTimeout(() => {
+			document.getElementById(`param-${parameterId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+		}, 450);
 	}
 
 	$effect(() => {
@@ -310,6 +362,19 @@
 	let unsubEvents: (() => void) | null = null;
 
 	onMount(async () => {
+		const deepStart = page.url.searchParams.get('start');
+		const deepEnd = page.url.searchParams.get('end');
+		const focusParam = page.url.searchParams.get('focus');
+		let deepLink = false;
+		if (deepStart && deepEnd) {
+			const ds = new Date(deepStart).getTime();
+			const de = new Date(deepEnd).getTime();
+			if (!Number.isNaN(ds) && !Number.isNaN(de) && de > ds) {
+				chartStart = ds;
+				chartEnd = de;
+				deepLink = true;
+			}
+		}
 		try {
 			const s = await api.sites.get(siteId);
 			site = s;
@@ -338,8 +403,14 @@
 				const detailRes = await GET<SiteDetailResponse>(`/api/sites/${siteId}/detail`);
 				if (detailRes.data_start) sliderMin = new Date(detailRes.data_start).getTime();
 				if (detailRes.data_end) sliderMax = new Date(detailRes.data_end).getTime();
-				if (chartStart < sliderMin) chartStart = sliderMin;
-				if (chartEnd > sliderMax) chartEnd = sliderMax;
+				if (deepLink) {
+					// Pinned window from a deep link: widen the slider bounds to fit it.
+					sliderMin = Math.min(sliderMin, chartStart);
+					sliderMax = Math.max(sliderMax, chartEnd);
+				} else {
+					if (chartStart < sliderMin) chartStart = sliderMin;
+					if (chartEnd > sliderMax) chartEnd = sliderMax;
+				}
 				exportStartMs = sliderMin;
 				exportEndMs = sliderMax;
 				const extents = new Map<string, SiteDetailParameter>();
@@ -348,6 +419,8 @@
 			} catch { /* non-critical */ }
 
 			scheduleFetch();
+
+			if (focusParam) scrollToParameter(focusParam);
 
 			unsubEvents = eventBus.subscribe('data_ingested', (event: any) => {
 				if (!site) return;
@@ -930,6 +1003,7 @@
 					{@const param = parameters.find((p) => p.id === sp.parameter_id)}
 					{@const th = effectiveThreshold(sp.parameter_id)}
 					{#if param}
+						<div id="param-{sp.parameter_id}" class="scroll-mt-24"></div>
 						<ParameterChart
 							siteId={siteId}
 							siteParameterId={sp.id}
@@ -967,8 +1041,9 @@
 						<div class="space-y-3">
 							{#each diagnosticParams as sp, i}
 								{@const param = parameters.find((p) => p.id === sp.parameter_id)}
-								{@const th = thresholds.find((t) => t.parameter_id === sp.parameter_id)}
+								{@const th = effectiveThreshold(sp.parameter_id)}
 								{#if param}
+									<div id="param-{sp.parameter_id}" class="scroll-mt-24"></div>
 									<ParameterChart
 										siteId={siteId}
 										siteParameterId={sp.id}
@@ -1042,14 +1117,17 @@
 					</tr></thead>
 					<tbody>
 						{#each siteParameters.filter((sp) => !sp.is_derived) as sp}
-							{@const th = thresholds.find((t) => t.parameter_id === sp.parameter_id)}
+							{@const th = effectiveThreshold(sp.parameter_id)}
+							{@const disabled = th != null && isThresholdDisabled(th)}
 							<tr class="border-b border-brand-divider last:border-b-0">
 								<td class="px-4 py-2 font-mono text-xs">{paramCode(sp.parameter_id)}</td>
 								<td class="px-4 py-2 font-semibold">{paramName(sp.parameter_id)}</td>
 								<td class="px-4 py-2 text-brand-muted">{paramUnits(sp)}</td>
 								<td class="px-4 py-2 text-brand-muted">{sp.sample_interval_sec ? `${sp.sample_interval_sec}s` : '—'}</td>
 								<td class="px-4 py-2 text-xs text-brand-muted">
-									{#if th}
+									{#if disabled}
+										<span class="text-brand-muted italic">Disabled</span>
+									{:else if th}
 										<span class="text-severity-warning">W: {th.warning_min ?? '—'}–{th.warning_max ?? '—'}</span>
 										<span class="text-severity-alarm ml-2">A: {th.alarm_min ?? '—'}–{th.alarm_max ?? '—'}</span>
 									{:else}
@@ -1060,7 +1138,13 @@
 									<button
 										onclick={() => openThresholdDialog(sp.parameter_id, paramName(sp.parameter_id))}
 										class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface cursor-pointer hover:bg-brand-bg"
-									>{th ? 'Edit' : 'Set'} thresholds</button>
+									>{th && !disabled ? 'Edit' : 'Set'} thresholds</button>
+									{#if !disabled}
+										<button
+											onclick={() => disableAlarms(sp.parameter_id)}
+											class="px-2 py-1 text-xs border border-severity-alarm-border rounded bg-brand-surface cursor-pointer hover:bg-brand-bg text-severity-alarm-main"
+										>Disable alarms</button>
+									{/if}
 									<button
 										onclick={() => openMergeSiteParameter(sp)}
 										class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface cursor-pointer hover:bg-brand-bg"
@@ -1500,7 +1584,7 @@
 			siteId={site.id}
 			parameterId={thresholdEditingParamId}
 			parameterName={thresholdEditingParamName}
-			existing={thresholds.find((t) => t.parameter_id === thresholdEditingParamId) ?? null}
+			existing={thresholds.find((t) => t.parameter_id === thresholdEditingParamId && t.site_id === site?.id) ?? null}
 			onsuccess={reloadThresholds}
 		/>
 

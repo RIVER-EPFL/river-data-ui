@@ -26,11 +26,9 @@
 			items: [
 				{ href: `${base}/sites`, label: 'Sites', icon: 'pin' },
 				{ href: `${base}/sensors`, label: 'Sensors', icon: 'cpu' },
-				{ href: `${base}/sensor-deployments`, label: 'Deployments', icon: 'pin' },
-				{ href: `${base}/sensor-calibrations`, label: 'Calibrations', icon: 'cpu' },
 				{ href: `${base}/streams`, label: 'Streams', icon: 'rss' },
-				{ href: `${base}/jobs`, label: 'Jobs', icon: 'clock' },
 				{ href: `${base}/alarms`, label: 'Alarms', icon: 'bell' },
+				{ href: `${base}/logs`, label: 'Logs', icon: 'clock' },
 			],
 		},
 		{
@@ -48,17 +46,20 @@
 			],
 		},
 		{
-			label: 'Configure',
+			label: 'Library',
 			items: [
 				{ href: `${base}/parameters`, label: 'Parameters', icon: 'sliders' },
-				{ href: `${base}/derived`, label: 'Derived', icon: 'function' },
 				{ href: `${base}/standard-curves`, label: 'Standard Curves', icon: 'chart' },
 				{ href: `${base}/constants`, label: 'Constants', icon: 'hash' },
 				{ href: `${base}/projects`, label: 'Projects', icon: 'folder' },
+			],
+		},
+		{
+			label: 'Admin',
+			items: [
 				{ href: `${base}/users`, label: 'Users', icon: 'users', adminOnly: true },
-				{ href: `${base}/tokens`, label: 'Tokens', icon: 'settings', adminOnly: true },
+				{ href: `${base}/tokens`, label: 'API Tokens', icon: 'settings', adminOnly: true },
 				{ href: `${base}/system`, label: 'System', icon: 'settings' },
-				{ href: `${base}/system/logs`, label: 'Logs', icon: 'clock', adminOnly: true },
 			],
 		},
 	];
