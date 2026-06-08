@@ -41,7 +41,8 @@ export const api = {
 	dataStreams: crudClient<DataStream>('data_streams'),
 	annotations: crudClient<Annotation>('annotations'),
 	notes: crudClient<Note>('notes'),
-	apiTokens: crudClient<ApiToken>('api_tokens'),
+	apiTokens: crudClient<ApiToken>('tokens'),
+	apiTokenAuditLogs: crudClient<ApiTokenAuditLog>('api_token_audit_logs'),
 	reprocessingJobs: crudClient<ReprocessingJob>('reprocessing_jobs'),
 };
 
@@ -262,14 +263,40 @@ export interface Note {
 	updated_at: string;
 }
 
+export type TokenPermissions = {
+	read_metadata: boolean;
+	read_data: boolean;
+	write_metadata: boolean;
+	write_data: boolean;
+};
+
 export interface ApiToken {
 	id: string;
 	name: string;
-	token_hash: string;
-	permissions: string[];
+	description?: string | null;
+	/** One-time secret, present only in the create/rotate response. Never stored. */
+	token?: string;
+	/** Non-secret lookup prefix (the `rvd_<prefix>_…` part). */
+	token_prefix?: string;
+	permissions: TokenPermissions;
+	project_scope?: string | null;
+	rate_limit_per_second?: number | null;
+	is_active?: boolean;
 	expires_at: string | null;
+	last_used_at?: string | null;
 	created_at: string;
-	updated_at: string;
+	created_by?: string | null;
+}
+
+/** One recorded API-token request from the forensic audit log (read-only, admin-only). */
+export interface ApiTokenAuditLog {
+	id: string;
+	token_id: string;
+	method: string;
+	path: string;
+	status_code: number;
+	project_scope: string | null;
+	created_at: string;
 }
 
 export interface ReprocessingJob {

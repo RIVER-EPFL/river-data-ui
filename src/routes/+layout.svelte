@@ -12,11 +12,15 @@
 	let { children } = $props();
 	let sidebarCollapsed = $state(false);
 
+	// `riverdata-admin` (normalised to 'admin' in keycloak.svelte.ts); local no-auth mode is admin.
+	const isAdmin = $derived(auth.role === 'admin');
+
 	onMount(() => {
 		auth.init();
 	});
 
-	const navSections = [
+	type NavItem = { href: string; label: string; icon: string; adminOnly?: boolean };
+	const navSections: { label: string; items: NavItem[] }[] = [
 		{
 			label: 'Monitor',
 			items: [
@@ -51,9 +55,10 @@
 				{ href: `${base}/standard-curves`, label: 'Standard Curves', icon: 'chart' },
 				{ href: `${base}/constants`, label: 'Constants', icon: 'hash' },
 				{ href: `${base}/projects`, label: 'Projects', icon: 'folder' },
-				{ href: `${base}/users`, label: 'Users', icon: 'users' },
-				{ href: `${base}/tokens`, label: 'Tokens', icon: 'settings' },
+				{ href: `${base}/users`, label: 'Users', icon: 'users', adminOnly: true },
+				{ href: `${base}/tokens`, label: 'Tokens', icon: 'settings', adminOnly: true },
 				{ href: `${base}/system`, label: 'System', icon: 'settings' },
+				{ href: `${base}/system/logs`, label: 'Logs', icon: 'clock', adminOnly: true },
 			],
 		},
 	];
@@ -121,7 +126,7 @@
 				{:else}
 					<div class="h-px bg-brand-divider mx-2 my-2"></div>
 				{/if}
-				{#each section.items as item}
+				{#each section.items.filter((i) => !i.adminOnly || isAdmin) as item}
 					<a
 						href={item.href}
 						class="flex items-center gap-2 px-4 py-1.5 text-sm no-underline transition-colors {isActive(item.href)

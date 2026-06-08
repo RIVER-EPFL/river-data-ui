@@ -262,8 +262,9 @@
 		</div>
 
 	{:else if activeTab === 1}
-		<div class="text-sm text-brand-muted">
+		<div class="flex flex-col gap-2 text-sm text-brand-muted">
 			<a href="{base}/tokens" class="text-brand-primary no-underline hover:underline">Manage API Tokens &rarr;</a>
+			<a href="{base}/system/logs" class="text-brand-primary no-underline hover:underline">View API audit &amp; sync logs &rarr;</a>
 		</div>
 	{/if}
 </div>

@@ -1,4 +1,5 @@
 import { GET, POST, PATCH, DELETE } from './client';
+import type { ApiToken } from './crud';
 
 // Single unified API tier. The `ADMIN` and `SERVICE` constants alias the same path —
 // retained as documentation hints about which Keycloak role/token scope each endpoint
@@ -109,6 +110,10 @@ export const acknowledgeAlarm = (eventId: string) =>
 /** Remove acknowledgement from an open alarm event (require_write_data). */
 export const unacknowledgeAlarm = (eventId: string) =>
 	DELETE<void>(`${ADMIN}/alarms/${eventId}/acknowledge`);
+
+// API token lifecycle (admin-only on the backend)
+export const revokeToken = (id: string) => POST<ApiToken>(`${ADMIN}/tokens/${id}/revoke`);
+export const rotateToken = (id: string) => POST<ApiToken>(`${ADMIN}/tokens/${id}/rotate`);
 
 // Streams
 export interface StreamStats {

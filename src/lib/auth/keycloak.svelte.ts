@@ -14,8 +14,10 @@ let initStarted = false;
 function getRole(decoded: KeycloakTokenParsed): string | false {
 	const roles = decoded?.realm_access?.roles;
 	if (!roles) return false;
-	if (roles.includes('admin')) return 'admin';
-	if (roles.includes('user')) return 'user';
+	// The Keycloak realm issues `riverdata-admin` / `riverdata-user` (see keycloak-realm-dev.json
+	// and the API's auth.rs Role mapping). Normalise to short `admin`/`user` for the UI.
+	if (roles.includes('riverdata-admin')) return 'admin';
+	if (roles.includes('riverdata-user')) return 'user';
 	return false;
 }
 
