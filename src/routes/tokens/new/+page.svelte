@@ -9,6 +9,7 @@
 	import Dialog from '$components/ui/Dialog.svelte';
 	import TokenAccessSummary from '$components/tokens/TokenAccessSummary.svelte';
 	import TokenUsagePanel from '$components/tokens/TokenUsagePanel.svelte';
+	import PresetChips from '$components/tokens/PresetChips.svelte';
 
 	const isAdmin = $derived(auth.role === 'admin');
 
@@ -29,6 +30,48 @@
 	const scopeName = $derived(
 		projectScope ? (projects.find((p) => p.id === projectScope)?.name ?? null) : null
 	);
+
+	/** ISO string → value for <input type="datetime-local"> (local time, minute precision). */
+	function toLocalInput(iso: string): string {
+		const d = new Date(iso);
+		const pad = (n: number) => String(n).padStart(2, '0');
+		return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+	}
+
+	function presetExpiry(days: number) {
+		if (days === 0) {
+			expiryMode = 'never';
+			expiresAt = '';
+			return;
+		}
+		if (days < 0) {
+			// "Custom date…" - reveal the manual picker without changing the value.
+			expiryMode = 'custom';
+			return;
+		}
+		const d = new Date();
+		d.setDate(d.getDate() + days);
+		expiresAt = toLocalInput(d.toISOString());
+		expiryMode = 'custom';
+	}
+
+	const EXPIRY_PRESETS = [
+		{ label: '90 days', value: 90 },
+		{ label: '180 days', value: 180 },
+		{ label: '1 year', value: 365 },
+		{ label: 'Custom date…', value: -1 },
+		{ label: 'No expiry', value: 0 },
+	];
+	const expiryActive = (v: number) =>
+		v === 0 ? expiryMode === 'never' : v === -1 ? expiryMode === 'custom' : false;
+	const RATE_PRESETS = [
+		{ label: '1/s', value: 1 },
+		{ label: '10/s', value: 10 },
+		{ label: '50/s', value: 50 },
+		{ label: '100/s', value: 100 },
+		{ label: 'Unlimited', value: 0 },
+	];
+	const rateActive = (v: number) => (v === 0 ? !rateLimit : Number(rateLimit) === v);
 
 	onMount(async () => {
 		const result = await api.projects.list({ perPage: 100 });
@@ -125,16 +168,16 @@
 				<input id="rate" type="number" min="1" step="1" bind:value={rateLimit} placeholder="unlimited" class="w-32 px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" />
 				<span class="text-xs text-brand-muted">requests / second (leave blank for unlimited)</span>
 			</div>
+			<PresetChips options={RATE_PRESETS} onpick={(v) => (rateLimit = v > 0 ? String(v) : '')} active={rateActive} />
 		</div>
 
 		<div class="flex flex-col gap-1">
 			<span class="text-sm font-medium">Expiry</span>
-			<div class="flex gap-3">
-				<label class="flex items-center gap-1.5 cursor-pointer"><input type="radio" bind:group={expiryMode} value="never" /> <span class="text-sm">Never</span></label>
-				<label class="flex items-center gap-1.5 cursor-pointer"><input type="radio" bind:group={expiryMode} value="custom" /> <span class="text-sm">Custom</span></label>
-			</div>
+			<PresetChips options={EXPIRY_PRESETS} onpick={presetExpiry} active={expiryActive} />
 			{#if expiryMode === 'custom'}
 				<input type="datetime-local" bind:value={expiresAt} class="mt-1 px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" />
+			{:else}
+				<span class="text-xs text-brand-muted">This key never expires.</span>
 			{/if}
 		</div>
 
@@ -166,7 +209,7 @@
 				{showUsage ? 'Hide usage examples' : 'Show usage examples (curl / Python / R) with this key ↓'}
 			</button>
 			{#if showUsage}
-				<TokenUsagePanel token={createdToken} {permissions} />
+				<TokenUsagePanel token={createdToken} {permissions} {projectScope} />
 			{/if}
 		</div>
 	{/snippet}

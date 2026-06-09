@@ -45,7 +45,7 @@
 	const hasWrite = $derived(permissions.write_metadata || permissions.write_data);
 	const scopeLabel = $derived(
 		projectScope
-			? `Scoped to ${projectName ?? projectScope.slice(0, 8) + '…'} — cannot see or touch any other project`
+			? `Scoped to ${projectName ?? projectScope.slice(0, 8) + '…'} - cannot see or touch any other project`
 			: 'All projects (unscoped)'
 	);
 </script>
@@ -59,7 +59,7 @@
 	</div>
 
 	{#if lines.length === 0}
-		<div class="text-severity-warning">No capabilities granted — this key cannot read or write anything.</div>
+		<div class="text-severity-warning">No capabilities granted - this key cannot read or write anything.</div>
 	{:else}
 		<ul class="space-y-1">
 			{#each lines as line}
@@ -72,7 +72,7 @@
 					>
 						{line.kind}
 					</span>
-					<span><span class="font-medium">{line.label}</span> — {line.detail}</span>
+					<span><span class="font-medium">{line.label}</span> - {line.detail}</span>
 				</li>
 			{/each}
 		</ul>
@@ -82,7 +82,7 @@
 		<div class="text-xs text-brand-muted">Read-only: this key cannot modify any data or configuration.</div>
 	{/if}
 	<div class="text-xs text-brand-muted">
-		Never exposed: user management, token administration, and sync credentials — those require an
+		Never exposed: user management, token administration, and sync credentials - those require an
 		administrator signed in to the dashboard.
 	</div>
 </div>
