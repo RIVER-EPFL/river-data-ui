@@ -1,15 +1,18 @@
 <script lang="ts">
 	import { base } from '$app/paths';
 	import { onMount } from 'svelte';
-	import { api, type ApiToken, type TokenPermissions } from '$api/crud';
+	import { api, type ApiToken, type Project, type TokenPermissions } from '$api/crud';
 	import { revokeToken, rotateToken } from '$api/service';
 	import { auth } from '$auth/keycloak.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
+	import TokenUsagePanel from '$components/tokens/TokenUsagePanel.svelte';
+	import TokenAccessSummary from '$components/tokens/TokenAccessSummary.svelte';
 
 	const isAdmin = $derived(auth.role === 'admin');
 
 	let tokens = $state<ApiToken[]>([]);
+	let projects = $state<Project[]>([]);
 	let loading = $state(true);
 	let error = $state('');
 	let busy = $state<string | null>(null);
@@ -17,12 +20,19 @@
 	let rotatedSecret = $state('');
 	let showSecret = $state(false);
 
+	let usageToken = $state<ApiToken | null>(null);
+	let showUsage = $state(false);
+
 	async function load() {
 		loading = true;
 		error = '';
 		try {
-			const result = await api.apiTokens.list({ perPage: 200 });
-			tokens = result.data;
+			const [tokenResult, projectResult] = await Promise.all([
+				api.apiTokens.list({ perPage: 200 }),
+				api.projects.list({ perPage: 100 }),
+			]);
+			tokens = tokenResult.data;
+			projects = projectResult.data;
 		} catch (e: unknown) {
 			error = e instanceof Error ? e.message : 'Failed to load tokens';
 		} finally {
@@ -35,6 +45,11 @@
 		else loading = false;
 	});
 
+	function openUsage(t: ApiToken) {
+		usageToken = t;
+		showUsage = true;
+	}
+
 	function formatPermissions(perms: TokenPermissions | string[] | undefined): string {
 		if (!perms) return 'None';
 		const keys = Array.isArray(perms)
@@ -45,7 +60,8 @@
 	}
 
 	function projectName(id: string | null | undefined): string {
-		return id ? id.slice(0, 8) + '…' : 'All projects';
+		if (!id) return 'All projects';
+		return projects.find((p) => p.id === id)?.name ?? id.slice(0, 8) + '…';
 	}
 
 	async function doRevoke(t: ApiToken) {
@@ -155,6 +171,8 @@
 							<td class="px-3 py-2 text-brand-muted">{t.expires_at ? new Date(t.expires_at).toLocaleDateString() : 'Never'}</td>
 							<td class="px-3 py-2">
 								<div class="flex gap-2 justify-end">
+									<button onclick={() => openUsage(t)} class="text-xs px-2 py-1 border border-brand-divider rounded hover:bg-brand-bg">Usage</button>
+									<a href="{base}/tokens/{t.id}/edit" class="text-xs px-2 py-1 border border-brand-divider rounded hover:bg-brand-bg no-underline text-brand-text">Edit</a>
 									{#if t.is_active !== false}
 										<button onclick={() => doRevoke(t)} disabled={busy === t.id} class="text-xs px-2 py-1 border border-severity-warning-border text-severity-warning rounded hover:bg-severity-warning-soft disabled:opacity-50">Revoke</button>
 									{/if}
@@ -182,5 +200,28 @@
 	{#snippet actions()}
 		<button onclick={copySecret} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm font-semibold cursor-pointer border-none">Copy</button>
 		<button onclick={() => (showSecret = false)} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface hover:bg-brand-bg">Done</button>
+	{/snippet}
+</Dialog>
+
+<Dialog bind:open={showUsage} title="Use this API key" maxWidth="lg">
+	{#snippet children()}
+		{#if usageToken}
+			<div class="space-y-3">
+				<TokenAccessSummary
+					permissions={usageToken.permissions}
+					projectScope={usageToken.project_scope}
+					projectName={projectName(usageToken.project_scope)}
+				/>
+				<p class="text-xs text-brand-muted">
+					Copy-paste examples below. Supply your key in place of
+					<code class="bg-brand-bg px-1 rounded">YOUR_API_TOKEN</code> (the secret was shown only once
+					at creation — Rotate to issue a new one).
+				</p>
+				<TokenUsagePanel permissions={usageToken.permissions} />
+			</div>
+		{/if}
+	{/snippet}
+	{#snippet actions()}
+		<button onclick={() => (showUsage = false)} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface hover:bg-brand-bg">Close</button>
 	{/snippet}
 </Dialog>

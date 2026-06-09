@@ -7,6 +7,8 @@
 	import { auth } from '$auth/keycloak.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
+	import TokenAccessSummary from '$components/tokens/TokenAccessSummary.svelte';
+	import TokenUsagePanel from '$components/tokens/TokenUsagePanel.svelte';
 
 	const isAdmin = $derived(auth.role === 'admin');
 
@@ -22,6 +24,11 @@
 
 	let showTokenDialog = $state(false);
 	let createdToken = $state('');
+	let showUsage = $state(false);
+
+	const scopeName = $derived(
+		projectScope ? (projects.find((p) => p.id === projectScope)?.name ?? null) : null
+	);
 
 	onMount(async () => {
 		const result = await api.projects.list({ perPage: 100 });
@@ -110,6 +117,8 @@
 			</p>
 		</fieldset>
 
+		<TokenAccessSummary {permissions} {projectScope} projectName={scopeName} />
+
 		<div class="flex flex-col gap-1">
 			<label for="rate" class="text-sm font-medium">Rate limit</label>
 			<div class="flex items-center gap-2">
@@ -139,20 +148,30 @@
 	{/if}
 </div>
 
-<Dialog bind:open={showTokenDialog} title="Token Created" maxWidth="sm">
+<Dialog bind:open={showTokenDialog} title="Token Created" maxWidth="lg">
 	{#snippet children()}
 		<div class="space-y-3">
 			<div class="p-3 bg-severity-warning-soft border border-severity-warning-border rounded-md text-sm">
 				Copy this token now. It will not be shown again.
 			</div>
 			<div class="p-3 bg-brand-bg rounded-md font-mono text-xs break-all select-all">{createdToken}</div>
-			<div class="text-xs text-brand-muted">
-				Example: <code class="bg-brand-bg px-1 rounded">curl -H "Authorization: Bearer {createdToken.slice(0, 8)}..." /api/sites</code>
-			</div>
+
+			<TokenAccessSummary {permissions} {projectScope} projectName={scopeName} />
+
+			<button
+				type="button"
+				onclick={() => (showUsage = !showUsage)}
+				class="text-sm text-brand-primary hover:underline cursor-pointer bg-transparent border-none px-0"
+			>
+				{showUsage ? 'Hide usage examples' : 'Show usage examples (curl / Python / R) with this key ↓'}
+			</button>
+			{#if showUsage}
+				<TokenUsagePanel token={createdToken} {permissions} />
+			{/if}
 		</div>
 	{/snippet}
 	{#snippet actions()}
-		<button onclick={copyToken} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm font-semibold cursor-pointer border-none">Copy</button>
-		<button onclick={() => { showTokenDialog = false; goto(`${base}/tokens`); }} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface hover:bg-brand-bg">Done</button>
+		<button onclick={copyToken} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm font-semibold cursor-pointer border-none">Copy token</button>
+		<button onclick={() => { showTokenDialog = false; showUsage = false; goto(`${base}/tokens`); }} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface hover:bg-brand-bg">Done</button>
 	{/snippet}
 </Dialog>
