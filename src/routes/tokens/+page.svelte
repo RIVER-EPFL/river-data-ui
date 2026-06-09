@@ -36,7 +36,7 @@
 	});
 
 	function formatPermissions(perms: TokenPermissions | string[] | undefined): string {
-		if (!perms) return '—';
+		if (!perms) return 'None';
 		const keys = Array.isArray(perms)
 			? perms
 			: Object.entries(perms).filter(([, v]) => v).map(([k]) => k);
@@ -140,7 +140,7 @@
 								{t.name}
 								{#if t.token_prefix}<span class="block text-xs text-brand-muted font-mono">rvd_{t.token_prefix}…</span>{/if}
 							</td>
-							<td class="px-3 py-2 text-brand-muted">{t.description ?? '—'}</td>
+							<td class="px-3 py-2 text-brand-muted">{t.description ?? 'None'}</td>
 							<td class="px-3 py-2">{formatPermissions(t.permissions)}</td>
 							<td class="px-3 py-2">{projectName(t.project_scope)}</td>
 							<td class="px-3 py-2">{t.rate_limit_per_second ? `${t.rate_limit_per_second}/s` : '∞'}</td>
@@ -174,7 +174,7 @@
 	{#snippet children()}
 		<div class="space-y-3">
 			<div class="p-3 bg-severity-warning-soft border border-severity-warning-border rounded-md text-sm">
-				The old secret has stopped working. Copy the new one now — it will not be shown again.
+				The old secret has stopped working. Copy the new one now - it will not be shown again.
 			</div>
 			<div class="p-3 bg-brand-bg rounded-md font-mono text-xs break-all select-all">{rotatedSecret}</div>
 		</div>

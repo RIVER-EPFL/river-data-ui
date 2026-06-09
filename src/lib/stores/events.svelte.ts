@@ -79,7 +79,7 @@ async function startStream() {
 				retryDelay = 1000;
 				return Promise.resolve();
 			}
-			// Non-retriable error — will fall through to onerror
+			// Non-retriable error - will fall through to onerror
 			throw new Error(`SSE open failed: ${response.status} ${response.statusText}`);
 		},
 

@@ -18,6 +18,7 @@
 	import type { SensorIdentityBand, CalibrationMarker } from '$api/sensors';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
+	import { formatDateTime } from '$lib/utils';
 
 	export interface ChartData {
 		times: number[];
@@ -51,6 +52,8 @@
 		showCalibrationMarkers = false,
 		showAlarmBands = true,
 		isDerived = false,
+		activeBreach = null,
+		nowMs = 0,
 	}: {
 		siteId: string;
 		siteParameterId: string;
@@ -74,7 +77,21 @@
 		showCalibrationMarkers?: boolean;
 		showAlarmBands?: boolean;
 		isDerived?: boolean;
+		/** Live active breach for this parameter (from getActiveAlarms), shown as a header badge. */
+		activeBreach?: { severity: number; started_at?: string | null; since: string } | null;
+		/** Ticking clock (ms) from the parent so the badge's "active for …" stays fresh. */
+		nowMs?: number;
 	} = $props();
+
+	function breachDuration(fromIso: string): string {
+		const m = Math.floor(((nowMs || Date.now()) - new Date(fromIso).getTime()) / 60000);
+		if (m < 1) return 'less than a minute';
+		if (m < 60) return `${m} minute${m === 1 ? '' : 's'}`;
+		const h = Math.floor(m / 60);
+		if (h < 24) return `${h}h ${m % 60}m`;
+		const d = Math.floor(h / 24);
+		return `${d}d ${h % 24}h`;
+	}
 
 	let el: HTMLDivElement;
 	let chart: uPlot | null = null;
@@ -84,7 +101,7 @@
 	let selectionModeRef = { current: 'zoom' as Mode };
 	$effect(() => { selectionModeRef.current = selectionMode; });
 
-	// Optional overlay layers — DEFAULT OFF. visRef/bandsRef/markersRef are read live inside
+	// Optional overlay layers - DEFAULT OFF. visRef/bandsRef/markersRef are read live inside
 	// the draw-hook closures, so toggling visibility only needs chart.redraw() (no rebuild).
 	const overlayVisRef: { current: OverlayVisibility } = {
 		current: { sensorVectors: showSensorVectors, calibrationMarkers: showCalibrationMarkers, alarmBands: showAlarmBands },
@@ -158,6 +175,7 @@
 				drawSeries: [
 					(u: uPlot, si: number) => {
 						if (si !== 1) return;
+						if (!overlayVisRef.current.alarmBands) return; // dashed limit lines follow the Alarm bands toggle
 						const ctx = u.ctx;
 						const { left, width, top, height } = u.bbox;
 						const limitLine = (val: number | null | undefined, color: string) => {
@@ -587,6 +605,18 @@
 			{#if hasData}<span class="text-xs text-brand-muted font-normal ml-2">{dataPoints} pts</span>{/if}
 		</span>
 		<div class="flex items-center gap-1.5">
+			{#if showAlarmBands && activeBreach}
+				{@const isAlarm = activeBreach.severity >= 2}
+				{@const since = activeBreach.started_at ?? activeBreach.since}
+				<a
+					href="{base}/alarms?site_id={siteId}&parameter_id={parameterId}"
+					title="View this parameter's alarm log"
+					class="flex items-center gap-1.5 px-2 py-0.5 text-xs rounded no-underline hover:underline {isAlarm ? 'text-severity-alarm bg-severity-alarm-soft' : 'text-severity-warning bg-severity-warning-soft'}"
+				>
+					<span class="inline-block w-2 h-2 rounded-full shrink-0 {isAlarm ? 'bg-severity-alarm' : 'bg-severity-warning'}"></span>
+					{isAlarm ? 'Alarm' : 'Warning'} active for {breachDuration(since)} since {formatDateTime(since)}
+				</a>
+			{/if}
 			<button onclick={() => startSelection('annotate')} class="px-1.5 py-0.5 text-xs text-brand-primary bg-transparent border border-brand-primary/50 rounded cursor-pointer hover:bg-brand-primary/5" title="Annotate a time range">Annotate</button>
 			<button onclick={() => startSelection('flag')} class="px-1.5 py-0.5 text-xs text-severity-alarm bg-transparent border border-severity-alarm-border rounded cursor-pointer hover:bg-severity-alarm-soft" title="Flag readings in a range">Flag</button>
 			<button onclick={() => startSelection('unflag')} class="px-1.5 py-0.5 text-xs text-brand-muted bg-transparent border border-brand-divider rounded cursor-pointer hover:bg-brand-bg" title="Unflag readings in a range">Unflag</button>

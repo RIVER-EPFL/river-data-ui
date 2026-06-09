@@ -14,11 +14,18 @@
 	let sortField = $state('name');
 	let sortOrder = $state<'ASC' | 'DESC'>('ASC');
 	let searchQuery = $state('');
-	let categoryFilter = $state('');
-	// '' = all, 'direct' = exclude derived, 'derived' = only derived outputs.
-	let typeFilter = $state(
+
+	// Category is a fixed DB enum (CHECK measurement|device_health); surface both as tickboxes even
+	// when the data only contains one, so the available categories are discoverable.
+	const KNOWN_CATEGORIES = ['measurement', 'device_health'];
+	const initialType =
 		page.url.searchParams.get('type') ??
-			(page.url.searchParams.get('tab') === 'derived' ? 'derived' : ''),
+		(page.url.searchParams.get('tab') === 'derived' ? 'derived' : '');
+	// Exclusion sets - empty means "show everything"; a member is hidden. (Defaulting to nothing
+	// excluded keeps any future category visible without extra wiring.)
+	let excludedCats = $state<Set<string>>(new Set());
+	let excludedTypes = $state<Set<string>>(
+		new Set(initialType === 'derived' ? ['direct'] : initialType === 'direct' ? ['derived'] : []),
 	);
 
 	let sitesByParam = $state<Record<string, SiteRef[]>>({});
@@ -62,7 +69,22 @@
 		}
 	});
 
-	const categories = $derived([...new Set(parameters.map((p) => p.category).filter(Boolean))].sort());
+	const allCategories = $derived(
+		[...new Set([...KNOWN_CATEGORIES, ...parameters.map((p) => p.category).filter(Boolean)])].sort(),
+	);
+
+	function toggleCat(cat: string) {
+		const next = new Set(excludedCats);
+		if (next.has(cat)) next.delete(cat); else next.add(cat);
+		excludedCats = next;
+		currentPage = 1;
+	}
+	function toggleType(t: string) {
+		const next = new Set(excludedTypes);
+		if (next.has(t)) next.delete(t); else next.add(t);
+		excludedTypes = next;
+		currentPage = 1;
+	}
 
 	function isDerived(p: Parameter): boolean {
 		return !!derivedDefByOutput[p.id];
@@ -72,7 +94,7 @@
 	}
 
 	function fmtRange(min: number | null, max: number | null): string {
-		if (min == null && max == null) return '—';
+		if (min == null && max == null) return 'None';
 		const lo = min != null ? String(min) : '';
 		const hi = max != null ? String(max) : '';
 		return `${lo} – ${hi}`;
@@ -81,9 +103,8 @@
 	const filtered = $derived.by(() => {
 		const q = searchQuery.trim().toLowerCase();
 		const rows = parameters.filter((p) => {
-			if (categoryFilter && p.category !== categoryFilter) return false;
-			if (typeFilter === 'derived' && !isDerived(p)) return false;
-			if (typeFilter === 'direct' && isDerived(p)) return false;
+			if (excludedCats.has(p.category)) return false;
+			if (excludedTypes.has(isDerived(p) ? 'derived' : 'direct')) return false;
 			if (q) {
 				const hay = `${p.name ?? ''} ${p.code ?? ''} ${p.description ?? ''}`.toLowerCase();
 				if (!hay.includes(q)) return false;
@@ -131,18 +152,26 @@
 			oninput={resetPage}
 			class="w-64 px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
 		/>
-		<select bind:value={categoryFilter} onchange={resetPage} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
-			<option value="">All categories</option>
-			{#each categories as cat}<option value={cat}>{cat}</option>{/each}
-		</select>
-		<select bind:value={typeFilter} onchange={resetPage} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" title="Show direct, derived, or all parameters">
-			<option value="">All types</option>
-			<option value="direct">Direct only</option>
-			<option value="derived">Derived only</option>
-		</select>
-		<div class="flex-1"></div>
-		<a href="{base}/parameters/new" class="px-3 py-1.5 border border-brand-divider rounded-md no-underline text-sm font-semibold text-brand-text bg-brand-surface hover:bg-brand-bg">Create parameter</a>
-		<a href="{base}/derived/new" class="px-3 py-1.5 bg-brand-primary text-white rounded-md no-underline text-sm font-semibold hover:bg-brand-primary-dark">Create derived parameter</a>
+		<div class="flex items-center gap-2 text-xs text-brand-muted">
+			<span class="font-medium uppercase tracking-wide">Category</span>
+			{#each allCategories as cat}
+				<label class="flex items-center gap-1 cursor-pointer">
+					<input type="checkbox" checked={!excludedCats.has(cat)} onchange={() => toggleCat(cat)} />
+					{cat}
+				</label>
+			{/each}
+		</div>
+		<div class="flex items-center gap-2 text-xs text-brand-muted">
+			<span class="font-medium uppercase tracking-wide">Type</span>
+			<label class="flex items-center gap-1 cursor-pointer" title="Directly recorded parameters">
+				<input type="checkbox" checked={!excludedTypes.has('direct')} onchange={() => toggleType('direct')} />
+				Direct
+			</label>
+			<label class="flex items-center gap-1 cursor-pointer" title="Formula-derived parameters">
+				<input type="checkbox" checked={!excludedTypes.has('derived')} onchange={() => toggleType('derived')} />
+				Derived
+			</label>
+		</div>
 	</div>
 
 	<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
@@ -170,11 +199,11 @@
 							<td class="px-4 py-2">
 								<a href="{base}/parameters/{param.id}" class="text-brand-primary font-semibold no-underline hover:underline">{param.name}</a>
 								{#if defId}
-									<a href="{base}/derived/{defId}" title="Formula-derived parameter — view its definition" class="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-brand-accent/15 text-brand-accent align-middle no-underline hover:underline">derived</a>
+									<a href="{base}/derived/{defId}" title="Formula-derived parameter - view its definition" class="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-brand-accent/15 text-brand-accent align-middle no-underline hover:underline">derived</a>
 								{/if}
 							</td>
 							<td class="px-4 py-2 font-mono text-xs text-brand-muted">{param.code}</td>
-							<td class="px-4 py-2 text-brand-muted">{param.default_units || '—'}</td>
+							<td class="px-4 py-2 text-brand-muted">{param.default_units || 'None'}</td>
 							<td class="px-4 py-2 text-xs text-severity-warning-main">{fmtRange(param.default_warning_min, param.default_warning_max)}</td>
 							<td class="px-4 py-2 text-xs text-severity-alarm-main">{fmtRange(param.default_alarm_min, param.default_alarm_max)}</td>
 							<td class="px-4 py-2"><span class="px-2 py-0.5 text-xs font-medium rounded-full bg-brand-bg text-brand-muted">{param.category}</span></td>

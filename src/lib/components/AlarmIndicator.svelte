@@ -4,6 +4,7 @@
 	import { getActiveAlarms, acknowledgeAlarm, unacknowledgeAlarm, type ActiveAlarm } from '$api/service';
 	import { formatRelativeTime } from '$lib/utils';
 	import { eventBus } from '$lib/stores/events.svelte';
+	import { alarmHref } from '$lib/alarms';
 
 	const POLL_MS = 30_000;
 
@@ -59,7 +60,7 @@
 			await acknowledgeAlarm(eventId);
 			await loadAlarms();
 		} catch {
-			/* ignore — the breach stays unacknowledged and can be retried */
+			/* ignore - the breach stays unacknowledged and can be retried */
 		} finally {
 			const next = new Set(acking);
 			next.delete(eventId);
@@ -141,7 +142,7 @@
 				<div class="flex items-center gap-2">
 					<span class="w-2 h-2 rounded-full shrink-0 {severityDotClass(alarm.severity)}"></span>
 					<a
-						href="{base}/sites/{alarm.site_id}"
+						href={alarmHref({ site_id: alarm.site_id, parameter_id: alarm.parameter_id, started_at: alarm.started_at ?? alarm.since })}
 						class="text-sm font-medium text-brand-text no-underline hover:underline truncate"
 					>{alarm.site_name}</a>
 					<span class="ml-auto text-[10px] text-brand-muted whitespace-nowrap" title={alarm.started_at ? `Last reading: ${formatRelativeTime(alarm.since)}` : undefined}>{formatRelativeTime(alarm.started_at ?? alarm.since)}</span>

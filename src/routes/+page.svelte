@@ -159,21 +159,21 @@
 												{#if entry?.latest_reading_time}
 													<a href="{base}/sites/{site.id}" title={formatDateTime(entry.latest_reading_time)} class="text-xs text-brand-primary no-underline hover:underline">{formatRelativeTime(entry.latest_reading_time)}</a>
 												{:else}
-													<span class="text-xs text-brand-muted">—</span>
+													<span class="text-xs text-brand-muted">None</span>
 												{/if}
 											</td>
 											<td class="px-4 py-2 text-right">
 												{#if entry?.last_alarm_at}
-													<a href="{base}/logs?tab=alarms&site_id={site.id}&severity=alarm" title={formatDateTime(entry.last_alarm_at)} class="text-xs text-brand-primary no-underline hover:underline">{formatRelativeTime(entry.last_alarm_at)}</a>
+													<a href="{base}/alarms?site_id={site.id}&severity=alarm" title={formatDateTime(entry.last_alarm_at)} class="text-xs text-brand-primary no-underline hover:underline">{formatRelativeTime(entry.last_alarm_at)}</a>
 												{:else}
-													<span class="text-xs text-brand-muted">—</span>
+													<span class="text-xs text-brand-muted">None</span>
 												{/if}
 											</td>
 											<td class="px-4 py-2 text-right">
 												{#if entry?.last_warning_at}
-													<a href="{base}/logs?tab=alarms&site_id={site.id}&severity=warning" title={formatDateTime(entry.last_warning_at)} class="text-xs text-brand-primary no-underline hover:underline">{formatRelativeTime(entry.last_warning_at)}</a>
+													<a href="{base}/alarms?site_id={site.id}&severity=warning" title={formatDateTime(entry.last_warning_at)} class="text-xs text-brand-primary no-underline hover:underline">{formatRelativeTime(entry.last_warning_at)}</a>
 												{:else}
-													<span class="text-xs text-brand-muted">—</span>
+													<span class="text-xs text-brand-muted">None</span>
 												{/if}
 											</td>
 										</tr>

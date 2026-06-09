@@ -34,11 +34,11 @@
 			required: true,
 			options: parameters.map((p) => ({
 				value: p.id,
-				label: `${p.code} — ${p.name}${p.default_units ? ` (${p.default_units})` : ''}`,
+				label: `${p.code} - ${p.name}${p.default_units ? ` (${p.default_units})` : ''}`,
 			})),
 			helperText: 'The quantity this sensor measures. Need a new one? Create it under Parameters first.',
 		},
-		{ key: 'serial_number', label: 'Serial Number', helperText: 'Device serial — the physical-instrument identity (unique per parameter)' },
+		{ key: 'serial_number', label: 'Serial Number', helperText: 'Device serial - the physical-instrument identity (unique per parameter)' },
 		{ key: 'name', label: 'Name' },
 		{ key: 'manufacturer', label: 'Manufacturer' },
 		{ key: 'model', label: 'Model' },

@@ -53,7 +53,7 @@
 	);
 	const seriesTimes = $derived(series?.times.map((t) => new Date(t).getTime() / 1000) ?? []);
 
-	// Sensor reading extent (ms) — full data span, bounds for calibration-window sliders.
+	// Sensor reading extent (ms) - full data span, bounds for calibration-window sliders.
 	const seriesExtent = $derived.by(() => {
 		const ds = series?.data_start ? new Date(series.data_start).getTime() : null;
 		const de = series?.data_end ? new Date(series.data_end).getTime() : null;
@@ -233,7 +233,7 @@
 	async function handleRecall(depId: string) {
 		try {
 			await api.sensorDeployments.update(depId, { deployed_until: new Date().toISOString() });
-			toastStore.success('Sensor recalled — readings will be re-coordinated in the background');
+			toastStore.success('Sensor recalled - readings will be re-coordinated in the background');
 			await reloadDeployments();
 		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Recall failed'); }
 	}
@@ -241,13 +241,13 @@
 	async function handleReprocess() {
 		try {
 			await reprocessSensor(sensorId);
-			toastStore.success('Reprocessing started — track it in the Operations indicator');
+			toastStore.success('Reprocessing started - track it in the Operations indicator');
 		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Reprocess failed'); }
 	}
 
 	// Unattributed history exists when the slot's earliest reading (any sensor) predates the open
 	// deployment's start. Backdating deployed_from to it lets the slot reprocess claim those rows.
-	// (Use slot_data_start, NOT data_start — data_start only sees readings already attributed to
+	// (Use slot_data_start, NOT data_start - data_start only sees readings already attributed to
 	// this sensor, so it can never reveal the orphaned history.)
 	const needsBackdate = $derived(
 		!!series?.slot_data_start && !!currentDeployment &&
@@ -259,7 +259,7 @@
 		backdating = true;
 		try {
 			await api.sensorDeployments.update(currentDeployment.id, { deployed_from: series.slot_data_start });
-			toastStore.success('Deployment backdated — historical readings are being attributed in the background');
+			toastStore.success('Deployment backdated - historical readings are being attributed in the background');
 			await reloadDeployments();
 			scheduleFetch();
 		} catch (e) {
@@ -287,7 +287,7 @@
 				deployed_from: new Date(editDepFrom).toISOString(),
 				deployed_until: editDepUntil ? new Date(editDepUntil).toISOString() : null,
 			});
-			toastStore.success('Deployment dates updated — readings re-attributed in the background');
+			toastStore.success('Deployment dates updated - readings re-attributed in the background');
 			editingDepId = null;
 			await reloadDeployments();
 			scheduleFetch();
@@ -335,7 +335,7 @@
 		{#if activeTab === 0}
 			{#if needsBackdate && currentDeployment}
 				<div class="flex items-center gap-3 px-3 py-2 text-sm bg-brand-primary/5 text-brand-primary rounded-md border border-brand-primary/20">
-					<span>Readings exist before this deployment started ({formatDateTime(currentDeployment.deployed_from)}) — they aren't attributed to this sensor.</span>
+					<span>Readings exist before this deployment started ({formatDateTime(currentDeployment.deployed_from)}) - they aren't attributed to this sensor.</span>
 					<button onclick={backdateToFirstReading} disabled={backdating} class="ml-auto px-2 py-0.5 text-xs bg-brand-primary text-white rounded cursor-pointer border-none disabled:opacity-50 whitespace-nowrap">{backdating ? 'Backdating…' : 'Backdate to first reading'}</button>
 				</div>
 			{/if}
@@ -372,7 +372,7 @@
 					</label>
 
 					<span class="text-xs text-brand-muted ml-auto font-mono">
-						{windowLabel} · {new Date(chartStart).toLocaleDateString()} — {new Date(chartEnd).toLocaleDateString()}
+						{windowLabel} · {new Date(chartStart).toLocaleDateString()} - {new Date(chartEnd).toLocaleDateString()}
 					</span>
 				</div>
 				<TimeRangeSlider
@@ -409,10 +409,10 @@
 			{/if}
 			<div class="rounded-md border border-brand-divider bg-brand-surface p-4 space-y-3 max-w-xl">
 				<div class="grid grid-cols-2 gap-4 text-sm">
-					<div><span class="text-brand-muted block">Serial Number</span><span class="font-mono">{sensor.serial_number ?? '—'}</span></div>
-					<div><span class="text-brand-muted block">Name</span>{sensor.name ?? '—'}</div>
-					<div><span class="text-brand-muted block">Manufacturer</span>{sensor.manufacturer ?? '—'}</div>
-					<div><span class="text-brand-muted block">Model</span>{sensor.model ?? '—'}</div>
+					<div><span class="text-brand-muted block">Serial Number</span><span class="font-mono">{sensor.serial_number ?? 'None'}</span></div>
+					<div><span class="text-brand-muted block">Name</span>{sensor.name ?? 'None'}</div>
+					<div><span class="text-brand-muted block">Manufacturer</span>{sensor.manufacturer ?? 'None'}</div>
+					<div><span class="text-brand-muted block">Model</span>{sensor.model ?? 'None'}</div>
 				</div>
 				{#if sensor.notes}
 					<div><span class="text-sm text-brand-muted block">Notes</span><p class="text-sm">{sensor.notes}</p></div>
@@ -497,7 +497,7 @@
 			{/if}
 			{#if uncalibratedCount > 0}
 				<div class="rounded-md bg-severity-warning-soft border border-severity-warning/20 px-3 py-2 mb-2 text-xs text-severity-warning">
-					{uncalibratedCount.toLocaleString()} reading{uncalibratedCount === 1 ? '' : 's'} before the first calibration — using raw values (identity 1x+0)
+					{uncalibratedCount.toLocaleString()} reading{uncalibratedCount === 1 ? '' : 's'} before the first calibration - using raw values (identity 1x+0)
 				</div>
 			{/if}
 			<div class="flex justify-end mb-2">
@@ -531,7 +531,7 @@
 						{#each calibrations as cal}
 							<tr class="border-b border-brand-divider last:border-b-0">
 								<td class="px-4 py-2 text-xs">{formatDateTime(cal.valid_from)}</td>
-								<td class="px-4 py-2 text-xs text-brand-muted">{cal.valid_until ? formatDateTime(cal.valid_until) : '—'}</td>
+								<td class="px-4 py-2 text-xs text-brand-muted">{cal.valid_until ? formatDateTime(cal.valid_until) : 'None'}</td>
 								<td class="px-4 py-2 font-mono text-xs">{cal.slope}</td>
 								<td class="px-4 py-2 font-mono text-xs">{cal.intercept}</td>
 								<td class="px-4 py-2 font-mono text-xs">y = {cal.slope}x + {cal.intercept}</td>

@@ -64,7 +64,7 @@
 		if (job.sensor_id) {
 			return { label: sensorMap.get(job.sensor_id) ?? job.sensor_id, href: `${base}/sensors/${job.sensor_id}` };
 		}
-		return { label: '—', href: null };
+		return { label: 'None', href: null };
 	}
 
 	function progressPercent(job: ReprocessingJob): number | null {
@@ -132,12 +132,12 @@
 										<span class="text-brand-muted font-mono text-[10px] whitespace-nowrap">{job.progress}/{job.total}</span>
 									</div>
 								{:else}
-									<span class="text-brand-muted">—</span>
+									<span class="text-brand-muted">None</span>
 								{/if}
 							</td>
-							<td class="px-4 py-2 text-right font-mono text-xs">{job.readings_updated ?? '—'}</td>
+							<td class="px-4 py-2 text-right font-mono text-xs">{job.readings_updated ?? 'None'}</td>
 							<td class="px-4 py-2 text-xs text-brand-muted">{formatRelativeTime(job.created_at)}</td>
-							<td class="px-4 py-2 text-xs text-brand-muted">{job.completed_at ? formatDateTime(job.completed_at) : '—'}</td>
+							<td class="px-4 py-2 text-xs text-brand-muted">{job.completed_at ? formatDateTime(job.completed_at) : 'None'}</td>
 							<td class="px-4 py-2 text-xs text-severity-alarm truncate max-w-xs" title={job.error_message ?? ''}>{job.error_message ?? ''}</td>
 						</tr>
 					{/each}

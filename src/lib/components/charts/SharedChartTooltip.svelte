@@ -2,7 +2,7 @@
 	import { getChartSyncGroup } from '$lib/charts/chart-sync.svelte';
 	import { uPlotTheme } from '$lib/charts/uPlotTheme';
 	import { tokens } from '$lib/charts/tokens';
-	import { bandAtTime, calibrationAtTime } from '$lib/charts/overlay-plugins';
+	import { bandAtTime, calibrationAtTime, severityForValue } from '$lib/charts/overlay-plugins';
 
 	let { syncKey }: { syncKey: string } = $props();
 
@@ -53,15 +53,9 @@
 			const val = reg.values[c.idx];
 			const color = tokens.dataViz[reg.paletteIndex % tokens.dataViz.length];
 
-			let severity: 'alarm' | 'warning' | null = null;
-			if (reg.threshold && val != null) {
-				const th = reg.threshold;
-				if ((th.alarm_min != null && val < th.alarm_min) || (th.alarm_max != null && val > th.alarm_max)) {
-					severity = 'alarm';
-				} else if ((th.warning_min != null && val < th.warning_min) || (th.warning_max != null && val > th.warning_max)) {
-					severity = 'warning';
-				}
-			}
+			const sevLevel = severityForValue(val, reg.threshold);
+			const severity: 'alarm' | 'warning' | null =
+				sevLevel === 2 ? 'alarm' : sevLevel === 1 ? 'warning' : null;
 
 			const flagged = reg.flags?.[c.idx] === true;
 			const flagReason = flagged ? (reg.flagReasons?.[c.idx] ?? null) : null;

@@ -190,7 +190,7 @@
 				valid_until: isOpenEnded ? null : new Date(endMs).toISOString(),
 			});
 			await recalibrateCalibration(calibration.id);
-			toastStore.success('Calibration updated — readings recomputed in the background');
+			toastStore.success('Calibration updated - readings recomputed in the background');
 			scheduleFetch();
 			onchanged?.();
 		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Update failed'); }
@@ -207,7 +207,7 @@
 				valid_from: new Date(startMs).toISOString(),
 				slope: p.s, intercept: p.b,
 			});
-			toastStore.success('Calibration added — readings will be recomputed in the background');
+			toastStore.success('Calibration added - readings will be recomputed in the background');
 			onchanged?.();
 		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Create failed'); }
 		finally { saving = false; }

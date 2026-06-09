@@ -12,7 +12,7 @@
 	});
 
 	function paramName(val: unknown): string {
-		if (!val) return '—';
+		if (!val) return 'None';
 		return params.find((p) => p.id === val)?.name ?? String(val);
 	}
 
@@ -39,7 +39,7 @@
 		{ key: 'valid_from', label: 'Valid From' },
 		{ key: 'slope', label: 'Slope' },
 		{ key: 'intercept', label: 'Intercept' },
-		{ key: 'r_squared', label: 'R²', render: (v) => v != null ? Number(v).toFixed(6) : '—' },
+		{ key: 'r_squared', label: 'R²', render: (v) => v != null ? Number(v).toFixed(6) : 'None' },
 		{ key: '_equation', label: 'Equation', sortable: false, render: (_v, row) => `y = ${row.slope}x + ${row.intercept}` },
 	]}
 	rowHref={(row) => `${base}/standard-curves/${row.id}`}

@@ -81,7 +81,7 @@
 	function cellValue(col: Column, row: T): string {
 		const val = row[col.key];
 		if (col.render) return col.render(val, row);
-		if (val == null) return '—';
+		if (val == null) return 'None';
 		if (col.key.endsWith('_at') && typeof val === 'string') return formatRelativeTime(val);
 		return String(val);
 	}

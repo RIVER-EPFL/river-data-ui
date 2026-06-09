@@ -91,7 +91,7 @@
 				{#each projects as p}<option value={p.id}>{p.name}</option>{/each}
 			</select>
 			<span class="text-xs text-brand-muted">
-				Security boundary — a scoped key can only read and write that project's data and inventory,
+				Security boundary - a scoped key can only read and write that project's data and inventory,
 				and cannot see other projects. Leave as "All projects" for an unscoped key.
 			</span>
 		</div>

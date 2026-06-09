@@ -1008,7 +1008,7 @@
 									</td>
 										<td class="px-3 py-2">
 											{#if matched}
-												<span class="font-medium text-brand-text" title="Already exists in the database — edit via the Parameters page">{matched.name}</span>
+												<span class="font-medium text-brand-text" title="Already exists in the database - edit via the Parameters page">{matched.name}</span>
 											{:else if editingGlobalParam === pg.name}
 												<input type="text" bind:value={editValue} onkeydown={(e) => { if (e.key === 'Enter') commitEditGlobalParam(); if (e.key === 'Escape') editingGlobalParam = null; }} onblur={commitEditGlobalParam} class="px-1 py-0.5 border border-brand-primary rounded text-sm bg-brand-surface w-40" autofocus />
 											{:else}
@@ -1020,7 +1020,7 @@
 										</td>
 										<td class="px-3 py-2 text-xs">
 											{#if matched}
-												<span class="text-brand-muted" title="Already exists in the database — edit via the Parameters page">{matched.default_units}</span>
+												<span class="text-brand-muted" title="Already exists in the database - edit via the Parameters page">{matched.default_units}</span>
 											{:else if editingGlobalUnits === pg.name}
 												<input type="text" bind:value={editUnitsValue} onkeydown={(e) => { if (e.key === 'Enter') commitEditUnits(); if (e.key === 'Escape') editingGlobalUnits = null; }} onblur={commitEditUnits} class="px-1 py-0.5 border border-brand-primary rounded text-xs bg-brand-surface w-20" autofocus />
 											{:else}

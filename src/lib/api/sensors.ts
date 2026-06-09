@@ -69,7 +69,7 @@ export interface SensorReadingsResponse {
 	/** Full reading extent attributed to this sensor (independent of the query window). */
 	data_start: string | null;
 	data_end: string | null;
-	/** Earliest reading at the sensor's open deployment slot (site+parameter, any sensor) — the
+	/** Earliest reading at the sensor's open deployment slot (site+parameter, any sensor) - the
 	 * backdate target; may precede data_start when history isn't yet attributed. Null if no open deployment. */
 	slot_data_start: string | null;
 }

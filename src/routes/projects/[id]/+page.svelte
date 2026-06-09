@@ -279,9 +279,7 @@
 										<span class="{counts.pub > 0 ? 'text-severity-ok' : ''}">{counts.pub}</span>/{counts.total}
 									{:else if site.public_code}
 										<span class="text-brand-muted">...</span>
-									{:else}
-										—
-									{/if}
+									{:else} - {/if}
 								</td>
 							{/if}
 						</tr>

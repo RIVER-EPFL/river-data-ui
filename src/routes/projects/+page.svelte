@@ -57,7 +57,7 @@
 									{project.name}
 								</a>
 							</td>
-							<td class="px-4 py-2 text-brand-muted">{project.description ?? '—'}</td>
+							<td class="px-4 py-2 text-brand-muted">{project.description ?? 'None'}</td>
 							<td class="px-4 py-2">
 								{#if project.is_public}
 									<span class="px-2 py-0.5 text-xs font-medium rounded-full bg-severity-ok-soft text-severity-ok">

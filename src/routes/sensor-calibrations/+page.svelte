@@ -20,8 +20,8 @@
 	title="Sensor Calibrations"
 	createHref="{base}/sensor-calibrations/new"
 	columns={[
-		{ key: 'sensor_id', label: 'Sensor', render: (_, row) => sensorMap.get(row.sensor_id) ?? '—' },
-		{ key: 'valid_from', label: 'Valid From', render: (v) => v ? formatDateTime(v as string) : '—' },
+		{ key: 'sensor_id', label: 'Sensor', render: (_, row) => sensorMap.get(row.sensor_id) ?? 'None' },
+		{ key: 'valid_from', label: 'Valid From', render: (v) => v ? formatDateTime(v as string) : 'None' },
 		{ key: 'valid_until', label: 'Valid Until', render: (v) => v ? formatDateTime(v as string) : 'Open' },
 		{ key: 'slope', label: 'Slope' },
 		{ key: 'intercept', label: 'Intercept' },

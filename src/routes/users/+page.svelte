@@ -18,7 +18,7 @@
 		{ key: 'email', label: 'Email', class: 'text-brand-muted' },
 		{ key: 'firstName', label: 'First Name' },
 		{ key: 'lastName', label: 'Last Name' },
-		{ key: 'enabled', label: 'Enabled', render: (v) => v ? '✓' : '—' },
+		{ key: 'enabled', label: 'Enabled', render: (v) => v ? '✓' : 'None' },
 		{ key: 'roles', label: 'Admin', sortable: false, render: (v) => Array.isArray(v) && v.includes('admin') ? '✓' : '' },
 	]}
 	rowHref={(row) => `${base}/users/${row.id}`}

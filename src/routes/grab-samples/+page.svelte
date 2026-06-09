@@ -151,7 +151,7 @@
 				return;
 			}
 			if (readings.length === 0) {
-				toastStore.error('No readings to submit — add a parameter row with at least one replicate');
+				toastStore.error('No readings to submit - add a parameter row with at least one replicate');
 				return;
 			}
 

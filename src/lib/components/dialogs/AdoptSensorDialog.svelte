@@ -59,8 +59,8 @@
 				deployment_type: 'permanent',
 			});
 			toastStore.success(incumbent
-				? 'Slot adopted — incumbent deployment closed; readings re-coordinated in the background'
-				: 'Sensor deployed — readings re-coordinated in the background');
+				? 'Slot adopted - incumbent deployment closed; readings re-coordinated in the background'
+				: 'Sensor deployed - readings re-coordinated in the background');
 			open = false;
 			onsuccess?.();
 		} catch (e) {
@@ -87,7 +87,7 @@
 				<div class="flex flex-col gap-1">
 					<label for="ad-site" class="text-sm font-medium">Site</label>
 					<select id="ad-site" bind:value={selectedSiteId} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
-						<option value="">— Select site —</option>
+						<option value=""> - Select site - </option>
 						{#each sites as s}<option value={s.id}>{s.name}</option>{/each}
 					</select>
 				</div>
@@ -95,7 +95,7 @@
 					<div class="flex flex-col gap-1">
 						<label for="ad-sp" class="text-sm font-medium">Parameter slot</label>
 						<select id="ad-sp" bind:value={selectedSiteParamId} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
-							<option value="">— Select slot —</option>
+							<option value=""> - Select slot - </option>
 							{#each compatibleSiteParams as sp}<option value={sp.id}>{sp.name ?? paramName(sp.parameter_id)}</option>{/each}
 						</select>
 						{#if compatibleSiteParams.length === 0}

@@ -7,7 +7,7 @@
 	// Two modes:
 	//  - 'site':   the site is fixed; pick a sensor to deploy here.
 	//  - 'sensor': the sensor is fixed; pick a destination site (deploy or move).
-	// A move is a single deployment create — the API's before_create hook closes
+	// A move is a single deployment create - the API's before_create hook closes
 	// the sensor's open deployment at the new deployed_from, and one reprocessing
 	// pass re-coordinates the readings.
 	let {
@@ -128,7 +128,7 @@
 				deployed_from: new Date(deployedFrom).toISOString(),
 				deployment_type: deploymentType,
 			});
-			toastStore.success(movingFrom ? 'Sensor moved — readings will be re-coordinated in the background' : 'Sensor deployed — readings will be re-coordinated in the background');
+			toastStore.success(movingFrom ? 'Sensor moved - readings will be re-coordinated in the background' : 'Sensor deployed - readings will be re-coordinated in the background');
 			open = false;
 			onsuccess?.();
 		} catch (e) {
@@ -149,9 +149,9 @@
 						<div class="flex items-center gap-2 px-3 py-2 border border-brand-divider rounded-md bg-brand-bg">
 							<div class="flex flex-col min-w-0">
 								<span class="text-sm font-semibold truncate">{sensorDisplay(selectedSensor)}</span>
-								<span class="text-xs text-brand-muted font-mono truncate">{selectedSensor.serial_number ?? '—'}{selectedSensor.model ? ` · ${selectedSensor.model}` : ''}</span>
+								<span class="text-xs text-brand-muted font-mono truncate">{selectedSensor.serial_number ?? 'None'}{selectedSensor.model ? ` · ${selectedSensor.model}` : ''}</span>
 								{#if isMove}
-									<span class="text-xs text-severity-warning">currently deployed at {sourceSiteName} — will be moved</span>
+									<span class="text-xs text-severity-warning">currently deployed at {sourceSiteName} - will be moved</span>
 								{/if}
 							</div>
 							<button onclick={clearSelection} class="ml-auto text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline">Change</button>
@@ -182,7 +182,7 @@
 										class="w-full text-left px-3 py-2 cursor-pointer bg-transparent border-none hover:bg-brand-bg flex flex-col gap-0.5"
 									>
 										<span class="text-sm font-semibold">{sensorDisplay(s)}</span>
-										<span class="text-xs text-brand-muted font-mono">{s.serial_number ?? '—'}{s.manufacturer ? ` · ${s.manufacturer}` : ''}{s.model ? ` ${s.model}` : ''}</span>
+										<span class="text-xs text-brand-muted font-mono">{s.serial_number ?? 'None'}{s.manufacturer ? ` · ${s.manufacturer}` : ''}{s.model ? ` ${s.model}` : ''}</span>
 										{#if depSite}
 											<span class="text-xs text-severity-warning">currently deployed at {depSite}</span>
 										{/if}
@@ -196,7 +196,7 @@
 				<div class="flex flex-col gap-1">
 					<label for="dm-site" class="text-sm font-medium">Destination site</label>
 					<select id="dm-site" bind:value={selectedSiteId} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
-						<option value="">— Select site —</option>
+						<option value=""> - Select site - </option>
 						{#each sites as s}
 							<option value={s.id}>{s.name}</option>
 						{/each}

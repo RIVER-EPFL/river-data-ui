@@ -19,7 +19,7 @@ export function bandColor(deploymentId: string, alpha = 0.14): string {
 	return `rgba(${r},${g},${b},${alpha})`;
 }
 
-/** Height (CSS px) of the dark labelled strip at the top of each band — also the click target. */
+/** Height (CSS px) of the dark labelled strip at the top of each band - also the click target. */
 export const BAND_STRIP_CSS = 16;
 
 const bandLabel = (b: SensorIdentityBand) => b.sensor_name ?? b.sensor_serial ?? 'sensor';

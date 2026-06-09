@@ -155,7 +155,7 @@
 				<a href="{base}/logs?tab=jobs" class="text-xs text-brand-primary no-underline hover:underline">View all</a>
 			</div>
 			{#if consecutiveErrors > 5}
-				<div class="px-3 py-1 text-xs text-severity-warning bg-severity-warning-soft">Connection issue — retrying</div>
+				<div class="px-3 py-1 text-xs text-severity-warning bg-severity-warning-soft">Connection issue - retrying</div>
 			{/if}
 			<div class="max-h-96 overflow-y-auto">
 				{#if activeJobs.length === 0 && recentJobs.length === 0 && completedJobs.length === 0}

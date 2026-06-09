@@ -222,7 +222,7 @@
 	.slider-track {
 		height: 14px;
 	}
-	/* Track background uses zone gradient — !important to override noUiSlider defaults */
+	/* Track background uses zone gradient - !important to override noUiSlider defaults */
 	.slider-track :global(.noUi-target) {
 		background: var(--track-bg) !important;
 		border: none !important;

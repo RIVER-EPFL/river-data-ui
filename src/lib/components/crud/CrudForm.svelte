@@ -138,7 +138,7 @@
 							disabled={field.disabled}
 							class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
 						>
-							<option value="">— Select —</option>
+							<option value=""> - Select - </option>
 							{#each field.options ?? [] as opt}
 								<option value={opt.value}>{opt.label}</option>
 							{/each}

@@ -4,37 +4,40 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { api, type Site, type Parameter, type AlarmThreshold } from '$api/crud';
-	import {
-		getActiveAlarms,
-		acknowledgeAlarm,
-		unacknowledgeAlarm,
-		type ActiveAlarm,
-	} from '$api/service';
-	import { formatRelativeTime, formatDateTime } from '$lib/utils';
+	import { getActiveAlarms, getThresholds, type ResolvedThreshold } from '$api/service';
 	import Tabs from '$components/ui/Tabs.svelte';
-	import CrudList from '$components/crud/CrudList.svelte';
 	import ThresholdDialog from '$components/dialogs/ThresholdDialog.svelte';
+	import AlarmEventsPanel from '$components/logs/AlarmEventsPanel.svelte';
 
-	const TABS = ['Active', 'Thresholds'];
-	const TAB_KEYS = ['active', 'thresholds'];
+	const TABS = ['Log', 'Thresholds'];
+	const TAB_KEYS = ['log', 'thresholds'];
 
 	function severityFromString(s: string | null): number | undefined {
-		if (s === 'warning') return 1;
-		if (s === 'alarm') return 2;
+		if (s === 'warning' || s === '1') return 1;
+		if (s === 'alarm' || s === '2') return 2;
 		return undefined;
 	}
 
-	function severityToString(n: number | undefined): string {
-		if (n === 1) return 'warning';
-		if (n === 2) return 'alarm';
-		return '';
-	}
+	// Seed values for the log panel's filters (dashboard / chart-badge links carry ?site_id /
+	// ?parameter_id / ?severity). The panel reads these once when it mounts. They're mutable so a
+	// Thresholds-row click can re-point them and flip to the Log tab. The panel is unmounted on the
+	// Thresholds tab, so switching to Log mounts it fresh with the new seeds (no SvelteKit reuse trap).
+	let initialSiteId = $state(page.url.searchParams.get('site_id') ?? '');
+	let initialSeverity = $state(severityFromString(page.url.searchParams.get('severity')));
+	let initialParameterId = $state(page.url.searchParams.get('parameter_id') ?? '');
 
-	// ── Filter state (reflected to/from URL) ──
-	let siteFilter = $state<string>(page.url.searchParams.get('site_id') ?? '');
-	let severityFilter = $state<number | undefined>(
-		severityFromString(page.url.searchParams.get('severity')),
-	);
+	function openLogFor(row: ResolvedThreshold) {
+		initialSiteId = row.site_id;
+		initialParameterId = row.parameter_id;
+		initialSeverity = undefined;
+		activeTab = 0;
+		const url = new URL(page.url);
+		url.searchParams.set('tab', 'log');
+		url.searchParams.set('site_id', row.site_id);
+		url.searchParams.set('parameter_id', row.parameter_id);
+		url.searchParams.delete('severity');
+		goto(url, { replaceState: true, noScroll: true });
+	}
 
 	function tabFromParam(): number {
 		const raw = page.url.searchParams.get('tab');
@@ -44,25 +47,12 @@
 	}
 	let activeTab = $state<number>(tabFromParam());
 
-	function syncUrl() {
-		const url = new URL(page.url);
-		if (siteFilter) url.searchParams.set('site_id', siteFilter);
-		else url.searchParams.delete('site_id');
-		const sevStr = severityToString(severityFilter);
-		if (sevStr) url.searchParams.set('severity', sevStr);
-		else url.searchParams.delete('severity');
-		url.searchParams.set('tab', TAB_KEYS[activeTab] ?? 'active');
-		goto(url, { replaceState: true, noScroll: true });
-	}
-
-	// Keep ?tab in the URL when the user switches tabs manually (so refresh / back / shared
-	// links restore the tab). Depends only on activeTab; URL/filter reads are untracked to
-	// avoid feedback loops.
+	// Keep ?tab in the URL when the user switches tabs (so refresh / back / shared links restore it).
 	$effect(() => {
 		const t = activeTab;
 		untrack(() => {
 			const url = new URL(page.url);
-			const key = TAB_KEYS[t] ?? 'active';
+			const key = TAB_KEYS[t] ?? 'log';
 			if (url.searchParams.get('tab') !== key) {
 				url.searchParams.set('tab', key);
 				goto(url, { replaceState: true, noScroll: true });
@@ -70,92 +60,36 @@
 		});
 	});
 
-	// Link to the full alarm event history (now in the unified Logs page), carrying filters.
-	function eventHistoryHref(): string {
-		const params = new URLSearchParams({ tab: 'alarms' });
-		if (siteFilter) params.set('site_id', siteFilter);
-		const sev = severityToString(severityFilter);
-		if (sev) params.set('severity', sev);
-		return `${base}/logs?${params}`;
-	}
+	// ── Log tab: the event log lives in AlarmEventsPanel; the page hosts its header buttons. ──
+	let logPanel = $state<AlarmEventsPanel | undefined>();
+	let logEventCount = $state(0);
 
-	// ── Shared lookups ──
-	let sites = $state<Site[]>([]);
+	// Per-site active counts, shown on each Thresholds row so a site's current load is visible.
+	let siteActiveCounts = $state<Map<string, { alarms: number; warnings: number }>>(new Map());
 
-	// ── Active tab ──
-	let activeAlarms = $state<ActiveAlarm[]>([]);
-	let activeLoading = $state(true);
-	let activeError = $state<string | null>(null);
-
-	const filteredActive = $derived(
-		activeAlarms.filter((a) => {
-			if (siteFilter && a.site_id !== siteFilter) return false;
-			if (severityFilter && a.severity !== severityFilter) return false;
-			return true;
-		}),
-	);
-
-	async function loadActive() {
-		activeLoading = true;
-		activeError = null;
+	async function loadActiveCounts() {
 		try {
 			const result = await getActiveAlarms();
-			activeAlarms = result.alarms;
-		} catch (e) {
-			activeError = e instanceof Error ? e.message : 'Failed to load active alarms';
-		} finally {
-			activeLoading = false;
+			const m = new Map<string, { alarms: number; warnings: number }>();
+			for (const a of result.alarms) {
+				const c = m.get(a.site_id) ?? { alarms: 0, warnings: 0 };
+				if (a.severity >= 2) c.alarms++;
+				else if (a.severity === 1) c.warnings++;
+				m.set(a.site_id, c);
+			}
+			siteActiveCounts = m;
+		} catch {
+			/* best-effort */
 		}
-	}
-
-	function onFiltersChanged() {
-		syncUrl();
-	}
-
-	async function handleAcknowledgeActive(eventId: string) {
-		try {
-			await acknowledgeAlarm(eventId);
-			await loadActive();
-		} catch (e) {
-			activeError = e instanceof Error ? e.message : 'Failed to acknowledge';
-		}
-	}
-
-	async function handleUnacknowledgeActive(eventId: string) {
-		try {
-			await unacknowledgeAlarm(eventId);
-			await loadActive();
-		} catch (e) {
-			activeError = e instanceof Error ? e.message : 'Failed to unacknowledge';
-		}
-	}
-
-	function formatDuration(from: string, to?: string | null): string {
-		const start = new Date(from).getTime();
-		const end = to ? new Date(to).getTime() : Date.now();
-		const ms = end - start;
-		const minutes = Math.floor(ms / 60_000);
-		if (minutes < 60) return `${minutes}m`;
-		const hours = Math.floor(minutes / 60);
-		if (hours < 24) return `${hours}h ${minutes % 60}m`;
-		const days = Math.floor(hours / 24);
-		return `${days}d ${hours % 24}h`;
-	}
-
-	function severityLabel(n: number): string {
-		return n >= 2 ? 'Alarm' : 'Warning';
-	}
-	function severityDot(n: number): string {
-		return n >= 2 ? 'bg-severity-alarm' : 'bg-severity-warning';
 	}
 
 	// ── Thresholds tab ──
+	let sites = $state<Site[]>([]);
 	let siteMap = $state<Map<string, string>>(new Map());
 	let paramMap = $state<Map<string, string>>(new Map());
 
 	let thrSiteFilter = $state<string>('');
 	let thrParamFilter = $state<string>('');
-	let thresholdList = $state<CrudList | undefined>();
 	let thresholdDialogOpen = $state(false);
 	let thresholdExisting = $state<AlarmThreshold | null>(null);
 	let thresholdSiteId = $state<string | null>(null);
@@ -165,14 +99,6 @@
 	const thresholdParamOptions = $derived([...paramMap].map(([value, label]) => ({ value, label })));
 	const thresholdSiteOptions = $derived(sites.map((s) => ({ value: s.id, label: s.name })));
 
-	function openThresholdEdit(row: AlarmThreshold) {
-		thresholdExisting = row;
-		thresholdSiteId = row.site_id;
-		thresholdParamId = row.parameter_id ?? '';
-		thresholdParamName = (row.parameter_id ? paramMap.get(row.parameter_id) : undefined) ?? 'Threshold';
-		thresholdDialogOpen = true;
-	}
-
 	function openThresholdCreate() {
 		thresholdExisting = null;
 		thresholdSiteId = null;
@@ -181,8 +107,66 @@
 		thresholdDialogOpen = true;
 	}
 
+	// Effective (resolved) thresholds per sensor - from the backend's single 3-tier definition, so
+	// parameter-default thresholds show even with no override row. `rawThresholds` is the underlying
+	// alarm_thresholds rows, used to find the override row when editing/resetting.
+	let effectiveRows = $state<ResolvedThreshold[]>([]);
+	let rawThresholds = $state<AlarmThreshold[]>([]);
+
+	const SOURCE_LABEL: Record<ResolvedThreshold['source'], string> = {
+		site: 'Site override',
+		global: 'Global',
+		default: 'Parameter default',
+	};
+
+	const filteredThresholds = $derived(
+		effectiveRows
+			.filter((r) => !thrSiteFilter || r.site_id === thrSiteFilter)
+			.filter((r) => !thrParamFilter || r.parameter_id === thrParamFilter)
+			.slice()
+			.sort(
+				(a, b) =>
+					(siteMap.get(a.site_id) ?? '').localeCompare(siteMap.get(b.site_id) ?? '') ||
+					(paramMap.get(a.parameter_id) ?? '').localeCompare(paramMap.get(b.parameter_id) ?? ''),
+			),
+	);
+
+	// One- or two-sided bound shown with comparators. `null` = no bound at all, rendered as a muted
+	// "None" so an empty cell reads as intentional rather than a data error.
+	function thrBound(min: number | null, max: number | null): string | null {
+		if (min == null && max == null) return null;
+		if (min == null) return `≤ ${max}`;
+		if (max == null) return `≥ ${min}`;
+		return `${min} to ${max}`;
+	}
+
+	async function loadThresholds() {
+		try {
+			const [eff, raw] = await Promise.all([
+				getThresholds(),
+				api.alarmThresholds.list({ perPage: 500 }),
+			]);
+			effectiveRows = eff;
+			rawThresholds = raw.data;
+		} catch {
+			/* best-effort */
+		}
+	}
+
+	function openThresholdRow(row: ResolvedThreshold) {
+		// Edit the underlying site override if one exists; otherwise open create for this slot.
+		thresholdExisting =
+			rawThresholds.find((t) => t.parameter_id === row.parameter_id && t.site_id === row.site_id) ??
+			null;
+		thresholdSiteId = row.site_id;
+		thresholdParamId = row.parameter_id;
+		thresholdParamName = paramMap.get(row.parameter_id) ?? 'Threshold';
+		thresholdDialogOpen = true;
+	}
+
 	onMount(async () => {
-		loadActive();
+		loadThresholds();
+		loadActiveCounts();
 		try {
 			const [sitesResult, paramsResult] = await Promise.all([
 				api.sites.list({ perPage: 200 }),
@@ -200,108 +184,40 @@
 <svelte:head><title>Alarms | River Data</title></svelte:head>
 
 <div class="space-y-4">
-	<h2 class="text-xl font-semibold">Alarms</h2>
+	<div class="flex items-start justify-between">
+		<h2 class="text-xl font-semibold">Alarms</h2>
+		{#if activeTab === 0}
+			<div class="flex items-center gap-2">
+				<button
+					onclick={() => logPanel?.exportCsv()}
+					disabled={logEventCount === 0}
+					class="px-3 py-1.5 border border-brand-divider bg-brand-surface text-sm rounded-md cursor-pointer hover:bg-brand-bg disabled:opacity-50 disabled:cursor-default"
+				>Export CSV</button>
+				<button
+					onclick={() => logPanel?.rebuild()}
+					class="px-3 py-1.5 border border-brand-divider bg-brand-surface text-sm rounded-md cursor-pointer hover:bg-brand-bg"
+				>Rebuild alarm history</button>
+			</div>
+		{/if}
+	</div>
 
 	<Tabs tabs={TABS} bind:active={activeTab} />
 
-	<!-- ── ACTIVE TAB ── -->
+	<!-- ── LOG TAB ── -->
 	{#if activeTab === 0}
-		<div class="flex flex-wrap items-center gap-2">
-			<select
-				bind:value={siteFilter}
-				onchange={onFiltersChanged}
-				class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
-			>
-				<option value="">All sites</option>
-				{#each sites as s}<option value={s.id}>{s.name}</option>{/each}
-			</select>
-			<select
-				bind:value={severityFilter}
-				onchange={onFiltersChanged}
-				class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
-			>
-				<option value={undefined}>All severities</option>
-				<option value={1}>Warning</option>
-				<option value={2}>Alarm</option>
-			</select>
-			<div class="flex-1"></div>
-			<a
-				href={eventHistoryHref()}
-				class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm no-underline text-brand-primary hover:bg-brand-bg"
-			>View full event history →</a>
-		</div>
-
-		{#if activeError}
-			<p class="text-severity-alarm">{activeError}</p>
-		{/if}
-
-		<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
-			<table class="w-full text-sm">
-				<thead>
-					<tr class="bg-brand-bg border-b border-brand-divider">
-						<th class="text-left px-4 py-2 font-semibold">Site</th>
-						<th class="text-left px-4 py-2 font-semibold">Parameter</th>
-						<th class="text-right px-4 py-2 font-semibold">Value</th>
-						<th class="text-left px-4 py-2 font-semibold">Severity</th>
-						<th class="text-right px-4 py-2 font-semibold">Duration</th>
-						<th class="px-4 py-2"></th>
-					</tr>
-				</thead>
-				<tbody>
-					{#if activeLoading}
-						<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">Loading...</td></tr>
-					{:else if filteredActive.length === 0}
-						<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">No active alarms</td></tr>
-					{:else}
-						{#each filteredActive as alarm (alarm.site_id + ':' + alarm.parameter_id)}
-							<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50">
-								<td class="px-4 py-2">
-									<a href="{base}/sites/{alarm.site_id}" class="text-brand-primary font-semibold no-underline hover:underline">{alarm.site_name}</a>
-								</td>
-								<td class="px-4 py-2">{alarm.parameter_name}</td>
-								<td class="px-4 py-2 text-right font-mono">{alarm.current_value}</td>
-								<td class="px-4 py-2">
-									<span class="inline-flex items-center gap-1.5">
-										<span class="inline-block w-2.5 h-2.5 rounded-full {severityDot(alarm.severity)}"></span>
-										{severityLabel(alarm.severity)}
-										{#if alarm.acknowledged}
-											<span class="text-brand-muted text-[10px]">ack'd</span>
-										{/if}
-									</span>
-								</td>
-								<td class="px-4 py-2 text-right text-brand-muted" title={alarm.started_at ? `Last reading: ${formatRelativeTime(alarm.since)}` : formatDateTime(alarm.since)}>
-									{#if alarm.started_at}
-										{formatDuration(alarm.started_at)}
-									{:else}
-										{formatRelativeTime(alarm.since)}
-									{/if}
-								</td>
-								<td class="px-4 py-2 text-right">
-									{#if alarm.acknowledged && alarm.event_id}
-										<button
-											onclick={() => handleUnacknowledgeActive(alarm.event_id!)}
-											class="text-xs text-brand-muted bg-transparent border-none cursor-pointer hover:underline"
-										>Unacknowledge</button>
-									{:else if !alarm.acknowledged && alarm.event_id}
-										<button
-											onclick={() => handleAcknowledgeActive(alarm.event_id!)}
-											class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline"
-										>Acknowledge</button>
-									{/if}
-								</td>
-							</tr>
-						{/each}
-					{/if}
-				</tbody>
-			</table>
-		</div>
+		<AlarmEventsPanel
+			bind:this={logPanel}
+			bind:eventCount={logEventCount}
+			{initialSiteId}
+			{initialSeverity}
+			{initialParameterId}
+		/>
 
 	<!-- ── THRESHOLDS TAB ── -->
 	{:else if activeTab === 1}
 		<div class="flex flex-wrap items-center gap-2">
 			<select
 				bind:value={thrSiteFilter}
-				onchange={() => thresholdList?.refresh()}
 				class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
 			>
 				<option value="">All sites</option>
@@ -309,7 +225,6 @@
 			</select>
 			<select
 				bind:value={thrParamFilter}
-				onchange={() => thresholdList?.refresh()}
 				class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
 			>
 				<option value="">All parameters</option>
@@ -324,21 +239,51 @@
 			</button>
 		</div>
 
-		<CrudList
-			bind:this={thresholdList}
-			client={api.alarmThresholds}
-			title="Alarm Thresholds"
-			filters={{ ...(thrParamFilter ? { parameter_id: thrParamFilter } : {}), ...(thrSiteFilter ? { site_id: thrSiteFilter } : {}) }}
-			columns={[
-				{ key: 'parameter_id', label: 'Parameter', render: (_, row) => row.parameter_id ? paramMap.get(row.parameter_id) ?? '—' : '—' },
-				{ key: 'site_id', label: 'Site', render: (_, row) => row.site_id ? siteMap.get(row.site_id) ?? '—' : 'Global default' },
-				{ key: 'warning_min', label: 'W Min' },
-				{ key: 'warning_max', label: 'W Max' },
-				{ key: 'alarm_min', label: 'A Min' },
-				{ key: 'alarm_max', label: 'A Max' },
-			]}
-			onrowclick={openThresholdEdit}
-		/>
+		<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
+			<table class="w-full text-sm">
+				<thead>
+					<tr class="bg-brand-bg border-b border-brand-divider">
+						<th class="text-left px-4 py-2 font-semibold">Site</th>
+						<th class="text-left px-4 py-2 font-semibold">Parameter</th>
+						<th class="text-right px-4 py-2 font-semibold">Current value</th>
+						<th class="text-left px-4 py-2 font-semibold">Warning</th>
+						<th class="text-left px-4 py-2 font-semibold">Alarm</th>
+						<th class="text-left px-4 py-2 font-semibold">Source</th>
+						<th class="text-left px-4 py-2 font-semibold">Active (site)</th>
+					</tr>
+				</thead>
+				<tbody>
+					{#if filteredThresholds.length === 0}
+						<tr><td colspan="7" class="px-4 py-8 text-center text-brand-muted">No thresholds yet. Set parameter defaults or create an override.</td></tr>
+					{:else}
+						{#each filteredThresholds as row (row.site_id + ':' + row.parameter_id)}
+							{@const warn = thrBound(row.warning_min, row.warning_max)}
+							{@const alarm = thrBound(row.alarm_min, row.alarm_max)}
+							{@const counts = siteActiveCounts.get(row.site_id)}
+							<tr onclick={() => openThresholdRow(row)} class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 cursor-pointer">
+								<td class="px-4 py-2">{siteMap.get(row.site_id) ?? 'Unknown'}</td>
+								<td class="px-4 py-2 font-semibold">{paramMap.get(row.parameter_id) ?? 'Unknown'}</td>
+								<td class="px-4 py-2 text-right font-mono">{#if row.current_value != null}{row.current_value.toFixed(2)}{:else}<span class="text-brand-muted font-sans">None</span>{/if}</td>
+								<td class="px-4 py-2 text-severity-warning">{#if warn}{warn}{:else}<span class="text-brand-muted">None</span>{/if}</td>
+								<td class="px-4 py-2 text-severity-alarm">{#if alarm}{alarm}{:else}<span class="text-brand-muted">None</span>{/if}</td>
+								<td class="px-4 py-2"><span class="px-2 py-0.5 text-xs font-medium rounded-full bg-brand-bg text-brand-muted">{SOURCE_LABEL[row.source]}</span></td>
+								<td class="px-4 py-2">
+									{#if counts && (counts.alarms > 0 || counts.warnings > 0)}
+										<span class="inline-flex items-center gap-1.5 text-xs">
+											{#if counts.alarms > 0}<button type="button" onclick={(e) => { e.stopPropagation(); openLogFor(row); }} class="text-severity-alarm font-medium bg-transparent border-none p-0 cursor-pointer hover:underline">{counts.alarms} alarm</button>{/if}
+											{#if counts.alarms > 0 && counts.warnings > 0}<span class="text-brand-muted">·</span>{/if}
+											{#if counts.warnings > 0}<button type="button" onclick={(e) => { e.stopPropagation(); openLogFor(row); }} class="text-severity-warning font-medium bg-transparent border-none p-0 cursor-pointer hover:underline">{counts.warnings} warn</button>{/if}
+										</span>
+									{:else}
+										<span class="text-brand-muted">None</span>
+									{/if}
+								</td>
+							</tr>
+						{/each}
+					{/if}
+				</tbody>
+			</table>
+		</div>
 	{/if}
 </div>
 
@@ -350,5 +295,5 @@
 	existing={thresholdExisting}
 	parameterOptions={thresholdParamOptions}
 	siteOptions={thresholdSiteOptions}
-	onsuccess={() => thresholdList?.refresh()}
+	onsuccess={loadThresholds}
 />

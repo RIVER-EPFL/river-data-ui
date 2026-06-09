@@ -389,17 +389,17 @@
 
 	function resolvedSiteName(row: Record<string, string>): string {
 		if (mappingMode === 'single') {
-			return sites.find((s) => s.id === singleSiteId)?.name ?? '—';
+			return sites.find((s) => s.id === singleSiteId)?.name ?? 'None';
 		}
-		return row[siteColumn] ?? '—';
+		return row[siteColumn] ?? 'None';
 	}
 
 	function resolvedParamName(row: Record<string, string>): string {
 		if (mappingMode === 'single') {
 			const p = params.find((p) => p.id === singleParameterId);
-			return p ? (p.default_units ? `${p.name} (${p.default_units})` : p.name) : '—';
+			return p ? (p.default_units ? `${p.name} (${p.default_units})` : p.name) : 'None';
 		}
-		return row[paramColumn] ?? '—';
+		return row[paramColumn] ?? 'None';
 	}
 </script>
 
@@ -666,13 +666,13 @@
 									<td class="px-3 py-1.5 text-brand-muted">{i + 1}</td>
 									<td class="px-3 py-1.5">{resolvedSiteName(row)}</td>
 									<td class="px-3 py-1.5">{resolvedParamName(row)}</td>
-									<td class="px-3 py-1.5 font-mono text-xs">{row[timeColumn] ?? '—'}</td>
+									<td class="px-3 py-1.5 font-mono text-xs">{row[timeColumn] ?? 'None'}</td>
 									{#if tzOffsetHours !== 0}
-										<td class="px-3 py-1.5 font-mono text-xs text-brand-primary">{row[timeColumn] ? new Date(new Date(row[timeColumn]).getTime() - tzOffsetHours * 3_600_000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC' : '—'}</td>
+										<td class="px-3 py-1.5 font-mono text-xs text-brand-primary">{row[timeColumn] ? new Date(new Date(row[timeColumn]).getTime() - tzOffsetHours * 3_600_000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC' : 'None'}</td>
 									{/if}
-									<td class="px-3 py-1.5 font-mono">{row[valueColumn] ?? '—'}</td>
+									<td class="px-3 py-1.5 font-mono">{row[valueColumn] ?? 'None'}</td>
 									{#if entityType === 'readings' && calibratedColumn}
-										<td class="px-3 py-1.5 font-mono">{row[calibratedColumn] ?? '—'}</td>
+										<td class="px-3 py-1.5 font-mono">{row[calibratedColumn] ?? 'None'}</td>
 									{/if}
 								</tr>
 							{/each}

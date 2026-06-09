@@ -246,7 +246,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
   const tooltipTime = $('tooltip-time');
   const tooltipValues = $('tooltip-values');
 
-  // Color palette (Okabe-Ito, colorblind-safe — from theme tokens)
+  // Color palette (Okabe-Ito, colorblind-safe - from theme tokens)
   const colors = tokens.dataViz;
   const parameterColors: Record<string, string> = {};
 
@@ -473,7 +473,7 @@ export function createDashboard(root: HTMLElement, api: ApiFn, authFetch: AuthFe
     state.parameters = new Set(types);
     state.parameterTypeOrder = types;
 
-    // Don't render toggles yet — updateCharts will render only types with data
+    // Don't render toggles yet - updateCharts will render only types with data
     toggles.innerHTML = '<span style="color: var(--muted); font-size: 0.875rem">Loading…</span>';
 
     if (!site.data_start || !site.data_end) {

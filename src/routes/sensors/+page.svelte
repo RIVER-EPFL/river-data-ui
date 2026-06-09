@@ -67,7 +67,7 @@
 		try {
 			const res = await backfillCalibrations(body);
 			toastStore.success(
-				`Backfilling calibrations for ${res.sensors_updated} sensor(s) — ~${res.estimated_readings.toLocaleString()} readings`
+				`Backfilling calibrations for ${res.sensors_updated} sensor(s) - ~${res.estimated_readings.toLocaleString()} readings`
 			);
 			await loadCalBackfill();
 		} catch (e) {
@@ -169,11 +169,11 @@
 						{@const dep = currentDeployment(sensor.id)}
 						<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50">
 							<td class="px-4 py-2">
-								<a href="{base}/sensors/{sensor.id}" class="text-brand-primary font-semibold no-underline hover:underline font-mono text-xs">{sensor.serial_number ?? '—'}</a>
+								<a href="{base}/sensors/{sensor.id}" class="text-brand-primary font-semibold no-underline hover:underline font-mono text-xs">{sensor.serial_number ?? 'None'}</a>
 							</td>
-							<td class="px-4 py-2">{sensor.name ?? '—'}</td>
-							<td class="px-4 py-2 text-brand-muted">{sensor.manufacturer ?? '—'}</td>
-							<td class="px-4 py-2 text-brand-muted">{sensor.model ?? '—'}</td>
+							<td class="px-4 py-2">{sensor.name ?? 'None'}</td>
+							<td class="px-4 py-2 text-brand-muted">{sensor.manufacturer ?? 'None'}</td>
+							<td class="px-4 py-2 text-brand-muted">{sensor.model ?? 'None'}</td>
 							<td class="px-4 py-2 text-brand-muted text-xs">{dep ? formatRelativeTime(dep.deployed_from) : 'Undeployed'}</td>
 							<td class="px-4 py-2">
 								<div class="flex items-center gap-1.5">
@@ -189,7 +189,7 @@
 									{/if}
 								</div>
 							</td>
-							<td class="px-4 py-2">{sensor.is_active ? '✓' : '—'}</td>
+							<td class="px-4 py-2">{sensor.is_active ? '✓' : 'None'}</td>
 						</tr>
 					{/each}
 				{/if}

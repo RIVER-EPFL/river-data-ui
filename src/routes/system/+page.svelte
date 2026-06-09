@@ -271,7 +271,7 @@
 					<div><span class="text-brand-muted">Readings synced</span><p>{selectedEvent.readings_synced}</p></div>
 					<div><span class="text-brand-muted">Status events synced</span><p>{selectedEvent.status_events_synced}</p></div>
 					<div><span class="text-brand-muted">Started</span><p>{formatDateTime(selectedEvent.started_at)}</p></div>
-					<div><span class="text-brand-muted">Duration</span><p>{selectedEvent.duration_ms != null ? `${(selectedEvent.duration_ms / 1000).toFixed(1)}s` : '—'}</p></div>
+					<div><span class="text-brand-muted">Duration</span><p>{selectedEvent.duration_ms != null ? `${(selectedEvent.duration_ms / 1000).toFixed(1)}s` : 'None'}</p></div>
 				</div>
 				{#if selectedEvent.errors?.length}
 					<div><span class="text-brand-muted block mb-1">Errors</span><pre class="bg-severity-alarm-soft p-2 rounded text-xs whitespace-pre-wrap">{selectedEvent.errors.join('\n')}</pre></div>

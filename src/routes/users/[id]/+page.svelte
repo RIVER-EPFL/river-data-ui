@@ -44,8 +44,8 @@
 
 		<div class="rounded-md border border-brand-divider bg-brand-surface p-4 space-y-3">
 			<div class="grid grid-cols-2 gap-4 text-sm">
-				<div><span class="text-brand-muted block">Email</span>{user.email ?? '—'}</div>
-				<div><span class="text-brand-muted block">Name</span>{[user.firstName, user.lastName].filter(Boolean).join(' ') || '—'}</div>
+				<div><span class="text-brand-muted block">Email</span>{user.email ?? 'None'}</div>
+				<div><span class="text-brand-muted block">Name</span>{[user.firstName, user.lastName].filter(Boolean).join(' ') || 'None'}</div>
 				<div><span class="text-brand-muted block">Enabled</span>{user.enabled ? 'Yes' : 'No'}</div>
 				<div>
 					<span class="text-brand-muted block">Roles</span>

@@ -145,7 +145,7 @@
 					onchange={() => loadSiteParameters(selectedSiteId)}
 					class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
 				>
-					<option value="">— Select site —</option>
+					<option value=""> - Select site - </option>
 					{#each sites as s}
 						<option value={s.id}>{s.name}</option>
 					{/each}
@@ -160,7 +160,7 @@
 					disabled={!selectedSiteId || loadingSite}
 					class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm disabled:opacity-50"
 				>
-					<option value="">{loadingSite ? 'Loading…' : !selectedSiteId ? 'Select a site first' : siteParams.length ? '— Select parameter —' : 'No parameters at this site'}</option>
+					<option value="">{loadingSite ? 'Loading…' : !selectedSiteId ? 'Select a site first' : siteParams.length ? ' - Select parameter - ' : 'No parameters at this site'}</option>
 					{#each siteParams as sp}
 						<option value={sp.parameter_id}>{paramLabel(sp)}</option>
 					{/each}

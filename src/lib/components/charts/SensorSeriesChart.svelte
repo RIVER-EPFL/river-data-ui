@@ -74,9 +74,9 @@
 	const hasBands = $derived(rawMin.length === times.length && rawMin.length > 0);
 	const hasPreview = $derived(!!preview && preview.length === times.length);
 
-	// Hover tooltip (self-contained — this chart isn't in a ChartSyncGroup).
+	// Hover tooltip (self-contained - this chart isn't in a ChartSyncGroup).
 	let hover = $state<{ idx: number; x: number; y: number } | null>(null);
-	const fmtNum = (v: number | null | undefined) => (v == null ? '—' : v.toFixed(2));
+	const fmtNum = (v: number | null | undefined) => (v == null ? 'None' : v.toFixed(2));
 	const hoverInfo = $derived.by(() => {
 		if (!hover || times[hover.idx] == null) return null;
 		const tsSec = times[hover.idx];
@@ -219,7 +219,7 @@
 		tick().then(render);
 	});
 
-	// A ResizeObserver renders/resizes when the container gets (or changes) a real width — covers
+	// A ResizeObserver renders/resizes when the container gets (or changes) a real width - covers
 	// charts mounted in initially-zero-width containers (e.g. a just-expanded table row) where a
 	// window-resize listener would never fire.
 	let ro: ResizeObserver | null = null;
@@ -262,7 +262,7 @@
 					<div style="margin-top:5px;padding-top:5px;border-top:1px solid rgba(255,255,255,0.15)">
 						{#if hoverInfo.band}
 							<div style="font-size:11px;line-height:17px;color:{uPlotTheme.tooltipColor};opacity:0.9">
-								Site: <span style="font-weight:600">{hoverInfo.band.site_name ?? '—'}</span>
+								Site: <span style="font-weight:600">{hoverInfo.band.site_name ?? 'None'}</span>
 							</div>
 						{/if}
 						{#if hoverInfo.cal}

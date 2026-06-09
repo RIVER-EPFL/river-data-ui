@@ -56,7 +56,7 @@
 		try {
 			const res = await backfillAttribution(body);
 			toastStore.success(
-				`Backfilling ${res.deployments_updated} deployment(s) — ~${res.estimated_readings} readings attributed in the background`,
+				`Backfilling ${res.deployments_updated} deployment(s) - ~${res.estimated_readings} readings attributed in the background`,
 			);
 			await loadBackfill();
 		} catch (e) {
@@ -93,7 +93,7 @@
 	}
 
 	function projectName(id: string): string {
-		return projects.find((p) => p.id === id)?.name ?? '—';
+		return projects.find((p) => p.id === id)?.name ?? 'None';
 	}
 
 	function toggleSort(field: string) {
@@ -192,9 +192,7 @@
 							<td class="px-4 py-2 text-brand-muted font-mono text-xs">
 								{#if site.latitude && site.longitude}
 									{site.latitude.toFixed(4)}, {site.longitude.toFixed(4)}
-								{:else}
-									—
-								{/if}
+								{:else} - {/if}
 							</td>
 							<td class="px-4 py-2 text-brand-muted text-xs">{formatRelativeTime(site.created_at)}</td>
 							<td class="px-4 py-2">
@@ -216,7 +214,7 @@
 										{/if}
 									</div>
 								{:else}
-									<span class="text-xs text-brand-muted">—</span>
+									<span class="text-xs text-brand-muted">None</span>
 								{/if}
 							</td>
 						</tr>

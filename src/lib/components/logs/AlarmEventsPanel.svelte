@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { api, type Site, type Parameter } from '$api/crud';
 	import {
@@ -12,22 +11,27 @@
 	} from '$api/service';
 	import { formatRelativeTime, formatDateTime } from '$lib/utils';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import { alarmHref } from '$lib/alarms';
 
 	let {
 		initialSiteId = '',
 		initialSeverity = undefined,
+		initialParameterId = '',
+		eventCount = $bindable(0),
 	}: {
 		initialSiteId?: string;
 		initialSeverity?: number;
+		initialParameterId?: string;
+		eventCount?: number;
 	} = $props();
 
 	const EVENTS_PAGE_SIZE = 100;
 
-	// Filter state — owned by this panel (the page owns the ?tab URL param, not us).
+	// Filter state, owned by this panel (the page owns the ?tab URL param, not us).
 	let siteFilter = $state<string>(initialSiteId);
 	let severityFilter = $state<number | undefined>(initialSeverity);
 	let statusFilter = $state<string>('all');
-	let eventParamFilter = $state<string>('');
+	let eventParamFilter = $state<string>(initialParameterId);
 	let eventStart = $state<string>('');
 	let eventEnd = $state<string>('');
 	let eventOffset = $state(0);
@@ -66,6 +70,7 @@
 			});
 			events = result.events;
 			eventsTotal = result.total;
+			eventCount = events.length;
 		} catch (e) {
 			eventsError = e instanceof Error ? e.message : 'Failed to load alarm events';
 		} finally {
@@ -128,6 +133,14 @@
 		}
 	}
 
+	// Exposed to the parent (via bind:this) so the service buttons can live in the page header.
+	export function exportCsv() {
+		exportEventsCsv();
+	}
+	export function rebuild() {
+		handleRebuildEvents();
+	}
+
 	async function handleAcknowledge(eventId: string) {
 		try {
 			await acknowledgeAlarm(eventId);
@@ -144,32 +157,6 @@
 		} catch (e) {
 			eventsError = e instanceof Error ? e.message : 'Failed to unacknowledge';
 		}
-	}
-
-	function alarmPeriodHref(event: AlarmEvent): string {
-		// Pad the window by half the alarm's own duration on each side (≥1h floor) so the chart shows
-		// context either side of the breach instead of clipping exactly to it — a 1-day alarm opens
-		// ~2 days; a 5-minute blip still opens ~2h so it isn't a single point.
-		const startMs = new Date(event.started_at).getTime();
-		const endMs = (event.resolved_at ? new Date(event.resolved_at) : new Date()).getTime();
-		const pad = Math.max((endMs - startMs) * 0.5, 60 * 60 * 1000);
-		const params = new URLSearchParams({
-			start: new Date(startMs - pad).toISOString(),
-			end: new Date(endMs + pad).toISOString(),
-			focus: event.parameter_id,
-		});
-		return `${base}/sites/${event.site_id}?${params}`;
-	}
-
-	function alarmPointHref(event: AlarmEvent): string {
-		const t = new Date(event.last_seen_at).getTime();
-		const pad = 2 * 60 * 60 * 1000; // ±2h so the reading sits in context
-		const params = new URLSearchParams({
-			start: new Date(t - pad).toISOString(),
-			end: new Date(t + pad).toISOString(),
-			focus: event.parameter_id,
-		});
-		return `${base}/sites/${event.site_id}?${params}`;
 	}
 
 	function formatDuration(from: string, to?: string | null): string {
@@ -253,20 +240,6 @@
 				class="px-2 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
 			/>
 		</label>
-		<div class="flex-1"></div>
-		<button
-			onclick={exportEventsCsv}
-			disabled={events.length === 0}
-			class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm cursor-pointer disabled:opacity-50 disabled:cursor-default"
-		>
-			Export CSV
-		</button>
-		<button
-			onclick={handleRebuildEvents}
-			class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm cursor-pointer"
-		>
-			Rebuild alarm history
-		</button>
 	</div>
 
 	{#if eventsError}
@@ -296,9 +269,9 @@
 				{:else}
 					{#each events as event (event.id)}
 						{@const sev = event.max_severity ?? event.severity}
-						<tr onclick={() => goto(alarmPeriodHref(event))} title="Open this alarm period on the site charts" class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 cursor-pointer">
+						<tr onclick={() => goto(alarmHref(event))} title="Open this alarm period on the site charts" class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 cursor-pointer">
 							<td class="px-4 py-2">
-								<a href={alarmPeriodHref(event)} onclick={(e) => e.stopPropagation()} class="text-brand-primary font-semibold no-underline hover:underline">{event.site_name}</a>
+								<a href={alarmHref(event)} onclick={(e) => e.stopPropagation()} class="text-brand-primary font-semibold no-underline hover:underline">{event.site_name}</a>
 							</td>
 							<td class="px-4 py-2">{event.parameter_name}</td>
 							<td class="px-4 py-2">
@@ -312,18 +285,17 @@
 							<td class="px-4 py-2 text-right text-brand-muted" title={formatDateTime(event.last_seen_at)}>{formatRelativeTime(event.last_seen_at)}</td>
 							<td class="px-4 py-2">
 								{#if event.resolved_at}
-									<span class="text-severity-ok">Resolved <span class="text-brand-muted" title={formatDateTime(event.resolved_at)}>{formatRelativeTime(event.resolved_at)}</span></span>
+									<span class="text-severity-ok">Resolved <span class="text-brand-muted">{formatDateTime(event.resolved_at)}</span></span>
 								{:else}
 									<span class="text-severity-alarm">Open</span>
+									<span class="text-brand-muted">since {formatDateTime(event.started_at)}</span>
 									{#if event.acknowledged_at}
 										<span class="text-brand-muted ml-1" title={formatDateTime(event.acknowledged_at)}>ack'd</span>
 									{/if}
 								{/if}
 							</td>
 							<td class="px-4 py-2 text-right font-mono">
-								{#if event.last_value != null}
-									<button onclick={(e) => { e.stopPropagation(); goto(alarmPointHref(event)); }} title="View {event.parameter_name} around this time" class="font-mono text-brand-primary bg-transparent border-none cursor-pointer hover:underline p-0">{event.last_value.toFixed(2)}</button>
-								{:else}—{/if}
+								{#if event.last_value != null}{event.last_value.toFixed(2)}{:else}<span class="text-brand-muted">None</span>{/if}
 							</td>
 							<td class="px-4 py-2 text-right">
 								{#if !event.resolved_at && !event.acknowledged_at}

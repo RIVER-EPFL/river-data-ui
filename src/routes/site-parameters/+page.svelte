@@ -24,8 +24,8 @@
 	title="Site Parameters"
 	createHref="{base}/site-parameters/new"
 	columns={[
-		{ key: 'site_id', label: 'Site', render: (_, row) => siteMap.get(row.site_id) ?? '—' },
-		{ key: 'parameter_id', label: 'Parameter', render: (_, row) => paramMap.get(row.parameter_id) ?? '—' },
+		{ key: 'site_id', label: 'Site', render: (_, row) => siteMap.get(row.site_id) ?? 'None' },
+		{ key: 'parameter_id', label: 'Parameter', render: (_, row) => paramMap.get(row.parameter_id) ?? 'None' },
 		{ key: 'display_units', label: 'Units' },
 		{ key: 'sample_interval_sec', label: 'Interval (s)' },
 		{ key: 'is_derived', label: 'Derived', render: (v) => v ? 'Yes' : '' },
