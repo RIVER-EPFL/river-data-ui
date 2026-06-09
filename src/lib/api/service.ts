@@ -149,6 +149,12 @@ export const unacknowledgeAlarm = (eventId: string) =>
 export const revokeToken = (id: string) => POST<ApiToken>(`${ADMIN}/tokens/${id}/revoke`);
 export const rotateToken = (id: string) => POST<ApiToken>(`${ADMIN}/tokens/${id}/rotate`);
 
+/** Distinct status codes present in the API-token audit log, for the audit filter dropdown. */
+export const getAuditStatusCodes = () =>
+	GET<{ status_codes: number[] }>(`${ADMIN}/api_token_audit_logs/distinct/status_codes`).then(
+		(r) => r.status_codes,
+	);
+
 // Streams
 export interface StreamStats {
 	stream_id: string;

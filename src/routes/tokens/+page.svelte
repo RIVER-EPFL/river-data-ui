@@ -1,12 +1,16 @@
 <script lang="ts">
 	import { base } from '$app/paths';
+	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
-	import { api, type ApiToken, type Project, type TokenPermissions } from '$api/crud';
+	import { api, type ApiToken, type Project } from '$api/crud';
 	import { revokeToken, rotateToken } from '$api/service';
 	import { auth } from '$auth/keycloak.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
+	import Badge from '$components/ui/Badge.svelte';
 	import TokenDetailDialog from '$components/tokens/TokenDetailDialog.svelte';
+	import PermissionChips from '$components/tokens/PermissionChips.svelte';
 
 	const isAdmin = $derived(auth.role === 'admin');
 
@@ -23,6 +27,11 @@
 	let showDetail = $state(false);
 
 	let hideExpired = $state(false);
+
+	// Deep link from the audit log: /tokens?show=<id> opens that token's detail dialog. Captured
+	// synchronously so the cleanup effect below can't race it away before onMount reads it.
+	const initialShow = page.url.searchParams.get('show');
+	let deepLinkHandled = false;
 
 	function tokenRank(t: ApiToken): number {
 		if (t.is_active === false) return 2;
@@ -52,23 +61,39 @@
 		}
 	}
 
-	onMount(() => {
-		if (isAdmin) load();
-		else loading = false;
+	onMount(async () => {
+		if (!isAdmin) {
+			loading = false;
+			return;
+		}
+		await load();
+		if (initialShow) {
+			let t = tokens.find((x) => x.id === initialShow);
+			if (!t) {
+				try {
+					t = await api.apiTokens.get(initialShow);
+				} catch {
+					t = undefined;
+				}
+			}
+			if (t) openDetail(t);
+			deepLinkHandled = true;
+		}
+	});
+
+	// Once a deep-linked dialog is closed, drop ?show so a refresh doesn't reopen it.
+	$effect(() => {
+		if (deepLinkHandled && !showDetail && page.url.searchParams.has('show')) {
+			const url = new URL(page.url);
+			url.searchParams.delete('show');
+			goto(url, { replaceState: true, noScroll: true, keepFocus: true });
+			deepLinkHandled = false;
+		}
 	});
 
 	function openDetail(t: ApiToken) {
 		detailToken = t;
 		showDetail = true;
-	}
-
-	function formatPermissions(perms: TokenPermissions | string[] | undefined): string {
-		if (!perms) return 'None';
-		const keys = Array.isArray(perms)
-			? perms
-			: Object.entries(perms).filter(([, v]) => v).map(([k]) => k);
-		if (keys.length === 0) return 'none';
-		return keys.map((p) => p.replace(/_/g, ' ')).join(', ');
 	}
 
 	function projectName(id: string | null | undefined): string {
@@ -161,7 +186,15 @@
 
 {#snippet tokenTable(rows: ApiToken[])}
 	<div class="overflow-x-auto rounded-md border border-brand-divider">
-		<table class="w-full text-sm">
+		<table class="w-full table-fixed text-sm">
+			<colgroup>
+				<col style="width: 22%" />
+				<col style="width: 26%" />
+				<col style="width: 16%" />
+				<col style="width: 10%" />
+				<col style="width: 12%" />
+				<col style="width: 14%" />
+			</colgroup>
 			<thead class="bg-brand-bg text-left text-xs uppercase tracking-wide text-brand-muted">
 				<tr>
 					<th class="px-3 py-2">Name</th>
@@ -174,37 +207,48 @@
 			</thead>
 			<tbody>
 				{#each rows as t (t.id)}
-					<tr class="border-t border-brand-divider {t.is_active === false ? 'opacity-60' : ''}">
+					<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
+					<tr
+						onclick={() => openDetail(t)}
+						class="cursor-pointer border-t border-brand-divider hover:bg-brand-bg {t.is_active === false ? 'opacity-60' : ''}"
+					>
 						<td class="px-3 py-2 font-medium">
-							<button onclick={() => openDetail(t)} class="cursor-pointer text-left hover:underline">
+							<button onclick={(e) => { e.stopPropagation(); openDetail(t); }} class="cursor-pointer text-left hover:underline">
 								{t.name}
-								{#if t.token_prefix}<span class="block font-mono text-xs font-normal text-brand-muted">rvd_{t.token_prefix}…</span>{/if}
+								{#if t.token_prefix}<span class="block truncate font-mono text-xs font-normal text-brand-muted">rvd_{t.token_prefix}…</span>{/if}
 							</button>
 						</td>
-						<td class="px-3 py-2 text-brand-muted">{formatPermissions(t.permissions)}</td>
-						<td class="px-3 py-2">{projectName(t.project_scope)}</td>
+						<td class="px-3 py-2"><PermissionChips permissions={t.permissions} /></td>
+						<td class="truncate px-3 py-2">{projectName(t.project_scope)}</td>
 						<td class="px-3 py-2">
 							{#if t.is_active === false}
-								<span class="text-severity-alarm">Revoked</span>
+								<Badge variant="alarm">Revoked</Badge>
 							{:else if isExpired(t)}
-								<span class="text-severity-warning">Expired</span>
+								<Badge variant="accent">Expired</Badge>
 							{:else}
-								<span class="text-severity-ok">Active</span>
+								<Badge variant="ok">Active</Badge>
 							{/if}
 						</td>
-						<td class="px-3 py-2 {isExpired(t) ? 'text-severity-warning' : 'text-brand-muted'}">{t.expires_at ? new Date(t.expires_at).toLocaleString() : 'Never'}</td>
+						<td class="px-3 py-2">
+							{#if t.expires_at}
+								<div class={isExpired(t) ? 'text-brand-accent-dark' : ''}>{new Date(t.expires_at).toLocaleDateString()}</div>
+								<div class="text-xs text-brand-muted">{new Date(t.expires_at).toLocaleTimeString()}</div>
+							{:else}
+								<span class="text-brand-muted">Never</span>
+							{/if}
+						</td>
 						<td class="px-3 py-2">
 							<div class="flex justify-end gap-1">
-								<a href="{base}/tokens/{t.id}/edit" title="Edit" aria-label="Edit" class="{neutralBtn} no-underline">{@render iconEdit()}</a>
+								<a href="{base}/tokens/{t.id}/edit" onclick={(e) => e.stopPropagation()} title="Edit" aria-label="Edit" class="{neutralBtn} no-underline">{@render iconEdit()}</a>
 								{#if t.is_active !== false}
 									{#if isExpired(t)}
-										<button onclick={() => reEnable(t)} disabled={busy === t.id} title="Re-enable for 90 days" aria-label="Re-enable for 90 days" class={successBtn}>{@render iconClock()}</button>
+										<button onclick={(e) => { e.stopPropagation(); reEnable(t); }} disabled={busy === t.id} title="Re-enable for 90 days" aria-label="Re-enable for 90 days" class={successBtn}>{@render iconClock()}</button>
 									{:else}
-										<button onclick={() => doRevoke(t)} disabled={busy === t.id} title="Revoke (disable, keep record)" aria-label="Revoke" class={warnBtn}>{@render iconRevoke()}</button>
+										<button onclick={(e) => { e.stopPropagation(); doRevoke(t); }} disabled={busy === t.id} title="Revoke (disable, keep record)" aria-label="Revoke" class={warnBtn}>{@render iconRevoke()}</button>
 									{/if}
 								{/if}
-								<button onclick={() => doRotate(t)} disabled={busy === t.id} title="Rotate secret" aria-label="Rotate secret" class={neutralBtn}>{@render iconRotate()}</button>
-								<button onclick={() => doDelete(t)} disabled={busy === t.id} title="Delete permanently" aria-label="Delete permanently" class={dangerBtn}>{@render iconTrash()}</button>
+								<button onclick={(e) => { e.stopPropagation(); doRotate(t); }} disabled={busy === t.id} title="Rotate secret" aria-label="Rotate secret" class={neutralBtn}>{@render iconRotate()}</button>
+								<button onclick={(e) => { e.stopPropagation(); doDelete(t); }} disabled={busy === t.id} title="Delete permanently" aria-label="Delete permanently" class={dangerBtn}>{@render iconTrash()}</button>
 							</div>
 						</td>
 					</tr>
@@ -248,7 +292,7 @@
 		{/if}
 		{#if !hideExpired && expiredTokens.length > 0}
 			<div class="space-y-2">
-				<h3 class="text-sm font-semibold uppercase tracking-wide text-severity-warning">
+				<h3 class="text-sm font-semibold uppercase tracking-wide text-brand-accent-dark">
 					Expired ({expiredTokens.length})
 				</h3>
 				{@render tokenTable(expiredTokens)}

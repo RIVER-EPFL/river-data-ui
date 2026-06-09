@@ -3,7 +3,7 @@
 		variant = 'default',
 		children,
 	}: {
-		variant?: 'default' | 'ok' | 'warning' | 'alarm' | 'muted';
+		variant?: 'default' | 'ok' | 'warning' | 'alarm' | 'muted' | 'accent';
 		children: import('svelte').Snippet;
 	} = $props();
 
@@ -13,6 +13,7 @@
 		warning: 'bg-severity-warning-soft text-severity-warning',
 		alarm: 'bg-severity-alarm-soft text-severity-alarm',
 		muted: 'bg-brand-bg text-brand-muted',
+		accent: 'bg-brand-accent/10 text-brand-accent-dark',
 	};
 </script>
 
