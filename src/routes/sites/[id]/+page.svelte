@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy, untrack } from 'svelte';
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
 	import { api, type Site, type Project, type SiteParameter, type Parameter, type Sensor, type SensorDeployment, type SensorCalibration, type Note, type AlarmThreshold, type DerivedParameter, type Sample, type Annotation } from '$api/crud';
 	import { GET, POST, PATCH } from '$api/client';
-	import { recomputeDerived } from '$api/service';
+	import { recomputeDerived, getThresholds, getActiveAlarms, type ResolvedThreshold, type ActiveAlarm } from '$api/service';
 	import { getSiteSensorIdentity, type SensorIdentityResponse } from '$api/sensors';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatRelativeTime, formatDateTime } from '$lib/utils';
@@ -70,9 +70,13 @@
 
 	async function reloadThresholds() {
 		if (!site) return;
-		// Load all thresholds (global + every site); effectiveThreshold() resolves precedence per param.
-		const th = await api.alarmThresholds.list({ perPage: 200 });
+		// Raw rows for the editor's override/reset lookups; resolved map for what actually applies.
+		const [th, resolved] = await Promise.all([
+			api.alarmThresholds.list({ perPage: 200 }),
+			getThresholds({ site_id: site.id }),
+		]);
 		thresholds = th.data;
+		resolvedThresholds = new Map(resolved.map((r) => [r.parameter_id, r]));
 	}
 
 	function isThresholdDisabled(th: AlarmThreshold): boolean {
@@ -96,36 +100,25 @@
 		}
 	}
 
-	// Mirror the backend's 3-tier resolution: site-specific row → global row (site_id null) →
-	// the parameter's own default_* columns. The last tier matters because thresholds are no longer
-	// auto-materialised into rows — a parameter with only defaults still has an effective threshold.
-	function effectiveThreshold(parameterId: string): AlarmThreshold | undefined {
-		const row =
-			thresholds.find((t) => t.parameter_id === parameterId && t.site_id === site?.id) ??
-			thresholds.find((t) => t.parameter_id === parameterId && t.site_id == null);
-		if (row) return row;
+	// Effective thresholds come from the backend's single resolver (GET /api/alarms/thresholds). The
+	// UI no longer re-implements the 3-tier resolution. Keyed by parameter_id (this page is one site).
+	// `thresholds` (raw rows) is still loaded for the editor's override/reset lookups.
+	let resolvedThresholds = $state<Map<string, ResolvedThreshold>>(new Map());
 
-		const p = parameters.find((x) => x.id === parameterId);
-		if (
-			p &&
-			(p.default_warning_min != null ||
-				p.default_warning_max != null ||
-				p.default_alarm_min != null ||
-				p.default_alarm_max != null)
-		) {
-			return {
-				id: '',
-				parameter_id: parameterId,
-				site_id: null,
-				warning_min: p.default_warning_min,
-				warning_max: p.default_warning_max,
-				alarm_min: p.default_alarm_min,
-				alarm_max: p.default_alarm_max,
-				created_at: '',
-				updated_at: '',
-			};
-		}
-		return undefined;
+	function effectiveThreshold(parameterId: string): AlarmThreshold | undefined {
+		const r = resolvedThresholds.get(parameterId);
+		if (!r) return undefined;
+		return {
+			id: '',
+			parameter_id: parameterId,
+			site_id: r.source === 'site' ? (site?.id ?? null) : null,
+			warning_min: r.warning_min,
+			warning_max: r.warning_max,
+			alarm_min: r.alarm_min,
+			alarm_max: r.alarm_max,
+			created_at: '',
+			updated_at: '',
+		};
 	}
 
 	// Shared chart state
@@ -180,7 +173,7 @@
 		return `${(days / 30).toFixed(1)}mo`;
 	});
 
-	// Shared data fetch — one request for all charts
+	// Shared data fetch - one request for all charts
 	interface ReadingsResponse {
 		times: string[];
 		parameters: Array<{ id: string; name: string; units: string | null; values: (number | null)[]; flagged?: (boolean | null)[] | null; flag_reasons?: (string | null)[] | null }>;
@@ -359,9 +352,33 @@
 
 	const siteId = $derived(page.params.id!);
 
-	let unsubEvents: (() => void) | null = null;
+	// Live active warnings/alarms for this site, keyed by parameter so each ParameterChart shows its
+	// own "active for ..." badge in its header. `now` ticks so the duration stays fresh without refetching.
+	let activeBreaches = $state<ActiveAlarm[]>([]);
+	let now = $state(Date.now());
+	const activeBreachByParam = $derived(new Map(activeBreaches.map((a) => [a.parameter_id, a])));
 
-	onMount(async () => {
+	async function loadActiveBreaches() {
+		try {
+			const result = await getActiveAlarms();
+			activeBreaches = result.alarms.filter((a) => a.site_id === siteId);
+		} catch {
+			/* best-effort */
+		}
+	}
+
+	let unsubEvents: (() => void) | null = null;
+	let nowTimer: ReturnType<typeof setInterval> | null = null;
+
+	async function loadSite() {
+		const id = siteId;
+		loading = true;
+		error = null;
+		// Clear per-site state so the previous site's data can't linger while the new one loads.
+		site = null;
+		statusLoaded = false;
+		newDataAvailable = false;
+
 		const deepStart = page.url.searchParams.get('start');
 		const deepEnd = page.url.searchParams.get('end');
 		const focusParam = page.url.searchParams.get('focus');
@@ -376,17 +393,17 @@
 			}
 		}
 		try {
-			const s = await api.sites.get(siteId);
+			const s = await api.sites.get(id);
 			site = s;
 
 			const [proj, sp, params, sens, deps, cals, n, th] = await Promise.all([
 				api.projects.get(s.project_id),
-				api.siteParameters.list({ perPage: 100, filter: { site_id: siteId } }),
+				api.siteParameters.list({ perPage: 100, filter: { site_id: id } }),
 				api.parameters.list({ perPage: 500 }),
 				api.sensors.list({ perPage: 200 }),
-				api.sensorDeployments.list({ perPage: 200, filter: { site_id: siteId } }),
+				api.sensorDeployments.list({ perPage: 200, filter: { site_id: id } }),
 				api.sensorCalibrations.list({ perPage: 500 }),
-				api.notes.list({ perPage: 50, filter: { site_id: siteId }, sort: ['created_at', 'DESC'] }),
+				api.notes.list({ perPage: 50, filter: { site_id: id }, sort: ['created_at', 'DESC'] }),
 				api.alarmThresholds.list({ perPage: 200 }),
 			]);
 			project = proj;
@@ -397,10 +414,13 @@
 			calibrations = cals.data;
 			notes = n.data;
 			thresholds = th.data;
+			resolvedThresholds = new Map(
+				(await getThresholds({ site_id: id })).map((r) => [r.parameter_id, r]),
+			);
 
 			// Bound the slider to the site's actual data extent
 			try {
-				const detailRes = await GET<SiteDetailResponse>(`/api/sites/${siteId}/detail`);
+				const detailRes = await GET<SiteDetailResponse>(`/api/sites/${id}/detail`);
 				if (detailRes.data_start) sliderMin = new Date(detailRes.data_start).getTime();
 				if (detailRes.data_end) sliderMax = new Date(detailRes.data_end).getTime();
 				if (deepLink) {
@@ -422,19 +442,7 @@
 
 			if (focusParam) scrollToParameter(focusParam);
 
-			unsubEvents = eventBus.subscribe('data_ingested', (event: any) => {
-				if (!site) return;
-				if (event.site_id === site.id) {
-					if (autoUpdate) {
-						const wasAtMax = Math.abs(chartEnd - sliderMax) < 60000;
-						sliderMax = Date.now();
-						if (wasAtMax) chartEnd = sliderMax;
-						scheduleFetch();
-					} else {
-						newDataAvailable = true;
-					}
-				}
-			});
+			loadActiveBreaches();
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load site';
 		} finally { loading = false; }
@@ -442,20 +450,52 @@
 		try {
 			const [derivedResult, samplesResult] = await Promise.all([
 				api.derivedParameters.list({ perPage: 200 }),
-				api.samples.list({ perPage: 200, filter: { site_id: siteId }, sort: ['collected_at', 'DESC'] }),
+				api.samples.list({ perPage: 200, filter: { site_id: id }, sort: ['collected_at', 'DESC'] }),
 			]);
 			derivedDefs = derivedResult.data;
 			samples = samplesResult.data;
 		} catch (e) {
 			toastStore.error(e instanceof Error ? `Failed to load derived parameters / samples: ${e.message}` : 'Failed to load derived parameters / samples');
 		}
+	}
+
+	// (Re)load whenever the site id or deep-link window changes. SvelteKit reuses this component when
+	// navigating between two /sites/[id] pages, so onMount fires only once. Without this, clicking an
+	// alarm for a different site (e.g. from the notification bell) would change the URL but not the page.
+	let loadedKey = '';
+	$effect(() => {
+		const key = `${siteId}|${page.url.search}`;
+		if (key === loadedKey) return;
+		loadedKey = key;
+		untrack(() => {
+			loadSite();
+		});
+	});
+
+	onMount(() => {
+		nowTimer = setInterval(() => { now = Date.now(); }, 30_000);
+		unsubEvents = eventBus.subscribe('data_ingested', (event: any) => {
+			if (!site) return;
+			if (event.site_id === site.id) {
+				loadActiveBreaches();
+				if (autoUpdate) {
+					const wasAtMax = Math.abs(chartEnd - sliderMax) < 60000;
+					sliderMax = Date.now();
+					if (wasAtMax) chartEnd = sliderMax;
+					scheduleFetch();
+				} else {
+					newDataAvailable = true;
+				}
+			}
+		});
 	});
 
 	onDestroy(() => {
 		unsubEvents?.();
+		if (nowTimer) clearInterval(nowTimer);
 	});
 
-	function paramName(paramId: string): string { return parameters.find((p) => p.id === paramId)?.name ?? '—'; }
+	function paramName(paramId: string): string { return parameters.find((p) => p.id === paramId)?.name ?? 'None'; }
 	function paramCode(paramId: string): string { return parameters.find((p) => p.id === paramId)?.code ?? ''; }
 	function paramUnits(sp: SiteParameter): string {
 		const param = parameters.find((p) => p.id === sp.parameter_id);
@@ -489,7 +529,7 @@
 		if (!dep) return;
 		try {
 			await api.sensorDeployments.update(dep.id, { deployed_until: new Date().toISOString() });
-			toastStore.success('Sensor recalled — readings will be re-coordinated in the background');
+			toastStore.success('Sensor recalled - readings will be re-coordinated in the background');
 			await reloadDeployments();
 		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Recall failed'); }
 	}
@@ -668,7 +708,7 @@
 
 	async function assignDerived(def: DerivedParameter) {
 		if (!def.output_parameter_id) {
-			toastStore.error('No output parameter — recompute the definition first');
+			toastStore.error('No output parameter - recompute the definition first');
 			return;
 		}
 		assigningId = def.id;
@@ -688,7 +728,7 @@
 			siteParameters = sp.data;
 			showAssignDerived = false;
 			await recomputeDerived(def.id);
-			toastStore.success('Recomputation triggered — chart will update as data fills');
+			toastStore.success('Recomputation triggered - chart will update as data fills');
 			pollForDerivedData(def.output_parameter_id);
 		} catch (e) {
 			toastStore.error(`Failed: ${e instanceof Error ? e.message : 'unknown error'}`);
@@ -746,7 +786,7 @@
 		return (vals.filter((v) => v == null).length / vals.length) * 100;
 	}
 	function fmt(val: number | null, decimals = 2): string {
-		return val != null ? val.toFixed(decimals) : '—';
+		return val != null ? val.toFixed(decimals) : 'None';
 	}
 
 	interface ParamStats {
@@ -932,7 +972,7 @@
 						</button>
 
 						<span class="text-xs text-brand-muted ml-auto font-mono">
-							{windowLabel} · {new Date(chartStart).toLocaleDateString()} — {new Date(chartEnd).toLocaleDateString()}
+							{windowLabel} · {new Date(chartStart).toLocaleDateString()} - {new Date(chartEnd).toLocaleDateString()}
 						</span>
 					</div>
 					<!-- Time slider -->
@@ -1027,6 +1067,8 @@
 							{showSensorVectors}
 							{showCalibrationMarkers}
 							{showAlarmBands}
+							activeBreach={activeBreachByParam.get(sp.parameter_id) ?? null}
+							nowMs={now}
 						/>
 					{/if}
 				{/each}
@@ -1065,6 +1107,9 @@
 										calibrationMarkers={sensorIdentity?.calibrations[sp.parameter_id] ?? []}
 										{showSensorVectors}
 										{showCalibrationMarkers}
+										{showAlarmBands}
+										activeBreach={activeBreachByParam.get(sp.parameter_id) ?? null}
+										nowMs={now}
 									/>
 								{/if}
 							{/each}
@@ -1123,16 +1168,14 @@
 								<td class="px-4 py-2 font-mono text-xs">{paramCode(sp.parameter_id)}</td>
 								<td class="px-4 py-2 font-semibold">{paramName(sp.parameter_id)}</td>
 								<td class="px-4 py-2 text-brand-muted">{paramUnits(sp)}</td>
-								<td class="px-4 py-2 text-brand-muted">{sp.sample_interval_sec ? `${sp.sample_interval_sec}s` : '—'}</td>
+								<td class="px-4 py-2 text-brand-muted">{sp.sample_interval_sec ? `${sp.sample_interval_sec}s` : 'None'}</td>
 								<td class="px-4 py-2 text-xs text-brand-muted">
 									{#if disabled}
 										<span class="text-brand-muted italic">Disabled</span>
 									{:else if th}
-										<span class="text-severity-warning">W: {th.warning_min ?? '—'}–{th.warning_max ?? '—'}</span>
-										<span class="text-severity-alarm ml-2">A: {th.alarm_min ?? '—'}–{th.alarm_max ?? '—'}</span>
-									{:else}
-										—
-									{/if}
+										<span class="text-severity-warning">W: {th.warning_min ?? 'None'}–{th.warning_max ?? 'None'}</span>
+										<span class="text-severity-alarm ml-2">A: {th.alarm_min ?? 'None'}–{th.alarm_max ?? 'None'}</span>
+									{:else} - {/if}
 								</td>
 								<td class="px-4 py-2 text-right space-x-1">
 									<button
@@ -1281,10 +1324,10 @@
 									</a>
 								</td>
 								<td class="px-4 py-2 text-brand-muted">{sensor.manufacturer} {sensor.model}</td>
-								<td class="px-4 py-2 font-mono text-brand-muted">{sensor.serial_number ?? '—'}</td>
-								<td class="px-4 py-2 text-brand-muted">{dep ? formatRelativeTime(dep.deployed_from) : '—'}</td>
+								<td class="px-4 py-2 font-mono text-brand-muted">{sensor.serial_number ?? 'None'}</td>
+								<td class="px-4 py-2 text-brand-muted">{dep ? formatRelativeTime(dep.deployed_from) : 'None'}</td>
 								<td class="px-4 py-2">
-									{#if cal}<span class="font-mono">{cal.slope}x + {cal.intercept}</span> <span class="text-brand-muted text-xs">({formatRelativeTime(cal.valid_from)})</span>{:else}<span class="text-brand-muted">—</span>{/if}
+									{#if cal}<span class="font-mono">{cal.slope}x + {cal.intercept}</span> <span class="text-brand-muted text-xs">({formatRelativeTime(cal.valid_from)})</span>{:else}<span class="text-brand-muted">None</span>{/if}
 								</td>
 								<td class="px-4 py-2 text-right whitespace-nowrap" onclick={(e) => e.stopPropagation()}>
 									<button onclick={() => { moveSensor = sensor; moveOpen = true; }} class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface cursor-pointer hover:bg-brand-bg">Move…</button>
@@ -1345,12 +1388,12 @@
 									<tr class="border-b border-brand-divider last:border-b-0">
 										<td class="px-4 py-2 text-xs">{formatDateTime(s.collected_at)}</td>
 										<td class="px-4 py-2">{paramName(s.parameter_id)}</td>
-										<td class="px-4 py-2 text-brand-muted">{s.label ?? '—'}</td>
-										<td class="px-4 py-2 text-right font-mono">{s.mean != null ? s.mean.toFixed(3) : '—'}</td>
-										<td class="px-4 py-2 text-right font-mono">{s.stdev != null ? s.stdev.toFixed(3) : '—'}</td>
+										<td class="px-4 py-2 text-brand-muted">{s.label ?? 'None'}</td>
+										<td class="px-4 py-2 text-right font-mono">{s.mean != null ? s.mean.toFixed(3) : 'None'}</td>
+										<td class="px-4 py-2 text-right font-mono">{s.stdev != null ? s.stdev.toFixed(3) : 'None'}</td>
 										<td class="px-4 py-2 text-right font-mono">{s.n}</td>
-										<td class="px-4 py-2 text-right font-mono">{s.min_value != null ? s.min_value.toFixed(3) : '—'}</td>
-										<td class="px-4 py-2 text-right font-mono">{s.max_value != null ? s.max_value.toFixed(3) : '—'}</td>
+										<td class="px-4 py-2 text-right font-mono">{s.min_value != null ? s.min_value.toFixed(3) : 'None'}</td>
+										<td class="px-4 py-2 text-right font-mono">{s.max_value != null ? s.max_value.toFixed(3) : 'None'}</td>
 									</tr>
 								{/each}
 							</tbody>
@@ -1375,7 +1418,7 @@
 				{:else if statusEvents.length === 0}
 					<div class="rounded-md border border-brand-divider bg-brand-surface p-4 text-sm text-brand-muted space-y-1">
 						<p class="font-medium text-brand-text">No status events in this range.</p>
-						<p>Status events are non-numeric device messages recorded over time — firmware and connection status, sensor health strings, and error codes. They are separate from the numeric readings shown in the charts.</p>
+						<p>Status events are non-numeric device messages recorded over time - firmware and connection status, sensor health strings, and error codes. They are separate from the numeric readings shown in the charts.</p>
 					</div>
 				{:else}
 					<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">

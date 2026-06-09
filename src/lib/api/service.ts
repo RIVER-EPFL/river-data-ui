@@ -1,7 +1,7 @@
 import { GET, POST, PATCH, DELETE } from './client';
 import type { ApiToken } from './crud';
 
-// Single unified API tier. The `ADMIN` and `SERVICE` constants alias the same path —
+// Single unified API tier. The `ADMIN` and `SERVICE` constants alias the same path,
 // retained as documentation hints about which Keycloak role/token scope each endpoint
 // requires (see `require_admin` vs scoped middleware on the backend).
 const ADMIN = '/api';
@@ -99,6 +99,24 @@ export interface AlarmEventsResponse {
 
 export const getActiveAlarms = () => GET<ActiveAlarmsResponse>(`${ADMIN}/alarms/active`);
 export const getAlarmSummary = () => GET<AlarmSummaryResponse>(`${ADMIN}/alarms/summary`);
+
+/** A threshold resolved per (site, parameter) by the backend's one 3-tier definition. */
+export interface ResolvedThreshold {
+	site_id: string;
+	parameter_id: string;
+	warning_min: number | null;
+	warning_max: number | null;
+	alarm_min: number | null;
+	alarm_max: number | null;
+	/** Which tier supplied it: a site override, a global row, or the parameter default. */
+	source: 'site' | 'global' | 'default';
+	/** Latest reading (last 30 days) for this slot, or null if none. Display only. */
+	current_value: number | null;
+}
+
+/** The effective threshold per active sensor (site_parameter). The UI never re-resolves the tiers. */
+export const getThresholds = (opts?: { site_id?: string; parameter_id?: string }) =>
+	GET<ResolvedThreshold[]>(`${ADMIN}/alarms/thresholds`, opts);
 
 export const getAlarmEvents = (opts?: {
 	site_id?: string;
