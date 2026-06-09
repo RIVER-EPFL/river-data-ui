@@ -309,6 +309,7 @@ export interface ReprocessingJob {
 	progress: number | null;
 	total: number | null;
 	error_message: string | null;
+	retry_count: number;
 	created_at: string;
 	completed_at: string | null;
 }

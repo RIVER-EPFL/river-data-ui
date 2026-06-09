@@ -2,7 +2,8 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { base } from '$app/paths';
 	import { api, type Sensor, type ReprocessingJob } from '$api/crud';
-	import { formatRelativeTime, formatDateTime, triggerLabel } from '$lib/utils';
+	import { formatRelativeTime, formatDateTime, triggerLabel, statusBadgeClass } from '$lib/utils';
+	import Dialog from '$components/ui/Dialog.svelte';
 
 	let jobs = $state<ReprocessingJob[]>([]);
 	let sensorMap = $state<Map<string, string>>(new Map());
@@ -10,6 +11,9 @@
 	let loading = $state(true);
 	let statusFilter = $state<'all' | 'pending' | 'running' | 'completed' | 'failed'>('all');
 	let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+	let selectedJob = $state<ReprocessingJob | null>(null);
+	let detailOpen = $state(false);
 
 	async function load() {
 		loading = true;
@@ -35,7 +39,6 @@
 		sensorMap = new Map(sensors.data.map((s: Sensor) => [s.id, s.name ?? s.serial_number ?? s.id]));
 		derivedMap = new Map(derived.data.map((d) => [d.id, d.name || d.code]));
 		await load();
-		// Poll every 5 seconds for in-flight jobs
 		pollTimer = setInterval(() => {
 			if (jobs.some((j) => j.status === 'pending' || j.status === 'running')) {
 				load();
@@ -46,16 +49,6 @@
 	onDestroy(() => {
 		if (pollTimer) clearInterval(pollTimer);
 	});
-
-	function statusClass(status: string): string {
-		switch (status) {
-			case 'completed': return 'bg-severity-ok-soft text-severity-ok';
-			case 'failed': return 'bg-severity-alarm-soft text-severity-alarm';
-			case 'running': return 'bg-severity-warning-soft text-severity-warning';
-			case 'pending': return 'bg-brand-bg text-brand-muted';
-			default: return 'bg-brand-bg text-brand-muted';
-		}
-	}
 
 	function jobTarget(job: ReprocessingJob): { label: string; href: string | null } {
 		if (job.trigger_type === 'derived_recompute' && job.trigger_id) {
@@ -111,17 +104,17 @@
 					{#each jobs as job}
 						{@const target = jobTarget(job)}
 						{@const pct = progressPercent(job)}
-						<tr class="border-b border-brand-divider last:border-b-0">
+						<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 cursor-pointer" onclick={() => { selectedJob = job; detailOpen = true; }}>
 							<td class="px-4 py-2">
 								{#if target.href}
-									<a href={target.href} class="text-brand-primary no-underline hover:underline">{target.label}</a>
+									<a href={target.href} class="text-brand-primary no-underline hover:underline" onclick={(e) => e.stopPropagation()}>{target.label}</a>
 								{:else}
 									{target.label}
 								{/if}
 							</td>
 							<td class="px-4 py-2 text-xs text-brand-muted">{triggerLabel(job.trigger_type)}</td>
 							<td class="px-4 py-2">
-								<span class="px-2 py-0.5 text-xs font-medium rounded-full {statusClass(job.status)}">{job.status}</span>
+								<span class="px-2 py-0.5 text-xs font-medium rounded-full {statusBadgeClass(job.status)}">{job.status}</span>
 							</td>
 							<td class="px-4 py-2 text-xs">
 								{#if pct != null}
@@ -132,12 +125,12 @@
 										<span class="text-brand-muted font-mono text-[10px] whitespace-nowrap">{job.progress}/{job.total}</span>
 									</div>
 								{:else}
-									<span class="text-brand-muted">None</span>
+									<span class="text-brand-muted">—</span>
 								{/if}
 							</td>
-							<td class="px-4 py-2 text-right font-mono text-xs">{job.readings_updated ?? 'None'}</td>
+							<td class="px-4 py-2 text-right font-mono text-xs">{job.readings_updated ?? '—'}</td>
 							<td class="px-4 py-2 text-xs text-brand-muted">{formatRelativeTime(job.created_at)}</td>
-							<td class="px-4 py-2 text-xs text-brand-muted">{job.completed_at ? formatDateTime(job.completed_at) : 'None'}</td>
+							<td class="px-4 py-2 text-xs text-brand-muted">{job.completed_at ? formatDateTime(job.completed_at) : '—'}</td>
 							<td class="px-4 py-2 text-xs text-severity-alarm truncate max-w-xs" title={job.error_message ?? ''}>{job.error_message ?? ''}</td>
 						</tr>
 					{/each}
@@ -146,3 +139,75 @@
 		</table>
 	</div>
 </div>
+
+<Dialog bind:open={detailOpen} title="Job Detail" maxWidth="sm">
+	{#snippet children()}
+		{#if selectedJob}
+			{@const target = jobTarget(selectedJob)}
+			{@const pct = progressPercent(selectedJob)}
+			<div class="space-y-4 text-sm">
+				<div class="flex items-center gap-2">
+					{#if target.href}
+						<a href={target.href} class="text-brand-primary font-semibold no-underline hover:underline">{target.label}</a>
+					{:else}
+						<span class="font-semibold">{target.label}</span>
+					{/if}
+					<span class="text-brand-muted">·</span>
+					<span class="text-brand-muted">{triggerLabel(selectedJob.trigger_type)}</span>
+				</div>
+
+				<div class="grid grid-cols-2 gap-3">
+					<div>
+						<span class="text-brand-muted text-xs">Status</span>
+						<p><span class="px-2 py-0.5 text-xs font-medium rounded-full {statusBadgeClass(selectedJob.status)}">{selectedJob.status}</span></p>
+					</div>
+					<div>
+						<span class="text-brand-muted text-xs">Progress</span>
+						{#if pct != null}
+							<div class="flex items-center gap-2 mt-1">
+								<div class="w-20 h-1.5 bg-brand-bg rounded overflow-hidden">
+									<div class="h-full bg-brand-primary" style:width="{pct}%"></div>
+								</div>
+								<span class="text-brand-muted font-mono text-xs">{selectedJob.progress}/{selectedJob.total}</span>
+							</div>
+						{:else}
+							<p class="text-brand-muted">—</p>
+						{/if}
+					</div>
+					<div>
+						<span class="text-brand-muted text-xs">Readings updated</span>
+						<p class="font-mono">{selectedJob.readings_updated ?? '—'}</p>
+					</div>
+					<div>
+						<span class="text-brand-muted text-xs">Retry count</span>
+						<p class="font-mono">{selectedJob.retry_count}</p>
+					</div>
+					<div>
+						<span class="text-brand-muted text-xs">Created</span>
+						<p>{formatDateTime(selectedJob.created_at)}</p>
+					</div>
+					<div>
+						<span class="text-brand-muted text-xs">Completed</span>
+						<p>{selectedJob.completed_at ? formatDateTime(selectedJob.completed_at) : '—'}</p>
+					</div>
+				</div>
+
+				{#if selectedJob.error_message}
+					<div>
+						<span class="text-brand-muted text-xs block mb-1">Error</span>
+						<pre class="bg-severity-alarm-soft p-2 rounded text-xs whitespace-pre-wrap text-severity-alarm">{selectedJob.error_message}</pre>
+					</div>
+				{/if}
+			</div>
+		{/if}
+	{/snippet}
+	{#snippet actions()}
+		{#if selectedJob}
+			{@const target = jobTarget(selectedJob)}
+			{#if target.href}
+				<a href={target.href} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm no-underline hover:opacity-90">View Target</a>
+			{/if}
+		{/if}
+		<button onclick={() => detailOpen = false} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface">Close</button>
+	{/snippet}
+</Dialog>

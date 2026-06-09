@@ -4,8 +4,9 @@
 	import { page } from '$app/state';
 	import { api, type ApiToken, type ApiTokenAuditLog, type Project } from '$api/crud';
 	import { getAuditStatusCodes } from '$api/service';
+	import { statusBadgeClass } from '$lib/utils';
+	import TokenDetailDialog from '$components/tokens/TokenDetailDialog.svelte';
 
-	// Lookups so the table shows names + links instead of raw UUIDs.
 	let tokens = $state<ApiToken[]>([]);
 	let projects = $state<Project[]>([]);
 	const tokenNames = $derived(new Map(tokens.map((t) => [t.id, t.name])));
@@ -13,7 +14,6 @@
 
 	let statusOptions = $state<number[]>([]);
 
-	// Filters (token seeded from ?token deep-link sent by the token detail dialog).
 	let fToken = $state(page.url.searchParams.get('token') ?? '');
 	let fMethod = $state('');
 	let fStatus = $state('');
@@ -26,6 +26,20 @@
 	let error = $state('');
 
 	const totalPages = $derived(Math.max(1, Math.ceil(total / perPage)));
+
+	let detailToken = $state<ApiToken | null>(null);
+	let detailOpen = $state(false);
+
+	function projectName(id: string | null | undefined): string {
+		if (!id) return 'All projects';
+		return projectNames.get(id) ?? id.slice(0, 8) + '…';
+	}
+
+	function openTokenDetail(log: ApiTokenAuditLog) {
+		const t = tokens.find((tk) => tk.id === log.token_id) ?? null;
+		detailToken = t;
+		detailOpen = true;
+	}
 
 	async function load() {
 		loading = true;
@@ -72,6 +86,13 @@
 	function fmt(iso: string): string {
 		return new Date(iso).toLocaleString();
 	}
+
+	function httpStatusBadge(code: number): string {
+		if (code >= 500) return 'bg-severity-alarm-soft text-severity-alarm';
+		if (code >= 400) return 'bg-severity-warning-soft text-severity-warning';
+		return 'bg-severity-ok-soft text-severity-ok';
+	}
+
 	const selectCls =
 		'px-2 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm text-brand-text';
 	const pageBtn =
@@ -113,40 +134,42 @@
 		</div>
 	{/if}
 
-	<div class="overflow-x-auto rounded-md border border-brand-divider">
+	<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 		<table class="w-full text-sm">
-			<thead class="bg-brand-bg text-left text-xs uppercase tracking-wide text-brand-muted">
-				<tr>
-					<th class="px-3 py-2">Time</th>
-					<th class="px-3 py-2">Token</th>
-					<th class="px-3 py-2">Method</th>
-					<th class="px-3 py-2">Path</th>
-					<th class="px-3 py-2">Status</th>
-					<th class="px-3 py-2">Project</th>
+			<thead>
+				<tr class="bg-brand-bg border-b border-brand-divider">
+					<th class="text-left px-4 py-2 font-semibold">Time</th>
+					<th class="text-left px-4 py-2 font-semibold">Token</th>
+					<th class="text-left px-4 py-2 font-semibold">Method</th>
+					<th class="text-left px-4 py-2 font-semibold">Path</th>
+					<th class="text-left px-4 py-2 font-semibold">Status</th>
+					<th class="text-left px-4 py-2 font-semibold">Project</th>
 				</tr>
 			</thead>
 			<tbody>
 				{#if loading}
-					<tr><td colspan="6" class="px-3 py-6 text-center text-brand-muted">Loading…</td></tr>
+					<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">Loading...</td></tr>
 				{:else if logs.length === 0}
-					<tr><td colspan="6" class="px-3 py-6 text-center text-brand-muted">No matching requests.</td></tr>
+					<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">No matching requests.</td></tr>
 				{:else}
 					{#each logs as l (l.id)}
-						<tr class="border-t border-brand-divider">
-							<td class="whitespace-nowrap px-3 py-2 text-brand-muted">{fmt(l.created_at)}</td>
-							<td class="px-3 py-2">
+						<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 cursor-pointer" onclick={() => openTokenDetail(l)}>
+							<td class="whitespace-nowrap px-4 py-2 text-brand-muted">{fmt(l.created_at)}</td>
+							<td class="px-4 py-2">
 								{#if tokenNames.has(l.token_id)}
-									<a href="{base}/tokens?show={l.token_id}" class="text-brand-primary no-underline hover:underline">{tokenNames.get(l.token_id)}</a>
+									<a href="{base}/tokens?show={l.token_id}" class="text-brand-primary no-underline hover:underline" onclick={(e) => e.stopPropagation()}>{tokenNames.get(l.token_id)}</a>
 								{:else}
 									<span class="font-mono text-xs text-brand-muted">{l.token_id.slice(0, 8)}…</span>
 								{/if}
 							</td>
-							<td class="px-3 py-2 font-mono">{l.method}</td>
-							<td class="px-3 py-2 font-mono break-all">{l.path}</td>
-							<td class="px-3 py-2 {l.status_code >= 400 ? 'text-severity-alarm' : 'text-severity-ok'}">{l.status_code}</td>
-							<td class="px-3 py-2">
+							<td class="px-4 py-2 font-mono">{l.method}</td>
+							<td class="px-4 py-2 font-mono break-all">{l.path}</td>
+							<td class="px-4 py-2">
+								<span class="px-2 py-0.5 text-xs font-medium rounded-full {httpStatusBadge(l.status_code)}">{l.status_code}</span>
+							</td>
+							<td class="px-4 py-2">
 								{#if l.project_scope && projectNames.has(l.project_scope)}
-									<a href="{base}/projects/{l.project_scope}" class="text-brand-primary no-underline hover:underline">{projectNames.get(l.project_scope)}</a>
+									<a href="{base}/projects/{l.project_scope}" class="text-brand-primary no-underline hover:underline" onclick={(e) => e.stopPropagation()}>{projectNames.get(l.project_scope)}</a>
 								{:else if l.project_scope}
 									<span class="font-mono text-xs text-brand-muted">{l.project_scope.slice(0, 8)}…</span>
 								{:else}
@@ -171,3 +194,5 @@
 		</div>
 	{/if}
 </div>
+
+<TokenDetailDialog bind:open={detailOpen} token={detailToken} {projectName} />
