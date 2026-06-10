@@ -310,6 +310,18 @@ export interface ReprocessingJob {
 	total: number | null;
 	error_message: string | null;
 	retry_count: number;
+	category: string;
+	site_id: string | null;
+	parent_job_id: string | null;
+	detail: Record<string, unknown>;
 	created_at: string;
 	completed_at: string | null;
+}
+
+export interface JobLogLine {
+	seq: number;
+	ts: string;
+	level: string;
+	message: string;
+	context: Record<string, unknown>;
 }

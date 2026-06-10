@@ -1,5 +1,5 @@
 import { GET, POST, PATCH, DELETE } from './client';
-import type { ApiToken } from './crud';
+import type { ApiToken, JobLogLine } from './crud';
 
 // Single unified API tier. The `ADMIN` and `SERVICE` constants alias the same path,
 // retained as documentation hints about which Keycloak role/token scope each endpoint
@@ -31,6 +31,12 @@ export interface ApiVersion {
 }
 
 export const getVersion = () => GET<ApiVersion>(`${SERVICE}/version`);
+
+// Per-job timeline (reprocessing_job_logs). `afterSeq` tails new lines incrementally.
+export const getJobLogs = (jobId: string, afterSeq?: number) =>
+	GET<JobLogLine[]>(
+		`${SERVICE}/reprocessing_jobs/${jobId}/logs${afterSeq != null ? `?after_seq=${afterSeq}` : ''}`,
+	);
 
 // Alarms
 export interface ActiveAlarm {

@@ -1,13 +1,15 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { base } from '$app/paths';
-	import { api, type Sensor, type ReprocessingJob } from '$api/crud';
+	import { api, type Sensor, type ReprocessingJob, type JobLogLine } from '$api/crud';
+	import { getJobLogs } from '$api/service';
 	import { formatRelativeTime, formatDateTime, triggerLabel, statusBadgeClass } from '$lib/utils';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import PaginationControls from '$components/ui/PaginationControls.svelte';
 	import Button from '$components/ui/Button.svelte';
 
 	const PER_PAGE = 100;
+	const CATEGORIES = ['all', 'operator', 'metadata', 'maintenance'] as const;
 
 	let jobs = $state<ReprocessingJob[]>([]);
 	let sensorMap = $state<Map<string, string>>(new Map());
@@ -16,16 +18,20 @@
 	let total = $state(0);
 	let currentPage = $state(1);
 	let statusFilter = $state<'all' | 'pending' | 'running' | 'completed' | 'failed'>('all');
+	let categoryFilter = $state<(typeof CATEGORIES)[number]>('all');
 	let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 	let selectedJob = $state<ReprocessingJob | null>(null);
 	let detailOpen = $state(false);
+	let logs = $state<JobLogLine[]>([]);
+	let logsLoading = $state(false);
 
 	async function load() {
 		loading = true;
 		try {
 			const filter: Record<string, unknown> = {};
 			if (statusFilter !== 'all') filter.status = statusFilter;
+			if (categoryFilter !== 'all') filter.category = categoryFilter;
 			const result = await api.reprocessingJobs.list({
 				page: currentPage,
 				perPage: PER_PAGE,
@@ -38,6 +44,26 @@
 			loading = false;
 		}
 	}
+
+	async function openDetail(job: ReprocessingJob) {
+		selectedJob = job;
+		detailOpen = true;
+		logs = [];
+		logsLoading = true;
+		try {
+			logs = await getJobLogs(job.id);
+		} catch {
+			logs = [];
+		} finally {
+			logsLoading = false;
+		}
+	}
+
+	const LEVEL_CLASS: Record<string, string> = {
+		info: 'text-brand-muted',
+		warn: 'text-severity-warning-text',
+		error: 'text-severity-alarm',
+	};
 
 	onMount(async () => {
 		const [sensors, derived] = await Promise.all([
@@ -69,6 +95,8 @@
 	}
 
 	function progressPercent(job: ReprocessingJob): number | null {
+		// A finished job is 100% even if it never reported a total (e.g. single-statement jobs).
+		if (job.status === 'completed') return 100;
 		if (job.total && job.total > 0 && job.progress != null) {
 			return Math.min(100, Math.round((job.progress / job.total) * 100));
 		}
@@ -77,13 +105,21 @@
 </script>
 
 <div class="space-y-4">
-	<div class="flex items-center justify-between gap-2">
+	<div class="flex items-center justify-between gap-2 flex-wrap">
 		<div class="flex gap-1">
 			{#each ['all', 'pending', 'running', 'completed', 'failed'] as s}
 				<button
 					onclick={() => { statusFilter = s as typeof statusFilter; currentPage = 1; load(); }}
 					class="px-3 py-1 text-sm rounded-md cursor-pointer border-none {statusFilter === s ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted'}"
 				>{s}</button>
+			{/each}
+		</div>
+		<div class="flex gap-1">
+			{#each CATEGORIES as c}
+				<button
+					onclick={() => { categoryFilter = c; currentPage = 1; load(); }}
+					class="px-3 py-1 text-xs rounded-md cursor-pointer border-none capitalize {categoryFilter === c ? 'bg-brand-accent text-white' : 'bg-brand-bg text-brand-muted'}"
+				>{c}</button>
 			{/each}
 		</div>
 		<Button onclick={load}>Refresh</Button>
@@ -112,7 +148,7 @@
 					{#each jobs as job}
 						{@const target = jobTarget(job)}
 						{@const pct = progressPercent(job)}
-						<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 cursor-pointer" onclick={() => { selectedJob = job; detailOpen = true; }}>
+						<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 cursor-pointer" onclick={() => openDetail(job)}>
 							<td class="px-4 py-2">
 								{#if target.href}
 									<a href={target.href} class="text-brand-primary no-underline hover:underline" onclick={(e) => e.stopPropagation()}>{target.label}</a>
@@ -169,6 +205,7 @@
 					{/if}
 					<span class="text-brand-muted">·</span>
 					<span class="text-brand-muted">{triggerLabel(selectedJob.trigger_type)}</span>
+					<span class="px-2 py-0.5 text-[10px] rounded-full bg-brand-bg text-brand-muted capitalize">{selectedJob.category}</span>
 				</div>
 
 				<div class="grid grid-cols-2 gap-3">
@@ -213,6 +250,32 @@
 						<pre class="bg-severity-alarm-soft p-2 rounded text-xs whitespace-pre-wrap text-severity-alarm">{selectedJob.error_message}</pre>
 					</div>
 				{/if}
+
+				{#if selectedJob.detail && Object.keys(selectedJob.detail).length > 0}
+					<div>
+						<span class="text-brand-muted text-xs block mb-1">Provenance</span>
+						<pre class="bg-brand-bg p-2 rounded text-xs whitespace-pre-wrap font-mono text-brand-text">{JSON.stringify(selectedJob.detail, null, 2)}</pre>
+					</div>
+				{/if}
+
+				<div>
+					<span class="text-brand-muted text-xs block mb-1">Timeline</span>
+					{#if logsLoading}
+						<p class="text-brand-muted text-xs">Loading…</p>
+					{:else if logs.length === 0}
+						<p class="text-brand-muted text-xs">No timeline entries.</p>
+					{:else}
+						<div class="bg-brand-bg rounded p-2 max-h-60 overflow-y-auto space-y-1 font-mono text-[11px]">
+							{#each logs as line}
+								<div class="flex gap-2">
+									<span class="text-brand-muted whitespace-nowrap">{formatDateTime(line.ts)}</span>
+									<span class="uppercase {LEVEL_CLASS[line.level] ?? 'text-brand-muted'}">{line.level}</span>
+									<span class="{LEVEL_CLASS[line.level] ?? 'text-brand-text'}">{line.message}</span>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</div>
 			</div>
 		{/if}
 	{/snippet}
