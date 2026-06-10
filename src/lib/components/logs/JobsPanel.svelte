@@ -2,7 +2,8 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { base } from '$app/paths';
 	import { api, type Sensor, type ReprocessingJob, type JobLogLine } from '$api/crud';
-	import { getJobLogs } from '$api/service';
+	import { getJobLogs, rerunJob, isRerunnable } from '$api/service';
+	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatRelativeTime, formatDateTime, triggerLabel, statusBadgeClass } from '$lib/utils';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import PaginationControls from '$components/ui/PaginationControls.svelte';
@@ -64,6 +65,22 @@
 		warn: 'text-severity-warning-text',
 		error: 'text-severity-alarm',
 	};
+
+	let rerunning = $state(false);
+	async function handleRerun() {
+		if (!selectedJob) return;
+		rerunning = true;
+		try {
+			await rerunJob(selectedJob.id);
+			toastStore.success('Job rerun started');
+			detailOpen = false;
+			await load();
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Failed to rerun job');
+		} finally {
+			rerunning = false;
+		}
+	}
 
 	onMount(async () => {
 		const [sensors, derived] = await Promise.all([
@@ -282,6 +299,11 @@
 	{#snippet actions()}
 		{#if selectedJob}
 			{@const target = jobTarget(selectedJob)}
+			{#if isRerunnable(selectedJob.trigger_type)}
+				<Button variant="primary" disabled={rerunning} onclick={handleRerun}>
+					{rerunning ? 'Rerunning…' : 'Rerun'}
+				</Button>
+			{/if}
 			{#if target.href}
 				<a href={target.href} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm no-underline hover:opacity-90">View Target</a>
 			{/if}

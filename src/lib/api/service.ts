@@ -252,6 +252,30 @@ export const mergeSiteParameters = (sourceSiteParameterId: string, targetSitePar
 export const reprocessSensor = (sensorId: string) =>
 	POST<{ job_id: string; status: string }>(`${SERVICE}/actions/reprocess`, { sensor_id: sensorId });
 
+// Replay a finished tracked job (server reconstructs it from the ids on its row). Returns a new job.
+export const rerunJob = (jobId: string) =>
+	POST<{ job_id: string; status: string }>(`${SERVICE}/reprocessing_jobs/${jobId}/rerun`, {});
+
+// Job types the server will replay (mirrors the backend registry `is_rerunnable`).
+const RERUNNABLE_TRIGGERS = new Set([
+	'manual_reprocess',
+	'calibration_create',
+	'calibration_update',
+	'calibration_delete',
+	'calibration_recalculate',
+	'deployment_create',
+	'deployment_update',
+	'deployment_delete',
+	'deployment_edit',
+	'manual_adopt',
+	'sensor_swap',
+	'refresh_aggregates',
+	'refresh_aggregates_full',
+	'derived_recompute',
+]);
+
+export const isRerunnable = (triggerType: string): boolean => RERUNNABLE_TRIGGERS.has(triggerType);
+
 // Bulk historical attribution: list open deployments with claimable pre-deployment history.
 export interface BackfillCandidate {
 	deployment_id: string;
