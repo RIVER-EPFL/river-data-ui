@@ -276,6 +276,22 @@ const RERUNNABLE_TRIGGERS = new Set([
 
 export const isRerunnable = (triggerType: string): boolean => RERUNNABLE_TRIGGERS.has(triggerType);
 
+// Cooperatively cancel a running job. Takes effect at the job's next batch checkpoint.
+export const cancelJob = (jobId: string) =>
+	POST<{ status: string }>(`${SERVICE}/reprocessing_jobs/${jobId}/cancel`, {});
+
+// Job types the server can cooperatively cancel (mirrors the backend registry `is_cancellable`).
+const CANCELLABLE_TRIGGERS = new Set([
+	'ingest_derived',
+	'batch_derived',
+	'derived_recompute',
+	'csv_import',
+	'janitor_run',
+]);
+
+export const isCancellable = (triggerType: string): boolean =>
+	CANCELLABLE_TRIGGERS.has(triggerType);
+
 // Bulk historical attribution: list open deployments with claimable pre-deployment history.
 export interface BackfillCandidate {
 	deployment_id: string;

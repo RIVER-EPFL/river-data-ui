@@ -46,6 +46,8 @@ export function statusBadgeClass(status: string): string {
 		case 'running':
 		case 'partial':
 		case 'retrying': return 'bg-severity-warning-soft text-severity-warning';
+		case 'interrupted':
+		case 'cancelled': return 'bg-severity-alarm-soft text-severity-alarm';
 		default: return 'bg-brand-bg text-brand-muted';
 	}
 }

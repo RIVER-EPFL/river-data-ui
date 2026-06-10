@@ -2,7 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { base } from '$app/paths';
 	import { api, type Sensor, type ReprocessingJob, type JobLogLine } from '$api/crud';
-	import { getJobLogs, rerunJob, isRerunnable } from '$api/service';
+	import { getJobLogs, rerunJob, isRerunnable, cancelJob, isCancellable } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatRelativeTime, formatDateTime, triggerLabel, statusBadgeClass } from '$lib/utils';
 	import Dialog from '$components/ui/Dialog.svelte';
@@ -79,6 +79,25 @@
 			toastStore.error(e instanceof Error ? e.message : 'Failed to rerun job');
 		} finally {
 			rerunning = false;
+		}
+	}
+
+	let cancelling = $state(false);
+	function isRunning(job: ReprocessingJob): boolean {
+		return job.status === 'pending' || job.status === 'running' || job.status === 'retrying';
+	}
+	async function handleCancel() {
+		if (!selectedJob) return;
+		cancelling = true;
+		try {
+			await cancelJob(selectedJob.id);
+			toastStore.success('Cancellation requested');
+			detailOpen = false;
+			await load();
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Failed to cancel job');
+		} finally {
+			cancelling = false;
 		}
 	}
 
@@ -299,7 +318,11 @@
 	{#snippet actions()}
 		{#if selectedJob}
 			{@const target = jobTarget(selectedJob)}
-			{#if isRerunnable(selectedJob.trigger_type)}
+			{#if isRunning(selectedJob) && isCancellable(selectedJob.trigger_type)}
+				<Button variant="danger" disabled={cancelling} onclick={handleCancel}>
+					{cancelling ? 'Cancelling…' : 'Cancel'}
+				</Button>
+			{:else if isRerunnable(selectedJob.trigger_type)}
 				<Button variant="primary" disabled={rerunning} onclick={handleRerun}>
 					{rerunning ? 'Rerunning…' : 'Rerun'}
 				</Button>
