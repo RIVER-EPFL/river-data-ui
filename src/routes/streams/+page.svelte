@@ -13,6 +13,7 @@
 	import { formatRelativeTime } from '$lib/utils';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
+	import Badge from '$components/ui/Badge.svelte';
 
 	// ── Stream list state ──
 	let streams = $state<DataStream[]>([]);
@@ -25,6 +26,19 @@
 	let currentPage = $state(1);
 	const perPage = 25;
 	const totalPages = $derived(Math.ceil(total / perPage));
+	let error = $state<string | null>(null);
+	let searchQuery = $state('');
+	let sortField = $state('source_key');
+	let sortOrder = $state<'ASC' | 'DESC'>('ASC');
+
+	// Source-system facet (counts per source), used to drive the filter chips.
+	// "Non-instrument" sources (CSV/batch + manual grab samples) start excluded so the
+	// default view shows real device streams, not ingestion noise.
+	const NON_INSTRUMENT_SOURCES = ['api', 'grab_sample'];
+	let sourceSummary = $state<Array<{ source_system: string; unpaired: number; paired: number }>>([]);
+	let selectedSources = $state<Set<string>>(new Set());
+	let sourcesInitialized = $state(false);
+	const allSourceSystems = $derived(sourceSummary.map((s) => s.source_system));
 
 	// ── Manual pair dialog ──
 	let pairDialogOpen = $state(false);
@@ -426,12 +440,19 @@
 	// ── Stream list functions ──
 	async function load() {
 		loading = true;
+		error = null;
 		try {
 			const f: Record<string, unknown> = {};
-			if (listFilter === 'paired') f.site_parameter_id = '__not_null__';
-			if (listFilter === 'unpaired') f.site_parameter_id = '__null__';
+			// Pairing status: `_neq null` => IS NOT NULL (paired), `null` => IS NULL (unpaired).
+			if (listFilter === 'paired') f.site_parameter_id_neq = null;
+			if (listFilter === 'unpaired') f.site_parameter_id = null;
+			if (searchQuery.trim()) f.q = searchQuery.trim();
+			// Source-system filter: send an IN list unless every known source is selected.
+			if (sourcesInitialized && selectedSources.size < allSourceSystems.length) {
+				f.source_system = [...selectedSources];
+			}
 			const [result, spResult, sResult, pResult] = await Promise.all([
-				api.dataStreams.list({ page: currentPage, perPage, sort: ['source_key', 'ASC'], filter: f }),
+				api.dataStreams.list({ page: currentPage, perPage, sort: [sortField, sortOrder], filter: f }),
 				siteParams.length === 0 ? api.siteParameters.list({ perPage: 500 }) : Promise.resolve(null),
 				sites.length === 0 ? api.sites.list({ perPage: 200 }) : Promise.resolve(null),
 				params.length === 0 ? api.parameters.list({ perPage: 500 }) : Promise.resolve(null),
@@ -441,7 +462,37 @@
 			if (spResult) siteParams = spResult.data;
 			if (sResult) sites = sResult.data;
 			if (pResult) params = pResult.data;
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to load streams';
+			toastStore.error('Failed to load streams');
 		} finally { loading = false; }
+	}
+
+	function toggleSort(field: string) {
+		if (sortField === field) {
+			sortOrder = sortOrder === 'ASC' ? 'DESC' : 'ASC';
+		} else {
+			sortField = field;
+			sortOrder = 'ASC';
+		}
+		currentPage = 1;
+		load();
+	}
+
+	const sortArrow = (field: string) => (sortField === field ? (sortOrder === 'ASC' ? ' ↑' : ' ↓') : '');
+
+	function toggleSource(src: string) {
+		const next = new Set(selectedSources);
+		if (next.has(src)) next.delete(src);
+		else next.add(src);
+		selectedSources = next;
+		currentPage = 1;
+		load();
+	}
+
+	function sourceCount(src: string): number {
+		const s = sourceSummary.find((x) => x.source_system === src);
+		return s ? s.paired + s.unpaired : 0;
 	}
 
 	function siteParamLabel(spId: string | null): string {
@@ -557,7 +608,21 @@
 		setMode('list'); load();
 	}
 
-	onMount(load);
+	onMount(async () => {
+		// Build the source-system facet first so the initial list can default to
+		// hiding non-instrument (CSV/batch + grab-sample) streams.
+		try {
+			sourceSummary = await getUnpairedSummary();
+			selectedSources = new Set(
+				sourceSummary.map((s) => s.source_system).filter((s) => !NON_INSTRUMENT_SOURCES.includes(s)),
+			);
+			sourcesInitialized = true;
+		} catch {
+			// Facet is optional; fall back to showing everything.
+			sourcesInitialized = true;
+		}
+		await load();
+	});
 </script>
 
 <svelte:head><title>Streams | River Data</title></svelte:head>
@@ -570,23 +635,49 @@
 			<button onclick={enterSourceSelect} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm font-semibold cursor-pointer border-none">Discover & Pair</button>
 		</div>
 
-		<div class="flex gap-1">
-			{#each ['all', 'paired', 'unpaired'] as f}
-				<button
-					onclick={() => { listFilter = f as typeof listFilter; currentPage = 1; load(); }}
-					class="px-3 py-1 text-sm rounded-md cursor-pointer border-none {listFilter === f ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
-				>{f === 'all' ? 'All' : f === 'paired' ? 'Paired' : 'Unpaired'}</button>
-			{/each}
+		<div class="flex flex-wrap items-center gap-3">
+			<input
+				type="text"
+				placeholder="Search source key / name…"
+				bind:value={searchQuery}
+				oninput={() => { currentPage = 1; load(); }}
+				class="w-64 px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+			/>
+			<div class="flex gap-1">
+				{#each ['all', 'paired', 'unpaired'] as f}
+					<button
+						onclick={() => { listFilter = f as typeof listFilter; currentPage = 1; load(); }}
+						class="px-3 py-1 text-sm rounded-md cursor-pointer border-none {listFilter === f ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
+					>{f === 'all' ? 'All' : f === 'paired' ? 'Paired' : 'Unpaired'}</button>
+				{/each}
+			</div>
 		</div>
+
+		{#if sourceSummary.length > 0}
+			<div class="flex flex-wrap items-center gap-2">
+				<span class="text-xs text-brand-muted">Sources:</span>
+				{#each sourceSummary as s}
+					<button
+						onclick={() => toggleSource(s.source_system)}
+						title={selectedSources.has(s.source_system) ? 'Click to hide' : 'Click to show'}
+						class="px-2 py-0.5 text-xs rounded-full border cursor-pointer {selectedSources.has(s.source_system) ? 'bg-brand-primary/10 text-brand-primary border-brand-primary/30' : 'bg-brand-bg text-brand-muted border-brand-divider line-through opacity-60'}"
+					>{s.source_system} ({sourceCount(s.source_system)})</button>
+				{/each}
+			</div>
+		{/if}
+
+		{#if error}
+			<div class="px-3 py-2 rounded-md bg-severity-alarm-soft text-severity-alarm text-sm">{error}</div>
+		{/if}
 
 		<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 			<table class="w-full text-sm">
 				<thead><tr class="bg-brand-bg border-b border-brand-divider">
-					<th class="text-left px-4 py-2 font-semibold">Source Key</th>
-					<th class="text-left px-4 py-2 font-semibold">Source Name</th>
-					<th class="text-left px-4 py-2 font-semibold">System</th>
+					<th class="text-left px-4 py-2 font-semibold cursor-pointer select-none hover:text-brand-primary" onclick={() => toggleSort('source_key')}>Source Key{sortArrow('source_key')}</th>
+					<th class="text-left px-4 py-2 font-semibold cursor-pointer select-none hover:text-brand-primary" onclick={() => toggleSort('source_name')}>Source Name{sortArrow('source_name')}</th>
+					<th class="text-left px-4 py-2 font-semibold cursor-pointer select-none hover:text-brand-primary" onclick={() => toggleSort('source_system')}>System{sortArrow('source_system')}</th>
 					<th class="text-left px-4 py-2 font-semibold">Paired To</th>
-					<th class="text-left px-4 py-2 font-semibold">Last Data</th>
+					<th class="text-left px-4 py-2 font-semibold cursor-pointer select-none hover:text-brand-primary" onclick={() => toggleSort('last_data_time')}>Last Data{sortArrow('last_data_time')}</th>
 					<th class="text-left px-4 py-2 font-semibold">Actions</th>
 				</tr></thead>
 				<tbody>
@@ -597,8 +688,14 @@
 							<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50">
 								<td class="px-4 py-2 font-mono text-xs">{stream.source_key}</td>
 								<td class="px-4 py-2 text-xs">{stream.source_name ?? '--'}</td>
-								<td class="px-4 py-2 text-xs text-brand-muted">{stream.source_system}</td>
-								<td class="px-4 py-2 text-xs {stream.site_parameter_id ? 'text-severity-ok' : 'text-brand-muted'}">{siteParamLabel(stream.site_parameter_id)}</td>
+								<td class="px-4 py-2 text-xs"><Badge variant="default">{stream.source_system}</Badge></td>
+								<td class="px-4 py-2 text-xs">
+									{#if stream.site_parameter_id}
+										<Badge variant="ok">{siteParamLabel(stream.site_parameter_id)}</Badge>
+									{:else}
+										<Badge variant="muted">Unpaired</Badge>
+									{/if}
+								</td>
 								<td class="px-4 py-2 text-xs text-brand-muted">{stream.last_data_time ? formatRelativeTime(stream.last_data_time) : '--'}</td>
 								<td class="px-4 py-2 flex gap-2">
 									<button onclick={() => openStats(stream)} class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline">Stats</button>
