@@ -8,9 +8,25 @@
 	import SearchBar from '$components/SearchBar.svelte';
 	import AlarmIndicator from '$components/AlarmIndicator.svelte';
 	import OperationsIndicator from '$components/OperationsIndicator.svelte';
+	import { getVersion } from '$api/service';
 
 	let { children } = $props();
 	let sidebarCollapsed = $state(false);
+
+	// Build versions for the sidebar footer. UI version is baked into the bundle at build time; the
+	// API version is fetched once (authenticated) so it reflects the actual running backend.
+	const uiVersion = __APP_VERSION__;
+	let apiVersion = $state('');
+	let versionFetched = false;
+	$effect(() => {
+		const status = auth.state.status;
+		if (!versionFetched && status !== 'loading' && status !== 'error') {
+			versionFetched = true;
+			getVersion()
+				.then((v) => (apiVersion = `${v.version} (${v.commit})`))
+				.catch(() => (apiVersion = 'unknown'));
+		}
+	});
 
 	// `riverdata-admin` (normalised to 'admin' in keycloak.svelte.ts); local no-auth mode is admin.
 	const isAdmin = $derived(auth.role === 'admin');
@@ -141,6 +157,16 @@
 					</a>
 				{/each}
 			{/each}
+
+			<!-- Build versions -->
+			<div class="mt-auto px-4 py-3 border-t border-brand-divider">
+				{#if !sidebarCollapsed}
+					<div class="text-[0.6875rem] text-brand-muted leading-relaxed font-mono">
+						<div title="Dashboard build">UI {uiVersion}</div>
+						<div title="API build">API {apiVersion || '…'}</div>
+					</div>
+				{/if}
+			</div>
 		</nav>
 
 		<!-- Main content -->

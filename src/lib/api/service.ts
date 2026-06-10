@@ -22,6 +22,16 @@ export interface SearchResponse {
 export const search = (query: string) =>
 	GET<SearchResponse>(`${ADMIN}/search`, { q: query });
 
+// Build/version metadata of the running API (authenticated; requires read_metadata).
+export interface ApiVersion {
+	name: string;
+	version: string;
+	commit: string;
+	built_at: string;
+}
+
+export const getVersion = () => GET<ApiVersion>(`${SERVICE}/version`);
+
 // Alarms
 export interface ActiveAlarm {
 	site_id: string;

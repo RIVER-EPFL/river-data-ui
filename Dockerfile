@@ -4,6 +4,10 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci
 COPY . .
+# Baked into the bundle as __APP_VERSION__ (shown in the sidebar footer). CI passes the git tag on
+# prod/stage builds and the short SHA on dev; empty default falls back to "<pkg>-dev" in vite.config.
+ARG BUILD_VERSION=
+ENV BUILD_VERSION=$BUILD_VERSION
 RUN npm run build
 
 # Production stage
