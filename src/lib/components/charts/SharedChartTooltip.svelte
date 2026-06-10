@@ -3,6 +3,7 @@
 	import { uPlotTheme } from '$lib/charts/uPlotTheme';
 	import { tokens } from '$lib/charts/tokens';
 	import { bandAtTime, calibrationAtTime, severityForValue } from '$lib/charts/overlay-plugins';
+	import { severityLabel } from '$lib/alarms';
 
 	let { syncKey }: { syncKey: string } = $props();
 
@@ -138,9 +139,9 @@
 					<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:{row.color};flex-shrink:0"></span>
 					<span style="color:{row.color};font-weight:500">{row.name}</span>
 					{#if row.severity === 'alarm'}
-						<span style="font-size:9px;padding:0 4px;border-radius:3px;background:{tokens.severity.alarm.main};color:white;font-weight:700">ALARM</span>
+						<span style="font-size:9px;padding:0 4px;border-radius:3px;background:{tokens.severity.alarm.main};color:white;font-weight:700">{severityLabel('alarm')}</span>
 					{:else if row.severity === 'warning'}
-						<span style="font-size:9px;padding:0 4px;border-radius:3px;background:{tokens.severity.warning.main};color:#3a2a00;font-weight:700">WARN</span>
+						<span style="font-size:9px;padding:0 4px;border-radius:3px;background:{tokens.severity.warning.main};color:{tokens.severity.warning.text};font-weight:700">{severityLabel('warning')}</span>
 					{/if}
 					{#if row.flagged}
 						<span style="font-size:9px;padding:0 4px;border-radius:3px;background:{tokens.markers.flagged.stroke};color:white;font-weight:700">FLAG</span>

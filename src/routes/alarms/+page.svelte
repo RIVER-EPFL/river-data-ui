@@ -5,9 +5,11 @@
 	import { page } from '$app/state';
 	import { api, type Site, type Parameter, type AlarmThreshold } from '$api/crud';
 	import { getActiveAlarms, getThresholds, type ResolvedThreshold } from '$api/service';
+	import Button from '$components/ui/Button.svelte';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import ThresholdDialog from '$components/dialogs/ThresholdDialog.svelte';
 	import AlarmEventsPanel from '$components/logs/AlarmEventsPanel.svelte';
+	import { formatThresholdRange } from '$lib/alarms';
 
 	const TABS = ['Log', 'Thresholds'];
 	const TAB_KEYS = ['log', 'thresholds'];
@@ -87,6 +89,7 @@
 	let sites = $state<Site[]>([]);
 	let siteMap = $state<Map<string, string>>(new Map());
 	let paramMap = $state<Map<string, string>>(new Map());
+	let paramUnits = $state<Map<string, string | null>>(new Map());
 
 	let thrSiteFilter = $state<string>('');
 	let thrParamFilter = $state<string>('');
@@ -131,15 +134,6 @@
 			),
 	);
 
-	// One- or two-sided bound shown with comparators. `null` = no bound at all, rendered as a muted
-	// "None" so an empty cell reads as intentional rather than a data error.
-	function thrBound(min: number | null, max: number | null): string | null {
-		if (min == null && max == null) return null;
-		if (min == null) return `≤ ${max}`;
-		if (max == null) return `≥ ${min}`;
-		return `${min} to ${max}`;
-	}
-
 	async function loadThresholds() {
 		try {
 			const [eff, raw] = await Promise.all([
@@ -175,6 +169,7 @@
 			sites = sitesResult.data;
 			siteMap = new Map(sitesResult.data.map((s: Site) => [s.id, s.name]));
 			paramMap = new Map(paramsResult.data.map((p: Parameter) => [p.id, p.name]));
+			paramUnits = new Map(paramsResult.data.map((p: Parameter) => [p.id, p.default_units ?? null]));
 		} catch {
 			/* lookups are best-effort; tables fall back to ids/names */
 		}
@@ -188,15 +183,13 @@
 		<h2 class="text-xl font-semibold">Alarms</h2>
 		{#if activeTab === 0}
 			<div class="flex items-center gap-2">
-				<button
+				<Button
 					onclick={() => logPanel?.exportCsv()}
 					disabled={logEventCount === 0}
-					class="px-3 py-1.5 border border-brand-divider bg-brand-surface text-sm rounded-md cursor-pointer hover:bg-brand-bg disabled:opacity-50 disabled:cursor-default"
-				>Export CSV</button>
-				<button
+				>Export CSV</Button>
+				<Button
 					onclick={() => logPanel?.rebuild()}
-					class="px-3 py-1.5 border border-brand-divider bg-brand-surface text-sm rounded-md cursor-pointer hover:bg-brand-bg"
-				>Rebuild alarm history</button>
+				>Rebuild alarm history</Button>
 			</div>
 		{/if}
 	</div>
@@ -231,12 +224,9 @@
 				{#each [...paramMap] as [id, name]}<option value={id}>{name}</option>{/each}
 			</select>
 			<div class="flex-1"></div>
-			<button
-				onclick={openThresholdCreate}
-				class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm font-semibold cursor-pointer border-none hover:bg-brand-primary-dark"
-			>
+			<Button variant="primary" onclick={openThresholdCreate}>
 				Create
-			</button>
+			</Button>
 		</div>
 
 		<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
@@ -257,8 +247,9 @@
 						<tr><td colspan="7" class="px-4 py-8 text-center text-brand-muted">No thresholds yet. Set parameter defaults or create an override.</td></tr>
 					{:else}
 						{#each filteredThresholds as row (row.site_id + ':' + row.parameter_id)}
-							{@const warn = thrBound(row.warning_min, row.warning_max)}
-							{@const alarm = thrBound(row.alarm_min, row.alarm_max)}
+							{@const units = paramUnits.get(row.parameter_id)}
+							{@const warn = formatThresholdRange(row.warning_min, row.warning_max, units)}
+							{@const alarm = formatThresholdRange(row.alarm_min, row.alarm_max, units)}
 							{@const counts = siteActiveCounts.get(row.site_id)}
 							<tr onclick={() => openThresholdRow(row)} class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 cursor-pointer">
 								<td class="px-4 py-2">{siteMap.get(row.site_id) ?? 'Unknown'}</td>

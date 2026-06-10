@@ -41,7 +41,7 @@
 	<input
 		id="global-search"
 		type="text"
-		placeholder="Search... (Ctrl+K)"
+		placeholder="Search… (Ctrl+K)"
 		bind:value={query}
 		oninput={handleInput}
 		onfocus={() => results && (open = true)}

@@ -4,6 +4,7 @@
 	import { api, type Site, type Parameter } from '$api/crud';
 	import { POST } from '$api/client';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import Button from '$components/ui/Button.svelte';
 
 	// --- Entity data ---
 	let sites = $state<Site[]>([]);
@@ -409,9 +410,9 @@
 	<div class="flex items-center justify-between">
 		<h2 class="text-xl font-semibold">Bulk Data Upload</h2>
 		{#if step !== 'file'}
-			<button onclick={reset} class="text-sm text-brand-muted hover:text-brand-text bg-transparent border-none cursor-pointer hover:underline">
+			<Button variant="ghost" size="sm" onclick={reset}>
 				Start Over
-			</button>
+			</Button>
 		{/if}
 	</div>
 
@@ -433,7 +434,7 @@
 	</div>
 
 	{#if loadingEntities}
-		<p class="text-brand-muted">Loading sites and parameters...</p>
+		<p class="text-brand-muted">Loading sites and parameters…</p>
 	{:else}
 
 		<!-- ============ STEP 1: FILE SELECTION ============ -->
@@ -470,13 +471,13 @@
 						</div>
 					</div>
 
-					<button
+					<Button
+						variant="primary"
 						onclick={() => goToStep('mapping')}
 						disabled={!isReadyForMapping}
-						class="px-4 py-2 bg-brand-primary text-white rounded-md text-sm font-semibold cursor-pointer border-none disabled:opacity-50"
 					>
 						Next: Column Mapping
-					</button>
+					</Button>
 				{/if}
 			</div>
 
@@ -609,16 +610,16 @@
 				</div>
 
 				<div class="flex gap-3">
-					<button onclick={() => goToStep('file')} class="px-4 py-2 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface text-brand-text hover:bg-brand-bg">
+					<Button onclick={() => goToStep('file')}>
 						Back
-					</button>
-					<button
+					</Button>
+					<Button
+						variant="primary"
 						onclick={runValidation}
 						disabled={!requiredColumnsSet()}
-						class="px-4 py-2 bg-brand-primary text-white rounded-md text-sm font-semibold cursor-pointer border-none disabled:opacity-50"
 					>
 						Next: Preview
-					</button>
+					</Button>
 				</div>
 			</div>
 
@@ -684,20 +685,20 @@
 				{/if}
 
 				<div class="flex gap-3">
-					<button onclick={() => goToStep('mapping')} class="px-4 py-2 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface text-brand-text hover:bg-brand-bg">
+					<Button onclick={() => goToStep('mapping')}>
 						Back
-					</button>
-					<button
+					</Button>
+					<Button
+						variant="primary"
 						onclick={handleUpload}
 						disabled={!canUpload || uploading}
-						class="px-4 py-2 bg-brand-primary text-white rounded-md text-sm font-semibold cursor-pointer border-none disabled:opacity-50"
 					>
 						{#if uploading}
-							Uploading... {uploadProgress}%
+							Uploading… {uploadProgress}%
 						{:else}
 							Upload {csvData.length.toLocaleString()} Rows
 						{/if}
-					</button>
+					</Button>
 				</div>
 
 				{#if uploading}
@@ -719,12 +720,12 @@
 				</div>
 
 				<div class="flex gap-3">
-					<button onclick={reset} class="px-4 py-2 bg-brand-primary text-white rounded-md text-sm font-semibold cursor-pointer border-none">
+					<Button variant="primary" onclick={reset}>
 						Upload Another File
-					</button>
-					<button onclick={computeDerived} class="px-4 py-2 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface text-brand-text hover:bg-brand-bg">
+					</Button>
+					<Button onclick={computeDerived}>
 						Compute Derived Parameters
-					</button>
+					</Button>
 				</div>
 			</div>
 		{/if}

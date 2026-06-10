@@ -6,6 +6,7 @@
 	import { api, type Project, type TokenPermissions } from '$api/crud';
 	import { auth } from '$auth/keycloak.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import Button from '$components/ui/Button.svelte';
 	import TokenAccessSummary from '$components/tokens/TokenAccessSummary.svelte';
 	import PresetChips from '$components/tokens/PresetChips.svelte';
 
@@ -194,9 +195,9 @@
 			</div>
 
 			<div class="flex gap-2 pt-2">
-				<button type="submit" disabled={saving} class="px-4 py-1.5 bg-brand-primary text-white rounded-md text-sm font-semibold cursor-pointer border-none hover:bg-brand-primary-dark disabled:opacity-50">
+				<Button variant="primary" type="submit" disabled={saving}>
 					{saving ? 'Saving…' : 'Save Changes'}
-				</button>
+				</Button>
 				<a href="{base}/tokens" class="px-4 py-1.5 border border-brand-divider rounded-md text-sm no-underline text-brand-text hover:bg-brand-bg">Cancel</a>
 			</div>
 		</form>

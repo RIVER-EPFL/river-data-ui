@@ -4,6 +4,7 @@
 	import { api, type Site, type Parameter, type SiteParameter } from '$api/crud';
 	import { GET } from '$api/client';
 	import type { ReadingsResponse, AggregatesResponse } from '$lib/api/types';
+	import Button from '$components/ui/Button.svelte';
 	import ScatterPlot from '$components/charts/ScatterPlot.svelte';
 	import UPlotChart from '$components/charts/UPlotChart.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
@@ -399,7 +400,7 @@
 	<h2 class="text-xl font-semibold">Compare Sites</h2>
 
 	{#if loading}
-		<p class="text-brand-muted">Loading...</p>
+		<p class="text-brand-muted">Loading…</p>
 	{:else}
 		<div class="flex gap-1 mb-4">
 			<button onclick={() => mode = 'time'} class="px-3 py-1 text-sm rounded-md cursor-pointer border-none {mode === 'time' ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted'}">Time Series</button>
@@ -439,16 +440,16 @@
 							<option value="daily">Daily</option>
 						</select>
 					</div>
-					<button onclick={loadChartData} disabled={selectedSiteIds.length === 0 || !selectedParamId || loadingData}
-						class="w-full px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm font-semibold cursor-pointer border-none disabled:opacity-50">
-						{loadingData ? 'Loading...' : 'Compare'}
-					</button>
+					<Button variant="primary" onclick={loadChartData} disabled={selectedSiteIds.length === 0 || !selectedParamId || loadingData}
+						class="w-full">
+						{loadingData ? 'Loading…' : 'Compare'}
+					</Button>
 				</div>
 
 				<!-- Chart area -->
 				<div class="md:col-span-3 rounded-md border border-brand-divider bg-brand-surface p-4 min-h-[400px]">
 					{#if loadingData}
-						<div class="flex items-center justify-center h-full text-brand-muted text-sm">Loading...</div>
+						<div class="flex items-center justify-center h-full text-brand-muted text-sm">Loading…</div>
 					{:else if chartError}
 						<div class="flex items-center justify-center h-full text-brand-muted text-sm">{chartError}</div>
 					{:else if chartData.length === 0}
@@ -545,16 +546,16 @@
 						</select>
 					</div>
 					{@render timeControls()}
-					<button onclick={loadScatterData} disabled={!scatterSiteId || !scatterXParamId || !scatterYParamId || scatterLoading}
-						class="w-full px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm font-semibold cursor-pointer border-none disabled:opacity-50">
-						{scatterLoading ? 'Loading...' : 'Plot'}
-					</button>
+					<Button variant="primary" onclick={loadScatterData} disabled={!scatterSiteId || !scatterXParamId || !scatterYParamId || scatterLoading}
+						class="w-full">
+						{scatterLoading ? 'Loading…' : 'Plot'}
+					</Button>
 				</div>
 
 				<!-- Scatter chart area -->
 				<div class="md:col-span-3 rounded-md border border-brand-divider bg-brand-surface p-4 min-h-[400px]">
 					{#if scatterLoading}
-						<div class="flex items-center justify-center h-full text-brand-muted text-sm">Loading scatter data...</div>
+						<div class="flex items-center justify-center h-full text-brand-muted text-sm">Loading scatter data…</div>
 					{:else if scatterError}
 						<div class="flex items-center justify-center h-full text-brand-muted text-sm">{scatterError}</div>
 					{:else if scatterData}

@@ -506,6 +506,21 @@ export const listRoles = () => GET<KeycloakRole[]>(`${ADMIN}/roles`);
 export const assignUserRoles = (userId: string, roles: string[]) =>
 	POST(`${ADMIN}/users/${userId}/roles`, { roles });
 
+// Realm directory search (LDAP-federated in production — covers all EPFL accounts).
+// Each result includes the user's current realm roles.
+export interface DirectoryUser {
+	id: string;
+	username: string;
+	email: string | null;
+	firstName: string | null;
+	lastName: string | null;
+	enabled: boolean;
+	roles: string[];
+}
+
+export const searchDirectoryUsers = (q: string) =>
+	GET<DirectoryUser[]>(`${ADMIN}/users/search`, { q });
+
 // Grab samples
 export interface GrabSampleReading {
 	parameter_id: string;

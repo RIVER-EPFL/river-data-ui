@@ -144,7 +144,7 @@
 		{:else if !selectedSiteId}
 			<p class="text-sm text-brand-muted">No site available with all required variables.</p>
 		{:else if loading && !preview}
-			<p class="text-sm text-brand-muted">Loading preview...</p>
+			<p class="text-sm text-brand-muted">Loading preview…</p>
 		{:else if previewError}
 			<p class="text-sm text-severity-alarm">Preview error: {previewError}</p>
 		{:else if preview}

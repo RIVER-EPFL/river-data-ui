@@ -4,6 +4,7 @@
 	import { page } from '$app/state';
 	import { auth } from '$auth/keycloak.svelte';
 	import { onMount } from 'svelte';
+	import Button from '$components/ui/Button.svelte';
 	import ToastContainer from '$components/ui/ToastContainer.svelte';
 	import SearchBar from '$components/SearchBar.svelte';
 	import AlarmIndicator from '$components/AlarmIndicator.svelte';
@@ -87,19 +88,20 @@
 
 {#if auth.state.status === 'loading'}
 	<div class="flex h-screen items-center justify-center flex-col text-brand-muted">
-		<p class="text-lg">Loading River Data Admin...</p>
-		<p class="text-sm mt-2">Initializing...</p>
+		<p class="text-lg">Loading River Data Admin…</p>
+		<p class="text-sm mt-2">Initializing…</p>
 	</div>
 {:else if auth.state.status === 'error'}
 	<div class="flex h-screen items-center justify-center flex-col text-center px-5">
 		<p class="text-lg text-severity-alarm">Authentication Error</p>
 		<p class="text-sm mt-2 text-brand-muted max-w-[400px]">{auth.state.message}</p>
-		<button
+		<Button
+			variant="primary"
 			onclick={() => window.location.reload()}
-			class="mt-5 px-5 py-2.5 bg-brand-primary text-white rounded-md cursor-pointer border-none"
+			class="mt-5"
 		>
 			Retry
-		</button>
+		</Button>
 	</div>
 {:else}
 	<div class="flex h-screen overflow-hidden">
@@ -119,6 +121,7 @@
 					onclick={() => (sidebarCollapsed = !sidebarCollapsed)}
 					class="ml-auto p-1 text-brand-muted hover:text-brand-text cursor-pointer bg-transparent border-none"
 					title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+					aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
 				>
 					{sidebarCollapsed ? '▶' : '◀'}
 				</button>

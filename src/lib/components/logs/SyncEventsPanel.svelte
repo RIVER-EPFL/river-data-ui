@@ -5,11 +5,18 @@
 	import type { SyncEvent, SyncService } from '$api/service';
 	import { formatRelativeTime, formatDateTime, statusBadgeClass, formatDurationMs } from '$lib/utils';
 	import Dialog from '$components/ui/Dialog.svelte';
+	import PaginationControls from '$components/ui/PaginationControls.svelte';
+	import Button from '$components/ui/Button.svelte';
+	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
+
+	const PER_PAGE = 100;
 
 	let events = $state<SyncEvent[]>([]);
 	let serviceMap = $state<Map<string, SyncService>>(new Map());
 	let loading = $state(true);
 	let error = $state('');
+	let total = $state(0);
+	let currentPage = $state(1);
 	let statusFilter = $state<'all' | 'running' | 'completed' | 'partial' | 'failed'>('all');
 	let pollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -23,14 +30,17 @@
 			const filter: Record<string, unknown> = {};
 			if (statusFilter !== 'all') filter.status = statusFilter;
 			const result = await getList<SyncEvent>('/api/sync_events', {
-				perPage: 100,
+				page: currentPage,
+				perPage: PER_PAGE,
 				sort: ['started_at', 'DESC'],
 				filter,
 			});
 			events = result.data;
+			total = result.total;
 		} catch (e: unknown) {
 			error = e instanceof Error ? e.message : 'Failed to load sync events';
 			events = [];
+			total = 0;
 		} finally {
 			loading = false;
 		}
@@ -67,18 +77,16 @@
 		<div class="flex gap-1">
 			{#each ['all', 'running', 'completed', 'partial', 'failed'] as s}
 				<button
-					onclick={() => { statusFilter = s as typeof statusFilter; load(); }}
+					onclick={() => { statusFilter = s as typeof statusFilter; currentPage = 1; load(); }}
 					class="px-3 py-1 text-sm rounded-md cursor-pointer border-none {statusFilter === s ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted'}"
 				>{s}</button>
 			{/each}
 		</div>
-		<button onclick={load} class="px-3 py-1.5 text-sm border border-brand-divider rounded-md bg-brand-surface cursor-pointer hover:bg-brand-bg">Refresh</button>
+		<Button onclick={load}>Refresh</Button>
 	</div>
 
 	{#if error}
-		<div class="rounded-md border border-severity-alarm-border bg-severity-alarm-soft p-3 text-sm text-severity-alarm">
-			{error}
-		</div>
+		<ErrorNotice message={error} />
 	{/if}
 
 	<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
@@ -96,7 +104,7 @@
 			</thead>
 			<tbody>
 				{#if loading}
-					<tr><td colspan="7" class="px-4 py-8 text-center text-brand-muted">Loading...</td></tr>
+					<tr><td colspan="7" class="px-4 py-8 text-center text-brand-muted">Loading…</td></tr>
 				{:else if events.length === 0}
 					<tr><td colspan="7" class="px-4 py-8 text-center text-brand-muted">No sync events</td></tr>
 				{:else}
@@ -120,6 +128,13 @@
 			</tbody>
 		</table>
 	</div>
+
+	<PaginationControls
+		{total}
+		page={currentPage}
+		perPage={PER_PAGE}
+		onPageChange={(p) => { currentPage = p; load(); }}
+	/>
 </div>
 
 <Dialog bind:open={detailOpen} title="Sync Event Detail" maxWidth="md">
@@ -182,6 +197,6 @@
 			{@const svc = serviceName(selectedEvent.service_id)}
 			<a href={svc.href} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm no-underline hover:opacity-90">View Service</a>
 		{/if}
-		<button onclick={() => detailOpen = false} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface">Close</button>
+		<Button onclick={() => detailOpen = false}>Close</Button>
 	{/snippet}
 </Dialog>

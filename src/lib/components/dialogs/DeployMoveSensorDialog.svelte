@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { api, type Sensor, type Site, type SensorDeployment } from '$api/crud';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 
 	// Two modes:
@@ -154,7 +155,7 @@
 									<span class="text-xs text-severity-warning">currently deployed at {sourceSiteName} - will be moved</span>
 								{/if}
 							</div>
-							<button onclick={clearSelection} class="ml-auto text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline">Change</button>
+							<Button variant="ghost" size="sm" class="ml-auto text-brand-primary" onclick={clearSelection}>Change</Button>
 						</div>
 					{:else}
 						<input
@@ -228,11 +229,11 @@
 		</div>
 	{/snippet}
 	{#snippet actions()}
-		<button onclick={() => (open = false)} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface">Cancel</button>
-		<button
+		<Button onclick={() => (open = false)}>Cancel</Button>
+		<Button
+			variant="primary"
 			onclick={handleSubmit}
 			disabled={working || (mode === 'site' ? !selectedSensorId : !selectedSiteId)}
-			class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm cursor-pointer border-none disabled:opacity-50"
-		>{working ? 'Saving…' : movingFrom ? 'Move' : 'Deploy'}</button>
+		>{working ? 'Saving…' : movingFrom ? 'Move' : 'Deploy'}</Button>
 	{/snippet}
 </Dialog>

@@ -5,6 +5,7 @@
 	import { formatRelativeTime } from '$lib/utils';
 	import { getBackfillCandidates, backfillAttribution, type BackfillSiteSummary } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import Button from '$components/ui/Button.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 
 	let sites = $state<Site[]>([]);
@@ -127,10 +128,9 @@
 					confirmVariant="primary"
 					onconfirm={() => runBackfill({ all: true }, 'all')}
 				>
-					<button
+					<Button
 						disabled={backfilling !== null}
-						class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface hover:bg-brand-bg disabled:opacity-50"
-					>{backfilling === 'all' ? 'Backfilling…' : `Backfill all (${totalClaimable.toLocaleString()})`}</button>
+					>{backfilling === 'all' ? 'Backfilling…' : `Backfill all (${totalClaimable.toLocaleString()})`}</Button>
 				</ConfirmPopover>
 			{/if}
 			<a
@@ -145,7 +145,7 @@
 	<!-- Search -->
 	<input
 		type="text"
-		placeholder="Search sites..."
+		placeholder="Search sites…"
 		bind:value={searchFilter}
 		oninput={() => { currentPage = 1; load(); }}
 		class="w-full max-w-sm px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
@@ -175,7 +175,7 @@
 			</thead>
 			<tbody>
 				{#if loading}
-					<tr><td colspan="5" class="px-4 py-8 text-center text-brand-muted">Loading...</td></tr>
+					<tr><td colspan="5" class="px-4 py-8 text-center text-brand-muted">Loading…</td></tr>
 				{:else if error}
 					<tr><td colspan="5" class="px-4 py-8 text-center text-severity-alarm">{error}</td></tr>
 				{:else if sites.length === 0}
@@ -229,21 +229,21 @@
 		<div class="flex items-center justify-between text-sm text-brand-muted">
 			<span>{total} total</span>
 			<div class="flex items-center gap-2">
-				<button
+				<Button
+					size="sm"
 					onclick={() => { currentPage = Math.max(1, currentPage - 1); load(); }}
 					disabled={currentPage <= 1}
-					class="px-2 py-1 border border-brand-divider rounded bg-brand-surface disabled:opacity-40 cursor-pointer disabled:cursor-default"
 				>
 					Prev
-				</button>
+				</Button>
 				<span>{currentPage} / {totalPages}</span>
-				<button
+				<Button
+					size="sm"
 					onclick={() => { currentPage = Math.min(totalPages, currentPage + 1); load(); }}
 					disabled={currentPage >= totalPages}
-					class="px-2 py-1 border border-brand-divider rounded bg-brand-surface disabled:opacity-40 cursor-pointer disabled:cursor-default"
 				>
 					Next
-				</button>
+				</Button>
 			</div>
 		</div>
 	{/if}

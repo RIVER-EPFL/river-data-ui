@@ -5,6 +5,9 @@
 	import { api, type Parameter } from '$api/crud';
 	import { formatRelativeTime } from '$lib/utils';
 	import Dialog from '$components/ui/Dialog.svelte';
+	import PaginationControls from '$components/ui/PaginationControls.svelte';
+	import Button from '$components/ui/Button.svelte';
+	import { formatThresholdRange } from '$lib/alarms';
 
 	type SiteRef = { id: string; name: string };
 
@@ -93,13 +96,6 @@
 		return sitesByParam[p.id] ?? [];
 	}
 
-	function fmtRange(min: number | null, max: number | null): string {
-		if (min == null && max == null) return 'None';
-		const lo = min != null ? String(min) : '';
-		const hi = max != null ? String(max) : '';
-		return `${lo} – ${hi}`;
-	}
-
 	const filtered = $derived.by(() => {
 		const q = searchQuery.trim().toLowerCase();
 		const rows = parameters.filter((p) => {
@@ -128,7 +124,6 @@
 	});
 
 	const total = $derived(filtered.length);
-	const totalPages = $derived(Math.max(1, Math.ceil(total / PER_PAGE)));
 	const pageRows = $derived(filtered.slice((currentPage - 1) * PER_PAGE, currentPage * PER_PAGE));
 
 	function toggleSort(field: string) {
@@ -148,7 +143,7 @@
 <div class="space-y-4">
 	<div class="flex gap-3 items-center flex-wrap">
 		<input
-			type="text" placeholder="Search parameters..." bind:value={searchQuery}
+			type="text" placeholder="Search parameters…" bind:value={searchQuery}
 			oninput={resetPage}
 			class="w-64 px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
 		/>
@@ -188,13 +183,15 @@
 			</thead>
 			<tbody>
 				{#if loading}
-					<tr><td colspan="8" class="px-4 py-8 text-center text-brand-muted">Loading...</td></tr>
+					<tr><td colspan="8" class="px-4 py-8 text-center text-brand-muted">Loading…</td></tr>
 				{:else if pageRows.length === 0}
 					<tr><td colspan="8" class="px-4 py-8 text-center text-brand-muted">No parameters found</td></tr>
 				{:else}
 					{#each pageRows as param}
 						{@const refs = siteRefs(param)}
 						{@const defId = derivedDefByOutput[param.id]}
+						{@const warn = formatThresholdRange(param.default_warning_min, param.default_warning_max, param.default_units)}
+						{@const alarm = formatThresholdRange(param.default_alarm_min, param.default_alarm_max, param.default_units)}
 						<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50">
 							<td class="px-4 py-2">
 								<a href="{base}/parameters/{param.id}" class="text-brand-primary font-semibold no-underline hover:underline">{param.name}</a>
@@ -204,8 +201,8 @@
 							</td>
 							<td class="px-4 py-2 font-mono text-xs text-brand-muted">{param.code}</td>
 							<td class="px-4 py-2 text-brand-muted">{param.default_units || 'None'}</td>
-							<td class="px-4 py-2 text-xs text-severity-warning-main">{fmtRange(param.default_warning_min, param.default_warning_max)}</td>
-							<td class="px-4 py-2 text-xs text-severity-alarm-main">{fmtRange(param.default_alarm_min, param.default_alarm_max)}</td>
+							<td class="px-4 py-2 text-xs text-severity-warning">{#if warn}{warn}{:else}<span class="text-brand-muted">None</span>{/if}</td>
+							<td class="px-4 py-2 text-xs text-severity-alarm">{#if alarm}{alarm}{:else}<span class="text-brand-muted">None</span>{/if}</td>
 							<td class="px-4 py-2"><span class="px-2 py-0.5 text-xs font-medium rounded-full bg-brand-bg text-brand-muted">{param.category}</span></td>
 							<td class="px-4 py-2 text-center">
 								{#if refs.length > 0}
@@ -222,16 +219,12 @@
 		</table>
 	</div>
 
-	{#if totalPages > 1}
-		<div class="flex items-center justify-between text-sm text-brand-muted">
-			<span>{total} total</span>
-			<div class="flex items-center gap-2">
-				<button onclick={() => { currentPage = Math.max(1, currentPage - 1); }} disabled={currentPage <= 1} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface disabled:opacity-40 cursor-pointer disabled:cursor-default">Prev</button>
-				<span>{currentPage} / {totalPages}</span>
-				<button onclick={() => { currentPage = Math.min(totalPages, currentPage + 1); }} disabled={currentPage >= totalPages} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface disabled:opacity-40 cursor-pointer disabled:cursor-default">Next</button>
-			</div>
-		</div>
-	{/if}
+	<PaginationControls
+		{total}
+		page={currentPage}
+		perPage={PER_PAGE}
+		onPageChange={(p) => { currentPage = p; }}
+	/>
 </div>
 
 <Dialog bind:open={sitesDialogOpen} title={sitesDialogParam ? `Sites using ${sitesDialogParam.name}` : 'Sites'} maxWidth="sm">
@@ -248,6 +241,6 @@
 		{/if}
 	{/snippet}
 	{#snippet actions()}
-		<button onclick={() => (sitesDialogOpen = false)} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface">Close</button>
+		<Button onclick={() => (sitesDialogOpen = false)}>Close</Button>
 	{/snippet}
 </Dialog>

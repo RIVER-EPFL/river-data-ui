@@ -5,9 +5,11 @@
 	import { api, type Sensor, type SensorCalibration, type SensorDeployment, type Site, type Parameter } from '$api/crud';
 	import { recalibrateCalibration, rollbackDeployment, reprocessSensor, getCalibrationCandidates } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { formatDateTime } from '$lib/utils';
+	import { formatDateTime, formatDate } from '$lib/utils';
+	import Button from '$components/ui/Button.svelte';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
+	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
 	import DeployMoveSensorDialog from '$components/dialogs/DeployMoveSensorDialog.svelte';
 	import SensorSeriesChart from '$components/charts/SensorSeriesChart.svelte';
 	import CalibrationWindowEditor from '$components/charts/CalibrationWindowEditor.svelte';
@@ -302,12 +304,12 @@
 <svelte:head><title>{sensor?.name ?? sensor?.serial_number ?? 'Sensor'} | River Data</title></svelte:head>
 
 {#if loading}
-	<p class="text-brand-muted">Loading...</p>
+	<p class="text-brand-muted">Loading…</p>
 {:else if sensor}
 	<div class="space-y-4">
 		<div class="flex items-center justify-between">
 			<div>
-				<a href="{base}/sensors" class="text-sm text-brand-muted hover:text-brand-primary no-underline">&larr; Sensors</a>
+				<Breadcrumbs items={[{ label: 'Sensors', href: `${base}/sensors` }]} />
 				<h2 class="text-xl font-semibold mt-1">{sensor.name ?? sensor.serial_number ?? 'Sensor'}</h2>
 				{#if sensor.manufacturer || sensor.model}
 					<p class="text-sm text-brand-muted">{[sensor.manufacturer, sensor.model].filter(Boolean).join(' ')}</p>
@@ -319,11 +321,11 @@
 				{/if}
 			</div>
 			<div class="flex gap-2 items-center">
-				<button onclick={() => (adoptOpen = true)} class="px-3 py-1 text-sm border border-brand-divider rounded-md cursor-pointer bg-brand-surface hover:bg-brand-bg">Add data…</button>
+				<Button onclick={() => (adoptOpen = true)}>Add data…</Button>
 				<ConfirmPopover message="Reprocess all of this sensor's readings? Re-derives calibration and deployment by time window." confirmLabel="Reprocess" confirmVariant="primary" onconfirm={handleReprocess}>
-					<button class="px-3 py-1 text-sm border border-brand-divider rounded-md cursor-pointer bg-brand-surface hover:bg-brand-bg">Reprocess</button>
+					<Button>Reprocess</Button>
 				</ConfirmPopover>
-				<button onclick={() => (deployOpen = true)} class="px-3 py-1 text-sm border border-brand-divider rounded-md cursor-pointer bg-brand-surface hover:bg-brand-bg">Deploy / Move…</button>
+				<Button onclick={() => (deployOpen = true)}>Deploy / Move…</Button>
 				<span class="px-2 py-0.5 text-xs font-medium rounded-full {sensor.is_active ? 'bg-severity-ok-soft text-severity-ok' : 'bg-brand-bg text-brand-muted'}">
 					{sensor.is_active ? 'Active' : 'Inactive'}
 				</span>
@@ -336,7 +338,7 @@
 			{#if needsBackdate && currentDeployment}
 				<div class="flex items-center gap-3 px-3 py-2 text-sm bg-brand-primary/5 text-brand-primary rounded-md border border-brand-primary/20">
 					<span>Readings exist before this deployment started ({formatDateTime(currentDeployment.deployed_from)}) - they aren't attributed to this sensor.</span>
-					<button onclick={backdateToFirstReading} disabled={backdating} class="ml-auto px-2 py-0.5 text-xs bg-brand-primary text-white rounded cursor-pointer border-none disabled:opacity-50 whitespace-nowrap">{backdating ? 'Backdating…' : 'Backdate to first reading'}</button>
+					<Button variant="primary" size="sm" class="ml-auto whitespace-nowrap" onclick={backdateToFirstReading} disabled={backdating}>{backdating ? 'Backdating…' : 'Backdate to first reading'}</Button>
 				</div>
 			{/if}
 			<div class="rounded-md border border-brand-divider bg-brand-surface px-4 py-3 space-y-3">
@@ -372,7 +374,7 @@
 					</label>
 
 					<span class="text-xs text-brand-muted ml-auto font-mono">
-						{windowLabel} · {new Date(chartStart).toLocaleDateString()} - {new Date(chartEnd).toLocaleDateString()}
+						{windowLabel} · {formatDate(new Date(chartStart))} - {formatDate(new Date(chartEnd))}
 					</span>
 				</div>
 				<TimeRangeSlider
@@ -435,13 +437,13 @@
 								<td class="px-4 py-2 text-xs text-brand-muted">{dep.deployed_until ? formatDateTime(dep.deployed_until) : 'Current'}</td>
 								<td class="px-4 py-2">
 									<div class="flex gap-3">
-										<button class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline" onclick={() => editingDepId === dep.id ? (editingDepId = null) : startEditDep(dep)}>{editingDepId === dep.id ? 'Close' : 'Edit dates'}</button>
+										<Button variant="ghost" size="sm" class="text-brand-primary" onclick={() => editingDepId === dep.id ? (editingDepId = null) : startEditDep(dep)}>{editingDepId === dep.id ? 'Close' : 'Edit dates'}</Button>
 										{#if !dep.deployed_until}
 											<ConfirmPopover message="End this deployment now? The sensor will be marked as no longer in the field." confirmLabel="Recall" confirmVariant="primary" onconfirm={() => handleRecall(dep.id)}>
-												<button class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline">Recall</button>
+												<Button variant="ghost" size="sm" class="text-brand-primary">Recall</Button>
 											</ConfirmPopover>
 											<ConfirmPopover message="Roll back this deployment? This deletes it and restores the previous one." confirmLabel="Rollback" onconfirm={() => handleRollback(dep.id)}>
-												<button class="text-xs text-severity-alarm bg-transparent border-none cursor-pointer hover:underline">Rollback</button>
+												<Button variant="ghost" size="sm" class="text-severity-alarm">Rollback</Button>
 											</ConfirmPopover>
 										{/if}
 									</div>
@@ -453,7 +455,7 @@
 										<div class="flex items-end gap-3 flex-wrap">
 											<label class="flex flex-col gap-1 text-xs text-brand-muted">Deployed from<input type="datetime-local" bind:value={editDepFrom} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm" /></label>
 											<label class="flex flex-col gap-1 text-xs text-brand-muted">Deployed until <span class="text-[10px]">(blank = open)</span><input type="datetime-local" bind:value={editDepUntil} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm" /></label>
-											<button onclick={() => saveDep(dep.id)} disabled={savingDep} class="px-3 py-1 text-sm bg-brand-primary text-white rounded-md cursor-pointer border-none disabled:opacity-50">{savingDep ? 'Saving…' : 'Save & reprocess'}</button>
+											<Button variant="primary" onclick={() => saveDep(dep.id)} disabled={savingDep}>{savingDep ? 'Saving…' : 'Save & reprocess'}</Button>
 											<span class="text-[11px] text-brand-muted">Changing dates re-attributes readings in the affected range in the background.</span>
 										</div>
 									</td>
@@ -536,8 +538,8 @@
 								<td class="px-4 py-2 font-mono text-xs">{cal.intercept}</td>
 								<td class="px-4 py-2 font-mono text-xs">y = {cal.slope}x + {cal.intercept}</td>
 								<td class="px-4 py-2 space-x-3">
-									<button class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline" onclick={() => editingCalId = editingCalId === cal.id ? null : cal.id}>{editingCalId === cal.id ? 'Close' : 'Edit window'}</button>
-									<button class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline" onclick={() => handleRecalibrate(cal.id)}>Reprocess</button>
+									<Button variant="ghost" size="sm" class="text-brand-primary" onclick={() => editingCalId = editingCalId === cal.id ? null : cal.id}>{editingCalId === cal.id ? 'Close' : 'Edit window'}</Button>
+									<Button variant="ghost" size="sm" class="text-brand-primary" onclick={() => handleRecalibrate(cal.id)}>Reprocess</Button>
 								</td>
 							</tr>
 							{#if editingCalId === cal.id}

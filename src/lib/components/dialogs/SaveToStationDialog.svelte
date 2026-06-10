@@ -2,6 +2,7 @@
 	import { api, type Site, type SiteParameter, type Parameter } from '$api/crud';
 	import { saveGrabSample } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 
 	// Persists a tool's computed result back to a station as a single grab-sample
@@ -205,11 +206,11 @@
 		</div>
 	{/snippet}
 	{#snippet actions()}
-		<button onclick={() => (open = false)} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface">Cancel</button>
-		<button
+		<Button onclick={() => (open = false)}>Cancel</Button>
+		<Button
+			variant="primary"
 			onclick={handleSave}
 			disabled={saving || !canSave}
-			class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm cursor-pointer border-none disabled:opacity-50"
-		>{saving ? 'Saving…' : 'Save'}</button>
+		>{saving ? 'Saving…' : 'Save'}</Button>
 	{/snippet}
 </Dialog>

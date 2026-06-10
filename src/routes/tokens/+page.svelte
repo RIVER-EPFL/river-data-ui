@@ -7,6 +7,8 @@
 	import { revokeToken, rotateToken } from '$api/service';
 	import { auth } from '$auth/keycloak.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import { formatDateTime } from '$lib/utils';
+	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import TokenDetailDialog from '$components/tokens/TokenDetailDialog.svelte';
@@ -231,8 +233,7 @@
 						</td>
 						<td class="px-3 py-2">
 							{#if t.expires_at}
-								<div class={isExpired(t) ? 'text-brand-accent-dark' : ''}>{new Date(t.expires_at).toLocaleDateString()}</div>
-								<div class="text-xs text-brand-muted">{new Date(t.expires_at).toLocaleTimeString()}</div>
+								<div class={isExpired(t) ? 'text-brand-accent-dark' : ''}>{formatDateTime(t.expires_at)}</div>
 							{:else}
 								<span class="text-brand-muted">Never</span>
 							{/if}
@@ -316,7 +317,7 @@
 		</div>
 	{/snippet}
 	{#snippet actions()}
-		<button onclick={copySecret} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm font-semibold cursor-pointer border-none">Copy</button>
-		<button onclick={() => (showSecret = false)} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface hover:bg-brand-bg">Done</button>
+		<Button variant="primary" onclick={copySecret}>Copy</Button>
+		<Button onclick={() => (showSecret = false)}>Done</Button>
 	{/snippet}
 </Dialog>

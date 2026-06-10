@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { PATCH } from '$api/client';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import { formatDateTime } from '$lib/utils';
+	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 
 	let {
@@ -30,8 +32,8 @@
 		if (open) reason = '';
 	});
 
-	const startLabel = $derived(new Date(startMs).toLocaleString());
-	const endLabel = $derived(new Date(endMs).toLocaleString());
+	const startLabel = $derived(formatDateTime(new Date(startMs)));
+	const endLabel = $derived(formatDateTime(new Date(endMs)));
 	const title = $derived(mode === 'flag' ? `Flag readings: ${parameterName}` : `Unflag readings: ${parameterName}`);
 	const verb = $derived(mode === 'flag' ? 'Flag' : 'Unflag');
 
@@ -94,11 +96,11 @@
 		</div>
 	{/snippet}
 	{#snippet actions()}
-		<button onclick={() => open = false} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface">Cancel</button>
+		<Button onclick={() => open = false}>Cancel</Button>
 		<button
 			onclick={handleSave}
 			disabled={saving || (mode === 'flag' && !reason.trim())}
 			class="px-3 py-1.5 rounded-md text-sm cursor-pointer border-none text-white disabled:opacity-50 {mode === 'flag' ? 'bg-severity-alarm' : 'bg-brand-primary'}"
-		>{saving ? `${verb}ging...` : verb}</button>
+		>{saving ? `${verb}ging…` : verb}</button>
 	{/snippet}
 </Dialog>

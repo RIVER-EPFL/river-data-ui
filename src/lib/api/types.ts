@@ -50,4 +50,5 @@ export interface StatusEvent {
 export interface StatusEventsResponse {
 	site: { id: string; name: string };
 	events: StatusEvent[];
+	total: number;
 }

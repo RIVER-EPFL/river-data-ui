@@ -2,6 +2,7 @@
 	import { type FormulaNode, parseFromMeval, serializeToMeval, replaceAtPath, hasEmptySlots, wrapWithOp } from './ast';
 	import { tokens } from '$lib/charts/tokens';
 	import type { Constant } from '$api/crud';
+	import Button from '$components/ui/Button.svelte';
 
 	let {
 		value = $bindable(''),
@@ -272,7 +273,7 @@
 			type="text"
 			{value}
 			oninput={handleTextInput}
-			placeholder="Type formula directly, or drag tokens from the palette into the canvas..."
+			placeholder="Type formula directly, or drag tokens from the palette into the canvas…"
 			class="w-full px-3 py-2 border border-brand-divider rounded bg-brand-surface text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
 		/>
 		{#if hasEmptySlots(root) && root.type !== 'empty'}
@@ -348,6 +349,7 @@
 							onclick={() => clickPalette({ kind: 'operator', op })}
 							onkeydown={(e) => paletteKeydown(e, { kind: 'operator', op })}
 							class="w-9 h-9 text-sm font-mono rounded cursor-grab active:cursor-grabbing border border-brand-divider bg-brand-surface hover:bg-brand-bg flex items-center justify-center font-bold"
+							aria-label="Insert {op} operator"
 						>{op}</div>
 					{/each}
 				</div>
@@ -378,7 +380,7 @@
 				</div>
 			{/if}
 
-			<button onclick={clearAll} class="text-xs text-severity-alarm bg-transparent border-none cursor-pointer hover:underline">Clear formula</button>
+			<Button variant="ghost" size="sm" class="text-severity-alarm" onclick={clearAll}>Clear formula</Button>
 		</div>
 
 		<div class="flex-1 p-4 overflow-auto flex flex-col items-start gap-3">
@@ -435,7 +437,7 @@
 			{:else}
 				{label}
 			{/if}
-			<button onclick={(e) => { e.stopPropagation(); deleteAtPath(path); }} class="bg-transparent border-none cursor-pointer text-xs ml-0.5 {isConstant ? 'text-brand-muted hover:text-brand-text' : 'text-white/60 hover:text-white'}">&times;</button>
+			<button onclick={(e) => { e.stopPropagation(); deleteAtPath(path); }} aria-label="Delete token" class="bg-transparent border-none cursor-pointer text-xs ml-0.5 {isConstant ? 'text-brand-muted hover:text-brand-text' : 'text-white/60 hover:text-white'}">&times;</button>
 		</span>
 	{:else if node.type === 'constant'}
 		{#if editingConstantPath === path}
@@ -459,7 +461,7 @@
 				title="Click to edit value"
 			>
 				{node.value}
-				<button onclick={(e) => { e.stopPropagation(); deleteAtPath(path); }} class="text-brand-muted hover:text-brand-text bg-transparent border-none cursor-pointer text-xs">&times;</button>
+				<button onclick={(e) => { e.stopPropagation(); deleteAtPath(path); }} aria-label="Delete token" class="text-brand-muted hover:text-brand-text bg-transparent border-none cursor-pointer text-xs">&times;</button>
 			</span>
 		{/if}
 	{:else if node.type === 'binary'}
@@ -485,6 +487,7 @@
 					onclick={(e) => { e.stopPropagation(); addFunctionArg(path); }}
 					class="w-4 h-4 text-xs rounded-full bg-brand-bg border border-brand-divider text-brand-muted cursor-pointer hover:text-brand-primary hover:border-brand-primary flex items-center justify-center ml-0.5"
 					title="Add argument"
+					aria-label="Add argument"
 				>+</button>
 			{/if}
 			<span class="text-xs font-bold text-brand-primary">)</span>
@@ -498,6 +501,7 @@
 			ondrop={(e) => onDrop(e, path)}
 			onclick={() => selectedPath = path}
 			onkeydown={(e) => e.key === 'Enter' && (selectedPath = path)}
+			aria-label="Select empty slot"
 		>?</span>
 	{/if}
 {/snippet}

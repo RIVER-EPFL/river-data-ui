@@ -6,6 +6,7 @@
 	import { api, type Site, type SiteParameter, type Parameter, type ReprocessingJob } from '$api/crud';
 	import { GET, POST } from '$api/client';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import Button from '$components/ui/Button.svelte';
 
 	interface RowError {
 		row: number;
@@ -349,13 +350,14 @@
 						</tbody>
 					</table>
 				</div>
-				<button
-					class="mt-3 rounded-md bg-brand-primary px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+				<Button
+					variant="primary"
+					class="mt-3"
 					disabled={busy}
 					onclick={preview}
 				>
 					{busy ? 'Analysing…' : 'Preview alignment'}
-				</button>
+				</Button>
 			{/if}
 		</div>
 	{:else if step === 'review' && plan}
@@ -512,14 +514,14 @@
 			{/if}
 
 			<div class="mt-4 flex gap-2">
-				<button class="rounded-md border border-brand-divider px-4 py-2 text-sm" onclick={reset}>Cancel</button>
-				<button
-					class="rounded-md bg-brand-primary px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+				<Button onclick={reset}>Cancel</Button>
+				<Button
+					variant="primary"
 					disabled={busy || Object.keys(plan.mapped_columns).length === 0}
 					onclick={runImport}
 				>
 					{busy ? 'Importing…' : `Import ${plan.row_count} rows`}
-				</button>
+				</Button>
 			</div>
 		</div>
 	{:else if step === 'done' && result}
@@ -572,7 +574,7 @@
 			</div>
 			<div class="mt-4 flex gap-2">
 				<a href="{base}/sites/{siteId}" class="rounded-md bg-brand-primary px-4 py-2 text-sm font-medium text-white">View site</a>
-				<button class="rounded-md border border-brand-divider px-4 py-2 text-sm" onclick={reset}>Import another</button>
+				<Button onclick={reset}>Import another</Button>
 			</div>
 		</div>
 	{/if}

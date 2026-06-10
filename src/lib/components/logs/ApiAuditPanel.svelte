@@ -4,8 +4,10 @@
 	import { page } from '$app/state';
 	import { api, type ApiToken, type ApiTokenAuditLog, type Project } from '$api/crud';
 	import { getAuditStatusCodes } from '$api/service';
-	import { statusBadgeClass } from '$lib/utils';
+	import { statusBadgeClass, formatDateTime } from '$lib/utils';
 	import TokenDetailDialog from '$components/tokens/TokenDetailDialog.svelte';
+	import PaginationControls from '$components/ui/PaginationControls.svelte';
+	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 
 	let tokens = $state<ApiToken[]>([]);
 	let projects = $state<Project[]>([]);
@@ -24,8 +26,6 @@
 	let logs = $state<ApiTokenAuditLog[]>([]);
 	let loading = $state(true);
 	let error = $state('');
-
-	const totalPages = $derived(Math.max(1, Math.ceil(total / perPage)));
 
 	let detailToken = $state<ApiToken | null>(null);
 	let detailOpen = $state(false);
@@ -84,7 +84,7 @@
 	});
 
 	function fmt(iso: string): string {
-		return new Date(iso).toLocaleString();
+		return formatDateTime(iso);
 	}
 
 	function httpStatusBadge(code: number): string {
@@ -95,8 +95,6 @@
 
 	const selectCls =
 		'px-2 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm text-brand-text';
-	const pageBtn =
-		'px-2 py-1 border border-brand-divider rounded-md text-sm hover:bg-brand-bg disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer';
 </script>
 
 <div class="space-y-4">
@@ -129,9 +127,7 @@
 	</div>
 
 	{#if error}
-		<div class="rounded-md border border-severity-alarm-border bg-severity-alarm-soft p-3 text-sm text-severity-alarm">
-			{error}
-		</div>
+		<ErrorNotice message={error} />
 	{/if}
 
 	<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
@@ -148,7 +144,7 @@
 			</thead>
 			<tbody>
 				{#if loading}
-					<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">Loading...</td></tr>
+					<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">Loading…</td></tr>
 				{:else if logs.length === 0}
 					<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">No matching requests.</td></tr>
 				{:else}
@@ -183,16 +179,12 @@
 		</table>
 	</div>
 
-	{#if total > perPage}
-		<div class="flex items-center justify-between text-sm text-brand-muted">
-			<span>{total} total</span>
-			<div class="flex items-center gap-2">
-				<button class={pageBtn} disabled={currentPage <= 1} onclick={() => { currentPage = Math.max(1, currentPage - 1); load(); }}>Prev</button>
-				<span>{currentPage} / {totalPages}</span>
-				<button class={pageBtn} disabled={currentPage >= totalPages} onclick={() => { currentPage = Math.min(totalPages, currentPage + 1); load(); }}>Next</button>
-			</div>
-		</div>
-	{/if}
+	<PaginationControls
+		{total}
+		page={currentPage}
+		{perPage}
+		onPageChange={(p) => { currentPage = p; load(); }}
+	/>
 </div>
 
 <TokenDetailDialog bind:open={detailOpen} token={detailToken} {projectName} />

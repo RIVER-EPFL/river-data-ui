@@ -2,6 +2,7 @@
 	import { api, type Parameter } from '$api/crud';
 	import { mergeParameters } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 
@@ -68,12 +69,12 @@
 			</p>
 
 			{#if loading}
-				<p class="text-sm text-brand-muted">Loading parameters...</p>
+				<p class="text-sm text-brand-muted">Loading parameters…</p>
 			{:else}
 				<label class="block">
 					<span class="text-sm font-medium">Target parameter</span>
 					<select bind:value={targetId} class="mt-1 block w-full rounded-md border border-brand-divider bg-brand-bg px-3 py-2 text-sm">
-						<option value="">Select target...</option>
+						<option value="">Select target…</option>
 						{#each candidates as p}
 							<option value={p.id}>{p.name}{p.default_units ? ` (${p.default_units})` : ''}</option>
 						{/each}
@@ -95,9 +96,9 @@
 
 	{#snippet actions()}
 		<div class="flex justify-end gap-2">
-			<button onclick={() => open = false} class="px-3 py-1.5 rounded-md text-sm border border-brand-divider bg-transparent cursor-pointer hover:bg-brand-bg">
+			<Button class="bg-transparent" onclick={() => open = false}>
 				Cancel
-			</button>
+			</Button>
 			{#if target}
 				<ConfirmPopover
 					message="All data will be moved to {target.name}. This is irreversible."
@@ -105,9 +106,9 @@
 					confirmVariant="alarm"
 					onconfirm={doMerge}
 				>
-					<button disabled={merging} class="px-3 py-1.5 rounded-md text-sm border-none bg-severity-alarm text-white cursor-pointer hover:bg-severity-alarm/90 disabled:opacity-50">
-						{merging ? 'Merging...' : 'Merge'}
-					</button>
+					<Button variant="danger" disabled={merging}>
+						{merging ? 'Merging…' : 'Merge'}
+					</Button>
 				</ConfirmPopover>
 			{/if}
 		</div>

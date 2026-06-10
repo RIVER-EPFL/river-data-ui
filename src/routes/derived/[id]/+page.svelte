@@ -5,7 +5,9 @@
 	import { api, type DerivedParameter, type SiteParameter, type Site, type Parameter } from '$api/crud';
 	import { recomputeDerived } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import Button from '$components/ui/Button.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
+	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
 	import DerivedPreview from '$lib/components/derived/DerivedPreview.svelte';
 
 	let def = $state<DerivedParameter | null>(null);
@@ -60,16 +62,16 @@
 <svelte:head><title>{def?.name ?? 'Derived'} | River Data</title></svelte:head>
 
 {#if loading}
-	<p class="text-brand-muted">Loading...</p>
+	<p class="text-brand-muted">Loading…</p>
 {:else if def}
 	<div class="space-y-6">
 		<div>
-			<a href="{base}/parameters?type=derived" class="text-sm text-brand-muted hover:text-brand-primary no-underline">&larr; Parameters (derived)</a>
+			<Breadcrumbs items={[{ label: 'Parameters (derived)', href: `${base}/parameters?type=derived` }]} />
 			<div class="flex items-center gap-3 mt-1">
 				<h2 class="text-xl font-semibold">{def.name || def.code}</h2>
 				<a href="{base}/derived/{defId}/edit" class="px-3 py-1 text-sm border border-brand-divider bg-brand-surface rounded-md no-underline text-brand-text hover:bg-brand-bg">Edit</a>
 				<ConfirmPopover message="Recompute all readings?" confirmLabel="Recompute" confirmVariant="primary" onconfirm={handleRecompute}>
-					<button class="px-3 py-1 text-sm bg-brand-primary text-white rounded-md cursor-pointer border-none">Recompute</button>
+					<Button variant="primary">Recompute</Button>
 				</ConfirmPopover>
 			</div>
 		</div>

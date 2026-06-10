@@ -346,6 +346,9 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:psql@river-db-test-db:5432/river_test
       - RUST_LOG=${LOG_LEVEL:-warn}
+      # Keycloak-gated tests (tests/common/keycloak.rs) run against the dev Keycloak; they
+      # self-skip when it is unreachable.
+      - TEST_KEYCLOAK_URL=http://river-db-keycloak:8080/
     depends_on:
       river-db-test-db:
         condition: service_healthy

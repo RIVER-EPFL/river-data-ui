@@ -46,7 +46,7 @@
 			</thead>
 			<tbody>
 				{#if loading}
-					<tr><td colspan="4" class="px-4 py-8 text-center text-brand-muted">Loading...</td></tr>
+					<tr><td colspan="4" class="px-4 py-8 text-center text-brand-muted">Loading…</td></tr>
 				{:else if projects.length === 0}
 					<tr><td colspan="4" class="px-4 py-8 text-center text-brand-muted">No projects</td></tr>
 				{:else}

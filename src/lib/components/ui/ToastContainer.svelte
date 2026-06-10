@@ -16,6 +16,7 @@
 				<button
 					class="opacity-70 hover:opacity-100 bg-transparent border-none text-inherit cursor-pointer text-base"
 					onclick={() => toastStore.dismiss(toast.id)}
+					aria-label="Dismiss notification"
 				>
 					&times;
 				</button>

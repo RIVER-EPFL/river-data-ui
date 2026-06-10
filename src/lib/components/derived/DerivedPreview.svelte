@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { previewDerived, type PreviewDerivedResponse } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import Button from '$components/ui/Button.svelte';
 
 	let {
 		formula,
@@ -44,7 +45,7 @@
 			<div>
 				<label for="preview-site" class="text-xs text-brand-muted block mb-1">Site</label>
 				<select id="preview-site" bind:value={selectedSiteId} class="px-2 py-1.5 text-sm border border-brand-divider rounded bg-brand-surface">
-					<option value="">Select site...</option>
+					<option value="">Select site…</option>
 					{#each sites as s}
 						<option value={s.id}>{s.name}</option>
 					{/each}
@@ -58,13 +59,13 @@
 				<label for="preview-end" class="text-xs text-brand-muted block mb-1">End</label>
 				<input id="preview-end" type="datetime-local" bind:value={end} class="px-2 py-1.5 text-sm border border-brand-divider rounded bg-brand-surface" />
 			</div>
-			<button
+			<Button
+				variant="primary"
 				onclick={runPreview}
 				disabled={loading || !selectedSiteId || !formula}
-				class="px-3 py-1.5 text-sm bg-brand-primary text-white rounded cursor-pointer hover:bg-brand-primary-dark disabled:opacity-50 disabled:cursor-not-allowed"
 			>
-				{loading ? 'Loading...' : 'Preview'}
-			</button>
+				{loading ? 'Loading…' : 'Preview'}
+			</Button>
 		</div>
 
 		{#if result}

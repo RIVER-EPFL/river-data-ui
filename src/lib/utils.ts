@@ -14,7 +14,7 @@ export function formatRelativeTime(date: string | Date): string {
 	if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} min ago`;
 	if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} h ago`;
 	if (diff < 604_800_000) return `${Math.floor(diff / 86_400_000)} d ago`;
-	return new Date(date).toLocaleDateString();
+	return formatDate(date);
 }
 
 export function formatDateTime(date: string | Date): string {
@@ -26,6 +26,16 @@ export function formatDateTime(date: string | Date): string {
 		minute: '2-digit',
 		timeZone: 'UTC',
 		timeZoneName: 'short',
+	});
+}
+
+/** Date-only companion to formatDateTime (UTC), e.g. 'Dec 15, 2024'. */
+export function formatDate(date: string | Date): string {
+	return new Date(date).toLocaleDateString(undefined, {
+		year: 'numeric',
+		month: 'short',
+		day: 'numeric',
+		timeZone: 'UTC',
 	});
 }
 

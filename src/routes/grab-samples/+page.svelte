@@ -3,6 +3,8 @@
 	import { api, type Project, type Site, type SiteParameter, type Parameter, type StandardCurve } from '$api/crud';
 	import { POST } from '$api/client';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import { formatDate } from '$lib/utils';
+	import Button from '$components/ui/Button.svelte';
 
 	let projects = $state<Project[]>([]);
 	let sites = $state<Site[]>([]);
@@ -192,7 +194,7 @@
 	<h2 class="text-xl font-semibold">Grab Sample Entry</h2>
 
 	{#if loading}
-		<p class="text-brand-muted">Loading...</p>
+		<p class="text-brand-muted">Loading…</p>
 	{:else if error}
 		<p class="text-severity-alarm">{error}</p>
 	{:else}
@@ -222,7 +224,7 @@
 		<div class="space-y-3">
 			<div class="flex items-center justify-between">
 				<h3 class="text-sm font-semibold">Readings</h3>
-				<button onclick={addRow} disabled={!selectedSiteId} class="px-3 py-1 text-sm bg-brand-primary text-white rounded-md cursor-pointer border-none disabled:opacity-50">+ Add Parameter</button>
+				<Button variant="primary" onclick={addRow} disabled={!selectedSiteId}>+ Add Parameter</Button>
 			</div>
 
 			{#each rows as row, i}
@@ -239,7 +241,7 @@
 								<option value={sp.parameter_id}>{paramName(sp.parameter_id)} ({paramUnits(sp)})</option>
 							{/each}
 						</select>
-						<button onclick={() => removeRow(i)} class="text-severity-alarm bg-transparent border-none cursor-pointer text-sm hover:underline">Remove</button>
+						<Button variant="ghost" size="sm" class="text-severity-alarm" onclick={() => removeRow(i)}>Remove</Button>
 					</div>
 
 					<!-- Replicates -->
@@ -256,12 +258,12 @@
 										class="w-24 px-2 py-1 border border-brand-divider rounded text-sm bg-brand-surface"
 									/>
 									{#if row.replicates.length > 1}
-										<button onclick={() => removeReplicate(i, j)} class="text-xs text-severity-alarm bg-transparent border-none cursor-pointer">x</button>
+										<button onclick={() => removeReplicate(i, j)} aria-label="Remove replicate" class="text-xs text-severity-alarm bg-transparent border-none cursor-pointer">x</button>
 									{/if}
 								</div>
 							{/each}
 							{#if row.replicates.length < 10}
-								<button onclick={() => addReplicate(i)} class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline">+ Rep</button>
+								<Button variant="ghost" size="sm" class="text-brand-primary" onclick={() => addReplicate(i)}>+ Rep</Button>
 							{/if}
 						</div>
 					</div>
@@ -289,7 +291,7 @@
 									<option value="">Auto (latest valid)</option>
 									{#each availableCurves as curve}
 										<option value={curve.id}>
-											{new Date(curve.valid_from ?? 0).toLocaleDateString()} (y={curve.slope.toFixed(4)}x+{curve.intercept.toFixed(4)}, R²={curve.r_squared?.toFixed(4) ?? '?'})
+											{formatDate(new Date(curve.valid_from ?? 0))} (y={curve.slope.toFixed(4)}x+{curve.intercept.toFixed(4)}, R²={curve.r_squared?.toFixed(4) ?? '?'})
 										</option>
 									{/each}
 								</select>
@@ -333,13 +335,13 @@
 		</div>
 
 		{#if rows.length > 0}
-			<button
+			<Button
+				variant="primary"
 				onclick={handleSubmit}
 				disabled={submitting || !selectedSiteId}
-				class="px-4 py-2 bg-brand-primary text-white rounded-md text-sm font-semibold cursor-pointer border-none disabled:opacity-50"
 			>
-				{submitting ? 'Submitting...' : 'Submit Grab Samples'}
-			</button>
+				{submitting ? 'Submitting…' : 'Submit Grab Samples'}
+			</Button>
 		{/if}
 	{/if}
 </div>

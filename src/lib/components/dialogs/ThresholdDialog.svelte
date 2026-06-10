@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { api, type AlarmThreshold } from '$api/crud';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 
 	let {
@@ -196,15 +197,15 @@
 		<div class="flex items-center gap-2 w-full">
 			<div class="flex items-center gap-2">
 				{#if existing}
-					<button onclick={handleResetToDefaults} disabled={deleting || saving} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface text-brand-muted disabled:opacity-50">{deleting ? 'Resetting...' : 'Reset to defaults'}</button>
+					<Button onclick={handleResetToDefaults} disabled={deleting || saving} class="text-brand-muted">{deleting ? 'Resetting…' : 'Reset to defaults'}</Button>
 				{/if}
 				{#if !isDisabled}
-					<button onclick={handleDisable} disabled={saving || deleting} class="px-3 py-1.5 border border-severity-alarm-border rounded-md text-sm cursor-pointer bg-brand-surface text-severity-alarm-main disabled:opacity-50">Disable alarms</button>
+					<Button onclick={handleDisable} disabled={saving || deleting} class="border-severity-alarm-border text-severity-alarm">Disable alarms</Button>
 				{/if}
 			</div>
 			<div class="flex-1"></div>
-			<button onclick={() => open = false} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface">Cancel</button>
-			<button onclick={handleSave} disabled={saving || deleting} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm cursor-pointer border-none disabled:opacity-50">{saving ? 'Saving...' : 'Save'}</button>
+			<Button onclick={() => open = false}>Cancel</Button>
+			<Button variant="primary" onclick={handleSave} disabled={saving || deleting}>{saving ? 'Saving…' : 'Save'}</Button>
 		</div>
 	{/snippet}
 </Dialog>

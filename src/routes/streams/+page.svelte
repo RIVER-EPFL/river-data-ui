@@ -14,6 +14,7 @@
 	import Dialog from '$components/ui/Dialog.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import Badge from '$components/ui/Badge.svelte';
+	import Button from '$components/ui/Button.svelte';
 
 	// ── Stream list state ──
 	let streams = $state<DataStream[]>([]);
@@ -504,6 +505,14 @@
 		return `${site?.name ?? '?'} / ${param?.name ?? '?'}`;
 	}
 
+	/** Deep link to the paired slot's site page, scrolled to that parameter's chart (?focus anchor). */
+	function siteParamHref(spId: string | null): string | null {
+		if (!spId) return null;
+		const sp = siteParams.find((s) => s.id === spId);
+		if (!sp) return null;
+		return `${base}/sites/${sp.site_id}?focus=${sp.parameter_id}`;
+	}
+
 	function openPairDialog(stream: DataStream) { pairStream_ = stream; selectedSiteParam = ''; pairDialogOpen = true; }
 
 	async function handlePair() {
@@ -632,7 +641,7 @@
 	<div class="space-y-4">
 		<div class="flex items-center justify-between">
 			<h2 class="text-xl font-semibold">Data Streams</h2>
-			<button onclick={enterSourceSelect} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm font-semibold cursor-pointer border-none">Discover & Pair</button>
+			<Button variant="primary" onclick={enterSourceSelect} class="font-semibold">Discover & Pair</Button>
 		</div>
 
 		<div class="flex flex-wrap items-center gap-3">
@@ -682,7 +691,7 @@
 				</tr></thead>
 				<tbody>
 					{#if loading}
-						<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">Loading...</td></tr>
+						<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">Loading…</td></tr>
 					{:else}
 						{#each streams as stream}
 							<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50">
@@ -691,21 +700,28 @@
 								<td class="px-4 py-2 text-xs"><Badge variant="default">{stream.source_system}</Badge></td>
 								<td class="px-4 py-2 text-xs">
 									{#if stream.site_parameter_id}
-										<Badge variant="ok">{siteParamLabel(stream.site_parameter_id)}</Badge>
+										{@const href = siteParamHref(stream.site_parameter_id)}
+										{#if href}
+											<a {href} title="Open the site page at this parameter's chart" class="no-underline hover:opacity-80">
+												<Badge variant="ok">{siteParamLabel(stream.site_parameter_id)}</Badge>
+											</a>
+										{:else}
+											<Badge variant="ok">{siteParamLabel(stream.site_parameter_id)}</Badge>
+										{/if}
 									{:else}
 										<Badge variant="muted">Unpaired</Badge>
 									{/if}
 								</td>
 								<td class="px-4 py-2 text-xs text-brand-muted">{stream.last_data_time ? formatRelativeTime(stream.last_data_time) : '--'}</td>
 								<td class="px-4 py-2 flex gap-2">
-									<button onclick={() => openStats(stream)} class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline">Stats</button>
+									<Button variant="ghost" size="sm" onclick={() => openStats(stream)} class="text-brand-primary">Stats</Button>
 									{#if stream.site_parameter_id}
 										<ConfirmPopover message="Unpair this stream?" confirmLabel="Unpair" onconfirm={() => handleUnpair(stream.id)}>
-											<button class="text-xs text-severity-alarm bg-transparent border-none cursor-pointer hover:underline">Unpair</button>
+											<Button variant="ghost" size="sm" class="text-severity-alarm">Unpair</Button>
 										</ConfirmPopover>
 									{:else}
-										<button onclick={() => openPairDialog(stream)} class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline">Pair</button>
-										<button onclick={() => openImportDialog(stream)} class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline">Import</button>
+										<Button variant="ghost" size="sm" onclick={() => openPairDialog(stream)} class="text-brand-primary">Pair</Button>
+										<Button variant="ghost" size="sm" onclick={() => openImportDialog(stream)} class="text-brand-primary">Import</Button>
 									{/if}
 								</td>
 							</tr>
@@ -722,9 +738,9 @@
 			<div class="flex items-center justify-between text-sm text-brand-muted">
 				<span>{total} total</span>
 				<div class="flex items-center gap-2">
-					<button onclick={() => { currentPage = Math.max(1, currentPage - 1); load(); }} disabled={currentPage <= 1} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface disabled:opacity-40 cursor-pointer disabled:cursor-default">Prev</button>
+					<Button size="sm" onclick={() => { currentPage = Math.max(1, currentPage - 1); load(); }} disabled={currentPage <= 1}>Prev</Button>
 					<span>{currentPage} / {totalPages}</span>
-					<button onclick={() => { currentPage = Math.min(totalPages, currentPage + 1); load(); }} disabled={currentPage >= totalPages} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface disabled:opacity-40 cursor-pointer disabled:cursor-default">Next</button>
+					<Button size="sm" onclick={() => { currentPage = Math.min(totalPages, currentPage + 1); load(); }} disabled={currentPage >= totalPages}>Next</Button>
 				</div>
 			</div>
 		{/if}
@@ -734,12 +750,12 @@
 {:else if mode === 'source-select'}
 	<div class="space-y-4">
 		<div class="flex items-center gap-3">
-			<button onclick={() => setMode('list')} class="text-sm text-brand-primary bg-transparent border-none cursor-pointer hover:underline">&larr; Back to streams</button>
+			<Button variant="ghost" size="sm" onclick={() => setMode('list')} class="text-brand-primary">&larr; Back to streams</Button>
 			<h2 class="text-xl font-semibold">Discover & Pair Streams</h2>
 		</div>
 
 		{#if planLoading}
-			<p class="text-brand-muted">Loading sources...</p>
+			<p class="text-brand-muted">Loading sources…</p>
 		{:else}
 			{@const withUnpaired = unpairedSummary.filter((s) => s.unpaired > 0).sort((a, b) => b.unpaired - a.unpaired)}
 			{@const fullyPaired = unpairedSummary.filter((s) => s.unpaired === 0)}
@@ -774,13 +790,13 @@
 		<!-- Header -->
 		<div class="flex items-center justify-between">
 			<div class="flex items-center gap-3">
-				<button onclick={exitWizard} class="text-sm text-brand-primary bg-transparent border-none cursor-pointer hover:underline">&larr; Discard</button>
+				<Button variant="ghost" size="sm" onclick={exitWizard} class="text-brand-primary">&larr; Discard</Button>
 				<h2 class="text-xl font-semibold">Review Plan: {plan.source_system}</h2>
-				{#if saving}<span class="text-xs text-brand-muted">Saving...</span>{/if}
+				{#if saving}<span class="text-xs text-brand-muted">Saving…</span>{/if}
 			</div>
-			<button onclick={() => setMode('confirm')} disabled={summary.toPair === 0} class="px-4 py-1.5 bg-brand-primary text-white rounded-md text-sm font-semibold cursor-pointer border-none disabled:opacity-50">
+			<Button variant="primary" onclick={() => setMode('confirm')} disabled={summary.toPair === 0} class="px-4 font-semibold">
 				Apply {summary.toPair.toLocaleString()} pairings &rarr;
-			</button>
+			</Button>
 		</div>
 
 		<div class="grid grid-cols-[260px_1fr] gap-4">
@@ -798,7 +814,7 @@
 					<div class="flex justify-between text-xs"><span class="text-brand-muted">Parameters</span><span>{summary.newParams}</span></div>
 					{#if summary.warnings > 0}
 						<hr class="border-brand-divider" />
-						<button onclick={() => reviewFilter = 'warnings'} class="text-xs text-severity-warning bg-transparent border-none cursor-pointer hover:underline">{summary.warnings} warning{summary.warnings === 1 ? '' : 's'}</button>
+						<Button variant="ghost" size="sm" onclick={() => reviewFilter = 'warnings'} class="text-severity-warning">{summary.warnings} warning{summary.warnings === 1 ? '' : 's'}</Button>
 					{/if}
 				</div>
 
@@ -839,7 +855,7 @@
 				{#if reviewTab === 'sites'}
 					<input
 						type="text"
-						placeholder="Search sites..."
+						placeholder="Search sites…"
 						bind:value={siteSearch}
 						oninput={() => sitePage = 0}
 						class="w-full px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
@@ -854,7 +870,7 @@
 							{@const isExpanded = expandedSites.has(group.siteName)}
 							{@const siteMatched = existingSites.find((s) => s.name.toLowerCase() === group.siteName.toLowerCase())}
 							<div class="flex items-center border-b border-brand-divider hover:bg-brand-bg/50 {allSkip ? 'opacity-50' : ''}">
-								<button onclick={() => toggleExpand(group.siteName)} class="px-3 py-2 bg-transparent border-none cursor-pointer text-brand-muted text-xs w-6">{isExpanded ? '▼' : '▶'}</button>
+								<button onclick={() => toggleExpand(group.siteName)} aria-label={isExpanded ? 'Collapse site group' : 'Expand site group'} class="px-3 py-2 bg-transparent border-none cursor-pointer text-brand-muted text-xs w-6">{isExpanded ? '▼' : '▶'}</button>
 								<span class="w-2.5 h-2.5 rounded-full mr-2 flex-shrink-0 {group.exactCount === group.entries.length ? 'bg-severity-ok' : group.noneCount === group.entries.length ? 'bg-severity-warning' : 'bg-brand-accent'}"></span>
 								<div class="flex-1 py-2 min-w-0">
 									{#if editingSite === group.siteName}
@@ -875,7 +891,7 @@
 											}}
 											class="px-1 py-0.5 rounded text-sm font-semibold bg-brand-surface border border-brand-divider max-w-[220px] {siteMatched ? 'border-severity-ok' : 'border-severity-warning'}"
 										>
-											<option value="__custom__">Custom name...</option>
+											<option value="__custom__">Custom name…</option>
 											{#if existingSites.length > 0}
 												<optgroup label="Existing sites">
 													{#each existingSites as es}
@@ -892,12 +908,13 @@
 									{/if}
 									<span class="text-xs text-brand-muted ml-2">{group.entries.length} params</span>
 									{#if group.warningCount > 0}
-										<button
-											type="button"
+										<Button
+											variant="ghost"
+											size="sm"
 											onclick={(e) => { e.stopPropagation(); jumpToWarnings(group.entries.flatMap((en) => en.warnings)); }}
-											class="text-xs text-severity-warning ml-2 bg-transparent border-none cursor-pointer hover:underline p-0"
+											class="text-severity-warning ml-2 p-0"
 											title="View affected warnings"
-										>{group.warningCount} warn</button>
+										>{group.warningCount} warn</Button>
 									{/if}
 								</div>
 								<span class="text-xs text-brand-muted px-2">{group.project}</span>
@@ -988,7 +1005,7 @@
 																<option value="new:{newP.name}">+ {newP.name} ({newP.units})</option>
 															{/each}
 														</optgroup>
-														<option value="custom">Custom name...</option>
+														<option value="custom">Custom name…</option>
 													</select>
 												{/if}
 											{:else}
@@ -1009,12 +1026,13 @@
 											{/if}
 										</div>
 										{#if entry.warnings.length > 0}
-											<button
-												type="button"
+											<Button
+												variant="ghost"
+												size="sm"
 												onclick={(e) => { e.stopPropagation(); jumpToWarnings(entry.warnings); }}
-												class="text-severity-warning shrink-0 bg-transparent border-none cursor-pointer hover:underline p-0"
+												class="text-severity-warning shrink-0 p-0"
 												title={entry.warnings.join(', ')}
-											>warn</button>
+											>warn</Button>
 										{/if}
 										<button onclick={() => setEntryAction(entry, 'pair')} class="px-1.5 py-0.5 rounded cursor-pointer border-none shrink-0 {entry.action === 'pair' ? 'bg-severity-ok-soft text-severity-ok' : 'bg-brand-bg text-brand-muted opacity-50'}">Pair</button>
 										<button
@@ -1033,8 +1051,8 @@
 						<div class="flex items-center justify-between text-xs text-brand-muted">
 							<span>Page {sitePage + 1} of {totalSitePages}</span>
 							<div class="flex gap-1">
-								<button onclick={() => sitePage = Math.max(0, sitePage - 1)} disabled={sitePage === 0} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface disabled:opacity-40 cursor-pointer disabled:cursor-default">Prev</button>
-								<button onclick={() => sitePage = Math.min(totalSitePages - 1, sitePage + 1)} disabled={sitePage >= totalSitePages - 1} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface disabled:opacity-40 cursor-pointer disabled:cursor-default">Next</button>
+								<Button size="sm" onclick={() => sitePage = Math.max(0, sitePage - 1)} disabled={sitePage === 0}>Prev</Button>
+								<Button size="sm" onclick={() => sitePage = Math.min(totalSitePages - 1, sitePage + 1)} disabled={sitePage >= totalSitePages - 1}>Next</Button>
 							</div>
 						</div>
 					{/if}
@@ -1088,10 +1106,12 @@
 																/>
 																<button onclick={() => { splitParamInput = null; splitParamValue = ''; }} class="text-[10px] text-brand-muted cursor-pointer bg-transparent border-none">cancel</button>
 															{:else}
-																<button
+																<Button
+																	variant="ghost"
+																	size="sm"
 																	onclick={() => { splitParamInput = { groupName: pg.name, sourceName: src }; splitParamValue = src; }}
-																	class="text-[10px] text-brand-primary cursor-pointer bg-transparent border-none hover:underline"
-																>split</button>
+																	class="text-[10px] text-brand-primary"
+																>split</Button>
 															{/if}
 														</div>
 													{/each}
@@ -1202,7 +1222,7 @@
 {:else if mode === 'confirm' && plan}
 	<div class="space-y-4 max-w-xl mx-auto">
 		<div class="flex items-center gap-3">
-			<button onclick={() => setMode('review')} class="text-sm text-brand-primary bg-transparent border-none cursor-pointer hover:underline">&larr; Back to review</button>
+			<Button variant="ghost" size="sm" onclick={() => setMode('review')} class="text-brand-primary">&larr; Back to review</Button>
 			<h2 class="text-xl font-semibold">Confirm Plan</h2>
 		</div>
 
@@ -1222,10 +1242,10 @@
 			<p class="text-xs text-brand-muted">Readings will be backfilled with site and parameter IDs. Continuous aggregates will refresh in the background. This operation can be reverted.</p>
 
 			<div class="flex gap-3 pt-2">
-				<button onclick={() => setMode('review')} class="px-4 py-2 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface">Back to Review</button>
-				<button onclick={applyPlan} disabled={applying} class="px-4 py-2 bg-brand-primary text-white rounded-md text-sm font-semibold cursor-pointer border-none disabled:opacity-50">
-					{applying ? 'Applying...' : 'Apply Plan'}
-				</button>
+				<Button onclick={() => setMode('review')} class="px-4 py-2">Back to Review</Button>
+				<Button variant="primary" onclick={applyPlan} disabled={applying} class="px-4 py-2 font-semibold">
+					{applying ? 'Applying…' : 'Apply Plan'}
+				</Button>
 			</div>
 		</div>
 	</div>
@@ -1247,10 +1267,10 @@
 		</div>
 
 		<div class="flex gap-3">
-			<button onclick={exitWizard} class="px-4 py-2 bg-brand-primary text-white rounded-md text-sm font-semibold cursor-pointer border-none">Done</button>
+			<Button variant="primary" onclick={exitWizard} class="px-4 py-2 font-semibold">Done</Button>
 			<ConfirmPopover message="Revert this plan? All pairings will be undone." confirmLabel="Revert" onconfirm={revertPlan}>
 				<button disabled={reverting} class="px-4 py-2 border border-severity-alarm text-severity-alarm rounded-md text-sm cursor-pointer bg-transparent disabled:opacity-50">
-					{reverting ? 'Reverting...' : 'Revert Plan'}
+					{reverting ? 'Reverting…' : 'Revert Plan'}
 				</button>
 			</ConfirmPopover>
 		</div>
@@ -1274,8 +1294,8 @@
 		{/if}
 	{/snippet}
 	{#snippet actions()}
-		<button onclick={() => pairDialogOpen = false} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface">Cancel</button>
-		<button onclick={handlePair} disabled={!selectedSiteParam || pairing} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm cursor-pointer border-none disabled:opacity-50">{pairing ? 'Pairing...' : 'Pair'}</button>
+		<Button onclick={() => pairDialogOpen = false}>Cancel</Button>
+		<Button variant="primary" onclick={handlePair} disabled={!selectedSiteParam || pairing}>{pairing ? 'Pairing…' : 'Pair'}</Button>
 	{/snippet}
 </Dialog>
 
@@ -1296,8 +1316,8 @@
 		{/if}
 	{/snippet}
 	{#snippet actions()}
-		<button onclick={() => importDialogOpen = false} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface">Cancel</button>
-		<button onclick={handleImport} disabled={!importParamId || importing} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm cursor-pointer border-none disabled:opacity-50">{importing ? 'Importing...' : 'Import'}</button>
+		<Button onclick={() => importDialogOpen = false}>Cancel</Button>
+		<Button variant="primary" onclick={handleImport} disabled={!importParamId || importing}>{importing ? 'Importing…' : 'Import'}</Button>
 	{/snippet}
 </Dialog>
 
@@ -1314,13 +1334,13 @@
 						<div><span class="text-brand-muted block">Max Time</span><span class="text-xs">{stats.max_time ?? '--'}</span></div>
 					</div>
 				{:else}
-					<p class="text-brand-muted">Loading stats...</p>
+					<p class="text-brand-muted">Loading stats…</p>
 				{/if}
 			</div>
 		{/if}
 	{/snippet}
 	{#snippet actions()}
-		<button onclick={() => statsDialogOpen = false} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface">Close</button>
+		<Button onclick={() => statsDialogOpen = false}>Close</Button>
 	{/snippet}
 </Dialog>
 

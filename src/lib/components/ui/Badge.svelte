@@ -17,6 +17,6 @@
 	};
 </script>
 
-<span class="inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full {variants[variant]}">
+<span class="inline-flex items-center whitespace-nowrap px-2 py-0.5 text-xs font-medium rounded-full {variants[variant]}">
 	{@render children()}
 </span>

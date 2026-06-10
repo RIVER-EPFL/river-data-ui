@@ -11,7 +11,9 @@
 	} from '$api/service';
 	import { formatRelativeTime, formatDateTime } from '$lib/utils';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { alarmHref } from '$lib/alarms';
+	import { alarmHref, severityLabel } from '$lib/alarms';
+	import PaginationControls from '$components/ui/PaginationControls.svelte';
+	import Button from '$components/ui/Button.svelte';
 
 	let {
 		initialSiteId = '',
@@ -45,7 +47,6 @@
 	let paramMap = $state<Map<string, string>>(new Map());
 
 	const eventsPage = $derived(Math.floor(eventOffset / EVENTS_PAGE_SIZE) + 1);
-	const eventsTotalPages = $derived(Math.max(1, Math.ceil(eventsTotal / EVENTS_PAGE_SIZE)));
 
 	function startIso(d: string): string | undefined {
 		return d ? `${d}T00:00:00Z` : undefined;
@@ -83,9 +84,6 @@
 		loadEvents();
 	}
 
-	function severityLabel(n: number): string {
-		return n >= 2 ? 'Alarm' : 'Warning';
-	}
 	function severityDot(n: number): string {
 		return n >= 2 ? 'bg-severity-alarm' : 'bg-severity-warning';
 	}
@@ -263,7 +261,7 @@
 			</thead>
 			<tbody>
 				{#if eventsLoading}
-					<tr><td colspan="9" class="px-4 py-8 text-center text-brand-muted">Loading...</td></tr>
+					<tr><td colspan="9" class="px-4 py-8 text-center text-brand-muted">Loading…</td></tr>
 				{:else if events.length === 0}
 					<tr><td colspan="9" class="px-4 py-8 text-center text-brand-muted">No alarm events</td></tr>
 				{:else}
@@ -299,15 +297,18 @@
 							</td>
 							<td class="px-4 py-2 text-right">
 								{#if !event.resolved_at && !event.acknowledged_at}
-									<button
+									<Button
+										variant="ghost"
+										size="sm"
 										onclick={(e) => { e.stopPropagation(); handleAcknowledge(event.id); }}
-										class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline"
-									>Acknowledge</button>
+										class="text-brand-primary"
+									>Acknowledge</Button>
 								{:else if !event.resolved_at && event.acknowledged_at}
-									<button
+									<Button
+										variant="ghost"
+										size="sm"
 										onclick={(e) => { e.stopPropagation(); handleUnacknowledge(event.id); }}
-										class="text-xs text-brand-muted bg-transparent border-none cursor-pointer hover:underline"
-									>Unacknowledge</button>
+									>Unacknowledge</Button>
 								{/if}
 							</td>
 						</tr>
@@ -317,26 +318,10 @@
 		</table>
 	</div>
 
-	{#if eventsTotal > EVENTS_PAGE_SIZE}
-		<div class="flex items-center justify-between text-sm text-brand-muted">
-			<span>{eventsTotal} total</span>
-			<div class="flex items-center gap-2">
-				<button
-					onclick={() => { eventOffset = Math.max(0, eventOffset - EVENTS_PAGE_SIZE); loadEvents(); }}
-					disabled={eventOffset <= 0}
-					class="px-2 py-1 border border-brand-divider rounded bg-brand-surface disabled:opacity-40 cursor-pointer disabled:cursor-default"
-				>
-					Prev
-				</button>
-				<span>{eventsPage} / {eventsTotalPages}</span>
-				<button
-					onclick={() => { eventOffset += EVENTS_PAGE_SIZE; loadEvents(); }}
-					disabled={eventsPage >= eventsTotalPages}
-					class="px-2 py-1 border border-brand-divider rounded bg-brand-surface disabled:opacity-40 cursor-pointer disabled:cursor-default"
-				>
-					Next
-				</button>
-			</div>
-		</div>
-	{/if}
+	<PaginationControls
+		total={eventsTotal}
+		page={eventsPage}
+		perPage={EVENTS_PAGE_SIZE}
+		onPageChange={(p) => { eventOffset = (p - 1) * EVENTS_PAGE_SIZE; loadEvents(); }}
+	/>
 </div>

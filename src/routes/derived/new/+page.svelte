@@ -4,6 +4,7 @@
 	import { base } from '$app/paths';
 	import { api, type Parameter, type Site, type Constant, type SiteParameter } from '$api/crud';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import Button from '$components/ui/Button.svelte';
 	import VisualFormulaBuilder from '$lib/components/formula/VisualFormulaBuilder.svelte';
 	import LivePreview from '$lib/components/derived/LivePreview.svelte';
 
@@ -96,7 +97,7 @@
 	</div>
 
 	{#if loading}
-		<p class="text-brand-muted">Loading...</p>
+		<p class="text-brand-muted">Loading…</p>
 	{:else}
 		<div class="grid grid-cols-3 gap-3 max-w-2xl">
 			<div>
@@ -123,12 +124,12 @@
 			<textarea id="dp-desc" bind:value={description} rows={2} placeholder="Optional description" class="w-full px-3 py-2 text-sm border border-brand-divider rounded bg-brand-surface"></textarea>
 		</div>
 
-		<button
+		<Button
+			variant="primary"
 			onclick={handleSubmit}
 			disabled={saving || !code || !formula}
-			class="px-4 py-2 text-sm bg-brand-primary text-white rounded cursor-pointer hover:bg-brand-primary-dark disabled:opacity-50 disabled:cursor-not-allowed"
 		>
-			{saving ? 'Creating...' : 'Create'}
-		</button>
+			{saving ? 'Creating…' : 'Create'}
+		</Button>
 	{/if}
 </div>

@@ -3,7 +3,7 @@ import { tokens } from './tokens';
 
 export const uPlotTheme = {
   axisStrokeColor: tokens.brand.textMuted,
-  axisGridColor: '#EAECEF',
+  axisGridColor: tokens.chart.grid,
   axisLabelFontSize: 11,
   axisLabelFontFamily: tokens.font.body,
   lineWidth: 1.5,
@@ -14,22 +14,17 @@ export const uPlotTheme = {
   alarmBandStroke: tokens.severity.alarm.border,
   warningBandStroke: tokens.severity.warning.border,
 
-  annotationCategoryColors: {
-    maintenance: 'rgba(0,114,178,0.18)',
-    quality_issue: 'rgba(213,94,0,0.18)',
-    environmental: 'rgba(0,158,115,0.18)',
-    other: 'rgba(160,160,160,0.18)',
-  },
+  annotationCategoryColors: tokens.annotationCategories,
 
   grabSampleFill: tokens.markers.grabSample.fill,
   grabSampleStroke: tokens.markers.grabSample.stroke,
   flaggedColor: tokens.markers.flagged.stroke,
   flaggedSize: 5,
 
-  minMaxBandFill: 'rgba(31,78,121,0.12)',
+  minMaxBandFill: tokens.chart.minMaxBand,
 
-  tooltipBg: 'rgba(20,30,50,0.92)',
-  tooltipColor: '#fff',
+  tooltipBg: tokens.chart.tooltipBg,
+  tooltipColor: tokens.chart.tooltipText,
   tooltipFontSize: '12px',
   tooltipPadding: '4px 8px',
   tooltipRadius: 4,

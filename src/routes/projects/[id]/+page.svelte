@@ -5,6 +5,9 @@
 	import { api, type Project, type Site, type SiteParameter, type Parameter } from '$api/crud';
 	import { invalidatePublicConfig } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import { formatDateTime } from '$lib/utils';
+	import Button from '$components/ui/Button.svelte';
+	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
 	import Markdown from '$lib/components/Markdown.svelte';
 
 	let project = $state<Project | null>(null);
@@ -176,13 +179,13 @@
 <svelte:head><title>{project?.name ?? 'Project'} | River Data</title></svelte:head>
 
 {#if loading}
-	<p class="text-brand-muted">Loading...</p>
+	<p class="text-brand-muted">Loading…</p>
 {:else if project}
 	<div class="space-y-6">
 		<!-- Header -->
 		<div class="flex items-center justify-between">
 			<div>
-				<a href="{base}/projects" class="text-sm text-brand-muted hover:text-brand-primary no-underline">&larr; Projects</a>
+				<Breadcrumbs items={[{ label: 'Projects', href: `${base}/projects` }]} />
 				<h2 class="text-xl font-semibold mt-1">{project.name}</h2>
 			</div>
 			<a href="{base}/projects/{project.id}/edit" class="px-3 py-1.5 border border-brand-divider bg-brand-surface text-sm rounded-md no-underline text-brand-text hover:bg-brand-bg">Edit</a>
@@ -191,7 +194,7 @@
 		<!-- Project Info -->
 		<div class="rounded-md border border-brand-divider bg-brand-surface p-4 space-y-2 max-w-xl">
 			<div><span class="text-sm text-brand-muted">Description</span><p class="text-sm">{project.description ?? '---'}</p></div>
-			<div><span class="text-sm text-brand-muted">Created</span><p class="text-sm">{new Date(project.created_at).toLocaleString()}</p></div>
+			<div><span class="text-sm text-brand-muted">Created</span><p class="text-sm">{formatDateTime(project.created_at)}</p></div>
 		</div>
 
 		<!-- Sites ─────────────────────────────────────────────────── -->
@@ -290,7 +293,7 @@
 								<td colspan="{project.is_public ? 6 : 3}" class="p-0">
 									<div class="bg-brand-bg/30 border-b border-brand-divider">
 										{#if loadingSiteParams === site.id}
-											<p class="px-8 py-4 text-xs text-brand-muted">Loading parameters...</p>
+											<p class="px-8 py-4 text-xs text-brand-muted">Loading parameters…</p>
 										{:else if siteParams[site.id]?.length}
 											<table class="w-full text-sm">
 												<thead><tr class="border-b border-brand-divider">
@@ -367,7 +370,7 @@
 				{#if project.is_public && project.public_code}
 					<div class="flex gap-2">
 						<a href="/api/public/{project.public_code}/docs" target="_blank" class="px-3 py-1.5 text-xs bg-brand-primary text-white rounded-md no-underline hover:bg-brand-primary-dark">API Docs ↗</a>
-						<button onclick={handleInvalidateCache} class="px-3 py-1.5 text-xs border border-brand-divider rounded-md bg-brand-surface cursor-pointer hover:bg-brand-bg">Invalidate Cache</button>
+						<Button size="sm" onclick={handleInvalidateCache}>Invalidate Cache</Button>
 					</div>
 				{/if}
 			</div>

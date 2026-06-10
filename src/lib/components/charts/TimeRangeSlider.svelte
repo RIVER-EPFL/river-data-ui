@@ -31,9 +31,9 @@
 	const COL_HISTORY = tokens.brand.textMuted;
 	const COL_WEEK = tokens.brand.primary;
 	const COL_TODAY = tokens.severity.ok.main;
-	const COL_HISTORY_LIGHT = 'rgba(90,100,114,0.25)';
-	const COL_WEEK_LIGHT = 'rgba(31,78,121,0.30)';
-	const COL_TODAY_LIGHT = 'rgba(46,125,50,0.30)';
+	const COL_HISTORY_LIGHT = tokens.slider.historyTrack;
+	const COL_WEEK_LIGHT = tokens.slider.weekTrack;
+	const COL_TODAY_LIGHT = tokens.slider.todayTrack;
 
 	const zones = $derived.by(() => {
 		if (rangeDays > 8) {

@@ -5,6 +5,7 @@
 	import { page } from '$app/state';
 	import { api, type Parameter, type Site, type Constant, type SiteParameter, type DerivedParameter } from '$api/crud';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import Button from '$components/ui/Button.svelte';
 	import VisualFormulaBuilder from '$lib/components/formula/VisualFormulaBuilder.svelte';
 	import LivePreview from '$lib/components/derived/LivePreview.svelte';
 
@@ -107,7 +108,7 @@
 	</div>
 
 	{#if loading}
-		<p class="text-brand-muted">Loading...</p>
+		<p class="text-brand-muted">Loading…</p>
 	{:else}
 		<div class="grid grid-cols-3 gap-3 max-w-2xl">
 			<div>
@@ -135,13 +136,13 @@
 		</div>
 
 		<div class="flex gap-2">
-			<button
+			<Button
+				variant="primary"
 				onclick={handleSave}
 				disabled={saving || !code || !formula}
-				class="px-4 py-2 text-sm bg-brand-primary text-white rounded cursor-pointer hover:bg-brand-primary-dark disabled:opacity-50 disabled:cursor-not-allowed"
 			>
-				{saving ? 'Saving...' : 'Save'}
-			</button>
+				{saving ? 'Saving…' : 'Save'}
+			</Button>
 			<a href="{base}/derived/{defId}" class="px-4 py-2 text-sm border border-brand-divider bg-brand-surface text-brand-text rounded no-underline cursor-pointer hover:bg-brand-bg">Cancel</a>
 		</div>
 	{/if}

@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { base } from '$app/paths';
 	import { api, type ApiToken, type ApiTokenAuditLog } from '$api/crud';
+	import { formatDateTime } from '$lib/utils';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import Badge from '$components/ui/Badge.svelte';
+	import Button from '$components/ui/Button.svelte';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import PermissionChips from './PermissionChips.svelte';
 	import TokenAccessSummary from './TokenAccessSummary.svelte';
@@ -40,7 +42,7 @@
 	});
 
 	function fmt(iso: string | null | undefined): string {
-		return iso ? new Date(iso).toLocaleString() : '—';
+		return iso ? formatDateTime(iso) : '—';
 	}
 	function status(t: ApiToken): { text: string; variant: 'ok' | 'accent' | 'alarm' } {
 		if (t.is_active === false) return { text: 'Revoked', variant: 'alarm' };
@@ -167,10 +169,6 @@
 		{/if}
 	{/snippet}
 	{#snippet actions()}
-		<button
-			onclick={() => (open = false)}
-			class="cursor-pointer rounded-md border border-brand-divider bg-brand-surface px-3 py-1.5 text-sm hover:bg-brand-bg"
-			>Close</button
-		>
+		<Button onclick={() => (open = false)}>Close</Button>
 	{/snippet}
 </Dialog>

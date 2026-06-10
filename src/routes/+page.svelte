@@ -86,7 +86,7 @@
 	<h2 class="text-xl font-semibold">Dashboard</h2>
 
 	{#if loading}
-		<p class="text-brand-muted">Loading...</p>
+		<p class="text-brand-muted">Loading…</p>
 	{:else if error}
 		<p class="text-severity-alarm">{error}</p>
 	{:else}

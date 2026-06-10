@@ -7,10 +7,13 @@
 	import { recomputeDerived, getThresholds, getActiveAlarms, type ResolvedThreshold, type ActiveAlarm } from '$api/service';
 	import { getSiteSensorIdentity, type SensorIdentityResponse } from '$api/sensors';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { formatRelativeTime, formatDateTime } from '$lib/utils';
+	import { formatRelativeTime, formatDateTime, formatDate } from '$lib/utils';
+	import Button from '$components/ui/Button.svelte';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
+	import PaginationControls from '$components/ui/PaginationControls.svelte';
+	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
 	import ThresholdDialog from '$components/dialogs/ThresholdDialog.svelte';
 	import DeployMoveSensorDialog from '$components/dialogs/DeployMoveSensorDialog.svelte';
 	import MergeSiteParameterDialog from '$components/dialogs/MergeSiteParameterDialog.svelte';
@@ -21,6 +24,7 @@
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
 	import type { StatusEventsResponse } from '$lib/api/types';
 	import { eventBus } from '$lib/stores/events.svelte';
+	import { formatThresholdRange } from '$lib/alarms';
 
 	let site = $state<Site | null>(null);
 	let project = $state<Project | null>(null);
@@ -338,10 +342,14 @@
 	}
 
 	// Status events
+	const STATUS_PAGE_SIZE = 50;
 	let statusEvents = $state<StatusEventsResponse['events']>([]);
 	let statusTimeRange = $state<'24h' | '7d' | '30d'>('24h');
 	let statusLoading = $state(false);
 	let statusLoaded = $state(false);
+	let statusOffset = $state(0);
+	let statusTotal = $state(0);
+	const statusPage = $derived(Math.floor(statusOffset / STATUS_PAGE_SIZE) + 1);
 
 	$effect(() => {
 		if (activeTab === 4 && site && !statusLoaded) {
@@ -377,6 +385,7 @@
 		// Clear per-site state so the previous site's data can't linger while the new one loads.
 		site = null;
 		statusLoaded = false;
+		statusOffset = 0;
 		newDataAvailable = false;
 
 		const deepStart = page.url.searchParams.get('start');
@@ -574,11 +583,14 @@
 		const start = new Date(Date.now() - hours * 3600000).toISOString();
 		try {
 			const result = await GET<StatusEventsResponse>(
-				`/api/sites/${siteId}/status_events`, { start, page_size: 200 }
+				`/api/sites/${siteId}/status_events`,
+				{ start, limit: STATUS_PAGE_SIZE, offset: statusOffset, order: 'desc' }
 			);
 			statusEvents = result.events ?? [];
+			statusTotal = result.total ?? 0;
 		} catch (e) {
 			statusEvents = [];
+			statusTotal = 0;
 			toastStore.error(e instanceof Error ? `Failed to load status events: ${e.message}` : 'Failed to load status events');
 		}
 		finally { statusLoading = false; }
@@ -873,7 +885,7 @@
 <svelte:head><title>{site?.name ?? 'Site'} | River Data</title></svelte:head>
 
 {#if loading}
-	<p class="text-brand-muted">Loading site...</p>
+	<p class="text-brand-muted">Loading site…</p>
 {:else if error}
 	<div class="text-severity-alarm">
 		<p>Error: {error}</p>
@@ -884,11 +896,10 @@
 		<!-- Header -->
 		<div class="flex items-start justify-between">
 			<div>
-				<div class="flex items-center gap-2 text-sm text-brand-muted mb-1">
-					<a href="{base}/sites" class="hover:text-brand-primary no-underline">Sites</a>
-					<span>/</span>
-					{#if project}<a href="{base}/projects/{project.id}" class="hover:text-brand-primary no-underline">{project.name}</a><span>/</span>{/if}
-				</div>
+				<Breadcrumbs items={[
+					{ label: 'Sites', href: `${base}/sites` },
+					...(project ? [{ label: project.name, href: `${base}/projects/${project.id}` }] : []),
+				]} />
 				<h2 class="text-xl font-semibold">
 					{site.name}
 					{#if site.public_code && project?.public_code}
@@ -906,7 +917,7 @@
 				{/if}
 			</div>
 			<div class="flex gap-2">
-				<button onclick={() => exportOpen = true} class="px-3 py-1.5 border border-brand-divider bg-brand-surface text-sm rounded-md cursor-pointer hover:bg-brand-bg">Export</button>
+				<Button onclick={() => exportOpen = true}>Export</Button>
 				<a href="{base}/sites/{site.id}/import" class="px-3 py-1.5 border border-brand-divider bg-brand-surface text-sm rounded-md no-underline text-brand-text hover:bg-brand-bg">Import CSV</a>
 				<a href="{base}/sites/{site.id}/edit" class="px-3 py-1.5 border border-brand-divider bg-brand-surface text-sm rounded-md no-underline text-brand-text hover:bg-brand-bg">Edit</a>
 			</div>
@@ -972,7 +983,7 @@
 						</button>
 
 						<span class="text-xs text-brand-muted ml-auto font-mono">
-							{windowLabel} · {new Date(chartStart).toLocaleDateString()} - {new Date(chartEnd).toLocaleDateString()}
+							{windowLabel} · {formatDate(new Date(chartStart))} - {formatDate(new Date(chartEnd))}
 						</span>
 					</div>
 					<!-- Time slider -->
@@ -1031,10 +1042,11 @@
 				{#if newDataAvailable}
 					<div class="flex items-center gap-2 px-3 py-2 text-sm bg-brand-primary/5 text-brand-primary rounded-md border border-brand-primary/20">
 						<span>New data available</span>
-						<button
+						<Button
+							variant="primary"
+							size="sm"
 							onclick={() => { newDataAvailable = false; scheduleFetch(); }}
-							class="px-2 py-0.5 text-xs bg-brand-primary text-white rounded cursor-pointer border-none"
-						>Refresh</button>
+						>Refresh</Button>
 					</div>
 				{/if}
 
@@ -1126,10 +1138,10 @@
 			<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 				<div class="flex items-center justify-between px-4 py-3 bg-brand-bg border-b border-brand-divider">
 					<span class="text-sm font-semibold">Parameters ({siteParameters.filter((sp) => !sp.is_derived).length})</span>
-					<button
+					<Button
+						size="sm"
 						onclick={() => showAddParameter = !showAddParameter}
-						class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface cursor-pointer hover:bg-brand-bg"
-					>{showAddParameter ? 'Cancel' : 'Add'}</button>
+					>{showAddParameter ? 'Cancel' : 'Add'}</Button>
 				</div>
 
 				{#if showAddParameter}
@@ -1137,17 +1149,18 @@
 						<div class="flex-1">
 							<label for="add-param-select" class="text-xs font-medium block mb-1">Parameter</label>
 							<select id="add-param-select" bind:value={addParamId} class="w-full px-3 py-1.5 text-sm border border-brand-divider rounded bg-brand-surface">
-								<option value="">Select a parameter...</option>
+								<option value="">Select a parameter…</option>
 								{#each unassignedParameters as p}
 									<option value={p.id}>{p.name} ({p.code})</option>
 								{/each}
 							</select>
 						</div>
-						<button
+						<Button
+							variant="primary"
+							size="sm"
 							onclick={addParameter}
 							disabled={!addParamId || addingParam}
-							class="px-3 py-1.5 text-xs rounded bg-brand-primary text-white cursor-pointer hover:bg-brand-primary-dark disabled:opacity-40 disabled:cursor-not-allowed"
-						>{addingParam ? 'Adding...' : 'Add'}</button>
+						>{addingParam ? 'Adding…' : 'Add'}</Button>
 					</div>
 				{/if}
 
@@ -1157,50 +1170,53 @@
 						<th class="text-left px-4 py-2 font-semibold">Parameter</th>
 						<th class="text-left px-4 py-2 font-semibold">Units</th>
 						<th class="text-left px-4 py-2 font-semibold">Interval</th>
-						<th class="text-left px-4 py-2 font-semibold">Thresholds</th>
+						<th class="text-left px-4 py-2 font-semibold">Warning</th>
+						<th class="text-left px-4 py-2 font-semibold">Alarm</th>
 						<th class="text-right px-4 py-2 font-semibold">Actions</th>
 					</tr></thead>
 					<tbody>
 						{#each siteParameters.filter((sp) => !sp.is_derived) as sp}
 							{@const th = effectiveThreshold(sp.parameter_id)}
 							{@const disabled = th != null && isThresholdDisabled(th)}
+							{@const warn = th && !disabled ? formatThresholdRange(th.warning_min, th.warning_max, paramUnits(sp)) : null}
+							{@const alarm = th && !disabled ? formatThresholdRange(th.alarm_min, th.alarm_max, paramUnits(sp)) : null}
 							<tr class="border-b border-brand-divider last:border-b-0">
 								<td class="px-4 py-2 font-mono text-xs">{paramCode(sp.parameter_id)}</td>
 								<td class="px-4 py-2 font-semibold">{paramName(sp.parameter_id)}</td>
 								<td class="px-4 py-2 text-brand-muted">{paramUnits(sp)}</td>
 								<td class="px-4 py-2 text-brand-muted">{sp.sample_interval_sec ? `${sp.sample_interval_sec}s` : 'None'}</td>
-								<td class="px-4 py-2 text-xs text-brand-muted">
-									{#if disabled}
-										<span class="text-brand-muted italic">Disabled</span>
-									{:else if th}
-										<span class="text-severity-warning">W: {th.warning_min ?? 'None'}–{th.warning_max ?? 'None'}</span>
-										<span class="text-severity-alarm ml-2">A: {th.alarm_min ?? 'None'}–{th.alarm_max ?? 'None'}</span>
-									{:else} - {/if}
-								</td>
+								{#if disabled}
+									<td class="px-4 py-2 text-xs text-brand-muted italic" colspan="2">Disabled</td>
+								{:else}
+									<td class="px-4 py-2 text-xs text-severity-warning">{#if warn}{warn}{:else}<span class="text-brand-muted">None</span>{/if}</td>
+									<td class="px-4 py-2 text-xs text-severity-alarm">{#if alarm}{alarm}{:else}<span class="text-brand-muted">None</span>{/if}</td>
+								{/if}
 								<td class="px-4 py-2 text-right space-x-1">
-									<button
+									<Button
+										size="sm"
 										onclick={() => openThresholdDialog(sp.parameter_id, paramName(sp.parameter_id))}
-										class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface cursor-pointer hover:bg-brand-bg"
-									>{th && !disabled ? 'Edit' : 'Set'} thresholds</button>
+									>{th && !disabled ? 'Edit' : 'Set'} thresholds</Button>
 									{#if !disabled}
-										<button
+										<Button
+											size="sm"
 											onclick={() => disableAlarms(sp.parameter_id)}
-											class="px-2 py-1 text-xs border border-severity-alarm-border rounded bg-brand-surface cursor-pointer hover:bg-brand-bg text-severity-alarm-main"
-										>Disable alarms</button>
+											class="border-severity-alarm-border text-severity-alarm"
+										>Disable alarms</Button>
 									{/if}
-									<button
+									<Button
+										size="sm"
 										onclick={() => openMergeSiteParameter(sp)}
-										class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface cursor-pointer hover:bg-brand-bg"
-									>Merge…</button>
-									<button
+									>Merge…</Button>
+									<Button
+										size="sm"
 										onclick={() => removeParameter(sp.id)}
-										class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface cursor-pointer hover:bg-brand-bg text-severity-alarm"
-									>Remove</button>
+										class="text-severity-alarm"
+									>Remove</Button>
 								</td>
 							</tr>
 						{/each}
 						{#if siteParameters.filter((sp) => !sp.is_derived).length === 0}
-							<tr><td colspan="6" class="px-4 py-6 text-center text-brand-muted">No parameters configured</td></tr>
+							<tr><td colspan="7" class="px-4 py-6 text-center text-brand-muted">No parameters configured</td></tr>
 						{/if}
 					</tbody>
 				</table>
@@ -1210,10 +1226,10 @@
 				<div class="mt-4 rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 					<div class="flex items-center justify-between px-4 py-3 bg-brand-bg border-b border-brand-divider">
 						<span class="text-sm font-semibold">Derived Parameters ({assignedDerivedDefs.length})</span>
-						<button
+						<Button
+							size="sm"
 							onclick={() => showAssignDerived = !showAssignDerived}
-							class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface cursor-pointer hover:bg-brand-bg"
-						>{showAssignDerived ? 'Cancel' : 'Assign'}</button>
+						>{showAssignDerived ? 'Cancel' : 'Assign'}</Button>
 					</div>
 
 					{#if showAssignDerived}
@@ -1230,11 +1246,12 @@
 											</p>
 										{/if}
 									</div>
-									<button
+									<Button
+										variant="primary"
+										size="sm"
 										onclick={() => assignDerived(def)}
 										disabled={!allPresent || assigningId === def.id}
-										class="px-2 py-1 text-xs rounded bg-brand-primary text-white cursor-pointer hover:bg-brand-primary-dark disabled:opacity-40 disabled:cursor-not-allowed"
-									>{assigningId === def.id ? 'Assigning...' : 'Assign'}</button>
+									>{assigningId === def.id ? 'Assigning…' : 'Assign'}</Button>
 								</div>
 							{:else}
 								<p class="text-xs text-brand-muted py-2">No unassigned derived parameters available. <a href="{base}/derived/new" class="text-brand-primary no-underline hover:underline">Create one</a></p>
@@ -1269,18 +1286,19 @@
 										</td>
 										<td class="px-4 py-2 text-right whitespace-nowrap">
 											<ConfirmPopover message="Recompute this derived parameter?" confirmLabel="Recompute" onconfirm={() => handleRecompute(d.id)}>
-												<button
+												<Button
+													size="sm"
 													disabled={recomputingId === d.id}
-													class="px-2 py-1 text-xs rounded border border-brand-divider bg-brand-bg cursor-pointer hover:bg-brand-surface disabled:opacity-50"
-												>{recomputingId === d.id ? 'Computing...' : 'Recompute'}</button>
+													class="bg-brand-bg hover:bg-brand-surface"
+												>{recomputingId === d.id ? 'Computing…' : 'Recompute'}</Button>
 											</ConfirmPopover>
 											{#if sp}
 												{@const confirmKey = `remove-${sp.id}`}
 												{#if confirmingRemove === confirmKey}
-													<button class="px-2 py-1 text-xs bg-severity-alarm text-white rounded cursor-pointer border-none ml-1" onclick={() => { confirmingRemove = null; unassignDerived(sp); }}>Confirm</button>
-													<button class="px-2 py-1 text-xs text-brand-muted cursor-pointer hover:underline ml-1" onclick={() => confirmingRemove = null}>Cancel</button>
+													<Button variant="danger" size="sm" class="ml-1" onclick={() => { confirmingRemove = null; unassignDerived(sp); }}>Confirm</Button>
+													<Button variant="ghost" size="sm" class="ml-1" onclick={() => confirmingRemove = null}>Cancel</Button>
 												{:else}
-													<button class="px-2 py-1 text-xs text-severity-alarm cursor-pointer hover:underline ml-1" onclick={() => confirmingRemove = confirmKey}>Remove</button>
+													<Button variant="ghost" size="sm" class="text-severity-alarm hover:text-severity-alarm ml-1" onclick={() => confirmingRemove = confirmKey}>Remove</Button>
 												{/if}
 											{/if}
 										</td>
@@ -1297,7 +1315,7 @@
 		{:else if activeTab === 2}
 			<div class="flex items-center justify-between mb-3">
 				<span class="text-sm font-semibold">Deployed sensors ({deployedSensors.length})</span>
-				<button onclick={() => (deployHereOpen = true)} class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface cursor-pointer hover:bg-brand-bg">Deploy sensor here</button>
+				<Button size="sm" onclick={() => (deployHereOpen = true)}>Deploy sensor here</Button>
 			</div>
 			<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 				<table class="w-full text-sm">
@@ -1330,9 +1348,9 @@
 									{#if cal}<span class="font-mono">{cal.slope}x + {cal.intercept}</span> <span class="text-brand-muted text-xs">({formatRelativeTime(cal.valid_from)})</span>{:else}<span class="text-brand-muted">None</span>{/if}
 								</td>
 								<td class="px-4 py-2 text-right whitespace-nowrap" onclick={(e) => e.stopPropagation()}>
-									<button onclick={() => { moveSensor = sensor; moveOpen = true; }} class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface cursor-pointer hover:bg-brand-bg">Move…</button>
+									<Button size="sm" onclick={() => { moveSensor = sensor; moveOpen = true; }}>Move…</Button>
 									<ConfirmPopover message="End this deployment now? The sensor leaves this site." confirmLabel="Recall" confirmVariant="primary" onconfirm={() => handleRecallDeployment(sensor.id)}>
-										<button class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface cursor-pointer hover:bg-brand-bg text-brand-primary">Recall</button>
+										<Button size="sm" class="text-brand-primary">Recall</Button>
 									</ConfirmPopover>
 								</td>
 							</tr>
@@ -1408,13 +1426,13 @@
 				<div class="flex gap-1">
 					{#each ['24h', '7d', '30d'] as range}
 						<button
-							onclick={() => { statusTimeRange = range as typeof statusTimeRange; loadStatusEvents(); }}
+							onclick={() => { statusTimeRange = range as typeof statusTimeRange; statusOffset = 0; loadStatusEvents(); }}
 							class="px-3 py-1 text-xs rounded-md cursor-pointer border-none {statusTimeRange === range ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted'}"
 						>{range}</button>
 					{/each}
 				</div>
 				{#if statusLoading}
-					<p class="text-sm text-brand-muted">Loading events...</p>
+					<p class="text-sm text-brand-muted">Loading events…</p>
 				{:else if statusEvents.length === 0}
 					<div class="rounded-md border border-brand-divider bg-brand-surface p-4 text-sm text-brand-muted space-y-1">
 						<p class="font-medium text-brand-text">No status events in this range.</p>
@@ -1439,19 +1457,25 @@
 							</tbody>
 						</table>
 					</div>
+					<PaginationControls
+						total={statusTotal}
+						page={statusPage}
+						perPage={STATUS_PAGE_SIZE}
+						onPageChange={(p) => { statusOffset = (p - 1) * STATUS_PAGE_SIZE; loadStatusEvents(); }}
+					/>
 				{/if}
 			</div>
 
 		<!-- Notes tab -->
 		{:else if activeTab === 5}
 			<div class="space-y-3">
-				<button onclick={() => addNoteOpen = true} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm cursor-pointer border-none">Add Note</button>
+				<Button variant="primary" onclick={() => addNoteOpen = true}>Add Note</Button>
 				{#each notes as note}
 					<div class="rounded-md border border-brand-divider bg-brand-surface p-3">
 						<div class="flex items-start justify-between">
 							<p class="text-sm whitespace-pre-wrap">{note.text}</p>
 							<ConfirmPopover message="Delete this note?" confirmLabel="Delete" onconfirm={() => deleteNote(note.id)}>
-								<button class="text-xs text-severity-alarm bg-transparent border-none cursor-pointer hover:underline ml-2 shrink-0">Delete</button>
+								<Button variant="ghost" size="sm" class="text-severity-alarm hover:text-severity-alarm ml-2 shrink-0">Delete</Button>
 							</ConfirmPopover>
 						</div>
 						<div class="text-xs text-brand-muted mt-2">
@@ -1503,7 +1527,7 @@
 					{@const xChartData = chartDataMap.get(scatterXParamId)}
 					{@const yChartData = chartDataMap.get(scatterYParamId)}
 					{#if chartLoading}
-						<div class="h-[400px] flex items-center justify-center text-sm text-brand-muted rounded-md border border-brand-divider bg-brand-surface">Loading chart data...</div>
+						<div class="h-[400px] flex items-center justify-center text-sm text-brand-muted rounded-md border border-brand-divider bg-brand-surface">Loading chart data…</div>
 					{:else if xChartData && yChartData && xParam && yParam && xSp && ySp}
 						<div class="rounded-md border border-brand-divider bg-brand-surface p-4">
 							<ScatterPlot
@@ -1533,11 +1557,11 @@
 	<!-- Add Note Dialog -->
 	<Dialog bind:open={addNoteOpen} title="Add Note" maxWidth="sm">
 		{#snippet children()}
-			<textarea bind:value={newNoteText} rows="4" placeholder="Write a note..." class="w-full px-3 py-2 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30"></textarea>
+			<textarea bind:value={newNoteText} rows="4" placeholder="Write a note…" class="w-full px-3 py-2 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30"></textarea>
 		{/snippet}
 		{#snippet actions()}
-			<button onclick={() => addNoteOpen = false} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface">Cancel</button>
-			<button onclick={addNote} disabled={savingNote || !newNoteText.trim()} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm cursor-pointer border-none disabled:opacity-50">{savingNote ? 'Saving...' : 'Save'}</button>
+			<Button onclick={() => addNoteOpen = false}>Cancel</Button>
+			<Button variant="primary" onclick={addNote} disabled={savingNote || !newNoteText.trim()}>{savingNote ? 'Saving…' : 'Save'}</Button>
 		{/snippet}
 	</Dialog>
 
@@ -1616,8 +1640,8 @@
 			</div>
 		{/snippet}
 		{#snippet actions()}
-			<button onclick={() => exportOpen = false} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface">Cancel</button>
-			<button onclick={handleExport} disabled={exportLoading} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm cursor-pointer border-none disabled:opacity-50">{exportLoading ? 'Exporting...' : 'Download'}</button>
+			<Button onclick={() => exportOpen = false}>Cancel</Button>
+			<Button variant="primary" onclick={handleExport} disabled={exportLoading}>{exportLoading ? 'Exporting…' : 'Download'}</Button>
 		{/snippet}
 	</Dialog>
 

@@ -47,7 +47,7 @@
 			onclick={() => mergeOpen = true}
 			class="px-3 py-1.5 border border-severity-alarm text-severity-alarm rounded-md text-sm cursor-pointer bg-transparent hover:bg-severity-alarm/10"
 		>
-			Merge into another parameter...
+			Merge into another parameter…
 		</button>
 		<p class="mt-1 text-xs text-brand-muted">
 			Absorb this parameter into another. All readings, streams, and references will be moved. This cannot be undone.

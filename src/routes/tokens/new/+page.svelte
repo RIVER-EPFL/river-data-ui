@@ -6,6 +6,7 @@
 	import { POST } from '$api/client';
 	import { auth } from '$auth/keycloak.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import TokenAccessSummary from '$components/tokens/TokenAccessSummary.svelte';
 	import TokenUsagePanel from '$components/tokens/TokenUsagePanel.svelte';
@@ -182,9 +183,9 @@
 		</div>
 
 		<div class="flex gap-2 pt-2">
-			<button type="submit" disabled={saving} class="px-4 py-1.5 bg-brand-primary text-white rounded-md text-sm font-semibold cursor-pointer border-none hover:bg-brand-primary-dark disabled:opacity-50">
-				{saving ? 'Creating...' : 'Create Token'}
-			</button>
+			<Button variant="primary" type="submit" disabled={saving}>
+				{saving ? 'Creating…' : 'Create Token'}
+			</Button>
 			<a href="{base}/tokens" class="px-4 py-1.5 border border-brand-divider rounded-md text-sm no-underline text-brand-text hover:bg-brand-bg">Cancel</a>
 		</div>
 	</form>
@@ -201,20 +202,21 @@
 
 			<TokenAccessSummary {permissions} {projectScope} projectName={scopeName} />
 
-			<button
-				type="button"
+			<Button
+				variant="ghost"
+				size="sm"
 				onclick={() => (showUsage = !showUsage)}
-				class="text-sm text-brand-primary hover:underline cursor-pointer bg-transparent border-none px-0"
+				class="text-brand-primary px-0"
 			>
 				{showUsage ? 'Hide usage examples' : 'Show usage examples (curl / Python / R) with this key ↓'}
-			</button>
+			</Button>
 			{#if showUsage}
 				<TokenUsagePanel token={createdToken} {permissions} {projectScope} />
 			{/if}
 		</div>
 	{/snippet}
 	{#snippet actions()}
-		<button onclick={copyToken} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm font-semibold cursor-pointer border-none">Copy token</button>
-		<button onclick={() => { showTokenDialog = false; showUsage = false; goto(`${base}/tokens`); }} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface hover:bg-brand-bg">Done</button>
+		<Button variant="primary" onclick={copyToken}>Copy token</Button>
+		<Button onclick={() => { showTokenDialog = false; showUsage = false; goto(`${base}/tokens`); }}>Done</Button>
 	{/snippet}
 </Dialog>

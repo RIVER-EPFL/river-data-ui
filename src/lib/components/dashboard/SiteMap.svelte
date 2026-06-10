@@ -88,7 +88,7 @@
 			chips.push(`<span style="background:${tokens.severity.alarm.main};color:#fff;padding:2px 6px;border-radius:10px;font-size:11px;font-weight:600;">${status.alarmCount} alarm${status.alarmCount === 1 ? '' : 's'}</span>`);
 		}
 		if (status.warningCount > 0) {
-			chips.push(`<span style="background:${tokens.severity.warning.main};color:#3a2a00;padding:2px 6px;border-radius:10px;font-size:11px;font-weight:700;">${status.warningCount} warning${status.warningCount === 1 ? '' : 's'}</span>`);
+			chips.push(`<span style="background:${tokens.severity.warning.main};color:${tokens.severity.warning.text};padding:2px 6px;border-radius:10px;font-size:11px;font-weight:700;">${status.warningCount} warning${status.warningCount === 1 ? '' : 's'}</span>`);
 		}
 		const chipRow = chips.length
 			? `<div style="display:flex;gap:4px;margin-bottom:6px;">${chips.join('')}</div>`
@@ -192,24 +192,24 @@
 
 <style>
 	:global(.leaflet-tooltip.site-status-tooltip) {
-		background: #ffffff;
-		color: #1b2330;
-		border: 1px solid #e2e5ea;
+		background: var(--color-brand-surface);
+		color: var(--color-brand-text);
+		border: 1px solid var(--color-brand-divider);
 		border-radius: 6px;
 		padding: 8px 10px;
 		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-		font-family: 'Inter', 'Roboto', 'Helvetica Neue', system-ui, sans-serif;
+		font-family: var(--font-sans);
 	}
 	:global(.leaflet-tooltip-right.site-status-tooltip::before) {
-		border-right-color: #ffffff;
+		border-right-color: var(--color-brand-surface);
 	}
 	:global(.leaflet-tooltip-left.site-status-tooltip::before) {
-		border-left-color: #ffffff;
+		border-left-color: var(--color-brand-surface);
 	}
 	:global(.leaflet-tooltip-top.site-status-tooltip::before) {
-		border-top-color: #ffffff;
+		border-top-color: var(--color-brand-surface);
 	}
 	:global(.leaflet-tooltip-bottom.site-status-tooltip::before) {
-		border-bottom-color: #ffffff;
+		border-bottom-color: var(--color-brand-surface);
 	}
 </style>

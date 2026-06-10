@@ -2,6 +2,7 @@
 	import { POST } from '$api/client';
 	import { api } from '$api/crud';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import Button from '$components/ui/Button.svelte';
 	import SaveToStationDialog from '$components/dialogs/SaveToStationDialog.svelte';
 
 	interface ToolInput {
@@ -342,7 +343,7 @@
 	<div class="flex items-center justify-between">
 		<h2 class="text-xl font-semibold">Analytical Tools</h2>
 		{#if activeTool}
-			<button onclick={() => { activeTool = null; result = null; }} class="text-sm text-brand-primary bg-transparent border-none cursor-pointer hover:underline">&larr; All Tools</button>
+			<Button variant="ghost" size="sm" class="text-brand-primary" onclick={() => { activeTool = null; result = null; }}>&larr; All Tools</Button>
 		{/if}
 	</div>
 
@@ -400,11 +401,11 @@
 													class="flex-1 px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
 												/>
 												{#if (arrayValues[inp.key]?.length ?? 0) > 1}
-													<button type="button" onclick={() => removeArrayItem(inp.key, idx)} class="px-2 text-severity-alarm bg-transparent border border-brand-divider rounded-md cursor-pointer text-xs">×</button>
+													<button type="button" onclick={() => removeArrayItem(inp.key, idx)} aria-label="Remove replicate" class="px-2 text-severity-alarm bg-transparent border border-brand-divider rounded-md cursor-pointer text-xs">×</button>
 												{/if}
 											</div>
 										{/each}
-										<button type="button" onclick={() => addArrayItem(inp.key)} class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline">+ Add replicate</button>
+										<Button variant="ghost" size="sm" class="text-brand-primary" onclick={() => addArrayItem(inp.key)}>+ Add replicate</Button>
 									</div>
 								{:else}
 									<input
@@ -427,10 +428,10 @@
 										<div class="flex gap-2 mt-1">
 											<input type="text" bind:value={row.name} placeholder="Ion" class="w-20 px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm" />
 											<input type="number" step="any" bind:value={row.value} placeholder="mg/L" class="flex-1 px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm" />
-											<button type="button" onclick={() => { ionRows.cations = ionRows.cations.filter((_, i) => i !== idx); }} class="px-2 text-severity-alarm bg-transparent border border-brand-divider rounded-md cursor-pointer text-xs">×</button>
+											<button type="button" onclick={() => { ionRows.cations = ionRows.cations.filter((_, i) => i !== idx); }} aria-label="Remove cation" class="px-2 text-severity-alarm bg-transparent border border-brand-divider rounded-md cursor-pointer text-xs">×</button>
 										</div>
 									{/each}
-									<button type="button" onclick={() => { ionRows.cations = [...ionRows.cations, { name: '', value: '' }]; }} class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline mt-1">+ Add cation</button>
+									<Button variant="ghost" size="sm" class="text-brand-primary mt-1" onclick={() => { ionRows.cations = [...ionRows.cations, { name: '', value: '' }]; }}>+ Add cation</Button>
 								</div>
 								<div>
 									<span class="text-sm font-medium">Anions (mg/L)</span>
@@ -438,10 +439,10 @@
 										<div class="flex gap-2 mt-1">
 											<input type="text" bind:value={row.name} placeholder="Ion" class="w-20 px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm" />
 											<input type="number" step="any" bind:value={row.value} placeholder="mg/L" class="flex-1 px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm" />
-											<button type="button" onclick={() => { ionRows.anions = ionRows.anions.filter((_, i) => i !== idx); }} class="px-2 text-severity-alarm bg-transparent border border-brand-divider rounded-md cursor-pointer text-xs">×</button>
+											<button type="button" onclick={() => { ionRows.anions = ionRows.anions.filter((_, i) => i !== idx); }} aria-label="Remove anion" class="px-2 text-severity-alarm bg-transparent border border-brand-divider rounded-md cursor-pointer text-xs">×</button>
 										</div>
 									{/each}
-									<button type="button" onclick={() => { ionRows.anions = [...ionRows.anions, { name: '', value: '' }]; }} class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline mt-1">+ Add anion</button>
+									<Button variant="ghost" size="sm" class="text-brand-primary mt-1" onclick={() => { ionRows.anions = [...ionRows.anions, { name: '', value: '' }]; }}>+ Add anion</Button>
 								</div>
 							</div>
 						{/if}
@@ -472,7 +473,7 @@
 													<td class="px-1 py-0.5"><input type="number" step="any" bind:value={rep.afdm_g_filter} class="w-full px-1 py-0.5 border border-brand-divider rounded bg-brand-surface text-xs" /></td>
 													<td class="px-1 py-0.5">
 														{#if chlaBenthicReps.length > 1}
-															<button type="button" onclick={() => { chlaBenthicReps = chlaBenthicReps.filter((_, i) => i !== idx); }} class="text-severity-alarm bg-transparent border-none cursor-pointer">×</button>
+															<button type="button" onclick={() => { chlaBenthicReps = chlaBenthicReps.filter((_, i) => i !== idx); }} aria-label="Remove replicate" class="text-severity-alarm bg-transparent border-none cursor-pointer">×</button>
 														{/if}
 													</td>
 												</tr>
@@ -480,13 +481,13 @@
 										</tbody>
 									</table>
 								</div>
-								<button type="button" onclick={() => { chlaBenthicReps = [...chlaBenthicReps, { fluor_before: '', fluor_after: '', vol_total_ml: '', vol_after_ml: '', diameters: '', afdm_g_filter: '' }]; }} class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline mt-1">+ Add replicate</button>
+								<Button variant="ghost" size="sm" class="text-brand-primary mt-1" onclick={() => { chlaBenthicReps = [...chlaBenthicReps, { fluor_before: '', fluor_after: '', vol_total_ml: '', vol_after_ml: '', diameters: '', afdm_g_filter: '' }]; }}>+ Add replicate</Button>
 							</div>
 						{/if}
 
-						<button type="submit" disabled={calculating} class="px-4 py-1.5 bg-brand-primary text-white rounded-md text-sm font-semibold cursor-pointer border-none disabled:opacity-50">
-							{calculating ? 'Calculating...' : 'Calculate'}
-						</button>
+						<Button variant="primary" type="submit" disabled={calculating}>
+							{calculating ? 'Calculating…' : 'Calculate'}
+						</Button>
 					</form>
 				</div>
 			</div>
@@ -496,10 +497,11 @@
 					<div class="rounded-md border border-brand-divider bg-brand-surface p-4">
 						<div class="flex items-center justify-between mb-3">
 							<h3 class="text-sm font-semibold">Results</h3>
-							<button
+							<Button
+								variant="primary"
+								size="sm"
 								onclick={() => (showSaveDialog = true)}
-								class="px-3 py-1 bg-brand-primary text-white rounded-md text-xs font-semibold cursor-pointer border-none"
-							>Save to Station</button>
+							>Save to Station</Button>
 						</div>
 						<div class="space-y-2">
 							{#each Object.entries(result).filter(([, v]) => v != null) as [key, value]}

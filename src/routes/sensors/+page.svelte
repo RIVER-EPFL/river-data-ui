@@ -5,6 +5,7 @@
 	import { getCalibrationCandidates, backfillCalibrations, type CalibrationBackfillCandidate } from '$api/service';
 	import { formatRelativeTime } from '$lib/utils';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import Button from '$components/ui/Button.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 
 	let sensors = $state<Sensor[]>([]);
@@ -117,10 +118,9 @@
 					confirmVariant="primary"
 					onconfirm={() => runCalBackfill({ all: true }, 'all')}
 				>
-					<button
+					<Button
 						disabled={backfilling !== null}
-						class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface hover:bg-brand-bg disabled:opacity-50"
-					>{backfilling === 'all' ? 'Backfilling…' : `Backfill all (${totalUncalibrated.toLocaleString()})`}</button>
+					>{backfilling === 'all' ? 'Backfilling…' : `Backfill all (${totalUncalibrated.toLocaleString()})`}</Button>
 				</ConfirmPopover>
 			{/if}
 			<a href="{base}/sensors/new" class="px-3 py-1.5 bg-brand-primary text-white rounded-md no-underline text-sm font-semibold hover:bg-brand-primary-dark">Create</a>
@@ -128,7 +128,7 @@
 	</div>
 
 	<div class="flex gap-3 items-center flex-wrap">
-		<input type="text" placeholder="Search sensors..." bind:value={searchQuery} oninput={() => { currentPage = 1; load(); }}
+		<input type="text" placeholder="Search sensors…" bind:value={searchQuery} oninput={() => { currentPage = 1; load(); }}
 			class="w-64 px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30" />
 		<select bind:value={filterActive} onchange={() => { currentPage = 1; load(); }}
 			class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
@@ -159,7 +159,7 @@
 			</thead>
 			<tbody>
 				{#if loading}
-					<tr><td colspan="7" class="px-4 py-8 text-center text-brand-muted">Loading...</td></tr>
+					<tr><td colspan="7" class="px-4 py-8 text-center text-brand-muted">Loading…</td></tr>
 				{:else if error}
 					<tr><td colspan="7" class="px-4 py-8 text-center text-severity-alarm">{error}</td></tr>
 				{:else if filteredSensors.length === 0}
@@ -201,9 +201,9 @@
 		<div class="flex items-center justify-between text-sm text-brand-muted">
 			<span>{total} total</span>
 			<div class="flex items-center gap-2">
-				<button onclick={() => { currentPage = Math.max(1, currentPage - 1); load(); }} disabled={currentPage <= 1} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface disabled:opacity-40 cursor-pointer disabled:cursor-default">Prev</button>
+				<Button size="sm" onclick={() => { currentPage = Math.max(1, currentPage - 1); load(); }} disabled={currentPage <= 1}>Prev</Button>
 				<span>{currentPage} / {totalPages}</span>
-				<button onclick={() => { currentPage = Math.min(totalPages, currentPage + 1); load(); }} disabled={currentPage >= totalPages} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface disabled:opacity-40 cursor-pointer disabled:cursor-default">Next</button>
+				<Button size="sm" onclick={() => { currentPage = Math.min(totalPages, currentPage + 1); load(); }} disabled={currentPage >= totalPages}>Next</Button>
 			</div>
 		</div>
 	{/if}

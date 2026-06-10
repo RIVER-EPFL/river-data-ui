@@ -1,5 +1,5 @@
 import type uPlot from 'uplot';
-import { tokens } from './tokens';
+import { tokens, withAlpha } from './tokens';
 import type { SensorIdentityBand, CalibrationMarker } from '$api/sensors';
 
 export interface OverlayVisibility {
@@ -12,11 +12,7 @@ export interface OverlayVisibility {
 export function bandColor(deploymentId: string, alpha = 0.14): string {
 	let h = 0;
 	for (let i = 0; i < deploymentId.length; i++) h = (h * 31 + deploymentId.charCodeAt(i)) | 0;
-	const hex = tokens.dataViz[Math.abs(h) % tokens.dataViz.length];
-	const r = parseInt(hex.slice(1, 3), 16);
-	const g = parseInt(hex.slice(3, 5), 16);
-	const b = parseInt(hex.slice(5, 7), 16);
-	return `rgba(${r},${g},${b},${alpha})`;
+	return withAlpha(tokens.dataViz[Math.abs(h) % tokens.dataViz.length], alpha);
 }
 
 /** Height (CSS px) of the dark labelled strip at the top of each band - also the click target. */
@@ -70,7 +66,7 @@ export function sensorVectorBandPlugin(
 							ctx.beginPath();
 							ctx.rect(x0 + divW, top, x1 - x0 - 2 * divW, stripH);
 							ctx.clip();
-							ctx.fillStyle = '#ffffff';
+							ctx.fillStyle = tokens.chart.tooltipText;
 							ctx.fillText(`${bandLabel(b)} ↗`, x0 + divW + 4 * dpr, top + stripH / 2 + dpr);
 							ctx.restore();
 						}
@@ -118,7 +114,7 @@ export function calibrationMarkerPlugin(
 						const x0 = Math.max(u.valToPos(ts0, 'x', true), left);
 						const x1 = Math.min(u.valToPos(ts1, 'x', true), left + width);
 						if (x1 <= x0) continue;
-						ctx.fillStyle = `rgba(199,119,0,0.85)`;
+						ctx.fillStyle = withAlpha(tokens.brand.accent, 0.85);
 						ctx.fillRect(x0, stripTop, x1 - x0, calStripH);
 						ctx.fillStyle = tokens.brand.surface;
 						ctx.fillRect(x0, stripTop, calDivW, calStripH);
@@ -128,7 +124,7 @@ export function calibrationMarkerPlugin(
 							ctx.beginPath();
 							ctx.rect(x0 + calDivW, stripTop, x1 - x0 - 2 * calDivW, calStripH);
 							ctx.clip();
-							ctx.fillStyle = '#ffffff';
+							ctx.fillStyle = tokens.chart.tooltipText;
 							ctx.fillText(calLabel(m), x0 + calDivW + 3 * dpr, stripTop + calStripH / 2 + dpr);
 							ctx.restore();
 						}
@@ -165,9 +161,9 @@ export function calibrationWindowBandPlugin(
 					const x1 = Math.min(u.valToPos(ts1, 'x', true), left + width);
 					if (x1 <= x0) return;
 					ctx.save();
-					ctx.fillStyle = `rgba(199,119,0,0.08)`;
+					ctx.fillStyle = withAlpha(tokens.brand.accent, 0.08);
 					ctx.fillRect(x0, top, x1 - x0, height);
-					ctx.strokeStyle = `rgba(199,119,0,0.5)`;
+					ctx.strokeStyle = withAlpha(tokens.brand.accent, 0.5);
 					ctx.lineWidth = 1;
 					ctx.setLineDash([]);
 					ctx.beginPath();

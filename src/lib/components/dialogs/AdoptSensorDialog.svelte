@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { api, type Sensor, type Site, type SiteParameter, type SensorDeployment, type Parameter } from '$api/crud';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import { base } from '$app/paths';
 
@@ -117,10 +118,10 @@
 	{/snippet}
 	{#snippet actions()}
 		{#if mode === 'adopt'}
-			<button onclick={() => mode = 'choose'} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface">Back</button>
-			<button onclick={adopt} disabled={working || !selectedSiteId} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm cursor-pointer border-none disabled:opacity-50">{working ? 'Adopting…' : incumbent ? 'Swap & adopt' : 'Adopt'}</button>
+			<Button onclick={() => mode = 'choose'}>Back</Button>
+			<Button variant="primary" onclick={adopt} disabled={working || !selectedSiteId}>{working ? 'Adopting…' : incumbent ? 'Swap & adopt' : 'Adopt'}</Button>
 		{:else}
-			<button onclick={() => open = false} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface">Close</button>
+			<Button onclick={() => open = false}>Close</Button>
 		{/if}
 	{/snippet}
 </Dialog>

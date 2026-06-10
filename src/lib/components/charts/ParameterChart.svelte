@@ -663,12 +663,14 @@
 									onclick={() => confirmDeleteId = null}
 									class="text-brand-muted hover:text-brand-text cursor-pointer bg-transparent border-none px-0.5 leading-none text-sm"
 									title="Cancel"
+									aria-label="Cancel"
 								>✕</button>
 							{:else}
 								<button
 									onclick={() => confirmDeleteId = a.id}
 									class="text-brand-muted hover:text-severity-alarm cursor-pointer bg-transparent border-none px-0.5 leading-none text-sm"
 									title="Delete annotation"
+									aria-label="Delete annotation"
 								>×</button>
 							{/if}
 						</div>

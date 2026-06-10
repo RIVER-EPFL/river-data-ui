@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import type { CrudClient } from '$api/crud';
+	import Button from '$components/ui/Button.svelte';
 
 	export interface Field {
 		key: string;
@@ -112,7 +113,7 @@
 	<h2 class="text-xl font-semibold">{title}</h2>
 
 	{#if loading}
-		<p class="text-brand-muted">Loading...</p>
+		<p class="text-brand-muted">Loading…</p>
 	{:else}
 		<form onsubmit={handleSubmit} class="space-y-4">
 			{#each fields as field}
@@ -153,6 +154,7 @@
 										type="button"
 										onclick={() => { values[field.key] = tags.filter((_, j) => j !== i); }}
 										class="ml-0.5 text-brand-primary/60 hover:text-severity-alarm cursor-pointer bg-transparent border-none p-0 text-xs leading-none"
+										aria-label="Remove tag"
 									>&times;</button>
 								</span>
 							{/each}
@@ -208,13 +210,14 @@
 			{/each}
 
 			<div class="flex gap-2 pt-2">
-				<button
+				<Button
 					type="submit"
+					variant="primary"
 					disabled={saving}
-					class="px-4 py-1.5 bg-brand-primary text-white rounded-md text-sm font-semibold cursor-pointer border-none hover:bg-brand-primary-dark disabled:opacity-50"
+					class="px-4 font-semibold"
 				>
-					{saving ? 'Saving...' : entityId ? 'Save' : 'Create'}
-				</button>
+					{saving ? 'Saving…' : entityId ? 'Save' : 'Create'}
+				</Button>
 				<a href={backHref} class="px-4 py-1.5 border border-brand-divider rounded-md text-sm no-underline text-brand-text hover:bg-brand-bg">
 					Cancel
 				</a>

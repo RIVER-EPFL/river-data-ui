@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { mergeSiteParameters } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 
@@ -76,10 +77,10 @@
 	{/snippet}
 	{#snippet actions()}
 		<div class="flex justify-end gap-2">
-			<button onclick={() => (open = false)} class="px-3 py-1.5 rounded-md text-sm border border-brand-divider bg-transparent cursor-pointer hover:bg-brand-bg">Cancel</button>
+			<Button class="bg-transparent" onclick={() => (open = false)}>Cancel</Button>
 			{#if target}
 				<ConfirmPopover message="All data will be moved to {target.label}. This is irreversible." confirmLabel="Merge" confirmVariant="alarm" onconfirm={doMerge}>
-					<button disabled={merging} class="px-3 py-1.5 rounded-md text-sm border-none bg-severity-alarm text-white cursor-pointer hover:bg-severity-alarm/90 disabled:opacity-50">{merging ? 'Merging…' : 'Merge'}</button>
+					<Button variant="danger" disabled={merging}>{merging ? 'Merging…' : 'Merge'}</Button>
 				</ConfirmPopover>
 			{/if}
 		</div>

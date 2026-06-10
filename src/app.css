@@ -19,6 +19,8 @@
 	--color-severity-warning: #CA8A04;
 	--color-severity-warning-soft: rgba(202, 138, 4, 0.16);
 	--color-severity-warning-border: rgba(202, 138, 4, 0.65);
+	/* On-color text for solid warning backgrounds (the only severity whose on-color text isn't white) */
+	--color-severity-warning-text: #3A2A00;
 	--color-severity-alarm: #C62828;
 	--color-severity-alarm-soft: rgba(198, 40, 40, 0.12);
 	--color-severity-alarm-border: rgba(198, 40, 40, 0.65);

@@ -8,6 +8,7 @@
 	import ScatterPlot from '$components/charts/ScatterPlot.svelte';
 	import SensorSeriesChart from '$components/charts/SensorSeriesChart.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
+	import Button from '$components/ui/Button.svelte';
 
 	let { mode = 'edit', calibration, allCalibrations = [], units = '', sensorId, rangeMin, rangeMax, onchanged, onswitchcalibration }: {
 		mode?: 'edit' | 'create';
@@ -290,6 +291,6 @@
 
 	<div class="flex items-center justify-between">
 		<span class="text-xs text-brand-muted">{seriesLoading ? 'Loading…' : series ? `${chartTimes.length} readings in view` : ''}</span>
-		<button onclick={mode === 'create' ? create : save} disabled={saving} class="px-3 py-1 text-sm bg-brand-primary text-white rounded-md cursor-pointer border-none disabled:opacity-50">{saving ? (mode === 'create' ? 'Adding…' : 'Saving…') : (mode === 'create' ? 'Add calibration' : 'Save & recompute')}</button>
+		<Button variant="primary" onclick={mode === 'create' ? create : save} disabled={saving}>{saving ? (mode === 'create' ? 'Adding…' : 'Saving…') : (mode === 'create' ? 'Add calibration' : 'Save & recompute')}</Button>
 	</div>
 </div>

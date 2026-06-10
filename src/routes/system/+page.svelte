@@ -5,6 +5,7 @@
 	import { getList } from '$api/client';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatRelativeTime, formatDateTime } from '$lib/utils';
+	import Button from '$components/ui/Button.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 
@@ -108,10 +109,10 @@
 	<h2 class="text-xl font-semibold">System</h2>
 
 	{#if loading}
-		<p class="text-brand-muted">Loading...</p>
+		<p class="text-brand-muted">Loading…</p>
 	{:else}
 		<div class="flex justify-end">
-			<button onclick={() => openCreateDialog()} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm cursor-pointer border-none">New service credential</button>
+			<Button variant="primary" onclick={() => openCreateDialog()}>New service credential</Button>
 		</div>
 
 		<div class="space-y-3">
@@ -143,16 +144,16 @@
 								{/if}
 							</div>
 							<div class="flex gap-2">
-								<button onclick={() => sendCommand(svc.id, 'trigger_sync')} class="px-2 py-1 text-xs bg-brand-primary text-white rounded cursor-pointer border-none">Sync</button>
+								<Button variant="primary" size="sm" onclick={() => sendCommand(svc.id, 'trigger_sync')}>Sync</Button>
 								<ConfirmPopover message="Trigger a full sync (re-fetch all data)?" confirmLabel="Full Sync" confirmVariant="primary" onconfirm={() => sendCommand(svc.id, 'trigger_full_sync')}>
-									<button class="px-2 py-1 text-xs border border-brand-divider rounded cursor-pointer bg-brand-surface">Full Sync</button>
+									<Button size="sm">Full Sync</Button>
 								</ConfirmPopover>
 							</div>
 
 							<div>
 								<div class="flex items-center justify-between mb-1">
 									<h4 class="text-xs font-semibold uppercase tracking-wide text-brand-muted">Credentials</h4>
-									<button onclick={() => openCreateDialog(svc.service_type)} class="text-xs text-brand-primary bg-transparent border-none cursor-pointer hover:underline">+ New credential</button>
+									<Button variant="ghost" size="sm" class="text-brand-primary" onclick={() => openCreateDialog(svc.service_type)}>+ New credential</Button>
 								</div>
 								{#if svcCreds.length === 0}
 									<p class="text-xs text-brand-muted">No credentials linked to this service</p>
@@ -164,7 +165,7 @@
 												{#if cred.revoked}<span class="text-severity-alarm">Revoked</span>{:else}<span class="text-severity-ok">Active</span>{/if}
 												{#if !cred.revoked}
 													<ConfirmPopover message="Revoke this credential?" confirmLabel="Revoke" onconfirm={() => handleRevoke(cred.id)}>
-														<button class="text-severity-alarm bg-transparent border-none cursor-pointer hover:underline ml-auto">Revoke</button>
+														<Button variant="ghost" size="sm" class="text-severity-alarm ml-auto">Revoke</Button>
 													</ConfirmPopover>
 												{/if}
 											</li>
@@ -247,7 +248,7 @@
 								<td class="px-4 py-2">
 									{#if !cred.revoked}
 										<ConfirmPopover message="Revoke this credential?" confirmLabel="Revoke" onconfirm={() => handleRevoke(cred.id)}>
-											<button class="text-xs text-severity-alarm bg-transparent border-none cursor-pointer hover:underline">Revoke</button>
+											<Button variant="ghost" size="sm" class="text-severity-alarm">Revoke</Button>
 										</ConfirmPopover>
 									{/if}
 								</td>
@@ -283,7 +284,7 @@
 		{/if}
 	{/snippet}
 	{#snippet actions()}
-		<button onclick={() => eventDetailDialog = false} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface">Close</button>
+		<Button onclick={() => eventDetailDialog = false}>Close</Button>
 	{/snippet}
 </Dialog>
 
@@ -309,8 +310,8 @@
 		</div>
 	{/snippet}
 	{#snippet actions()}
-		<button onclick={() => createDialog = false} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface">Cancel</button>
-		<button onclick={handleCreateCredential} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm cursor-pointer border-none">Create</button>
+		<Button onclick={() => createDialog = false}>Cancel</Button>
+		<Button variant="primary" onclick={handleCreateCredential}>Create</Button>
 	{/snippet}
 </Dialog>
 
@@ -326,7 +327,7 @@
 		{/if}
 	{/snippet}
 	{#snippet actions()}
-		<button onclick={() => { if (newCredential) navigator.clipboard.writeText(newCredential.client_secret); toastStore.success('Copied'); }} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm cursor-pointer border-none">Copy Secret</button>
-		<button onclick={() => credentialDialog = false} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface">Done</button>
+		<Button variant="primary" onclick={() => { if (newCredential) navigator.clipboard.writeText(newCredential.client_secret); toastStore.success('Copied'); }}>Copy Secret</Button>
+		<Button onclick={() => credentialDialog = false}>Done</Button>
 	{/snippet}
 </Dialog>

@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { POST } from '$api/client';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import { formatDateTime } from '$lib/utils';
+	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 
 	let {
@@ -34,8 +36,8 @@
 
 	const startIso = $derived(new Date(startMs).toISOString());
 	const endIso = $derived(new Date(endMs).toISOString());
-	const startLabel = $derived(new Date(startMs).toLocaleString());
-	const endLabel = $derived(new Date(endMs).toLocaleString());
+	const startLabel = $derived(formatDateTime(new Date(startMs)));
+	const endLabel = $derived(formatDateTime(new Date(endMs)));
 
 	async function handleSave() {
 		if (!text.trim()) {
@@ -82,14 +84,14 @@
 					id="ann-text"
 					bind:value={text}
 					rows="4"
-					placeholder="e.g. sensor was out of water, calibration drift, field maintenance..."
+					placeholder="e.g. sensor was out of water, calibration drift, field maintenance…"
 					class="w-full px-3 py-2 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
 				></textarea>
 			</div>
 		</div>
 	{/snippet}
 	{#snippet actions()}
-		<button onclick={() => open = false} class="px-3 py-1.5 border border-brand-divider rounded-md text-sm cursor-pointer bg-brand-surface">Cancel</button>
-		<button onclick={handleSave} disabled={saving || !text.trim()} class="px-3 py-1.5 bg-brand-primary text-white rounded-md text-sm cursor-pointer border-none disabled:opacity-50">{saving ? 'Saving...' : 'Save'}</button>
+		<Button onclick={() => open = false}>Cancel</Button>
+		<Button variant="primary" onclick={handleSave} disabled={saving || !text.trim()}>{saving ? 'Saving…' : 'Save'}</Button>
 	{/snippet}
 </Dialog>

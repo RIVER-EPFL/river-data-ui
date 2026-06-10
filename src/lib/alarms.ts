@@ -1,5 +1,75 @@
 import { base } from '$app/paths';
 
+export type Severity = 'ok' | 'warning' | 'alarm' | 'unknown';
+
+/** Normalizes numeric severity levels (1 = warning, 2+ = alarm) or strings to a Severity. */
+export function severityFromLevel(level: number | string | null | undefined): Severity {
+	if (typeof level === 'number') {
+		if (level >= 2) return 'alarm';
+		if (level >= 1) return 'warning';
+		return 'ok';
+	}
+	switch (level) {
+		case 'alarm':
+		case 'warning':
+		case 'ok':
+			return level;
+		default:
+			return 'unknown';
+	}
+}
+
+/**
+ * Title-case severity label for UI text: 'Alarm' | 'Warning' | 'OK' | 'Unknown'.
+ * Use everywhere a severity is named as a label (badges, table cells, tooltips).
+ * Count phrases ("2 alarms") are ordinary sentences and stay lowercase.
+ */
+export function severityLabel(s: Severity | number): string {
+	switch (typeof s === 'number' ? severityFromLevel(s) : s) {
+		case 'alarm':
+			return 'Alarm';
+		case 'warning':
+			return 'Warning';
+		case 'ok':
+			return 'OK';
+		default:
+			return 'Unknown';
+	}
+}
+
+/** Badge variant (ui/Badge.svelte) for a severity. */
+export function severityBadgeVariant(s: Severity | number): 'alarm' | 'warning' | 'ok' | 'muted' {
+	switch (typeof s === 'number' ? severityFromLevel(s) : s) {
+		case 'alarm':
+			return 'alarm';
+		case 'warning':
+			return 'warning';
+		case 'ok':
+			return 'ok';
+		default:
+			return 'muted';
+	}
+}
+
+/**
+ * Threshold range notation, shared by every surface that prints threshold bounds:
+ * one-sided ranges use comparators ('≥ 5', '≤ 10'), two-sided use an en dash ('5 – 10'),
+ * and units are appended once ('5 – 10 mg/L'). Returns null when both bounds are null —
+ * callers render their own muted 'None'.
+ */
+export function formatThresholdRange(
+	min: number | null | undefined,
+	max: number | null | undefined,
+	units?: string | null,
+): string | null {
+	let range: string;
+	if (min != null && max != null) range = `${min} – ${max}`;
+	else if (min != null) range = `≥ ${min}`;
+	else if (max != null) range = `≤ ${max}`;
+	else return null;
+	return units ? `${range} ${units}` : range;
+}
+
 export interface AlarmLinkTarget {
 	site_id: string;
 	parameter_id: string;
