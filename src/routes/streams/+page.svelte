@@ -6,7 +6,7 @@
 	import { api, type DataStream, type SiteParameter, type Site, type Parameter } from '$api/crud';
 	import {
 		pairStream, unpairStream, importStream, getStreamStats, createPairingPlan, updatePairingPlan,
-		applyPairingPlan, revertPairingPlan, getUnpairedSummary, getPlanSiteMetadata,
+		applyPairingPlan, revertPairingPlan, pollJob, getUnpairedSummary, getPlanSiteMetadata,
 		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
 	} from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
@@ -594,9 +594,14 @@
 		if (patchTimer) { clearTimeout(patchTimer); await flushUpdates(); }
 		applying = true;
 		try {
-			applyResult = await applyPairingPlan(plan.id);
+			const { job_id } = await applyPairingPlan(plan.id);
+			const job = await pollJob(job_id);
+			if (job.status !== 'completed') {
+				throw new Error(job.error_message ?? 'Apply job did not complete');
+			}
+			applyResult = (job.detail?.counts ?? null) as PairingPlanApplyResult | null;
 			setMode('results');
-		} catch { toastStore.error('Failed to apply plan'); }
+		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Failed to apply plan'); }
 		finally { applying = false; }
 	}
 
@@ -604,11 +609,15 @@
 		if (!plan) return;
 		reverting = true;
 		try {
-			await revertPairingPlan(plan.id);
+			const { job_id } = await revertPairingPlan(plan.id);
+			const job = await pollJob(job_id);
+			if (job.status !== 'completed') {
+				throw new Error(job.error_message ?? 'Revert job did not complete');
+			}
 			toastStore.success('Plan reverted');
 			plan = null; planEntries = []; applyResult = null;
 			setMode('list'); load();
-		} catch { toastStore.error('Failed to revert plan'); }
+		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Failed to revert plan'); }
 		finally { reverting = false; }
 	}
 

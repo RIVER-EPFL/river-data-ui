@@ -1,5 +1,5 @@
 import { GET, POST, PATCH, DELETE } from './client';
-import type { ApiToken, JobLogLine } from './crud';
+import type { ApiToken, JobLogLine, ReprocessingJob } from './crud';
 
 // Single unified API tier. The `ADMIN` and `SERVICE` constants alias the same path,
 // retained as documentation hints about which Keycloak role/token scope each endpoint
@@ -529,11 +529,29 @@ export const getPlanSiteMetadata = (planId: string) =>
 export const updatePairingPlan = (id: string, updates: PlanEntryUpdate[]) =>
 	PATCH<PairingPlan>(`${ADMIN}/sync/pairing-plans/${id}`, { updates });
 
+// Apply/revert now run as tracked background jobs; both return a job id to poll.
 export const applyPairingPlan = (id: string) =>
-	POST<PairingPlanApplyResult>(`${ADMIN}/sync/pairing-plans/${id}/apply`);
+	POST<{ job_id: string; status: string }>(`${ADMIN}/sync/pairing-plans/${id}/apply`);
 
 export const revertPairingPlan = (id: string) =>
-	POST(`${ADMIN}/sync/pairing-plans/${id}/revert`);
+	POST<{ job_id: string; status: string }>(`${ADMIN}/sync/pairing-plans/${id}/revert`);
+
+// Poll a tracked job until it reaches a terminal state, returning the final row.
+export async function pollJob(
+	jobId: string,
+	opts: { intervalMs?: number; timeoutMs?: number } = {},
+): Promise<ReprocessingJob> {
+	const intervalMs = opts.intervalMs ?? 1000;
+	const timeoutMs = opts.timeoutMs ?? 600_000;
+	const start = Date.now();
+	const terminal = new Set(['completed', 'failed', 'cancelled', 'interrupted']);
+	for (;;) {
+		const job = await GET<ReprocessingJob>(`${SERVICE}/reprocessing_jobs/${jobId}`);
+		if (terminal.has(job.status)) return job;
+		if (Date.now() - start > timeoutMs) throw new Error('Timed out waiting for job');
+		await new Promise((r) => setTimeout(r, intervalMs));
+	}
+}
 
 export const listPairingPlans = () => GET<PairingPlan[]>(`${ADMIN}/sync/pairing-plans`);
 
