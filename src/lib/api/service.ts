@@ -227,11 +227,19 @@ export interface MergeParametersResponse {
 	source_deleted: boolean;
 }
 
-export const mergeParameters = (sourceParameterId: string, targetParameterId: string) =>
-	POST<MergeParametersResponse>(`${SERVICE}/actions/merge_parameters`, {
+// Runs as a tracked job server-side; we poll it and surface the counts so callers keep their shape.
+export async function mergeParameters(
+	sourceParameterId: string,
+	targetParameterId: string,
+): Promise<MergeParametersResponse> {
+	const { job_id } = await POST<{ job_id: string }>(`${SERVICE}/actions/merge_parameters`, {
 		source_parameter_id: sourceParameterId,
 		target_parameter_id: targetParameterId,
 	});
+	const job = await pollJob(job_id);
+	if (job.status !== 'completed') throw new Error(job.error_message ?? 'Merge did not complete');
+	return (job.detail?.counts ?? {}) as MergeParametersResponse;
+}
 
 // Merge site parameters (same site)
 export interface MergeSiteParametersResponse {
@@ -242,11 +250,18 @@ export interface MergeSiteParametersResponse {
 	source_deleted: boolean;
 }
 
-export const mergeSiteParameters = (sourceSiteParameterId: string, targetSiteParameterId: string) =>
-	POST<MergeSiteParametersResponse>(`${SERVICE}/actions/merge_site_parameters`, {
+export async function mergeSiteParameters(
+	sourceSiteParameterId: string,
+	targetSiteParameterId: string,
+): Promise<MergeSiteParametersResponse> {
+	const { job_id } = await POST<{ job_id: string }>(`${SERVICE}/actions/merge_site_parameters`, {
 		source_site_parameter_id: sourceSiteParameterId,
 		target_site_parameter_id: targetSiteParameterId,
 	});
+	const job = await pollJob(job_id);
+	if (job.status !== 'completed') throw new Error(job.error_message ?? 'Merge did not complete');
+	return (job.detail?.counts ?? {}) as MergeSiteParametersResponse;
+}
 
 // Reprocess a sensor's readings (re-derive calibration/deployment by time window)
 export const reprocessSensor = (sensorId: string) =>
