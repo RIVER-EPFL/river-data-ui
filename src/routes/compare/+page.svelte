@@ -3,12 +3,13 @@
 	import type uPlot from 'uplot';
 	import { api, type Site, type Parameter, type SiteParameter } from '$api/crud';
 	import { GET } from '$api/client';
-	import type { ReadingsResponse, AggregatesResponse } from '$lib/api/types';
+	import type { ReadingsResponse } from '$lib/api/types';
 	import Button from '$components/ui/Button.svelte';
 	import ScatterPlot from '$components/charts/ScatterPlot.svelte';
 	import UPlotChart from '$components/charts/UPlotChart.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
 	import { uPlotTheme, makeSeries, makeAxis } from '$lib/charts/uPlotTheme';
+	import { fetchSiteSeries, fetchSiteExtent, mergeSeries } from '$lib/charts/multiSiteSeries';
 
 	let sites = $state<Site[]>([]);
 	let params = $state<Parameter[]>([]);
@@ -28,9 +29,6 @@
 	// Slider bounds derived from selected sites' data extent
 	let boundMin = $state(0);
 	let boundMax = $state(0);
-
-	// Cache of per-site data extents from /detail
-	const siteExtents = new Map<string, { min: number | null; max: number | null }>();
 
 	// Scatter selection
 	let scatterSiteId = $state('');
@@ -77,23 +75,6 @@
 		} finally { loading = false; }
 	});
 
-	async function fetchExtent(siteId: string): Promise<{ min: number | null; max: number | null }> {
-		const cached = siteExtents.get(siteId);
-		if (cached) return cached;
-		let extent: { min: number | null; max: number | null } = { min: null, max: null };
-		try {
-			const detail = await GET<{ data_start: string | null; data_end: string | null }>(
-				`/api/sites/${siteId}/detail`,
-			);
-			extent = {
-				min: detail.data_start ? new Date(detail.data_start).getTime() : null,
-				max: detail.data_end ? new Date(detail.data_end).getTime() : null,
-			};
-		} catch { /* non-critical: fall back to default bounds */ }
-		siteExtents.set(siteId, extent);
-		return extent;
-	}
-
 	function clamp(value: number): number {
 		if (boundMin >= boundMax) return value;
 		return Math.min(boundMax, Math.max(boundMin, value));
@@ -101,7 +82,7 @@
 
 	async function refreshBounds(siteIds: string[]) {
 		if (siteIds.length === 0) return;
-		const extents = await Promise.all(siteIds.map(fetchExtent));
+		const extents = await Promise.all(siteIds.map(fetchSiteExtent));
 		const mins = extents.map((e) => e.min).filter((v): v is number => v != null);
 		const maxs = extents.map((e) => e.max).filter((v): v is number => v != null);
 		if (mins.length === 0 || maxs.length === 0) return;
@@ -191,30 +172,14 @@
 					const sp = siteParams.find(
 						(s) => s.site_id === siteId && s.parameter_id === selectedParamId,
 					);
-					const params_arg = { start: startIso, end: endIso, parameter_ids: selectedParamId };
-
-					let times: number[] = [];
-					let values: (number | null)[] = [];
-					if (resolution === 'raw') {
-						const result = await GET<ReadingsResponse>(`/api/sites/${siteId}/readings`, params_arg);
-						const series = result.parameters?.find(
-							(p) => p.id === sp?.id || p.parameter_id === selectedParamId,
-						);
-						if (series && result.times?.length) {
-							times = result.times.map((t) => new Date(t).getTime());
-							values = series.values;
-						}
-					} else {
-						const result = await GET<AggregatesResponse>(`/api/sites/${siteId}/aggregates/${resolution}`, params_arg);
-						const series = result.parameters?.find(
-							(p) => p.id === sp?.id || p.parameter_id === selectedParamId,
-						);
-						if (series && result.times?.length) {
-							times = result.times.map((t) => new Date(t).getTime());
-							values = series.avg;
-						}
-					}
-
+					const { times, values } = await fetchSiteSeries({
+						siteId,
+						parameterId: selectedParamId,
+						siteParameterId: sp?.id,
+						start: startIso,
+						end: endIso,
+						resolution,
+					});
 					return { site: site?.name ?? siteId, times, values };
 				}),
 			);
@@ -324,19 +289,7 @@
 		});
 	});
 
-	const chartUPlotData = $derived.by((): uPlot.AlignedData => {
-		if (chartData.length === 0) return [[]];
-		const allTimes = new Set<number>();
-		for (const s of chartData) for (const t of s.times) allTimes.add(t);
-		const sorted = Array.from(allTimes).sort((a, b) => a - b);
-		const xs = sorted.map((t) => t / 1000);
-		const ys: (number | null)[][] = chartData.map((s) => {
-			const lookup = new Map<number, number | null>();
-			for (let i = 0; i < s.times.length; i++) lookup.set(s.times[i], s.values[i]);
-			return sorted.map((t) => lookup.get(t) ?? null);
-		});
-		return [xs, ...ys] as uPlot.AlignedData;
-	});
+	const chartUPlotData = $derived.by((): uPlot.AlignedData => mergeSeries(chartData));
 
 	const chartUPlotOptions = $derived.by((): uPlot.Options => {
 		const param = params.find((p) => p.id === selectedParamId);

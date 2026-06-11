@@ -4,16 +4,18 @@
 	import { page } from '$app/state';
 	import { api, type DerivedParameter, type SiteParameter, type Site, type Parameter } from '$api/crud';
 	import { recomputeDerived } from '$api/service';
+	import { formatThresholdRange } from '$lib/alarms';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
-	import DerivedPreview from '$lib/components/derived/DerivedPreview.svelte';
+	import MultiSiteParameterPlot from '$components/parameters/MultiSiteParameterPlot.svelte';
 
 	let def = $state<DerivedParameter | null>(null);
 	let assignedSiteParams = $state<SiteParameter[]>([]);
 	let sites = $state<Site[]>([]);
 	let params = $state<Parameter[]>([]);
+	let outputParam = $state<Parameter | null>(null);
 	let loading = $state(true);
 
 	const defId = page.params.id!;
@@ -30,6 +32,10 @@
 			assignedSiteParams = sp.data;
 			sites = s.data;
 			params = p.data;
+			if (d.output_parameter_id) {
+				outputParam = params.find((pp) => pp.id === d.output_parameter_id)
+					?? await api.parameters.get(d.output_parameter_id);
+			}
 		} finally { loading = false; }
 	});
 
@@ -40,17 +46,19 @@
 		return p.default_units ? `${p.name} (${p.default_units})` : p.name;
 	}
 
-	const assignedSites = $derived(
-		assignedSiteParams
-			.map((sp) => sites.find((s) => s.id === sp.site_id))
-			.filter((s): s is Site => s != null)
-			.map((s) => ({ id: s.id, name: s.name }))
+	const outputParameterId = $derived(
+		def?.output_parameter_id ?? assignedSiteParams[0]?.parameter_id ?? ''
 	);
 
-	const previewSites = $derived(
-		assignedSites.length > 0
-			? assignedSites
-			: sites.map((s) => ({ id: s.id, name: s.name }))
+	const plotSiteOptions = $derived(
+		assignedSiteParams
+			.map((sp) => ({
+				siteId: sp.site_id,
+				siteName: siteName(sp.site_id),
+				siteParameterId: sp.id,
+				displayUnits: sp.display_units,
+			}))
+			.sort((a, b) => a.siteName.localeCompare(b.siteName))
 	);
 
 	async function handleRecompute() {
@@ -76,13 +84,28 @@
 			</div>
 		</div>
 
-		<div class="rounded-md border border-brand-divider bg-brand-surface p-4 space-y-3 max-w-2xl">
+		<div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
+		<div class="md:col-span-2 rounded-md border border-brand-divider bg-brand-surface p-4 space-y-3">
 			<div>
 				<span class="text-sm text-brand-muted block">Formula</span>
 				<pre class="text-sm font-mono bg-brand-bg p-3 rounded mt-1 overflow-x-auto">{def.formula}</pre>
 			</div>
 			{#if def.units}
 				<div><span class="text-sm text-brand-muted block">Units</span><p class="text-sm">{def.units}</p></div>
+			{/if}
+			{#if outputParam}
+				{@const warningRange = formatThresholdRange(outputParam.default_warning_min, outputParam.default_warning_max, def.units)}
+				{@const alarmRange = formatThresholdRange(outputParam.default_alarm_min, outputParam.default_alarm_max, def.units)}
+				<div class="grid grid-cols-2 gap-3">
+					<div>
+						<span class="text-sm text-brand-muted block">Default Warning</span>
+						{#if warningRange}<p class="text-sm">{warningRange}</p>{:else}<p class="text-sm text-brand-muted">None</p>{/if}
+					</div>
+					<div>
+						<span class="text-sm text-brand-muted block">Default Alarm</span>
+						{#if alarmRange}<p class="text-sm">{alarmRange}</p>{:else}<p class="text-sm text-brand-muted">None</p>{/if}
+					</div>
+				</div>
 			{/if}
 			{#if def.description}
 				<div><span class="text-sm text-brand-muted block">Description</span><p class="text-sm">{def.description}</p></div>
@@ -102,36 +125,33 @@
 			{/if}
 		</div>
 
-		<!-- Assigned Sites -->
 		<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
-			<div class="px-4 py-3 bg-brand-bg border-b border-brand-divider">
+			<div class="px-4 py-2.5 bg-brand-bg border-b border-brand-divider">
 				<span class="text-sm font-semibold">Assigned Sites ({assignedSiteParams.length})</span>
 			</div>
 			{#if assignedSiteParams.length === 0}
-				<p class="text-sm text-brand-muted px-4 py-4">Not assigned to any sites yet. Assign from a site's Parameters tab.</p>
+				<p class="text-sm text-brand-muted px-4 py-3">Not assigned to any sites yet. Assign from a site's Parameters tab.</p>
 			{:else}
-				<table class="w-full text-sm">
-					<thead><tr class="bg-brand-bg border-b border-brand-divider">
-						<th class="text-left px-4 py-2 font-semibold">Site</th>
-						<th class="text-left px-4 py-2 font-semibold">Parameter</th>
-						<th class="text-left px-4 py-2 font-semibold">Units</th>
-					</tr></thead>
-					<tbody>
-						{#each assignedSiteParams as sp}
-							<tr class="border-b border-brand-divider last:border-b-0">
-								<td class="px-4 py-2"><a href="{base}/sites/{sp.site_id}" class="text-brand-primary no-underline hover:underline">{siteName(sp.site_id)}</a></td>
-								<td class="px-4 py-2">{paramName(sp.parameter_id)}</td>
-								<td class="px-4 py-2 text-brand-muted">{sp.display_units ?? '---'}</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
+				<ul class="divide-y divide-brand-divider max-h-56 overflow-y-auto">
+					{#each plotSiteOptions as opt}
+						<li class="px-4 py-2 flex items-center justify-between text-sm">
+							<a href="{base}/sites/{opt.siteId}" class="text-brand-primary no-underline hover:underline">{opt.siteName}</a>
+							<span class="text-xs text-brand-muted">{opt.displayUnits ?? def.units}</span>
+						</li>
+					{/each}
+				</ul>
 			{/if}
 		</div>
+		</div>
 
-		<!-- Preview -->
-		{#if def.formula}
-			<DerivedPreview formula={def.formula} sites={previewSites} />
-		{/if}
+		<!-- Computed readings across assigned sites -->
+		<MultiSiteParameterPlot
+			parameterId={outputParameterId}
+			parameterName={def.name || def.code}
+			units={def.units}
+			siteOptions={plotSiteOptions}
+			title="Computed Readings"
+			emptyMessage="Not assigned to any sites yet. Assign from a site's Parameters tab."
+		/>
 	</div>
 {/if}

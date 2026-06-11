@@ -21,6 +21,19 @@
 	let formula = $state('');
 	let description = $state('');
 
+	// Alarm thresholds live on the auto-created output parameter; computed
+	// readings are evaluated against them like any other reading.
+	let warningMin = $state('');
+	let warningMax = $state('');
+	let alarmMin = $state('');
+	let alarmMax = $state('');
+
+	// bind:value on type="number" inputs yields numbers, not strings
+	const toNum = (v: string | number): number | null => {
+		const s = String(v).trim();
+		return s === '' ? null : Number(s);
+	};
+
 	const paramVars = $derived(
 		allParams
 			.filter((p) => p.category !== 'device_health')
@@ -71,13 +84,28 @@
 		if (!code || !formula) return;
 		saving = true;
 		try {
-			await api.derivedParameters.create({
+			const created = await api.derivedParameters.create({
 				code,
 				name: name || code,
 				units,
 				formula,
 				description: description || undefined,
 			});
+			if ([warningMin, warningMax, alarmMin, alarmMax].some((v) => String(v).trim() !== '')) {
+				// The output parameter is created by an after-create hook; re-fetch
+				// the definition to learn its id before writing thresholds.
+				const outputId =
+					created.output_parameter_id ??
+					(await api.derivedParameters.get(created.id)).output_parameter_id;
+				if (outputId) {
+					await api.parameters.update(outputId, {
+						default_warning_min: toNum(warningMin),
+						default_warning_max: toNum(warningMax),
+						default_alarm_min: toNum(alarmMin),
+						default_alarm_max: toNum(alarmMax),
+					});
+				}
+			}
 			toastStore.success('Derived parameter created');
 			goto(`${base}/derived`);
 		} catch (e) {
@@ -122,6 +150,29 @@
 		<div class="max-w-2xl">
 			<label for="dp-desc" class="text-sm text-brand-muted block mb-1">Description</label>
 			<textarea id="dp-desc" bind:value={description} rows={2} placeholder="Optional description" class="w-full px-3 py-2 text-sm border border-brand-divider rounded bg-brand-surface"></textarea>
+		</div>
+
+		<div class="max-w-2xl">
+			<h3 class="text-sm font-semibold mb-1">Alarm Thresholds</h3>
+			<p class="text-xs text-brand-muted mb-2">Computed readings are evaluated against these defaults unless a site-specific threshold overrides them. Optional.</p>
+			<div class="grid grid-cols-4 gap-3">
+				<div>
+					<label for="dp-wmin" class="text-sm text-brand-muted block mb-1">Warning Min</label>
+					<input id="dp-wmin" type="number" step="any" bind:value={warningMin} class="w-full px-3 py-2 text-sm border border-brand-divider rounded bg-brand-surface" />
+				</div>
+				<div>
+					<label for="dp-wmax" class="text-sm text-brand-muted block mb-1">Warning Max</label>
+					<input id="dp-wmax" type="number" step="any" bind:value={warningMax} class="w-full px-3 py-2 text-sm border border-brand-divider rounded bg-brand-surface" />
+				</div>
+				<div>
+					<label for="dp-amin" class="text-sm text-brand-muted block mb-1">Alarm Min</label>
+					<input id="dp-amin" type="number" step="any" bind:value={alarmMin} class="w-full px-3 py-2 text-sm border border-brand-divider rounded bg-brand-surface" />
+				</div>
+				<div>
+					<label for="dp-amax" class="text-sm text-brand-muted block mb-1">Alarm Max</label>
+					<input id="dp-amax" type="number" step="any" bind:value={alarmMax} class="w-full px-3 py-2 text-sm border border-brand-divider rounded bg-brand-surface" />
+				</div>
+			</div>
 		</div>
 
 		<Button

@@ -19,9 +19,11 @@
 	import MergeSiteParameterDialog from '$components/dialogs/MergeSiteParameterDialog.svelte';
 	import ParameterChart, { type ChartData } from '$components/charts/ParameterChart.svelte';
 	import { GAP_THRESHOLDS } from '$lib/charts/uPlotTheme';
+	import { autoResolution } from '$lib/charts/multiSiteSeries';
 	import ScatterPlot from '$components/charts/ScatterPlot.svelte';
 	import SharedChartTooltip from '$components/charts/SharedChartTooltip.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
+	import ResolutionChips from '$components/charts/ResolutionChips.svelte';
 	import type { StatusEventsResponse } from '$lib/api/types';
 	import { eventBus } from '$lib/stores/events.svelte';
 	import { formatThresholdRange } from '$lib/alarms';
@@ -155,13 +157,6 @@
 	let paramExtents = $state<Map<string, SiteDetailParameter>>(new Map());
 
 	let sliderRef: TimeRangeSlider | undefined = $state();
-
-	function autoResolution(startMs: number, endMs: number): 'raw' | 'hourly' | 'daily' {
-		const days = (endMs - startMs) / 86400000;
-		if (days <= 14) return 'raw';
-		if (days <= 120) return 'hourly';
-		return 'daily';
-	}
 
 	const chartResolution = $derived<'raw' | 'hourly' | 'daily'>(
 		resolutionOverride === 'auto' ? autoResolution(chartStart, chartEnd) : resolutionOverride
@@ -944,14 +939,7 @@
 						<div class="w-px h-5 bg-brand-divider mx-1"></div>
 
 						<span class="text-xs text-brand-muted font-semibold uppercase tracking-wider">Resolution</span>
-						<div class="flex gap-0.5">
-							{#each [['auto', 'Auto'], ['raw', 'Raw'], ['hourly', 'Hourly'], ['daily', 'Daily']] as [val, label]}
-								<button
-									onclick={() => { resolutionOverride = val as typeof resolutionOverride; scheduleFetch(); }}
-									class="px-2 py-1 text-xs rounded cursor-pointer border-none {resolutionOverride === val ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
-								>{label}{resolutionOverride === 'auto' && val === 'auto' ? ` (${chartResolution})` : ''}</button>
-							{/each}
-						</div>
+						<ResolutionChips bind:value={resolutionOverride} effective={chartResolution} onchange={scheduleFetch} />
 
 						{#if diagnosticParams.length > 0}
 							<div class="w-px h-5 bg-brand-divider mx-1"></div>
