@@ -38,6 +38,16 @@ export const getJobLogs = (jobId: string, afterSeq?: number) =>
 		`${SERVICE}/reprocessing_jobs/${jobId}/logs${afterSeq != null ? `?after_seq=${afterSeq}` : ''}`,
 	);
 
+// Notifications — channel capabilities (env-gated; carries no secrets). The frontend uses this to
+// enable a channel or render it greyed-out with a "configured via environment" note.
+export interface NotificationsConfig {
+	telegram: { available: boolean; botUsername?: string };
+	email: { available: boolean; backend: 'smtp' | 'graph' | 'disabled' };
+}
+
+export const getNotificationsConfig = () =>
+	GET<NotificationsConfig>(`${SERVICE}/config/notifications`);
+
 // Alarms
 export interface ActiveAlarm {
 	site_id: string;
