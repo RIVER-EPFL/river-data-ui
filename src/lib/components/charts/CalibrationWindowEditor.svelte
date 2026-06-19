@@ -4,6 +4,8 @@
 	import { getSensorReadings, type SensorReadingsResponse } from '$api/sensors';
 	import type { CalibrationMarker } from '$api/sensors';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import { toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
+	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import { GAP_THRESHOLDS } from '$lib/charts/uPlotTheme';
 	import ScatterPlot from '$components/charts/ScatterPlot.svelte';
 	import SensorSeriesChart from '$components/charts/SensorSeriesChart.svelte';
@@ -36,8 +38,8 @@
 	const OPEN_EPS = 60_000;
 	const isOpenEnded = $derived(endMs >= rangeMax - OPEN_EPS);
 
-	const msToLocal = (ms: number) => new Date(ms).toISOString().slice(0, 16);
-	const localToMs = (s: string) => new Date(s).getTime();
+	const msToLocal = (ms: number) => toDatetimeLocal(ms, timezoneStore.zone);
+	const localToMs = (s: string) => new Date(fromDatetimeLocal(s, timezoneStore.zone)).getTime();
 
 	// ─── Chart data explorer ───
 	let resolutionOverride = $state<'auto' | 'raw' | 'hourly' | 'daily'>('auto');

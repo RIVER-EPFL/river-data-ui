@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { api, type Sensor, type Site, type SiteParameter, type SensorDeployment, type Parameter } from '$api/crud';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import { toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
+	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import { base } from '$app/paths';
@@ -22,7 +24,7 @@
 	let mode = $state<'choose' | 'adopt' | 'import'>('choose');
 	let selectedSiteId = $state('');
 	let selectedSiteParamId = $state('');
-	let deployedFrom = $state(new Date().toISOString().slice(0, 16));
+	let deployedFrom = $state(toDatetimeLocal(Date.now(), timezoneStore.zone));
 	let working = $state(false);
 
 	let siteParams = $state<SiteParameter[]>([]);
@@ -56,7 +58,7 @@
 			await api.sensorDeployments.create({
 				sensor_id: sensor.id,
 				site_id: selectedSiteId,
-				deployed_from: new Date(deployedFrom).toISOString(),
+				deployed_from: fromDatetimeLocal(deployedFrom, timezoneStore.zone),
 				deployment_type: 'permanent',
 			});
 			toastStore.success(incumbent

@@ -4,6 +4,7 @@
 	import { tokens } from '$lib/charts/tokens';
 	import { bandAtTime, calibrationAtTime, severityForValue } from '$lib/charts/overlay-plugins';
 	import { severityLabel } from '$lib/alarms';
+	import { timezoneStore } from '$lib/stores/timezone.svelte';
 
 	let { syncKey }: { syncKey: string } = $props();
 
@@ -108,6 +109,17 @@
 		return new Date(ts * 1000).toLocaleString('en-US', {
 			month: 'short', day: 'numeric', year: 'numeric',
 			hour: '2-digit', minute: '2-digit',
+			timeZone: timezoneStore.zone, timeZoneName: 'short',
+		});
+	});
+
+	// When showing local time, also surface the underlying UTC instant on hover.
+	const utcLabel = $derived.by(() => {
+		const ts = cursorTimeSec;
+		if (ts == null || timezoneStore.mode === 'utc') return '';
+		return new Date(ts * 1000).toLocaleString('en-US', {
+			month: 'short', day: 'numeric', year: 'numeric',
+			hour: '2-digit', minute: '2-digit',
 			timeZone: 'UTC', timeZoneName: 'short',
 		});
 	});
@@ -132,7 +144,9 @@
 		class="fixed z-50 pointer-events-none"
 		style="left:{position.left}px;top:{position.top}px;background:{uPlotTheme.tooltipBg};padding:6px 10px;border-radius:{uPlotTheme.tooltipRadius}px;white-space:nowrap;min-width:180px;max-width:380px"
 	>
-		<div style="font-size:11px;color:{uPlotTheme.tooltipColor};opacity:0.6;margin-bottom:4px">{timeLabel}</div>
+		<div style="font-size:11px;color:{uPlotTheme.tooltipColor};opacity:0.6;margin-bottom:4px">
+			{timeLabel}{#if utcLabel}<span style="opacity:0.7"> · {utcLabel}</span>{/if}
+		</div>
 		{#each rows as row}
 			<div class="flex items-center justify-between gap-4" style="font-size:12px;line-height:20px">
 				<span class="flex items-center gap-1.5">

@@ -1,5 +1,18 @@
-import type uPlot from 'uplot';
+import uPlot from 'uplot';
 import { tokens } from './tokens';
+import { timezoneStore } from '$lib/stores/timezone.svelte';
+
+/**
+ * uPlot options fragment controlling the time-axis zone. In UTC mode it labels ticks in UTC; in
+ * local mode it returns nothing so uPlot's default (browser-local) tzDate applies. Spread into a
+ * `uPlot.Options` built inside a reactive context (render `$effect` / `$derived`) so toggling the
+ * global timezone preference re-renders the chart.
+ */
+export function tzDateOption(): Partial<Pick<uPlot.Options, 'tzDate'>> {
+  return timezoneStore.zone === 'UTC'
+    ? { tzDate: (ts: number) => uPlot.tzDate(new Date(ts * 1000), 'UTC') }
+    : {};
+}
 
 export const uPlotTheme = {
   axisStrokeColor: tokens.brand.textMuted,

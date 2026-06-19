@@ -13,6 +13,7 @@
 		type MyNotifications,
 	} from '$api/service';
 	import { api, type Project, type Site } from '$api/crud';
+	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
@@ -164,11 +165,47 @@
 			? `https://t.me/${caps.telegram.botUsername}?start=${linkCode}`
 			: null,
 	);
+
+	const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 </script>
 
 <div class="max-w-3xl mx-auto">
 	<h1 class="text-xl font-semibold text-brand-text mb-1">Settings</h1>
-	<p class="text-sm text-brand-text-muted mb-6">Manage how you receive alerts from River Data.</p>
+	<p class="text-sm text-brand-text-muted mb-6">Manage how times are shown and how you receive alerts from River Data.</p>
+
+	<section class="mb-8">
+		<h2 class="text-lg font-medium text-brand-text mb-3">Display</h2>
+		<div class="border border-brand-divider rounded-lg p-4">
+			<div class="flex items-center justify-between gap-4">
+				<div>
+					<div class="font-medium text-brand-text">Time zone</div>
+					<div class="text-sm text-brand-text-muted">
+						How dates and times are shown across charts, tables, and pickers. Data is always
+						stored in UTC — this only changes the display. Your browser zone is
+						<span class="font-mono">{browserZone}</span>.
+					</div>
+				</div>
+				<div class="flex shrink-0 rounded-md border border-brand-divider overflow-hidden text-sm">
+					<button
+						class="px-3 py-1.5 {timezoneStore.mode === 'local'
+							? 'bg-brand-primary text-white'
+							: 'text-brand-text hover:bg-brand-bg'}"
+						onclick={() => timezoneStore.set('local')}
+					>
+						Local
+					</button>
+					<button
+						class="px-3 py-1.5 border-l border-brand-divider {timezoneStore.mode === 'utc'
+							? 'bg-brand-primary text-white'
+							: 'text-brand-text hover:bg-brand-bg'}"
+						onclick={() => timezoneStore.set('utc')}
+					>
+						UTC
+					</button>
+				</div>
+			</div>
+		</div>
+	</section>
 
 	{#if loading}
 		<p class="text-brand-text-muted">Loading…</p>

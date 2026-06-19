@@ -7,7 +7,8 @@
 	import { recomputeDerived, getThresholds, getActiveAlarms, type ResolvedThreshold, type ActiveAlarm } from '$api/service';
 	import { getSiteSensorIdentity, type SensorIdentityResponse } from '$api/sensors';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { formatRelativeTime, formatDateTime, formatDate } from '$lib/utils';
+	import { formatRelativeTime, formatDateTime, formatDate, toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
+	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
@@ -319,21 +320,16 @@
 	let exportIncludeReplicates = $state(false);
 	let exportMeasurementType = $state<'all' | 'continuous' | 'spot' | 'derived'>('all');
 
-	function msToLocalDatetimeStr(ms: number): string {
-		if (!ms) return '';
-		const d = new Date(ms);
-		return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-	}
-	const exportStartStr = $derived(msToLocalDatetimeStr(exportStartMs));
-	const exportEndStr = $derived(msToLocalDatetimeStr(exportEndMs));
+	const exportStartStr = $derived(exportStartMs ? toDatetimeLocal(exportStartMs, timezoneStore.zone) : '');
+	const exportEndStr = $derived(exportEndMs ? toDatetimeLocal(exportEndMs, timezoneStore.zone) : '');
 
 	function onExportStartInput(e: Event) {
 		const val = (e.target as HTMLInputElement).value;
-		if (val) exportStartMs = new Date(val).getTime();
+		if (val) exportStartMs = new Date(fromDatetimeLocal(val, timezoneStore.zone)).getTime();
 	}
 	function onExportEndInput(e: Event) {
 		const val = (e.target as HTMLInputElement).value;
-		if (val) exportEndMs = new Date(val).getTime();
+		if (val) exportEndMs = new Date(fromDatetimeLocal(val, timezoneStore.zone)).getTime();
 	}
 
 	// Status events

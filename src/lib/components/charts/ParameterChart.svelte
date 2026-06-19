@@ -2,7 +2,8 @@
 	import { onMount, tick } from 'svelte';
 	import uPlot from 'uplot';
 	import 'uplot/dist/uPlot.min.css';
-	import { uPlotTheme, makeSeries, makeAxis, makeGaps } from '$lib/charts/uPlotTheme';
+	import { uPlotTheme, makeSeries, makeAxis, makeGaps, tzDateOption } from '$lib/charts/uPlotTheme';
+	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import { tokens } from '$lib/charts/tokens';
 	import { getChartSyncGroup } from '$lib/charts/chart-sync.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
@@ -372,7 +373,7 @@
 			width: rect.width,
 			height: 220,
 			padding: [stripPad, 0, 0, 0],
-			tzDate: (ts: number) => uPlot.tzDate(new Date(ts * 1000), 'UTC'),
+			...tzDateOption(),
 			plugins: [
 				alarmBandPlugin(alarmBandsRef, overlayVisRef),
 				sensorVectorBandPlugin(sensorBandsRef, overlayVisRef),
@@ -532,11 +533,14 @@
 	}
 
 	function annotationRangeLabel(a: Annotation): string {
+		const zone = timezoneStore.zone;
 		const start = new Date(a.start_time);
 		const end = new Date(a.end_time);
-		const sameDay = start.toLocaleDateString('en-US', { timeZone: 'UTC' }) === end.toLocaleDateString('en-US', { timeZone: 'UTC' });
-		const fmt = (d: Date) => d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
-		return sameDay ? `${fmt(start)} – ${end.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })} UTC` : `${fmt(start)} → ${fmt(end)} UTC`;
+		const sameDay = start.toLocaleDateString('en-US', { timeZone: zone }) === end.toLocaleDateString('en-US', { timeZone: zone });
+		const fmt = (d: Date) => d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: zone, timeZoneName: 'short' });
+		return sameDay
+			? `${fmt(start)} – ${end.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: zone })}`
+			: `${fmt(start)} → ${fmt(end)}`;
 	}
 
 	function handleResize() {
@@ -546,6 +550,9 @@
 	}
 
 	$effect(() => {
+		// Read synchronously so a timezone-preference toggle re-runs this effect; renderChart()
+		// (a microtask below) then rebuilds the chart with the new tzDate via tzDateOption().
+		void timezoneStore.zone;
 		if (hasData) {
 			syncGroup?.update(chartId, {
 				times: chartData!.times,

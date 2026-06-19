@@ -3,8 +3,14 @@
 	import { api, type Project, type Site, type SiteParameter, type Parameter, type StandardCurve } from '$api/crud';
 	import { POST } from '$api/client';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { formatDate } from '$lib/utils';
+	import { formatDate, toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
 	import Button from '$components/ui/Button.svelte';
+
+	const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+	const zoneOptions =
+		typeof Intl.supportedValuesOf === 'function'
+			? Intl.supportedValuesOf('timeZone')
+			: [browserZone, 'UTC'];
 
 	let projects = $state<Project[]>([]);
 	let sites = $state<Site[]>([]);
@@ -24,7 +30,8 @@
 
 	let selectedProjectId = $state('');
 	let selectedSiteId = $state('');
-	let sampleDate = $state(new Date().toISOString().slice(0, 16));
+	let sampleZone = $state(browserZone);
+	let sampleDate = $state(toDatetimeLocal(Date.now(), browserZone));
 	let rows = $state<SampleRow[]>([]);
 	let submitting = $state(false);
 
@@ -135,7 +142,7 @@
 					issues.push(`${label} (${paramName(row.paramId)}): enter at least one numeric replicate`);
 					return;
 				}
-				const time = new Date(sampleDate).toISOString();
+				const time = fromDatetimeLocal(sampleDate, sampleZone);
 				for (let i = 0; i < stats.values.length; i++) {
 					let val = stats.values[i];
 					if (row.useStandardCurve) {
@@ -217,6 +224,13 @@
 			<div>
 				<label for="date" class="text-sm font-medium block mb-1">Date/Time <span class="text-severity-alarm">*</span></label>
 				<input id="date" type="datetime-local" bind:value={sampleDate} class="w-full px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" />
+			</div>
+			<div>
+				<label for="zone" class="text-sm font-medium block mb-1">Time zone</label>
+				<select id="zone" bind:value={sampleZone} class="w-full px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
+					{#each zoneOptions as z}<option value={z}>{z}</option>{/each}
+				</select>
+				<p class="text-xs text-brand-text-muted mt-1">The zone the time above was recorded in. Stored as UTC.</p>
 			</div>
 		</div>
 

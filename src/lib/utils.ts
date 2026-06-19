@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { timezoneStore } from '$lib/stores/timezone.svelte';
 
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs));
@@ -17,6 +18,10 @@ export function formatRelativeTime(date: string | Date): string {
 	return formatDate(date);
 }
 
+// Times render in the browser's local zone by default; the global preference (header
+// toggle / Settings) flips every consumer to UTC. `timeZoneName: 'short'` always labels
+// the zone so a displayed time is never ambiguous. Reading `timezoneStore.zone` here makes
+// these formatters reactive at their ~40 call sites with no change at those sites.
 export function formatDateTime(date: string | Date): string {
 	return new Date(date).toLocaleString(undefined, {
 		year: 'numeric',
@@ -24,19 +29,74 @@ export function formatDateTime(date: string | Date): string {
 		day: 'numeric',
 		hour: '2-digit',
 		minute: '2-digit',
-		timeZone: 'UTC',
+		timeZone: timezoneStore.zone,
 		timeZoneName: 'short',
 	});
 }
 
-/** Date-only companion to formatDateTime (UTC), e.g. 'Dec 15, 2024'. */
+/** Date-only companion to formatDateTime, e.g. 'Dec 15, 2024'. Follows the tz preference. */
 export function formatDate(date: string | Date): string {
 	return new Date(date).toLocaleDateString(undefined, {
 		year: 'numeric',
 		month: 'short',
 		day: 'numeric',
-		timeZone: 'UTC',
+		timeZone: timezoneStore.zone,
 	});
+}
+
+/**
+ * Format an instant as a value for `<input type="datetime-local">` (`YYYY-MM-DDTHH:mm`),
+ * showing the wall-clock time in `zone` (default: the browser's local zone). Use this to
+ * seed/round-trip datetime-local inputs — seeding with a UTC wall-clock instead silently
+ * shifts the value by the zone offset when the user accepts or edits it.
+ */
+export function toDatetimeLocal(value: string | number | Date, zone?: string): string {
+	const d = value instanceof Date ? value : new Date(value);
+	if (Number.isNaN(d.getTime())) return '';
+	const parts = new Intl.DateTimeFormat('en-CA', {
+		timeZone: zone,
+		year: 'numeric',
+		month: '2-digit',
+		day: '2-digit',
+		hour: '2-digit',
+		minute: '2-digit',
+		hourCycle: 'h23',
+	}).formatToParts(d);
+	const p: Record<string, string> = {};
+	for (const part of parts) p[part.type] = part.value;
+	return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+}
+
+function zoneOffsetMs(instant: Date, zone: string): number {
+	const parts = new Intl.DateTimeFormat('en-CA', {
+		timeZone: zone,
+		year: 'numeric',
+		month: '2-digit',
+		day: '2-digit',
+		hour: '2-digit',
+		minute: '2-digit',
+		second: '2-digit',
+		hourCycle: 'h23',
+	}).formatToParts(instant);
+	const p: Record<string, string> = {};
+	for (const part of parts) p[part.type] = part.value;
+	const asUtc = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
+	return asUtc - instant.getTime();
+}
+
+/**
+ * Convert a naive `<input type="datetime-local">` value (`YYYY-MM-DDTHH:mm`), interpreted as
+ * wall-clock time in `zone` (default: the browser's local zone), to a UTC ISO-8601 string for
+ * the API. With the default zone this equals `new Date(naive).toISOString()`. (Non-existent
+ * spring-forward wall-clock times resolve to one engine-defined side — a non-issue for
+ * observation timestamps.)
+ */
+export function fromDatetimeLocal(naive: string, zone?: string): string {
+	if (!naive) return '';
+	if (!zone) return new Date(naive).toISOString();
+	const wall = naive.length === 16 ? `${naive}:00` : naive;
+	const guess = new Date(`${wall}Z`);
+	return new Date(guess.getTime() - zoneOffsetMs(guess, zone)).toISOString();
 }
 
 export function statusBadgeClass(status: string): string {

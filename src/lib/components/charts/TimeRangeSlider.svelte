@@ -3,6 +3,7 @@
 	import noUiSlider, { PipsMode, type API, type Options } from 'nouislider';
 	import 'nouislider/dist/nouislider.css';
 	import { tokens } from '$lib/charts/tokens';
+	import { timezoneStore } from '$lib/stores/timezone.svelte';
 
 	let {
 		min,
@@ -125,7 +126,7 @@
 			format: {
 				to: (v: number) => {
 					const d = new Date(v);
-					if (rangeDays < 1) return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+					if (rangeDays < 1) return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: timezoneStore.zone });
 					return fmtDateShort(d);
 				},
 			},
@@ -133,7 +134,7 @@
 	}
 
 	function fmtDateShort(d: Date): string {
-		const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric', timeZone: 'UTC' };
+		const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric', timeZone: timezoneStore.zone };
 		if (d.getUTCFullYear() !== new Date().getUTCFullYear()) opts.year = 'numeric';
 		return d.toLocaleDateString('en-US', opts);
 	}
@@ -142,7 +143,7 @@
 		return new Date(v).toLocaleString('en-US', {
 			month: 'short', day: 'numeric', year: 'numeric',
 			hour: '2-digit', minute: '2-digit',
-			timeZone: 'UTC',
+			timeZone: timezoneStore.zone,
 		});
 	}
 
@@ -190,7 +191,8 @@
 		});
 	}
 
-	$effect(() => { if (el && min < max) initSlider(); });
+	// Re-init on a timezone-preference toggle so the pip labels and tooltips (baked in at create) refresh.
+	$effect(() => { void timezoneStore.zone; if (el && min < max) initSlider(); });
 
 	$effect(() => {
 		if (slider && start && end) {
