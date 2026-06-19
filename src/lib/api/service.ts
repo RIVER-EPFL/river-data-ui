@@ -1,4 +1,4 @@
-import { GET, POST, PATCH, DELETE } from './client';
+import { GET, POST, PATCH, PUT, DELETE } from './client';
 import type { ApiToken, JobLogLine, ReprocessingJob } from './crud';
 
 // Single unified API tier. The `ADMIN` and `SERVICE` constants alias the same path,
@@ -47,6 +47,38 @@ export interface NotificationsConfig {
 
 export const getNotificationsConfig = () =>
 	GET<NotificationsConfig>(`${SERVICE}/config/notifications`);
+
+// Self-service notification preferences (the caller's own, bound to their JWT sub server-side).
+export interface MySubscriptionScope {
+	project_id?: string;
+	site_id?: string;
+	parameter_id?: string;
+	enabled: boolean;
+}
+
+export interface MyNotifications {
+	email: string | null;
+	email_verified: boolean;
+	email_enabled: boolean;
+	telegram_enabled: boolean;
+	telegram: { status: 'unlinked' | 'pending' | 'linked'; code_expires_at?: string };
+	subscriptions: MySubscriptionScope[];
+}
+
+export const getMyNotifications = () => GET<MyNotifications>(`${SERVICE}/notifications/me`);
+
+export const updateMyNotifications = (body: {
+	email_enabled?: boolean;
+	telegram_enabled?: boolean;
+}) => PATCH<MyNotifications>(`${SERVICE}/notifications/me`, body);
+
+export const setMySubscriptions = (subscriptions: MySubscriptionScope[]) =>
+	PUT<MyNotifications>(`${SERVICE}/notifications/me/subscriptions`, { subscriptions });
+
+export const mintMyLinkCode = () =>
+	POST<{ code: string; expires_at: string }>(`${SERVICE}/notifications/me/link_code`, {});
+
+export const unlinkMyTelegram = () => DELETE<void>(`${SERVICE}/notifications/me/telegram`);
 
 // Alarms
 export interface ActiveAlarm {

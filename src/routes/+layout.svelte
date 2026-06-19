@@ -182,7 +182,13 @@
 				<OperationsIndicator />
 				<AlarmIndicator />
 				{#if auth.identity}
-					<span class="text-sm opacity-80">{auth.identity.fullName}</span>
+					<a
+						href={`${base}/settings`}
+						class="text-sm opacity-80 hover:opacity-100 hover:underline"
+						title="Account settings"
+					>
+						{auth.identity.fullName}
+					</a>
 				{/if}
 				{#if auth.state.status === 'authenticated'}
 					<button
