@@ -44,6 +44,8 @@ export const api = {
 	apiTokens: crudClient<ApiToken>('tokens'),
 	apiTokenAuditLogs: crudClient<ApiTokenAuditLog>('api_token_audit_logs'),
 	reprocessingJobs: crudClient<ReprocessingJob>('reprocessing_jobs'),
+	notificationLogs: crudClient<NotificationLog>('notification_logs'),
+	notificationMutes: crudClient<NotificationMute>('notification_mutes'),
 };
 
 // Entity types
@@ -324,4 +326,26 @@ export interface JobLogLine {
 	level: string;
 	message: string;
 	context: Record<string, unknown>;
+}
+
+/** One recorded notification delivery attempt (read-only history). */
+export interface NotificationLog {
+	id: string;
+	alarm_event_id: string | null;
+	kind: string;
+	channel: string;
+	recipient: string;
+	status: string;
+	error: string | null;
+	created_at: string;
+}
+
+/** A (site, parameter) slot muted from notifications, optionally with an expiry. */
+export interface NotificationMute {
+	id: string;
+	site_id: string;
+	parameter_id: string;
+	expires_at: string | null;
+	created_by: string | null;
+	created_at: string;
 }

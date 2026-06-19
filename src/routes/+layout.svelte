@@ -76,6 +76,7 @@
 			items: [
 				{ href: `${base}/users`, label: 'Users', icon: 'users', adminOnly: true },
 				{ href: `${base}/tokens`, label: 'API Tokens', icon: 'settings', adminOnly: true },
+				{ href: `${base}/notifications`, label: 'Notifications', icon: 'settings', adminOnly: true },
 				{ href: `${base}/system`, label: 'System', icon: 'settings' },
 			],
 		},

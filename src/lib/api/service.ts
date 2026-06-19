@@ -80,6 +80,49 @@ export const mintMyLinkCode = () =>
 
 export const unlinkMyTelegram = () => DELETE<void>(`${SERVICE}/notifications/me/telegram`);
 
+// Admin notification oversight — per-channel health probe (admin-only). `healthy` is null until a
+// probe has run; `detail` carries the probe message (or failure reason).
+export interface ChannelHealth {
+	name: 'telegram' | 'email';
+	available: boolean;
+	healthy: boolean | null;
+	detail: string | null;
+	checkedAt: string | null;
+}
+
+export interface NotificationHealth {
+	channels: ChannelHealth[];
+}
+
+export const getNotificationsHealth = () =>
+	GET<NotificationHealth>(`${ADMIN}/notifications/health`);
+
+export const refreshNotificationsHealth = () =>
+	POST<NotificationHealth>(`${ADMIN}/notifications/health/refresh`, {});
+
+// Send a one-off test message through a channel to a single recipient (admin-only).
+export interface TestSendResult {
+	channel: string;
+	results: Array<{ recipient: string; status: 'sent' | 'failed'; error: string | null }>;
+	allSent: boolean;
+}
+
+export const testSend = (body: { channel: 'telegram' | 'email'; recipient: string }) =>
+	POST<TestSendResult>(`${ADMIN}/notifications/test-send`, body);
+
+// Roster of users with notification preferences (admin-only, read-only).
+export interface NotificationSubscriber {
+	keycloak_sub: string;
+	email_enabled: boolean;
+	telegram_enabled: boolean;
+	is_active: boolean;
+	telegram_status: 'unlinked' | 'pending' | 'linked';
+	subscription_overrides: number;
+}
+
+export const getNotificationSubscribers = () =>
+	GET<NotificationSubscriber[]>(`${ADMIN}/notifications/subscribers`);
+
 // Alarms
 export interface ActiveAlarm {
 	site_id: string;
