@@ -434,6 +434,10 @@
 				} else {
 					if (chartStart < sliderMin) chartStart = sliderMin;
 					if (chartEnd > sliderMax) chartEnd = sliderMax;
+					if (chartStart >= chartEnd) {
+						// Data ended before the default now-anchored window: show its last week instead.
+						chartStart = Math.max(sliderMin, chartEnd - 604800000);
+					}
 				}
 				exportStartMs = sliderMin;
 				exportEndMs = sliderMax;
