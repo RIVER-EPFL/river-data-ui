@@ -46,6 +46,7 @@
 				{ href: `${base}/streams`, label: 'Streams', icon: 'rss' },
 				{ href: `${base}/alarms`, label: 'Alarms', icon: 'bell' },
 				{ href: `${base}/logs`, label: 'Logs', icon: 'clock' },
+				{ href: `${base}/schedules`, label: 'Schedules', icon: 'clock' },
 			],
 		},
 		{

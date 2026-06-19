@@ -62,6 +62,15 @@ export function formatDurationMs(ms: number | null): string {
 	return `${m}m ${rem}s`;
 }
 
+/** Human-friendly cadence for a recurring schedule, e.g. 90 → "every 90s", 300 → "every 5m". */
+export function formatInterval(seconds: number): string {
+	if (!Number.isFinite(seconds) || seconds <= 0) return '—';
+	if (seconds % 86400 === 0) return `every ${seconds / 86400}d`;
+	if (seconds % 3600 === 0) return `every ${seconds / 3600}h`;
+	if (seconds % 60 === 0) return `every ${seconds / 60}m`;
+	return `every ${seconds}s`;
+}
+
 export function triggerLabel(triggerType: string): string {
 	switch (triggerType) {
 		case 'janitor_run': return 'Janitor sweep';

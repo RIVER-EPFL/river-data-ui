@@ -622,3 +622,55 @@ export interface GrabSampleResponse {
 
 export const saveGrabSample = (req: GrabSampleRequest) =>
 	POST<GrabSampleResponse>(`${SERVICE}/grab_samples`, req);
+
+// Schedules — the recurring-service control plane.
+export type OverlapPolicy = 'skip_if_running' | 'allow_concurrent';
+export type CatchupPolicy = 'run_once' | 'skip';
+
+export interface Schedule {
+	job_name: string;
+	enabled: boolean;
+	interval_seconds: number;
+	next_run_at: string | null;
+	last_enqueued_at: string | null;
+	overlap_policy: OverlapPolicy;
+	catchup_policy: CatchupPolicy;
+	tunables: Record<string, unknown>;
+	updated_by: string | null;
+	updated_at: string;
+	running: boolean;
+}
+
+export interface ScheduleAuditEntry {
+	changed_at: string;
+	changed_by: string | null;
+	old_value: Record<string, unknown>;
+	new_value: Record<string, unknown>;
+}
+
+export interface ScheduleUpdate {
+	enabled?: boolean;
+	interval_seconds?: number;
+	overlap_policy?: OverlapPolicy;
+	catchup_policy?: CatchupPolicy;
+	tunables?: Record<string, unknown>;
+}
+
+export interface RunNowResponse {
+	job_id: string | null;
+	enqueued: boolean;
+}
+
+export const listSchedules = () => GET<Schedule[]>(`${ADMIN}/schedules`);
+
+export const getSchedule = (jobName: string) =>
+	GET<Schedule>(`${ADMIN}/schedules/${encodeURIComponent(jobName)}`);
+
+export const updateSchedule = (jobName: string, body: ScheduleUpdate) =>
+	PATCH<Schedule>(`${ADMIN}/schedules/${encodeURIComponent(jobName)}`, body);
+
+export const runScheduleNow = (jobName: string) =>
+	POST<RunNowResponse>(`${ADMIN}/schedules/${encodeURIComponent(jobName)}/run_now`);
+
+export const getScheduleAudit = (jobName: string) =>
+	GET<ScheduleAuditEntry[]>(`${ADMIN}/schedules/${encodeURIComponent(jobName)}/audit`);
