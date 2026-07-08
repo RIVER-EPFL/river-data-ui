@@ -7,6 +7,7 @@
 	import Button from '$components/ui/Button.svelte';
 	import ToastContainer from '$components/ui/ToastContainer.svelte';
 	import SearchBar from '$components/SearchBar.svelte';
+	import Unauthorized from '$components/Unauthorized.svelte';
 	import AlarmIndicator from '$components/AlarmIndicator.svelte';
 	import OperationsIndicator from '$components/OperationsIndicator.svelte';
 	import { getVersion } from '$api/service';
@@ -106,6 +107,10 @@
 			Retry
 		</Button>
 	</div>
+{:else if auth.role === false}
+	<!-- Authenticated but no riverdata role: the API rejects every call with 403 no_river_role,
+	     so take over the whole shell instead of rendering an app that can't load anything. -->
+	<Unauthorized />
 {:else}
 	<div class="flex h-screen overflow-hidden">
 		<!-- Sidebar -->
