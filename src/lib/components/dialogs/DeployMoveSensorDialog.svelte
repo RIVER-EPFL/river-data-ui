@@ -2,6 +2,8 @@
 	import { onMount } from 'svelte';
 	import { api, type Sensor, type Site, type SensorDeployment } from '$api/crud';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import { toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
+	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 
@@ -37,7 +39,7 @@
 	let selectedSensorId = $state('');
 	let selectedSiteId = $state('');
 	let deploymentType = $state('permanent');
-	let deployedFrom = $state(new Date().toISOString().slice(0, 16));
+	let deployedFrom = $state(toDatetimeLocal(Date.now(), timezoneStore.zone));
 	let working = $state(false);
 
 	// ── Site-mode sensor picker (server-backed search + deployment awareness) ──
@@ -126,7 +128,7 @@
 			await api.sensorDeployments.create({
 				sensor_id,
 				site_id,
-				deployed_from: new Date(deployedFrom).toISOString(),
+				deployed_from: fromDatetimeLocal(deployedFrom, timezoneStore.zone),
 				deployment_type: deploymentType,
 			});
 			toastStore.success(movingFrom ? 'Sensor moved - readings will be re-coordinated in the background' : 'Sensor deployed - readings will be re-coordinated in the background');

@@ -2,7 +2,8 @@
 	import { onMount, onDestroy, tick } from 'svelte';
 	import uPlot from 'uplot';
 	import 'uplot/dist/uPlot.min.css';
-	import { makeSeries, makeAxis, makeGaps, uPlotTheme } from '$lib/charts/uPlotTheme';
+	import { makeSeries, makeAxis, makeGaps, uPlotTheme, tzDateOption } from '$lib/charts/uPlotTheme';
+	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import {
 		sensorVectorBandPlugin, calibrationMarkerPlugin, calibrationWindowBandPlugin,
 		bandAtTime, calibrationAtTime,
@@ -85,7 +86,7 @@
 		return {
 			time: new Date(tsSec * 1000).toLocaleString('en-US', {
 				month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit',
-				timeZone: 'UTC', timeZoneName: 'short',
+				timeZone: timezoneStore.zone, timeZoneName: 'short',
 			}),
 			raw: fmtNum(raw[hover.idx]),
 			calibrated: fmtNum(calibrated[hover.idx]),
@@ -144,7 +145,7 @@
 			width: rect.width,
 			height,
 			padding: [stripPad, 0, 0, 0],
-			tzDate: (ts) => uPlot.tzDate(new Date(ts * 1000), 'UTC'),
+			...tzDateOption(),
 			plugins: [
 				sensorVectorBandPlugin(bandsRef, visRef),
 				calibrationMarkerPlugin(markersRef, visRef),
@@ -216,6 +217,7 @@
 	// the effect tracks them, not just `times`.
 	$effect(() => {
 		void times; void raw; void calibrated; void preview; void rawMin; void rawMax; void calMin; void calMax; void windowBand;
+		void timezoneStore.zone; // re-render on a timezone-preference toggle (applies tzDate in render())
 		tick().then(render);
 	});
 

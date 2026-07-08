@@ -2,8 +2,15 @@
 	import { api, type Site, type SiteParameter, type Parameter } from '$api/crud';
 	import { saveGrabSample } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import { toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
+
+	const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+	const zoneOptions =
+		typeof Intl.supportedValuesOf === 'function'
+			? Intl.supportedValuesOf('timeZone')
+			: [browserZone, 'UTC'];
 
 	// Persists a tool's computed result back to a station as a single grab-sample
 	// reading. The result map from a tool is a flat object of numeric outputs; the
@@ -38,7 +45,8 @@
 	let selectedSiteId = $state('');
 	let selectedParamId = $state('');
 	let selectedFieldKey = $state('');
-	let collectedAt = $state(new Date().toISOString().slice(0, 16));
+	let collectedAt = $state(toDatetimeLocal(Date.now(), browserZone));
+	let collectedZone = $state(browserZone);
 	let value = $state('');
 	let label = $state('');
 
@@ -51,7 +59,8 @@
 		selectedSiteId = '';
 		selectedParamId = '';
 		siteParams = [];
-		collectedAt = new Date().toISOString().slice(0, 16);
+		collectedAt = toDatetimeLocal(Date.now(), browserZone);
+		collectedZone = browserZone;
 		label = '';
 		selectedFieldKey = primaryKey(numericFields);
 		value = selectedFieldKey
@@ -118,7 +127,7 @@
 				readings: [
 					{
 						parameter_id: selectedParamId,
-						time: new Date(collectedAt).toISOString(),
+						time: fromDatetimeLocal(collectedAt, collectedZone),
 						value: Number(value),
 						replicate_index: 0,
 					},
@@ -188,6 +197,9 @@
 				<div class="flex flex-col gap-1">
 					<label for="sts-time" class="text-sm font-medium">Timestamp <span class="text-severity-alarm">*</span></label>
 					<input id="sts-time" type="datetime-local" bind:value={collectedAt} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" />
+					<select bind:value={collectedZone} aria-label="Time zone" class="px-3 py-1 border border-brand-divider rounded-md bg-brand-surface text-xs">
+						{#each zoneOptions as z}<option value={z}>{z}</option>{/each}
+					</select>
 				</div>
 				<div class="flex flex-col gap-1">
 					<label for="sts-value" class="text-sm font-medium">Value <span class="text-severity-alarm">*</span></label>

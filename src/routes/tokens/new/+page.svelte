@@ -6,6 +6,8 @@
 	import { POST } from '$api/client';
 	import { auth } from '$auth/keycloak.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import { toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
+	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import TokenAccessSummary from '$components/tokens/TokenAccessSummary.svelte';
@@ -32,13 +34,6 @@
 		projectScope ? (projects.find((p) => p.id === projectScope)?.name ?? null) : null
 	);
 
-	/** ISO string → value for <input type="datetime-local"> (local time, minute precision). */
-	function toLocalInput(iso: string): string {
-		const d = new Date(iso);
-		const pad = (n: number) => String(n).padStart(2, '0');
-		return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-	}
-
 	function presetExpiry(days: number) {
 		if (days === 0) {
 			expiryMode = 'never';
@@ -52,7 +47,7 @@
 		}
 		const d = new Date();
 		d.setDate(d.getDate() + days);
-		expiresAt = toLocalInput(d.toISOString());
+		expiresAt = toDatetimeLocal(d, timezoneStore.zone);
 		expiryMode = 'custom';
 	}
 
@@ -94,7 +89,7 @@
 			if (description.trim()) payload.description = description.trim();
 			if (projectScope) payload.project_scope = projectScope;
 			if (rateLimit && Number(rateLimit) > 0) payload.rate_limit_per_second = Number(rateLimit);
-			if (expiryMode === 'custom' && expiresAt) payload.expires_at = new Date(expiresAt).toISOString();
+			if (expiryMode === 'custom' && expiresAt) payload.expires_at = fromDatetimeLocal(expiresAt, timezoneStore.zone);
 
 			const result = await POST<{ id: string; token?: string }>('/api/tokens', payload);
 			createdToken = result.token ?? '';

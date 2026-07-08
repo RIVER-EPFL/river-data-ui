@@ -35,8 +35,10 @@
 		chart.setSize({ width: rect.width, height: options.height ?? 300 });
 	}
 
+	// Depend on `options` as well as `data` so a re-render driven only by an options change
+	// (e.g. the global timezone toggle changing tzDate, with unchanged data) re-inits the chart.
 	$effect(() => {
-		if (el && data) create();
+		if (el && data && options) create();
 	});
 
 	onMount(() => {

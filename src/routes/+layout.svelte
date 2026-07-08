@@ -10,6 +10,7 @@
 	import AlarmIndicator from '$components/AlarmIndicator.svelte';
 	import OperationsIndicator from '$components/OperationsIndicator.svelte';
 	import { getVersion } from '$api/service';
+	import { timezoneStore } from '$lib/stores/timezone.svelte';
 
 	let { children } = $props();
 	let sidebarCollapsed = $state(false);
@@ -77,6 +78,7 @@
 			items: [
 				{ href: `${base}/users`, label: 'Users', icon: 'users', adminOnly: true },
 				{ href: `${base}/tokens`, label: 'API Tokens', icon: 'settings', adminOnly: true },
+				{ href: `${base}/notifications`, label: 'Notifications', icon: 'settings', adminOnly: true },
 				{ href: `${base}/system`, label: 'System', icon: 'settings' },
 			],
 		},
@@ -182,8 +184,23 @@
 				<SearchBar />
 				<OperationsIndicator />
 				<AlarmIndicator />
+				<button
+					onclick={() => timezoneStore.toggle()}
+					class="text-xs font-mono px-2 py-1 rounded border border-white/25 text-white/80 hover:text-white hover:border-white/50 bg-transparent cursor-pointer"
+					title={timezoneStore.mode === 'utc'
+						? 'Times shown in UTC — click to switch to your local time'
+						: 'Times shown in your local time — click to switch to UTC'}
+				>
+					{timezoneStore.mode === 'utc' ? 'UTC' : 'Local'}
+				</button>
 				{#if auth.identity}
-					<span class="text-sm opacity-80">{auth.identity.fullName}</span>
+					<a
+						href={`${base}/settings`}
+						class="text-sm opacity-80 hover:opacity-100 hover:underline"
+						title="Account settings"
+					>
+						{auth.identity.fullName}
+					</a>
 				{/if}
 				{#if auth.state.status === 'authenticated'}
 					<button

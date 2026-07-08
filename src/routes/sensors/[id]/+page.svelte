@@ -5,7 +5,8 @@
 	import { api, type Sensor, type SensorCalibration, type SensorDeployment, type Site, type Parameter } from '$api/crud';
 	import { recalibrateCalibration, rollbackDeployment, reprocessSensor, getCalibrationCandidates } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { formatDateTime, formatDate } from '$lib/utils';
+	import { formatDateTime, formatDate, toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
+	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
@@ -278,16 +279,16 @@
 	let savingDep = $state(false);
 	function startEditDep(dep: SensorDeployment) {
 		editingDepId = dep.id;
-		editDepFrom = dep.deployed_from.slice(0, 16);
-		editDepUntil = dep.deployed_until ? dep.deployed_until.slice(0, 16) : '';
+		editDepFrom = toDatetimeLocal(dep.deployed_from, timezoneStore.zone);
+		editDepUntil = dep.deployed_until ? toDatetimeLocal(dep.deployed_until, timezoneStore.zone) : '';
 	}
 	async function saveDep(depId: string) {
 		if (!editDepFrom) { toastStore.error('Deployed from is required'); return; }
 		savingDep = true;
 		try {
 			await api.sensorDeployments.update(depId, {
-				deployed_from: new Date(editDepFrom).toISOString(),
-				deployed_until: editDepUntil ? new Date(editDepUntil).toISOString() : null,
+				deployed_from: fromDatetimeLocal(editDepFrom, timezoneStore.zone),
+				deployed_until: editDepUntil ? fromDatetimeLocal(editDepUntil, timezoneStore.zone) : null,
 			});
 			toastStore.success('Deployment dates updated - readings re-attributed in the background');
 			editingDepId = null;

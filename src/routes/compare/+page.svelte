@@ -9,6 +9,8 @@
 	import UPlotChart from '$components/charts/UPlotChart.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
 	import { uPlotTheme, makeSeries, makeAxis } from '$lib/charts/uPlotTheme';
+	import { toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
+	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import { fetchSiteSeries, fetchSiteExtent, mergeSeries } from '$lib/charts/multiSiteSeries';
 
 	let sites = $state<Site[]>([]);
@@ -107,24 +109,22 @@
 		end = e;
 	}
 
-	// Manual datetime entry uses datetime-local strings, clamped to bounds
+	// Manual datetime entry uses datetime-local strings (in the active display zone), clamped to bounds.
 	function toLocalInput(ms: number): string {
-		if (!ms) return '';
-		const d = new Date(ms - new Date(ms).getTimezoneOffset() * 60000);
-		return d.toISOString().slice(0, 16);
+		return ms ? toDatetimeLocal(ms, timezoneStore.zone) : '';
 	}
 
 	function onStartInput(event: Event) {
 		const value = (event.currentTarget as HTMLInputElement).value;
 		if (!value) return;
-		const ms = clamp(new Date(value).getTime());
+		const ms = clamp(new Date(fromDatetimeLocal(value, timezoneStore.zone)).getTime());
 		start = Math.min(ms, end);
 	}
 
 	function onEndInput(event: Event) {
 		const value = (event.currentTarget as HTMLInputElement).value;
 		if (!value) return;
-		const ms = clamp(new Date(value).getTime());
+		const ms = clamp(new Date(fromDatetimeLocal(value, timezoneStore.zone)).getTime());
 		end = Math.max(ms, start);
 	}
 

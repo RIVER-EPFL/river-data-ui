@@ -1,4 +1,4 @@
-import { GET, POST, PATCH, DELETE } from './client';
+import { GET, POST, PATCH, PUT, DELETE } from './client';
 import type { ApiToken, JobLogLine, ReprocessingJob } from './crud';
 
 // Single unified API tier. The `ADMIN` and `SERVICE` constants alias the same path,
@@ -37,6 +37,91 @@ export const getJobLogs = (jobId: string, afterSeq?: number) =>
 	GET<JobLogLine[]>(
 		`${SERVICE}/reprocessing_jobs/${jobId}/logs${afterSeq != null ? `?after_seq=${afterSeq}` : ''}`,
 	);
+
+// Notifications — channel capabilities (env-gated; carries no secrets). The frontend uses this to
+// enable a channel or render it greyed-out with a "configured via environment" note.
+export interface NotificationsConfig {
+	telegram: { available: boolean; botUsername?: string };
+	email: { available: boolean; backend: 'smtp' | 'graph' | 'disabled' };
+}
+
+export const getNotificationsConfig = () =>
+	GET<NotificationsConfig>(`${SERVICE}/config/notifications`);
+
+// Self-service notification preferences (the caller's own, bound to their JWT sub server-side).
+export interface MySubscriptionScope {
+	project_id?: string;
+	site_id?: string;
+	parameter_id?: string;
+	enabled: boolean;
+}
+
+export interface MyNotifications {
+	email: string | null;
+	email_verified: boolean;
+	email_enabled: boolean;
+	telegram_enabled: boolean;
+	telegram: { status: 'unlinked' | 'pending' | 'linked'; code_expires_at?: string };
+	subscriptions: MySubscriptionScope[];
+}
+
+export const getMyNotifications = () => GET<MyNotifications>(`${SERVICE}/notifications/me`);
+
+export const updateMyNotifications = (body: {
+	email_enabled?: boolean;
+	telegram_enabled?: boolean;
+}) => PATCH<MyNotifications>(`${SERVICE}/notifications/me`, body);
+
+export const setMySubscriptions = (subscriptions: MySubscriptionScope[]) =>
+	PUT<MyNotifications>(`${SERVICE}/notifications/me/subscriptions`, { subscriptions });
+
+export const mintMyLinkCode = () =>
+	POST<{ code: string; expires_at: string }>(`${SERVICE}/notifications/me/link_code`, {});
+
+export const unlinkMyTelegram = () => DELETE<void>(`${SERVICE}/notifications/me/telegram`);
+
+// Admin notification oversight — per-channel health probe (admin-only). `healthy` is null until a
+// probe has run; `detail` carries the probe message (or failure reason).
+export interface ChannelHealth {
+	name: 'telegram' | 'email';
+	available: boolean;
+	healthy: boolean | null;
+	detail: string | null;
+	checkedAt: string | null;
+}
+
+export interface NotificationHealth {
+	channels: ChannelHealth[];
+}
+
+export const getNotificationsHealth = () =>
+	GET<NotificationHealth>(`${ADMIN}/notifications/health`);
+
+export const refreshNotificationsHealth = () =>
+	POST<NotificationHealth>(`${ADMIN}/notifications/health/refresh`, {});
+
+// Send a one-off test message through a channel to a single recipient (admin-only).
+export interface TestSendResult {
+	channel: string;
+	results: Array<{ recipient: string; status: 'sent' | 'failed'; error: string | null }>;
+	allSent: boolean;
+}
+
+export const testSend = (body: { channel: 'telegram' | 'email'; recipient: string }) =>
+	POST<TestSendResult>(`${ADMIN}/notifications/test-send`, body);
+
+// Roster of users with notification preferences (admin-only, read-only).
+export interface NotificationSubscriber {
+	keycloak_sub: string;
+	email_enabled: boolean;
+	telegram_enabled: boolean;
+	is_active: boolean;
+	telegram_status: 'unlinked' | 'pending' | 'linked';
+	subscription_overrides: number;
+}
+
+export const getNotificationSubscribers = () =>
+	GET<NotificationSubscriber[]>(`${ADMIN}/notifications/subscribers`);
 
 // Alarms
 export interface ActiveAlarm {

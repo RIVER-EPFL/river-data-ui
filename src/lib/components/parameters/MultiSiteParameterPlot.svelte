@@ -4,7 +4,7 @@
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
 	import ResolutionChips from '$components/charts/ResolutionChips.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
-	import { uPlotTheme, makeSeries, makeAxis, makeGaps, GAP_THRESHOLDS } from '$lib/charts/uPlotTheme';
+	import { uPlotTheme, makeSeries, makeAxis, makeGaps, GAP_THRESHOLDS, tzDateOption } from '$lib/charts/uPlotTheme';
 	import {
 		fetchSiteSeries,
 		fetchSiteExtent,
@@ -198,6 +198,7 @@
 		return {
 			width: 800,
 			height: 350,
+			...tzDateOption(),
 			scales: { x: { time: true }, y: { auto: true } },
 			axes: [makeAxis({}), makeAxis({ size: 60, label: yLabel })],
 			series: [

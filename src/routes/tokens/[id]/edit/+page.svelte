@@ -6,6 +6,8 @@
 	import { api, type Project, type TokenPermissions } from '$api/crud';
 	import { auth } from '$auth/keycloak.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import { toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
+	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import TokenAccessSummary from '$components/tokens/TokenAccessSummary.svelte';
 	import PresetChips from '$components/tokens/PresetChips.svelte';
@@ -26,13 +28,6 @@
 	let error = $state('');
 	let saving = $state(false);
 
-	/** ISO string → value for <input type="datetime-local"> (local time, minute precision). */
-	function toLocalInput(iso: string): string {
-		const d = new Date(iso);
-		const pad = (n: number) => String(n).padStart(2, '0');
-		return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-	}
-
 	const scopeName = $derived(projectScope ? (projects.find((p) => p.id === projectScope)?.name ?? null) : null);
 
 	function presetExpiry(days: number) {
@@ -48,7 +43,7 @@
 		}
 		const d = new Date();
 		d.setDate(d.getDate() + days);
-		expiresAt = toLocalInput(d.toISOString());
+		expiresAt = toDatetimeLocal(d, timezoneStore.zone);
 		expiryMode = 'custom';
 	}
 
@@ -88,7 +83,7 @@
 			rateLimit = tok.rate_limit_per_second ? String(tok.rate_limit_per_second) : '';
 			if (tok.expires_at) {
 				expiryMode = 'custom';
-				expiresAt = toLocalInput(tok.expires_at);
+				expiresAt = toDatetimeLocal(tok.expires_at, timezoneStore.zone);
 			}
 		} catch (e: unknown) {
 			error = e instanceof Error ? e.message : 'Failed to load token';
@@ -108,7 +103,7 @@
 				description: description.trim() || null,
 				project_scope: projectScope || null,
 				rate_limit_per_second: rateLimit && Number(rateLimit) > 0 ? Number(rateLimit) : null,
-				expires_at: expiryMode === 'custom' && expiresAt ? new Date(expiresAt).toISOString() : null,
+				expires_at: expiryMode === 'custom' && expiresAt ? fromDatetimeLocal(expiresAt, timezoneStore.zone) : null,
 			};
 			await api.apiTokens.update(tokenId, payload);
 			toastStore.success('Token updated - changes take effect immediately');
