@@ -44,49 +44,54 @@
 	});
 
 	// A nav item is visible when the caller holds its minimum capability (or it names none).
+	// The client's IA: six groups gated by capability. A section renders only when at least one of
+	// its items is visible to the caller (see the template filter), so lower levels see a shorter menu.
 	type NavItem = { href: string; label: string; icon: string; minCap?: Capability };
 	const navSections: { label: string; items: NavItem[] }[] = [
 		{
-			label: 'Monitor',
+			label: 'Subprojects',
 			items: [
 				{ href: `${base}/sites`, label: 'Sites', icon: 'pin' },
-				{ href: `${base}/sensors`, label: 'Sensors', icon: 'cpu' },
-				{ href: `${base}/streams`, label: 'Streams', icon: 'rss' },
 				{ href: `${base}/alarms`, label: 'Alarms', icon: 'bell' },
-				{ href: `${base}/logs`, label: 'Logs', icon: 'clock' },
-				{ href: `${base}/schedules`, label: 'Schedules', icon: 'clock' },
 			],
 		},
 		{
-			label: 'Field Work',
-			items: [
-				{ href: `${base}/grab-samples`, label: 'Grab Samples', icon: 'flask' },
-				{ href: `${base}/upload`, label: 'Upload', icon: 'upload' },
-			],
+			label: 'Sensor Data',
+			items: [{ href: `${base}/sensors`, label: 'Sensors', icon: 'cpu' }],
 		},
 		{
-			label: 'Analyze',
+			label: 'Field & Lab Data',
 			items: [
-				{ href: `${base}/compare`, label: 'Compare Sites', icon: 'arrows-lr' },
+				{ href: `${base}/grab-samples`, label: 'Grab Samples', icon: 'flask', minCap: 'writeData' },
+				{ href: `${base}/upload`, label: 'Upload', icon: 'upload', minCap: 'writeData' },
 				{ href: `${base}/tools`, label: 'Tools', icon: 'wrench' },
 			],
 		},
 		{
-			label: 'Library',
+			label: 'Visualization',
 			items: [
-				{ href: `${base}/parameters`, label: 'Parameters', icon: 'sliders' },
-				{ href: `${base}/standard-curves`, label: 'Standard Curves', icon: 'chart' },
-				{ href: `${base}/constants`, label: 'Constants', icon: 'hash' },
-				{ href: `${base}/projects`, label: 'Projects', icon: 'folder' },
+				{ href: `${base}/compare`, label: 'Compare Sites', icon: 'arrows-lr', minCap: 'writeData' },
+			],
+		},
+		{
+			label: 'Management',
+			items: [
+				{ href: `${base}/parameters`, label: 'Parameters', icon: 'sliders', minCap: 'writeCatalog' },
+				{ href: `${base}/standard-curves`, label: 'Standard Curves', icon: 'chart', minCap: 'writeCatalog' },
+				{ href: `${base}/constants`, label: 'Constants', icon: 'hash', minCap: 'writeCatalog' },
 			],
 		},
 		{
 			label: 'Admin',
 			items: [
 				{ href: `${base}/users`, label: 'Users', icon: 'users', minCap: 'admin' },
+				{ href: `${base}/projects`, label: 'Projects', icon: 'folder', minCap: 'admin' },
 				{ href: `${base}/tokens`, label: 'API Tokens', icon: 'settings', minCap: 'admin' },
+				{ href: `${base}/streams`, label: 'Data Streams', icon: 'rss', minCap: 'admin' },
 				{ href: `${base}/notifications`, label: 'Notifications', icon: 'settings', minCap: 'admin' },
-				{ href: `${base}/system`, label: 'System', icon: 'settings' },
+				{ href: `${base}/system`, label: 'System', icon: 'settings', minCap: 'admin' },
+				{ href: `${base}/logs`, label: 'Logs', icon: 'clock', minCap: 'admin' },
+				{ href: `${base}/schedules`, label: 'Schedules', icon: 'clock', minCap: 'admin' },
 			],
 		},
 	];
@@ -151,28 +156,31 @@
 				{#if !sidebarCollapsed}Dashboard{/if}
 			</a>
 
-			<!-- Nav sections -->
+			<!-- Nav sections. A section only appears when the caller can see at least one of its items. -->
 			{#each navSections as section}
-				{#if !sidebarCollapsed}
-					<div class="px-4 pt-4 pb-1 text-[0.6875rem] font-bold uppercase tracking-[0.08em] text-brand-muted">
-						{section.label}
-					</div>
-				{:else}
-					<div class="h-px bg-brand-divider mx-2 my-2"></div>
+				{@const visibleItems = section.items.filter((i) => !i.minCap || me.can(i.minCap))}
+				{#if visibleItems.length > 0}
+					{#if !sidebarCollapsed}
+						<div class="px-4 pt-4 pb-1 text-[0.6875rem] font-bold uppercase tracking-[0.08em] text-brand-muted">
+							{section.label}
+						</div>
+					{:else}
+						<div class="h-px bg-brand-divider mx-2 my-2"></div>
+					{/if}
+					{#each visibleItems as item}
+						<a
+							href={item.href}
+							class="flex items-center gap-2 px-4 py-1.5 text-sm no-underline transition-colors {isActive(item.href)
+								? 'text-brand-primary bg-brand-primary/5 font-semibold'
+								: 'text-brand-text hover:bg-brand-bg'}"
+							title={sidebarCollapsed ? item.label : undefined}
+						>
+							{#if !sidebarCollapsed}
+								{item.label}
+							{/if}
+						</a>
+					{/each}
 				{/if}
-				{#each section.items.filter((i) => !i.minCap || me.can(i.minCap)) as item}
-					<a
-						href={item.href}
-						class="flex items-center gap-2 px-4 py-1.5 text-sm no-underline transition-colors {isActive(item.href)
-							? 'text-brand-primary bg-brand-primary/5 font-semibold'
-							: 'text-brand-text hover:bg-brand-bg'}"
-						title={sidebarCollapsed ? item.label : undefined}
-					>
-						{#if !sidebarCollapsed}
-							{item.label}
-						{/if}
-					</a>
-				{/each}
 			{/each}
 
 			<!-- Build versions -->
