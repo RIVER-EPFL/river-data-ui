@@ -14,14 +14,14 @@ let initStarted = false;
 function getRole(decoded: KeycloakTokenParsed): string | false {
 	const roles = decoded?.realm_access?.roles;
 	if (!roles) return false;
-	// The realm issues the four ordered access levels `riverdata-admin` > `-manager` > `-river`
-	// (legacy `-user`) > `-intern` (see keycloak-realm-dev.json and the API's authz Role mapping).
-	// Normalise to the highest short level the JWT carries. Anything else → false (no access), which
-	// the layout renders as the Unauthorized page. `/api/me` is the authoritative source for
-	// capabilities and grants; this only decides access-vs-none for the shell gate.
+	// The realm issues the four ordered access levels `riverdata-admin` > `-manager` > `-river` >
+	// `-intern` (see keycloak-realm-dev.json and the API's authz Role mapping). Normalise to the
+	// highest short level the JWT carries. Anything else → false (no access), which the layout
+	// renders as the Unauthorized page. `/api/me` is the authoritative source for capabilities and
+	// grants; this only decides access-vs-none for the shell gate.
 	if (roles.includes('riverdata-admin')) return 'admin';
 	if (roles.includes('riverdata-manager')) return 'manager';
-	if (roles.includes('riverdata-river') || roles.includes('riverdata-user')) return 'river';
+	if (roles.includes('riverdata-river')) return 'river';
 	if (roles.includes('riverdata-intern')) return 'intern';
 	return false;
 }

@@ -48,7 +48,7 @@
 	async function addUser(user: DirectoryUser) {
 		addingId = user.id;
 		try {
-			await assignUserRoles(user.id, [...user.roles, 'riverdata-user']);
+			await assignUserRoles(user.id, [...user.roles, 'riverdata-river']);
 			toastStore.success(`${user.username} can now access River Data`);
 			goto(`${base}/users/${user.id}`);
 		} catch {
@@ -66,7 +66,7 @@
 	<h2 class="text-xl font-semibold">Add User</h2>
 	<p class="text-sm text-brand-muted">
 		Search the directory for an existing account and grant it access. Accounts are managed
-		centrally — users are not created here.
+		centrally, so users are not created here.
 	</p>
 
 	<!-- svelte-ignore a11y_autofocus -->

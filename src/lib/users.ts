@@ -6,7 +6,6 @@ export const ACCESS_ROLE_LABELS: Record<string, string> = {
 	'riverdata-admin': 'Administrator',
 	'riverdata-manager': 'Manager',
 	'riverdata-river': 'River',
-	'riverdata-user': 'River',
 	'riverdata-intern': 'Intern',
 };
 
@@ -15,13 +14,7 @@ export function accessRoles(roles: string[] | undefined): string[] {
 }
 
 // Highest-to-lowest access level; the first one a user holds is their effective level.
-const ROLE_PRIORITY = [
-	'riverdata-admin',
-	'riverdata-manager',
-	'riverdata-river',
-	'riverdata-user',
-	'riverdata-intern',
-];
+const ROLE_PRIORITY = ['riverdata-admin', 'riverdata-manager', 'riverdata-river', 'riverdata-intern'];
 
 export function highestAccessRole(roles: string[] | undefined): string | null {
 	return ROLE_PRIORITY.find((r) => (roles ?? []).includes(r)) ?? null;
@@ -48,7 +41,6 @@ export function roleBadgeVariant(role: string): RoleVariant {
 		case 'riverdata-manager':
 			return 'default';
 		case 'riverdata-river':
-		case 'riverdata-user':
 			return 'ok';
 		case 'riverdata-intern':
 			return 'muted';

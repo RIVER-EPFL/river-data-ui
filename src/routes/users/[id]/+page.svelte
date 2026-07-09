@@ -14,12 +14,12 @@
 	interface User { id: string; username: string; email: string; firstName: string; lastName: string; enabled: boolean; roles?: string[]; }
 	const usersClient = crudClient<User>('users');
 
-	// The four ordered access levels; highest held wins. `riverdata-user` is the legacy River alias.
+	// The four ordered access levels; highest held wins.
 	const LEVELS = [
-		{ role: 'riverdata-intern', label: 'Intern', hint: 'Read-only — view data and charts.' },
+		{ role: 'riverdata-intern', label: 'Intern', hint: 'Read-only access to data and charts.' },
 		{ role: 'riverdata-river', label: 'River', hint: 'Write data and field metadata within granted projects.' },
 		{ role: 'riverdata-manager', label: 'Manager', hint: 'Manage sensors and the catalog, plus everything River can do.' },
-		{ role: 'riverdata-admin', label: 'Administrator', hint: 'Full access — users, tokens, onboarding, all projects.' },
+		{ role: 'riverdata-admin', label: 'Administrator', hint: 'Full access: users, tokens, onboarding, all projects.' },
 	];
 	const LEVEL_ROLES = LEVELS.map((l) => l.role);
 
@@ -40,7 +40,6 @@
 		for (let i = LEVELS.length - 1; i >= 0; i--) {
 			if (roles.includes(LEVELS[i].role)) return LEVELS[i].role;
 		}
-		if (roles.includes('riverdata-user')) return 'riverdata-river';
 		return '';
 	});
 	const isAdminLevel = $derived(currentLevel === 'riverdata-admin');
@@ -65,9 +64,7 @@
 		if (!user || role === currentLevel) return;
 		savingRole = true;
 		try {
-			const kept = (user.roles ?? []).filter(
-				(r) => !LEVEL_ROLES.includes(r) && r !== 'riverdata-user',
-			);
+			const kept = (user.roles ?? []).filter((r) => !LEVEL_ROLES.includes(r));
 			const newRoles = [...kept, role];
 			await assignUserRoles(userId, newRoles);
 			user = { ...user, roles: newRoles };
@@ -100,7 +97,7 @@
 
 	async function revokeAccess() {
 		if (!user) return;
-		if (!confirm(`Remove all River Data access for ${user.username}? Their account is not deleted.`)) return;
+		if (!confirm(`Remove all River Data access for ${user.username}? Their account stays in the directory (it is not deleted), but they will no longer appear in this Users list until access is granted again.`)) return;
 		revoking = true;
 		try {
 			await assignUserRoles(userId, (user.roles ?? []).filter((r) => !r.startsWith('riverdata-')));
@@ -180,7 +177,7 @@
 				{/if}
 			</div>
 			{#if isAdminLevel}
-				<p class="p-4 text-sm text-brand-muted">Administrators see every project — no grants needed.</p>
+				<p class="p-4 text-sm text-brand-muted">Administrators see every project, so no grants are needed.</p>
 			{:else if projects.length === 0}
 				<p class="p-4 text-sm text-brand-muted">No projects exist yet.</p>
 			{:else}

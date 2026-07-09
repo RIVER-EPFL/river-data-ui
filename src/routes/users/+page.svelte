@@ -50,11 +50,8 @@
 		}
 	});
 
-	// Normalise the legacy `riverdata-user` alias onto `riverdata-river` so the River filter matches both.
 	function levelKey(u: User): string {
-		const r = highestAccessRole(u.roles);
-		if (r === 'riverdata-user') return 'riverdata-river';
-		return r ?? '';
+		return highestAccessRole(u.roles) ?? '';
 	}
 
 	const filtered = $derived.by(() => {
