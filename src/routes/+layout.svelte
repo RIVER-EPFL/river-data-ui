@@ -75,6 +75,7 @@
 		{
 			label: 'Management',
 			items: [
+				{ href: `${base}/instruments`, label: 'Instruments', icon: 'cpu', minCap: 'manageSensors' },
 				{ href: `${base}/parameters`, label: 'Parameters', icon: 'sliders', minCap: 'writeCatalog' },
 				{ href: `${base}/sensor-calibrations`, label: 'Standard Curves', icon: 'chart', minCap: 'writeCatalog' },
 				{ href: `${base}/constants`, label: 'Constants', icon: 'hash', minCap: 'writeCatalog' },

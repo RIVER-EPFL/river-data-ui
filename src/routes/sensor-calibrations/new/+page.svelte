@@ -1,12 +1,16 @@
 <script lang="ts">
 	import { base } from '$app/paths';
 	import { onMount } from 'svelte';
+	import { page } from '$app/state';
 	import CrudForm from '$components/crud/CrudForm.svelte';
 	import { api } from '$api/crud';
 	import type { Field } from '$components/crud/CrudForm.svelte';
 
 	let sensorOptions = $state<Array<{ value: string; label: string }>>([]);
 	let parameterOptions = $state<Array<{ value: string; label: string }>>([]);
+
+	// Optional prefill when arriving from an instrument's "+ Add curve" affordance.
+	const prefillSensorId = page.url.searchParams.get('sensor_id') ?? '';
 
 	onMount(async () => {
 		const [sensors, parameters] = await Promise.all([
@@ -18,7 +22,7 @@
 	});
 
 	const fields: Field[] = $derived([
-		{ key: 'sensor_id', label: 'Sensor', type: 'select', required: true, options: sensorOptions },
+		{ key: 'sensor_id', label: 'Sensor', type: 'select', required: true, options: sensorOptions, defaultValue: prefillSensorId || undefined },
 		{ key: 'name', label: 'Name', helperText: 'Optional label for this curve' },
 		{ key: 'parameter_id', label: 'Parameter', type: 'select', options: parameterOptions, helperText: 'For windowed field-channel curves; leave blank for lab instruments' },
 		{ key: 'valid_from', label: 'Valid From', type: 'datetime', required: true, helperText: 'Start of calibration validity period' },
