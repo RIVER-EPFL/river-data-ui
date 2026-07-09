@@ -143,7 +143,7 @@ export interface SensorCalibration {
 	id: string;
 	sensor_id: string;
 	name: string | null;
-	/** Server-managed: 'windowed' (field-channel curve over a time window) or 'instant' (lab curve). Not settable on create yet. */
+	/** 'windowed' (field-channel curve over a time window) or 'instant' (lab curve). Defaults to 'windowed' on create; the grab add-curve path sends 'instant'. Not updatable after creation. */
 	mode: string;
 	parameter_id: string | null;
 	slope: number;

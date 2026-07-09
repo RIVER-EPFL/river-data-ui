@@ -703,6 +703,7 @@ export interface GrabSampleReading {
 	value: number;
 	replicate_index?: number;
 	sensor_id?: string;
+	calibration_id?: string;
 }
 
 export interface GrabSampleRequest {

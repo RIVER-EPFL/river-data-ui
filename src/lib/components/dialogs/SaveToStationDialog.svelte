@@ -1,6 +1,14 @@
 <script lang="ts">
-	import { api, type Site, type SiteParameter, type Parameter } from '$api/crud';
+	import {
+		api,
+		type Site,
+		type SiteParameter,
+		type Parameter,
+		type Sensor,
+		type SensorCalibration,
+	} from '$api/crud';
 	import { saveGrabSample } from '$api/service';
+	import { me } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
 	import Button from '$components/ui/Button.svelte';
@@ -53,6 +61,127 @@
 	let loadingSite = $state(false);
 	let saving = $state(false);
 
+	// Instrument + standard-curve provenance (all optional). A grab with no instrument/curve is
+	// stored raw, preserving the original behavior.
+	type InstrumentFilter = 'field' | 'lab' | 'all';
+	let instruments = $state<Sensor[]>([]);
+	let instrumentFilter = $state<InstrumentFilter>('field');
+	let selectedInstrumentId = $state('');
+
+	let curves = $state<SensorCalibration[]>([]);
+	let loadingCurves = $state(false);
+	let selectedCurveId = $state('');
+
+	let showAddCurve = $state(false);
+	let newCurveName = $state('');
+	let newCurveSlope = $state('');
+	let newCurveIntercept = $state('');
+	let newCurveR2 = $state('');
+	let creatingCurve = $state(false);
+
+	const filteredInstruments = $derived(
+		instruments.filter((i) => {
+			if (instrumentFilter === 'lab') return i.is_lab_instrument === true;
+			if (instrumentFilter === 'field') return i.is_lab_instrument !== true;
+			return true;
+		}),
+	);
+
+	const selectedCurve = $derived(curves.find((c) => c.id === selectedCurveId) ?? null);
+
+	// Live corrected value: slope * value + intercept, recomputed as either changes.
+	const correctedValue = $derived.by(() => {
+		if (!selectedCurve) return null;
+		const v = Number(value);
+		if (value === '' || !Number.isFinite(v)) return null;
+		return selectedCurve.slope * v + selectedCurve.intercept;
+	});
+
+	function instrumentLabel(i: Sensor): string {
+		const name = i.name ?? i.serial_number ?? i.id;
+		return `${name} (${i.is_lab_instrument ? 'Lab' : 'Field'})`;
+	}
+
+	function curveLabel(c: SensorCalibration): string {
+		const name = c.name ?? 'unnamed';
+		return `${name} — y = ${c.slope}x + ${c.intercept} (${c.mode})`;
+	}
+
+	function fmtCorrected(n: number): string {
+		return Number.isInteger(n) ? String(n) : n.toPrecision(6);
+	}
+
+	async function loadInstruments() {
+		if (instruments.length > 0) return;
+		try {
+			const res = await api.sensors.list({
+				perPage: 1000,
+				filter: { is_active: true },
+				sort: ['name', 'ASC'],
+			});
+			instruments = res.data;
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Failed to load instruments');
+		}
+	}
+
+	async function loadCurves(sensorId: string) {
+		selectedCurveId = '';
+		showAddCurve = false;
+		curves = [];
+		if (!sensorId) return;
+		loadingCurves = true;
+		try {
+			const res = await api.sensorCalibrations.list({
+				perPage: 200,
+				filter: { sensor_id: sensorId },
+				sort: ['valid_from', 'DESC'],
+			});
+			curves = res.data;
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Failed to load curves');
+		} finally {
+			loadingCurves = false;
+		}
+	}
+
+	const canCreateCurve = $derived(
+		!!selectedInstrumentId &&
+			me.can('manageSensors') &&
+			Number.isFinite(Number(newCurveSlope)) &&
+			newCurveSlope !== '' &&
+			Number(newCurveSlope) !== 0 &&
+			Number.isFinite(Number(newCurveIntercept)) &&
+			newCurveIntercept !== '',
+	);
+
+	async function createCurve() {
+		if (!canCreateCurve) return;
+		creatingCurve = true;
+		try {
+			const created = await api.sensorCalibrations.create({
+				sensor_id: selectedInstrumentId,
+				name: newCurveName.trim() || null,
+				mode: 'instant',
+				slope: Number(newCurveSlope),
+				intercept: Number(newCurveIntercept),
+				r_squared: newCurveR2 !== '' && Number.isFinite(Number(newCurveR2)) ? Number(newCurveR2) : null,
+			});
+			curves = [created, ...curves];
+			selectedCurveId = created.id;
+			showAddCurve = false;
+			newCurveName = '';
+			newCurveSlope = '';
+			newCurveIntercept = '';
+			newCurveR2 = '';
+			toastStore.success('Curve created');
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Failed to create curve');
+		} finally {
+			creatingCurve = false;
+		}
+	}
+
 	// Reset and (re)load sites each time the dialog opens.
 	$effect(() => {
 		if (!open) return;
@@ -62,11 +191,21 @@
 		collectedAt = toDatetimeLocal(Date.now(), browserZone);
 		collectedZone = browserZone;
 		label = '';
+		instrumentFilter = 'field';
+		selectedInstrumentId = '';
+		curves = [];
+		selectedCurveId = '';
+		showAddCurve = false;
+		newCurveName = '';
+		newCurveSlope = '';
+		newCurveIntercept = '';
+		newCurveR2 = '';
 		selectedFieldKey = primaryKey(numericFields);
 		value = selectedFieldKey
 			? String(numericFields.find((f) => f.key === selectedFieldKey)?.value ?? '')
 			: '';
 		void loadSites();
+		void loadInstruments();
 	});
 
 	async function loadSites() {
@@ -130,6 +269,8 @@
 						time: fromDatetimeLocal(collectedAt, collectedZone),
 						value: Number(value),
 						replicate_index: 0,
+						...(selectedInstrumentId ? { sensor_id: selectedInstrumentId } : {}),
+						...(selectedCurveId ? { calibration_id: selectedCurveId } : {}),
 					},
 				],
 			});
@@ -206,6 +347,93 @@
 					<input id="sts-value" type="number" step="any" bind:value class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" />
 				</div>
 			</div>
+
+			<div class="flex flex-col gap-1 border-t border-brand-divider pt-3">
+				<span class="text-sm font-medium">Instrument <span class="text-brand-muted font-normal">(optional)</span></span>
+				<div class="flex gap-1">
+					{#each ['field', 'lab', 'all'] as f}
+						<button
+							type="button"
+							onclick={() => (instrumentFilter = f as InstrumentFilter)}
+							class="px-2 py-0.5 text-xs rounded-md border {instrumentFilter === f
+								? 'bg-brand-primary text-white border-brand-primary'
+								: 'bg-brand-surface text-brand-muted border-brand-divider'}"
+						>{f === 'field' ? 'Field' : f === 'lab' ? 'Lab' : 'All'}</button>
+					{/each}
+				</div>
+				<select
+					id="sts-instrument"
+					bind:value={selectedInstrumentId}
+					onchange={() => loadCurves(selectedInstrumentId)}
+					class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
+				>
+					<option value="">— none —</option>
+					{#each filteredInstruments as i}
+						<option value={i.id}>{instrumentLabel(i)}</option>
+					{/each}
+				</select>
+			</div>
+
+			{#if selectedInstrumentId}
+				<div class="flex flex-col gap-1">
+					<label for="sts-curve" class="text-sm font-medium">Standard curve <span class="text-brand-muted font-normal">(optional)</span></label>
+					{#if loadingCurves}
+						<p class="text-xs text-brand-muted">Loading…</p>
+					{:else if curves.length === 0}
+						<p class="text-xs text-brand-muted">No curves on this instrument</p>
+					{:else}
+						<select
+							id="sts-curve"
+							bind:value={selectedCurveId}
+							class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
+						>
+							<option value="">— none (store raw) —</option>
+							{#each curves as c}
+								<option value={c.id}>{curveLabel(c)}</option>
+							{/each}
+						</select>
+					{/if}
+
+					{#if correctedValue !== null && selectedCurve}
+						<p class="text-xs text-brand-muted">
+							Corrected: {selectedCurve.slope} × {value} + {selectedCurve.intercept} =
+							<span class="font-medium text-brand-text">{fmtCorrected(correctedValue)}</span>
+						</p>
+					{:else if !selectedCurveId}
+						<p class="text-xs text-brand-muted">Stored raw</p>
+					{/if}
+
+					{#if me.can('manageSensors')}
+						<button
+							type="button"
+							onclick={() => (showAddCurve = !showAddCurve)}
+							class="self-start text-xs text-brand-primary hover:underline"
+						>{showAddCurve ? '− Cancel' : '+ Add curve'}</button>
+
+						{#if showAddCurve}
+							<div class="flex flex-col gap-2 border border-brand-divider rounded-md p-2">
+								<input
+									type="text"
+									bind:value={newCurveName}
+									placeholder="Curve name (optional)"
+									class="px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm"
+								/>
+								<div class="grid grid-cols-3 gap-2">
+									<input type="number" step="any" bind:value={newCurveSlope} placeholder="slope *" class="px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm" />
+									<input type="number" step="any" bind:value={newCurveIntercept} placeholder="intercept *" class="px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm" />
+									<input type="number" step="any" bind:value={newCurveR2} placeholder="r²" class="px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm" />
+								</div>
+								{#if newCurveSlope !== '' && Number(newCurveSlope) === 0}
+									<p class="text-xs text-severity-alarm">Slope cannot be zero.</p>
+								{/if}
+								<Button size="sm" variant="primary" onclick={createCurve} disabled={!canCreateCurve || creatingCurve}>
+									{creatingCurve ? 'Creating…' : 'Create curve'}
+								</Button>
+							</div>
+						{/if}
+					{/if}
+				</div>
+			{/if}
 
 			<div class="flex flex-col gap-1">
 				<label for="sts-label" class="text-sm font-medium">Label / note <span class="text-brand-muted font-normal">(optional)</span></label>
