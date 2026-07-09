@@ -14,6 +14,25 @@ export function accessRoles(roles: string[] | undefined): string[] {
 	return (roles ?? []).filter((r) => r in ACCESS_ROLE_LABELS);
 }
 
+// Highest-to-lowest access level; the first one a user holds is their effective level.
+const ROLE_PRIORITY = [
+	'riverdata-admin',
+	'riverdata-manager',
+	'riverdata-river',
+	'riverdata-user',
+	'riverdata-intern',
+];
+
+export function highestAccessRole(roles: string[] | undefined): string | null {
+	return ROLE_PRIORITY.find((r) => (roles ?? []).includes(r)) ?? null;
+}
+
+/** The user's effective access level as a label ("Administrator" … "Intern"), or "No access". */
+export function accessLevelLabel(roles: string[] | undefined): string {
+	const role = highestAccessRole(roles);
+	return role ? roleLabel(role) : 'No access';
+}
+
 export function roleLabel(role: string): string {
 	return ACCESS_ROLE_LABELS[role] ?? role;
 }
