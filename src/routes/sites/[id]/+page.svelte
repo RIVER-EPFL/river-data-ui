@@ -21,13 +21,13 @@
 	import ParameterChart, { type ChartData } from '$components/charts/ParameterChart.svelte';
 	import { GAP_THRESHOLDS } from '$lib/charts/uPlotTheme';
 	import { autoResolution } from '$lib/charts/multiSiteSeries';
-	import ScatterPlot from '$components/charts/ScatterPlot.svelte';
 	import SharedChartTooltip from '$components/charts/SharedChartTooltip.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
 	import ResolutionChips from '$components/charts/ResolutionChips.svelte';
 	import type { StatusEventsResponse } from '$lib/api/types';
 	import { eventBus } from '$lib/stores/events.svelte';
 	import { formatThresholdRange } from '$lib/alarms';
+	import { me } from '$auth/me.svelte';
 
 	let site = $state<Site | null>(null);
 	let project = $state<Project | null>(null);
@@ -44,6 +44,18 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let activeTab = $state(0);
+	// Tabs are dispatched by a stable key, not a hardcoded index, so the admin-only Status tab can be
+	// conditionally present without the body blocks below falling out of sync.
+	const tabDefs = $derived([
+		{ key: 'charts', label: 'Charts' },
+		{ key: 'parameters', label: 'Parameters' },
+		{ key: 'sensors', label: 'Sensors' },
+		{ key: 'samples', label: 'Samples' },
+		...(me.can('admin') ? [{ key: 'status', label: 'Status' }] : []),
+		{ key: 'notes', label: 'Notes' },
+	]);
+	const tabLabels = $derived(tabDefs.map((t) => t.label));
+	const activeKey = $derived(tabDefs[activeTab]?.key ?? 'charts');
 	let statsOpen = $state(false);
 	let recomputingId = $state<string | null>(null);
 	let confirmingRemove = $state<string | null>(null);
@@ -59,10 +71,6 @@
 			scheduleFetch();
 		}
 	}
-
-	// Scatter tab state
-	let scatterXParamId = $state('');
-	let scatterYParamId = $state('');
 
 	// Threshold editor state
 	let thresholdDialogOpen = $state(false);
@@ -373,7 +381,7 @@
 	const statusPage = $derived(Math.floor(statusOffset / STATUS_PAGE_SIZE) + 1);
 
 	$effect(() => {
-		if (activeTab === 4 && site && !statusLoaded) {
+		if (activeKey === 'status' && site && !statusLoaded) {
 			statusLoaded = true;
 			loadStatusEvents();
 		}
@@ -948,10 +956,10 @@
 			</div>
 		</div>
 
-		<Tabs tabs={['Charts', 'Parameters', 'Sensors', 'Samples', 'Status', 'Notes', 'Scatter']} bind:active={activeTab} />
+		<Tabs tabs={tabLabels} bind:active={activeTab} />
 
 		<!-- Charts tab -->
-		{#if activeTab === 0}
+		{#if activeKey === 'charts'}
 			<div class="space-y-3">
 				<!-- Shared time controls -->
 				<div class="rounded-md border border-brand-divider bg-brand-surface px-4 py-3 space-y-3">
@@ -1166,7 +1174,7 @@
 			<SharedChartTooltip syncKey={cursorSyncKey} />
 
 		<!-- Parameters tab -->
-		{:else if activeTab === 1}
+		{:else if activeKey === 'parameters'}
 			<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 				<div class="flex items-center justify-between px-4 py-3 bg-brand-bg border-b border-brand-divider">
 					<span class="text-sm font-semibold">Parameters ({siteParameters.filter((sp) => !sp.is_derived).length})</span>
@@ -1344,7 +1352,7 @@
 				</div>
 
 		<!-- Sensors tab -->
-		{:else if activeTab === 2}
+		{:else if activeKey === 'sensors'}
 			<div class="flex items-center justify-between mb-3">
 				<span class="text-sm font-semibold">Deployed sensors ({deployedSensors.length})</span>
 				<Button size="sm" onclick={() => (deployHereOpen = true)}>Deploy sensor here</Button>
@@ -1416,7 +1424,7 @@
 			</div>
 
 		<!-- Samples tab -->
-		{:else if activeTab === 3}
+		{:else if activeKey === 'samples'}
 			<div class="space-y-3">
 				{#if samples.length === 0}
 					<p class="text-sm text-brand-muted">No grab samples recorded for this site.</p>
@@ -1452,8 +1460,8 @@
 				{/if}
 			</div>
 
-		<!-- Status tab -->
-		{:else if activeTab === 4}
+		<!-- Status tab (admin-only) -->
+		{:else if activeKey === 'status'}
 			<div class="space-y-3">
 				<div class="flex gap-1">
 					{#each ['24h', '7d', '30d'] as range}
@@ -1499,7 +1507,7 @@
 			</div>
 
 		<!-- Notes tab -->
-		{:else if activeTab === 5}
+		{:else if activeKey === 'notes'}
 			<div class="space-y-3">
 				<Button variant="primary" onclick={() => addNoteOpen = true}>Add Note</Button>
 				{#each notes as note}
@@ -1520,69 +1528,6 @@
 				{/if}
 			</div>
 
-		<!-- Scatter tab -->
-		{:else if activeTab === 6}
-			<div class="space-y-4">
-				<div class="flex items-center gap-3 flex-wrap">
-					<div>
-						<label for="scatter-x-param" class="text-sm font-medium block mb-1">X Axis</label>
-						<select id="scatter-x-param" bind:value={scatterXParamId} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm min-w-[180px]">
-							<option value="">-- Select --</option>
-							{#each measurementParams as sp}
-								{@const param = parameters.find((p) => p.id === sp.parameter_id)}
-								{#if param}
-									<option value={sp.id} disabled={sp.id === scatterYParamId}>{param.name} ({sp.display_units ?? param.default_units})</option>
-								{/if}
-							{/each}
-						</select>
-					</div>
-					<span class="text-sm text-brand-muted mt-5">vs</span>
-					<div>
-						<label for="scatter-y-param" class="text-sm font-medium block mb-1">Y Axis</label>
-						<select id="scatter-y-param" bind:value={scatterYParamId} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm min-w-[180px]">
-							<option value="">-- Select --</option>
-							{#each measurementParams as sp}
-								{@const param = parameters.find((p) => p.id === sp.parameter_id)}
-								{#if param}
-									<option value={sp.id} disabled={sp.id === scatterXParamId}>{param.name} ({sp.display_units ?? param.default_units})</option>
-								{/if}
-							{/each}
-						</select>
-					</div>
-				</div>
-
-				{#if scatterXParamId && scatterYParamId}
-					{@const xSp = measurementParams.find((sp) => sp.id === scatterXParamId)}
-					{@const ySp = measurementParams.find((sp) => sp.id === scatterYParamId)}
-					{@const xParam = xSp ? parameters.find((p) => p.id === xSp.parameter_id) : null}
-					{@const yParam = ySp ? parameters.find((p) => p.id === ySp.parameter_id) : null}
-					{@const xChartData = chartDataMap.get(scatterXParamId)}
-					{@const yChartData = chartDataMap.get(scatterYParamId)}
-					{#if chartLoading}
-						<div class="h-[400px] flex items-center justify-center text-sm text-brand-muted rounded-md border border-brand-divider bg-brand-surface">Loading chart data…</div>
-					{:else if xChartData && yChartData && xParam && yParam && xSp && ySp}
-						<div class="rounded-md border border-brand-divider bg-brand-surface p-4">
-							<ScatterPlot
-								xData={xChartData.values}
-								yData={yChartData.values}
-								xLabel={xParam.name}
-								yLabel={yParam.name}
-								xUnits={xSp.display_units ?? xParam.default_units}
-								yUnits={ySp.display_units ?? yParam.default_units}
-								times={xChartData.times}
-								xColorIndex={measurementParams.indexOf(xSp)}
-								yColorIndex={measurementParams.indexOf(ySp)}
-							/>
-						</div>
-					{:else}
-						<div class="h-[400px] flex items-center justify-center text-sm text-brand-muted rounded-md border border-brand-divider bg-brand-surface">No data available for the selected parameters</div>
-					{/if}
-				{:else}
-					<div class="h-[400px] flex items-center justify-center text-sm text-brand-muted rounded-md border border-brand-divider bg-brand-surface">
-						Select X and Y parameters to generate a scatter plot
-					</div>
-				{/if}
-			</div>
 		{/if}
 	</div>
 

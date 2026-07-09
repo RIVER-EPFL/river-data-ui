@@ -52,32 +52,36 @@
 			label: 'Subprojects',
 			items: [
 				{ href: `${base}/sites`, label: 'Sites', icon: 'pin' },
-				{ href: `${base}/alarms`, label: 'Alarms', icon: 'bell' },
 			],
 		},
 		{
 			label: 'Sensor Data',
-			items: [{ href: `${base}/sensors`, label: 'Sensors', icon: 'cpu' }],
+			items: [
+				{ href: `${base}/sensors`, label: 'Sensors', icon: 'cpu' },
+				{ href: `${base}/alarms`, label: 'Alarms', icon: 'bell' },
+				{ href: `${base}/notifications`, label: 'Notifications', icon: 'settings', minCap: 'admin' },
+			],
 		},
 		{
 			label: 'Field & Lab Data',
 			items: [
+				{ href: `${base}/tools`, label: 'Grab via Tools', icon: 'wrench' },
 				{ href: `${base}/upload`, label: 'Upload', icon: 'upload', minCap: 'writeData' },
-				{ href: `${base}/tools`, label: 'Tools', icon: 'wrench' },
 			],
 		},
 		{
 			label: 'Visualization',
 			items: [
-				{ href: `${base}/compare`, label: 'Compare Sites', icon: 'arrows-lr', minCap: 'writeData' },
+				{ href: `${base}/compare`, label: 'Time Series', icon: 'arrows-lr', minCap: 'readData' },
+				{ href: `${base}/scatter`, label: 'Scatter', icon: 'chart', minCap: 'readData' },
+				{ href: `${base}/day-of-year`, label: 'Day of Year', icon: 'clock', minCap: 'readData' },
 			],
 		},
 		{
 			label: 'Management',
 			items: [
-				{ href: `${base}/instruments`, label: 'Instruments', icon: 'cpu', minCap: 'manageSensors' },
 				{ href: `${base}/parameters`, label: 'Parameters', icon: 'sliders', minCap: 'writeCatalog' },
-				{ href: `${base}/sensor-calibrations`, label: 'Standard Curves', icon: 'chart', minCap: 'writeCatalog' },
+				{ href: `${base}/instruments`, label: 'Instruments', icon: 'cpu', minCap: 'manageSensors' },
 				{ href: `${base}/constants`, label: 'Constants', icon: 'hash', minCap: 'writeCatalog' },
 			],
 		},
@@ -88,10 +92,7 @@
 				{ href: `${base}/projects`, label: 'Projects', icon: 'folder', minCap: 'admin' },
 				{ href: `${base}/tokens`, label: 'API Tokens', icon: 'settings', minCap: 'admin' },
 				{ href: `${base}/streams`, label: 'Data Streams', icon: 'rss', minCap: 'admin' },
-				{ href: `${base}/notifications`, label: 'Notifications', icon: 'settings', minCap: 'admin' },
 				{ href: `${base}/system`, label: 'System', icon: 'settings', minCap: 'admin' },
-				{ href: `${base}/logs`, label: 'Logs', icon: 'clock', minCap: 'admin' },
-				{ href: `${base}/schedules`, label: 'Schedules', icon: 'clock', minCap: 'admin' },
 			],
 		},
 	];
