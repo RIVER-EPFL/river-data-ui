@@ -37,6 +37,28 @@ export function roleLabel(role: string): string {
 	return ACCESS_ROLE_LABELS[role] ?? role;
 }
 
-export function roleBadgeVariant(role: string): 'accent' | 'default' {
-	return role === 'riverdata-admin' || role === 'riverdata-manager' ? 'accent' : 'default';
+export type RoleVariant = 'accent' | 'default' | 'ok' | 'muted';
+
+// One distinct chip colour per level so the list scans at a glance:
+// Administrator = accent (orange), Manager = default (blue), River = ok (green), Intern = muted.
+export function roleBadgeVariant(role: string): RoleVariant {
+	switch (role) {
+		case 'riverdata-admin':
+			return 'accent';
+		case 'riverdata-manager':
+			return 'default';
+		case 'riverdata-river':
+		case 'riverdata-user':
+			return 'ok';
+		case 'riverdata-intern':
+			return 'muted';
+		default:
+			return 'default';
+	}
+}
+
+/** Chip colour for a user's effective (highest) level; muted when they have no access. */
+export function accessLevelVariant(roles: string[] | undefined): RoleVariant {
+	const role = highestAccessRole(roles);
+	return role ? roleBadgeVariant(role) : 'muted';
 }
