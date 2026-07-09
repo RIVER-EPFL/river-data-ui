@@ -26,6 +26,7 @@ export function crudClient<T>(entity: string, base = '/api'): CrudClient<T> {
 
 export const api = {
 	projects: crudClient<Project>('projects'),
+	subprojects: crudClient<Subproject>('subprojects'),
 	sites: crudClient<Site>('sites'),
 	parameters: crudClient<Parameter>('parameters'),
 	siteParameters: crudClient<SiteParameter>('site_parameters'),
@@ -64,9 +65,18 @@ export interface Project {
 	discovered_at: string | null;
 }
 
+export interface Subproject {
+	id: string;
+	project_id: string;
+	name: string;
+	description: string | null;
+	created_at: string;
+}
+
 export interface Site {
 	id: string;
 	project_id: string;
+	subproject_id: string | null;
 	name: string;
 	description: string | null;
 	latitude: number | null;

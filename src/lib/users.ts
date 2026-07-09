@@ -4,7 +4,10 @@
 
 export const ACCESS_ROLE_LABELS: Record<string, string> = {
 	'riverdata-admin': 'Administrator',
-	'riverdata-user': 'User',
+	'riverdata-manager': 'Manager',
+	'riverdata-river': 'River',
+	'riverdata-user': 'River',
+	'riverdata-intern': 'Intern',
 };
 
 export function accessRoles(roles: string[] | undefined): string[] {
@@ -16,5 +19,5 @@ export function roleLabel(role: string): string {
 }
 
 export function roleBadgeVariant(role: string): 'accent' | 'default' {
-	return role === 'riverdata-admin' ? 'accent' : 'default';
+	return role === 'riverdata-admin' || role === 'riverdata-manager' ? 'accent' : 'default';
 }

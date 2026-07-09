@@ -3,6 +3,7 @@
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
 	import { auth } from '$auth/keycloak.svelte';
+	import { me, type Capability } from '$auth/me.svelte';
 	import { onMount } from 'svelte';
 	import Button from '$components/ui/Button.svelte';
 	import ToastContainer from '$components/ui/ToastContainer.svelte';
@@ -31,14 +32,19 @@
 		}
 	});
 
-	// `riverdata-admin` (normalised to 'admin' in keycloak.svelte.ts); local no-auth mode is admin.
-	const isAdmin = $derived(auth.role === 'admin');
-
 	onMount(() => {
 		auth.init();
 	});
 
-	type NavItem = { href: string; label: string; icon: string; adminOnly?: boolean };
+	// Resolve the caller's level + grants from /api/me once auth is ready; drives capability-gated nav.
+	$effect(() => {
+		if (auth.state.status !== 'loading' && auth.state.status !== 'error') {
+			me.ensure();
+		}
+	});
+
+	// A nav item is visible when the caller holds its minimum capability (or it names none).
+	type NavItem = { href: string; label: string; icon: string; minCap?: Capability };
 	const navSections: { label: string; items: NavItem[] }[] = [
 		{
 			label: 'Monitor',
@@ -77,9 +83,9 @@
 		{
 			label: 'Admin',
 			items: [
-				{ href: `${base}/users`, label: 'Users', icon: 'users', adminOnly: true },
-				{ href: `${base}/tokens`, label: 'API Tokens', icon: 'settings', adminOnly: true },
-				{ href: `${base}/notifications`, label: 'Notifications', icon: 'settings', adminOnly: true },
+				{ href: `${base}/users`, label: 'Users', icon: 'users', minCap: 'admin' },
+				{ href: `${base}/tokens`, label: 'API Tokens', icon: 'settings', minCap: 'admin' },
+				{ href: `${base}/notifications`, label: 'Notifications', icon: 'settings', minCap: 'admin' },
 				{ href: `${base}/system`, label: 'System', icon: 'settings' },
 			],
 		},
@@ -154,7 +160,7 @@
 				{:else}
 					<div class="h-px bg-brand-divider mx-2 my-2"></div>
 				{/if}
-				{#each section.items.filter((i) => !i.adminOnly || isAdmin) as item}
+				{#each section.items.filter((i) => !i.minCap || me.can(i.minCap)) as item}
 					<a
 						href={item.href}
 						class="flex items-center gap-2 px-4 py-1.5 text-sm no-underline transition-colors {isActive(item.href)

@@ -670,6 +670,17 @@ export const listRoles = () => GET<KeycloakRole[]>(`${ADMIN}/roles`);
 export const assignUserRoles = (userId: string, roles: string[]) =>
 	POST(`${ADMIN}/users/${userId}/roles`, { roles });
 
+// Project visibility grants: which projects a non-admin user may see and act in. Keyed by the
+// user's Keycloak id (== `sub`). PUT replaces the whole set.
+export interface GrantedProject {
+	project_id: string;
+	name: string;
+}
+export const getUserGrants = (userId: string) =>
+	GET<GrantedProject[]>(`${ADMIN}/users/${userId}/grants`);
+export const setUserGrants = (userId: string, projectIds: string[]) =>
+	PUT(`${ADMIN}/users/${userId}/grants`, { project_ids: projectIds });
+
 // Realm directory search (LDAP-federated in production — covers all EPFL accounts).
 // Each result includes the user's current realm roles.
 export interface DirectoryUser {
