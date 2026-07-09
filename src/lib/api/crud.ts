@@ -36,7 +36,6 @@ export const api = {
 	derivedParameters: crudClient<DerivedParameter>('derived_parameters'),
 	derivedParameterSources: crudClient<DerivedParameterSource>('derived_parameter_sources'),
 	samples: crudClient<Sample>('samples'),
-	standardCurves: crudClient<StandardCurve>('standard_curves'),
 	constants: crudClient<Constant>('constants'),
 	alarmThresholds: crudClient<AlarmThreshold>('alarm_thresholds'),
 	dataStreams: crudClient<DataStream>('data_streams'),
@@ -123,7 +122,6 @@ export interface Sensor {
 	id: string;
 	serial_number: string | null;
 	name: string | null;
-	parameter_id: string;
 	manufacturer: string | null;
 	model: string | null;
 	is_active: boolean | null;
@@ -144,10 +142,16 @@ export interface Sensor {
 export interface SensorCalibration {
 	id: string;
 	sensor_id: string;
+	name: string | null;
+	/** Server-managed: 'windowed' (field-channel curve over a time window) or 'instant' (lab curve). Not settable on create yet. */
+	mode: string;
+	parameter_id: string | null;
 	slope: number;
 	intercept: number;
+	r_squared: number | null;
 	valid_from: string;
 	valid_until: string | null;
+	performed_by: string | null;
 	notes: string | null;
 	created_at: string;
 	updated_at: string;
@@ -203,19 +207,6 @@ export interface Sample {
 	min_value: number | null;
 	max_value: number | null;
 	updated_at: string | null;
-}
-
-export interface StandardCurve {
-	id: string;
-	parameter_id: string;
-	name: string;
-	slope: number;
-	intercept: number;
-	r_squared: number | null;
-	valid_from: string | null;
-	valid_until: string | null;
-	created_at: string;
-	updated_at: string;
 }
 
 export interface Constant {

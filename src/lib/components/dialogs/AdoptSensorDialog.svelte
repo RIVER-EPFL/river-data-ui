@@ -48,8 +48,8 @@
 
 	function paramName(id: string) { return parameters.find((p) => p.id === id)?.name ?? id; }
 
-	// Only show site_parameters whose global parameter matches this sensor's parameter_id.
-	const compatibleSiteParams = $derived(siteParams.filter((sp) => sp.parameter_id === sensor.parameter_id));
+	// Sensors are parameter-free, so any of the site's parameter slots can be adopted.
+	const compatibleSiteParams = $derived(siteParams);
 
 	async function adopt() {
 		if (!selectedSiteId || !deployedFrom) return;
@@ -102,7 +102,7 @@
 							{#each compatibleSiteParams as sp}<option value={sp.id}>{sp.name ?? paramName(sp.parameter_id)}</option>{/each}
 						</select>
 						{#if compatibleSiteParams.length === 0}
-							<p class="text-xs text-severity-warning">No matching parameter at this site for {paramName(sensor.parameter_id)}.</p>
+							<p class="text-xs text-severity-warning">No parameter slots at this site.</p>
 						{/if}
 					</div>
 					{#if incumbent}

@@ -62,7 +62,6 @@
 		{
 			label: 'Field & Lab Data',
 			items: [
-				{ href: `${base}/grab-samples`, label: 'Grab Samples', icon: 'flask', minCap: 'writeData' },
 				{ href: `${base}/upload`, label: 'Upload', icon: 'upload', minCap: 'writeData' },
 				{ href: `${base}/tools`, label: 'Tools', icon: 'wrench' },
 			],
@@ -77,7 +76,7 @@
 			label: 'Management',
 			items: [
 				{ href: `${base}/parameters`, label: 'Parameters', icon: 'sliders', minCap: 'writeCatalog' },
-				{ href: `${base}/standard-curves`, label: 'Standard Curves', icon: 'chart', minCap: 'writeCatalog' },
+				{ href: `${base}/sensor-calibrations`, label: 'Standard Curves', icon: 'chart', minCap: 'writeCatalog' },
 				{ href: `${base}/constants`, label: 'Constants', icon: 'hash', minCap: 'writeCatalog' },
 			],
 		},

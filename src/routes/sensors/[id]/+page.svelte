@@ -37,14 +37,14 @@
 
 	const sensorId = page.params.id!;
 
-	const sensorUnits = $derived(parameters.find((p) => p.id === sensor?.parameter_id)?.default_units ?? '');
+	const sensorUnits = $derived(series?.units ?? '');
 
 	// Adapt deployment bands → the SensorIdentityBand shape the chart plugin expects.
 	const identityBands = $derived<SensorIdentityBand[]>(
 		depBands.map((d) => ({
 			deployment_id: d.deployment_id, sensor_id: sensorId,
 			sensor_serial: sensor?.serial_number ?? null, sensor_name: sensor?.name ?? null,
-			site_id: d.site_id, site_name: d.site_name, parameter_id: sensor?.parameter_id ?? '',
+			site_id: d.site_id, site_name: d.site_name, parameter_id: series?.parameter_id ?? '',
 			from: d.from, until: d.until,
 		})),
 	);
