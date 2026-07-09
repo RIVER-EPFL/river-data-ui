@@ -42,6 +42,7 @@
 		seriesIndex = 0,
 		syncKey = '',
 		chartData,
+		spotData = null,
 		gapThreshold = 0,
 		loading: externalLoading = false,
 		onZoomSelect,
@@ -67,6 +68,9 @@
 		seriesIndex?: number;
 		syncKey?: string;
 		chartData?: ChartData | null;
+		/** Discrete spot/grab samples (measurement_type='spot'), drawn as unconnected diamond
+		 *  markers. When present without chartData, only the markers render (no continuous line). */
+		spotData?: ChartData | null;
 		gapThreshold?: number;
 		loading?: boolean;
 		onZoomSelect?: (startMs: number, endMs: number) => void;
@@ -135,8 +139,10 @@
 		userExpansionPref = !annotationsExpanded;
 	}
 
-	const hasData = $derived(chartData != null && chartData.times.length > 0);
-	const dataPoints = $derived(chartData?.times.length ?? 0);
+	const hasContinuous = $derived(chartData != null && chartData.times.length > 0);
+	const hasSpot = $derived(spotData != null && spotData.times.length > 0);
+	const hasData = $derived(hasContinuous || hasSpot);
+	const dataPoints = $derived((chartData?.times.length ?? 0) + (spotData?.times.length ?? 0));
 
 	const syncGroup = syncKey ? getChartSyncGroup(syncKey) : null;
 	const chartId = siteParameterId;
@@ -282,6 +288,49 @@
 		};
 	}
 
+	// Draws spot/grab samples as unconnected diamonds (matching the dashboard grab-sample markers).
+	// The values live in a real uPlot series (so they range the y-scale) that is rendered
+	// transparently with points off; this plugin paints the diamonds from that series' data.
+	function spotDiamondPlugin(seriesIdx: number): uPlot.Plugin {
+		if (seriesIdx < 0) return { hooks: {} };
+		return {
+			hooks: {
+				draw: [
+					(u: uPlot) => {
+						const xData = u.data[0] as number[];
+						const vData = u.data[seriesIdx] as (number | undefined)[];
+						if (!xData || !vData) return;
+						const ctx = u.ctx;
+						const { left, top, width, height } = u.bbox;
+						ctx.save();
+						ctx.beginPath();
+						ctx.rect(left, top, width, height);
+						ctx.clip();
+						const size = 5;
+						ctx.fillStyle = uPlotTheme.grabSampleFill;
+						ctx.strokeStyle = uPlotTheme.grabSampleStroke;
+						ctx.lineWidth = 1.5;
+						for (let i = 0; i < xData.length; i++) {
+							const val = vData[i];
+							if (val == null) continue;
+							const x = u.valToPos(xData[i], 'x', true);
+							const y = u.valToPos(val, 'y', true);
+							ctx.beginPath();
+							ctx.moveTo(x, y - size);
+							ctx.lineTo(x + size, y);
+							ctx.lineTo(x, y + size);
+							ctx.lineTo(x - size, y);
+							ctx.closePath();
+							ctx.fill();
+							ctx.stroke();
+						}
+						ctx.restore();
+					},
+				],
+			},
+		};
+	}
+
 	let dragOverlayEl: HTMLDivElement | null = null;
 
 	function setupCustomSelection(u: uPlot) {
@@ -343,28 +392,84 @@
 	function renderChart() {
 		if (chart) { chart.destroy(); chart = null; }
 		if (teardownCustomSelection) { teardownCustomSelection(); teardownCustomSelection = null; }
-		if (!el || !chartData || chartData.times.length === 0) return;
+		const cont = chartData && chartData.times.length > 0 ? chartData : null;
+		const spot = spotData && spotData.times.length > 0 ? spotData : null;
+		if (!el || (!cont && !spot)) return;
 		const rect = el.getBoundingClientRect();
 		if (rect.width === 0) return;
 
-		const { times, values, mins, maxs, flags } = chartData;
 		const toU = (arr: (number | null)[]): (number | undefined)[] => arr.map((v) => v ?? undefined);
-		const hasMinMax = mins && maxs;
+		const hasMinMax = !!cont && !!cont.mins && !!cont.maxs;
 
 		const gaps = gapThreshold > 0 ? makeGaps(gapThreshold) : undefined;
 
-		const seriesDefs: uPlot.Series[] = [
-			{},
-			{ ...makeSeries(seriesIndex, parameterName, units), gaps },
-		];
-		const data: uPlot.AlignedData = [times, toU(values)] as any;
+		// x-axis + aligned value columns. When both a continuous line and spot markers are
+		// present they get overlaid onto one shared (union) timeline so uPlot can render both.
+		let times: number[];
+		let contValues: (number | undefined)[] = [];
+		let contMins: (number | undefined)[] | null = null;
+		let contMaxs: (number | undefined)[] | null = null;
+		let flags: (boolean | null)[] | null = null;
+		let spotValues: (number | undefined)[] = [];
 
-		if (hasMinMax) {
-			seriesDefs.push(
-				{ label: 'min', stroke: 'transparent', show: true, width: 0, points: { show: false }, gaps },
-				{ label: 'max', stroke: 'transparent', show: true, width: 0, points: { show: false }, gaps },
-			);
-			(data as any[]).push(toU(mins!), toU(maxs!));
+		if (cont && spot) {
+			const idx = new Map<number, number>();
+			const union: number[] = [];
+			for (const t of cont.times) if (!idx.has(t)) { idx.set(t, union.length); union.push(t); }
+			for (const t of spot.times) if (!idx.has(t)) { idx.set(t, union.length); union.push(t); }
+			union.sort((a, b) => a - b);
+			union.forEach((t, i) => idx.set(t, i));
+			times = union;
+			const alignNum = (ts: number[], vs: (number | null)[]): (number | undefined)[] => {
+				const out = new Array<number | undefined>(union.length).fill(undefined);
+				for (let i = 0; i < ts.length; i++) { const j = idx.get(ts[i]); if (j != null) out[j] = vs[i] ?? undefined; }
+				return out;
+			};
+			contValues = alignNum(cont.times, cont.values);
+			if (hasMinMax) { contMins = alignNum(cont.times, cont.mins!); contMaxs = alignNum(cont.times, cont.maxs!); }
+			if (cont.flags) {
+				const fout = new Array<boolean | null>(union.length).fill(null);
+				for (let i = 0; i < cont.times.length; i++) { const j = idx.get(cont.times[i]); if (j != null) fout[j] = cont.flags[i] ?? null; }
+				flags = fout;
+			}
+			spotValues = alignNum(spot.times, spot.values);
+		} else if (cont) {
+			times = cont.times;
+			contValues = toU(cont.values);
+			if (hasMinMax) { contMins = toU(cont.mins!); contMaxs = toU(cont.maxs!); }
+			flags = cont.flags ?? null;
+		} else {
+			times = spot!.times;
+			spotValues = toU(spot!.values);
+			flags = spot!.flags ?? null;
+		}
+
+		// Series layout: index 1 is the continuous line (or, when there is no line, the spot
+		// markers themselves so the y-scale still ranges). thresholdLinePlugin/flaggedPointPlugin
+		// read series 1, and the min/max band references series [3, 2] — keep spot after those.
+		const seriesDefs: uPlot.Series[] = [{}];
+		const data: uPlot.AlignedData = [times] as any;
+		let spotSeriesIdx = -1;
+
+		if (cont) {
+			seriesDefs.push({ ...makeSeries(seriesIndex, parameterName, units), gaps });
+			(data as any[]).push(contValues);
+			if (hasMinMax) {
+				seriesDefs.push(
+					{ label: 'min', stroke: 'transparent', show: true, width: 0, points: { show: false }, gaps },
+					{ label: 'max', stroke: 'transparent', show: true, width: 0, points: { show: false }, gaps },
+				);
+				(data as any[]).push(contMins!, contMaxs!);
+			}
+			if (spot) {
+				spotSeriesIdx = (data as any[]).length;
+				seriesDefs.push({ label: parameterName, stroke: 'transparent', width: 0, points: { show: false } });
+				(data as any[]).push(spotValues);
+			}
+		} else {
+			spotSeriesIdx = 1;
+			seriesDefs.push({ label: parameterName, stroke: 'transparent', width: 0, points: { show: false } });
+			(data as any[]).push(spotValues);
 		}
 
 		const stripPad = (showSensorVectors ? BAND_STRIP_CSS : 0) + (showCalibrationMarkers ? CALIBRATION_STRIP_CSS : 0);
@@ -381,6 +486,7 @@
 				thresholdLinePlugin(),
 				calibrationMarkerPlugin(calMarkersRef, overlayVisRef),
 				flaggedPointPlugin(flags),
+				spotDiamondPlugin(spotSeriesIdx),
 				cursorSyncPlugin(),
 			],
 			cursor: {
@@ -553,13 +659,15 @@
 		// Read synchronously so a timezone-preference toggle re-runs this effect; renderChart()
 		// (a microtask below) then rebuilds the chart with the new tzDate via tzDateOption().
 		void timezoneStore.zone;
-		if (hasData) {
+		// The shared crosshair reads the continuous series when present, else the spot samples.
+		const primary = hasContinuous ? chartData : spotData;
+		if (hasData && primary) {
 			syncGroup?.update(chartId, {
-				times: chartData!.times,
-				values: chartData!.values,
+				times: primary.times,
+				values: primary.values,
 				threshold,
-				flags: chartData!.flags ?? null,
-				flagReasons: chartData!.flagReasons ?? null,
+				flags: primary.flags ?? null,
+				flagReasons: primary.flagReasons ?? null,
 				annotations,
 				sensorBands: showSensorVectors ? sensorBands : [],
 				calibrationMarkers: showCalibrationMarkers ? calibrationMarkers : [],

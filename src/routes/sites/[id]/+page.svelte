@@ -131,6 +131,14 @@
 	// Shared chart state
 	const cursorSyncKey = 'site-charts';
 	let resolutionOverride = $state<'auto' | 'raw' | 'hourly' | 'daily'>('auto');
+	// Frequency selects which readings drive the charts, by measurement_type:
+	//   high = continuous field-sensor line (default), low = discrete spot/grab markers, all = both.
+	let frequency = $state<'high' | 'low' | 'all'>('high');
+	const FREQUENCY_CHIPS: Array<['high' | 'low' | 'all', string]> = [
+		['high', 'High'],
+		['low', 'Low'],
+		['all', 'All'],
+	];
 
 	let sliderMax = $state(Date.now());
 	let sliderMin = $state(Date.now() - 90 * 86400000);
@@ -185,6 +193,8 @@
 
 	let chartLoading = $state(false);
 	let chartDataMap = $state<Map<string, ChartData>>(new Map());
+	// Spot/grab samples per site_parameter id, drawn as discrete markers (Low/All frequency).
+	let spotDataMap = $state<Map<string, ChartData>>(new Map());
 	let annotationsByParam = $state<Map<string, Annotation[]>>(new Map());
 	let showSensorVectors = $state(false);
 	let showCalibrationMarkers = $state(false);
@@ -207,7 +217,7 @@
 
 	$effect(() => {
 		// Touch toggles so flipping them triggers a refetch (identity is window-scoped).
-		void showSensorVectors; void showCalibrationMarkers;
+		void showSensorVectors; void showCalibrationMarkers; void frequency;
 		if (site) scheduleFetch();
 	});
 
@@ -219,24 +229,35 @@
 
 		try {
 			const res = chartResolution;
-			let parsedTimes: number[] = [];
 			const map = new Map<string, ChartData>();
 
-			const dataPromise = res === 'raw'
-				? GET<ReadingsResponse>(`/api/sites/${siteId}/readings`, { start: startDate, end: endDate })
-				: GET<AggregatesResponse>(`/api/sites/${siteId}/aggregates/${res}`, { start: startDate, end: endDate });
+			// high/all draw the continuous line; low/all draw the spot markers. Both fetches are
+			// issued from this one debounced+generation-guarded call so they can't race each other.
+			const wantContinuous = frequency === 'high' || frequency === 'all';
+			const wantSpot = frequency === 'low' || frequency === 'all';
+
+			const dataPromise = !wantContinuous
+				? Promise.resolve(null)
+				: res === 'raw'
+					// RAW readings must be filtered to continuous only; the spot samples come from the
+					// separate spot fetch. (Aggregates are already continuous-only by design.)
+					? GET<ReadingsResponse>(`/api/sites/${siteId}/readings`, { start: startDate, end: endDate, measurement_type: 'continuous' })
+					: GET<AggregatesResponse>(`/api/sites/${siteId}/aggregates/${res}`, { start: startDate, end: endDate });
+			const spotPromise = wantSpot
+				? GET<ReadingsResponse>(`/api/sites/${siteId}/readings`, { start: startDate, end: endDate, measurement_type: 'spot' }).catch(() => null)
+				: Promise.resolve(null);
 			const annotationsPromise = GET<Annotation[]>(`/api/sites/${siteId}/annotations`, { start: startDate, end: endDate })
 				.catch(() => [] as Annotation[]);
 			const identityPromise = (showSensorVectors || showCalibrationMarkers)
 				? getSiteSensorIdentity(siteId, { start: startDate, end: endDate }).catch(() => null)
 				: Promise.resolve(null);
 
-			const [result, anns, identity] = await Promise.all([dataPromise, annotationsPromise, identityPromise]);
+			const [result, spotResult, anns, identity] = await Promise.all([dataPromise, spotPromise, annotationsPromise, identityPromise]);
 			if (gen === fetchGeneration) sensorIdentity = identity;
 			if (gen !== fetchGeneration) return;
 
-			if (result.times?.length) {
-				parsedTimes = result.times.map((t) => new Date(t).getTime() / 1000);
+			if (result && result.times?.length) {
+				const parsedTimes = result.times.map((t) => new Date(t).getTime() / 1000);
 				if (res === 'raw') {
 					for (const p of (result as ReadingsResponse).parameters ?? []) {
 						map.set(p.id, { times: parsedTimes, values: p.values, flags: p.flagged ?? null, flagReasons: p.flag_reasons ?? null });
@@ -248,8 +269,16 @@
 					}
 				}
 			}
-
 			chartDataMap = map;
+
+			const smap = new Map<string, ChartData>();
+			if (spotResult && spotResult.times?.length) {
+				const spotTimes = spotResult.times.map((t) => new Date(t).getTime() / 1000);
+				for (const p of spotResult.parameters ?? []) {
+					smap.set(p.id, { times: spotTimes, values: p.values, flags: p.flagged ?? null, flagReasons: p.flag_reasons ?? null });
+				}
+			}
+			spotDataMap = smap;
 
 			const annMap = new Map<string, Annotation[]>();
 			for (const a of anns) {
@@ -262,6 +291,7 @@
 			if (gen === fetchGeneration) {
 				toastStore.error('Failed to load chart data');
 				chartDataMap = new Map();
+				spotDataMap = new Map();
 				annotationsByParam = new Map();
 			}
 		} finally {
@@ -941,6 +971,18 @@
 						<span class="text-xs text-brand-muted font-semibold uppercase tracking-wider">Resolution</span>
 						<ResolutionChips bind:value={resolutionOverride} effective={chartResolution} onchange={scheduleFetch} />
 
+						<div class="w-px h-5 bg-brand-divider mx-1"></div>
+
+						<span class="text-xs text-brand-muted font-semibold uppercase tracking-wider" title="High = continuous field-sensor line · Low = grab/spot samples · All = both">Frequency</span>
+						<div class="flex gap-0.5">
+							{#each FREQUENCY_CHIPS as [val, label]}
+								<button
+									onclick={() => { frequency = val; }}
+									class="px-2 py-1 text-xs rounded cursor-pointer border-none {frequency === val ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
+								>{label}</button>
+							{/each}
+						</div>
+
 						{#if diagnosticParams.length > 0}
 							<div class="w-px h-5 bg-brand-divider mx-1"></div>
 							<label class="flex items-center gap-1.5 cursor-pointer text-xs text-brand-muted">
@@ -1057,6 +1099,7 @@
 							seriesIndex={i}
 							syncKey={cursorSyncKey}
 							chartData={chartDataMap.get(sp.id) ?? null}
+							spotData={spotDataMap.get(sp.id) ?? null}
 							{gapThreshold}
 							loading={chartLoading}
 							onZoomSelect={onChartZoomSelect}
@@ -1098,6 +1141,7 @@
 										seriesIndex={measurementParams.length + i}
 										syncKey={cursorSyncKey}
 										chartData={chartDataMap.get(sp.id) ?? null}
+										spotData={spotDataMap.get(sp.id) ?? null}
 										{gapThreshold}
 										loading={chartLoading}
 										onZoomSelect={onChartZoomSelect}
