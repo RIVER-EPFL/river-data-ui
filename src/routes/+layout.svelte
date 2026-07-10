@@ -8,6 +8,7 @@
 	import Button from '$components/ui/Button.svelte';
 	import ToastContainer from '$components/ui/ToastContainer.svelte';
 	import SearchBar from '$components/SearchBar.svelte';
+	import SiteNavigator from '$components/SiteNavigator.svelte';
 	import Unauthorized from '$components/Unauthorized.svelte';
 	import AlarmIndicator from '$components/AlarmIndicator.svelte';
 	import OperationsIndicator from '$components/OperationsIndicator.svelte';
@@ -156,6 +157,9 @@
 			>
 				{#if !sidebarCollapsed}Dashboard{/if}
 			</a>
+
+			<!-- Site navigator: the caller's sites, quick access. Capped at 40% of viewport height. -->
+			<SiteNavigator collapsed={sidebarCollapsed} />
 
 			<!-- Nav sections. A section only appears when the caller can see at least one of its items. -->
 			{#each navSections as section}

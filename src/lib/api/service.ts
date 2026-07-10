@@ -678,6 +678,24 @@ export interface GrantedProject {
 }
 export const getUserGrants = (userId: string) =>
 	GET<GrantedProject[]>(`${ADMIN}/users/${userId}/grants`);
+
+// The caller's visible sites as a project → subproject → site tree, grant-scoped server-side.
+// Drives the sidebar site navigator. Keycloak-only, like `/api/me`.
+export interface NavigatorSite {
+	id: string;
+	name: string;
+}
+export interface NavigatorSubproject {
+	id: string | null;
+	name: string;
+	sites: NavigatorSite[];
+}
+export interface NavigatorProject {
+	project_id: string;
+	name: string;
+	subprojects: NavigatorSubproject[];
+}
+export const getMySites = () => GET<NavigatorProject[]>(`${ADMIN}/me/sites`);
 export const setUserGrants = (userId: string, projectIds: string[]) =>
 	PUT(`${ADMIN}/users/${userId}/grants`, { project_ids: projectIds });
 
