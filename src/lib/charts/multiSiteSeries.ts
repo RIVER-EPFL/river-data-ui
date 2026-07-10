@@ -4,6 +4,11 @@ import type { ReadingsResponse, AggregatesResponse } from '$lib/api/types';
 
 export type SeriesResolution = 'raw' | 'hourly' | 'daily';
 
+// Which readings drive a plot, by measurement_type: high = continuous field-sensor data,
+// low = grab/spot samples, all = both. Aggregates are continuous-only by design, so low-frequency
+// series are always fetched via the raw readings path.
+export type Frequency = 'high' | 'low' | 'all';
+
 export interface SitePointSeries {
 	times: number[]; // epoch ms
 	values: (number | null)[];
@@ -21,9 +26,12 @@ export async function fetchSiteSeries(opts: {
 	start: string;
 	end: string;
 	resolution: SeriesResolution;
+	/** Only meaningful on the raw path — aggregates are continuous-only by design. */
+	measurementType?: 'continuous' | 'spot';
 }): Promise<SitePointSeries> {
-	const { siteId, parameterId, siteParameterId, start, end, resolution } = opts;
-	const query = { start, end, parameter_ids: parameterId };
+	const { siteId, parameterId, siteParameterId, start, end, resolution, measurementType } = opts;
+	const query: Record<string, string> = { start, end, parameter_ids: parameterId };
+	if (resolution === 'raw' && measurementType) query.measurement_type = measurementType;
 	let times: number[] = [];
 	let values: (number | null)[] = [];
 	if (resolution === 'raw') {

@@ -2,7 +2,8 @@
 	import type uPlot from 'uplot';
 	import { onMount } from 'svelte';
 	import { api, type Parameter, type Site, type SiteParameter } from '$api/crud';
-	import { fetchSiteSeries } from '$lib/charts/multiSiteSeries';
+	import { fetchSiteSeries, type Frequency } from '$lib/charts/multiSiteSeries';
+	import FrequencyChips from '$components/charts/FrequencyChips.svelte';
 	import { uPlotTheme, makeSeries, makeAxis } from '$lib/charts/uPlotTheme';
 	import { tokens } from '$lib/charts/tokens';
 	import UPlotChart from '$components/charts/UPlotChart.svelte';
@@ -48,6 +49,7 @@
 	let selectedParameterId = $state<string>('');
 	let selectedSiteIds = $state<string[]>([]);
 	let selectedYears = $state<number[]>([currentYear, currentYear - 1, currentYear - 2]);
+	let frequency = $state<Frequency>('high');
 
 	onMount(async () => {
 		try {
@@ -108,6 +110,7 @@
 		label: string;
 		doy: number[];
 		values: (number | null)[];
+		spot?: boolean;
 	}
 	let loaded = $state<OverlaySeries[]>([]);
 	let failed = $state<string[]>([]);
@@ -120,6 +123,7 @@
 		const siteIds = [...selectedSiteIds];
 		const years = [...selectedYears].sort((a, b) => a - b);
 		const opts = siteOptions;
+		void frequency;
 		if (!pid || siteIds.length === 0 || years.length === 0) {
 			loaded = [];
 			failed = [];
@@ -149,29 +153,56 @@
 				for (const year of years) combos.push({ opt, year });
 			}
 
+			const wantContinuous = frequency !== 'low';
+			const wantSpot = frequency !== 'high';
 			const failedLabels: string[] = [];
 			const results = await Promise.all(
-				combos.map(async ({ opt, year }): Promise<OverlaySeries> => {
+				combos.map(async ({ opt, year }): Promise<OverlaySeries[]> => {
 					const label = `${opt.siteName} ${year}`;
+					const common = {
+						siteId: opt.siteId,
+						parameterId,
+						siteParameterId: opt.siteParameterId,
+						start: `${year}-01-01T00:00:00Z`,
+						end: `${year}-12-31T23:59:59Z`,
+					};
+					const series: OverlaySeries[] = [];
 					try {
-						const { times, values } = await fetchSiteSeries({
-							siteId: opt.siteId,
-							parameterId,
-							siteParameterId: opt.siteParameterId,
-							start: `${year}-01-01T00:00:00Z`,
-							end: `${year}-12-31T23:59:59Z`,
-							resolution: RESOLUTION,
-						});
-						return { label, doy: times.map(dayOfYearInFrame), values };
+						if (wantContinuous) {
+							const { times, values } = await fetchSiteSeries({
+								...common,
+								resolution: RESOLUTION,
+								measurementType: 'continuous',
+							});
+							series.push({ label, doy: times.map(dayOfYearInFrame), values });
+						}
+						// Grab/spot samples are sparse and never aggregated — fetched raw and folded
+						// onto the same annual frame as discrete markers.
+						if (wantSpot) {
+							const spot = await fetchSiteSeries({
+								...common,
+								resolution: 'raw',
+								measurementType: 'spot',
+							}).catch(() => null);
+							if (spot && spot.times.length > 0) {
+								series.push({
+									label: `${label} (grabs)`,
+									doy: spot.times.map(dayOfYearInFrame),
+									values: spot.values,
+									spot: true,
+								});
+							}
+						}
+						return series;
 					} catch {
 						failedLabels.push(label);
-						return { label, doy: [], values: [] };
+						return series;
 					}
 				}),
 			);
 			if (myToken !== fetchToken) return;
 			// Drop empty series so the legend and palette only reflect years/sites with data.
-			loaded = results.filter((r) => r.doy.length > 0);
+			loaded = results.flat().filter((r) => r.doy.length > 0);
 			failed = failedLabels;
 			if (failedLabels.length === combos.length) {
 				loaded = [];
@@ -215,7 +246,15 @@
 			],
 			series: [
 				{ label: 'Day of year' },
-				...loaded.map((s, i) => makeSeries(i, s.label, units)),
+				...loaded.map((s, i) =>
+					s.spot
+						? {
+								...makeSeries(i, s.label, units),
+								paths: () => null,
+								points: { show: true, size: 7 },
+							}
+						: makeSeries(i, s.label, units),
+				),
 			],
 			legend: { show: uPlotTheme.legendShow },
 			cursor: { drag: { x: false, y: false } },
@@ -285,6 +324,11 @@
 								{/each}
 							</div>
 						{/if}
+					</div>
+
+					<div>
+						<span class="text-sm font-medium block mb-1">Frequency</span>
+						<FrequencyChips bind:value={frequency} />
 					</div>
 
 					<div>

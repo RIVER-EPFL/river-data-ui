@@ -8,7 +8,8 @@
 	import { uPlotTheme, makeSeries, makeAxis } from '$lib/charts/uPlotTheme';
 	import { toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
-	import { fetchSiteSeries, fetchSiteExtent, mergeSeries } from '$lib/charts/multiSiteSeries';
+	import { fetchSiteSeries, fetchSiteExtent, mergeSeries, type Frequency } from '$lib/charts/multiSiteSeries';
+	import FrequencyChips from '$components/charts/FrequencyChips.svelte';
 
 	let sites = $state<Site[]>([]);
 	let params = $state<Parameter[]>([]);
@@ -19,6 +20,7 @@
 	let selectedSiteIds = $state<string[]>([]);
 	let selectedParamId = $state('');
 	let resolution = $state<'raw' | 'hourly' | 'daily'>('hourly');
+	let frequency = $state<Frequency>('high');
 
 	// Shared time range, stored as epoch milliseconds
 	let start = $state(0);
@@ -29,7 +31,7 @@
 	let boundMax = $state(0);
 
 	// Data
-	let chartData = $state<Array<{ site: string; times: number[]; values: (number | null)[] }>>([]);
+	let chartData = $state<Array<{ site: string; times: number[]; values: (number | null)[]; spot?: boolean }>>([]);
 	let loadingData = $state(false);
 
 	// Stats panel
@@ -132,25 +134,41 @@
 		try {
 			const startIso = new Date(start).toISOString();
 			const endIso = new Date(end).toISOString();
+			const wantContinuous = frequency !== 'low';
+			const wantSpot = frequency !== 'high';
 			const results = await Promise.all(
 				selectedSiteIds.map(async (siteId) => {
 					const site = sites.find((s) => s.id === siteId);
 					const sp = siteParams.find(
 						(s) => s.site_id === siteId && s.parameter_id === selectedParamId,
 					);
-					const { times, values } = await fetchSiteSeries({
+					const common = {
 						siteId,
 						parameterId: selectedParamId,
 						siteParameterId: sp?.id,
 						start: startIso,
 						end: endIso,
-						resolution,
-					});
-					return { site: site?.name ?? siteId, times, values };
+					};
+					const [cont, spot] = await Promise.all([
+						wantContinuous
+							? fetchSiteSeries({ ...common, resolution, measurementType: 'continuous' })
+							: Promise.resolve(null),
+						// Grab/spot samples are sparse and never aggregated — always fetched raw.
+						wantSpot
+							? fetchSiteSeries({ ...common, resolution: 'raw', measurementType: 'spot' }).catch(() => null)
+							: Promise.resolve(null),
+					]);
+					const name = site?.name ?? siteId;
+					const series: typeof chartData = [];
+					if (cont) series.push({ site: name, times: cont.times, values: cont.values });
+					if (spot && spot.times.length > 0) {
+						series.push({ site: `${name} (grabs)`, times: spot.times, values: spot.values, spot: true });
+					}
+					return series;
 				}),
 			);
-			chartData = results;
-			if (results.every((r) => r.times.length === 0)) {
+			chartData = results.flat();
+			if (chartData.every((r) => r.times.length === 0)) {
 				chartError = 'No data available for the selected sites, parameter, and time range.';
 			}
 		} catch {
@@ -166,6 +184,7 @@
 		void selectedSiteIds.length;
 		void selectedParamId;
 		void resolution;
+		void frequency;
 		void start;
 		void end;
 		if (selectedSiteIds.length === 0 || !selectedParamId || !start || !end) return;
@@ -214,7 +233,15 @@
 			axes: [makeAxis({}), makeAxis({ size: 60, label: yLabel })],
 			series: [
 				{ label: 'Time' },
-				...chartData.map((s, i) => makeSeries(i, s.site, units)),
+				...chartData.map((s, i) =>
+					s.spot
+						? {
+								...makeSeries(i, s.site, units),
+								paths: () => null,
+								points: { show: true, size: 7 },
+							}
+						: makeSeries(i, s.site, units),
+				),
 			],
 			legend: { show: uPlotTheme.legendShow },
 			cursor: { drag: { x: true, y: false } },
@@ -298,6 +325,10 @@
 						<option value="hourly">Hourly</option>
 						<option value="daily">Daily</option>
 					</select>
+				</div>
+				<div>
+					<span class="text-sm font-medium block mb-1">Frequency</span>
+					<FrequencyChips bind:value={frequency} />
 				</div>
 				<Button variant="primary" onclick={loadChartData} disabled={selectedSiteIds.length === 0 || !selectedParamId || loadingData}
 					class="w-full">
