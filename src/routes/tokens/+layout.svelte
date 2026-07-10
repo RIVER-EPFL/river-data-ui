@@ -1,14 +1,14 @@
 <script lang="ts">
-	import { auth } from '$auth/keycloak.svelte';
+	import { me } from '$auth/me.svelte';
 	import { base } from '$app/paths';
 
 	let { children } = $props();
 
 	// Routing-layer guard for the whole /tokens subtree (list + create). Non-admins never mount the
 	// token-management DOM - defense in depth on top of each page's own check. In no-auth dev mode
-	// `auth.role` resolves to 'admin', so local development is unaffected.
-	const ready = $derived(auth.state.status !== 'loading');
-	const isAdmin = $derived(auth.role === 'admin');
+	// the `me` store resolves to a synthetic admin, so local development is unaffected.
+	const ready = $derived(me.status !== 'loading');
+	const isAdmin = $derived(me.can('admin'));
 </script>
 
 {#if !ready}

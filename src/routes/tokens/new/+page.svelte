@@ -5,6 +5,7 @@
 	import { api, type Project } from '$api/crud';
 	import { POST } from '$api/client';
 	import { auth } from '$auth/keycloak.svelte';
+	import { me } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
@@ -14,7 +15,7 @@
 	import TokenUsagePanel from '$components/tokens/TokenUsagePanel.svelte';
 	import PresetChips from '$components/tokens/PresetChips.svelte';
 
-	const isAdmin = $derived(auth.role === 'admin');
+	const isAdmin = $derived(me.can('admin'));
 
 	let name = $state('');
 	let description = $state('');

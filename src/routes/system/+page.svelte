@@ -2,7 +2,7 @@
 	import { onMount, untrack } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import { auth } from '$auth/keycloak.svelte';
+	import { me } from '$auth/me.svelte';
 	import {
 		issueSyncCommand,
 		createServiceCredential,
@@ -34,9 +34,10 @@
 	import ApiAuditPanel from '$components/logs/ApiAuditPanel.svelte';
 	import SyncEventsPanel from '$components/logs/SyncEventsPanel.svelte';
 
-	// Local-only mode and Administrator role both resolve to 'admin'. The API-audit / sync-events
-	// panels and schedule edits need admin; non-admins see a notice rather than failing requests.
-	const isAdmin = $derived(auth.role === 'admin');
+	// Local-only mode and the Administrator role both hold the admin capability. The API-audit /
+	// sync-events panels and schedule edits need admin; non-admins see a notice rather than failing
+	// requests.
+	const isAdmin = $derived(me.can('admin'));
 
 	// ── Tabs ──────────────────────────────────────────────────────────────────
 	const TABS = [

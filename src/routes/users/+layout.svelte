@@ -1,14 +1,14 @@
 <script lang="ts">
-	import { auth } from '$auth/keycloak.svelte';
+	import { me } from '$auth/me.svelte';
 	import { base } from '$app/paths';
 
 	let { children } = $props();
 
 	// Routing-layer guard for the whole /users subtree. User management is Keycloak-admin only on the
-	// API (require_admin), so non-admins never mount this DOM. In no-auth dev mode `auth.role` is
-	// 'admin', so local development is unaffected.
-	const ready = $derived(auth.state.status !== 'loading');
-	const isAdmin = $derived(auth.role === 'admin');
+	// API (require_admin), so non-admins never mount this DOM. In no-auth dev mode the `me` store
+	// resolves to a synthetic admin, so local development is unaffected.
+	const ready = $derived(me.status !== 'loading');
+	const isAdmin = $derived(me.can('admin'));
 </script>
 
 {#if !ready}

@@ -4,7 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import { api, type Project, type TokenPermissions } from '$api/crud';
-	import { auth } from '$auth/keycloak.svelte';
+	import { me } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
@@ -12,7 +12,7 @@
 	import TokenAccessSummary from '$components/tokens/TokenAccessSummary.svelte';
 	import PresetChips from '$components/tokens/PresetChips.svelte';
 
-	const isAdmin = $derived(auth.role === 'admin');
+	const isAdmin = $derived(me.can('admin'));
 	const tokenId = page.params.id!;
 
 	let name = $state('');

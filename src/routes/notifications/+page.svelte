@@ -3,7 +3,7 @@
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { auth } from '$auth/keycloak.svelte';
+	import { me } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatDateTime, formatRelativeTime } from '$lib/utils';
 	import {
@@ -25,8 +25,8 @@
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import PaginationControls from '$components/ui/PaginationControls.svelte';
 
-	const ready = $derived(auth.state.status !== 'loading');
-	const isAdmin = $derived(auth.role === 'admin');
+	const ready = $derived(me.status !== 'loading');
+	const isAdmin = $derived(me.can('admin'));
 
 	const TABS = ['Status', 'Subscribers', 'Mutes', 'Log'];
 	const TAB_KEYS = ['status', 'subscribers', 'mutes', 'log'];

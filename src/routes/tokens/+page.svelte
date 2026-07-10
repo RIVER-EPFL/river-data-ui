@@ -5,7 +5,7 @@
 	import { onMount } from 'svelte';
 	import { api, type ApiToken, type Project } from '$api/crud';
 	import { revokeToken, rotateToken } from '$api/service';
-	import { auth } from '$auth/keycloak.svelte';
+	import { me } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatDateTime } from '$lib/utils';
 	import Button from '$components/ui/Button.svelte';
@@ -14,7 +14,7 @@
 	import TokenDetailDialog from '$components/tokens/TokenDetailDialog.svelte';
 	import PermissionChips from '$components/tokens/PermissionChips.svelte';
 
-	const isAdmin = $derived(auth.role === 'admin');
+	const isAdmin = $derived(me.can('admin'));
 
 	let tokens = $state<ApiToken[]>([]);
 	let projects = $state<Project[]>([]);
