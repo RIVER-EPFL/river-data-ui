@@ -4,6 +4,7 @@
 	import { onMount } from 'svelte';
 	import CrudForm from '$components/crud/CrudForm.svelte';
 	import { api } from '$api/crud';
+	import { siteNavigator } from '$lib/stores/sites.svelte';
 	import type { Field } from '$components/crud/CrudForm.svelte';
 
 	let projectOptions = $state<Array<{ value: string; label: string }>>([]);
@@ -42,4 +43,4 @@
 
 <svelte:head><title>Edit Site | River Data</title></svelte:head>
 
-<CrudForm client={api.sites} entityId={page.params.id} title="Edit Site" backHref="{base}/sites/{page.params.id}" {fields} />
+<CrudForm client={api.sites} entityId={page.params.id} title="Edit Site" backHref="{base}/sites/{page.params.id}" {fields} onSaved={() => void siteNavigator.refresh()} />

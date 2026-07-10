@@ -2,11 +2,12 @@
 	import { onMount, onDestroy, untrack } from 'svelte';
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
-	import { api, type Site, type Project, type SiteParameter, type Parameter, type Sensor, type SensorDeployment, type SensorCalibration, type Note, type AlarmThreshold, type DerivedParameter, type Sample, type Annotation } from '$api/crud';
+	import { api, type Site, type Project, type SiteParameter, type Parameter, type Sensor, type SensorDeployment, type SensorCalibration, type Note, type AlarmThreshold, type DerivedParameter, type Sample, type Annotation, type Subproject } from '$api/crud';
 	import { GET, POST, PATCH } from '$api/client';
 	import { recomputeDerived, getThresholds, getActiveAlarms, type ResolvedThreshold, type ActiveAlarm } from '$api/service';
 	import { getSiteSensorIdentity, type SensorIdentityResponse } from '$api/sensors';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import { siteNavigator } from '$lib/stores/sites.svelte';
 	import { formatRelativeTime, formatDateTime, formatDate, toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import Button from '$components/ui/Button.svelte';
@@ -20,7 +21,8 @@
 	import MergeSiteParameterDialog from '$components/dialogs/MergeSiteParameterDialog.svelte';
 	import ParameterChart, { type ChartData } from '$components/charts/ParameterChart.svelte';
 	import { GAP_THRESHOLDS } from '$lib/charts/uPlotTheme';
-	import { autoResolution } from '$lib/charts/multiSiteSeries';
+	import { autoResolution, type Frequency } from '$lib/charts/multiSiteSeries';
+	import FrequencyChips from '$components/charts/FrequencyChips.svelte';
 	import SharedChartTooltip from '$components/charts/SharedChartTooltip.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
 	import ResolutionChips from '$components/charts/ResolutionChips.svelte';
@@ -59,6 +61,65 @@
 	let statsOpen = $state(false);
 	let recomputingId = $state<string | null>(null);
 	let confirmingRemove = $state<string | null>(null);
+
+	// Inline subproject move: the picker lists every subproject (Project — Subproject), so a site can
+	// be moved across projects too; the DB trigger re-syncs project_id from the chosen subproject.
+	let subprojectPicker = $state<{ options: Array<{ value: string; label: string }>; names: Map<string, string> } | null>(null);
+	let editingSubproject = $state(false);
+	let pendingSubprojectId = $state('');
+	let savingSubproject = $state(false);
+
+	let currentSubprojectName = $state<string | null>(null);
+	$effect(() => {
+		const id = site?.subproject_id;
+		if (!id) {
+			currentSubprojectName = null;
+			return;
+		}
+		api.subprojects
+			.get(id)
+			.then((s) => (currentSubprojectName = s.name))
+			.catch(() => (currentSubprojectName = null));
+	});
+
+	async function openSubprojectPicker() {
+		if (!subprojectPicker) {
+			const [subs, projs] = await Promise.all([
+				api.subprojects.list({ perPage: 1000, sort: ['name', 'ASC'] }),
+				api.projects.list({ perPage: 100 }),
+			]);
+			const projectNames = new Map(projs.data.map((p) => [p.id, p.name]));
+			subprojectPicker = {
+				options: subs.data.map((s: Subproject) => ({
+					value: s.id,
+					label: `${projectNames.get(s.project_id) ?? '—'} — ${s.name}`,
+				})),
+				names: new Map(subs.data.map((s: Subproject) => [s.id, s.name])),
+			};
+		}
+		pendingSubprojectId = site?.subproject_id ?? '';
+		editingSubproject = true;
+	}
+
+	async function saveSubproject() {
+		if (!site || !pendingSubprojectId || pendingSubprojectId === site.subproject_id) {
+			editingSubproject = false;
+			return;
+		}
+		savingSubproject = true;
+		try {
+			const updated = await api.sites.update(site.id, { subproject_id: pendingSubprojectId });
+			site = updated;
+			if (project?.id !== updated.project_id) project = await api.projects.get(updated.project_id);
+			editingSubproject = false;
+			toastStore.success('Site moved');
+			void siteNavigator.refresh();
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Failed to move site');
+		} finally {
+			savingSubproject = false;
+		}
+	}
 
 	let autoUpdate = $state(typeof localStorage !== 'undefined' && localStorage.getItem('river-data-auto-update') !== 'false');
 	let newDataAvailable = $state(false);
@@ -141,12 +202,7 @@
 	let resolutionOverride = $state<'auto' | 'raw' | 'hourly' | 'daily'>('auto');
 	// Frequency selects which readings drive the charts, by measurement_type:
 	//   high = continuous field-sensor line (default), low = discrete spot/grab markers, all = both.
-	let frequency = $state<'high' | 'low' | 'all'>('high');
-	const FREQUENCY_CHIPS: Array<['high' | 'low' | 'all', string]> = [
-		['high', 'High'],
-		['low', 'Low'],
-		['all', 'All'],
-	];
+	let frequency = $state<Frequency>('high');
 
 	let sliderMax = $state(Date.now());
 	let sliderMin = $state(Date.now() - 90 * 86400000);
@@ -948,6 +1004,24 @@
 				{#if site.latitude && site.longitude}
 					<p class="text-xs font-mono text-brand-muted mt-1">{site.latitude.toFixed(6)}, {site.longitude.toFixed(6)} {site.altitude_m ? `· ${site.altitude_m}m` : ''}</p>
 				{/if}
+				<div class="flex items-center gap-2 mt-1 text-xs text-brand-muted">
+					<span>Subproject:</span>
+					{#if editingSubproject && subprojectPicker}
+						<select
+							bind:value={pendingSubprojectId}
+							class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface"
+						>
+							{#each subprojectPicker.options as opt (opt.value)}
+								<option value={opt.value}>{opt.label}</option>
+							{/each}
+						</select>
+						<button onclick={saveSubproject} disabled={savingSubproject} class="text-brand-primary cursor-pointer hover:underline disabled:opacity-50">{savingSubproject ? 'Moving…' : 'Save'}</button>
+						<button onclick={() => (editingSubproject = false)} class="cursor-pointer hover:underline">Cancel</button>
+					{:else}
+						<span class="text-brand-text">{currentSubprojectName ?? '—'}</span>
+						<button onclick={openSubprojectPicker} class="text-brand-primary cursor-pointer hover:underline" title="Move this site to another subproject (or project)">Change</button>
+					{/if}
+				</div>
 			</div>
 			<div class="flex gap-2">
 				<Button onclick={() => exportOpen = true}>Export</Button>
@@ -982,14 +1056,7 @@
 						<div class="w-px h-5 bg-brand-divider mx-1"></div>
 
 						<span class="text-xs text-brand-muted font-semibold uppercase tracking-wider" title="High = continuous field-sensor line · Low = grab/spot samples · All = both">Frequency</span>
-						<div class="flex gap-0.5">
-							{#each FREQUENCY_CHIPS as [val, label]}
-								<button
-									onclick={() => { frequency = val; }}
-									class="px-2 py-1 text-xs rounded cursor-pointer border-none {frequency === val ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
-								>{label}</button>
-							{/each}
-						</div>
+						<FrequencyChips bind:value={frequency} />
 
 						{#if diagnosticParams.length > 0}
 							<div class="w-px h-5 bg-brand-divider mx-1"></div>

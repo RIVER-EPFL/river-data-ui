@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import CrudForm from '$components/crud/CrudForm.svelte';
 	import { api } from '$api/crud';
+	import { siteNavigator } from '$lib/stores/sites.svelte';
 </script>
 
 <svelte:head><title>Edit Project | River Data</title></svelte:head>
@@ -12,6 +13,7 @@
 	entityId={page.params.id}
 	title="Edit Project"
 	backHref="{base}/projects/{page.params.id}"
+	onSaved={() => void siteNavigator.refresh()}
 	fields={[
 		{ key: 'name', label: 'Name', required: true, helperText: 'Project name shown in the UI and API' },
 		{ key: 'description', label: 'Description', type: 'textarea' },

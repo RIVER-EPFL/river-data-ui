@@ -2,6 +2,7 @@
 	import { base } from '$app/paths';
 	import CrudForm from '$components/crud/CrudForm.svelte';
 	import { api } from '$api/crud';
+	import { siteNavigator } from '$lib/stores/sites.svelte';
 </script>
 
 <svelte:head><title>New Project | River Data</title></svelte:head>
@@ -10,6 +11,7 @@
 	client={api.projects}
 	title="New Project"
 	backHref="{base}/projects"
+	onSaved={() => void siteNavigator.refresh()}
 	fields={[
 		{ key: 'name', label: 'Name', required: true, helperText: 'Project name shown in the UI and API' },
 		{ key: 'description', label: 'Description', type: 'textarea' },

@@ -24,6 +24,7 @@
 		title,
 		backHref,
 		onSuccess,
+		onSaved,
 	}: {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		client: CrudClient<any>;
@@ -32,6 +33,8 @@
 		title: string;
 		backHref: string;
 		onSuccess?: (data: Record<string, unknown>) => void;
+		/** Side-effect hook (store invalidation etc.) — runs on save without replacing the default navigation. */
+		onSaved?: (data: Record<string, unknown>) => void;
 	} = $props();
 
 	let values = $state<Record<string, unknown>>({});
@@ -92,6 +95,7 @@
 				toastStore.success('Created successfully');
 			}
 
+			onSaved?.(result);
 			if (onSuccess) {
 				onSuccess(result);
 			} else {

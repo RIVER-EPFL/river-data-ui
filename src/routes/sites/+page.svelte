@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
-	import { api, type Site, type Project } from '$api/crud';
+	import { api, type Site, type Project, type Subproject } from '$api/crud';
 	import { formatRelativeTime } from '$lib/utils';
 	import { getBackfillCandidates, backfillAttribution, type BackfillSiteSummary } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
@@ -10,6 +10,7 @@
 
 	let sites = $state<Site[]>([]);
 	let projects = $state<Project[]>([]);
+	let subprojects = $state<Subproject[]>([]);
 	let total = $state(0);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
@@ -74,7 +75,7 @@
 			const filter: Record<string, unknown> = {};
 			if (searchFilter) filter.q = searchFilter;
 
-			const [result, projectResult] = await Promise.all([
+			const [result, projectResult, subprojectResult] = await Promise.all([
 				api.sites.list({
 					page: currentPage,
 					perPage,
@@ -82,10 +83,14 @@
 					filter,
 				}),
 				projects.length === 0 ? api.projects.list({ perPage: 100 }) : Promise.resolve(null),
+				subprojects.length === 0
+					? api.subprojects.list({ perPage: 1000 })
+					: Promise.resolve(null),
 			]);
 			sites = result.data;
 			total = result.total;
 			if (projectResult) projects = projectResult.data;
+			if (subprojectResult) subprojects = subprojectResult.data;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load sites';
 		} finally {
@@ -95,6 +100,11 @@
 
 	function projectName(id: string): string {
 		return projects.find((p) => p.id === id)?.name ?? 'None';
+	}
+
+	function subprojectName(id: string | null): string {
+		if (!id) return '—';
+		return subprojects.find((s) => s.id === id)?.name ?? '—';
 	}
 
 	function toggleSort(field: string) {
@@ -163,6 +173,7 @@
 						Name {sortField === 'name' ? (sortOrder === 'ASC' ? '↑' : '↓') : ''}
 					</th>
 					<th class="text-left px-4 py-2 font-semibold">Project</th>
+					<th class="text-left px-4 py-2 font-semibold">Subproject</th>
 					<th class="text-left px-4 py-2 font-semibold">Coordinates</th>
 					<th
 						class="text-left px-4 py-2 font-semibold cursor-pointer select-none hover:text-brand-primary"
@@ -175,11 +186,11 @@
 			</thead>
 			<tbody>
 				{#if loading}
-					<tr><td colspan="5" class="px-4 py-8 text-center text-brand-muted">Loading…</td></tr>
+					<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">Loading…</td></tr>
 				{:else if error}
-					<tr><td colspan="5" class="px-4 py-8 text-center text-severity-alarm">{error}</td></tr>
+					<tr><td colspan="6" class="px-4 py-8 text-center text-severity-alarm">{error}</td></tr>
 				{:else if sites.length === 0}
-					<tr><td colspan="5" class="px-4 py-8 text-center text-brand-muted">No sites found</td></tr>
+					<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">No sites found</td></tr>
 				{:else}
 					{#each sites as site}
 						<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50">
@@ -189,6 +200,7 @@
 								</a>
 							</td>
 							<td class="px-4 py-2 text-brand-muted">{projectName(site.project_id)}</td>
+							<td class="px-4 py-2 text-brand-muted">{subprojectName(site.subproject_id)}</td>
 							<td class="px-4 py-2 text-brand-muted font-mono text-xs">
 								{#if site.latitude && site.longitude}
 									{site.latitude.toFixed(4)}, {site.longitude.toFixed(4)}

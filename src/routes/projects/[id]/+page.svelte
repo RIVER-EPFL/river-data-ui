@@ -2,17 +2,21 @@
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
-	import { api, type Project, type Site, type SiteParameter, type Parameter } from '$api/crud';
+	import { api, type Project, type Site, type SiteParameter, type Parameter, type Subproject } from '$api/crud';
 	import { invalidatePublicConfig } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import { siteNavigator } from '$lib/stores/sites.svelte';
 	import { formatDateTime } from '$lib/utils';
 	import Button from '$components/ui/Button.svelte';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
+	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import Markdown from '$lib/components/Markdown.svelte';
 
 	let project = $state<Project | null>(null);
 	let sites = $state<Site[]>([]);
 	let parameters = $state<Parameter[]>([]);
+	let subprojects = $state<Subproject[]>([]);
+	let allProjects = $state<Project[]>([]);
 	let loading = $state(true);
 
 	// Inline editing state
@@ -30,14 +34,18 @@
 
 	onMount(async () => {
 		try {
-			const [p, s, params] = await Promise.all([
+			const [p, s, params, subs, projs] = await Promise.all([
 				api.projects.get(projectId),
 				api.sites.list({ perPage: 100, filter: { project_id: projectId } }),
 				api.parameters.list({ perPage: 500 }),
+				api.subprojects.list({ perPage: 1000, sort: ['name', 'ASC'], filter: { project_id: projectId } }),
+				api.projects.list({ perPage: 100, sort: ['name', 'ASC'] }),
 			]);
 			project = p;
 			sites = s.data;
 			parameters = params.data;
+			subprojects = subs.data;
+			allProjects = projs.data;
 		} finally {
 			loading = false;
 		}
@@ -53,6 +61,120 @@
 
 	function paramUnits(sp: SiteParameter): string {
 		return sp.display_units ?? parameters.find((p) => p.id === sp.parameter_id)?.default_units ?? '';
+	}
+
+	// ── Subprojects ──────────────────────────────────────────────────
+
+	let newSubName = $state('');
+	let newSubDescription = $state('');
+	let creatingSub = $state(false);
+	let editingSubs = $state<Record<string, { name: string; description: string }>>({});
+	let savingSubId = $state<string | null>(null);
+	// Destination project selected in a row's move control (only rows with a pending move).
+	let pendingMoves = $state<Record<string, string>>({});
+
+	function siteCount(subprojectId: string): number {
+		return sites.filter((s) => s.subproject_id === subprojectId).length;
+	}
+
+	function subprojectName(id: string | null): string {
+		if (!id) return '—';
+		return subprojects.find((s) => s.id === id)?.name ?? '—';
+	}
+
+	async function reloadSubprojectsAndSites() {
+		const [s, subs] = await Promise.all([
+			api.sites.list({ perPage: 100, filter: { project_id: projectId } }),
+			api.subprojects.list({ perPage: 1000, sort: ['name', 'ASC'], filter: { project_id: projectId } }),
+		]);
+		sites = s.data;
+		subprojects = subs.data;
+		void siteNavigator.refresh();
+	}
+
+	async function createSubproject() {
+		if (!newSubName.trim()) return;
+		creatingSub = true;
+		try {
+			await api.subprojects.create({
+				project_id: projectId,
+				name: newSubName.trim(),
+				description: newSubDescription.trim() || null,
+			});
+			newSubName = '';
+			newSubDescription = '';
+			await reloadSubprojectsAndSites();
+			toastStore.success('Subproject created');
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Failed to create subproject');
+		} finally {
+			creatingSub = false;
+		}
+	}
+
+	function startEditingSub(sub: Subproject) {
+		editingSubs[sub.id] = { name: sub.name, description: sub.description ?? '' };
+		editingSubs = { ...editingSubs };
+	}
+
+	function cancelEditingSub(id: string) {
+		delete editingSubs[id];
+		editingSubs = { ...editingSubs };
+	}
+
+	async function saveSub(sub: Subproject) {
+		const edit = editingSubs[sub.id];
+		if (!edit || !edit.name.trim()) return;
+		savingSubId = sub.id;
+		try {
+			await api.subprojects.update(sub.id, {
+				name: edit.name.trim(),
+				description: edit.description.trim() || null,
+			});
+			cancelEditingSub(sub.id);
+			await reloadSubprojectsAndSites();
+			toastStore.success('Subproject updated');
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Failed to update subproject');
+		} finally {
+			savingSubId = null;
+		}
+	}
+
+	async function moveSub(sub: Subproject) {
+		const dest = pendingMoves[sub.id];
+		if (!dest || dest === projectId) return;
+		savingSubId = sub.id;
+		try {
+			await api.subprojects.update(sub.id, { project_id: dest });
+			delete pendingMoves[sub.id];
+			pendingMoves = { ...pendingMoves };
+			await reloadSubprojectsAndSites();
+			const destName = allProjects.find((p) => p.id === dest)?.name ?? 'the other project';
+			toastStore.success(`Subproject moved to ${destName} with its sites`);
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Failed to move subproject');
+		} finally {
+			savingSubId = null;
+		}
+	}
+
+	function cancelMove(id: string) {
+		delete pendingMoves[id];
+		pendingMoves = { ...pendingMoves };
+	}
+
+	async function deleteSub(sub: Subproject) {
+		savingSubId = sub.id;
+		try {
+			await api.subprojects.remove(sub.id);
+			await reloadSubprojectsAndSites();
+			toastStore.success('Subproject deleted');
+		} catch {
+			toastStore.error('Failed to delete subproject — move its sites to another subproject first');
+		} finally {
+			savingSubId = null;
+		}
 	}
 
 	// ── Project-level saves ──────────────────────────────────────────
@@ -197,6 +319,122 @@
 			<div><span class="text-sm text-brand-muted">Created</span><p class="text-sm">{formatDateTime(project.created_at)}</p></div>
 		</div>
 
+		<!-- Subprojects ───────────────────────────────────────────── -->
+		<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
+			<div class="px-4 py-3 bg-brand-bg border-b border-brand-divider">
+				<span class="text-sm font-semibold">Subprojects</span>
+			</div>
+			<table class="w-full text-sm">
+				<thead><tr class="bg-brand-bg border-b border-brand-divider">
+					<th class="text-left px-4 py-2 font-semibold">Name</th>
+					<th class="text-left px-4 py-2 font-semibold">Description</th>
+					<th class="text-left px-4 py-2 font-semibold">Sites</th>
+					<th class="text-left px-4 py-2 font-semibold">Move to project</th>
+					<th class="px-4 py-2 w-20"></th>
+				</tr></thead>
+				<tbody>
+					{#each subprojects as sub (sub.id)}
+						<tr class="border-b border-brand-divider last:border-b-0">
+							{#if sub.id in editingSubs}
+								<td class="px-4 py-2">
+									<input
+										bind:value={editingSubs[sub.id].name}
+										class="px-2 py-1 text-sm border border-brand-divider rounded bg-brand-surface w-40"
+										onkeydown={(e) => { if (e.key === 'Enter') saveSub(sub); if (e.key === 'Escape') cancelEditingSub(sub.id); }}
+									/>
+								</td>
+								<td class="px-4 py-2" colspan="2">
+									<div class="flex items-center gap-1">
+										<input
+											bind:value={editingSubs[sub.id].description}
+											placeholder="Description"
+											class="px-2 py-1 text-sm border border-brand-divider rounded bg-brand-surface w-full max-w-xs"
+											onkeydown={(e) => { if (e.key === 'Enter') saveSub(sub); if (e.key === 'Escape') cancelEditingSub(sub.id); }}
+										/>
+										<button onclick={() => saveSub(sub)} disabled={savingSubId === sub.id} class="text-xs text-brand-primary cursor-pointer hover:underline disabled:opacity-50">Save</button>
+										<button onclick={() => cancelEditingSub(sub.id)} class="text-xs text-brand-muted cursor-pointer hover:underline">Cancel</button>
+									</div>
+								</td>
+							{:else}
+								<td class="px-4 py-2">
+									<button onclick={() => startEditingSub(sub)} class="cursor-pointer text-brand-text hover:text-brand-primary" title="Click to rename">{sub.name}</button>
+								</td>
+								<td class="px-4 py-2 text-brand-muted">{sub.description ?? '—'}</td>
+								<td class="px-4 py-2 text-brand-muted">{siteCount(sub.id)}</td>
+							{/if}
+							<td class="px-4 py-2">
+								<div class="flex items-center gap-1">
+									<select
+										value={pendingMoves[sub.id] ?? projectId}
+										onchange={(e) => {
+											const v = (e.currentTarget as HTMLSelectElement).value;
+											if (v === projectId) cancelMove(sub.id);
+											else { pendingMoves[sub.id] = v; pendingMoves = { ...pendingMoves }; }
+										}}
+										class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface"
+									>
+										{#each allProjects as p (p.id)}
+											<option value={p.id}>{p.name}</option>
+										{/each}
+									</select>
+									{#if pendingMoves[sub.id]}
+										<ConfirmPopover
+											message="Move “{sub.name}” and its {siteCount(sub.id)} site{siteCount(sub.id) === 1 ? '' : 's'} to {allProjects.find((p) => p.id === pendingMoves[sub.id])?.name}? Project grants will follow the destination project."
+											confirmLabel="Move"
+											confirmVariant="primary"
+											onconfirm={() => moveSub(sub)}
+										>
+											<Button size="sm" disabled={savingSubId === sub.id}>{savingSubId === sub.id ? 'Moving…' : 'Move'}</Button>
+										</ConfirmPopover>
+										<button onclick={() => cancelMove(sub.id)} class="text-xs text-brand-muted cursor-pointer hover:underline">Cancel</button>
+									{/if}
+								</div>
+							</td>
+							<td class="px-4 py-2 text-right">
+								<ConfirmPopover
+									message="Delete subproject “{sub.name}”?"
+									confirmLabel="Delete"
+									confirmVariant="alarm"
+									onconfirm={() => deleteSub(sub)}
+								>
+									<Button
+										size="sm"
+										variant="danger"
+										disabled={savingSubId === sub.id || siteCount(sub.id) > 0}
+										title={siteCount(sub.id) > 0 ? 'Move its sites to another subproject first' : 'Delete subproject'}
+									>Delete</Button>
+								</ConfirmPopover>
+							</td>
+						</tr>
+					{/each}
+					<!-- Inline create row -->
+					<tr class="bg-brand-bg/30">
+						<td class="px-4 py-2">
+							<input
+								bind:value={newSubName}
+								placeholder="New subproject name"
+								class="px-2 py-1 text-sm border border-brand-divider rounded bg-brand-surface w-40"
+								onkeydown={(e) => { if (e.key === 'Enter') createSubproject(); }}
+							/>
+						</td>
+						<td class="px-4 py-2" colspan="3">
+							<input
+								bind:value={newSubDescription}
+								placeholder="Description (optional)"
+								class="px-2 py-1 text-sm border border-brand-divider rounded bg-brand-surface w-full max-w-xs"
+								onkeydown={(e) => { if (e.key === 'Enter') createSubproject(); }}
+							/>
+						</td>
+						<td class="px-4 py-2 text-right">
+							<Button size="sm" variant="primary" onclick={createSubproject} disabled={creatingSub || !newSubName.trim()}>
+								{creatingSub ? 'Adding…' : 'Add'}
+							</Button>
+						</td>
+					</tr>
+				</tbody>
+			</table>
+		</div>
+
 		<!-- Sites ─────────────────────────────────────────────────── -->
 		<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 			<div class="px-4 py-3 bg-brand-bg border-b border-brand-divider">
@@ -206,6 +444,7 @@
 				<thead><tr class="bg-brand-bg border-b border-brand-divider">
 					<th class="text-left px-4 py-2 font-semibold w-8"></th>
 					<th class="text-left px-4 py-2 font-semibold">Name</th>
+					<th class="text-left px-4 py-2 font-semibold">Subproject</th>
 					<th class="text-left px-4 py-2 font-semibold">Coordinates</th>
 					{#if project.is_public}
 						<th class="text-left px-4 py-2 font-semibold">Code</th>
@@ -237,6 +476,7 @@
 									>Public ↗</a>
 								{/if}
 							</td>
+							<td class="px-4 py-2 text-brand-muted">{subprojectName(site.subproject_id)}</td>
 							<td class="px-4 py-2 text-brand-muted font-mono text-xs">
 								{#if site.latitude && site.longitude}
 									{site.latitude.toFixed(4)}, {site.longitude.toFixed(4)}
@@ -290,7 +530,7 @@
 						<!-- Expanded parameter list -->
 						{#if expandedSiteId === site.id}
 							<tr>
-								<td colspan="{project.is_public ? 6 : 3}" class="p-0">
+								<td colspan="{project.is_public ? 7 : 4}" class="p-0">
 									<div class="bg-brand-bg/30 border-b border-brand-divider">
 										{#if loadingSiteParams === site.id}
 											<p class="px-8 py-4 text-xs text-brand-muted">Loading parameters…</p>
@@ -340,7 +580,7 @@
 						{/if}
 					{/each}
 					{#if sites.length === 0}
-						<tr><td colspan="{project.is_public ? 6 : 3}" class="px-4 py-6 text-center text-brand-muted">No sites</td></tr>
+						<tr><td colspan="{project.is_public ? 7 : 4}" class="px-4 py-6 text-center text-brand-muted">No sites</td></tr>
 					{/if}
 				</tbody>
 			</table>
