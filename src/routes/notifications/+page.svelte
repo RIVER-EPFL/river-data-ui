@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy, untrack } from 'svelte';
 	import { base } from '$app/paths';
-	import { goto } from '$app/navigation';
-	import { page } from '$app/state';
+	import { createUrlTab } from '$lib/urlTab.svelte';
 	import { me } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatDateTime, formatRelativeTime } from '$lib/utils';
@@ -29,27 +28,7 @@
 	const isAdmin = $derived(me.can('admin'));
 
 	const TABS = ['Status', 'Subscribers', 'Mutes', 'Log'];
-	const TAB_KEYS = ['status', 'subscribers', 'mutes', 'log'];
-
-	function tabFromParam(): number {
-		const raw = page.url.searchParams.get('tab');
-		const i = TAB_KEYS.indexOf(raw ?? '');
-		return i >= 0 ? i : 0;
-	}
-	let activeTab = $state<number>(tabFromParam());
-
-	// Keep ?tab in the URL when the user switches tabs (so refresh / back / shared links restore it).
-	$effect(() => {
-		const t = activeTab;
-		untrack(() => {
-			const url = new URL(page.url);
-			const key = TAB_KEYS[t] ?? 'status';
-			if (url.searchParams.get('tab') !== key) {
-				url.searchParams.set('tab', key);
-				goto(url, { replaceState: true, noScroll: true });
-			}
-		});
-	});
+	const tab = createUrlTab({ keys: ['status', 'subscribers', 'mutes', 'log'] });
 
 	// ── Lookups shared by Mutes tab ──
 	let sites = $state<Site[]>([]);
@@ -257,11 +236,11 @@
 
 	// Load each tab's data lazily the first time it's shown (Status loads eagerly + polls).
 	$effect(() => {
-		const t = activeTab;
+		const t = tab.key;
 		untrack(() => {
-			if (t === 1 && !subscribersLoaded) loadSubscribers();
-			if (t === 2 && !mutesLoaded) loadMutes();
-			if (t === 3 && logs.length === 0 && !logLoading && logError === null) loadLogs();
+			if (t === 'subscribers' && !subscribersLoaded) loadSubscribers();
+			if (t === 'mutes' && !mutesLoaded) loadMutes();
+			if (t === 'log' && logs.length === 0 && !logLoading && logError === null) loadLogs();
 		});
 	});
 
@@ -368,10 +347,10 @@
 			<a href="{base}/" class="text-sm text-brand-primary no-underline">&larr; Back to dashboard</a>
 		</div>
 	{:else}
-		<Tabs tabs={TABS} bind:active={activeTab} />
+		<Tabs tabs={TABS} bind:active={tab.index} />
 
 		<!-- ── STATUS TAB ── -->
-		{#if activeTab === 0}
+		{#if tab.key === 'status'}
 			{#if healthError}
 				<ErrorNotice message={healthError} />
 			{/if}
@@ -398,7 +377,7 @@
 			</div>
 
 		<!-- ── SUBSCRIBERS TAB ── -->
-		{:else if activeTab === 1}
+		{:else if tab.key === 'subscribers'}
 			{#if subscribersError}
 				<ErrorNotice message={subscribersError} />
 			{/if}
@@ -442,7 +421,7 @@
 			</div>
 
 		<!-- ── MUTES TAB ── -->
-		{:else if activeTab === 2}
+		{:else if tab.key === 'mutes'}
 			{#if mutesError}
 				<ErrorNotice message={mutesError} />
 			{/if}
@@ -491,7 +470,7 @@
 			</div>
 
 		<!-- ── LOG TAB ── -->
-		{:else if activeTab === 3}
+		{:else if tab.key === 'log'}
 			<div class="flex flex-wrap items-end gap-3">
 				<label class="flex flex-col gap-1 text-xs text-brand-muted">
 					Kind

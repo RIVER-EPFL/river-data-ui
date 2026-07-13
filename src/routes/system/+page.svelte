@@ -1,7 +1,6 @@
 <script lang="ts">
-	import { onMount, untrack } from 'svelte';
-	import { page } from '$app/state';
-	import { goto } from '$app/navigation';
+	import { onMount } from 'svelte';
+	import { createUrlTab } from '$lib/urlTab.svelte';
 	import { me } from '$auth/me.svelte';
 	import {
 		issueSyncCommand,
@@ -40,50 +39,16 @@
 	const isAdmin = $derived(me.can('admin'));
 
 	// ── Tabs ──────────────────────────────────────────────────────────────────
-	const TABS = [
-		{ key: 'status', label: 'Status' },
-		{ key: 'logs', label: 'Logs' },
-		{ key: 'jobs', label: 'Jobs' },
-		{ key: 'schedules', label: 'Schedules' },
-	];
-	const tabLabels = TABS.map((t) => t.label);
+	const tabLabels = ['Status', 'Logs', 'Jobs', 'Schedules'];
 	// Legacy /logs tab keys fold into the Logs tab here.
-	const TAB_ALIASES: Record<string, string> = { audit: 'logs', sync: 'logs' };
-
-	function resolveActive(): number {
-		const raw = page.url.searchParams.get('tab');
-		if (!raw) return 0;
-		const key = TAB_ALIASES[raw] ?? raw;
-		const idx = TABS.findIndex((t) => t.key === key);
-		return idx >= 0 ? idx : 0;
-	}
-
-	let active = $state(0);
-	let initialized = $state(false);
-	const activeKey = $derived(TABS[active]?.key ?? 'status');
-
-	onMount(() => {
-		active = resolveActive();
-		initialized = true;
-	});
-
-	// Reflect the active tab back to ?tab (named) for refresh / back / shareable links.
-	$effect(() => {
-		const key = activeKey;
-		if (!initialized) return;
-		untrack(() => {
-			const url = new URL(page.url);
-			if (url.searchParams.get('tab') !== key) {
-				url.searchParams.set('tab', key);
-				goto(url, { replaceState: true, noScroll: true });
-			}
-		});
+	const tab = createUrlTab({
+		keys: ['status', 'logs', 'jobs', 'schedules'],
+		aliases: { audit: 'logs', sync: 'logs' },
 	});
 
 	// Load (and poll) only the data the active tab needs. Jobs / Logs use self-fetching panels.
 	$effect(() => {
-		if (!initialized) return;
-		const key = activeKey;
+		const key = tab.key;
 		if (key === 'status') {
 			loadStatus();
 			const t = setInterval(loadStatus, 10_000);
@@ -440,9 +405,9 @@
 
 <div class="space-y-4">
 	<h2 class="text-xl font-semibold">System</h2>
-	<Tabs tabs={tabLabels} bind:active />
+	<Tabs tabs={tabLabels} bind:active={tab.index} />
 
-	{#if activeKey === 'status'}
+	{#if tab.key === 'status'}
 		<!-- Status: sync services -->
 		{#if statusLoading}
 			<p class="text-brand-muted">Loading…</p>
@@ -595,7 +560,7 @@
 				{/if}
 			</div>
 		{/if}
-	{:else if activeKey === 'logs'}
+	{:else if tab.key === 'logs'}
 		<!-- Logs: API audit + sync events (admin-only) -->
 		{#if isAdmin}
 			<section class="space-y-2">
@@ -611,9 +576,9 @@
 				Administrator role required to view API audit and sync event logs.
 			</div>
 		{/if}
-	{:else if activeKey === 'jobs'}
+	{:else if tab.key === 'jobs'}
 		<JobsPanel />
-	{:else if activeKey === 'schedules'}
+	{:else if tab.key === 'schedules'}
 		<!-- Schedules: recurring background services -->
 		<div class="flex items-center justify-between">
 			<p class="text-sm text-brand-muted">

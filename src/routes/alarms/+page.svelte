@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { onMount, untrack } from 'svelte';
+	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
-	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { createUrlTab } from '$lib/urlTab.svelte';
 	import { api, type Site, type Parameter, type AlarmThreshold } from '$api/crud';
 	import { getActiveAlarms, getThresholds, type ResolvedThreshold } from '$api/service';
 	import Button from '$components/ui/Button.svelte';
@@ -12,7 +12,6 @@
 	import { formatThresholdRange } from '$lib/alarms';
 
 	const TABS = ['Log', 'Thresholds'];
-	const TAB_KEYS = ['log', 'thresholds'];
 
 	function severityFromString(s: string | null): number | undefined {
 		if (s === 'warning' || s === '1') return 1;
@@ -32,35 +31,15 @@
 		initialSiteId = row.site_id;
 		initialParameterId = row.parameter_id;
 		initialSeverity = undefined;
-		activeTab = 0;
-		const url = new URL(page.url);
-		url.searchParams.set('tab', 'log');
-		url.searchParams.set('site_id', row.site_id);
-		url.searchParams.set('parameter_id', row.parameter_id);
-		url.searchParams.delete('severity');
-		goto(url, { replaceState: true, noScroll: true });
-	}
-
-	function tabFromParam(): number {
-		const raw = page.url.searchParams.get('tab');
-		// Named ('thresholds') or legacy numeric (old tab=2 was Thresholds).
-		if (raw === 'thresholds' || raw === '2') return 1;
-		return 0;
-	}
-	let activeTab = $state<number>(tabFromParam());
-
-	// Keep ?tab in the URL when the user switches tabs (so refresh / back / shared links restore it).
-	$effect(() => {
-		const t = activeTab;
-		untrack(() => {
-			const url = new URL(page.url);
-			const key = TAB_KEYS[t] ?? 'log';
-			if (url.searchParams.get('tab') !== key) {
-				url.searchParams.set('tab', key);
-				goto(url, { replaceState: true, noScroll: true });
-			}
+		tab.go('log', (url) => {
+			url.searchParams.set('site_id', row.site_id);
+			url.searchParams.set('parameter_id', row.parameter_id);
+			url.searchParams.delete('severity');
 		});
-	});
+	}
+
+	// Named keys; legacy numeric tab=2 (old Thresholds index) folds onto 'thresholds'.
+	const tab = createUrlTab({ keys: ['log', 'thresholds'], aliases: { '2': 'thresholds' } });
 
 	// ── Log tab: the event log lives in AlarmEventsPanel; the page hosts its header buttons. ──
 	let logPanel = $state<AlarmEventsPanel | undefined>();
@@ -181,7 +160,7 @@
 <div class="space-y-4">
 	<div class="flex items-start justify-between">
 		<h2 class="text-xl font-semibold">Alarms</h2>
-		{#if activeTab === 0}
+		{#if tab.key === 'log'}
 			<div class="flex items-center gap-2">
 				<Button
 					onclick={() => logPanel?.exportCsv()}
@@ -194,10 +173,10 @@
 		{/if}
 	</div>
 
-	<Tabs tabs={TABS} bind:active={activeTab} />
+	<Tabs tabs={TABS} bind:active={tab.index} />
 
 	<!-- ── LOG TAB ── -->
-	{#if activeTab === 0}
+	{#if tab.key === 'log'}
 		<AlarmEventsPanel
 			bind:this={logPanel}
 			bind:eventCount={logEventCount}
@@ -207,7 +186,7 @@
 		/>
 
 	<!-- ── THRESHOLDS TAB ── -->
-	{:else if activeTab === 1}
+	{:else if tab.key === 'thresholds'}
 		<div class="flex flex-wrap items-center gap-2">
 			<select
 				bind:value={thrSiteFilter}
