@@ -9,6 +9,7 @@
 	import ToastContainer from '$components/ui/ToastContainer.svelte';
 	import SearchBar from '$components/SearchBar.svelte';
 	import SiteNavigator from '$components/SiteNavigator.svelte';
+	import NavIcon from '$components/NavIcon.svelte';
 	import Unauthorized from '$components/Unauthorized.svelte';
 	import AlarmIndicator from '$components/AlarmIndicator.svelte';
 	import OperationsIndicator from '$components/OperationsIndicator.svelte';
@@ -45,61 +46,45 @@
 	});
 
 	// A nav item is visible when the caller holds its minimum capability (or it names none).
-	// The client's IA: six groups gated by capability. A section renders only when at least one of
+	// The client's IA: three groups gated by capability. A section renders only when at least one of
 	// its items is visible to the caller (see the template filter), so lower levels see a shorter menu.
-	type NavItem = { href: string; label: string; icon: string; minCap?: Capability };
+	// `also` lists sibling routes that should light the item (merged pages and their old redirect URLs).
+	type NavItem = { href: string; label: string; icon: string; minCap?: Capability; also?: string[] };
 	const navSections: { label: string; items: NavItem[] }[] = [
 		{
-			label: 'Subprojects',
+			label: 'Data',
 			items: [
-				{ href: `${base}/sites`, label: 'Sites', icon: 'pin' },
-			],
-		},
-		{
-			label: 'Sensor Data',
-			items: [
-				{ href: `${base}/sensors`, label: 'Sensors', icon: 'cpu' },
+				{ href: `${base}/explore`, label: 'Explore', icon: 'chart', minCap: 'readData', also: [`${base}/compare`, `${base}/scatter`, `${base}/day-of-year`] },
 				{ href: `${base}/alarms`, label: 'Alarms', icon: 'bell' },
-				{ href: `${base}/notifications`, label: 'Notifications', icon: 'settings', minCap: 'admin' },
-			],
-		},
-		{
-			label: 'Field & Lab Data',
-			items: [
-				{ href: `${base}/tools`, label: 'Grab via Tools', icon: 'wrench' },
+				{ href: `${base}/tools`, label: 'Tools', icon: 'wrench' },
 				{ href: `${base}/upload`, label: 'Upload', icon: 'upload', minCap: 'writeData' },
 			],
 		},
 		{
-			label: 'Visualization',
+			label: 'Inventory',
 			items: [
-				{ href: `${base}/compare`, label: 'Time Series', icon: 'arrows-lr', minCap: 'readData' },
-				{ href: `${base}/scatter`, label: 'Scatter', icon: 'chart', minCap: 'readData' },
-				{ href: `${base}/day-of-year`, label: 'Day of Year', icon: 'clock', minCap: 'readData' },
-			],
-		},
-		{
-			label: 'Management',
-			items: [
-				{ href: `${base}/parameters`, label: 'Parameters', icon: 'sliders', minCap: 'writeCatalog' },
-				{ href: `${base}/instruments`, label: 'Instruments', icon: 'cpu', minCap: 'manageSensors' },
-				{ href: `${base}/constants`, label: 'Constants', icon: 'hash', minCap: 'writeCatalog' },
+				{ href: `${base}/sensors`, label: 'Sensors & Instruments', icon: 'cpu', also: [`${base}/instruments`, `${base}/sensor-calibrations`, `${base}/sensor-deployments`] },
+				{ href: `${base}/parameters`, label: 'Parameters', icon: 'sliders', minCap: 'writeCatalog', also: [`${base}/constants`, `${base}/derived`] },
 			],
 		},
 		{
 			label: 'Admin',
 			items: [
-				{ href: `${base}/users`, label: 'Users', icon: 'users', minCap: 'admin' },
-				{ href: `${base}/projects`, label: 'Projects', icon: 'folder', minCap: 'admin' },
-				{ href: `${base}/tokens`, label: 'API Tokens', icon: 'settings', minCap: 'admin' },
+				{ href: `${base}/projects`, label: 'Projects & Subprojects', icon: 'folder', minCap: 'admin' },
+				{ href: `${base}/users`, label: 'Users & Tokens', icon: 'users', minCap: 'admin', also: [`${base}/tokens`] },
+				{ href: `${base}/notifications`, label: 'Notifications', icon: 'mail', minCap: 'admin' },
 				{ href: `${base}/streams`, label: 'Data Streams', icon: 'rss', minCap: 'admin' },
-				{ href: `${base}/system`, label: 'System', icon: 'settings', minCap: 'admin' },
+				{ href: `${base}/system`, label: 'System', icon: 'settings', minCap: 'admin', also: [`${base}/logs`, `${base}/jobs`, `${base}/schedules`] },
 			],
 		},
 	];
 
-	function isActive(href: string): boolean {
+	function matches(href: string): boolean {
 		return page.url.pathname === href || page.url.pathname.startsWith(href + '/');
+	}
+
+	function isActive(item: NavItem): boolean {
+		return matches(item.href) || (item.also?.some(matches) ?? false);
 	}
 </script>
 
@@ -151,10 +136,12 @@
 			<!-- Dashboard link -->
 			<a
 				href={base}
-				class="flex items-center gap-2 px-4 py-2 text-sm no-underline {page.url.pathname === base || page.url.pathname === base + '/'
+				title={sidebarCollapsed ? 'Dashboard' : undefined}
+				class="flex items-center gap-2 px-4 py-2 text-sm no-underline {sidebarCollapsed ? 'justify-center' : ''} {page.url.pathname === base || page.url.pathname === base + '/'
 					? 'text-brand-primary bg-brand-primary/5 font-semibold'
 					: 'text-brand-text hover:bg-brand-bg'}"
 			>
+				<NavIcon name="home" />
 				{#if !sidebarCollapsed}Dashboard{/if}
 			</a>
 
@@ -175,11 +162,12 @@
 					{#each visibleItems as item}
 						<a
 							href={item.href}
-							class="flex items-center gap-2 px-4 py-1.5 text-sm no-underline transition-colors {isActive(item.href)
+							class="flex items-center gap-2 px-4 py-1.5 text-sm no-underline transition-colors {sidebarCollapsed ? 'justify-center' : ''} {isActive(item)
 								? 'text-brand-primary bg-brand-primary/5 font-semibold'
 								: 'text-brand-text hover:bg-brand-bg'}"
 							title={sidebarCollapsed ? item.label : undefined}
 						>
+							<NavIcon name={item.icon} />
 							{#if !sidebarCollapsed}
 								{item.label}
 							{/if}
