@@ -3,14 +3,25 @@
 	import UPlotChart from '$components/charts/UPlotChart.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
 	import ResolutionChips from '$components/charts/ResolutionChips.svelte';
+	import FrequencyChips from '$components/charts/FrequencyChips.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import { uPlotTheme, makeSeries, makeAxis, makeGaps, GAP_THRESHOLDS, tzDateOption } from '$lib/charts/uPlotTheme';
+	import { tokens } from '$lib/charts/tokens';
 	import {
 		fetchSiteSeries,
 		fetchSiteExtent,
 		mergeSeries,
 		autoResolution,
+		type Frequency,
+		type SitePointSeries,
 	} from '$lib/charts/multiSiteSeries';
+	import {
+		spotMarkersPlugin,
+		spotSeriesConfig,
+		type SpotPointStats,
+		type SpotSeriesSpec,
+	} from '$lib/charts/spotMarkers';
+	import { api } from '$api/crud';
 	import { formatDate } from '$lib/utils';
 
 	interface SiteOption {
@@ -27,6 +38,7 @@
 		siteOptions,
 		title = 'Time Series',
 		emptyMessage = 'No sites measure this parameter.',
+		defaultFrequency = 'all',
 	}: {
 		parameterId: string;
 		parameterName: string;
@@ -34,6 +46,8 @@
 		siteOptions: SiteOption[];
 		title?: string;
 		emptyMessage?: string;
+		/** Initial High/Low/All filter. Pass 'low' for spot-only (lab) parameters. */
+		defaultFrequency?: Frequency;
 	} = $props();
 
 	const DEFAULT_SITE_LIMIT = 5;
@@ -54,6 +68,10 @@
 		seriesUnits: string;
 		times: number[];
 		values: (number | null)[];
+		/** Low-frequency spot/grab points, always fetched raw over the full window. */
+		spot: SitePointSeries;
+		/** Replicate mean±sd whiskers keyed by epoch ms (from the samples table). */
+		spotStats: Map<number, SpotPointStats>;
 	}
 	let loaded = $state<LoadedSeries[]>([]);
 	let failedSites = $state<string[]>([]);
@@ -118,13 +136,21 @@
 	}
 
 	let resolutionOverride = $state<'auto' | 'raw' | 'hourly' | 'daily'>('auto');
+	let frequency = $state<Frequency>(defaultFrequency);
+	// Low-frequency view never enters the aggregate path: spot points are always fetched raw over
+	// the full window, so resolution switching is meaningless there.
 	const resolution = $derived(
-		resolutionOverride === 'auto' ? autoResolution(start, end) : resolutionOverride,
+		frequency === 'low'
+			? 'raw'
+			: resolutionOverride === 'auto'
+				? autoResolution(start, end)
+				: resolutionOverride,
 	);
 
 	$effect(() => {
 		void parameterId;
 		void resolution;
+		void frequency;
 		const siteIds = [...selectedSiteIds];
 		const [startMs, endMs] = [start, end];
 		if (!parameterId || siteIds.length === 0 || !startMs || !endMs) {
@@ -148,6 +174,8 @@
 			const endIso = new Date(endMs).toISOString();
 
 			const failed: string[] = [];
+			const wantContinuous = frequency !== 'low';
+			const wantSpot = frequency !== 'high';
 			const results = await Promise.all(
 				siteIds.map(async (siteId): Promise<LoadedSeries> => {
 					const opt = siteOptions.find((s) => s.siteId === siteId);
@@ -156,19 +184,44 @@
 						opt?.displayUnits && opt.displayUnits !== units ? opt.displayUnits : units;
 					const label =
 						seriesUnits !== units ? `${siteName} [${seriesUnits}]` : siteName;
+					const empty: LoadedSeries = {
+						siteId, label, seriesUnits,
+						times: [], values: [],
+						spot: { times: [], values: [] },
+						spotStats: new Map(),
+					};
 					try {
-						const { times, values } = await fetchSiteSeries({
-							siteId,
-							parameterId,
-							siteParameterId: opt?.siteParameterId,
-							start: startIso,
-							end: endIso,
-							resolution: res,
-						});
-						return { siteId, label, seriesUnits, times, values };
+						const [continuous, spot, stats] = await Promise.all([
+							wantContinuous
+								? fetchSiteSeries({
+										siteId,
+										parameterId,
+										siteParameterId: opt?.siteParameterId,
+										start: startIso,
+										end: endIso,
+										resolution: res,
+										measurementType: res === 'raw' ? 'continuous' : undefined,
+									})
+								: Promise.resolve<SitePointSeries>({ times: [], values: [] }),
+							// Spot points bypass resolution entirely — a handful of campaign results
+							// must survive any zoom level.
+							wantSpot
+								? fetchSiteSeries({
+										siteId,
+										parameterId,
+										siteParameterId: opt?.siteParameterId,
+										start: startIso,
+										end: endIso,
+										resolution: 'raw',
+										measurementType: 'spot',
+									}).catch(() => ({ times: [], values: [] }) as SitePointSeries)
+								: Promise.resolve<SitePointSeries>({ times: [], values: [] }),
+							wantSpot ? fetchSpotStats(siteId, startIso, endIso) : Promise.resolve(new Map<number, SpotPointStats>()),
+						]);
+						return { ...empty, times: continuous.times, values: continuous.values, spot, spotStats: stats };
 					} catch {
 						failed.push(siteName);
-						return { siteId, label, seriesUnits, times: [], values: [] };
+						return empty;
 					}
 				}),
 			);
@@ -186,15 +239,61 @@
 		}
 	}
 
-	const pointCount = $derived(loaded.reduce((acc, s) => acc + s.times.length, 0));
+	// Replicate statistics for whiskers: one samples fetch per site, filtered to the window
+	// client-side (grab campaigns are small). Keyed by epoch ms of collected_at.
+	async function fetchSpotStats(
+		siteId: string,
+		startIso: string,
+		endIso: string,
+	): Promise<Map<number, SpotPointStats>> {
+		try {
+			const res = await api.samples.list({
+				perPage: 1000,
+				filter: { site_id: siteId, parameter_id: parameterId },
+				sort: ['collected_at', 'ASC'],
+			});
+			const startMs = new Date(startIso).getTime();
+			const endMs = new Date(endIso).getTime();
+			const map = new Map<number, SpotPointStats>();
+			for (const s of res.data) {
+				const t = new Date(s.collected_at).getTime();
+				if (t < startMs || t > endMs || s.mean == null) continue;
+				map.set(t, { mean: s.mean, stdev: s.stdev, n: s.n });
+			}
+			return map;
+		} catch {
+			return new Map();
+		}
+	}
+
+	const pointCount = $derived(
+		loaded.reduce((acc, s) => acc + s.times.length + s.spot.times.length, 0),
+	);
 
 	const mixedUnits = $derived(new Set(loaded.map((s) => s.seriesUnits)).size > 1);
 
-	const chartData = $derived.by((): uPlot.AlignedData => mergeSeries(loaded));
+	// Data layout: [x, ...continuous per site, ...spot per site]. Spot series are transparent
+	// (they only range the y-scale); the plugin paints their diamonds/whiskers.
+	const chartData = $derived.by((): uPlot.AlignedData => {
+		const merged = mergeSeries([
+			...loaded,
+			...loaded.map((s) => s.spot),
+		]);
+		return merged;
+	});
 
 	const chartOptions = $derived.by((): uPlot.Options => {
 		const yLabel = `${parameterName}${units ? ' (' + units + ')' : ''}`;
 		const gaps = makeGaps(GAP_THRESHOLDS[resolution] ?? 0);
+		const spotBase = 1 + loaded.length;
+		const specs: SpotSeriesSpec[] = loaded.map((s, i) => ({
+			seriesIdx: spotBase + i,
+			fill: tokens.markers.grabSample.fill,
+			stroke: tokens.dataViz[i % tokens.dataViz.length],
+			stats: new Map(
+				[...s.spotStats.entries()].map(([ms, stat]) => [ms / 1000, stat]),
+			),
+		}));
 		return {
 			width: 800,
 			height: 350,
@@ -204,7 +303,9 @@
 			series: [
 				{ label: 'Time' },
 				...loaded.map((s, i) => ({ ...makeSeries(i, s.label, s.seriesUnits), gaps })),
+				...loaded.map((s) => spotSeriesConfig(`${s.label} (spot)`)),
 			],
+			plugins: [spotMarkersPlugin(() => specs)],
 			legend: { show: uPlotTheme.legendShow },
 			cursor: { drag: { x: true, y: false, setScale: false } },
 			hooks: {
@@ -233,7 +334,12 @@
 		<span class="text-sm font-semibold">{title}</span>
 		{#if siteOptions.length > 0 && start && end}
 			<div class="flex items-center gap-3 flex-wrap">
-				<ResolutionChips bind:value={resolutionOverride} effective={autoResolution(start, end)} />
+				<FrequencyChips bind:value={frequency} />
+				{#if frequency === 'low'}
+					<span class="text-xs text-brand-muted" title="Low-frequency points are always shown raw over the full range; resolution does not apply">Raw</span>
+				{:else}
+					<ResolutionChips bind:value={resolutionOverride} effective={autoResolution(start, end)} />
+				{/if}
 				<span class="text-xs text-brand-muted font-mono">
 					{formatDate(new Date(start))} - {formatDate(new Date(end))}
 				</span>
@@ -289,7 +395,8 @@
 								{#each loaded as series, i}
 									<div class="flex items-center gap-1.5 text-xs">
 										<span class="w-3 h-0.5 rounded" style:background="var(--color-viz-{i})"></span>
-										{series.label} ({series.times.length} points)
+										{series.label}
+										({series.times.length} points{series.spot.times.length > 0 ? `, ${series.spot.times.length} spot` : ''})
 									</div>
 								{/each}
 							</div>

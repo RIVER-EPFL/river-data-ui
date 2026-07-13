@@ -5,7 +5,7 @@
 	import { page } from '$app/state';
 	import { api, type DataStream, type SiteParameter, type Site, type Parameter } from '$api/crud';
 	import {
-		pairStream, unpairStream, importStream, getStreamStats, createPairingPlan, updatePairingPlan,
+		pairStream, unpairStream, importStream, getStreamStats, retagStreams, createPairingPlan, updatePairingPlan,
 		applyPairingPlan, revertPairingPlan, pollJob, getUnpairedSummary, getPlanSiteMetadata,
 		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
 	} from '$api/service';
@@ -542,6 +542,16 @@
 		catch { toastStore.error('Unpair failed'); }
 	}
 
+	// Classify a stream's cadence; existing readings are retagged by a tracked job so charts and
+	// aggregates agree with the new classification.
+	async function handleRetagStream(stream: DataStream, type: 'continuous' | 'spot') {
+		try {
+			await retagStreams({ streamIds: [stream.id] }, type, true);
+			toastStore.success(`Stream classified as ${type}; existing readings are being retagged`);
+			load();
+		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Reclassification failed'); }
+	}
+
 	async function openStats(stream: DataStream) {
 		statsStream = stream; stats = null; statsDialogOpen = true;
 		try { stats = await getStreamStats(stream.id); } catch { toastStore.error('Failed to load stats'); }
@@ -706,7 +716,14 @@
 							<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50">
 								<td class="px-4 py-2 font-mono text-xs">{stream.source_key}</td>
 								<td class="px-4 py-2 text-xs">{stream.source_name ?? '--'}</td>
-								<td class="px-4 py-2 text-xs"><Badge variant="default">{stream.source_system}</Badge></td>
+								<td class="px-4 py-2 text-xs">
+									<Badge variant="default">{stream.source_system}</Badge>
+									{#if stream.measurement_type === 'spot'}
+										<Badge variant="accent">spot</Badge>
+									{:else if stream.measurement_type === 'derived'}
+										<Badge variant="muted">derived</Badge>
+									{/if}
+								</td>
 								<td class="px-4 py-2 text-xs">
 									{#if stream.site_parameter_id}
 										{@const href = siteParamHref(stream.site_parameter_id)}
@@ -724,6 +741,15 @@
 								<td class="px-4 py-2 text-xs text-brand-muted">{stream.last_data_time ? formatRelativeTime(stream.last_data_time) : '--'}</td>
 								<td class="px-4 py-2 flex gap-2">
 									<Button variant="ghost" size="sm" onclick={() => openStats(stream)} class="text-brand-primary">Stats</Button>
+									{#if stream.measurement_type === 'spot'}
+										<ConfirmPopover message="Classify this stream as continuous? Existing readings re-enter hourly/daily averages." confirmLabel="Mark continuous" confirmVariant="primary" onconfirm={() => handleRetagStream(stream, 'continuous')}>
+											<Button variant="ghost" size="sm" class="text-brand-primary">Mark continuous</Button>
+										</ConfirmPopover>
+									{:else if stream.measurement_type !== 'derived'}
+										<ConfirmPopover message="Classify this stream as spot (low-frequency)? Existing readings render as points and leave hourly/daily averages." confirmLabel="Mark spot" confirmVariant="primary" onconfirm={() => handleRetagStream(stream, 'spot')}>
+											<Button variant="ghost" size="sm" class="text-brand-primary">Mark spot</Button>
+										</ConfirmPopover>
+									{/if}
 									{#if stream.site_parameter_id}
 										<ConfirmPopover message="Unpair this stream?" confirmLabel="Unpair" onconfirm={() => handleUnpair(stream.id)}>
 											<Button variant="ghost" size="sm" class="text-severity-alarm">Unpair</Button>

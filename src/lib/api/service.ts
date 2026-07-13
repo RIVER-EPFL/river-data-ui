@@ -352,6 +352,35 @@ export async function mergeSiteParameters(
 export const reprocessSensor = (sensorId: string) =>
 	POST<{ job_id: string; status: string }>(`${SERVICE}/actions/reprocess`, { sensor_id: sensorId });
 
+// Bulk data-frequency reclassification: 'low' = lab/campaign (spot readings), 'high' = field
+// stream (continuous). With retagExisting the server runs a tracked measurement_retag job that
+// rewrites existing readings and refreshes aggregates.
+export const retagSensorFrequency = (
+	sensorIds: string[],
+	dataFrequency: 'high' | 'low',
+	retagExisting: boolean,
+) =>
+	POST<{ sensors_updated: number; data_frequency: string; job_id: string | null }>(
+		`${SERVICE}/sensors/retag_frequency`,
+		{ sensor_ids: sensorIds, data_frequency: dataFrequency, retag_existing: retagExisting },
+	);
+
+// Classify sensorless streams (portal imports) as continuous/spot/derived.
+export const retagStreams = (
+	scope: { streamIds?: string[]; sourceSystem?: string },
+	measurementType: 'continuous' | 'spot' | 'derived',
+	retagExisting: boolean,
+) =>
+	POST<{ streams_updated: number; measurement_type: string; job_id: string | null }>(
+		`${SERVICE}/streams/retag`,
+		{
+			stream_ids: scope.streamIds ?? [],
+			source_system: scope.sourceSystem ?? null,
+			measurement_type: measurementType,
+			retag_existing: retagExisting,
+		},
+	);
+
 // Replay a finished tracked job (server reconstructs it from the ids on its row). Returns a new job.
 export const rerunJob = (jobId: string) =>
 	POST<{ job_id: string; status: string }>(`${SERVICE}/reprocessing_jobs/${jobId}/rerun`, {});

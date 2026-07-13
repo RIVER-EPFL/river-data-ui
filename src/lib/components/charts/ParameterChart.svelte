@@ -17,6 +17,7 @@
 		type OverlayVisibility,
 	} from '$lib/charts/overlay-plugins';
 	import type { SensorIdentityBand, CalibrationMarker } from '$api/sensors';
+	import { spotMarkersPlugin, type SpotPointStats } from '$lib/charts/spotMarkers';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { formatDateTime } from '$lib/utils';
@@ -43,6 +44,7 @@
 		syncKey = '',
 		chartData,
 		spotData = null,
+		spotStats = null,
 		gapThreshold = 0,
 		loading: externalLoading = false,
 		onZoomSelect,
@@ -71,6 +73,8 @@
 		/** Discrete spot/grab samples (measurement_type='spot'), drawn as unconnected diamond
 		 *  markers. When present without chartData, only the markers render (no continuous line). */
 		spotData?: ChartData | null;
+		/** Replicate mean±sd whisker stats for spot points, keyed by epoch ms. */
+		spotStats?: Map<number, SpotPointStats> | null;
 		gapThreshold?: number;
 		loading?: boolean;
 		onZoomSelect?: (startMs: number, endMs: number) => void;
@@ -288,47 +292,14 @@
 		};
 	}
 
-	// Draws spot/grab samples as unconnected diamonds (matching the dashboard grab-sample markers).
-	// The values live in a real uPlot series (so they range the y-scale) that is rendered
-	// transparently with points off; this plugin paints the diamonds from that series' data.
+	// Spot/grab diamonds (and mean±sd whiskers when replicate stats are provided) are painted by
+	// the shared spotMarkers module; the plugin reads the transparent spot series' data.
 	function spotDiamondPlugin(seriesIdx: number): uPlot.Plugin {
 		if (seriesIdx < 0) return { hooks: {} };
-		return {
-			hooks: {
-				draw: [
-					(u: uPlot) => {
-						const xData = u.data[0] as number[];
-						const vData = u.data[seriesIdx] as (number | undefined)[];
-						if (!xData || !vData) return;
-						const ctx = u.ctx;
-						const { left, top, width, height } = u.bbox;
-						ctx.save();
-						ctx.beginPath();
-						ctx.rect(left, top, width, height);
-						ctx.clip();
-						const size = 5;
-						ctx.fillStyle = uPlotTheme.grabSampleFill;
-						ctx.strokeStyle = uPlotTheme.grabSampleStroke;
-						ctx.lineWidth = 1.5;
-						for (let i = 0; i < xData.length; i++) {
-							const val = vData[i];
-							if (val == null) continue;
-							const x = u.valToPos(xData[i], 'x', true);
-							const y = u.valToPos(val, 'y', true);
-							ctx.beginPath();
-							ctx.moveTo(x, y - size);
-							ctx.lineTo(x + size, y);
-							ctx.lineTo(x, y + size);
-							ctx.lineTo(x - size, y);
-							ctx.closePath();
-							ctx.fill();
-							ctx.stroke();
-						}
-						ctx.restore();
-					},
-				],
-			},
-		};
+		const stats = spotStats
+			? new Map([...spotStats.entries()].map(([ms, s]) => [ms / 1000, s]))
+			: undefined;
+		return spotMarkersPlugin(() => [{ seriesIdx, stats }]);
 	}
 
 	let dragOverlayEl: HTMLDivElement | null = null;

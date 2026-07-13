@@ -3,10 +3,13 @@
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { api, type Sensor, type SensorCalibration } from '$api/crud';
+	import { retagSensorFrequency } from '$api/service';
 	import { me } from '$auth/me.svelte';
 	import { formatDate } from '$lib/utils';
+	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
+	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import PaginationControls from '$components/ui/PaginationControls.svelte';
 
@@ -26,6 +29,10 @@
 	let parameterNames = $state<Map<string, string>>(new Map());
 	// Curve counts for every loaded sensor (bulk-loaded for the Curves column).
 	let curveCountBySensor = $state<Map<string, number>>(new Map());
+
+	// Bulk data-frequency reclassification (low = lab/campaign spot data, high = field stream).
+	let selected = $state<Set<string>>(new Set());
+	let retagBusy = $state(false);
 
 	// Expanded rows + per-sensor curve cache (lazily fetched on first expand).
 	let expanded = $state<Set<string>>(new Set());
@@ -105,6 +112,33 @@
 		}
 	}
 
+	function toggleSelected(id: string) {
+		const next = new Set(selected);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		selected = next;
+	}
+
+	function toggleSelectAll() {
+		selected = selected.size === displayed.length ? new Set() : new Set(displayed.map((s) => s.id));
+	}
+
+	async function retagSelected(freq: 'high' | 'low') {
+		retagBusy = true;
+		try {
+			const res = await retagSensorFrequency([...selected], freq, true);
+			toastStore.success(
+				`${res.sensors_updated} instrument${res.sensors_updated === 1 ? '' : 's'} marked ${freq}-frequency; existing readings are being retagged`,
+			);
+			selected = new Set();
+			await load();
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Reclassification failed');
+		} finally {
+			retagBusy = false;
+		}
+	}
+
 	function setFilter(mode: FilterMode) {
 		filterMode = mode;
 		currentPage = 1;
@@ -180,6 +214,29 @@
 		/>
 	</div>
 
+	{#if selected.size > 0 && me.can('manageSensors')}
+		<div class="flex items-center gap-3 px-3 py-2 rounded-md border border-brand-divider bg-brand-bg text-sm">
+			<span class="text-brand-muted">{selected.size} selected</span>
+			<ConfirmPopover
+				message="Mark {selected.size} instrument{selected.size === 1 ? '' : 's'} low-frequency? Their existing readings become spot data (shown as points, excluded from hourly/daily averages) and aggregates are refreshed."
+				confirmLabel="Mark low-frequency"
+				confirmVariant="primary"
+				onconfirm={() => retagSelected('low')}
+			>
+				<Button size="sm" disabled={retagBusy}>Mark low-frequency</Button>
+			</ConfirmPopover>
+			<ConfirmPopover
+				message="Mark {selected.size} instrument{selected.size === 1 ? '' : 's'} high-frequency? Their existing readings become continuous data and re-enter the hourly/daily averages."
+				confirmLabel="Mark high-frequency"
+				confirmVariant="primary"
+				onconfirm={() => retagSelected('high')}
+			>
+				<Button size="sm" disabled={retagBusy}>Mark high-frequency</Button>
+			</ConfirmPopover>
+			<Button size="sm" variant="ghost" onclick={() => (selected = new Set())}>Clear</Button>
+		</div>
+	{/if}
+
 	{#if error}
 		<ErrorNotice message={error} />
 	{/if}
@@ -188,10 +245,21 @@
 		<table class="w-full text-sm">
 			<thead>
 				<tr class="bg-brand-bg border-b border-brand-divider">
+					{#if me.can('manageSensors')}
+						<th class="w-8 px-2 py-2">
+							<input
+								type="checkbox"
+								checked={displayed.length > 0 && selected.size === displayed.length}
+								onchange={toggleSelectAll}
+								aria-label="Select all instruments"
+							/>
+						</th>
+					{/if}
 					<th class="w-8 px-2 py-2"></th>
 					<th class="text-left px-4 py-2 font-semibold cursor-pointer hover:text-brand-primary" onclick={() => toggleSort('serial_number')}>Serial {sortField === 'serial_number' ? (sortOrder === 'ASC' ? '↑' : '↓') : ''}</th>
 					<th class="text-left px-4 py-2 font-semibold cursor-pointer hover:text-brand-primary" onclick={() => toggleSort('name')}>Name {sortField === 'name' ? (sortOrder === 'ASC' ? '↑' : '↓') : ''}</th>
 					<th class="text-left px-4 py-2 font-semibold">Type</th>
+					<th class="text-left px-4 py-2 font-semibold cursor-pointer hover:text-brand-primary" onclick={() => toggleSort('data_frequency')}>Frequency {sortField === 'data_frequency' ? (sortOrder === 'ASC' ? '↑' : '↓') : ''}</th>
 					<th class="text-left px-4 py-2 font-semibold">Manufacturer</th>
 					<th class="text-left px-4 py-2 font-semibold">Model</th>
 					<th class="text-left px-4 py-2 font-semibold">Curves</th>
@@ -200,13 +268,24 @@
 			</thead>
 			<tbody>
 				{#if loading}
-					<tr><td colspan="8" class="px-4 py-8 text-center text-brand-muted">Loading…</td></tr>
+					<tr><td colspan="10" class="px-4 py-8 text-center text-brand-muted">Loading…</td></tr>
 				{:else if displayed.length === 0}
-					<tr><td colspan="8" class="px-4 py-8 text-center text-brand-muted">No instruments found</td></tr>
+					<tr><td colspan="10" class="px-4 py-8 text-center text-brand-muted">No instruments found</td></tr>
 				{:else}
 					{#each displayed as sensor}
 						{@const isLab = sensor.is_lab_instrument === true}
+						{@const isLow = sensor.data_frequency === 'low'}
 						<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50">
+							{#if me.can('manageSensors')}
+								<td class="px-2 py-2 text-center">
+									<input
+										type="checkbox"
+										checked={selected.has(sensor.id)}
+										onchange={() => toggleSelected(sensor.id)}
+										aria-label="Select {sensor.name ?? sensor.serial_number ?? 'instrument'}"
+									/>
+								</td>
+							{/if}
 							<td class="px-2 py-2 text-center">
 								<button
 									onclick={() => toggleExpand(sensor.id)}
@@ -221,6 +300,9 @@
 							<td class="px-4 py-2">
 								<Badge variant={isLab ? 'accent' : 'default'}>{isLab ? 'Lab' : 'Field'}</Badge>
 							</td>
+							<td class="px-4 py-2">
+								<Badge variant={isLow ? 'accent' : 'muted'}>{isLow ? 'Low' : 'High'}</Badge>
+							</td>
 							<td class="px-4 py-2 text-brand-muted">{sensor.manufacturer ?? 'None'}</td>
 							<td class="px-4 py-2 text-brand-muted">{sensor.model ?? 'None'}</td>
 							<td class="px-4 py-2 text-brand-muted">{curveCountBySensor.get(sensor.id) ?? 0}</td>
@@ -228,7 +310,7 @@
 						</tr>
 						{#if expanded.has(sensor.id)}
 							<tr class="border-b border-brand-divider bg-brand-bg/40">
-								<td colspan="8" class="px-4 py-3">
+								<td colspan="10" class="px-4 py-3">
 									{#if curvesLoading.has(sensor.id) && !curvesBySensor.has(sensor.id)}
 										<p class="text-xs text-brand-muted">Loading…</p>
 									{:else}

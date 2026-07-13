@@ -3,7 +3,7 @@
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
 	import { api, type Sensor, type SensorCalibration, type SensorDeployment, type Site, type Parameter } from '$api/crud';
-	import { recalibrateCalibration, rollbackDeployment, reprocessSensor, getCalibrationCandidates } from '$api/service';
+	import { recalibrateCalibration, rollbackDeployment, reprocessSensor, retagSensorFrequency, getCalibrationCandidates } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatDateTime, formatDate, toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
@@ -248,6 +248,18 @@
 		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Reprocess failed'); }
 	}
 
+	// Flip the low/high data-frequency classification; existing readings are retagged by a tracked
+	// job (spot data renders as points and stays out of hourly/daily averages).
+	async function toggleFrequency() {
+		if (!sensor) return;
+		const next = sensor.data_frequency === 'low' ? 'high' : 'low';
+		try {
+			await retagSensorFrequency([sensorId], next, true);
+			sensor = { ...sensor, data_frequency: next };
+			toastStore.success(`Marked ${next}-frequency; existing readings are being retagged`);
+		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Reclassification failed'); }
+	}
+
 	// Unattributed history exists when the slot's earliest reading (any sensor) predates the open
 	// deployment's start. Backdating deployed_from to it lets the slot reprocess claim those rows.
 	// (Use slot_data_start, NOT data_start - data_start only sees readings already attributed to
@@ -322,6 +334,16 @@
 				{/if}
 			</div>
 			<div class="flex gap-2 items-center">
+				<ConfirmPopover
+					message={sensor.data_frequency === 'low'
+						? 'Mark this instrument high-frequency? Its readings become continuous data and re-enter the hourly/daily averages.'
+						: 'Mark this instrument low-frequency? Its readings become spot data (shown as points, excluded from hourly/daily averages).'}
+					confirmLabel={sensor.data_frequency === 'low' ? 'Mark high-frequency' : 'Mark low-frequency'}
+					confirmVariant="primary"
+					onconfirm={toggleFrequency}
+				>
+					<Button variant="ghost">{sensor.data_frequency === 'low' ? 'Low frequency' : 'High frequency'}</Button>
+				</ConfirmPopover>
 				<Button onclick={() => (adoptOpen = true)}>Add data…</Button>
 				<ConfirmPopover message="Reprocess all of this sensor's readings? Re-derives calibration and deployment by time window." confirmLabel="Reprocess" confirmVariant="primary" onconfirm={handleReprocess}>
 					<Button>Reprocess</Button>

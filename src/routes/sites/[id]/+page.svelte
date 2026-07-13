@@ -22,6 +22,7 @@
 	import ParameterChart, { type ChartData } from '$components/charts/ParameterChart.svelte';
 	import { GAP_THRESHOLDS } from '$lib/charts/uPlotTheme';
 	import { autoResolution, type Frequency } from '$lib/charts/multiSiteSeries';
+	import type { SpotPointStats } from '$lib/charts/spotMarkers';
 	import FrequencyChips from '$components/charts/FrequencyChips.svelte';
 	import SharedChartTooltip from '$components/charts/SharedChartTooltip.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
@@ -219,6 +220,9 @@
 		data_start?: string | null;
 		data_end?: string | null;
 		reading_count?: number | null;
+		has_continuous?: boolean;
+		has_spot?: boolean;
+		frequency?: 'high' | 'low' | 'mixed';
 	}
 	interface SiteDetailResponse {
 		data_start: string | null;
@@ -259,6 +263,8 @@
 	let chartDataMap = $state<Map<string, ChartData>>(new Map());
 	// Spot/grab samples per site_parameter id, drawn as discrete markers (Low/All frequency).
 	let spotDataMap = $state<Map<string, ChartData>>(new Map());
+	// Replicate mean±sd whisker stats per global parameter_id, keyed by epoch ms of collected_at.
+	let spotStatsMap = $state<Map<string, Map<number, SpotPointStats>>>(new Map());
 	let annotationsByParam = $state<Map<string, Annotation[]>>(new Map());
 	let showSensorVectors = $state(false);
 	let showCalibrationMarkers = $state(false);
@@ -310,13 +316,17 @@
 			const spotPromise = wantSpot
 				? GET<ReadingsResponse>(`/api/sites/${siteId}/readings`, { start: startDate, end: endDate, measurement_type: 'spot' }).catch(() => null)
 				: Promise.resolve(null);
+			// Replicate stats for whiskers on the spot diamonds (small table; filtered client-side).
+			const samplesPromise = wantSpot
+				? api.samples.list({ perPage: 1000, filter: { site_id: siteId }, sort: ['collected_at', 'ASC'] }).catch(() => null)
+				: Promise.resolve(null);
 			const annotationsPromise = GET<Annotation[]>(`/api/sites/${siteId}/annotations`, { start: startDate, end: endDate })
 				.catch(() => [] as Annotation[]);
 			const identityPromise = (showSensorVectors || showCalibrationMarkers)
 				? getSiteSensorIdentity(siteId, { start: startDate, end: endDate }).catch(() => null)
 				: Promise.resolve(null);
 
-			const [result, spotResult, anns, identity] = await Promise.all([dataPromise, spotPromise, annotationsPromise, identityPromise]);
+			const [result, spotResult, samplesResult, anns, identity] = await Promise.all([dataPromise, spotPromise, samplesPromise, annotationsPromise, identityPromise]);
 			if (gen === fetchGeneration) sensorIdentity = identity;
 			if (gen !== fetchGeneration) return;
 
@@ -343,6 +353,21 @@
 				}
 			}
 			spotDataMap = smap;
+
+			const statsMap = new Map<string, Map<number, SpotPointStats>>();
+			if (samplesResult) {
+				const winStart = new Date(startDate).getTime();
+				const winEnd = new Date(endDate).getTime();
+				for (const s of samplesResult.data) {
+					if (s.mean == null) continue;
+					const t = new Date(s.collected_at).getTime();
+					if (t < winStart || t > winEnd) continue;
+					const inner = statsMap.get(s.parameter_id) ?? new Map<number, SpotPointStats>();
+					inner.set(t, { mean: s.mean, stdev: s.stdev, n: s.n });
+					statsMap.set(s.parameter_id, inner);
+				}
+			}
+			spotStatsMap = statsMap;
 
 			const annMap = new Map<string, Annotation[]>();
 			for (const a of anns) {
@@ -517,6 +542,17 @@
 				const detailRes = await GET<SiteDetailResponse>(`/api/sites/${id}/detail`);
 				if (detailRes.data_start) sliderMin = new Date(detailRes.data_start).getTime();
 				if (detailRes.data_end) sliderMax = new Date(detailRes.data_end).getTime();
+				// Default the frequency chip from the data: a spot-only site opens on Low (its
+				// points would otherwise be invisible behind the High default); any spot data at
+				// all opens on All so nothing is hidden.
+				{
+					const withData = detailRes.parameters.filter((p) => (p.reading_count ?? 0) > 0);
+					if (withData.length > 0 && withData.every((p) => p.frequency === 'low')) {
+						frequency = 'low';
+					} else if (withData.some((p) => p.has_spot)) {
+						frequency = 'all';
+					}
+				}
 				if (deepLink) {
 					// Pinned window from a deep link: widen the slider bounds to fit it.
 					sliderMin = Math.min(sliderMin, chartStart);
@@ -1175,6 +1211,7 @@
 							syncKey={cursorSyncKey}
 							chartData={chartDataMap.get(sp.id) ?? null}
 							spotData={spotDataMap.get(sp.id) ?? null}
+							spotStats={spotStatsMap.get(sp.parameter_id) ?? null}
 							{gapThreshold}
 							loading={chartLoading}
 							onZoomSelect={onChartZoomSelect}
@@ -1217,6 +1254,7 @@
 										syncKey={cursorSyncKey}
 										chartData={chartDataMap.get(sp.id) ?? null}
 										spotData={spotDataMap.get(sp.id) ?? null}
+										spotStats={spotStatsMap.get(sp.parameter_id) ?? null}
 										{gapThreshold}
 										loading={chartLoading}
 										onZoomSelect={onChartZoomSelect}

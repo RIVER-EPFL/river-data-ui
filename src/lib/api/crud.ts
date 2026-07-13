@@ -126,6 +126,8 @@ export interface Sensor {
 	model: string | null;
 	is_active: boolean | null;
 	is_lab_instrument: boolean | null;
+	/** 'high' (field stream -> continuous readings) or 'low' (lab/campaign -> spot readings). */
+	data_frequency: string;
 	notes: string | null;
 	metadata: Record<string, unknown> | null;
 	created_at: string | null;
@@ -239,6 +241,8 @@ export interface DataStream {
 	source_path: string | null;
 	metadata: Record<string, unknown>;
 	site_parameter_id: string | null;
+	/** Stream-level default for readings.measurement_type ('continuous' | 'spot' | 'derived'); null defers to the sensor. */
+	measurement_type: string | null;
 	is_active: boolean;
 	last_data_time: string | null;
 	created_at: string;
