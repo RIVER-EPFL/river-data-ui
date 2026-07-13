@@ -10,6 +10,7 @@
 	import Button from '$components/ui/Button.svelte';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
+	import Dialog from '$components/ui/Dialog.svelte';
 	import Markdown from '$lib/components/Markdown.svelte';
 
 	let project = $state<Project | null>(null);
@@ -77,9 +78,39 @@
 		return sites.filter((s) => s.subproject_id === subprojectId).length;
 	}
 
+	function sitesInSubproject(subprojectId: string): Site[] {
+		return sites.filter((s) => s.subproject_id === subprojectId);
+	}
+
 	function subprojectName(id: string | null): string {
 		if (!id) return '—';
 		return subprojects.find((s) => s.id === id)?.name ?? '—';
+	}
+
+	// Interrogate a subproject's sites, and move them between subprojects, without leaving the page.
+	let sitesDialogSub = $state<Subproject | null>(null);
+	let sitesDialogOpen = $state(false);
+	let movingSiteId = $state<string | null>(null);
+
+	function openSitesDialog(sub: Subproject) {
+		sitesDialogSub = sub;
+		sitesDialogOpen = true;
+	}
+
+	async function moveSiteToSubproject(site: Site, destSubprojectId: string) {
+		if (!destSubprojectId || destSubprojectId === site.subproject_id) return;
+		movingSiteId = site.id;
+		try {
+			await api.sites.update(site.id, { subproject_id: destSubprojectId });
+			site.subproject_id = destSubprojectId;
+			sites = [...sites];
+			void siteNavigator.refresh();
+			toastStore.success(`${site.name} moved to ${subprojectName(destSubprojectId)}`);
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Failed to move site');
+		} finally {
+			movingSiteId = null;
+		}
 	}
 
 	async function reloadSubprojectsAndSites() {
@@ -360,7 +391,13 @@
 									<button onclick={() => startEditingSub(sub)} class="cursor-pointer text-brand-text hover:text-brand-primary" title="Click to rename">{sub.name}</button>
 								</td>
 								<td class="px-4 py-2 text-brand-muted">{sub.description ?? '—'}</td>
-								<td class="px-4 py-2 text-brand-muted">{siteCount(sub.id)}</td>
+								<td class="px-4 py-2">
+									<button
+										onclick={() => openSitesDialog(sub)}
+										class="text-brand-primary cursor-pointer hover:underline"
+										title="View and reorganize sites"
+									>{siteCount(sub.id)} site{siteCount(sub.id) === 1 ? '' : 's'}</button>
+								</td>
 							{/if}
 							<td class="px-4 py-2">
 								<div class="flex items-center gap-1">
@@ -476,7 +513,23 @@
 									>Public ↗</a>
 								{/if}
 							</td>
-							<td class="px-4 py-2 text-brand-muted">{subprojectName(site.subproject_id)}</td>
+							<td class="px-4 py-2" onclick={(e) => e.stopPropagation()}>
+								{#if subprojects.length > 1}
+									<select
+										value={site.subproject_id ?? ''}
+										disabled={movingSiteId === site.id}
+										onchange={(e) => moveSiteToSubproject(site, (e.currentTarget as HTMLSelectElement).value)}
+										class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface text-brand-text"
+										title="Move site to another subproject"
+									>
+										{#each subprojects as s (s.id)}
+											<option value={s.id}>{s.name}</option>
+										{/each}
+									</select>
+								{:else}
+									<span class="text-brand-muted">{subprojectName(site.subproject_id)}</span>
+								{/if}
+							</td>
 							<td class="px-4 py-2 text-brand-muted font-mono text-xs">
 								{#if site.latitude && site.longitude}
 									{site.latitude.toFixed(4)}, {site.longitude.toFixed(4)}
@@ -646,5 +699,44 @@
 				</div>
 			{/if}
 		</div>
+
+		<!-- Subproject sites: interrogate + reassign in place -->
+		<Dialog bind:open={sitesDialogOpen} title={sitesDialogSub ? `Sites in ${sitesDialogSub.name}` : 'Sites'} maxWidth="md">
+			{#snippet children()}
+				{#if sitesDialogSub}
+					{@const rows = sitesInSubproject(sitesDialogSub.id)}
+					{#if rows.length === 0}
+						<p class="text-sm text-brand-muted">No sites in this subproject.</p>
+					{:else}
+						<div class="space-y-1">
+							{#each rows as site (site.id)}
+								<div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md border border-brand-divider">
+									<a href="{base}/sites/{site.id}" class="text-brand-primary no-underline hover:underline text-sm font-medium">{site.name}</a>
+									<label class="flex items-center gap-2 text-xs text-brand-muted whitespace-nowrap">
+										Move to
+										<select
+											value={site.subproject_id ?? ''}
+											disabled={movingSiteId === site.id || subprojects.length <= 1}
+											onchange={(e) => moveSiteToSubproject(site, (e.currentTarget as HTMLSelectElement).value)}
+											class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm text-brand-text"
+										>
+											{#each subprojects as s (s.id)}
+												<option value={s.id}>{s.name}</option>
+											{/each}
+										</select>
+									</label>
+								</div>
+							{/each}
+						</div>
+					{/if}
+					{#if subprojects.length <= 1}
+						<p class="mt-3 text-xs text-brand-muted">Create another subproject to move sites between them.</p>
+					{/if}
+				{/if}
+			{/snippet}
+			{#snippet actions()}
+				<Button onclick={() => (sitesDialogOpen = false)}>Close</Button>
+			{/snippet}
+		</Dialog>
 	</div>
 {/if}
