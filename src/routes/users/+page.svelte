@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { base } from '$app/paths';
+	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import { crudClient } from '$api/crud';
@@ -8,8 +9,18 @@
 		accessLevelVariant,
 		highestAccessRole,
 	} from '$lib/users';
+	import { createUrlTab } from '$lib/urlTab.svelte';
+	import Tabs from '$components/ui/Tabs.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
+	import TokensPanel from '$components/tokens/TokensPanel.svelte';
+
+	// A bare ?show=<id> (from the audit-log deep link, before /tokens redirected here) means the
+	// caller wants a specific token, so open on the Tokens tab.
+	const initialTab = page.url.searchParams.has('show') && !page.url.searchParams.has('tab')
+		? 'tokens'
+		: undefined;
+	const tab = createUrlTab({ keys: ['users', 'tokens'], initial: initialTab });
 
 	interface User {
 		id: string;
@@ -73,19 +84,26 @@
 	}
 </script>
 
-<svelte:head><title>Users | River Data</title></svelte:head>
+<svelte:head><title>Users & Tokens | River Data</title></svelte:head>
 
 <div class="space-y-4">
 	<div class="flex items-center justify-between">
-		<h2 class="text-xl font-semibold">Users</h2>
-		<a
-			href="{base}/users/new"
-			class="px-3 py-1.5 bg-brand-primary text-white rounded-md no-underline text-sm font-semibold hover:bg-brand-primary-dark"
-		>
-			Add User
-		</a>
+		<h2 class="text-xl font-semibold">Users & Tokens</h2>
+		{#if tab.key === 'users'}
+			<a
+				href="{base}/users/new"
+				class="px-3 py-1.5 bg-brand-primary text-white rounded-md no-underline text-sm font-semibold hover:bg-brand-primary-dark"
+			>
+				Add User
+			</a>
+		{/if}
 	</div>
 
+	<Tabs tabs={['Users', 'Tokens']} bind:active={tab.index} />
+
+	{#if tab.key === 'tokens'}
+		<TokensPanel />
+	{:else}
 	{#if error}
 		<ErrorNotice message="Failed to load users: {error}" />
 	{/if}
@@ -157,4 +175,5 @@
 	</div>
 
 	<p class="text-xs text-brand-muted">{filtered.length} of {users.length} users</p>
+	{/if}
 </div>
