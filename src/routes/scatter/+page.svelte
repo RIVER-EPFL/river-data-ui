@@ -6,10 +6,7 @@
 	import Button from '$components/ui/Button.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import ScatterPlot from '$components/charts/ScatterPlot.svelte';
-	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
-	import { toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
-	import { timezoneStore } from '$lib/stores/timezone.svelte';
-	import { fetchSiteExtent } from '$lib/charts/multiSiteSeries';
+	import TimeRangeControls from '$components/charts/TimeRangeControls.svelte';
 
 	let sites = $state<Site[]>([]);
 	let params = $state<Parameter[]>([]);
@@ -21,13 +18,9 @@
 	let xParamId = $state('');
 	let yParamId = $state('');
 
-	// Time range, stored as epoch milliseconds
+	// Time range, stored as epoch milliseconds (TimeRangeControls seeds + bounds it)
 	let start = $state(0);
 	let end = $state(0);
-
-	// Slider bounds derived from the selected site's data extent
-	let boundMin = $state(0);
-	let boundMax = $state(0);
 
 	interface ScatterData {
 		xValues: (number | null)[];
@@ -52,59 +45,8 @@
 			sites = s.data;
 			params = p.data;
 			siteParams = sp.data;
-
-			const now = Date.now();
-			boundMin = now - 7 * 86400000;
-			boundMax = now;
-			start = boundMin;
-			end = boundMax;
 		} finally { loading = false; }
 	});
-
-	function clamp(value: number): number {
-		if (boundMin >= boundMax) return value;
-		return Math.min(boundMax, Math.max(boundMin, value));
-	}
-
-	async function refreshBounds(id: string) {
-		if (!id) return;
-		const extent = await fetchSiteExtent(id);
-		if (extent.min == null || extent.max == null || extent.min >= extent.max) return;
-		boundMin = extent.min;
-		boundMax = extent.max;
-		if (start < boundMin || start > boundMax) start = boundMin;
-		if (end > boundMax || end < boundMin) end = boundMax;
-		if (start >= end) { start = boundMin; end = boundMax; }
-	}
-
-	// Recompute slider bounds whenever the selected site changes
-	$effect(() => {
-		void refreshBounds(siteId);
-	});
-
-	function onSliderChange(s: number, e: number) {
-		start = s;
-		end = e;
-	}
-
-	// Manual datetime entry uses datetime-local strings (in the active display zone), clamped to bounds.
-	function toLocalInput(ms: number): string {
-		return ms ? toDatetimeLocal(ms, timezoneStore.zone) : '';
-	}
-
-	function onStartInput(event: Event) {
-		const value = (event.currentTarget as HTMLInputElement).value;
-		if (!value) return;
-		const ms = clamp(new Date(fromDatetimeLocal(value, timezoneStore.zone)).getTime());
-		start = Math.min(ms, end);
-	}
-
-	function onEndInput(event: Event) {
-		const value = (event.currentTarget as HTMLInputElement).value;
-		if (!value) return;
-		const ms = clamp(new Date(fromDatetimeLocal(value, timezoneStore.zone)).getTime());
-		end = Math.max(ms, start);
-	}
 
 	const availableParams = $derived(() => {
 		if (!siteId) return [];
@@ -218,40 +160,7 @@
 						{/each}
 					</select>
 				</div>
-				<div>
-					<span class="text-sm font-medium block mb-1">Time range</span>
-					{#if boundMin < boundMax}
-						<div class="px-1 pb-6">
-							<TimeRangeSlider min={boundMin} max={boundMax} bind:start bind:end onchange={onSliderChange} />
-						</div>
-					{:else}
-						<p class="text-xs text-brand-muted">Select a site to set the time range.</p>
-					{/if}
-					<div class="grid grid-cols-2 gap-2 mt-1">
-						<label class="block">
-							<span class="text-xs text-brand-muted block mb-1">Start</span>
-							<input
-								type="datetime-local"
-								value={toLocalInput(start)}
-								min={boundMin ? toLocalInput(boundMin) : undefined}
-								max={boundMax ? toLocalInput(boundMax) : undefined}
-								oninput={onStartInput}
-								class="w-full px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-xs"
-							/>
-						</label>
-						<label class="block">
-							<span class="text-xs text-brand-muted block mb-1">End</span>
-							<input
-								type="datetime-local"
-								value={toLocalInput(end)}
-								min={boundMin ? toLocalInput(boundMin) : undefined}
-								max={boundMax ? toLocalInput(boundMax) : undefined}
-								oninput={onEndInput}
-								class="w-full px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-xs"
-							/>
-						</label>
-					</div>
-				</div>
+				<TimeRangeControls siteIds={siteId ? [siteId] : []} bind:start bind:end />
 				<Button variant="primary" onclick={loadScatterData} disabled={!siteId || !xParamId || !yParamId || scatterLoading}
 					class="w-full">
 					{scatterLoading ? 'Loading…' : 'Plot'}

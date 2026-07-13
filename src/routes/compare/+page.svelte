@@ -4,11 +4,9 @@
 	import { api, type Site, type Parameter, type SiteParameter } from '$api/crud';
 	import Button from '$components/ui/Button.svelte';
 	import UPlotChart from '$components/charts/UPlotChart.svelte';
-	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
+	import TimeRangeControls from '$components/charts/TimeRangeControls.svelte';
 	import { uPlotTheme, makeSeries, makeAxis } from '$lib/charts/uPlotTheme';
-	import { toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
-	import { timezoneStore } from '$lib/stores/timezone.svelte';
-	import { fetchSiteSeries, fetchSiteExtent, mergeSeries, type Frequency } from '$lib/charts/multiSiteSeries';
+	import { fetchSiteSeries, mergeSeries, type Frequency } from '$lib/charts/multiSiteSeries';
 	import FrequencyChips from '$components/charts/FrequencyChips.svelte';
 
 	let sites = $state<Site[]>([]);
@@ -22,13 +20,9 @@
 	let resolution = $state<'raw' | 'hourly' | 'daily'>('hourly');
 	let frequency = $state<Frequency>('high');
 
-	// Shared time range, stored as epoch milliseconds
+	// Shared time range, stored as epoch milliseconds (TimeRangeControls seeds + bounds it)
 	let start = $state(0);
 	let end = $state(0);
-
-	// Slider bounds derived from selected sites' data extent
-	let boundMin = $state(0);
-	let boundMax = $state(0);
 
 	// Data
 	let chartData = $state<Array<{ site: string; times: number[]; values: (number | null)[]; spot?: boolean }>>([]);
@@ -47,64 +41,8 @@
 			sites = s.data;
 			params = p.data;
 			siteParams = sp.data;
-
-			const now = Date.now();
-			boundMin = now - 7 * 86400000;
-			boundMax = now;
-			start = boundMin;
-			end = boundMax;
 		} finally { loading = false; }
 	});
-
-	function clamp(value: number): number {
-		if (boundMin >= boundMax) return value;
-		return Math.min(boundMax, Math.max(boundMin, value));
-	}
-
-	async function refreshBounds(siteIds: string[]) {
-		if (siteIds.length === 0) return;
-		const extents = await Promise.all(siteIds.map(fetchSiteExtent));
-		const mins = extents.map((e) => e.min).filter((v): v is number => v != null);
-		const maxs = extents.map((e) => e.max).filter((v): v is number => v != null);
-		if (mins.length === 0 || maxs.length === 0) return;
-		const newMin = Math.min(...mins);
-		const newMax = Math.max(...maxs);
-		if (newMin >= newMax) return;
-		boundMin = newMin;
-		boundMax = newMax;
-		if (start < boundMin || start > boundMax) start = boundMin;
-		if (end > boundMax || end < boundMin) end = boundMax;
-		if (start >= end) { start = boundMin; end = boundMax; }
-	}
-
-	// Recompute slider bounds whenever the active site selection changes
-	$effect(() => {
-		void refreshBounds(selectedSiteIds);
-	});
-
-	function onSliderChange(s: number, e: number) {
-		start = s;
-		end = e;
-	}
-
-	// Manual datetime entry uses datetime-local strings (in the active display zone), clamped to bounds.
-	function toLocalInput(ms: number): string {
-		return ms ? toDatetimeLocal(ms, timezoneStore.zone) : '';
-	}
-
-	function onStartInput(event: Event) {
-		const value = (event.currentTarget as HTMLInputElement).value;
-		if (!value) return;
-		const ms = clamp(new Date(fromDatetimeLocal(value, timezoneStore.zone)).getTime());
-		start = Math.min(ms, end);
-	}
-
-	function onEndInput(event: Event) {
-		const value = (event.currentTarget as HTMLInputElement).value;
-		if (!value) return;
-		const ms = clamp(new Date(fromDatetimeLocal(value, timezoneStore.zone)).getTime());
-		end = Math.max(ms, start);
-	}
 
 	const availableParams = $derived(() => {
 		if (selectedSiteIds.length === 0) return params;
@@ -251,43 +189,6 @@
 
 <svelte:head><title>Time Series | River Data</title></svelte:head>
 
-{#snippet timeControls()}
-	<div>
-		<span class="text-sm font-medium block mb-1">Time range</span>
-		{#if boundMin < boundMax}
-			<div class="px-1 pb-6">
-				<TimeRangeSlider min={boundMin} max={boundMax} bind:start bind:end onchange={onSliderChange} />
-			</div>
-		{:else}
-			<p class="text-xs text-brand-muted">Select a site to set the time range.</p>
-		{/if}
-		<div class="grid grid-cols-2 gap-2 mt-1">
-			<label class="block">
-				<span class="text-xs text-brand-muted block mb-1">Start</span>
-				<input
-					type="datetime-local"
-					value={toLocalInput(start)}
-					min={boundMin ? toLocalInput(boundMin) : undefined}
-					max={boundMax ? toLocalInput(boundMax) : undefined}
-					oninput={onStartInput}
-					class="w-full px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-xs"
-				/>
-			</label>
-			<label class="block">
-				<span class="text-xs text-brand-muted block mb-1">End</span>
-				<input
-					type="datetime-local"
-					value={toLocalInput(end)}
-					min={boundMin ? toLocalInput(boundMin) : undefined}
-					max={boundMax ? toLocalInput(boundMax) : undefined}
-					oninput={onEndInput}
-					class="w-full px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-xs"
-				/>
-			</label>
-		</div>
-	</div>
-{/snippet}
-
 <div class="space-y-4">
 	<h2 class="text-xl font-semibold">Time Series</h2>
 
@@ -317,7 +218,7 @@
 						{/each}
 					</select>
 				</div>
-				{@render timeControls()}
+				<TimeRangeControls siteIds={selectedSiteIds} bind:start bind:end />
 				<div>
 					<label for="res" class="text-sm font-medium block mb-1">Resolution</label>
 					<select id="res" bind:value={resolution} class="w-full px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
