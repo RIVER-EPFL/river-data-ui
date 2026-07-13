@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { base } from '$app/paths';
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { page } from '$app/state';
 	import { api, type Parameter } from '$api/crud';
 	import { formatRelativeTime } from '$lib/utils';
@@ -10,6 +10,10 @@
 	import { formatThresholdRange } from '$lib/alarms';
 
 	type SiteRef = { id: string; name: string };
+
+	// The host page passes the initial direct/derived filter (captured from the URL before its own
+	// ?tab writeback runs). Standalone use falls back to reading the URL directly.
+	let { initialType: initialTypeProp }: { initialType?: string } = $props();
 
 	let parameters = $state<Parameter[]>([]);
 	let loading = $state(true);
@@ -22,6 +26,7 @@
 	// when the data only contains one, so the available categories are discoverable.
 	const KNOWN_CATEGORIES = ['measurement', 'device_health'];
 	const initialType =
+		untrack(() => initialTypeProp) ??
 		page.url.searchParams.get('type') ??
 		(page.url.searchParams.get('tab') === 'derived' ? 'derived' : '');
 	// Exclusion sets - empty means "show everything"; a member is hidden. (Defaulting to nothing

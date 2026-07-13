@@ -1,21 +1,14 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
-	import CrudList from '$components/crud/CrudList.svelte';
-	import { api } from '$api/crud';
+	import { goto } from '$app/navigation';
+
+	// Constants now live in a tab beside the parameter catalog.
+	onMount(() => {
+		goto(`${base}/parameters?tab=constants`, { replaceState: true });
+	});
 </script>
 
 <svelte:head><title>Constants | River Data</title></svelte:head>
 
-<CrudList
-	client={api.constants}
-	title="Constants"
-	createHref="{base}/constants/new"
-	searchable
-	columns={[
-		{ key: 'name', label: 'Name' },
-		{ key: 'value', label: 'Value' },
-		{ key: 'units', label: 'Units' },
-		{ key: 'description', label: 'Description', class: 'text-brand-muted' },
-	]}
-	rowHref={(row) => `${base}/constants/${row.id}`}
-/>
+<p class="text-brand-muted">Redirecting…</p>

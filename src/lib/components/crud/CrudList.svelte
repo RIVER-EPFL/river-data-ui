@@ -23,6 +23,7 @@
 		title,
 		createHref = '',
 		createLabel = 'Create',
+		showHeader = true,
 		searchable = false,
 		perPage = 25,
 		defaultSort = ['created_at', 'DESC'] as [string, 'ASC' | 'DESC'],
@@ -36,6 +37,7 @@
 		title: string;
 		createHref?: string;
 		createLabel?: string;
+		showHeader?: boolean;
 		searchable?: boolean;
 		perPage?: number;
 		defaultSort?: [string, 'ASC' | 'DESC'];
@@ -103,17 +105,19 @@
 </script>
 
 <div class="space-y-4">
-	<div class="flex items-center justify-between">
-		<h2 class="text-xl font-semibold">{title}</h2>
-		{#if createHref}
-			<a
-				href={createHref}
-				class="px-3 py-1.5 bg-brand-primary text-white rounded-md no-underline text-sm font-semibold hover:bg-brand-primary-dark"
-			>
-				{createLabel}
-			</a>
-		{/if}
-	</div>
+	{#if showHeader}
+		<div class="flex items-center justify-between">
+			<h2 class="text-xl font-semibold">{title}</h2>
+			{#if createHref}
+				<a
+					href={createHref}
+					class="px-3 py-1.5 bg-brand-primary text-white rounded-md no-underline text-sm font-semibold hover:bg-brand-primary-dark"
+				>
+					{createLabel}
+				</a>
+			{/if}
+		</div>
+	{/if}
 
 	{#if error}
 		<ErrorNotice message="Failed to load {title.toLowerCase()}: {error}" />
