@@ -558,11 +558,16 @@
 					sliderMin = Math.min(sliderMin, chartStart);
 					sliderMax = Math.max(sliderMax, chartEnd);
 				} else {
-					if (chartStart < sliderMin) chartStart = sliderMin;
-					if (chartEnd > sliderMax) chartEnd = sliderMax;
+					// Default to the last 7 days of available data, anchored to the newest reading
+					// (≈ now for live sites, the tail of the record for historical ones). Guard the
+					// degenerate extent where data_start == data_end (a single-instant site) so we
+					// never emit start >= end — the readings API rejects a zero-width range.
+					const WEEK = 604800000;
+					chartEnd = sliderMax;
+					chartStart = Math.max(sliderMin, sliderMax - WEEK);
 					if (chartStart >= chartEnd) {
-						// Data ended before the default now-anchored window: show its last week instead.
-						chartStart = Math.max(sliderMin, chartEnd - 604800000);
+						chartStart = chartEnd - WEEK;
+						sliderMin = Math.min(sliderMin, chartStart);
 					}
 				}
 				exportStartMs = sliderMin;
