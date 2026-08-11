@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy, untrack } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 	import { base } from '$app/paths';
 	import { createUrlTab } from '$lib/urlTab.svelte';
 	import { me } from '$auth/me.svelte';
@@ -159,7 +159,7 @@
 		}
 		muteSaving = true;
 		try {
-			const days = muteDays.trim() ? Number(muteDays) : null;
+			const days = String(muteDays).trim() ? Number(muteDays) : null;
 			const expires_at =
 				days != null && Number.isFinite(days) && days > 0
 					? new Date(Date.now() + days * 864e5).toISOString()
@@ -234,9 +234,12 @@
 		loadLogs();
 	}
 
-	// Load each tab's data lazily the first time it's shown (Status loads eagerly + polls).
+	// Load each tab's data lazily the first time it's shown (Status loads eagerly + polls). Gated on
+	// admin + a resolved `/api/me`, so a non-admin (or a still-loading session) never fires the
+	// admin-only list calls.
 	$effect(() => {
 		const t = tab.key;
+		if (!ready || !isAdmin) return;
 		untrack(() => {
 			if (t === 'subscribers' && !subscribersLoaded) loadSubscribers();
 			if (t === 'mutes' && !mutesLoaded) loadMutes();
@@ -244,8 +247,19 @@
 		});
 	});
 
-	onMount(async () => {
-		if (!isAdmin) return;
+	// Bootstrap the admin view once `/api/me` resolves. Using `onMount` read `isAdmin` while the
+	// session was still loading (false → early return, nothing re-ran when it resolved), leaving the
+	// page blank for admins on a hard load. Keyed on `ready`, this runs when the role is known.
+	let bootstrapped = false;
+	$effect(() => {
+		if (!ready || !isAdmin || bootstrapped) return;
+		bootstrapped = true;
+		untrack(() => {
+			void bootstrapAdmin();
+		});
+	});
+
+	async function bootstrapAdmin() {
 		try {
 			caps = await getNotificationsConfig();
 		} catch (e) {
@@ -264,7 +278,7 @@
 		} catch {
 			/* lookups are best-effort; tables fall back to ids */
 		}
-	});
+	}
 
 	onDestroy(() => clearInterval(pollInterval));
 

@@ -84,14 +84,8 @@
       "email": "admin@local.dev",
       "firstName": "Admin",
       "lastName": "User",
-      "credentials": [
-        {
-          "type": "password",
-          "value": "admin",
-          "temporary": false
-        }
-      ],
-      "realmRoles": ["riverdata-admin", "riverdata-user"]
+      "credentials": [{ "type": "password", "value": "admin", "temporary": false }],
+      "realmRoles": ["riverdata-admin"]
     },
     {
       "username": "user",
@@ -100,14 +94,48 @@
       "email": "user@local.dev",
       "firstName": "Regular",
       "lastName": "User",
-      "credentials": [
-        {
-          "type": "password",
-          "value": "user",
-          "temporary": false
-        }
-      ],
-      "realmRoles": ["riverdata-user"]
+      "credentials": [{ "type": "password", "value": "user", "temporary": false }],
+      "realmRoles": ["riverdata-river"]
+    },
+    {
+      "username": "manager1",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "manager1@local.dev",
+      "firstName": "Test",
+      "lastName": "Manager",
+      "credentials": [{ "type": "password", "value": "manager1", "temporary": false }],
+      "realmRoles": ["riverdata-manager"]
+    },
+    {
+      "username": "river1",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "river1@local.dev",
+      "firstName": "Test",
+      "lastName": "River",
+      "credentials": [{ "type": "password", "value": "river1", "temporary": false }],
+      "realmRoles": ["riverdata-river"]
+    },
+    {
+      "username": "intern1",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "intern1@local.dev",
+      "firstName": "Test",
+      "lastName": "Intern",
+      "credentials": [{ "type": "password", "value": "intern1", "temporary": false }],
+      "realmRoles": ["riverdata-intern"]
+    },
+    {
+      "username": "norole",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "norole@local.dev",
+      "firstName": "No",
+      "lastName": "Role",
+      "credentials": [{ "type": "password", "value": "norole", "temporary": false }],
+      "realmRoles": []
     },
     {
       "username": "service-account-river-data-api",
@@ -125,11 +153,18 @@
         "description": "River Data administrator with full access"
       },
       {
-        "name": "riverdata-user",
-        "description": "River Data standard user with read access"
+        "name": "riverdata-manager",
+        "description": "River Data manager: manage sensors and the catalog"
+      },
+      {
+        "name": "riverdata-river",
+        "description": "River Data staff: write data and field metadata"
+      },
+      {
+        "name": "riverdata-intern",
+        "description": "River Data intern: read-only access"
       }
     ]
   },
-  "defaultRoles": ["riverdata-user"],
   "requiredCredentials": ["password"]
 }
