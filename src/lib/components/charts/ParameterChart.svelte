@@ -642,6 +642,7 @@
 				annotations,
 				sensorBands: showSensorVectors ? sensorBands : [],
 				calibrationMarkers: showCalibrationMarkers ? calibrationMarkers : [],
+				spotStats,
 			});
 			tick().then(() => renderChart());
 		}

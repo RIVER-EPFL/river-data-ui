@@ -42,6 +42,42 @@
 
 	// Timezone: offset (hours) of source timestamps relative to UTC
 	let tzOffsetHours = $state(0);
+
+	function downloadTemplate() {
+		const example = sites[0]?.name ?? 'Site name';
+		const exampleParam = params[0]?.name ?? 'Parameter name';
+		const lines: Record<EntityType, string[]> = {
+			readings: [
+				'time,site,parameter,value,calibrated_value',
+				`2026-01-15 10:30:00,${example},${exampleParam},12.4,`,
+			],
+			grab_samples: [
+				'time,site,parameter,value',
+				`2026-01-15 10:30:00,${example},${exampleParam},12.4`,
+				`2026-01-15 10:30:00,${example},${exampleParam},12.6`,
+			],
+			status_events: [
+				'time,site,parameter,value',
+				`2026-01-15 10:30:00,${example},${exampleParam},OK`,
+			],
+		};
+		const blob = new Blob([lines[entityType].join('\n') + '\n'], { type: 'text/csv' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = `river-data-${entityType}-template.csv`;
+		a.click();
+		URL.revokeObjectURL(url);
+	}
+
+	// Parse a CSV timestamp deterministically: strings carrying an explicit zone are absolute;
+	// naive strings are interpreted in the selected zone (never the uploader's browser zone).
+	function parseRowTime(s: string): Date {
+		const trimmed = s.trim();
+		if (/([zZ]|[+-]\d{2}:?\d{2})$/.test(trimmed)) return new Date(trimmed);
+		const utc = new Date(trimmed.replace(' ', 'T') + 'Z');
+		return new Date(utc.getTime() - tzOffsetHours * 3_600_000);
+	}
 	let tzAutoDetected = $state(false);
 	let tzAutoLabel = $state('');
 
@@ -201,7 +237,7 @@
 				errors.push({ row: rowNum, message: 'Missing timestamp' });
 				continue;
 			}
-			const ts = new Date(timeStr).getTime();
+			const ts = parseRowTime(timeStr).getTime();
 			if (isNaN(ts)) {
 				errors.push({ row: rowNum, message: `Invalid timestamp: "${timeStr}"` });
 				continue;
@@ -270,8 +306,7 @@
 				parameterId = param!.id;
 			}
 
-			const raw = new Date(row[timeColumn]);
-			const time = new Date(raw.getTime() - tzOffsetHours * 3_600_000).toISOString();
+			const time = parseRowTime(row[timeColumn]).toISOString();
 			const rawValue = Number(row[valueColumn]);
 
 			if (entityType === 'readings') {
@@ -287,6 +322,7 @@
 				return entry;
 			} else if (entityType === 'grab_samples') {
 				return {
+					site_id: siteId,
 					parameter_id: parameterId,
 					value: rawValue,
 					time,
@@ -312,32 +348,50 @@
 		try {
 			const allRows = buildPayload();
 			const chunkSize = 1000;
-			const chunks = [];
-			for (let i = 0; i < allRows.length; i += chunkSize) {
-				chunks.push(allRows.slice(i, i + chunkSize));
+
+			// Grab samples go to a per-site endpoint, and replicate groups (same parameter and
+			// time) must land in one request so the API can form their sample. Group by site,
+			// then chunk on group boundaries.
+			const requests: Array<{ endpoint: string; body: unknown; rows: number }> = [];
+			if (entityType === 'grab_samples') {
+				const bySite = new Map<string, Array<Record<string, unknown>>>();
+				for (const row of allRows) {
+					const { site_id, ...reading } = row;
+					const list = bySite.get(site_id as string) ?? [];
+					list.push(reading);
+					bySite.set(site_id as string, list);
+				}
+				for (const [siteId, rows] of bySite) {
+					let chunk: Array<Record<string, unknown>> = [];
+					let lastKey = '';
+					for (const row of rows) {
+						const key = `${row.parameter_id}|${row.time}`;
+						if (chunk.length >= chunkSize && key !== lastKey) {
+							requests.push({ endpoint: '/api/grab_samples', body: { site_id: siteId, readings: chunk }, rows: chunk.length });
+							chunk = [];
+						}
+						chunk.push(row);
+						lastKey = key;
+					}
+					if (chunk.length > 0) {
+						requests.push({ endpoint: '/api/grab_samples', body: { site_id: siteId, readings: chunk }, rows: chunk.length });
+					}
+				}
+			} else {
+				const endpoint = entityType === 'readings' ? '/api/readings/batch' : '/api/status_events/batch';
+				const key = entityType === 'readings' ? 'readings' : 'events';
+				for (let i = 0; i < allRows.length; i += chunkSize) {
+					const chunk = allRows.slice(i, i + chunkSize);
+					requests.push({ endpoint, body: { [key]: chunk }, rows: chunk.length });
+				}
 			}
 
 			let totalInserted = 0;
-
-			for (let i = 0; i < chunks.length; i++) {
-				const chunk = chunks[i];
-				let body: unknown;
-				let endpoint: string;
-
-				if (entityType === 'readings') {
-					endpoint = '/api/readings/batch';
-					body = { readings: chunk };
-				} else if (entityType === 'grab_samples') {
-					endpoint = '/api/grab_samples';
-					body = { site_id: singleSiteId, readings: chunk };
-				} else {
-					endpoint = '/api/status_events/batch';
-					body = { events: chunk };
-				}
-
-				const result = await POST<{ inserted: number; samples_created?: number }>(endpoint, body);
+			for (let i = 0; i < requests.length; i++) {
+				const req = requests[i];
+				const result = await POST<{ inserted: number; samples_created?: number }>(req.endpoint, req.body);
 				totalInserted += result.inserted;
-				uploadProgress = Math.round(((i + 1) / chunks.length) * 100);
+				uploadProgress = Math.round(((i + 1) / requests.length) * 100);
 			}
 
 			const duplicates = allRows.length - totalInserted;
@@ -415,6 +469,18 @@
 			</Button>
 		{/if}
 	</div>
+
+	{#if step === 'file'}
+		<p class="text-sm text-brand-muted">
+			For a wide CSV export with one column per parameter (logger downloads, station
+			exports), use the site importer instead: open the site and choose Import. It
+			previews column mapping and detects overlaps with existing data before writing.
+			This page suits long-format files (one value per row) across sites and parameters.
+		</p>
+		<Button variant="secondary" size="sm" onclick={downloadTemplate}>
+			Download CSV template
+		</Button>
+	{/if}
 
 	<!-- Step indicator -->
 	<div class="flex items-center gap-2 text-sm">
@@ -669,7 +735,7 @@
 									<td class="px-3 py-1.5">{resolvedParamName(row)}</td>
 									<td class="px-3 py-1.5 font-mono text-xs">{row[timeColumn] ?? 'None'}</td>
 									{#if tzOffsetHours !== 0}
-										<td class="px-3 py-1.5 font-mono text-xs text-brand-primary">{row[timeColumn] ? new Date(new Date(row[timeColumn]).getTime() - tzOffsetHours * 3_600_000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC' : 'None'}</td>
+										<td class="px-3 py-1.5 font-mono text-xs text-brand-primary">{row[timeColumn] ? parseRowTime(row[timeColumn]).toISOString().replace('T', ' ').slice(0, 19) + ' UTC' : 'None'}</td>
 									{/if}
 									<td class="px-3 py-1.5 font-mono">{row[valueColumn] ?? 'None'}</td>
 									{#if entityType === 'readings' && calibratedColumn}

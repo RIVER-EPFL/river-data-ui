@@ -252,7 +252,16 @@
 	// Shared data fetch - one request for all charts
 	interface ReadingsResponse {
 		times: string[];
-		parameters: Array<{ id: string; name: string; units: string | null; values: (number | null)[]; flagged?: (boolean | null)[] | null; flag_reasons?: (string | null)[] | null }>;
+		parameters: Array<{
+			id: string;
+			parameter_id?: string;
+			name: string;
+			units: string | null;
+			values: (number | null)[];
+			flagged?: (boolean | null)[] | null;
+			flag_reasons?: (string | null)[] | null;
+			samples?: (import('$lib/api/types').SampleStat | null)[] | null;
+		}>;
 	}
 	interface AggregatesResponse {
 		times: string[];
@@ -313,12 +322,10 @@
 					// separate spot fetch. (Aggregates are already continuous-only by design.)
 					? GET<ReadingsResponse>(`/api/sites/${siteId}/readings`, { start: startDate, end: endDate, measurement_type: 'continuous' })
 					: GET<AggregatesResponse>(`/api/sites/${siteId}/aggregates/${res}`, { start: startDate, end: endDate });
+			// Spot values arrive as sample means with per-point stats and replicates inline,
+			// so whiskers and the hover drill-down need no second fetch.
 			const spotPromise = wantSpot
-				? GET<ReadingsResponse>(`/api/sites/${siteId}/readings`, { start: startDate, end: endDate, measurement_type: 'spot' }).catch(() => null)
-				: Promise.resolve(null);
-			// Replicate stats for whiskers on the spot diamonds (small table; filtered client-side).
-			const samplesPromise = wantSpot
-				? api.samples.list({ perPage: 1000, filter: { site_id: siteId }, sort: ['collected_at', 'ASC'] }).catch(() => null)
+				? GET<ReadingsResponse>(`/api/sites/${siteId}/readings`, { start: startDate, end: endDate, measurement_type: 'spot', include_sample_stats: 'true' }).catch(() => null)
 				: Promise.resolve(null);
 			const annotationsPromise = GET<Annotation[]>(`/api/sites/${siteId}/annotations`, { start: startDate, end: endDate })
 				.catch(() => [] as Annotation[]);
@@ -326,7 +333,7 @@
 				? getSiteSensorIdentity(siteId, { start: startDate, end: endDate }).catch(() => null)
 				: Promise.resolve(null);
 
-			const [result, spotResult, samplesResult, anns, identity] = await Promise.all([dataPromise, spotPromise, samplesPromise, annotationsPromise, identityPromise]);
+			const [result, spotResult, anns, identity] = await Promise.all([dataPromise, spotPromise, annotationsPromise, identityPromise]);
 			if (gen === fetchGeneration) sensorIdentity = identity;
 			if (gen !== fetchGeneration) return;
 
@@ -355,16 +362,22 @@
 			spotDataMap = smap;
 
 			const statsMap = new Map<string, Map<number, SpotPointStats>>();
-			if (samplesResult) {
-				const winStart = new Date(startDate).getTime();
-				const winEnd = new Date(endDate).getTime();
-				for (const s of samplesResult.data) {
-					if (s.mean == null) continue;
-					const t = new Date(s.collected_at).getTime();
-					if (t < winStart || t > winEnd) continue;
-					const inner = statsMap.get(s.parameter_id) ?? new Map<number, SpotPointStats>();
-					inner.set(t, { mean: s.mean, stdev: s.stdev, n: s.n });
-					statsMap.set(s.parameter_id, inner);
+			if (spotResult && spotResult.times?.length) {
+				const spotMs = spotResult.times.map((t) => new Date(t).getTime());
+				for (const p of spotResult.parameters ?? []) {
+					if (!p.samples || !p.parameter_id) continue;
+					const inner = statsMap.get(p.parameter_id) ?? new Map<number, SpotPointStats>();
+					p.samples.forEach((s, i) => {
+						if (s && s.mean != null) {
+							inner.set(spotMs[i], {
+								mean: s.mean,
+								stdev: s.stdev ?? null,
+								n: s.n,
+								replicates: s.replicates,
+							});
+						}
+					});
+					if (inner.size > 0) statsMap.set(p.parameter_id, inner);
 				}
 			}
 			spotStatsMap = statsMap;

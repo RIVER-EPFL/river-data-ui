@@ -27,6 +27,7 @@
 		severity: 'alarm' | 'warning' | null;
 		flagged: boolean;
 		flagReason: string | null;
+		sampleLine: string | null;
 		annotations: AnnotationRow[];
 		sensorLabel: string | null;
 		calEquation: string | null;
@@ -87,6 +88,21 @@
 				}
 			}
 
+			// A spot point backed by a sample shows the replicates behind its mean
+			let sampleLine: string | null = null;
+			if (tMs != null) {
+				const stat = reg.spotStats?.get(tMs);
+				if (stat && stat.n >= 2) {
+					const reps = (stat.replicates ?? [])
+						.map((r) => (r.calibrated_value ?? r.raw_value).toFixed(2) + (r.flagged ? '*' : ''))
+						.join(', ');
+					const sd = stat.stdev != null ? ` ±${stat.stdev.toFixed(2)}` : '';
+					sampleLine = reps
+						? `mean of ${stat.n}${sd}: ${reps}`
+						: `mean of ${stat.n} replicates${sd}`;
+				}
+			}
+
 			result.push({
 				name: reg.parameterName,
 				value: val != null ? val.toFixed(2) : '--',
@@ -95,6 +111,7 @@
 				severity,
 				flagged,
 				flagReason,
+				sampleLine,
 				annotations: rowAnns,
 				sensorLabel,
 				calEquation,
@@ -175,6 +192,9 @@
 			{/if}
 			{#if row.flagged && row.flagReason}
 				<div style="font-size:10px;color:{uPlotTheme.tooltipColor};opacity:0.7;padding-left:14px;white-space:normal;line-height:14px;margin-bottom:2px">{row.flagReason}</div>
+			{/if}
+			{#if row.sampleLine}
+				<div style="font-size:10px;color:{uPlotTheme.tooltipColor};opacity:0.8;padding-left:14px;white-space:normal;line-height:14px;margin-bottom:2px">{row.sampleLine}</div>
 			{/if}
 			{#each row.annotations as a}
 				<div style="font-size:10px;color:{uPlotTheme.tooltipColor};line-height:14px;white-space:normal;padding-left:14px;margin-bottom:2px" class="flex items-start gap-1.5">

@@ -13,6 +13,13 @@ export interface SpotPointStats {
 	mean: number;
 	stdev: number | null;
 	n: number;
+	/** Individual replicate values behind the mean, for hover drill-down. */
+	replicates?: Array<{
+		replicate_index: number;
+		raw_value: number;
+		calibrated_value?: number | null;
+		flagged: boolean;
+	}>;
 }
 
 export interface SpotSeriesSpec {
