@@ -241,15 +241,35 @@
 		}, 0);
 	}
 
-	function renameGlobalParam(oldName: string, newName: string) {
-		if (!newName.trim() || newName === oldName) return;
+	// A parameter that does not exist yet is created once per name, so entries converging onto it
+	// must carry the units the operator picked or the created parameter takes whichever units the
+	// server happened to see first.
+	function newParamOption(name: string, units: string): string {
+		return `new:${name}::${units}`;
+	}
+
+	function parseNewParamOption(value: string): { name: string; units: string | null } {
+		const body = value.slice(4);
+		const sep = body.lastIndexOf('::');
+		if (sep === -1) return { name: body, units: null };
+		return { name: body.slice(0, sep), units: body.slice(sep + 2) };
+	}
+
+	function renameGlobalParam(oldName: string, newName: string, newUnits?: string) {
+		if (!newName.trim()) return;
+		if (newName === oldName && newUnits === undefined) return;
 		const updates: PlanEntryUpdate[] = [];
 		for (const e of planEntries) {
 			if (e.parameter.name === oldName) {
 				(e.parameter as any).name = newName.trim();
 				(e.parameter as any).create = true;
 				(e.parameter as any).id = null;
-				updates.push({ stream_id: e.stream_id, parameter_name: newName.trim() });
+				const update: PlanEntryUpdate = { stream_id: e.stream_id, parameter_name: newName.trim() };
+				if (newUnits !== undefined && newUnits !== e.parameter.units) {
+					(e.parameter as any).units = newUnits;
+					update.parameter_units = newUnits;
+				}
+				updates.push(update);
 			}
 		}
 		planEntries = [...planEntries];
@@ -334,13 +354,15 @@
 		pendingUpdates.push(...updates);
 		editGeneration++;
 		if (patchTimer) clearTimeout(patchTimer);
-		patchTimer = setTimeout(() => { void flushUpdates(); }, 300);
+		patchTimer = setTimeout(() => { void flushUpdates().catch(() => {}); }, 300);
 	}
 
 	function flushUpdates(): Promise<void> {
 		if (patchTimer) { clearTimeout(patchTimer); patchTimer = null; }
-		flushChain = flushChain.then(sendBatch);
-		return flushChain;
+		const pending = flushChain.then(sendBatch);
+		// The stored chain absorbs the rejection so later flushes still run; callers see it.
+		flushChain = pending.catch(() => {});
+		return pending;
 	}
 
 	async function sendBatch() {
@@ -359,6 +381,7 @@
 			// Keep the batch queued so the next flush retries it.
 			pendingUpdates = [...batch, ...pendingUpdates];
 			toastStore.error(`Failed to save changes: ${e instanceof Error ? e.message : e}`);
+			throw e;
 		} finally { saving = false; }
 	}
 
@@ -634,7 +657,12 @@
 
 	async function applyPlan() {
 		if (!plan) return;
-		await flushUpdates();
+		try {
+			await flushUpdates();
+		} catch {
+			toastStore.error('Unsaved edits could not be saved; the plan was not applied.');
+			return;
+		}
 		applying = true;
 		try {
 			const { job_id } = await applyPairingPlan(plan.id);
@@ -665,7 +693,11 @@
 	}
 
 	async function exitWizard() {
-		await flushUpdates();
+		try {
+			await flushUpdates();
+		} catch {
+			// The toast from the failed flush is the signal; leaving the wizard still proceeds.
+		}
 		plan = null; planEntries = []; applyResult = null;
 		setMode('list'); load();
 	}
@@ -1035,7 +1067,7 @@
 													<button onclick={() => { customParamInput = null; }} class="text-[10px] text-brand-muted cursor-pointer bg-transparent border-none">cancel</button>
 												{:else}
 													<select
-														value={entryMatched ? `db:${entryMatched.id}` : `new:${entry.parameter.name}`}
+														value={entryMatched ? `db:${entryMatched.id}` : newParamOption(entry.parameter.name, entry.parameter.units)}
 														onchange={(e) => {
 															const val = (e.target as HTMLSelectElement).value;
 															if (val === 'custom') {
@@ -1052,12 +1084,18 @@
 																	queueUpdate([{ stream_id: entry.stream_id, parameter_name: ep.code }]);
 																}
 															} else if (val.startsWith('new:')) {
-																const newName = val.slice(4);
-																if (newName !== entry.parameter.name) {
+																const { name: newName, units: newUnits } = parseNewParamOption(val);
+																const unitsChanged = newUnits !== null && newUnits !== entry.parameter.units;
+																if (newName !== entry.parameter.name || unitsChanged) {
 																	(entry.parameter as any).name = newName;
 																	(entry.parameter as any).create = true;
+																	const update: PlanEntryUpdate = { stream_id: entry.stream_id, parameter_name: newName };
+																	if (unitsChanged) {
+																		(entry.parameter as any).units = newUnits;
+																		update.parameter_units = newUnits as string;
+																	}
 																	planEntries = [...planEntries];
-																	queueUpdate([{ stream_id: entry.stream_id, parameter_name: newName }]);
+																	queueUpdate([update]);
 																}
 															}
 														}}
@@ -1071,7 +1109,7 @@
 														</optgroup>
 														<optgroup label="New">
 															{#each paramGroups.filter((p) => !matchParam(p.name)) as newP}
-																<option value="new:{newP.name}">+ {newP.name} ({newP.units})</option>
+																<option value={newParamOption(newP.name, newP.units)}>+ {newP.name} ({newP.units})</option>
 															{/each}
 														</optgroup>
 														<option value="custom">Custom name…</option>
@@ -1215,15 +1253,17 @@
 										</td>
 										<td class="px-4 py-2">
 											<select
-												value={matched ? `db:${matched.id}` : `new:${pg.name}`}
+												value={matched ? `db:${matched.id}` : newParamOption(pg.name, pg.units)}
 												onchange={(e) => {
 													const val = (e.target as HTMLSelectElement).value;
 													if (val.startsWith('db:')) {
 														const ep = existingParams.find((p) => p.id === val.slice(3));
 														if (ep) mapParamToExisting(pg.name, ep);
 													} else if (val.startsWith('new:')) {
-														const newName = val.slice(4);
-														if (newName !== pg.name) renameGlobalParam(pg.name, newName);
+														const { name: newName, units: newUnits } = parseNewParamOption(val);
+														if (newName !== pg.name || (newUnits !== null && newUnits !== pg.units)) {
+															renameGlobalParam(pg.name, newName, newUnits ?? undefined);
+														}
 													}
 												}}
 												class="px-2 py-1 rounded text-xs bg-brand-surface w-full max-w-[220px] border border-brand-divider {matched ? 'border-severity-ok' : 'border-severity-warning'}"
@@ -1235,7 +1275,7 @@
 												</optgroup>
 												<optgroup label="Will be created">
 													{#each paramGroups.filter((p) => !matchParam(p.name)) as newP}
-														<option value="new:{newP.name}">+ {newP.name} ({newP.units})</option>
+														<option value={newParamOption(newP.name, newP.units)}>+ {newP.name} ({newP.units})</option>
 													{/each}
 												</optgroup>
 											</select>

@@ -627,7 +627,6 @@ export interface PlanEntryUpdate {
 	site_name?: string;
 	parameter_name?: string;
 	parameter_units?: string;
-	parameter_id?: string;
 }
 
 export const createPairingPlan = (sourceSystem: string) =>
@@ -756,6 +755,9 @@ export interface GrabSampleReading {
 export interface GrabSampleRequest {
 	site_id: string;
 	created_by?: string;
+	/** Stamped onto the samples rows the request creates or reuses. */
+	label?: string;
+	notes?: string;
 	readings: GrabSampleReading[];
 }
 

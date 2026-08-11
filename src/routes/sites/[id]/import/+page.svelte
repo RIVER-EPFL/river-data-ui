@@ -67,6 +67,8 @@
 	let result = $state<ImportPlan | null>(null);
 	let job = $state<ReprocessingJob | null>(null);
 	let conflictMode = $state<'skip' | 'overwrite'>('skip');
+	// Cadence stamped on every imported reading: continuous sensor series or spot (grab/lab) results.
+	let measurementType = $state<'continuous' | 'spot'>('continuous');
 
 	let stagingSessionId = $state<string | null>(null);
 
@@ -214,6 +216,7 @@
 				mapping: buildMapping(),
 				conflict: conflictMode,
 				tz_offset_hours: tzOffsetHours || undefined,
+				measurement_type: measurementType,
 			};
 			if (stagingSessionId) {
 				body.session_id = stagingSessionId;
@@ -272,6 +275,7 @@
 		result = null;
 		job = null;
 		conflictMode = 'skip';
+		measurementType = 'continuous';
 		stagingSessionId = null;
 		tzOffsetHours = 0;
 		tzAutoDetected = false;
@@ -388,6 +392,18 @@
 				{#if tzAutoDetected}
 					<span class="text-xs text-brand-muted">(detected: {tzAutoLabel})</span>
 				{/if}
+			</div>
+
+			<div class="mb-3 flex items-center gap-3">
+				<span class="text-sm font-medium whitespace-nowrap">Measurement type</span>
+				<label class="flex items-center gap-1.5 text-sm">
+					<input type="radio" name="measurement-type" value="continuous" bind:group={measurementType} />
+					Continuous
+				</label>
+				<label class="flex items-center gap-1.5 text-sm">
+					<input type="radio" name="measurement-type" value="spot" bind:group={measurementType} />
+					Spot (grab or lab)
+				</label>
 			</div>
 
 			<p class="mb-2 text-sm font-medium">Column alignment</p>

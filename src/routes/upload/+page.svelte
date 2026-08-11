@@ -340,6 +340,60 @@
 	}
 
 	// --- Upload ---
+	const CHUNK_SIZE = 1000;
+
+	interface UploadRequest {
+		endpoint: string;
+		body: unknown;
+		rows: number;
+	}
+
+	// Grab samples go to a per-site endpoint, and a replicate group (same parameter and time) must
+	// land in one request so the API can form its sample and number the replicates consistently.
+	function buildGrabSampleRequests(allRows: Array<Record<string, unknown>>): UploadRequest[] {
+		const bySite = new Map<string, Map<string, Array<Record<string, unknown>>>>();
+		for (const row of allRows) {
+			const { site_id, ...reading } = row;
+			const groups = bySite.get(site_id as string) ?? new Map<string, Array<Record<string, unknown>>>();
+			const key = `${reading.parameter_id}|${reading.time}`;
+			const group = groups.get(key) ?? [];
+			group.push(reading);
+			groups.set(key, group);
+			bySite.set(site_id as string, groups);
+		}
+
+		const requests: UploadRequest[] = [];
+		for (const [siteId, groups] of bySite) {
+			let chunk: Array<Record<string, unknown>> = [];
+			const flush = () => {
+				if (chunk.length === 0) return;
+				requests.push({ endpoint: '/api/grab_samples', body: { site_id: siteId, readings: chunk }, rows: chunk.length });
+				chunk = [];
+			};
+			for (const group of groups.values()) {
+				if (chunk.length > 0 && chunk.length + group.length > CHUNK_SIZE) flush();
+				chunk.push(...group);
+			}
+			flush();
+		}
+		return requests;
+	}
+
+	function buildBatchRequests(allRows: Array<Record<string, unknown>>): UploadRequest[] {
+		const endpoint = entityType === 'readings' ? '/api/readings/batch' : '/api/status_events/batch';
+		const key = entityType === 'readings' ? 'readings' : 'events';
+		const requests: UploadRequest[] = [];
+		for (let i = 0; i < allRows.length; i += CHUNK_SIZE) {
+			const chunk = allRows.slice(i, i + CHUNK_SIZE);
+			requests.push({ endpoint, body: { [key]: chunk }, rows: chunk.length });
+		}
+		return requests;
+	}
+
+	function buildRequests(allRows: Array<Record<string, unknown>>): UploadRequest[] {
+		return entityType === 'grab_samples' ? buildGrabSampleRequests(allRows) : buildBatchRequests(allRows);
+	}
+
 	async function handleUpload() {
 		uploading = true;
 		uploadProgress = 0;
@@ -347,44 +401,7 @@
 
 		try {
 			const allRows = buildPayload();
-			const chunkSize = 1000;
-
-			// Grab samples go to a per-site endpoint, and replicate groups (same parameter and
-			// time) must land in one request so the API can form their sample. Group by site,
-			// then chunk on group boundaries.
-			const requests: Array<{ endpoint: string; body: unknown; rows: number }> = [];
-			if (entityType === 'grab_samples') {
-				const bySite = new Map<string, Array<Record<string, unknown>>>();
-				for (const row of allRows) {
-					const { site_id, ...reading } = row;
-					const list = bySite.get(site_id as string) ?? [];
-					list.push(reading);
-					bySite.set(site_id as string, list);
-				}
-				for (const [siteId, rows] of bySite) {
-					let chunk: Array<Record<string, unknown>> = [];
-					let lastKey = '';
-					for (const row of rows) {
-						const key = `${row.parameter_id}|${row.time}`;
-						if (chunk.length >= chunkSize && key !== lastKey) {
-							requests.push({ endpoint: '/api/grab_samples', body: { site_id: siteId, readings: chunk }, rows: chunk.length });
-							chunk = [];
-						}
-						chunk.push(row);
-						lastKey = key;
-					}
-					if (chunk.length > 0) {
-						requests.push({ endpoint: '/api/grab_samples', body: { site_id: siteId, readings: chunk }, rows: chunk.length });
-					}
-				}
-			} else {
-				const endpoint = entityType === 'readings' ? '/api/readings/batch' : '/api/status_events/batch';
-				const key = entityType === 'readings' ? 'readings' : 'events';
-				for (let i = 0; i < allRows.length; i += chunkSize) {
-					const chunk = allRows.slice(i, i + chunkSize);
-					requests.push({ endpoint, body: { [key]: chunk }, rows: chunk.length });
-				}
-			}
+			const requests = buildRequests(allRows);
 
 			let totalInserted = 0;
 			for (let i = 0; i < requests.length; i++) {
