@@ -38,7 +38,7 @@ export const getJobLogs = (jobId: string, afterSeq?: number) =>
 		`${SERVICE}/reprocessing_jobs/${jobId}/logs${afterSeq != null ? `?after_seq=${afterSeq}` : ''}`,
 	);
 
-// Notifications — channel capabilities (env-gated; carries no secrets). The frontend uses this to
+// Notifications, channel capabilities (env-gated; carries no secrets). The frontend uses this to
 // enable a channel or render it greyed-out with a "configured via environment" note.
 export interface NotificationsConfig {
 	telegram: { available: boolean; botUsername?: string };
@@ -80,7 +80,7 @@ export const mintMyLinkCode = () =>
 
 export const unlinkMyTelegram = () => DELETE<void>(`${SERVICE}/notifications/me/telegram`);
 
-// Admin notification oversight — per-channel health probe (admin-only). `healthy` is null until a
+// Admin notification oversight, per-channel health probe (admin-only). `healthy` is null until a
 // probe has run; `detail` carries the probe message (or failure reason).
 export interface ChannelHealth {
 	name: 'telegram' | 'email';
@@ -727,7 +727,7 @@ export const getMySites = () => GET<NavigatorProject[]>(`${ADMIN}/me/sites`);
 export const setUserGrants = (userId: string, projectIds: string[]) =>
 	PUT(`${ADMIN}/users/${userId}/grants`, { project_ids: projectIds });
 
-// Realm directory search (LDAP-federated in production — covers all EPFL accounts).
+// Realm directory search (LDAP-federated in production, covers all EPFL accounts).
 // Each result includes the user's current realm roles.
 export interface DirectoryUser {
 	id: string;
@@ -755,7 +755,7 @@ export interface GrabSampleReading {
 export interface GrabSampleRequest {
 	site_id: string;
 	created_by?: string;
-	/** Stamped onto the samples rows the request creates or reuses. */
+	// Stamped onto the samples rows the request creates or reuses.
 	label?: string;
 	notes?: string;
 	readings: GrabSampleReading[];
@@ -769,7 +769,7 @@ export interface GrabSampleResponse {
 export const saveGrabSample = (req: GrabSampleRequest) =>
 	POST<GrabSampleResponse>(`${SERVICE}/grab_samples`, req);
 
-// Schedules — the recurring-service control plane.
+// Schedules, the recurring-service control plane.
 export type OverlapPolicy = 'skip_if_running' | 'allow_concurrent';
 export type CatchupPolicy = 'run_once' | 'skip';
 

@@ -6,16 +6,13 @@
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 
-	const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-	const zoneOptions =
+	const BROWSER_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
+	const ZONE_OPTIONS =
 		typeof Intl.supportedValuesOf === 'function'
 			? Intl.supportedValuesOf('timeZone')
-			: [browserZone, 'UTC'];
+			: [BROWSER_ZONE, 'UTC'];
 
 	// Persists a tool's computed outputs to a station as one grab-sample request.
-	// Every numeric result gets a row (include-checkbox + parameter mapping);
-	// per-replicate outputs (key suffix _A.._E) collapse into one row saved as
-	// replicate-indexed readings so a sample forms server-side.
 	let {
 		open = $bindable(false),
 		toolTitle = '',
@@ -32,7 +29,7 @@
 		id: string;
 		displayKey: string;
 		values: { key: string; value: number }[];
-		isReplicateGroup: boolean;
+		replicateGroup: boolean;
 		defaultInclude: boolean;
 	}
 
@@ -65,7 +62,7 @@
 					id: m[1],
 					displayKey: m[1],
 					values: members.map(({ key: k, value: v }) => ({ key: k, value: v })),
-					isReplicateGroup: true,
+					replicateGroup: true,
 					defaultInclude: true,
 				});
 				continue;
@@ -78,7 +75,7 @@
 				id: key,
 				displayKey: key,
 				values: [{ key, value }],
-				isReplicateGroup: false,
+				replicateGroup: false,
 				defaultInclude: !shadowedByGroup,
 			});
 		}
@@ -91,21 +88,21 @@
 	let loadingSite = $state(false);
 
 	let selectedSiteId = $state('');
-	let collectedAt = $state(toDatetimeLocal(Date.now(), browserZone));
-	let collectedZone = $state(browserZone);
+	let collectedAt = $state(toDatetimeLocal(Date.now(), BROWSER_ZONE));
+	let collectedZone = $state(BROWSER_ZONE);
 	let label = $state('');
 	let notes = $state('');
 	let saving = $state(false);
 
-	let include = $state<Record<string, boolean>>({});
-	let paramChoice = $state<Record<string, string>>({});
+	let included = $state<Record<string, boolean>>({});
+	let paramChoices = $state<Record<string, string>>({});
 
 	$effect(() => {
 		if (!open) return;
 		selectedSiteId = '';
 		siteParams = [];
-		collectedAt = toDatetimeLocal(Date.now(), browserZone);
-		collectedZone = browserZone;
+		collectedAt = toDatetimeLocal(Date.now(), BROWSER_ZONE);
+		collectedZone = BROWSER_ZONE;
 		label = '';
 		notes = curveNote;
 		const inc: Record<string, boolean> = {};
@@ -114,8 +111,8 @@
 			inc[r.id] = r.defaultInclude;
 			pc[r.id] = '';
 		}
-		include = inc;
-		paramChoice = pc;
+		included = inc;
+		paramChoices = pc;
 		void loadSites();
 	});
 
@@ -151,7 +148,7 @@
 	// Default each row's parameter by case-insensitive match of the result key
 	// against the catalog code/name of parameters configured at the site.
 	function applyDefaultMappings() {
-		const next = { ...paramChoice };
+		const next = { ...paramChoices };
 		for (const r of rows) {
 			const wanted = r.displayKey.toLowerCase();
 			const match = siteParams.find((sp) => {
@@ -164,7 +161,7 @@
 			});
 			next[r.id] = match?.parameter_id ?? '';
 		}
-		paramChoice = next;
+		paramChoices = next;
 	}
 
 	function paramLabel(sp: SiteParameter): string {
@@ -174,12 +171,12 @@
 		return units ? `${name} (${units})` : name;
 	}
 
-	const includedRows = $derived(rows.filter((r) => include[r.id]));
+	const includedRows = $derived(rows.filter((r) => included[r.id]));
 
 	const duplicateParam = $derived.by(() => {
 		const seen = new Set<string>();
 		for (const r of includedRows) {
-			const pid = paramChoice[r.id];
+			const pid = paramChoices[r.id];
 			if (!pid) continue;
 			if (seen.has(pid)) return true;
 			seen.add(pid);
@@ -187,7 +184,7 @@
 		return false;
 	});
 
-	const unmappedIncluded = $derived(includedRows.some((r) => !paramChoice[r.id]));
+	const unmappedIncluded = $derived(includedRows.some((r) => !paramChoices[r.id]));
 
 	const canSave = $derived(
 		!!selectedSiteId &&
@@ -204,7 +201,7 @@
 			const time = fromDatetimeLocal(collectedAt, collectedZone);
 			const readings = includedRows.flatMap((r) =>
 				r.values.map((v, idx) => ({
-					parameter_id: paramChoice[r.id],
+					parameter_id: paramChoices[r.id],
 					time,
 					value: v.value,
 					replicate_index: idx,
@@ -251,7 +248,7 @@
 					<label for="srp-time" class="text-sm font-medium">Timestamp <span class="text-severity-alarm">*</span></label>
 					<input id="srp-time" type="datetime-local" bind:value={collectedAt} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" />
 					<select bind:value={collectedZone} aria-label="Time zone" class="px-3 py-1 border border-brand-divider rounded-md bg-brand-surface text-xs">
-						{#each zoneOptions as z}<option value={z}>{z}</option>{/each}
+						{#each ZONE_OPTIONS as z}<option value={z}>{z}</option>{/each}
 					</select>
 				</div>
 			</div>
@@ -272,13 +269,13 @@
 								<td class="px-1 py-1.5 align-top">
 									<input
 										type="checkbox"
-										bind:checked={include[row.id]}
+										bind:checked={included[row.id]}
 										aria-label="Include {row.displayKey}"
 									/>
 								</td>
 								<td class="px-1 py-1.5 align-top">
 									{row.displayKey.replace(/_/g, ' ')}
-									{#if row.isReplicateGroup}
+									{#if row.replicateGroup}
 										<span class="text-xs text-brand-muted">({row.values.length} replicates)</span>
 									{/if}
 								</td>
@@ -287,8 +284,8 @@
 								</td>
 								<td class="px-1 py-1.5 align-top">
 									<select
-										bind:value={paramChoice[row.id]}
-										disabled={!selectedSiteId || loadingSite || !include[row.id]}
+										bind:value={paramChoices[row.id]}
+										disabled={!selectedSiteId || loadingSite || !included[row.id]}
 										aria-label="Parameter for {row.displayKey}"
 										class="w-full px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm disabled:opacity-50"
 									>

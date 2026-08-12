@@ -42,7 +42,7 @@
 	});
 
 	function fmt(iso: string | null | undefined): string {
-		return iso ? formatDateTime(iso) : '—';
+		return iso ? formatDateTime(iso) : '-';
 	}
 	function status(t: ApiToken): { text: string; variant: 'ok' | 'accent' | 'alarm' } {
 		if (t.is_active === false) return { text: 'Revoked', variant: 'alarm' };
@@ -159,8 +159,8 @@
 						/>
 						<p class="text-xs text-brand-muted">
 							Supply your key in place of
-							<code class="rounded bg-brand-bg px-1">YOUR_API_TOKEN</code> (shown only once at creation
-							— Rotate to issue a new one).
+							<code class="rounded bg-brand-bg px-1">YOUR_API_TOKEN</code> (shown only once at creation;
+							rotate to issue a new one).
 						</p>
 						<TokenUsagePanel permissions={token.permissions} projectScope={token.project_scope} />
 					</div>

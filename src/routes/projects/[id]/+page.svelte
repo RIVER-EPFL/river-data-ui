@@ -83,8 +83,8 @@
 	}
 
 	function subprojectName(id: string | null): string {
-		if (!id) return '—';
-		return subprojects.find((s) => s.id === id)?.name ?? '—';
+		if (!id) return '-';
+		return subprojects.find((s) => s.id === id)?.name ?? '-';
 	}
 
 	// Interrogate a subproject's sites, and move them between subprojects, without leaving the page.
@@ -202,7 +202,7 @@
 			await reloadSubprojectsAndSites();
 			toastStore.success('Subproject deleted');
 		} catch {
-			toastStore.error('Failed to delete subproject — move its sites to another subproject first');
+			toastStore.error('Failed to delete subproject, move its sites to another subproject first');
 		} finally {
 			savingSubId = null;
 		}
@@ -390,7 +390,7 @@
 								<td class="px-4 py-2">
 									<button onclick={() => startEditingSub(sub)} class="cursor-pointer text-brand-text hover:text-brand-primary" title="Click to rename">{sub.name}</button>
 								</td>
-								<td class="px-4 py-2 text-brand-muted">{sub.description ?? '—'}</td>
+								<td class="px-4 py-2 text-brand-muted">{sub.description ?? '-'}</td>
 								<td class="px-4 py-2">
 									<button
 										onclick={() => openSitesDialog(sub)}

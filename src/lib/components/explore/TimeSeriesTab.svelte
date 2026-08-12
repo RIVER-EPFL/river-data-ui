@@ -83,7 +83,7 @@
 						wantContinuous
 							? fetchSiteSeries({ ...common, resolution, measurementType: 'continuous' })
 							: Promise.resolve(null),
-						// Grab/spot samples are sparse and never aggregated — always fetched raw.
+						// Grab/spot samples are sparse and never aggregated, always fetched raw.
 						wantSpot
 							? fetchSiteSeries({ ...common, resolution: 'raw', measurementType: 'spot' }).catch(() => null)
 							: Promise.resolve(null),

@@ -63,7 +63,7 @@
 	let recomputingId = $state<string | null>(null);
 	let confirmingRemove = $state<string | null>(null);
 
-	// Inline subproject move: the picker lists every subproject (Project — Subproject), so a site can
+	// Inline subproject move: the picker lists every subproject (Project - Subproject), so a site can
 	// be moved across projects too; the DB trigger re-syncs project_id from the chosen subproject.
 	let subprojectPicker = $state<{ options: Array<{ value: string; label: string }>; names: Map<string, string> } | null>(null);
 	let editingSubproject = $state(false);
@@ -93,7 +93,7 @@
 			subprojectPicker = {
 				options: subs.data.map((s: Subproject) => ({
 					value: s.id,
-					label: `${projectNames.get(s.project_id) ?? '—'} — ${s.name}`,
+					label: `${projectNames.get(s.project_id) ?? '-'} - ${s.name}`,
 				})),
 				names: new Map(subs.data.map((s: Subproject) => [s.id, s.name])),
 			};
@@ -322,8 +322,7 @@
 					// separate spot fetch. (Aggregates are already continuous-only by design.)
 					? GET<ReadingsResponse>(`/api/sites/${siteId}/readings`, { start: startDate, end: endDate, measurement_type: 'continuous' })
 					: GET<AggregatesResponse>(`/api/sites/${siteId}/aggregates/${res}`, { start: startDate, end: endDate });
-			// Spot values arrive as sample means with per-point stats and replicates inline,
-			// so whiskers and the hover drill-down need no second fetch.
+			// Spot values arrive as sample means with per-point stats and replicates inline.
 			const spotPromise = wantSpot
 				? GET<ReadingsResponse>(`/api/sites/${siteId}/readings`, { start: startDate, end: endDate, measurement_type: 'spot', include_sample_stats: 'true' }).catch(() => null)
 				: Promise.resolve(null);
@@ -574,7 +573,7 @@
 					// Default to the last 7 days of available data, anchored to the newest reading
 					// (≈ now for live sites, the tail of the record for historical ones). Guard the
 					// degenerate extent where data_start == data_end (a single-instant site) so we
-					// never emit start >= end — the readings API rejects a zero-width range.
+					// never emit start >= end, the readings API rejects a zero-width range.
 					const WEEK = 604800000;
 					chartEnd = sliderMax;
 					chartStart = Math.max(sliderMin, sliderMax - WEEK);
@@ -1072,7 +1071,7 @@
 						<button onclick={saveSubproject} disabled={savingSubproject} class="text-brand-primary cursor-pointer hover:underline disabled:opacity-50">{savingSubproject ? 'Moving…' : 'Save'}</button>
 						<button onclick={() => (editingSubproject = false)} class="cursor-pointer hover:underline">Cancel</button>
 					{:else}
-						<span class="text-brand-text">{currentSubprojectName ?? '—'}</span>
+						<span class="text-brand-text">{currentSubprojectName ?? '-'}</span>
 						<button onclick={openSubprojectPicker} class="text-brand-primary cursor-pointer hover:underline" title="Move this site to another subproject (or project)">Change</button>
 					{/if}
 				</div>

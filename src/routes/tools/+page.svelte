@@ -640,7 +640,7 @@
 	let activeTool = $state<Tool | null>(null);
 	let scalarValues = $state<Record<string, string>>({});
 	let gridRows = $state<Record<string, Record<string, string>[]>>({});
-	let curveSel = $state<Record<string, CurveSelection>>({});
+	let curveSelections = $state<Record<string, CurveSelection>>({});
 	let result = $state<Record<string, unknown> | null>(null);
 	let calculating = $state(false);
 	let showSaveDialog = $state(false);
@@ -664,7 +664,7 @@
 		gridRows = gr;
 		const cs: Record<string, CurveSelection> = {};
 		for (const c of tool.curves ?? []) cs[c.key] = emptyCurveSelection();
-		curveSel = cs;
+		curveSelections = cs;
 	}
 
 	function addGridRow(grid: GridDef) {
@@ -681,7 +681,7 @@
 		if (!activeTool) return '';
 		return (activeTool.curves ?? [])
 			.map((c) => {
-				const sel = curveSel[c.key];
+				const sel = curveSelections[c.key];
 				return sel?.calibrationId ? `${c.title}: ${sel.label} [${sel.calibrationId}]` : null;
 			})
 			.filter((p): p is string => p !== null)
@@ -690,7 +690,7 @@
 
 	async function calculate() {
 		if (!activeTool) return;
-		const built = activeTool.buildPayload({ scalars: scalarValues, grids: gridRows, curves: curveSel });
+		const built = activeTool.buildPayload({ scalars: scalarValues, grids: gridRows, curves: curveSelections });
 		if ('error' in built) {
 			toastStore.error(built.error);
 			return;
@@ -837,7 +837,7 @@
 						{/each}
 
 						{#each activeTool.curves ?? [] as c (activeTool.name + c.key)}
-							<CurvePicker title={c.title} required={c.required} bind:value={curveSel[c.key]} />
+							<CurvePicker title={c.title} required={c.required} bind:value={curveSelections[c.key]} />
 						{/each}
 
 						<Button variant="primary" type="submit" disabled={calculating}>

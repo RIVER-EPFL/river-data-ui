@@ -1,10 +1,10 @@
 <script lang="ts" module>
 	export interface CurveSelection {
-		/** Set when the slope/intercept came from a stored sensor_calibrations row. */
+		// Set when the slope/intercept came from a stored sensor_calibrations row.
 		calibrationId: string | null;
 		slope: number | null;
 		intercept: number | null;
-		/** Human-readable provenance for the save step. */
+		// Provenance shown at the save step.
 		label: string | null;
 	}
 
@@ -51,14 +51,14 @@
 		return value.slope * previewValue + value.intercept;
 	});
 
-	function instrumentLabel(i: Sensor): string {
-		const name = i.name ?? i.serial_number ?? i.id;
-		return `${name} (${i.is_lab_instrument ? 'Lab' : 'Field'})`;
+	function instrumentLabel(instrument: Sensor): string {
+		const name = instrument.name ?? instrument.serial_number ?? instrument.id;
+		return `${name} (${instrument.is_lab_instrument ? 'Lab' : 'Field'})`;
 	}
 
 	function curveLabel(c: SensorCalibration): string {
 		const name = c.name ?? 'unnamed';
-		return `${name} — ${formatDate(c.valid_from)} — y = ${c.slope}x + ${c.intercept}`;
+		return `${name} (${formatDate(c.valid_from)}): y = ${c.slope}x + ${c.intercept}`;
 	}
 
 	function publish() {

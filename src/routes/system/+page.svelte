@@ -238,7 +238,7 @@
 		}
 	}
 
-	// Lightweight refresh that doesn't disturb the loading state or in-progress edits — used by the
+	// Lightweight refresh that doesn't disturb the loading state or in-progress edits, used by the
 	// poll to keep next-run / running badges current.
 	async function refreshSchedulesSilently() {
 		try {
@@ -621,8 +621,8 @@
 							<div class="text-xs text-brand-muted">{formatInterval(s.interval_seconds)}</div>
 							<div class="flex-1"></div>
 							<div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-brand-muted">
-								<span>Next run: {s.next_run_at ? formatDateTime(s.next_run_at) : '—'}</span>
-								<span>Last enqueued: {s.last_enqueued_at ? formatDateTime(s.last_enqueued_at) : '—'}</span>
+								<span>Next run: {s.next_run_at ? formatDateTime(s.next_run_at) : '-'}</span>
+								<span>Last enqueued: {s.last_enqueued_at ? formatDateTime(s.last_enqueued_at) : '-'}</span>
 							</div>
 						</div>
 
@@ -821,7 +821,7 @@
 </Dialog>
 
 <!-- Schedule Change History Dialog -->
-<Dialog bind:open={auditOpen} title="Change history — {auditJob}" maxWidth="md">
+<Dialog bind:open={auditOpen} title="Change history: {auditJob}" maxWidth="md">
 	{#snippet children()}
 		{#if auditLoading}
 			<p class="text-sm text-brand-muted">Loading…</p>

@@ -422,13 +422,13 @@
 													<tbody>
 														{#each curves as cal}
 															<tr class="border-b border-brand-divider last:border-b-0">
-																<td class="px-3 py-1.5">{cal.name ?? '—'}</td>
+																<td class="px-3 py-1.5">{cal.name ?? '-'}</td>
 																<td class="px-3 py-1.5"><Badge variant={cal.mode === 'instant' ? 'accent' : 'muted'}>{cal.mode}</Badge></td>
 																<td class="px-3 py-1.5 text-brand-muted">{parameterNames.get(cal.parameter_id ?? '') ?? ''}</td>
 																<td class="px-3 py-1.5 text-brand-muted">{formatDate(cal.valid_from)}</td>
 																<td class="px-3 py-1.5 font-mono">{cal.slope}</td>
 																<td class="px-3 py-1.5 font-mono">{cal.intercept}</td>
-																<td class="px-3 py-1.5 font-mono">{cal.r_squared?.toFixed(4) ?? '—'}</td>
+																<td class="px-3 py-1.5 font-mono">{cal.r_squared?.toFixed(4) ?? '-'}</td>
 																<td class="px-3 py-1.5 font-mono">y = {cal.slope}x + {cal.intercept}</td>
 															</tr>
 														{/each}

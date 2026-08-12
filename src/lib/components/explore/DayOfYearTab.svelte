@@ -172,7 +172,7 @@
 							});
 							series.push({ label, doy: times.map(dayOfYearInFrame), values });
 						}
-						// Grab/spot samples are sparse and never aggregated — fetched raw and folded
+						// Grab/spot samples are sparse and never aggregated, fetched raw and folded
 						// onto the same annual frame as discrete markers.
 						if (wantSpot) {
 							const spot = await fetchSiteSeries({

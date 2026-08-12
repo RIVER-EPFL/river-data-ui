@@ -103,8 +103,8 @@
 	}
 
 	function subprojectName(id: string | null): string {
-		if (!id) return '—';
-		return subprojects.find((s) => s.id === id)?.name ?? '—';
+		if (!id) return '-';
+		return subprojects.find((s) => s.id === id)?.name ?? '-';
 	}
 
 	function toggleSort(field: string) {

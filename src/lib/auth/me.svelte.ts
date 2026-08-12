@@ -96,7 +96,7 @@ export const me = {
 		return this.level >= CAP_MIN_LEVEL[cap];
 	},
 
-	/** Whether the caller may see/act in a project — admins everywhere, others only where granted. */
+	/** Whether the caller may see/act in a project, admins everywhere, others only where granted. */
 	granted(projectId: string | null | undefined): boolean {
 		if (this.isAdmin) return true;
 		if (!projectId) return false;

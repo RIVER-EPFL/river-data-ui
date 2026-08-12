@@ -15,7 +15,7 @@ export interface ChartRegistration {
 	annotations?: Annotation[];
 	sensorBands?: SensorIdentityBand[];
 	calibrationMarkers?: CalibrationMarker[];
-	/** Sample stats keyed by time (ms) for spot points; drives the replicate drill-down. */
+	// Sample stats keyed by time (ms) for spot points.
 	spotStats?: Map<number, SpotPointStats> | null;
 }
 

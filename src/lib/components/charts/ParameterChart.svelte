@@ -417,7 +417,7 @@
 
 		// Series layout: index 1 is the continuous line (or, when there is no line, the spot
 		// markers themselves so the y-scale still ranges). thresholdLinePlugin/flaggedPointPlugin
-		// read series 1, and the min/max band references series [3, 2] — keep spot after those.
+		// read series 1, and the min/max band references series [3, 2], keep spot after those.
 		const seriesDefs: uPlot.Series[] = [{}];
 		const data: uPlot.AlignedData = [times] as any;
 		let spotSeriesIdx = -1;
