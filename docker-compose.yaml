@@ -340,6 +340,12 @@ services:
       # Keycloak-gated tests (tests/common/keycloak.rs) run against the dev Keycloak; they
       # self-skip when it is unreachable.
       - TEST_KEYCLOAK_URL=http://river-db-keycloak:8080/
+      # An async fn's state machine is as large as the locals live across its suspension points,
+      # and nested async fns compose by inclusion, so the sizes add along the call chain. An
+      # unoptimised `e2e` test that builds the router and then makes many sequential requests
+      # through the middleware stack needs 3-4 MB, measured, and aborts with SIGABRT below that,
+      # which cancels the whole run. libtest sizes its threads from RUST_MIN_STACK (2 MB default).
+      - RUST_MIN_STACK=16777216
     depends_on:
       river-db-test-db:
         condition: service_healthy
