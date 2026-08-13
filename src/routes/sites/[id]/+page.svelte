@@ -29,7 +29,7 @@
 	import ResolutionChips from '$components/charts/ResolutionChips.svelte';
 	import type { SampleStat, StatusEventsResponse } from '$lib/api/types';
 	import { curveRefs } from '$lib/curveRefs.svelte';
-	import { eventBus } from '$lib/stores/events.svelte';
+	import { eventBus, INGEST_COALESCE_MS } from '$lib/stores/events.svelte';
 	import { formatThresholdRange } from '$lib/alarms';
 	import { me } from '$auth/me.svelte';
 
@@ -539,6 +539,7 @@
 
 	let unsubEvents: (() => void) | null = null;
 	let nowTimer: ReturnType<typeof setInterval> | null = null;
+	let ingestTimer: ReturnType<typeof setTimeout> | null = null;
 
 	async function loadSite() {
 		const id = siteId;
@@ -665,9 +666,21 @@
 
 	onMount(() => {
 		nowTimer = setInterval(() => { now = Date.now(); }, 30_000);
+		// Coalesce the cycle's events into one reaction. Per event this issued an alarm query plus
+		// a chart fetch (itself up to four requests), none of which could be served from cache
+		// because an ingest drops the site's cached responses. `wasAtMax` is evaluated when the
+		// burst settles rather than on its first event, so a slider drag partway through the burst
+		// is respected instead of being overridden by a later event.
 		unsubEvents = eventBus.subscribe('data_ingested', (event: any) => {
 			if (!site) return;
-			if (event.site_id === site.id) {
+			if (event.site_id !== site.id) return;
+			const forSite = site.id;
+			if (ingestTimer) clearTimeout(ingestTimer);
+			ingestTimer = setTimeout(() => {
+				ingestTimer = null;
+				// The route reuses this component across sites, so a burst that started before a
+				// navigation must not refetch against the site the user has since moved to.
+				if (site?.id !== forSite) return;
 				loadActiveBreaches();
 				if (autoUpdate) {
 					const wasAtMax = Math.abs(chartEnd - sliderMax) < 60000;
@@ -677,13 +690,14 @@
 				} else {
 					newDataAvailable = true;
 				}
-			}
+			}, INGEST_COALESCE_MS);
 		});
 	});
 
 	onDestroy(() => {
 		unsubEvents?.();
 		if (nowTimer) clearInterval(nowTimer);
+		if (ingestTimer) clearTimeout(ingestTimer);
 	});
 
 	function paramName(paramId: string): string { return parameters.find((p) => p.id === paramId)?.name ?? 'None'; }

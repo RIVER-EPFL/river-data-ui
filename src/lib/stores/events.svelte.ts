@@ -29,6 +29,20 @@ export interface DataIngestedEvent {
 }
 export type AppEvent = JobCreatedEvent | JobProgressEvent | JobCompletedEvent | DataIngestedEvent;
 
+/**
+ * Trailing window a `data_ingested` subscriber should wait before acting.
+ *
+ * One sync cycle posts a separate `/api/ingest` per stream, so a single cycle emits dozens of
+ * events describing one new slice of data: a Vaisala cycle measured 23 readings events over 3.4s
+ * (largest gap 0.4s) followed by 22 status-event ones. Reacting per event multiplies every
+ * response into a burst, and the API drops a site's cached responses on each ingest, so each
+ * reaction re-queries from scratch rather than being served from cache.
+ *
+ * This is several times the largest observed gap, so a cycle collapses into one reaction, and far
+ * below the sync interval, so a cycle is never merged with the next.
+ */
+export const INGEST_COALESCE_MS = 1500;
+
 type Callback = (event: AppEvent) => void;
 
 let connected = $state(false);

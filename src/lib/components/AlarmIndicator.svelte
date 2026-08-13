@@ -3,7 +3,7 @@
 	import { base } from '$app/paths';
 	import { getActiveAlarms, acknowledgeAlarm, unacknowledgeAlarm, type ActiveAlarm } from '$api/service';
 	import { formatRelativeTime } from '$lib/utils';
-	import { eventBus } from '$lib/stores/events.svelte';
+	import { eventBus, INGEST_COALESCE_MS } from '$lib/stores/events.svelte';
 	import { alarmHref } from '$lib/alarms';
 
 	const POLL_MS = 30_000;
@@ -12,6 +12,7 @@
 	let open = $state(false);
 	let closeTimer: ReturnType<typeof setTimeout> | null = null;
 	let pollTimer: ReturnType<typeof setTimeout> | null = null;
+	let ingestTimer: ReturnType<typeof setTimeout> | null = null;
 	let unsub: (() => void) | null = null;
 
 	function openPanel() {
@@ -94,13 +95,21 @@
 
 	onMount(() => {
 		loadAlarms().then(schedule);
+		// Unfiltered by site, and this indicator sits in the shell on every page, so it sees the
+		// whole cycle's events. Coalescing turns one alarm query per ingest into one per cycle;
+		// the poll above stays the backstop, so nothing depends on this firing promptly.
 		unsub = eventBus.subscribe('data_ingested', () => {
-			loadAlarms();
+			if (ingestTimer) clearTimeout(ingestTimer);
+			ingestTimer = setTimeout(() => {
+				ingestTimer = null;
+				loadAlarms();
+			}, INGEST_COALESCE_MS);
 		});
 	});
 
 	onDestroy(() => {
 		if (pollTimer) clearTimeout(pollTimer);
+		if (ingestTimer) clearTimeout(ingestTimer);
 		if (closeTimer) clearTimeout(closeTimer);
 		if (unsub) unsub();
 	});
