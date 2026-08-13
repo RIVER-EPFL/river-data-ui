@@ -1,8 +1,10 @@
 <script lang="ts">
-	import { api, type Site, type SiteParameter, type Parameter } from '$api/crud';
+	import { base } from '$app/paths';
+	import { api, type Site, type SiteParameter, type Parameter, type Sensor, type StandardCurve } from '$api/crud';
 	import { saveGrabSample } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
+	import { curveEquation, curveLabel } from '$lib/standardCurves';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 
@@ -18,11 +20,18 @@
 		toolTitle = '',
 		results = null,
 		curveNote = '',
+		appliedCurveLabel = '',
 	}: {
 		open: boolean;
 		toolTitle?: string;
 		results?: Record<string, unknown> | null;
 		curveNote?: string;
+		/**
+		 * Set when the tool consumed a standard curve during the calculation, so these values are
+		 * already corrected. The curve is then shown read-only and no `standard_curve_id` is sent:
+		 * the API would otherwise apply the same correction a second time.
+		 */
+		appliedCurveLabel?: string;
 	} = $props();
 
 	interface ResultRow {
@@ -87,6 +96,15 @@
 	let siteParams = $state<SiteParameter[]>([]);
 	let loadingSite = $state(false);
 
+	// Instrument and standard curve are recorded on every emitted reading. Both are optional: a grab
+	// with no curve is the normal case, and the API then leaves calibrated_value null rather than
+	// pretending an identity curve was applied.
+	let instruments = $state<Sensor[]>([]);
+	let selectedSensorId = $state('');
+	let curves = $state<StandardCurve[]>([]);
+	let loadingCurves = $state(false);
+	let selectedCurveId = $state('');
+
 	let selectedSiteId = $state('');
 	let collectedAt = $state(toDatetimeLocal(Date.now(), BROWSER_ZONE));
 	let collectedZone = $state(BROWSER_ZONE);
@@ -101,6 +119,9 @@
 		if (!open) return;
 		selectedSiteId = '';
 		siteParams = [];
+		selectedSensorId = '';
+		selectedCurveId = '';
+		curves = [];
 		collectedAt = toDatetimeLocal(Date.now(), BROWSER_ZONE);
 		collectedZone = BROWSER_ZONE;
 		label = '';
@@ -119,14 +140,47 @@
 	async function loadSites() {
 		if (sites.length > 0) return;
 		try {
-			const [s, p] = await Promise.all([
+			const [s, p, i] = await Promise.all([
 				api.sites.list({ perPage: 200, sort: ['name', 'ASC'] }),
 				api.parameters.list({ perPage: 500 }),
+				api.sensors.list({ perPage: 1000, filter: { is_active: true }, sort: ['name', 'ASC'] }),
 			]);
 			sites = s.data;
 			params = p.data;
+			instruments = i.data;
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Failed to load sites');
+		}
+	}
+
+	function instrumentLabel(instrument: Sensor): string {
+		const name = instrument.name ?? instrument.serial_number ?? instrument.id;
+		return `${name} (${instrument.is_lab_instrument ? 'Lab' : 'Field'})`;
+	}
+
+	function curveOptionLabel(curve: StandardCurve): string {
+		const r2 = curve.r_squared != null ? `, R² ${curve.r_squared}` : '';
+		return `${curveLabel(curve)} · ${curveEquation(curve)}${r2}`;
+	}
+
+	// Curves belong to one instrument, so the list is always scoped to the chosen one; that also
+	// puts the API's wrong-instrument and no-instrument refusals out of reach from here.
+	async function loadCurves(sensorId: string) {
+		selectedCurveId = '';
+		curves = [];
+		if (!sensorId) return;
+		loadingCurves = true;
+		try {
+			const res = await api.standardCurves.list({
+				perPage: 200,
+				filter: { sensor_id: sensorId },
+				sort: ['created_at', 'DESC'],
+			});
+			curves = res.data;
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Failed to load standard curves');
+		} finally {
+			loadingCurves = false;
 		}
 	}
 
@@ -186,6 +240,8 @@
 
 	const unmappedIncluded = $derived(includedRows.some((r) => !paramChoices[r.id]));
 
+	const sentCurveId = $derived(appliedCurveLabel ? '' : selectedCurveId);
+
 	const canSave = $derived(
 		!!selectedSiteId &&
 			!!collectedAt &&
@@ -205,6 +261,8 @@
 					time,
 					value: v.value,
 					replicate_index: idx,
+					...(selectedSensorId ? { sensor_id: selectedSensorId } : {}),
+					...(sentCurveId ? { standard_curve_id: sentCurveId } : {}),
 				})),
 			);
 			const res = await saveGrabSample({
@@ -250,6 +308,61 @@
 					<select bind:value={collectedZone} aria-label="Time zone" class="px-3 py-1 border border-brand-divider rounded-md bg-brand-surface text-xs">
 						{#each ZONE_OPTIONS as z}<option value={z}>{z}</option>{/each}
 					</select>
+				</div>
+			</div>
+
+			<div class="grid grid-cols-2 gap-3">
+				<div class="flex flex-col gap-1">
+					<label for="srp-instrument" class="text-sm font-medium">
+						Measured on instrument <span class="text-brand-muted font-normal">(optional)</span>
+					</label>
+					<select
+						id="srp-instrument"
+						bind:value={selectedSensorId}
+						onchange={() => loadCurves(selectedSensorId)}
+						class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
+					>
+						<option value=""> - No instrument recorded - </option>
+						{#each instruments as i}
+							<option value={i.id}>{instrumentLabel(i)}</option>
+						{/each}
+					</select>
+				</div>
+				<div class="flex flex-col gap-1">
+					<span class="text-sm font-medium">
+						Standard curve <span class="text-brand-muted font-normal">(optional)</span>
+					</span>
+					{#if appliedCurveLabel}
+						<p class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-bg text-sm text-brand-muted">
+							{appliedCurveLabel}
+						</p>
+						<p class="text-xs text-brand-muted">
+							Applied during calculation, so these values are already corrected and no curve is
+							recorded on the readings.
+						</p>
+					{:else if !selectedSensorId}
+						<p class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-bg text-sm text-brand-muted">
+							Select an instrument first
+						</p>
+					{:else if loadingCurves}
+						<p class="text-sm text-brand-muted">Loading…</p>
+					{:else if curves.length === 0}
+						<p class="text-sm text-brand-muted">
+							No standard curves on this instrument.
+							<a href="{base}/sensors/{selectedSensorId}?tab=curves" class="text-brand-primary hover:underline">Add one</a>
+						</p>
+					{:else}
+						<select
+							bind:value={selectedCurveId}
+							aria-label="Standard curve"
+							class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
+						>
+							<option value=""> - No curve - </option>
+							{#each curves as c}
+								<option value={c.id}>{curveOptionLabel(c)}</option>
+							{/each}
+						</select>
+					{/if}
 				</div>
 			</div>
 
@@ -321,7 +434,9 @@
 			<p class="text-xs text-brand-muted">
 				Saves the ticked outputs as grab-sample readings at the selected site. Replicate outputs
 				share a timestamp with replicate indices so a sample (mean, sd, n) forms; the label and
-				notes are stored on those samples.
+				notes are stored on those samples. With an instrument set, its calibration for that
+				timestamp is applied, then the standard curve if one is chosen; with neither, the reading
+				keeps its raw value and no corrected value.
 			</p>
 		</div>
 	{/snippet}

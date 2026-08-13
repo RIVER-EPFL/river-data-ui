@@ -2,6 +2,7 @@
 	import { PATCH } from '$api/client';
 	import type { SampleReplicate } from '$api/types';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import { curveRefs } from '$lib/curveRefs.svelte';
 	import { formatDateTime } from '$lib/utils';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
@@ -28,7 +29,10 @@
 	let busyIndex = $state<number | null>(null);
 
 	$effect(() => {
-		if (open) reason = '';
+		if (!open) return;
+		reason = '';
+		curveRefs.ensureCalibrations(replicates.map((r) => r.calibration_id));
+		curveRefs.ensureStandardCurves(replicates.map((r) => r.standard_curve_id));
 	});
 
 	const ordered = $derived([...replicates].sort((a, b) => a.replicate_index - b.replicate_index));
@@ -91,6 +95,8 @@
 					<tr class="border-b border-brand-divider">
 						<th class="text-left py-1 font-semibold">Replicate</th>
 						<th class="text-right py-1 font-semibold">Value</th>
+						<th class="text-left py-1 font-semibold">Calibration</th>
+						<th class="text-left py-1 font-semibold">Standard curve</th>
 						<th class="text-right py-1 font-semibold">State</th>
 						<th class="text-right py-1"></th>
 					</tr>
@@ -101,6 +107,12 @@
 							<td class="py-1.5 font-mono">{rep.replicate_index}</td>
 							<td class="py-1.5 text-right font-mono">
 								{(rep.calibrated_value ?? rep.raw_value).toFixed(3)}
+							</td>
+							<td class="py-1.5 text-xs {rep.calibration_id ? '' : 'text-brand-muted'}">
+								{curveRefs.calibrationLabel(rep.calibration_id)}
+							</td>
+							<td class="py-1.5 text-xs {rep.standard_curve_id ? '' : 'text-brand-muted'}">
+								{curveRefs.standardCurveLabel(rep.standard_curve_id)}
 							</td>
 							<td class="py-1.5 text-right {rep.flagged ? 'text-severity-alarm' : 'text-brand-muted'}">
 								{rep.flagged ? 'Flagged' : 'Included'}

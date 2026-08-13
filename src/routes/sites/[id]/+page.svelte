@@ -27,7 +27,8 @@
 	import SharedChartTooltip from '$components/charts/SharedChartTooltip.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
 	import ResolutionChips from '$components/charts/ResolutionChips.svelte';
-	import type { StatusEventsResponse } from '$lib/api/types';
+	import type { SampleStat, StatusEventsResponse } from '$lib/api/types';
+	import { curveRefs } from '$lib/curveRefs.svelte';
 	import { eventBus } from '$lib/stores/events.svelte';
 	import { formatThresholdRange } from '$lib/alarms';
 	import { me } from '$auth/me.svelte';
@@ -261,6 +262,8 @@
 			flagged?: (boolean | null)[] | null;
 			flag_reasons?: (string | null)[] | null;
 			samples?: (import('$lib/api/types').SampleStat | null)[] | null;
+			calibration_ids?: (string | null)[] | null;
+			standard_curve_ids?: (string | null)[] | null;
 		}>;
 	}
 	interface AggregatesResponse {
@@ -274,6 +277,16 @@
 	let spotDataMap = $state<Map<string, ChartData>>(new Map());
 	// Replicate mean±sd whisker stats per global parameter_id, keyed by epoch ms of collected_at.
 	let spotStatsMap = $state<Map<string, Map<number, SpotPointStats>>>(new Map());
+	// Standard curve behind each sample in the loaded window, keyed by sample id. Replicates of one
+	// sample may carry different curves, which is reported rather than reduced to the first one.
+	interface SampleCurve { curveId: string | null; mixed: boolean }
+	let sampleCurves = $state<Map<string, SampleCurve>>(new Map());
+
+	function sampleCurve(stat: SampleStat): SampleCurve {
+		const ids = new Set((stat.replicates ?? []).map((r) => r.standard_curve_id ?? null));
+		if (ids.size > 1) return { curveId: null, mixed: true };
+		return { curveId: [...ids][0] ?? null, mixed: false };
+	}
 	let annotationsByParam = $state<Map<string, Annotation[]>>(new Map());
 	let showSensorVectors = $state(false);
 	let showCalibrationMarkers = $state(false);
@@ -322,9 +335,11 @@
 					// separate spot fetch. (Aggregates are already continuous-only by design.)
 					? GET<ReadingsResponse>(`/api/sites/${siteId}/readings`, { start: startDate, end: endDate, measurement_type: 'continuous' })
 					: GET<AggregatesResponse>(`/api/sites/${siteId}/aggregates/${res}`, { start: startDate, end: endDate });
-			// Spot values arrive as sample means with per-point stats and replicates inline.
+			// Spot values arrive as sample means with per-point stats and replicates inline. Only spot
+			// rows can carry a standard curve, so include_curves rides on this fetch alone and the
+			// continuous payload is left as it was.
 			const spotPromise = wantSpot
-				? GET<ReadingsResponse>(`/api/sites/${siteId}/readings`, { start: startDate, end: endDate, measurement_type: 'spot', include_sample_stats: 'true' }).catch(() => null)
+				? GET<ReadingsResponse>(`/api/sites/${siteId}/readings`, { start: startDate, end: endDate, measurement_type: 'spot', include_sample_stats: 'true', include_curves: 'true' }).catch(() => null)
 				: Promise.resolve(null);
 			const annotationsPromise = GET<Annotation[]>(`/api/sites/${siteId}/annotations`, { start: startDate, end: endDate })
 				.catch(() => [] as Annotation[]);
@@ -361,25 +376,50 @@
 			spotDataMap = smap;
 
 			const statsMap = new Map<string, Map<number, SpotPointStats>>();
+			const curveBySample = new Map<string, SampleCurve>();
+			const calibrationIds: (string | null)[] = [];
+			const standardCurveIds: (string | null)[] = [];
 			if (spotResult && spotResult.times?.length) {
 				const spotMs = spotResult.times.map((t) => new Date(t).getTime());
 				for (const p of spotResult.parameters ?? []) {
-					if (!p.samples || !p.parameter_id) continue;
+					if (!p.parameter_id) continue;
 					const inner = statsMap.get(p.parameter_id) ?? new Map<number, SpotPointStats>();
-					p.samples.forEach((s, i) => {
-						if (s && s.mean != null) {
-							inner.set(spotMs[i], {
-								mean: s.mean,
-								stdev: s.stdev ?? null,
-								n: s.n,
-								replicates: s.replicates,
-							});
+					spotMs.forEach((ms, i) => {
+						const s = p.samples?.[i] ?? null;
+						const mean = s?.mean ?? p.values[i];
+						if (mean == null) return;
+						// `?? null` rather than leaving these undefined: consumers read undefined as
+						// "the fetch did not ask for curves" and render no provenance at all, so
+						// coercing an absent reference to undefined would silently hide it instead of
+						// reporting None. This fetch does ask (include_curves above), so null here
+						// means the reading carries no curve of that kind.
+						const calibrationId = p.calibration_ids?.[i] ?? null;
+						const standardCurveId = p.standard_curve_ids?.[i] ?? null;
+						calibrationIds.push(calibrationId);
+						standardCurveIds.push(standardCurveId);
+						inner.set(ms, {
+							mean,
+							stdev: s?.stdev ?? null,
+							n: s?.n ?? 1,
+							replicates: s?.replicates,
+							calibrationId,
+							standardCurveId,
+						});
+						if (s) {
+							curveBySample.set(s.sample_id, sampleCurve(s));
+							for (const rep of s.replicates ?? []) {
+								calibrationIds.push(rep.calibration_id ?? null);
+								standardCurveIds.push(rep.standard_curve_id ?? null);
+							}
 						}
 					});
 					if (inner.size > 0) statsMap.set(p.parameter_id, inner);
 				}
 			}
 			spotStatsMap = statsMap;
+			sampleCurves = curveBySample;
+			curveRefs.ensureCalibrations(calibrationIds);
+			curveRefs.ensureStandardCurves(standardCurveIds);
 
 			const annMap = new Map<string, Annotation[]>();
 			for (const a of anns) {
@@ -1562,6 +1602,7 @@
 								<th class="text-right px-4 py-2 font-semibold">N</th>
 								<th class="text-right px-4 py-2 font-semibold">Min</th>
 								<th class="text-right px-4 py-2 font-semibold">Max</th>
+								<th class="text-left px-4 py-2 font-semibold">Standard curve</th>
 							</tr></thead>
 							<tbody>
 								{#each samples as s}
@@ -1574,6 +1615,23 @@
 										<td class="px-4 py-2 text-right font-mono">{s.n}</td>
 										<td class="px-4 py-2 text-right font-mono">{s.min_value != null ? s.min_value.toFixed(3) : 'None'}</td>
 										<td class="px-4 py-2 text-right font-mono">{s.max_value != null ? s.max_value.toFixed(3) : 'None'}</td>
+										<td class="px-4 py-2 text-xs">
+											{#if !sampleCurves.has(s.id)}
+												<span class="text-brand-muted" title="Curve references load with the charts; this sample falls outside the selected time range.">Not loaded</span>
+											{:else if sampleCurves.get(s.id)?.mixed}
+												<span class="text-brand-muted">Mixed</span>
+											{:else if sampleCurves.get(s.id)?.curveId}
+												{@const curveId = sampleCurves.get(s.id)!.curveId!}
+												{@const sensorId = curveRefs.standardCurveSensorId(curveId)}
+												{#if sensorId}
+													<a href="{base}/sensors/{sensorId}?tab=curves&curve={curveId}" class="text-brand-primary hover:underline">{curveRefs.standardCurveLabel(curveId)}</a>
+												{:else}
+													{curveRefs.standardCurveLabel(curveId)}
+												{/if}
+											{:else}
+												<span class="text-brand-muted">None</span>
+											{/if}
+										</td>
 									</tr>
 								{/each}
 							</tbody>

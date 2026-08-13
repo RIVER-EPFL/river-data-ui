@@ -642,6 +642,7 @@
 	let gridRows = $state<Record<string, Record<string, string>[]>>({});
 	let curveSelections = $state<Record<string, CurveSelection>>({});
 	let result = $state<Record<string, unknown> | null>(null);
+	let resultCurveLabel = $state('');
 	let calculating = $state(false);
 	let showSaveDialog = $state(false);
 
@@ -688,6 +689,19 @@
 			.join('; ');
 	});
 
+	// Curves declared by a tool are applied to the numbers during the calculation, so the save step
+	// records them as text and must not send a curve reference for the API to apply again.
+	const currentCurveLabel = $derived.by(() => {
+		if (!activeTool) return '';
+		return (activeTool.curves ?? [])
+			.map((c) => {
+				const sel = curveSelections[c.key];
+				return sel?.slope != null && sel.intercept != null ? (sel.label ?? c.title) : null;
+			})
+			.filter((p): p is string => p !== null)
+			.join('; ');
+	});
+
 	async function calculate() {
 		if (!activeTool) return;
 		const built = activeTool.buildPayload({ scalars: scalarValues, grids: gridRows, curves: curveSelections });
@@ -697,12 +711,15 @@
 		}
 		calculating = true;
 		result = null;
+		resultCurveLabel = '';
 		try {
 			const res = await POST<{ results: Record<string, unknown> }>(
 				`/api/tools/${activeTool.name}/calculate`,
 				built.payload,
 			);
 			result = res.results;
+			// The curves these numbers were computed with, not whatever the pickers hold later.
+			resultCurveLabel = currentCurveLabel;
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Calculation failed');
 		} finally {
@@ -877,4 +894,4 @@
 	{/if}
 </div>
 
-<SaveResultsPanel bind:open={showSaveDialog} toolTitle={activeTool?.title ?? ''} results={result} {curveNote} />
+<SaveResultsPanel bind:open={showSaveDialog} toolTitle={activeTool?.title ?? ''} results={result} {curveNote} appliedCurveLabel={resultCurveLabel} />

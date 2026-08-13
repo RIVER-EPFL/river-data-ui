@@ -30,15 +30,14 @@
 	let sortOrder = $state<'ASC' | 'DESC'>('ASC');
 	let searchQuery = $state('');
 	let filterActive = $state<'' | 'true' | 'false'>('');
-	let quickFilter = $state<'' | 'undeployed' | 'needs_cal'>('');
+	let quickFilter = $state<'' | 'undeployed' | 'no_curves'>('');
 	// The Field/Lab chip is deep-linkable (?type=lab|field) so the old /instruments URL forwards here.
 	const initialType = page.url.searchParams.get('type');
 	let filterMode = $state<FilterMode>(initialType === 'lab' || initialType === 'field' ? initialType : 'all');
 
 	// Parameter id → display name, loaded once for resolving curve parameters.
 	let parameterNames = $state<Map<string, string>>(new Map());
-	// All curves, loaded once: drives the Curves column counts and the needs-calibration filter.
-	let allCalibrations = $state<SensorCalibration[]>([]);
+	// All curves, loaded once: drives the Curves column counts and the no-curves filter.
 	let curveCountBySensor = $state<Map<string, number>>(new Map());
 
 	// Bulk data-frequency reclassification (low = lab/campaign spot data, high = field stream).
@@ -50,9 +49,11 @@
 	let curvesBySensor = $state<Map<string, SensorCalibration[]>>(new Map());
 	let curvesLoading = $state<Set<string>>(new Set());
 
-	// Calibration backfill: readings that predate their sensor's first real calibration.
+	// Readings a calibration window covers that were never stamped with it, per sensor. Reprocessing
+	// resolves them against the curves that already exist.
 	let calBackfillBySensor = $state<Map<string, CalibrationBackfillCandidate>>(new Map());
 	let totalUncalibrated = $state(0);
+	let totalOrphanedCorrections = $state(0);
 	let backfilling = $state<string | null>(null);
 
 	const perPage = 25;
@@ -87,13 +88,11 @@
 	async function loadCurveCounts() {
 		try {
 			const res = await api.sensorCalibrations.list({ perPage: 1000, sort: ['sensor_id', 'ASC'] });
-			allCalibrations = res.data;
 			const counts = new Map<string, number>();
 			for (const c of res.data) counts.set(c.sensor_id, (counts.get(c.sensor_id) ?? 0) + 1);
 			curveCountBySensor = counts;
 		} catch {
 			// Counts are non-critical; leave them blank rather than failing the whole page.
-			allCalibrations = [];
 			curveCountBySensor = new Map();
 		}
 	}
@@ -103,9 +102,11 @@
 			const res = await getCalibrationCandidates();
 			calBackfillBySensor = new Map(res.candidates.map((c) => [c.sensor_id, c]));
 			totalUncalibrated = res.total_uncalibrated;
+			totalOrphanedCorrections = res.total_orphaned_corrections;
 		} catch {
 			calBackfillBySensor = new Map();
 			totalUncalibrated = 0;
+			totalOrphanedCorrections = 0;
 		}
 	}
 
@@ -114,11 +115,11 @@
 		try {
 			const res = await backfillCalibrations(body);
 			toastStore.success(
-				`Backfilling calibrations for ${res.sensors_updated} sensor(s) - ~${res.estimated_readings.toLocaleString()} readings`
+				`Reprocessing ${res.sensors_updated} sensor(s) - ~${res.estimated_readings.toLocaleString()} readings resolve against their existing curves`
 			);
 			await loadCalBackfill();
 		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Calibration backfill failed');
+			toastStore.error(e instanceof Error ? e.message : 'Reprocessing failed');
 		} finally {
 			backfilling = null;
 		}
@@ -210,8 +211,7 @@
 	const displayed = $derived(
 		sensors.filter((s) => {
 			if (quickFilter === 'undeployed') return !currentDeployment(s.id);
-			if (quickFilter === 'needs_cal')
-				return !allCalibrations.some((c) => c.sensor_id === s.id && !(c.slope === 1 && c.intercept === 0));
+			if (quickFilter === 'no_curves') return (curveCountBySensor.get(s.id) ?? 0) === 0;
 			return true;
 		}),
 	);
@@ -246,14 +246,14 @@
 		<div class="flex items-center gap-2">
 			{#if totalUncalibrated > 0}
 				<ConfirmPopover
-					message="Backfill calibrations for {totalUncalibrated.toLocaleString()} uncalibrated readings across all sensors?"
-					confirmLabel="Backfill all"
+					message="Reprocess every sensor carrying readings a calibration window covers but never stamped? {totalUncalibrated.toLocaleString()} reading{totalUncalibrated === 1 ? '' : 's'} resolve against the curves that already exist; no curve is created."
+					confirmLabel="Reprocess all"
 					confirmVariant="primary"
 					onconfirm={() => runCalBackfill({ all: true }, 'all')}
 				>
 					<Button
 						disabled={backfilling !== null}
-					>{backfilling === 'all' ? 'Backfilling…' : `Backfill all (${totalUncalibrated.toLocaleString()})`}</Button>
+					>{backfilling === 'all' ? 'Reprocessing…' : `Reprocess all (${totalUncalibrated.toLocaleString()})`}</Button>
 				</ConfirmPopover>
 			{/if}
 			<a href="{base}/sensors/new" class="px-3 py-1.5 bg-brand-primary text-white rounded-md no-underline text-sm font-semibold hover:bg-brand-primary-dark">Create</a>
@@ -283,9 +283,15 @@
 			class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
 			<option value="">No quick filter</option>
 			<option value="undeployed">Undeployed</option>
-			<option value="needs_cal">Needs calibration</option>
+			<option value="no_curves" title="Sensors no calibration has been entered for. Counted from the first 1000 curves, so a sensor beyond that page reads as having none.">No curves recorded</option>
 		</select>
 	</div>
+
+	{#if totalOrphanedCorrections > 0}
+		<p class="text-xs text-brand-muted">
+			{totalOrphanedCorrections.toLocaleString()} reading{totalOrphanedCorrections === 1 ? '' : 's'} carry a corrected value that names no curve. Reported only - the stored number is a measurement and is left as it is.
+		</p>
+	{/if}
 
 	{#if selected.size > 0 && canManage}
 		<div class="flex items-center gap-3 px-3 py-2 rounded-md border border-brand-divider bg-brand-bg text-sm">
@@ -386,12 +392,14 @@
 									<span class="text-brand-muted">{curveCountBySensor.get(sensor.id) ?? 0}</span>
 									{#if calBackfillBySensor.get(sensor.id)}
 										{@const cb = calBackfillBySensor.get(sensor.id)!}
-										<button
+										<Button
+											size="sm"
+											variant="ghost"
+											class="text-brand-primary whitespace-nowrap"
 											onclick={() => runCalBackfill({ sensor_id: sensor.id }, sensor.id)}
 											disabled={backfilling !== null}
-											title="Backfill calibration for {cb.uncalibrated_count.toLocaleString()} uncalibrated readings"
-											class="px-2 py-0.5 text-xs rounded bg-severity-warning-soft text-severity-warning cursor-pointer border-none hover:opacity-80 disabled:opacity-50 whitespace-nowrap"
-										>{backfilling === sensor.id ? '…' : `Backfill (${cb.uncalibrated_count.toLocaleString()})`}</button>
+											title="{cb.uncalibrated_count.toLocaleString()} reading(s) sit inside one of this sensor's calibration windows but were never stamped with it. Reprocessing resolves them; no curve is created."
+										>{backfilling === sensor.id ? '…' : `Reprocess (${cb.uncalibrated_count.toLocaleString()})`}</Button>
 									{/if}
 								</div>
 							</td>
@@ -405,13 +413,12 @@
 									{:else}
 										{@const curves = curvesBySensor.get(sensor.id) ?? []}
 										{#if curves.length === 0}
-											<p class="text-xs text-brand-muted">No curves</p>
+											<p class="text-xs text-brand-muted">No curves recorded - this instrument's readings are served uncorrected.</p>
 										{:else}
 											<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 												<table class="w-full text-xs">
 													<thead><tr class="bg-brand-bg border-b border-brand-divider">
 														<th class="text-left px-3 py-1.5 font-semibold">Name</th>
-														<th class="text-left px-3 py-1.5 font-semibold">Mode</th>
 														<th class="text-left px-3 py-1.5 font-semibold">Parameter</th>
 														<th class="text-left px-3 py-1.5 font-semibold">Valid From</th>
 														<th class="text-left px-3 py-1.5 font-semibold">Slope</th>
@@ -423,7 +430,6 @@
 														{#each curves as cal}
 															<tr class="border-b border-brand-divider last:border-b-0">
 																<td class="px-3 py-1.5">{cal.name ?? '-'}</td>
-																<td class="px-3 py-1.5"><Badge variant={cal.mode === 'instant' ? 'accent' : 'muted'}>{cal.mode}</Badge></td>
 																<td class="px-3 py-1.5 text-brand-muted">{parameterNames.get(cal.parameter_id ?? '') ?? ''}</td>
 																<td class="px-3 py-1.5 text-brand-muted">{formatDate(cal.valid_from)}</td>
 																<td class="px-3 py-1.5 font-mono">{cal.slope}</td>

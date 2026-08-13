@@ -279,8 +279,9 @@ export interface ImportStreamResponse {
 	attributed: number;
 }
 
-/** Import a stream's device into the sensor inventory (creates sensor + identity calibration,
- *  stamps existing readings) WITHOUT pairing it to a site. Separate from pairing/adopt. */
+/** Import a stream's device into the sensor inventory (creates the sensor and stamps its existing
+ *  readings) WITHOUT pairing it to a site. Separate from pairing/adopt. No curve is created: the
+ *  readings resolve whatever calibration windows the sensor already has, which may be none. */
 export const importStream = (streamId: string, parameterId: string) =>
 	POST<ImportStreamResponse>(`${SERVICE}/streams/${streamId}/import`, { parameter_id: parameterId });
 
@@ -455,18 +456,30 @@ export interface BackfillAttributionResponse {
 export const backfillAttribution = (body: { all?: boolean; site_id?: string; deployment_ids?: string[] }) =>
 	POST<BackfillAttributionResponse>(`${SERVICE}/actions/backfill_attribution`, body);
 
-// Calibration backfill: sensors with readings missing calibration_id.
+// Readings a calibration window covers that were never stamped with it. A reprocess resolves them
+// against the curves that already exist; nothing is created.
 export interface CalibrationBackfillCandidate {
 	sensor_id: string;
 	uncalibrated_count: number;
 	target_from: string;
 	earliest_calibration_from: string | null;
-	is_identity: boolean;
+}
+// Readings whose calibrated_value differs from raw_value while naming neither a calibration nor a
+// standard curve. Reported only - the stored number is somebody's measurement.
+export interface OrphanedCorrection {
+	sensor_id: string | null;
+	site_id: string | null;
+	parameter_id: string | null;
+	count: number;
+	first_time: string;
+	last_time: string;
 }
 export interface CalibrationBackfillCandidatesResponse {
 	candidates: CalibrationBackfillCandidate[];
 	total_candidates: number;
 	total_uncalibrated: number;
+	orphaned_corrections: OrphanedCorrection[];
+	total_orphaned_corrections: number;
 }
 export const getCalibrationCandidates = () =>
 	GET<CalibrationBackfillCandidatesResponse>(`${SERVICE}/actions/calibration_candidates`);
@@ -749,7 +762,13 @@ export interface GrabSampleReading {
 	value: number;
 	replicate_index?: number;
 	sensor_id?: string;
-	calibration_id?: string;
+	/**
+	 * A `standard_curves` row on the same instrument as `sensor_id`, applied on top of the base
+	 * calibration the API resolves from that instrument's windows at `time`. Sending a curve from
+	 * another instrument, or one without `sensor_id`, is refused. Omit it when the value has
+	 * already been curve-corrected upstream, otherwise the correction is applied twice.
+	 */
+	standard_curve_id?: string;
 }
 
 export interface GrabSampleRequest {

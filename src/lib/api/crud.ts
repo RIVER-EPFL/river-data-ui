@@ -32,6 +32,7 @@ export const api = {
 	siteParameters: crudClient<SiteParameter>('site_parameters'),
 	sensors: crudClient<Sensor>('sensors'),
 	sensorCalibrations: crudClient<SensorCalibration>('sensor_calibrations'),
+	standardCurves: crudClient<StandardCurve>('standard_curves'),
 	sensorDeployments: crudClient<SensorDeployment>('sensor_deployments'),
 	derivedParameters: crudClient<DerivedParameter>('derived_parameters'),
 	derivedParameterSources: crudClient<DerivedParameterSource>('derived_parameter_sources'),
@@ -145,8 +146,6 @@ export interface SensorCalibration {
 	id: string;
 	sensor_id: string;
 	name: string | null;
-	/** 'windowed' (field-channel curve over a time window) or 'instant' (lab curve). Defaults to 'windowed' on create; the grab add-curve path sends 'instant'. Not updatable after creation. */
-	mode: string;
 	parameter_id: string | null;
 	slope: number;
 	intercept: number;
@@ -157,6 +156,29 @@ export interface SensorCalibration {
 	notes: string | null;
 	created_at: string;
 	updated_at: string;
+}
+
+/**
+ * A curve belonging to one instrument, chosen by hand per measurement rather than resolved by time.
+ * It has no time columns, so it never takes part in calibration chaining.
+ *
+ * Only `sensor_id` and `name` are filterable; only `name` and `created_at` are sortable.
+ * `created_by` is caller-supplied on create, not server-stamped.
+ *
+ * A curve becomes immutable once a reading references it: the API refuses any change to
+ * slope/intercept/r_squared/name/sensor_id/created_by (notes stay editable) and refuses delete.
+ * Mint a new curve instead. `slope` of 0 is refused on create and update.
+ */
+export interface StandardCurve {
+	id: string;
+	sensor_id: string;
+	name: string | null;
+	slope: number;
+	intercept: number;
+	r_squared: number | null;
+	notes: string | null;
+	created_at: string;
+	created_by: string | null;
 }
 
 export interface SensorDeployment {

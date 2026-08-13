@@ -1413,7 +1413,7 @@
 		{#if importStream_}
 			<div class="space-y-3">
 				<div class="text-sm"><span class="text-brand-muted">Stream:</span> <span class="font-mono">{importStream_.source_key}</span></div>
-				<p class="text-xs text-brand-muted">Registers this stream's device into the sensor inventory (creates the sensor + identity calibration and stamps its existing readings) without assigning it to a site. Pair the stream separately to attribute its data to a site.</p>
+				<p class="text-xs text-brand-muted">Registers this stream's device into the sensor inventory (creates the sensor and stamps its existing readings) without assigning it to a site. No calibration is created - the readings resolve whatever curves the sensor already has. Pair the stream separately to attribute its data to a site.</p>
 				<div class="flex flex-col gap-1">
 					<label for="import-param" class="text-sm font-medium">Parameter</label>
 					<select id="import-param" bind:value={importParamId} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
