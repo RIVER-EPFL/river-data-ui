@@ -27,7 +27,7 @@
 				api.derivedParameters.list({ perPage: 500 }),
 			]);
 			// Output parameters of derived definitions are managed via the derived
-			// pages (formula builder, preview, recompute) — send the user there.
+			// pages (formula builder, preview, recompute), send the user there.
 			const derivedDef = defs.data.find((d) => d.output_parameter_id === paramId);
 			if (derivedDef) {
 				goto(`${base}/derived/${derivedDef.id}`, { replaceState: true });

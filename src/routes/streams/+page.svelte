@@ -63,6 +63,7 @@
 	const mode = $derived<WizardMode>((page.url.searchParams.get('step') as WizardMode) || 'list');
 
 	function setMode(newMode: WizardMode) {
+		if (mode === 'review' && newMode !== 'review') void flushUpdates();
 		const url = new URL(page.url);
 		if (newMode === 'list') {
 			url.searchParams.delete('step');
@@ -180,11 +181,12 @@
 	}
 
 	const paramGroups = $derived.by((): ParamGroup[] => {
-		const map = new Map<string, { originalName: string; originalNames: Set<string>; groupKey: string | null; units: string; create: boolean; confs: Set<string>; siteNames: Set<string>; streamIds: string[]; warnings: Set<string> }>();
+		// Keyed on name AND units so same-name parameters with different units get separate rows.
+		const map = new Map<string, { name: string; originalName: string; originalNames: Set<string>; groupKey: string | null; units: string; create: boolean; confs: Set<string>; siteNames: Set<string>; streamIds: string[]; warnings: Set<string> }>();
 		for (const e of planEntries) {
-			const key = e.parameter.name;
+			const key = `${e.parameter.name}::${e.parameter.units}`;
 			let g = map.get(key);
-			if (!g) { g = { originalName: e.source_name ?? e.source_key, originalNames: new Set(), groupKey: e.parameter.group_key ?? null, units: e.parameter.units, create: e.parameter.create, confs: new Set(), siteNames: new Set(), streamIds: [], warnings: new Set() }; map.set(key, g); }
+			if (!g) { g = { name: e.parameter.name, originalName: e.source_name ?? e.source_key, originalNames: new Set(), groupKey: e.parameter.group_key ?? null, units: e.parameter.units, create: e.parameter.create, confs: new Set(), siteNames: new Set(), streamIds: [], warnings: new Set() }; map.set(key, g); }
 			if (e.original_parameter_name) g.originalNames.add(e.original_parameter_name);
 			g.confs.add(e.confidence);
 			g.siteNames.add(e.site.name);
@@ -192,11 +194,11 @@
 			for (const w of e.warnings) g.warnings.add(w);
 		}
 		const groups: ParamGroup[] = [];
-		for (const [name, g] of map) {
+		for (const g of map.values()) {
 			const confidence = g.confs.size === 1 ? (g.confs.has('exact') ? 'exact' : 'none') : 'mixed';
-			groups.push({ name, originalName: g.originalName, originalNames: [...g.originalNames], groupKey: g.groupKey, units: g.units, create: g.create, confidence, siteCount: g.siteNames.size, streamIds: g.streamIds, warnings: [...g.warnings] });
+			groups.push({ name: g.name, originalName: g.originalName, originalNames: [...g.originalNames], groupKey: g.groupKey, units: g.units, create: g.create, confidence, siteCount: g.siteNames.size, streamIds: g.streamIds, warnings: [...g.warnings] });
 		}
-		return groups.sort((a, b) => a.name.localeCompare(b.name));
+		return groups.sort((a, b) => a.name.localeCompare(b.name) || a.units.localeCompare(b.units));
 	});
 
 	const uniqueWarnings = $derived.by((): Array<{ message: string; paramName: string; count: number }> => {
@@ -239,15 +241,35 @@
 		}, 0);
 	}
 
-	function renameGlobalParam(oldName: string, newName: string) {
-		if (!newName.trim() || newName === oldName) return;
+	// A parameter that does not exist yet is created once per name, so entries converging onto it
+	// must carry the units the operator picked or the created parameter takes whichever units the
+	// server happened to see first.
+	function newParamOption(name: string, units: string): string {
+		return `new:${name}::${units}`;
+	}
+
+	function parseNewParamOption(value: string): { name: string; units: string | null } {
+		const body = value.slice(4);
+		const sep = body.lastIndexOf('::');
+		if (sep === -1) return { name: body, units: null };
+		return { name: body.slice(0, sep), units: body.slice(sep + 2) };
+	}
+
+	function renameGlobalParam(oldName: string, newName: string, newUnits?: string) {
+		if (!newName.trim()) return;
+		if (newName === oldName && newUnits === undefined) return;
 		const updates: PlanEntryUpdate[] = [];
 		for (const e of planEntries) {
 			if (e.parameter.name === oldName) {
 				(e.parameter as any).name = newName.trim();
 				(e.parameter as any).create = true;
 				(e.parameter as any).id = null;
-				updates.push({ stream_id: e.stream_id, parameter_name: newName.trim() });
+				const update: PlanEntryUpdate = { stream_id: e.stream_id, parameter_name: newName.trim() };
+				if (newUnits !== undefined && newUnits !== e.parameter.units) {
+					(e.parameter as any).units = newUnits;
+					update.parameter_units = newUnits;
+				}
+				updates.push(update);
 			}
 		}
 		planEntries = [...planEntries];
@@ -289,28 +311,28 @@
 	function goToParam(paramName: string) {
 		reviewTab = 'parameters';
 		requestAnimationFrame(() => {
-			const el = document.getElementById(`param-row-${CSS.escape(paramName)}`);
+			const el = document.getElementById(`param-row-${paramName}`);
 			el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 			el?.classList.add('ring-2', 'ring-brand-primary');
 			setTimeout(() => el?.classList.remove('ring-2', 'ring-brand-primary'), 2000);
 		});
 	}
 
-	let editingGlobalUnits = $state<string | null>(null);
+	let editingGlobalUnits = $state<{ name: string; units: string } | null>(null);
 	let editUnitsValue = $state('');
 
 	function startEditUnits(paramName: string, currentUnits: string) {
-		editingGlobalUnits = paramName;
+		editingGlobalUnits = { name: paramName, units: currentUnits };
 		editUnitsValue = currentUnits;
 	}
 
 	function commitEditUnits() {
 		if (!editingGlobalUnits || !editUnitsValue.trim()) { editingGlobalUnits = null; return; }
-		const oldName = editingGlobalUnits;
+		const { name: oldName, units: oldUnits } = editingGlobalUnits;
 		const newUnits = editUnitsValue.trim();
 		const updates: PlanEntryUpdate[] = [];
 		for (const e of planEntries) {
-			if (e.parameter.name === oldName) {
+			if (e.parameter.name === oldName && e.parameter.units === oldUnits) {
 				(e.parameter as any).units = newUnits;
 				updates.push({ stream_id: e.stream_id, parameter_units: newUnits });
 			}
@@ -321,26 +343,45 @@
 	}
 
 	// ── PATCH debouncing ──
+	// Flushes are serialized on a promise chain; a generation counter drops server snapshots
+	// that would overwrite local edits made while the PATCH was in flight.
 	let patchTimer: ReturnType<typeof setTimeout> | null = null;
 	let pendingUpdates: PlanEntryUpdate[] = [];
+	let editGeneration = 0;
+	let flushChain: Promise<void> = Promise.resolve();
 
 	function queueUpdate(updates: PlanEntryUpdate[]) {
 		pendingUpdates.push(...updates);
+		editGeneration++;
 		if (patchTimer) clearTimeout(patchTimer);
-		patchTimer = setTimeout(flushUpdates, 300);
+		patchTimer = setTimeout(() => { void flushUpdates().catch(() => {}); }, 300);
 	}
 
-	async function flushUpdates() {
+	function flushUpdates(): Promise<void> {
+		if (patchTimer) { clearTimeout(patchTimer); patchTimer = null; }
+		const pending = flushChain.then(sendBatch);
+		// The stored chain absorbs the rejection so later flushes still run; callers see it.
+		flushChain = pending.catch(() => {});
+		return pending;
+	}
+
+	async function sendBatch() {
 		if (!plan || pendingUpdates.length === 0) return;
-		const batch = [...pendingUpdates];
+		const batch = pendingUpdates;
 		pendingUpdates = [];
+		const generation = editGeneration;
 		saving = true;
 		try {
 			const updated = await updatePairingPlan(plan.id, batch);
-			plan = updated;
-			planEntries = [...updated.entries];
-		} catch {
-			toastStore.error('Failed to save changes');
+			if (editGeneration === generation) {
+				plan = updated;
+				planEntries = [...updated.entries];
+			}
+		} catch (e) {
+			// Keep the batch queued so the next flush retries it.
+			pendingUpdates = [...batch, ...pendingUpdates];
+			toastStore.error(`Failed to save changes: ${e instanceof Error ? e.message : e}`);
+			throw e;
 		} finally { saving = false; }
 	}
 
@@ -381,6 +422,8 @@
 		for (const e of planEntries) {
 			if (filter === 'exact' && e.confidence !== 'exact') continue;
 			if (filter === 'none' && e.confidence !== 'none') continue;
+			// Entries missing a site or parameter name cannot pair; the server skips them too.
+			if (action === 'pair' && (!e.site.name.trim() || !e.parameter.name.trim())) continue;
 			if (e.action !== action) {
 				(e as any).action = action;
 				updates.push({ stream_id: e.stream_id, action });
@@ -519,7 +562,7 @@
 		if (!pairStream_ || !selectedSiteParam) return;
 		pairing = true;
 		try { await pairStream(pairStream_.id, selectedSiteParam); toastStore.success('Stream paired'); pairDialogOpen = false; load(); }
-		catch { toastStore.error('Pairing failed'); }
+		catch (e) { toastStore.error(`Pairing failed: ${e instanceof Error ? e.message : e}`); }
 		finally { pairing = false; }
 	}
 
@@ -533,13 +576,13 @@
 			toastStore.success(`Sensor imported · ${res.attributed} reading${res.attributed === 1 ? '' : 's'} attributed`);
 			importDialogOpen = false;
 			load();
-		} catch { toastStore.error('Import failed'); }
+		} catch (e) { toastStore.error(`Import failed: ${e instanceof Error ? e.message : e}`); }
 		finally { importing = false; }
 	}
 
 	async function handleUnpair(streamId: string) {
 		try { await unpairStream(streamId); toastStore.success('Stream unpaired'); load(); }
-		catch { toastStore.error('Unpair failed'); }
+		catch (e) { toastStore.error(`Unpair failed: ${e instanceof Error ? e.message : e}`); }
 	}
 
 	// Classify a stream's cadence; existing readings are retagged by a tracked job so charts and
@@ -554,7 +597,7 @@
 
 	async function openStats(stream: DataStream) {
 		statsStream = stream; stats = null; statsDialogOpen = true;
-		try { stats = await getStreamStats(stream.id); } catch { toastStore.error('Failed to load stats'); }
+		try { stats = await getStreamStats(stream.id); } catch (e) { toastStore.error(`Failed to load stats: ${e instanceof Error ? e.message : e}`); }
 	}
 
 	// ── Wizard navigation ──
@@ -562,7 +605,7 @@
 		setMode('source-select');
 		planLoading = true;
 		try { unpairedSummary = await getUnpairedSummary(); }
-		catch { toastStore.error('Failed to load unpaired summary'); setMode('list'); }
+		catch (e) { toastStore.error(`Failed to load unpaired summary: ${e instanceof Error ? e.message : e}`); setMode('list'); }
 		finally { planLoading = false; }
 	}
 
@@ -570,18 +613,31 @@
 	let existingSites = $state<Site[]>([]);
 	let siteMetadataMap = $state<Map<string, SiteMetadata>>(new Map());
 
+	// Case-insensitive match against code, name, and aliases (mirrors server-side matching).
+	function matchParam(name: string): Parameter | undefined {
+		const q = name.trim().toLowerCase();
+		if (!q) return undefined;
+		return existingParams.find(
+			(p) =>
+				p.code.toLowerCase() === q ||
+				p.name.toLowerCase() === q ||
+				(p.aliases ?? []).some((a) => a.toLowerCase() === q),
+		);
+	}
+
 	async function createPlan(sourceSystem: string) {
 		planLoading = true;
 		try {
+			// Always refetch the full catalogs so dropdowns and matched-badges see every entity.
 			const [newPlan, paramResult, siteResult] = await Promise.all([
 				createPairingPlan(sourceSystem),
-				params.length === 0 ? api.parameters.list({ perPage: 1000 }) : Promise.resolve(null),
-				sites.length === 0 ? api.sites.list({ perPage: 1000 }) : Promise.resolve(null),
+				api.parameters.list({ perPage: 1000 }),
+				api.sites.list({ perPage: 1000 }),
 			]);
 			plan = newPlan;
 			planEntries = [...plan.entries];
-			if (paramResult) params = paramResult.data;
-			if (siteResult) sites = siteResult.data;
+			params = paramResult.data;
+			sites = siteResult.data;
 			existingParams = params;
 			existingSites = sites;
 			expandedSites = new Set();
@@ -595,13 +651,18 @@
 				for (const m of meta) map.set(m.site_name, m);
 				siteMetadataMap = map;
 			}).catch(() => {});
-		} catch { toastStore.error('Failed to create plan'); }
+		} catch (e) { toastStore.error(`Failed to create plan: ${e instanceof Error ? e.message : e}`); }
 		finally { planLoading = false; }
 	}
 
 	async function applyPlan() {
 		if (!plan) return;
-		if (patchTimer) { clearTimeout(patchTimer); await flushUpdates(); }
+		try {
+			await flushUpdates();
+		} catch {
+			toastStore.error('Unsaved edits could not be saved; the plan was not applied.');
+			return;
+		}
 		applying = true;
 		try {
 			const { job_id } = await applyPairingPlan(plan.id);
@@ -631,7 +692,12 @@
 		finally { reverting = false; }
 	}
 
-	function exitWizard() {
+	async function exitWizard() {
+		try {
+			await flushUpdates();
+		} catch {
+			// The toast from the failed flush is the signal; leaving the wizard still proceeds.
+		}
 		plan = null; planEntries = []; applyResult = null;
 		setMode('list'); load();
 	}
@@ -973,7 +1039,7 @@
 									</div>
 								{/if}
 								{#each group.entries as entry}
-								{@const entryMatched = existingParams.find((p) => p.code === entry.parameter.name)}
+								{@const entryMatched = matchParam(entry.parameter.name)}
 								{@const entryEditing = editingParam?.streamId === entry.stream_id}
 									<div class="flex items-center gap-2 pl-10 pr-2 py-1.5 border-b border-brand-divider bg-brand-bg/30 text-xs {entry.action === 'skip' ? 'opacity-50' : ''}">
 										<div class="flex-1 min-w-0 flex items-center gap-1.5">
@@ -1001,7 +1067,7 @@
 													<button onclick={() => { customParamInput = null; }} class="text-[10px] text-brand-muted cursor-pointer bg-transparent border-none">cancel</button>
 												{:else}
 													<select
-														value={entryMatched ? `db:${entryMatched.id}` : `new:${entry.parameter.name}`}
+														value={entryMatched ? `db:${entryMatched.id}` : newParamOption(entry.parameter.name, entry.parameter.units)}
 														onchange={(e) => {
 															const val = (e.target as HTMLSelectElement).value;
 															if (val === 'custom') {
@@ -1018,12 +1084,18 @@
 																	queueUpdate([{ stream_id: entry.stream_id, parameter_name: ep.code }]);
 																}
 															} else if (val.startsWith('new:')) {
-																const newName = val.slice(4);
-																if (newName !== entry.parameter.name) {
+																const { name: newName, units: newUnits } = parseNewParamOption(val);
+																const unitsChanged = newUnits !== null && newUnits !== entry.parameter.units;
+																if (newName !== entry.parameter.name || unitsChanged) {
 																	(entry.parameter as any).name = newName;
 																	(entry.parameter as any).create = true;
+																	const update: PlanEntryUpdate = { stream_id: entry.stream_id, parameter_name: newName };
+																	if (unitsChanged) {
+																		(entry.parameter as any).units = newUnits;
+																		update.parameter_units = newUnits as string;
+																	}
 																	planEntries = [...planEntries];
-																	queueUpdate([{ stream_id: entry.stream_id, parameter_name: newName }]);
+																	queueUpdate([update]);
 																}
 															}
 														}}
@@ -1036,8 +1108,8 @@
 															{/each}
 														</optgroup>
 														<optgroup label="New">
-															{#each paramGroups.filter((p) => !existingParams.some((ep) => ep.code === p.name)) as newP}
-																<option value="new:{newP.name}">+ {newP.name} ({newP.units})</option>
+															{#each paramGroups.filter((p) => !matchParam(p.name)) as newP}
+																<option value={newParamOption(newP.name, newP.units)}>+ {newP.name} ({newP.units})</option>
 															{/each}
 														</optgroup>
 														<option value="custom">Custom name…</option>
@@ -1107,7 +1179,7 @@
 							</tr></thead>
 							<tbody>
 								{#each paramGroups as pg}
-									{@const matched = existingParams.find((p) => p.code === pg.name)}
+									{@const matched = matchParam(pg.name)}
 									<tr id="param-row-{pg.name}" class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 transition-shadow">
 										<td class="px-3 py-2 text-xs text-brand-muted font-mono max-w-[250px]">
 										{#if pg.originalNames.length > 1}
@@ -1173,7 +1245,7 @@
 										<td class="px-3 py-2 text-xs">
 											{#if matched}
 												<span class="text-brand-muted" title="Already exists in the database - edit via the Parameters page">{matched.default_units}</span>
-											{:else if editingGlobalUnits === pg.name}
+											{:else if editingGlobalUnits?.name === pg.name && editingGlobalUnits?.units === pg.units}
 												<input type="text" bind:value={editUnitsValue} onkeydown={(e) => { if (e.key === 'Enter') commitEditUnits(); if (e.key === 'Escape') editingGlobalUnits = null; }} onblur={commitEditUnits} class="px-1 py-0.5 border border-brand-primary rounded text-xs bg-brand-surface w-20" autofocus />
 											{:else}
 												<button onclick={() => startEditUnits(pg.name, pg.units)} class="bg-transparent border-0 border-b border-dashed border-brand-muted cursor-pointer text-brand-muted hover:text-brand-primary hover:border-brand-primary">{pg.units || '--'}</button>
@@ -1181,15 +1253,17 @@
 										</td>
 										<td class="px-4 py-2">
 											<select
-												value={matched ? `db:${matched.id}` : `new:${pg.name}`}
+												value={matched ? `db:${matched.id}` : newParamOption(pg.name, pg.units)}
 												onchange={(e) => {
 													const val = (e.target as HTMLSelectElement).value;
 													if (val.startsWith('db:')) {
 														const ep = existingParams.find((p) => p.id === val.slice(3));
 														if (ep) mapParamToExisting(pg.name, ep);
 													} else if (val.startsWith('new:')) {
-														const newName = val.slice(4);
-														if (newName !== pg.name) renameGlobalParam(pg.name, newName);
+														const { name: newName, units: newUnits } = parseNewParamOption(val);
+														if (newName !== pg.name || (newUnits !== null && newUnits !== pg.units)) {
+															renameGlobalParam(pg.name, newName, newUnits ?? undefined);
+														}
 													}
 												}}
 												class="px-2 py-1 rounded text-xs bg-brand-surface w-full max-w-[220px] border border-brand-divider {matched ? 'border-severity-ok' : 'border-severity-warning'}"
@@ -1200,8 +1274,8 @@
 													{/each}
 												</optgroup>
 												<optgroup label="Will be created">
-													{#each paramGroups.filter((p) => !existingParams.some((ep) => ep.code === p.name)) as newP}
-														<option value="new:{newP.name}">+ {newP.name} ({newP.units})</option>
+													{#each paramGroups.filter((p) => !matchParam(p.name)) as newP}
+														<option value={newParamOption(newP.name, newP.units)}>+ {newP.name} ({newP.units})</option>
 													{/each}
 												</optgroup>
 											</select>
@@ -1303,7 +1377,7 @@
 
 		<div class="flex gap-3">
 			<Button variant="primary" onclick={exitWizard} class="px-4 py-2 font-semibold">Done</Button>
-			<ConfirmPopover message="Revert this plan? All pairings will be undone." confirmLabel="Revert" onconfirm={revertPlan}>
+			<ConfirmPopover message="Revert this plan? All pairings will be undone. Projects, sites, and parameters created by the plan are kept." confirmLabel="Revert" onconfirm={revertPlan}>
 				<button disabled={reverting} class="px-4 py-2 border border-severity-alarm text-severity-alarm rounded-md text-sm cursor-pointer bg-transparent disabled:opacity-50">
 					{reverting ? 'Reverting…' : 'Revert Plan'}
 				</button>
@@ -1339,7 +1413,7 @@
 		{#if importStream_}
 			<div class="space-y-3">
 				<div class="text-sm"><span class="text-brand-muted">Stream:</span> <span class="font-mono">{importStream_.source_key}</span></div>
-				<p class="text-xs text-brand-muted">Registers this stream's device into the sensor inventory (creates the sensor + identity calibration and stamps its existing readings) without assigning it to a site. Pair the stream separately to attribute its data to a site.</p>
+				<p class="text-xs text-brand-muted">Registers this stream's device into the sensor inventory (creates the sensor and stamps its existing readings) without assigning it to a site. No calibration is created - the readings resolve whatever curves the sensor already has. Pair the stream separately to attribute its data to a site.</p>
 				<div class="flex flex-col gap-1">
 					<label for="import-param" class="text-sm font-medium">Parameter</label>
 					<select id="import-param" bind:value={importParamId} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">

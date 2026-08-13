@@ -120,7 +120,7 @@
 				</div>
 				<div>
 					<span class="text-brand-muted text-xs">Completed</span>
-					<p>{evt.completed_at ? formatDateTime(evt.completed_at) : '—'}</p>
+					<p>{evt.completed_at ? formatDateTime(evt.completed_at) : '-'}</p>
 				</div>
 			</div>
 

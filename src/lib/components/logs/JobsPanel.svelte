@@ -176,12 +176,12 @@
 					<span class="text-brand-muted font-mono text-[10px] whitespace-nowrap">{job.progress}/{job.total}</span>
 				</div>
 			{:else}
-				<span class="text-brand-muted">—</span>
+				<span class="text-brand-muted">-</span>
 			{/if}
 		</td>
-		<td class="px-4 py-2 text-right font-mono text-xs">{job.readings_updated ?? '—'}</td>
+		<td class="px-4 py-2 text-right font-mono text-xs">{job.readings_updated ?? '-'}</td>
 		<td class="px-4 py-2 text-xs text-brand-muted">{formatRelativeTime(job.created_at)}</td>
-		<td class="px-4 py-2 text-xs text-brand-muted">{job.completed_at ? formatDateTime(job.completed_at) : '—'}</td>
+		<td class="px-4 py-2 text-xs text-brand-muted">{job.completed_at ? formatDateTime(job.completed_at) : '-'}</td>
 		<td class="px-4 py-2 text-xs text-severity-alarm truncate max-w-xs" title={job.error_message ?? ''}>{job.error_message ?? ''}</td>
 	{/snippet}
 
@@ -215,12 +215,12 @@
 							<span class="text-brand-muted font-mono text-xs">{job.progress}/{job.total}</span>
 						</div>
 					{:else}
-						<p class="text-brand-muted">—</p>
+						<p class="text-brand-muted">-</p>
 					{/if}
 				</div>
 				<div>
 					<span class="text-brand-muted text-xs">Readings updated</span>
-					<p class="font-mono">{job.readings_updated ?? '—'}</p>
+					<p class="font-mono">{job.readings_updated ?? '-'}</p>
 				</div>
 				<div>
 					<span class="text-brand-muted text-xs">Retry count</span>
@@ -232,7 +232,7 @@
 				</div>
 				<div>
 					<span class="text-brand-muted text-xs">Completed</span>
-					<p>{job.completed_at ? formatDateTime(job.completed_at) : '—'}</p>
+					<p>{job.completed_at ? formatDateTime(job.completed_at) : '-'}</p>
 				</div>
 			</div>
 

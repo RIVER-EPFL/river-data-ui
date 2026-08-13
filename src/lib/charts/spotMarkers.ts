@@ -1,11 +1,12 @@
 // Shared rendering for low-frequency (spot/grab) points on uPlot charts.
 //
 // Spot values live in a real uPlot series so they range the y-scale, but that series is rendered
-// transparently (no line, no built-in points); the plugin paints diamond markers — and, when
-// replicate statistics are available, mean±sd whiskers — from the series data. Hard-won field
+// transparently (no line, no built-in points); the plugin paints diamond markers, and, when
+// replicate statistics are available, mean±sd whiskers, from the series data. Hard-won field
 // data stays visible at any zoom, unlike line rendering where an isolated point disappears.
 
 import type uPlot from 'uplot';
+import type { SampleReplicate } from '$api/types';
 import { uPlotTheme } from './uPlotTheme';
 
 /** Replicate statistics for a spot point (from the trigger-maintained `samples` table). */
@@ -13,6 +14,12 @@ export interface SpotPointStats {
 	mean: number;
 	stdev: number | null;
 	n: number;
+	// Individual replicate values behind the mean, each carrying its own curve references.
+	replicates?: SampleReplicate[];
+	// Curve references of the point itself, present when the fetch asked for include_curves.
+	// Both are independently nullable: null is "no curve of that kind was applied".
+	calibrationId?: string | null;
+	standardCurveId?: string | null;
 }
 
 export interface SpotSeriesSpec {

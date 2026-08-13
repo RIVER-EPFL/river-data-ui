@@ -69,8 +69,8 @@
 			await assignUserRoles(userId, newRoles);
 			user = { ...user, roles: newRoles };
 			toastStore.success(`Access level set to ${roleLabel(role)}`);
-		} catch {
-			toastStore.error('Failed to update access level');
+		} catch (e) {
+			toastStore.error(`Failed to update access level: ${e instanceof Error ? e.message : e}`);
 		} finally {
 			savingRole = false;
 		}
@@ -88,8 +88,8 @@
 		try {
 			await setUserGrants(userId, [...grantedIds]);
 			toastStore.success('Project access saved');
-		} catch {
-			toastStore.error('Failed to save project access');
+		} catch (e) {
+			toastStore.error(`Failed to save project access: ${e instanceof Error ? e.message : e}`);
 		} finally {
 			savingGrants = false;
 		}
@@ -103,8 +103,8 @@
 			await assignUserRoles(userId, (user.roles ?? []).filter((r) => !r.startsWith('riverdata-')));
 			toastStore.success(`Access revoked for ${user.username}`);
 			goto(`${base}/users`);
-		} catch {
-			toastStore.error('Failed to revoke access');
+		} catch (e) {
+			toastStore.error(`Failed to revoke access: ${e instanceof Error ? e.message : e}`);
 		} finally {
 			revoking = false;
 		}

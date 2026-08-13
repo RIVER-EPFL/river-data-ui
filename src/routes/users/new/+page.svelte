@@ -2,7 +2,7 @@
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { searchDirectoryUsers, assignUserRoles, type DirectoryUser } from '$api/service';
-	import { accessRoles, roleLabel, roleBadgeVariant } from '$lib/users';
+	import { ACCESS_ROLE_LABELS, accessRoles, roleLabel, roleBadgeVariant } from '$lib/users';
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
@@ -14,7 +14,11 @@
 	let searched = $state(false);
 	let error = $state('');
 	let addingId = $state('');
+	let grantRole = $state('riverdata-river');
 	let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+
+	// Lowest to highest, matching the detail page's level radio.
+	const GRANT_LEVELS = Object.keys(ACCESS_ROLE_LABELS).reverse();
 
 	function onInput() {
 		clearTimeout(debounceTimer);
@@ -48,11 +52,11 @@
 	async function addUser(user: DirectoryUser) {
 		addingId = user.id;
 		try {
-			await assignUserRoles(user.id, [...user.roles, 'riverdata-river']);
-			toastStore.success(`${user.username} can now access River Data`);
+			await assignUserRoles(user.id, [...user.roles, grantRole]);
+			toastStore.success(`${user.username} can now access River Data as ${roleLabel(grantRole)}`);
 			goto(`${base}/users/${user.id}`);
-		} catch {
-			toastStore.error('Failed to grant access');
+		} catch (e) {
+			toastStore.error(`Failed to grant access: ${e instanceof Error ? e.message : e}`);
 		} finally {
 			addingId = '';
 		}
@@ -69,15 +73,28 @@
 		centrally, so users are not created here.
 	</p>
 
-	<!-- svelte-ignore a11y_autofocus -->
-	<input
-		type="text"
-		placeholder="Search by name, username or email…"
-		autofocus
-		bind:value={query}
-		oninput={onInput}
-		class="w-full max-w-md px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
-	/>
+	<div class="flex items-end gap-3 flex-wrap">
+		<!-- svelte-ignore a11y_autofocus -->
+		<input
+			type="text"
+			placeholder="Search by name, username or email…"
+			autofocus
+			bind:value={query}
+			oninput={onInput}
+			class="w-full max-w-md px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+		/>
+		<label class="text-sm text-brand-muted flex items-center gap-2">
+			Grant level
+			<select
+				bind:value={grantRole}
+				class="px-2 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm text-brand-text"
+			>
+				{#each GRANT_LEVELS as role}
+					<option value={role}>{roleLabel(role)}</option>
+				{/each}
+			</select>
+		</label>
+	</div>
 
 	{#if error}
 		<ErrorNotice message="Search failed: {error}" />

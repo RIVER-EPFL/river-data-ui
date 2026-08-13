@@ -74,6 +74,10 @@
 
 	const hasBands = $derived(rawMin.length === times.length && rawMin.length > 0);
 	const hasPreview = $derived(!!preview && preview.length === times.length);
+	// An instrument no curve covers has a calibrated column of nothing but nulls. Drawing it puts an
+	// empty entry in the legend and an always-"None" row in the tooltip, so the series is left out.
+	const hasCalibrated = $derived(calibrated.some((v) => v != null));
+	const hasCalBands = $derived(hasCalibrated && calMin.length === times.length && calMin.length > 0);
 
 	// Hover tooltip (self-contained - this chart isn't in a ChartSyncGroup).
 	let hover = $state<{ idx: number; x: number; y: number } | null>(null);
@@ -89,7 +93,7 @@
 				timeZone: timezoneStore.zone, timeZoneName: 'short',
 			}),
 			raw: fmtNum(raw[hover.idx]),
-			calibrated: fmtNum(calibrated[hover.idx]),
+			calibrated: hasCalibrated ? fmtNum(calibrated[hover.idx]) : null,
 			preview: hasPreview ? fmtNum(preview![hover.idx]) : null,
 			band, cal,
 		};
@@ -120,23 +124,31 @@
 		const series: uPlot.Series[] = [
 			{},
 			{ ...makeSeries(4, 'Raw', units), width: 1, dash: [3, 2], ...(gaps ? { gaps } : {}) },
-			{ ...makeSeries(0, 'Calibrated', units), ...(gaps ? { gaps } : {}) },
 		];
-		const data: uPlot.AlignedData = [times, toU(raw), toU(calibrated)] as uPlot.AlignedData;
+		const data: uPlot.AlignedData = [times, toU(raw)] as uPlot.AlignedData;
+		if (hasCalibrated) {
+			series.push({ ...makeSeries(0, 'Calibrated', units), ...(gaps ? { gaps } : {}) });
+			(data as unknown[]).push(toU(calibrated));
+		}
 		if (hasPreview) {
 			series.push({ ...makeSeries(5, 'Preview', units), width: 2, dash: [6, 2], ...(gaps ? { gaps } : {}) });
 			(data as unknown[]).push(toU(preview!));
 		}
+		// The min/max envelopes ride on hidden series, so each pair's indices are taken from the
+		// series array as it stands rather than counted out - the visible series above are optional.
 		let bands: uPlot.Band[] | undefined;
+		const hidden = (): uPlot.Series => ({ label: '', stroke: 'transparent', width: 0, points: { show: false }, ...(gaps ? { gaps } : {}), class: 'hidden-series' });
 		if (hasBands) {
-			const envStart = hasPreview ? 4 : 3;
-			const hidden = (): uPlot.Series => ({ label: '', stroke: 'transparent', width: 0, points: { show: false }, ...(gaps ? { gaps } : {}), class: 'hidden-series' });
-			series.push(hidden(), hidden(), hidden(), hidden());
-			(data as unknown[]).push(toU(rawMin), toU(rawMax), toU(calMin), toU(calMax));
-			bands = [
-				{ series: [envStart + 1, envStart], fill: uPlotTheme.minMaxBandFill },
-				{ series: [envStart + 3, envStart + 2], fill: uPlotTheme.minMaxBandFill },
-			];
+			const rawStart = series.length;
+			series.push(hidden(), hidden());
+			(data as unknown[]).push(toU(rawMin), toU(rawMax));
+			bands = [{ series: [rawStart + 1, rawStart], fill: uPlotTheme.minMaxBandFill }];
+		}
+		if (hasCalBands) {
+			const calStart = series.length;
+			series.push(hidden(), hidden());
+			(data as unknown[]).push(toU(calMin), toU(calMax));
+			(bands ??= []).push({ series: [calStart + 1, calStart], fill: uPlotTheme.minMaxBandFill });
 		}
 
 		const stripPad = (showSensorVectors ? BAND_STRIP_CSS : 0) + (showCalibrationMarkers ? CALIBRATION_STRIP_CSS : 0);
@@ -239,7 +251,10 @@
 
 <div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 	<div class="flex items-center justify-between px-3 py-1.5 border-b border-brand-divider bg-brand-bg">
-		<span class="text-sm font-semibold">Raw vs Calibrated</span>
+		<span class="text-sm font-semibold">{hasCalibrated ? 'Raw vs Calibrated' : 'Raw'}</span>
+		{#if !hasCalibrated && times.length > 0}
+			<span class="text-xs text-brand-muted">No curve covers this range - readings are served uncorrected</span>
+		{/if}
 	</div>
 	<div class="px-1 py-1 relative">
 		<div bind:this={el} class="w-full" style="min-height:{height}px"></div>
@@ -252,9 +267,11 @@
 				<div class="flex items-center justify-between gap-4" style="font-size:12px;line-height:20px;color:{uPlotTheme.tooltipColor}">
 					<span>Raw</span><span style="font-weight:600;font-variant-numeric:tabular-nums">{hoverInfo.raw} <span style="opacity:0.6;font-weight:400">{units}</span></span>
 				</div>
-				<div class="flex items-center justify-between gap-4" style="font-size:12px;line-height:20px;color:{uPlotTheme.tooltipColor}">
-					<span>Calibrated</span><span style="font-weight:600;font-variant-numeric:tabular-nums">{hoverInfo.calibrated} <span style="opacity:0.6;font-weight:400">{units}</span></span>
-				</div>
+				{#if hoverInfo.calibrated != null}
+					<div class="flex items-center justify-between gap-4" style="font-size:12px;line-height:20px;color:{uPlotTheme.tooltipColor}">
+						<span>Calibrated</span><span style="font-weight:600;font-variant-numeric:tabular-nums">{hoverInfo.calibrated} <span style="opacity:0.6;font-weight:400">{units}</span></span>
+					</div>
+				{/if}
 				{#if hoverInfo.preview != null}
 					<div class="flex items-center justify-between gap-4" style="font-size:12px;line-height:20px;color:#E69F00">
 						<span>Preview</span><span style="font-weight:600;font-variant-numeric:tabular-nums">{hoverInfo.preview} <span style="opacity:0.6;font-weight:400">{units}</span></span>

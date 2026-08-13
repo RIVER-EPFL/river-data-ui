@@ -19,7 +19,7 @@
 		const projectName = new Map(projects.data.map((p) => [p.id, p.name]));
 		subprojectOptions = subprojects.data.map((s) => ({
 			value: s.id,
-			label: `${projectName.get(s.project_id) ?? '—'} — ${s.name}`,
+			label: `${projectName.get(s.project_id) ?? '-'} - ${s.name}`,
 		}));
 	});
 

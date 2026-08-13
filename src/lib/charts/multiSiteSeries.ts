@@ -26,7 +26,7 @@ export async function fetchSiteSeries(opts: {
 	start: string;
 	end: string;
 	resolution: SeriesResolution;
-	/** Only meaningful on the raw path — aggregates are continuous-only by design. */
+	/** Only meaningful on the raw path, aggregates are continuous-only by design. */
 	measurementType?: 'continuous' | 'spot';
 }): Promise<SitePointSeries> {
 	const { siteId, parameterId, siteParameterId, start, end, resolution, measurementType } = opts;

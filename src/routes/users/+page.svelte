@@ -161,8 +161,8 @@
 									{u.username}
 								</a>
 							</td>
-							<td class="px-4 py-2 text-brand-muted">{u.email || '—'}</td>
-							<td class="px-4 py-2">{[u.firstName, u.lastName].filter(Boolean).join(' ') || '—'}</td>
+							<td class="px-4 py-2 text-brand-muted">{u.email || '-'}</td>
+							<td class="px-4 py-2">{[u.firstName, u.lastName].filter(Boolean).join(' ') || '-'}</td>
 							<td class="px-4 py-2">
 								<Badge variant={accessLevelVariant(u.roles)}>{accessLevelLabel(u.roles)}</Badge>
 							</td>

@@ -33,7 +33,7 @@
 		title: string;
 		backHref: string;
 		onSuccess?: (data: Record<string, unknown>) => void;
-		/** Side-effect hook (store invalidation etc.) — runs on save without replacing the default navigation. */
+		/** Side-effect hook (store invalidation etc.), runs on save without replacing the default navigation. */
 		onSaved?: (data: Record<string, unknown>) => void;
 	} = $props();
 

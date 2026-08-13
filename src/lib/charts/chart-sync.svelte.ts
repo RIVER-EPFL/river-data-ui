@@ -1,5 +1,6 @@
 import type { AlarmThreshold, Annotation } from '$api/crud';
 import type { SensorIdentityBand, CalibrationMarker } from '$api/sensors';
+import type { SpotPointStats } from './spotMarkers';
 
 export interface ChartRegistration {
 	id: string;
@@ -14,6 +15,8 @@ export interface ChartRegistration {
 	annotations?: Annotation[];
 	sensorBands?: SensorIdentityBand[];
 	calibrationMarkers?: CalibrationMarker[];
+	// Sample stats keyed by time (ms) for spot points.
+	spotStats?: Map<number, SpotPointStats> | null;
 }
 
 export interface CursorState {

@@ -27,7 +27,7 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
-	// Telegram link code (only held in memory right after minting — never returned by GET).
+	// Telegram link code (only held in memory right after minting, never returned by GET).
 	let linkCode = $state<string | null>(null);
 	let busy = $state(false);
 
@@ -181,7 +181,7 @@
 					<div class="font-medium text-brand-text">Time zone</div>
 					<div class="text-sm text-brand-text-muted">
 						How dates and times are shown across charts, tables, and pickers. Data is always
-						stored in UTC — this only changes the display. Your browser zone is
+						stored in UTC; this only changes the display. Your browser zone is
 						<span class="font-mono">{browserZone}</span>.
 					</div>
 				</div>
@@ -222,7 +222,7 @@
 						<div class="font-medium text-brand-text">Email alerts</div>
 						<div class="text-sm text-brand-text-muted">
 							{#if !caps.email.available}
-								Unavailable — the server has no email backend configured (set
+								Unavailable, the server has no email backend configured (set
 								<code>EMAIL_BACKEND</code> and its credentials).
 							{:else if me.email}
 								Sent to <span class="font-mono">{me.email}</span>
@@ -261,7 +261,7 @@
 						<div class="font-medium text-brand-text">Telegram alerts</div>
 						<div class="text-sm text-brand-text-muted">
 							{#if !caps.telegram.available}
-								Unavailable — the server has no bot configured (set <code>TELEGRAM_BOT_TOKEN</code>).
+								Unavailable, the server has no bot configured (set <code>TELEGRAM_BOT_TOKEN</code>).
 							{:else if me.telegram.status === 'linked'}
 								<Badge variant="ok">linked</Badge> Your Telegram chat is connected.
 							{:else if me.telegram.status === 'pending'}

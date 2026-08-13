@@ -203,7 +203,7 @@
 										measurementType: res === 'raw' ? 'continuous' : undefined,
 									})
 								: Promise.resolve<SitePointSeries>({ times: [], values: [] }),
-							// Spot points bypass resolution entirely — a handful of campaign results
+							// Spot points bypass resolution entirely, a handful of campaign results
 							// must survive any zoom level.
 							wantSpot
 								? fetchSiteSeries({

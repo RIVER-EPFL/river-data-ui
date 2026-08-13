@@ -10,6 +10,7 @@
 	import { api, type AlarmThreshold, type Annotation } from '$api/crud';
 	import AnnotateDialog from '$components/dialogs/AnnotateDialog.svelte';
 	import FlagDialog from '$components/dialogs/FlagDialog.svelte';
+	import ReplicateFlagDialog from '$components/dialogs/ReplicateFlagDialog.svelte';
 	import {
 		sensorVectorBandPlugin, calibrationMarkerPlugin, bandAtTime, calibrationAtTime,
 		BAND_STRIP_CSS, CALIBRATION_STRIP_CSS,
@@ -135,6 +136,8 @@
 	let dialogMode = $state<'annotate' | 'flag' | 'unflag'>('annotate');
 	let annotateOpen = $state(false);
 	let flagOpen = $state(false);
+	let replicateOpen = $state(false);
+	let replicateTarget = $state<{ timeMs: number; stats: SpotPointStats } | null>(null);
 	let pendingRange = $state<{ startMs: number; endMs: number } | null>(null);
 
 	let userExpansionPref = $state<boolean | null>(null);
@@ -417,7 +420,7 @@
 
 		// Series layout: index 1 is the continuous line (or, when there is no line, the spot
 		// markers themselves so the y-scale still ranges). thresholdLinePlugin/flaggedPointPlugin
-		// read series 1, and the min/max band references series [3, 2] — keep spot after those.
+		// read series 1, and the min/max band references series [3, 2], keep spot after those.
 		const seriesDefs: uPlot.Series[] = [{}];
 		const data: uPlot.AlignedData = [times] as any;
 		let spotSeriesIdx = -1;
@@ -506,6 +509,27 @@
 		}
 	}
 
+	/// The spot point under the click, if one is within a few pixels and carries replicates.
+	/// Clicking a grab marker is the only route to per-replicate flagging: a hover tooltip
+	/// cannot host an action.
+	const SPOT_CLICK_TOLERANCE_PX = 8;
+
+	function spotPointAt(u: uPlot, xCss: number): { timeMs: number; stats: SpotPointStats } | null {
+		const stats = spotStats;
+		if (!stats || stats.size === 0) return null;
+		let best: { timeMs: number; stats: SpotPointStats } | null = null;
+		let bestDistance = Number.POSITIVE_INFINITY;
+		for (const [timeMs, stat] of stats) {
+			if (!stat.replicates || stat.replicates.length === 0) continue;
+			const distance = Math.abs(u.valToPos(timeMs / 1000, 'x') - xCss);
+			if (distance < bestDistance) {
+				bestDistance = distance;
+				best = { timeMs, stats: stat };
+			}
+		}
+		return bestDistance <= SPOT_CLICK_TOLERANCE_PX ? best : null;
+	}
+
 	function bandStripAt(u: uPlot, xCss: number, yCss: number): SensorIdentityBand | null {
 		if (!overlayVisRef.current.sensorVectors) return null;
 		if (yCss < 0 || yCss > BAND_STRIP_CSS) return null;
@@ -528,7 +552,9 @@
 			const rect = over.getBoundingClientRect();
 			const xCss = e.clientX - rect.left;
 			const yCss = e.clientY - rect.top;
-			over.style.cursor = bandStripAt(u, xCss, yCss) || calStripAt(u, xCss, yCss) ? 'pointer' : '';
+			const actionable =
+				bandStripAt(u, xCss, yCss) || calStripAt(u, xCss, yCss) || spotPointAt(u, xCss);
+			over.style.cursor = actionable ? 'pointer' : '';
 		};
 		const onUp = (e: MouseEvent) => {
 			const start = downX;
@@ -542,6 +568,11 @@
 			if (band) { goto(`${base}/sensors/${band.sensor_id}`); return; }
 			const cal = calStripAt(u, xCss, yCss);
 			if (cal) { goto(`${base}/sensors/${cal.sensorId}?tab=calibrations&cal=${cal.calId}`); return; }
+			const spot = spotPointAt(u, xCss);
+			if (spot) {
+				replicateTarget = spot;
+				replicateOpen = true;
+			}
 		};
 		over.addEventListener('mousedown', onDown);
 		over.addEventListener('mousemove', onMove);
@@ -642,6 +673,7 @@
 				annotations,
 				sensorBands: showSensorVectors ? sensorBands : [],
 				calibrationMarkers: showCalibrationMarkers ? calibrationMarkers : [],
+				spotStats,
 			});
 			tick().then(() => renderChart());
 		}
@@ -794,6 +826,18 @@
 		{parameterName}
 		startMs={pendingRange.startMs}
 		endMs={pendingRange.endMs}
+		onsuccess={onDialogSuccess}
+	/>
+{/if}
+
+{#if replicateTarget}
+	<ReplicateFlagDialog
+		bind:open={replicateOpen}
+		{siteId}
+		{parameterId}
+		{parameterName}
+		timeIso={new Date(replicateTarget.timeMs).toISOString()}
+		replicates={replicateTarget.stats.replicates ?? []}
 		onsuccess={onDialogSuccess}
 	/>
 {/if}

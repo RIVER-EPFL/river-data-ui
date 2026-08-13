@@ -16,6 +16,8 @@
 	import CalibrationWindowEditor from '$components/charts/CalibrationWindowEditor.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
 	import AdoptSensorDialog from '$components/dialogs/AdoptSensorDialog.svelte';
+	import StandardCurvesTab from '$components/sensors/StandardCurvesTab.svelte';
+	import { createUrlTab } from '$lib/urlTab.svelte';
 	import { getSensorReadings, getSensorDeploymentBands, type SensorReadingsResponse, type SensorDeploymentBand } from '$api/sensors';
 	import type { SensorIdentityBand, CalibrationMarker } from '$api/sensors';
 	import { GAP_THRESHOLDS } from '$lib/charts/uPlotTheme';
@@ -25,8 +27,11 @@
 	let deployments = $state<SensorDeployment[]>([]);
 	let sites = $state<Site[]>([]);
 	let loading = $state(true);
-	let activeTab = $state(0);
 	let uncalibratedCount = $state(0);
+
+	// Deep links land here from chart markers (?tab=calibrations&cal=<id>) and from a reading's
+	// standard-curve reference (?tab=curves&curve=<id>); urlTab preserves those extra params.
+	const tab = createUrlTab({ keys: ['overview', 'deployments', 'calibrations', 'curves'] });
 
 	let parameters = $state<Parameter[]>([]);
 	let series = $state<SensorReadingsResponse | null>(null);
@@ -184,9 +189,9 @@
 		}
 	}
 
+	const focusCurveId = page.url.searchParams.get('curve');
+
 	onMount(async () => {
-		// Deep link from a chart band/calibration-marker click: ?tab=calibrations&cal=<id>
-		if (page.url.searchParams.get('tab') === 'calibrations') activeTab = 2;
 		const calParam = page.url.searchParams.get('cal');
 		if (calParam) editingCalId = calParam;
 
@@ -355,9 +360,9 @@
 			</div>
 		</div>
 
-		<Tabs tabs={['Overview', 'Deployments', 'Calibrations']} bind:active={activeTab} />
+		<Tabs tabs={['Overview', 'Deployments', 'Calibrations', 'Standard curves']} bind:active={tab.index} />
 
-		{#if activeTab === 0}
+		{#if tab.key === 'overview'}
 			{#if needsBackdate && currentDeployment}
 				<div class="flex items-center gap-3 px-3 py-2 text-sm bg-brand-primary/5 text-brand-primary rounded-md border border-brand-primary/20">
 					<span>Readings exist before this deployment started ({formatDateTime(currentDeployment.deployed_from)}) - they aren't attributed to this sensor.</span>
@@ -427,7 +432,7 @@
 					{gapThreshold}
 					onZoomSelect={onChartZoomSelect}
 					onResetZoom={onChartResetZoom}
-					onCalibrationClick={(m) => { activeTab = 2; editingCalId = m.calibration_id; }}
+					onCalibrationClick={(m) => { tab.go('calibrations'); editingCalId = m.calibration_id; }}
 				/>
 			{:else}
 				<div class="rounded-md border border-brand-divider bg-brand-surface p-6 text-center text-sm text-brand-muted">Loading series…</div>
@@ -443,7 +448,7 @@
 					<div><span class="text-sm text-brand-muted block">Notes</span><p class="text-sm">{sensor.notes}</p></div>
 				{/if}
 			</div>
-		{:else if activeTab === 1}
+		{:else if tab.key === 'deployments'}
 			<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 				<table class="w-full text-sm">
 					<thead><tr class="bg-brand-bg border-b border-brand-divider">
@@ -491,7 +496,7 @@
 					</tbody>
 				</table>
 			</div>
-		{:else if activeTab === 2}
+		{:else if tab.key === 'calibrations'}
 			{#if !seriesLoading || series}
 				<SensorSeriesChart
 					times={seriesTimes}
@@ -521,8 +526,8 @@
 				/>
 			{/if}
 			{#if uncalibratedCount > 0}
-				<div class="rounded-md bg-severity-warning-soft border border-severity-warning/20 px-3 py-2 mb-2 text-xs text-severity-warning">
-					{uncalibratedCount.toLocaleString()} reading{uncalibratedCount === 1 ? '' : 's'} before the first calibration - using raw values (identity 1x+0)
+				<div class="rounded-md bg-brand-bg border border-brand-divider px-3 py-2 mb-2 text-xs text-brand-muted">
+					{uncalibratedCount.toLocaleString()} reading{uncalibratedCount === 1 ? '' : 's'} sit inside one of these windows but were never stamped with it. Reprocess the sensor to resolve them.
 				</div>
 			{/if}
 			<div class="flex justify-end mb-2">
@@ -574,11 +579,17 @@
 							{/if}
 						{/each}
 						{#if calibrations.length === 0}
-							<tr><td colspan="6" class="px-4 py-6 text-center text-brand-muted">No calibrations</td></tr>
+							<tr><td colspan="6" class="px-4 py-6 text-center text-brand-muted">No calibrations recorded - readings are served uncorrected until a curve is entered.</td></tr>
 						{/if}
 					</tbody>
 				</table>
 			</div>
+		{:else if tab.key === 'curves'}
+			<StandardCurvesTab
+				{sensorId}
+				sensorName={sensor.name ?? sensor.serial_number ?? 'this instrument'}
+				{focusCurveId}
+			/>
 		{/if}
 	</div>
 

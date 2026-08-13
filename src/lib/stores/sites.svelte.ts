@@ -34,7 +34,7 @@ export const siteNavigator = {
 		}
 	},
 
-	/** Re-fetch after sites/grants change (not wired anywhere yet — sites rarely change). */
+	/** Re-fetch after sites/grants change (not wired anywhere yet, sites rarely change). */
 	async refresh() {
 		started = false;
 		state = { status: 'loading' };

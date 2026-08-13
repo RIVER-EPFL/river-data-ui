@@ -54,7 +54,7 @@ export function severityBadgeVariant(s: Severity | number): 'alarm' | 'warning' 
 /**
  * Threshold range notation, shared by every surface that prints threshold bounds:
  * one-sided ranges use comparators ('≥ 5', '≤ 10'), two-sided use an en dash ('5 – 10'),
- * and units are appended once ('5 – 10 mg/L'). Returns null when both bounds are null —
+ * and units are appended once ('5 – 10 mg/L'). Returns null when both bounds are null,
  * callers render their own muted 'None'.
  */
 export function formatThresholdRange(

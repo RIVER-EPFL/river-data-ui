@@ -261,7 +261,8 @@
 		</div>
 	</div>
 
-	<!-- Time-series chart: Raw + Calibrated (DB) + Preview (live formula within window) -->
+	<!-- Time-series chart: Raw + Calibrated (DB, only where a curve resolved) + Preview (live
+	     formula within window) -->
 	{#if seriesLoading && !series}
 		<div class="rounded-md border border-brand-divider bg-brand-surface p-6 text-center text-sm text-brand-muted">Loading readings…</div>
 	{:else if chartTimes.length > 0}

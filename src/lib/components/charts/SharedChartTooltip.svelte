@@ -4,6 +4,7 @@
 	import { tokens } from '$lib/charts/tokens';
 	import { bandAtTime, calibrationAtTime, severityForValue } from '$lib/charts/overlay-plugins';
 	import { severityLabel } from '$lib/alarms';
+	import { curveRefs } from '$lib/curveRefs.svelte';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
 
 	let { syncKey }: { syncKey: string } = $props();
@@ -27,9 +28,13 @@
 		severity: 'alarm' | 'warning' | null;
 		flagged: boolean;
 		flagReason: string | null;
+		sampleLine: string | null;
 		annotations: AnnotationRow[];
 		sensorLabel: string | null;
 		calEquation: string | null;
+		// Corrections the point itself records. Both are reported even when null, since a value
+		// with no curve applied reads differently from one corrected by an identity curve.
+		recordedCurves: { calibration: string; standardCurve: string } | null;
 	}
 
 	const cursorTimeSec = $derived.by(() => {
@@ -87,6 +92,28 @@
 				}
 			}
 
+			// A spot point backed by a sample shows the replicates behind its mean
+			let sampleLine: string | null = null;
+			let recordedCurves: Row['recordedCurves'] = null;
+			if (tMs != null) {
+				const stat = reg.spotStats?.get(tMs);
+				if (stat && (stat.calibrationId !== undefined || stat.standardCurveId !== undefined)) {
+					recordedCurves = {
+						calibration: curveRefs.calibrationLabel(stat.calibrationId),
+						standardCurve: curveRefs.standardCurveLabel(stat.standardCurveId),
+					};
+				}
+				if (stat && stat.n >= 2) {
+					const reps = (stat.replicates ?? [])
+						.map((r) => (r.calibrated_value ?? r.raw_value).toFixed(2) + (r.flagged ? '*' : ''))
+						.join(', ');
+					const sd = stat.stdev != null ? ` ±${stat.stdev.toFixed(2)}` : '';
+					sampleLine = reps
+						? `mean of ${stat.n}${sd}: ${reps}`
+						: `mean of ${stat.n} replicates${sd}`;
+				}
+			}
+
 			result.push({
 				name: reg.parameterName,
 				value: val != null ? val.toFixed(2) : '--',
@@ -95,9 +122,11 @@
 				severity,
 				flagged,
 				flagReason,
+				sampleLine,
 				annotations: rowAnns,
 				sensorLabel,
 				calEquation,
+				recordedCurves,
 			});
 		}
 		return result;
@@ -129,7 +158,7 @@
 		if (!c) return { left: 0, top: 0 };
 		let left = c.mouseX + 20;
 		let top = c.mouseY + 20;
-		const extraRows = rows.reduce((acc, r) => acc + r.annotations.length + (r.flagged ? 1 : 0) + (r.sensorLabel ? 1 : 0) + (r.calEquation ? 1 : 0), 0);
+		const extraRows = rows.reduce((acc, r) => acc + r.annotations.length + (r.flagged ? 1 : 0) + (r.sensorLabel ? 1 : 0) + (r.recordedCurves ? 2 : r.calEquation ? 1 : 0), 0);
 		const w = 280, h = (rows.length + extraRows) * 22 + 32;
 		if (left + w > window.innerWidth - 10) left = c.mouseX - w - 20;
 		if (top + h > window.innerHeight - 10) top = c.mouseY - h - 20;
@@ -163,18 +192,24 @@
 				</span>
 				<span style="color:{uPlotTheme.tooltipColor};font-weight:600;font-variant-numeric:tabular-nums">{row.value} <span style="opacity:0.6;font-weight:400">{row.units}</span></span>
 			</div>
-			{#if row.sensorLabel || row.calEquation}
+			{#if row.sensorLabel || row.calEquation || row.recordedCurves}
 				<div style="margin:4px 0 2px 14px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.15)">
 					{#if row.sensorLabel}
 						<div style="font-size:11px;color:{uPlotTheme.tooltipColor};opacity:0.9;line-height:16px">Sensor: <span style="font-weight:600">{row.sensorLabel}</span></div>
 					{/if}
-					{#if row.calEquation}
+					{#if row.recordedCurves}
+						<div style="font-size:11px;color:{uPlotTheme.tooltipColor};opacity:0.9;line-height:16px">Calibration: {row.recordedCurves.calibration}</div>
+						<div style="font-size:11px;color:{uPlotTheme.tooltipColor};opacity:0.9;line-height:16px">Standard curve: {row.recordedCurves.standardCurve}</div>
+					{:else if row.calEquation}
 						<div style="font-size:11px;color:{uPlotTheme.tooltipColor};opacity:0.9;line-height:16px">Calibration: {row.calEquation}</div>
 					{/if}
 				</div>
 			{/if}
 			{#if row.flagged && row.flagReason}
 				<div style="font-size:10px;color:{uPlotTheme.tooltipColor};opacity:0.7;padding-left:14px;white-space:normal;line-height:14px;margin-bottom:2px">{row.flagReason}</div>
+			{/if}
+			{#if row.sampleLine}
+				<div style="font-size:10px;color:{uPlotTheme.tooltipColor};opacity:0.8;padding-left:14px;white-space:normal;line-height:14px;margin-bottom:2px">{row.sampleLine}</div>
 			{/if}
 			{#each row.annotations as a}
 				<div style="font-size:10px;color:{uPlotTheme.tooltipColor};line-height:14px;white-space:normal;padding-left:14px;margin-bottom:2px" class="flex items-start gap-1.5">

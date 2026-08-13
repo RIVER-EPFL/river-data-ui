@@ -1,3 +1,24 @@
+export interface SampleReplicate {
+	replicate_index: number;
+	raw_value: number;
+	calibrated_value?: number | null;
+	/** Base (time-windowed) calibration this replicate was corrected with; null when none was. */
+	calibration_id?: string | null;
+	/** Standard curve applied on top of the base calibration; null when none was. */
+	standard_curve_id?: string | null;
+	flagged: boolean;
+}
+
+export interface SampleStat {
+	sample_id: string;
+	n: number;
+	mean?: number | null;
+	stdev?: number | null;
+	min?: number | null;
+	max?: number | null;
+	replicates: SampleReplicate[];
+}
+
 export interface ReadingsParameter {
 	// id is the site_parameter id; parameter_id is the global parameter id
 	id: string;
@@ -10,6 +31,12 @@ export interface ReadingsParameter {
 	severities?: (number | null)[] | null;
 	flagged?: (boolean | null)[] | null;
 	flag_reasons?: (string | null)[] | null;
+	// Per-point sample stats with replicates; present when include_sample_stats=true
+	samples?: (SampleStat | null)[] | null;
+	// Per-point curve references, present when include_curves=true. A null entry means no curve of
+	// that kind was applied, which is why the two are reported separately rather than collapsed.
+	calibration_ids?: (string | null)[] | null;
+	standard_curve_ids?: (string | null)[] | null;
 }
 
 export interface ReadingsResponse {

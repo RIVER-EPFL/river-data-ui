@@ -18,7 +18,7 @@
 		const projectName = new Map(projects.data.map((p) => [p.id, p.name]));
 		subprojectOptions = subprojects.data.map((s) => ({
 			value: s.id,
-			label: `${projectName.get(s.project_id) ?? '—'} — ${s.name}`,
+			label: `${projectName.get(s.project_id) ?? '-'} - ${s.name}`,
 		}));
 	});
 
@@ -29,7 +29,7 @@
 			label: 'Subproject',
 			type: 'select',
 			options: subprojectOptions,
-			helperText: 'Optional — defaults to the project’s main subproject.',
+			helperText: 'Optional, defaults to the project’s main subproject.',
 		},
 		{ key: 'name', label: 'Name', required: true },
 		{ key: 'description', label: 'Description', type: 'textarea' },

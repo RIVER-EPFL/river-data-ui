@@ -310,7 +310,7 @@
 
 		{#if !available}
 			<p class="text-sm text-brand-muted">
-				Not configured — set <code class="font-mono">{envHint}</code> on the server.
+				Not configured, set <code class="font-mono">{envHint}</code> on the server.
 			</p>
 		{:else}
 			<div class="text-sm text-brand-muted space-y-1">
@@ -467,7 +467,7 @@
 									<td class="px-4 py-2">
 										{#if m.expires_at}{formatDateTime(m.expires_at)}{:else}<span class="text-brand-muted">Permanent</span>{/if}
 									</td>
-									<td class="px-4 py-2 text-brand-muted">{m.created_by ?? '—'}</td>
+									<td class="px-4 py-2 text-brand-muted">{m.created_by ?? '-'}</td>
 									<td class="px-4 py-2 text-brand-muted">{formatDateTime(m.created_at)}</td>
 									<td class="px-4 py-2">
 										<div class="flex justify-end">
@@ -543,7 +543,7 @@
 									<td class="px-4 py-2">
 										{#if l.status === 'sent'}<Badge variant="ok">sent</Badge>{:else}<Badge variant="alarm">{l.status}</Badge>{/if}
 									</td>
-									<td class="px-4 py-2 max-w-xs truncate text-brand-muted" title={l.error ?? ''}>{l.error ?? '—'}</td>
+									<td class="px-4 py-2 max-w-xs truncate text-brand-muted" title={l.error ?? ''}>{l.error ?? '-'}</td>
 								</tr>
 							{/each}
 						{/if}

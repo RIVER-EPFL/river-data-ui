@@ -200,8 +200,8 @@
 					onclick={() => timezoneStore.toggle()}
 					class="text-xs font-mono px-2 py-1 rounded border border-white/25 text-white/80 hover:text-white hover:border-white/50 bg-transparent cursor-pointer"
 					title={timezoneStore.mode === 'utc'
-						? 'Times shown in UTC — click to switch to your local time'
-						: 'Times shown in your local time — click to switch to UTC'}
+						? 'Times shown in UTC, click to switch to your local time'
+						: 'Times shown in your local time, click to switch to UTC'}
 				>
 					{timezoneStore.mode === 'utc' ? 'UTC' : 'Local'}
 				</button>

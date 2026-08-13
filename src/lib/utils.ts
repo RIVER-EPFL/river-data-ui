@@ -47,7 +47,7 @@ export function formatDate(date: string | Date): string {
 /**
  * Format an instant as a value for `<input type="datetime-local">` (`YYYY-MM-DDTHH:mm`),
  * showing the wall-clock time in `zone` (default: the browser's local zone). Use this to
- * seed/round-trip datetime-local inputs — seeding with a UTC wall-clock instead silently
+ * seed/round-trip datetime-local inputs, seeding with a UTC wall-clock instead silently
  * shifts the value by the zone offset when the user accepts or edits it.
  */
 export function toDatetimeLocal(value: string | number | Date, zone?: string): string {
@@ -88,7 +88,7 @@ function zoneOffsetMs(instant: Date, zone: string): number {
  * Convert a naive `<input type="datetime-local">` value (`YYYY-MM-DDTHH:mm`), interpreted as
  * wall-clock time in `zone` (default: the browser's local zone), to a UTC ISO-8601 string for
  * the API. With the default zone this equals `new Date(naive).toISOString()`. (Non-existent
- * spring-forward wall-clock times resolve to one engine-defined side — a non-issue for
+ * spring-forward wall-clock times resolve to one engine-defined side, a non-issue for
  * observation timestamps.)
  */
 export function fromDatetimeLocal(naive: string, zone?: string): string {
@@ -113,7 +113,7 @@ export function statusBadgeClass(status: string): string {
 }
 
 export function formatDurationMs(ms: number | null): string {
-	if (ms == null) return '—';
+	if (ms == null) return '-';
 	if (ms < 1000) return `${ms}ms`;
 	const s = ms / 1000;
 	if (s < 60) return `${s.toFixed(1)}s`;
@@ -124,7 +124,7 @@ export function formatDurationMs(ms: number | null): string {
 
 /** Human-friendly cadence for a recurring schedule, e.g. 90 → "every 90s", 300 → "every 5m". */
 export function formatInterval(seconds: number): string {
-	if (!Number.isFinite(seconds) || seconds <= 0) return '—';
+	if (!Number.isFinite(seconds) || seconds <= 0) return '-';
 	if (seconds % 86400 === 0) return `every ${seconds / 86400}d`;
 	if (seconds % 3600 === 0) return `every ${seconds / 3600}h`;
 	if (seconds % 60 === 0) return `every ${seconds / 60}m`;
