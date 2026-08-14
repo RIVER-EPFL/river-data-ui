@@ -300,6 +300,8 @@ services:
       KEYCLOAK_ADMIN_PASSWORD: admin
       KC_HOSTNAME_STRICT: false
       KC_HOSTNAME_STRICT_HTTPS: false
+      # The non-secure-context cookie warning fires on every request over plain HTTP
+      KC_LOG_LEVEL: "info,org.keycloak.cookie.DefaultCookieProvider:error"
     ports:
       - "8180:8080"
     volumes:

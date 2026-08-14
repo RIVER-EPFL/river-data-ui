@@ -5,6 +5,7 @@
 	import { POST } from '$api/client';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
+	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 
 	// --- Entity data ---
 	let sites = $state<Site[]>([]);
@@ -92,6 +93,7 @@
 	let uploading = $state(false);
 	let uploadProgress = $state(0);
 	let uploadResult = $state<{ inserted: number; total: number; duplicates: number } | null>(null);
+	let uploadError = $state<{ message: string; insertedBefore: number } | null>(null);
 
 	// --- Derived ---
 	const siteMap = $derived(new Map(sites.map((s) => [s.name.toLowerCase(), s])));
@@ -222,10 +224,11 @@
 	}
 
 	// --- Validation ---
+	// Checks that need only the file: a cell the API could not parse at all. The admissible
+	// timestamp window belongs to the API, which reports the offending row itself, so it is not
+	// restated here where it would drift out of date.
 	function validate(): ValidationError[] {
 		const errors: ValidationError[] = [];
-		const now = Date.now();
-		const tenYearsMs = 10 * 365.25 * 24 * 60 * 60 * 1000;
 
 		for (let i = 0; i < csvData.length; i++) {
 			const row = csvData[i];
@@ -242,11 +245,6 @@
 				errors.push({ row: rowNum, message: `Invalid timestamp: "${timeStr}"` });
 				continue;
 			}
-			if (Math.abs(now - ts) > tenYearsMs) {
-				errors.push({ row: rowNum, message: `Timestamp out of range (>10 years): "${timeStr}"` });
-				continue;
-			}
-
 			// Value
 			const valStr = row[valueColumn];
 			if (valStr === undefined || valStr === '') {
@@ -287,6 +285,7 @@
 
 	function runValidation() {
 		validationErrors = validate();
+		uploadError = null;
 		step = 'preview';
 	}
 
@@ -394,16 +393,30 @@
 		return entityType === 'grab_samples' ? buildGrabSampleRequests(allRows) : buildBatchRequests(allRows);
 	}
 
+	// The API reports a rejected write as {"error": "…"}; the client surfaces the raw body, so
+	// unwrap it here rather than showing the user a JSON document.
+	function serverMessage(e: unknown): string {
+		const raw = e instanceof Error ? e.message : String(e);
+		try {
+			const parsed = JSON.parse(raw);
+			if (parsed && typeof parsed.error === 'string') return parsed.error;
+		} catch {
+			// Not a JSON body (network failure, proxy error): the raw text is the message.
+		}
+		return raw || 'Upload failed';
+	}
+
 	async function handleUpload() {
 		uploading = true;
 		uploadProgress = 0;
 		uploadResult = null;
+		uploadError = null;
+
+		const allRows = buildPayload();
+		const requests = buildRequests(allRows);
+		let totalInserted = 0;
 
 		try {
-			const allRows = buildPayload();
-			const requests = buildRequests(allRows);
-
-			let totalInserted = 0;
 			for (let i = 0; i < requests.length; i++) {
 				const req = requests[i];
 				const result = await POST<{ inserted: number; samples_created?: number }>(req.endpoint, req.body);
@@ -416,7 +429,11 @@
 			toastStore.success(`Uploaded ${totalInserted} records`);
 			step = 'upload';
 		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Upload failed');
+			// The batch endpoints reject a chunk whole, so the message names the offending
+			// timestamp or value. Keep it on the page: a toast is gone before the user has
+			// found the row it refers to.
+			uploadError = { message: serverMessage(e), insertedBefore: totalInserted };
+			toastStore.error('Upload failed');
 		} finally {
 			uploading = false;
 		}
@@ -457,6 +474,7 @@
 		validationErrors = [];
 		uploadProgress = 0;
 		uploadResult = null;
+		uploadError = null;
 	}
 
 	function resolvedSiteName(row: Record<string, string>): string {
@@ -788,6 +806,20 @@
 					<div class="w-full bg-brand-bg rounded-full h-2 overflow-hidden">
 						<div class="bg-brand-primary h-full rounded-full transition-[width] duration-300" style:width="{uploadProgress}%"></div>
 					</div>
+				{/if}
+
+				{#if uploadError}
+					<ErrorNotice>
+						<p class="font-medium">Upload rejected</p>
+						<p>{uploadError.message}</p>
+						{#if uploadError.insertedBefore > 0}
+							<p class="mt-1">
+								{uploadError.insertedBefore.toLocaleString()} record{uploadError.insertedBefore === 1 ? '' : 's'}
+								were inserted before the rejection. Correct the file and upload again; rows already
+								stored are skipped as duplicates.
+							</p>
+						{/if}
+					</ErrorNotice>
 				{/if}
 			</div>
 
