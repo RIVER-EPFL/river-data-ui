@@ -15,6 +15,29 @@ export function curveEquation(curve: Pick<StandardCurve, 'slope' | 'intercept'>)
 	return `y = ${curve.slope}x ${sign} ${Math.abs(curve.intercept)}`;
 }
 
+export interface Coefficients {
+	slope: number;
+	intercept: number;
+}
+
+/**
+ * The single curve a reading's corrections amount to: the standard curve applied on top of the
+ * base, which composes to one line because both are linear. `null` when neither applies, matching
+ * the server storing no corrected value in that case.
+ */
+export function composedCurve(
+	base: Coefficients | null,
+	standard: Coefficients | null,
+): Coefficients | null {
+	if (!base && !standard) return null;
+	if (!standard) return { slope: base!.slope, intercept: base!.intercept };
+	if (!base) return { slope: standard.slope, intercept: standard.intercept };
+	return {
+		slope: standard.slope * base.slope,
+		intercept: standard.slope * base.intercept + standard.intercept,
+	};
+}
+
 /** Free-text fields the operator types, before validation. */
 export interface CurveForm {
 	name: string;

@@ -3,6 +3,7 @@
 	import type { SampleReplicate } from '$api/types';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { curveRefs } from '$lib/curveRefs.svelte';
+	import { curveEquation } from '$lib/standardCurves';
 	import { formatDateTime } from '$lib/utils';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
@@ -27,10 +28,12 @@
 
 	let reason = $state('');
 	let busyIndex = $state<number | null>(null);
+	let openChain = $state<number | null>(null);
 
 	$effect(() => {
 		if (!open) return;
 		reason = '';
+		openChain = null;
 		curveRefs.ensureCalibrations(replicates.map((r) => r.calibration_id));
 		curveRefs.ensureStandardCurves(replicates.map((r) => r.standard_curve_id));
 	});
@@ -106,7 +109,16 @@
 						<tr class="border-b border-brand-divider last:border-b-0">
 							<td class="py-1.5 font-mono">{rep.replicate_index}</td>
 							<td class="py-1.5 text-right font-mono">
-								{(rep.calibrated_value ?? rep.raw_value).toFixed(3)}
+								<button
+									type="button"
+									class="underline decoration-dotted underline-offset-2 hover:text-brand-primary"
+									aria-expanded={openChain === rep.replicate_index}
+									onclick={() =>
+										(openChain = openChain === rep.replicate_index ? null : rep.replicate_index)}
+									title="Show how this value was corrected"
+								>
+									{(rep.calibrated_value ?? rep.raw_value).toFixed(3)}
+								</button>
 							</td>
 							<td class="py-1.5 text-xs {rep.calibration_id ? '' : 'text-brand-muted'}">
 								{curveRefs.calibrationLabel(rep.calibration_id)}
@@ -128,6 +140,45 @@
 								</Button>
 							</td>
 						</tr>
+						{#if openChain === rep.replicate_index}
+							{@const base = curveRefs.calibration(rep.calibration_id)}
+							{@const curve = curveRefs.standardCurve(rep.standard_curve_id)}
+							{@const composed = curveRefs.composed(rep.calibration_id, rep.standard_curve_id)}
+							<tr class="border-b border-brand-divider last:border-b-0 bg-brand-surface-muted">
+								<td colspan="6" class="py-2 px-3">
+									<dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
+										<dt class="text-brand-muted">Measured</dt>
+										<dd class="font-mono">{rep.raw_value}</dd>
+										<dt class="text-brand-muted">Calibration</dt>
+										<dd>
+											{curveRefs.calibrationLabel(rep.calibration_id)}
+											{#if base}<span class="font-mono ml-2">{curveEquation(base)}</span>{/if}
+										</dd>
+										<dt class="text-brand-muted">Standard curve</dt>
+										<dd>
+											{curveRefs.standardCurveLabel(rep.standard_curve_id)}
+											{#if curve}<span class="font-mono ml-2">{curveEquation(curve)}</span>{/if}
+										</dd>
+										<dt class="text-brand-muted">Applied</dt>
+										<dd class="font-mono">
+											{#if composed}
+												{curveEquation(composed)}
+											{:else}
+												No curve applied, the measured value is served
+											{/if}
+										</dd>
+										<dt class="text-brand-muted">Result</dt>
+										<dd class="font-mono">{rep.calibrated_value ?? rep.raw_value}</dd>
+									</dl>
+									{#if curve && base}
+										<p class="text-xs text-brand-muted mt-2">
+											The standard curve is applied on top of the calibration, so the two compose
+											into the single equation above.
+										</p>
+									{/if}
+								</td>
+							</tr>
+						{/if}
 					{/each}
 				</tbody>
 			</table>

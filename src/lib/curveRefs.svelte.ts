@@ -1,6 +1,6 @@
 import { SvelteMap } from 'svelte/reactivity';
 import { api, type SensorCalibration, type StandardCurve } from '$api/crud';
-import { curveEquation, curveLabel } from '$lib/standardCurves';
+import { composedCurve, curveEquation, curveLabel, type Coefficients } from '$lib/standardCurves';
 
 /**
  * A reading records two corrections by id: the base calibration resolved from the instrument's
@@ -33,6 +33,14 @@ async function fetchOne<T>(
 	}
 }
 
+function calibrationOf(id: string | null | undefined): SensorCalibration | null {
+	return id ? (calibrations.get(id) ?? null) : null;
+}
+
+function standardCurveOf(id: string | null | undefined): StandardCurve | null {
+	return id ? (curves.get(id) ?? null) : null;
+}
+
 function distinct(ids: Iterable<string | null | undefined>): string[] {
 	const out = new Set<string>();
 	for (const id of ids) if (id) out.add(id);
@@ -49,7 +57,23 @@ export const curveRefs = {
 	},
 
 	standardCurve(id: string | null | undefined): StandardCurve | null {
-		return id ? (curves.get(id) ?? null) : null;
+		return standardCurveOf(id);
+	},
+
+	calibration(id: string | null | undefined): SensorCalibration | null {
+		return calibrationOf(id);
+	},
+
+	/**
+	 * The one line a reading's two corrections amount to, `null` when neither applied. Both are
+	 * linear and the standard curve sits on top of the base, so the pair composes to a single
+	 * slope and intercept rather than needing to be read as two steps.
+	 */
+	composed(
+		calibrationId: string | null | undefined,
+		standardCurveId: string | null | undefined,
+	): Coefficients | null {
+		return composedCurve(calibrationOf(calibrationId), standardCurveOf(standardCurveId));
 	},
 
 	calibrationLabel(id: string | null | undefined): string {
