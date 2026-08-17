@@ -43,6 +43,19 @@ services:
       - KEYCLOAK_ADMIN_CLIENT_ID=river-data-api-local
       - KEYCLOAK_ADMIN_CLIENT_SECRET=river-data-api-local-secret
       - REQUIRE_PARTNER_AUTH=${REQUIRE_PARTNER_AUTH:-false}
+      # Notifications (empty token leaves the Telegram channel and bot poller off)
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_BOT_USERNAME=${TELEGRAM_BOT_USERNAME:-}
+      - ENABLE_TELEGRAM_BOT=${ENABLE_TELEGRAM_BOT:-true}
+      - DASHBOARD_BASE_URL=${DASHBOARD_BASE_URL:-http://localhost:5173}
+      # Attach a chart to Telegram alarm alerts. Off by default: it costs a render and a second
+      # outbound call per alert.
+      - TELEGRAM_ALARM_PLOTS=${TELEGRAM_ALARM_PLOTS:-false}
+      - TELEGRAM_ALARM_PLOT_HOURS=${TELEGRAM_ALARM_PLOT_HOURS:-24}
+      # Idle-link lifecycle. Activity means sent OR received; 0 disables a stage.
+      - TELEGRAM_LINK_IDLE_DAYS=${TELEGRAM_LINK_IDLE_DAYS:-30}
+      - TELEGRAM_LINK_WARN_DAYS=${TELEGRAM_LINK_WARN_DAYS:-7}
+      - TELEGRAM_LINK_PURGE_DAYS=${TELEGRAM_LINK_PURGE_DAYS:-90}
     ports:
       - "${API_EXTERNAL_PORT:-3005}:${API_PORT:-3000}"
     depends_on:
@@ -58,6 +71,7 @@ services:
       start_period: 120s
     volumes:
       - ../river-data-api/src:/app/src
+      - ../river-data-api/assets:/app/assets
       - ../river-data-api/migration:/app/migration
       - ../river-data-api/Cargo.toml:/app/Cargo.toml
       - ../river-data-api/Cargo.lock:/app/Cargo.lock
@@ -354,6 +368,7 @@ services:
     entrypoint: ["bacon", "--headless", "test-integration"]
     volumes:
       - ../river-data-api/src:/app/src
+      - ../river-data-api/assets:/app/assets
       - ../river-data-api/tests:/app/tests
       - ../river-data-api/migration:/app/migration
       - ../river-data-api/Cargo.toml:/app/Cargo.toml
