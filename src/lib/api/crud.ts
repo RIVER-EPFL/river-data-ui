@@ -47,9 +47,22 @@ export const api = {
 	reprocessingJobs: crudClient<ReprocessingJob>('reprocessing_jobs'),
 	notificationLogs: crudClient<NotificationLog>('notification_logs'),
 	notificationMutes: crudClient<NotificationMute>('notification_mutes'),
+	// Keycloak realm accounts, not a database entity: the API proxies the realm behind the same
+	// list shape. Admin-only, so only mount it from a route guarded by `me.can('admin')`.
+	users: crudClient<RealmUser>('users'),
 };
 
 // Entity types
+export interface RealmUser {
+	id: string;
+	username: string;
+	email: string;
+	firstName: string;
+	lastName: string;
+	enabled: boolean;
+	roles?: string[];
+}
+
 export interface Project {
 	id: string;
 	name: string;

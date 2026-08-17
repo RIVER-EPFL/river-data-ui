@@ -3,11 +3,15 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
-	import { crudClient } from '$api/crud';
+	import { api, type RealmUser } from '$api/crud';
+	import { getNotificationSubscribers } from '$api/service';
 	import {
 		accessLevelLabel,
 		accessLevelVariant,
 		highestAccessRole,
+		telegramLinkLabel,
+		telegramLinkVariant,
+		type TelegramLinkStatus,
 	} from '$lib/users';
 	import { createUrlTab } from '$lib/urlTab.svelte';
 	import Tabs from '$components/ui/Tabs.svelte';
@@ -22,18 +26,12 @@
 		: undefined;
 	const tab = createUrlTab({ keys: ['users', 'tokens'], initial: initialTab });
 
-	interface User {
-		id: string;
-		username: string;
-		email: string;
-		firstName: string;
-		lastName: string;
-		enabled: boolean;
-		roles?: string[];
-	}
-	const usersClient = crudClient<User>('users');
+	type User = RealmUser;
 
 	let users = $state<User[]>([]);
+	// Telegram link state per Keycloak sub. Absent from the roster means no subscriber row and no
+	// identity, which reads the same as unlinked.
+	let telegramStatus = $state(new Map<string, TelegramLinkStatus>());
 	let loading = $state(true);
 	let error = $state('');
 	let search = $state('');
@@ -52,8 +50,14 @@
 
 	onMount(async () => {
 		try {
-			const result = await usersClient.list({ perPage: 500, sort: ['username', 'ASC'] });
+			// The roster is supplementary: if it fails, the Telegram column degrades to "Not linked"
+			// rather than taking the whole user list down with it.
+			const [result, roster] = await Promise.all([
+				api.users.list({ perPage: 500, sort: ['username', 'ASC'] }),
+				getNotificationSubscribers().catch(() => []),
+			]);
 			users = result.data;
+			telegramStatus = new Map(roster.map((s) => [s.keycloak_sub, s.telegram_status]));
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 		} finally {
@@ -138,14 +142,15 @@
 					<th class="text-left px-4 py-2 font-semibold text-brand-muted">Email</th>
 					<th class="text-left px-4 py-2 font-semibold">Name</th>
 					<th class="text-left px-4 py-2 font-semibold">Role</th>
+					<th class="text-left px-4 py-2 font-semibold">Telegram</th>
 					<th class="text-left px-4 py-2 font-semibold">Enabled</th>
 				</tr>
 			</thead>
 			<tbody>
 				{#if loading}
-					<tr><td colspan="5" class="px-4 py-8 text-center text-brand-muted">Loading…</td></tr>
+					<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">Loading…</td></tr>
 				{:else if filtered.length === 0}
-					<tr><td colspan="5" class="px-4 py-8 text-center text-brand-muted">No users found</td></tr>
+					<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">No users found</td></tr>
 				{:else}
 					{#each filtered as u}
 						<tr
@@ -165,6 +170,11 @@
 							<td class="px-4 py-2">{[u.firstName, u.lastName].filter(Boolean).join(' ') || '-'}</td>
 							<td class="px-4 py-2">
 								<Badge variant={accessLevelVariant(u.roles)}>{accessLevelLabel(u.roles)}</Badge>
+							</td>
+							<td class="px-4 py-2">
+								<Badge variant={telegramLinkVariant(telegramStatus.get(u.id))}>
+									{telegramLinkLabel(telegramStatus.get(u.id))}
+								</Badge>
 							</td>
 							<td class="px-4 py-2">{u.enabled ? '✓' : 'None'}</td>
 						</tr>
