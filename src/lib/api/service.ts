@@ -41,7 +41,14 @@ export const getJobLogs = (jobId: string, afterSeq?: number) =>
 // Notifications, channel capabilities (env-gated; carries no secrets). The frontend uses this to
 // enable a channel or render it greyed-out with a "configured via environment" note.
 export interface NotificationsConfig {
-	telegram: { available: boolean; botUsername?: string };
+	// botUsername/botName/botDescription come from Telegram's getMe for the configured token, so
+	// they always describe the bot actually in use rather than what config claims.
+	telegram: {
+		available: boolean;
+		botUsername?: string;
+		botName?: string;
+		botDescription?: string;
+	};
 	email: { available: boolean; backend: 'smtp' | 'graph' | 'disabled' };
 }
 

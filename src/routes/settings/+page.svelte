@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import QRCode from 'qrcode';
 	import { auth } from '$auth/keycloak.svelte';
 	import { me as meStore } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
@@ -182,6 +183,55 @@
 			: null,
 	);
 
+	// Each deployment runs its own bot, so the handle has to be shown, not assumed.
+	const botHandle = $derived(caps?.telegram.botUsername ? `@${caps.telegram.botUsername}` : null);
+	const botLink = $derived(
+		caps?.telegram.botUsername ? `https://t.me/${caps.telegram.botUsername}` : null,
+	);
+	// t.me hands off to the desktop app, which is no use to someone on Telegram Web.
+	const botWebLink = $derived(
+		caps?.telegram.botUsername ? `https://web.telegram.org/k/#@${caps.telegram.botUsername}` : null,
+	);
+
+	// Bridges the usual split of dashboard on a desktop, Telegram on a phone.
+	let qrDataUrl = $state<string | null>(null);
+	$effect(() => {
+		const target = deepLink;
+		if (!target) {
+			qrDataUrl = null;
+			return;
+		}
+		let cancelled = false;
+		QRCode.toDataURL(target, { margin: 1, width: 176 })
+			.then((url) => {
+				if (!cancelled) qrDataUrl = url;
+			})
+			.catch(() => {
+				if (!cancelled) qrDataUrl = null;
+			});
+		return () => {
+			cancelled = true;
+		};
+	});
+
+	// The link completes in Telegram, so this tab has to poll to notice.
+	$effect(() => {
+		if (!linkCode || me?.telegram.status === 'linked') return;
+		const timer = setInterval(async () => {
+			try {
+				const next = await getMyNotifications();
+				me = next;
+				if (next.telegram.status === 'linked') {
+					linkCode = null;
+					toastStore.success('Telegram connected');
+				}
+			} catch {
+				// A failed poll is not worth a toast; the next tick retries.
+			}
+		}, 3000);
+		return () => clearInterval(timer);
+	});
+
 	const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 </script>
 
@@ -279,11 +329,27 @@
 							{#if !caps.telegram.available}
 								Unavailable, the server has no bot configured (set <code>TELEGRAM_BOT_TOKEN</code>).
 							{:else if me.telegram.status === 'linked'}
-								<Badge variant="ok">linked</Badge> Your Telegram chat is connected.
+								<Badge variant="ok">linked</Badge>
+								Connected to
+								{#if botHandle}
+									<a class="text-brand-primary underline" href={botLink} target="_blank" rel="noopener">
+										{botHandle}
+									</a>.
+								{:else}
+									the bot.
+								{/if}
 							{:else if me.telegram.status === 'pending'}
-								<Badge variant="warning">pending</Badge> Waiting for you to message the bot.
+								<Badge variant="warning">pending</Badge>
+								Waiting for you to message {botHandle ?? 'the bot'}.
 							{:else}
 								<Badge variant="muted">not linked</Badge>
+								Get alarms and query the data from Telegram
+								{#if botHandle}
+									via
+									<a class="text-brand-primary underline" href={botLink} target="_blank" rel="noopener">
+										{botHandle}
+									</a>.
+								{/if}
 							{/if}
 						</div>
 					</div>
@@ -300,6 +366,29 @@
 						</label>
 					{/if}
 				</div>
+
+				<!-- Each deployment runs its own bot, so which one this is matters. -->
+				{#if caps.telegram.available && botHandle}
+					<div class="mt-3 flex items-start gap-3 rounded-md border border-brand-divider p-3">
+						<div class="text-sm">
+							<div class="font-medium text-brand-text">
+								{caps.telegram.botName ?? botHandle}
+								{#if caps.telegram.botName}
+									<span class="font-normal text-brand-text-muted">{botHandle}</span>
+								{/if}
+							</div>
+							{#if caps.telegram.botDescription}
+								<p class="text-brand-text-muted mt-0.5">{caps.telegram.botDescription}</p>
+							{/if}
+							<a
+								class="text-brand-primary underline"
+								href={botLink}
+								target="_blank"
+								rel="noopener">Open in Telegram</a
+							>
+						</div>
+					</div>
+				{/if}
 
 				{#if caps.telegram.available && me.telegram.status === 'linked'}
 					<dl class="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm text-brand-muted">
@@ -352,18 +441,73 @@
 					</div>
 
 					{#if linkCode}
-						<div class="mt-3 rounded-md bg-brand-bg p-3 text-sm">
-							{#if deepLink}
-								<p class="mb-1">
-									Open <a class="text-brand-primary underline" href={deepLink} target="_blank" rel="noopener">this link</a>
-									to connect, or send the bot:
-								</p>
-							{:else}
-								<p class="mb-1">Send the bot this message to connect:</p>
-							{/if}
-							<div class="flex items-center gap-2">
-								<code class="font-mono px-2 py-1 bg-white border border-brand-divider rounded">/start {linkCode}</code>
-								<CopyButton text={`/start ${linkCode}`} />
+						<div class="mt-3 rounded-md bg-brand-bg p-4 text-sm">
+							<div class="flex flex-wrap gap-4">
+								<div class="flex-1 min-w-[16rem] space-y-3">
+									<div>
+										<div class="font-medium text-brand-text mb-1">On this device</div>
+										{#if deepLink}
+											<a href={deepLink} target="_blank" rel="noopener">
+												<Button variant="primary" size="sm">Open Telegram and connect</Button>
+											</a>
+											{#if botWebLink}
+												<p class="text-brand-text-muted mt-1">
+													Using Telegram in the browser? Open
+													<a
+														class="text-brand-primary underline"
+														href={botWebLink}
+														target="_blank"
+														rel="noopener">{botHandle} on Telegram Web</a
+													>
+													and send the command below.
+												</p>
+											{/if}
+										{:else}
+											<p class="text-brand-text-muted">
+												This deployment has no bot name configured, so send the code by hand.
+											</p>
+										{/if}
+									</div>
+
+									<div>
+										<div class="font-medium text-brand-text mb-1">By hand</div>
+										<p class="text-brand-text-muted mb-1">
+											{#if botHandle}
+												Search Telegram for
+												<a class="text-brand-primary underline" href={botLink} target="_blank" rel="noopener">
+													{botHandle}
+												</a>, start a chat, and send:
+											{:else}
+												Start a chat with the bot and send:
+											{/if}
+										</p>
+										<div class="flex items-center gap-2">
+											<code class="font-mono px-2 py-1 bg-white border border-brand-divider rounded">/start {linkCode}</code>
+											<CopyButton text={`/start ${linkCode}`} />
+										</div>
+									</div>
+
+									{#if me.telegram.code_expires_at}
+										<p class="text-brand-text-muted">
+											This code expires {formatDateTime(me.telegram.code_expires_at)}. Generate a new
+											one if it runs out.
+										</p>
+									{/if}
+									<p class="text-brand-text-muted">Waiting for you to connect…</p>
+								</div>
+
+								{#if qrDataUrl}
+									<div class="text-center">
+										<div class="font-medium text-brand-text mb-1">On your phone</div>
+										<img
+											src={qrDataUrl}
+											alt="QR code that opens the bot and sends your link code"
+											class="rounded border border-brand-divider bg-white p-1"
+											width="176"
+											height="176"
+										/>
+									</div>
+								{/if}
 							</div>
 						</div>
 					{/if}
