@@ -62,6 +62,8 @@ export interface MyNotifications {
 	email_enabled: boolean;
 	telegram_enabled: boolean;
 	telegram: { status: 'unlinked' | 'pending' | 'linked'; code_expires_at?: string };
+	// Whether this link is held open against idle expiry. Administrator-settable only.
+	expiry_exempt: boolean;
 	subscriptions: MySubscriptionScope[];
 }
 
@@ -70,6 +72,8 @@ export const getMyNotifications = () => GET<MyNotifications>(`${SERVICE}/notific
 export const updateMyNotifications = (body: {
 	email_enabled?: boolean;
 	telegram_enabled?: boolean;
+	// Administrators only; the API rejects it for anyone else rather than ignoring it.
+	expiry_exempt?: boolean;
 }) => PATCH<MyNotifications>(`${SERVICE}/notifications/me`, body);
 
 export const setMySubscriptions = (subscriptions: MySubscriptionScope[]) =>
@@ -117,6 +121,8 @@ export interface NotificationSubscriber {
 	telegram_enabled: boolean;
 	is_active: boolean;
 	telegram_status: 'unlinked' | 'pending' | 'linked';
+	// Held open against idle expiry. Administrator-settable only.
+	expiry_exempt: boolean;
 	subscription_overrides: number;
 }
 

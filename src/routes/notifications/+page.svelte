@@ -15,7 +15,8 @@
 		type ChannelHealth,
 		type NotificationSubscriber,
 	} from '$api/service';
-	import { api, type Site, type Parameter, type NotificationLog, type NotificationMute } from '$api/crud';
+	import { api, type Site, type Parameter, type NotificationLog, type NotificationMute, type RealmUser } from '$api/crud';
+	import { telegramLinkLabel, telegramLinkVariant } from '$lib/users';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
@@ -27,7 +28,7 @@
 	const ready = $derived(me.status !== 'loading');
 	const isAdmin = $derived(me.can('admin'));
 
-	const TABS = ['Status', 'Subscribers', 'Mutes', 'Log'];
+	const TABS = ['Status', 'Subscribers', 'Mutes', 'Delivery log'];
 	const tab = createUrlTab({ keys: ['status', 'subscribers', 'mutes', 'log'] });
 
 	// ── Lookups shared by Mutes tab ──
@@ -104,9 +105,22 @@
 	let subscribersLoaded = $state(false);
 	let subscribersError = $state<string | null>(null);
 
+	// The roster is keyed by Keycloak `sub`, which is the realm user id, so the user list resolves
+	// every row to a name. Directory lookup is best-effort: a sub with no matching account (a
+	// deleted user with a stale identity row) still renders, as the bare sub.
+	let subscriberUsers = $state(new Map<string, RealmUser>());
+
 	async function loadSubscribers() {
 		try {
-			subscribers = await getNotificationSubscribers();
+			const [roster, users] = await Promise.all([
+				getNotificationSubscribers(),
+				api.users
+					.list({ perPage: 500, sort: ['username', 'ASC'] })
+					.then((r) => r.data)
+					.catch(() => [] as RealmUser[]),
+			]);
+			subscribers = roster;
+			subscriberUsers = new Map(users.map((u) => [u.id, u]));
 			subscribersError = null;
 		} catch (e) {
 			subscribersError = e instanceof Error ? e.message : 'Failed to load subscribers';
@@ -115,11 +129,9 @@
 		}
 	}
 
-	const telegramLinkBadge: Record<NotificationSubscriber['telegram_status'], 'ok' | 'warning' | 'muted'> = {
-		linked: 'ok',
-		pending: 'warning',
-		unlinked: 'muted',
-	};
+	function displayName(u: RealmUser | undefined): string {
+		return [u?.firstName, u?.lastName].filter(Boolean).join(' ');
+	}
 
 	// ── Mutes tab ──
 	let mutes = $state<NotificationMute[]>([]);
@@ -192,6 +204,19 @@
 		}
 	}
 
+	// The `kind` values the API actually writes (messages.rs, triggers.rs, views.rs test-send).
+	// Listing a shortened "alarm" here, as this did, filters to zero rows forever.
+	const LOG_KINDS = [
+		'alarm_opened',
+		'alarm_resolved',
+		'stale_data',
+		'battery_forecast',
+		'sync_failure',
+		'test',
+	];
+	const LOG_CHANNELS = ['telegram', 'email'];
+
+
 	// ── Log tab ──
 	const logPerPage = 50;
 	let logs = $state<NotificationLog[]>([]);
@@ -203,6 +228,7 @@
 	let fKind = $state('');
 	let fChannel = $state('');
 	let fStatus = $state('');
+	const hasLogFilters = $derived(Boolean(fKind || fChannel || fStatus));
 
 	async function loadLogs() {
 		logLoading = true;
@@ -400,9 +426,9 @@
 					<thead>
 						<tr class="bg-brand-bg border-b border-brand-divider">
 							<th class="text-left px-4 py-2 font-semibold">User</th>
-							<th class="text-left px-4 py-2 font-semibold">Email</th>
-							<th class="text-left px-4 py-2 font-semibold">Telegram</th>
-							<th class="text-left px-4 py-2 font-semibold">Link</th>
+							<th class="text-left px-4 py-2 font-semibold">Email alerts</th>
+							<th class="text-left px-4 py-2 font-semibold">Telegram alerts</th>
+							<th class="text-left px-4 py-2 font-semibold">Telegram link</th>
 							<th class="text-left px-4 py-2 font-semibold">Overrides</th>
 							<th class="text-left px-4 py-2 font-semibold">Active</th>
 						</tr>
@@ -414,15 +440,40 @@
 							<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">No subscribers yet.</td></tr>
 						{:else}
 							{#each subscribers as s (s.keycloak_sub)}
+								{@const u = subscriberUsers.get(s.keycloak_sub)}
 								<tr class="border-b border-brand-divider last:border-b-0">
-									<td class="px-4 py-2 font-mono text-xs break-all">{s.keycloak_sub}</td>
+									<td class="px-4 py-2">
+										{#if u}
+											<a
+												href="{base}/users/{u.id}"
+												class="text-brand-primary font-semibold no-underline hover:underline"
+											>
+												{u.username}
+											</a>
+											{#if displayName(u)}
+												<span class="text-brand-muted"> · {displayName(u)}</span>
+											{/if}
+										{:else}
+											<span class="font-mono text-xs break-all">{s.keycloak_sub}</span>
+											<span class="text-brand-muted text-xs"> (no matching account)</span>
+										{/if}
+									</td>
 									<td class="px-4 py-2">
 										{#if s.email_enabled}<Badge variant="ok">On</Badge>{:else}<Badge variant="muted">Off</Badge>{/if}
 									</td>
 									<td class="px-4 py-2">
 										{#if s.telegram_enabled}<Badge variant="ok">On</Badge>{:else}<Badge variant="muted">Off</Badge>{/if}
 									</td>
-									<td class="px-4 py-2"><Badge variant={telegramLinkBadge[s.telegram_status]}>{s.telegram_status}</Badge></td>
+									<td class="px-4 py-2">
+										<Badge variant={telegramLinkVariant(s.telegram_status)}>
+											{telegramLinkLabel(s.telegram_status)}
+										</Badge>
+										{#if s.expiry_exempt}
+											<span title="Held open against idle expiry. Does not shield a revoked user.">
+												<Badge variant="accent">Pinned</Badge>
+											</span>
+										{/if}
+									</td>
 									<td class="px-4 py-2">{s.subscription_overrides}</td>
 									<td class="px-4 py-2">
 										{#if s.is_active}<Badge variant="ok">Active</Badge>{:else}<Badge variant="muted">Inactive</Badge>{/if}
@@ -490,16 +541,18 @@
 					Kind
 					<select bind:value={fKind} onchange={applyLogFilters} class={selectCls}>
 						<option value="">Any</option>
-						<option value="alarm">alarm</option>
-						<option value="test">test</option>
+						{#each LOG_KINDS as k}
+							<option value={k}>{k}</option>
+						{/each}
 					</select>
 				</label>
 				<label class="flex flex-col gap-1 text-xs text-brand-muted">
 					Channel
 					<select bind:value={fChannel} onchange={applyLogFilters} class={selectCls}>
 						<option value="">Any</option>
-						<option value="telegram">telegram</option>
-						<option value="email">email</option>
+						{#each LOG_CHANNELS as c}
+							<option value={c}>{c}</option>
+						{/each}
 					</select>
 				</label>
 				<label class="flex flex-col gap-1 text-xs text-brand-muted">
@@ -532,7 +585,11 @@
 						{#if logLoading}
 							<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">Loading…</td></tr>
 						{:else if logs.length === 0}
-							<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">No matching deliveries.</td></tr>
+							<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">
+								{hasLogFilters
+									? 'No deliveries match those filters.'
+									: 'No notifications sent yet. Deliveries appear here once an alarm fires or you send a test.'}
+							</td></tr>
 						{:else}
 							{#each logs as l (l.id)}
 								<tr class="border-b border-brand-divider last:border-b-0">

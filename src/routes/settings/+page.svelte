@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { auth } from '$auth/keycloak.svelte';
+	import { me as meStore } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import {
 		getNotificationsConfig,
@@ -96,6 +97,20 @@
 		try {
 			me = await updateMyNotifications({ telegram_enabled: enabled });
 			toastStore.success(enabled ? 'Telegram alerts enabled' : 'Telegram alerts disabled');
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Update failed');
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function togglePin(exempt: boolean) {
+		busy = true;
+		try {
+			me = await updateMyNotifications({ expiry_exempt: exempt });
+			toastStore.success(
+				exempt ? 'Link pinned, it will not expire' : 'Link unpinned, idle expiry applies',
+			);
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Update failed');
 		} finally {
@@ -291,6 +306,21 @@
 							<ConfirmPopover message="Unlink your Telegram chat?" onconfirm={unlink}>
 								<Button variant="danger" size="sm" disabled={busy}>Unlink</Button>
 							</ConfirmPopover>
+							<!-- Admin-only: if anyone could opt out, nothing would ever expire. -->
+							{#if meStore.can('admin')}
+								<label class="flex items-center gap-2 text-sm">
+									<input
+										type="checkbox"
+										class="w-4 h-4"
+										checked={me.expiry_exempt}
+										disabled={busy}
+										onchange={(e) => togglePin(e.currentTarget.checked)}
+									/>
+									<span title="Exempt this link from idle expiry. A revoked account is still cut off.">
+										Never expire
+									</span>
+								</label>
+							{/if}
 						{:else}
 							<Button variant="primary" size="sm" disabled={busy} onclick={linkTelegram}>
 								{me.telegram.status === 'pending' ? 'Generate a new code' : 'Link Telegram'}
