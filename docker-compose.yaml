@@ -48,10 +48,9 @@ services:
       - TELEGRAM_BOT_USERNAME=${TELEGRAM_BOT_USERNAME:-}
       - ENABLE_TELEGRAM_BOT=${ENABLE_TELEGRAM_BOT:-true}
       - DASHBOARD_BASE_URL=${DASHBOARD_BASE_URL:-http://localhost:5173}
-      # Attach a chart to Telegram alarm alerts. Off by default: it costs a render and a second
-      # outbound call per alert.
-      - TELEGRAM_ALARM_PLOTS=${TELEGRAM_ALARM_PLOTS:-false}
-      - TELEGRAM_ALARM_PLOT_HOURS=${TELEGRAM_ALARM_PLOT_HOURS:-24}
+      # A chart of the breaching slot, sent as a second message after each alarm alert.
+      - TELEGRAM_ALARM_PLOTS=${TELEGRAM_ALARM_PLOTS:-true}
+      - TELEGRAM_ALARM_PLOT_HOURS=${TELEGRAM_ALARM_PLOT_HOURS:-3}
       # Idle-link lifecycle. Activity means sent OR received; 0 disables a stage.
       - TELEGRAM_LINK_IDLE_DAYS=${TELEGRAM_LINK_IDLE_DAYS:-30}
       - TELEGRAM_LINK_WARN_DAYS=${TELEGRAM_LINK_WARN_DAYS:-7}
