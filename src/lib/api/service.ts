@@ -61,7 +61,14 @@ export interface MyNotifications {
 	email_verified: boolean;
 	email_enabled: boolean;
 	telegram_enabled: boolean;
-	telegram: { status: 'unlinked' | 'pending' | 'linked'; code_expires_at?: string };
+	telegram: {
+		status: 'unlinked' | 'pending' | 'linked';
+		code_expires_at?: string;
+		linked_at?: string;
+		last_used_at?: string;
+		// When the link lapses unless its owner signs in again. Renewal is passive.
+		attested_until?: string;
+	};
 	// Whether this link is held open against idle expiry. Administrator-settable only.
 	expiry_exempt: boolean;
 	subscriptions: MySubscriptionScope[];
@@ -123,6 +130,8 @@ export interface NotificationSubscriber {
 	telegram_status: 'unlinked' | 'pending' | 'linked';
 	// Held open against idle expiry. Administrator-settable only.
 	expiry_exempt: boolean;
+	// When the link lapses unless its owner signs in to the dashboard again.
+	attested_until?: string;
 	subscription_overrides: number;
 }
 

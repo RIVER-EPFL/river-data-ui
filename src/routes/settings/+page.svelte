@@ -15,6 +15,7 @@
 	} from '$api/service';
 	import { api, type Project, type Site } from '$api/crud';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
+	import { formatDateTime } from '$lib/utils';
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
@@ -300,6 +301,28 @@
 					{/if}
 				</div>
 
+				{#if caps.telegram.available && me.telegram.status === 'linked'}
+					<dl class="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm text-brand-muted">
+						{#if me.telegram.linked_at}
+							<dt>Linked</dt>
+							<dd>{formatDateTime(me.telegram.linked_at)}</dd>
+						{/if}
+						{#if me.telegram.last_used_at}
+							<dt>Last used</dt>
+							<dd>{formatDateTime(me.telegram.last_used_at)}</dd>
+						{/if}
+						{#if me.telegram.attested_until}
+							<dt>Expires</dt>
+							<dd>
+								{formatDateTime(me.telegram.attested_until)}
+								<span class="block text-xs">
+									Renewed automatically whenever you sign in here, so there is nothing to do.
+								</span>
+							</dd>
+						{/if}
+					</dl>
+				{/if}
+
 				{#if caps.telegram.available}
 					<div class="mt-3 flex flex-wrap items-center gap-2">
 						{#if me.telegram.status === 'linked'}
@@ -316,7 +339,7 @@
 										disabled={busy}
 										onchange={(e) => togglePin(e.currentTarget.checked)}
 									/>
-									<span title="Exempt this link from idle expiry. A revoked account is still cut off.">
+									<span title="Exempt this link from idle expiry. It still lapses if nobody signs in, and a revoked account is still cut off.">
 										Never expire
 									</span>
 								</label>

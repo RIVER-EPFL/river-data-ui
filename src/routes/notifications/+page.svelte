@@ -469,8 +469,16 @@
 											{telegramLinkLabel(s.telegram_status)}
 										</Badge>
 										{#if s.expiry_exempt}
-											<span title="Held open against idle expiry. Does not shield a revoked user.">
+											<span title="Held open against idle expiry. Does not shield a revoked user, and does not excuse attestation.">
 												<Badge variant="accent">Pinned</Badge>
+											</span>
+										{/if}
+										{#if s.attested_until}
+											<span
+												class="block text-xs text-brand-muted"
+												title="Lapses unless this user signs in to the dashboard. Renewed automatically when they do."
+											>
+												Expires {formatDateTime(s.attested_until)}
 											</span>
 										{/if}
 									</td>
