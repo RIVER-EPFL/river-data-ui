@@ -36,6 +36,8 @@ services:
       # Application
       - DEPLOYMENT=${DEPLOYMENT:-dev}
       - RUST_LOG=${LOG_LEVEL:-info}
+      # Analytical tool scripts execute in the R runner container
+      - TOOLS_RUNNER_URL=${TOOLS_RUNNER_URL:-http://river-tools-r/ocpu}
       # Authentication (points to local Keycloak)
       - KEYCLOAK_URL=http://river-db-keycloak:8080/
       - KEYCLOAK_REALM=river-data
@@ -81,6 +83,23 @@ services:
       - "traefik.http.routers.river-data-api.rule=PathPrefix(`/api`) || PathPrefix(`/docs`)"
       - "traefik.http.routers.river-data-api.priority=100"
       - "traefik.http.services.river-data-api.loadbalancer.server.port=${API_PORT:-3000}"
+
+  # ── R tool runner (OpenCPU; executes DB-stored tool scripts; needs no DB or outbound network) ──
+  river-tools-r:
+    build: ../river-data-tools-r
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost/ocpu/info || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    ports:
+      - "${TOOLS_R_EXTERNAL_PORT:-8006}:80"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.river-tools-r.rule=PathPrefix(`/ocpu`)"
+      - "traefik.http.routers.river-tools-r.priority=90"
+      - "traefik.http.services.river-tools-r.loadbalancer.server.port=80"
 
   # ── Dev credential seeder (one-shot, seeds sync service credentials) ──
   dev-seed-credentials:
