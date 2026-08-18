@@ -21,7 +21,7 @@
 		{ key: 'manufacturer', label: 'Manufacturer' },
 		{ key: 'model', label: 'Model' },
 		{ key: 'notes', label: 'Notes', type: 'textarea' },
-		{ key: 'is_lab_instrument', label: 'Lab instrument', type: 'boolean', defaultValue: false, helperText: 'Field/lab instrument taken on trips (sparse grab samples) rather than a fixed station sensor' },
+		{ key: 'is_lab_instrument', label: 'Lab instrument', type: 'boolean', defaultValue: false, helperText: 'Field/lab instrument taken on trips (sparse grab samples) rather than a sensor fixed at one site' },
 		{ key: 'data_frequency', label: 'Data frequency', type: 'select', defaultValue: 'high', options: [
 			{ value: 'high', label: 'High: continuous stream (e.g. 10-minute logger)' },
 			{ value: 'low', label: 'Low: sparse lab/campaign results (shown as points on charts)' },

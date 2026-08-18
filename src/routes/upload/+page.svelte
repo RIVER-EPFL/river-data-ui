@@ -507,7 +507,7 @@
 
 	{#if step === 'file'}
 		<p class="text-sm text-brand-muted">
-			For a wide CSV export with one column per parameter (logger downloads, station
+			For a wide CSV export with one column per parameter (logger downloads, site
 			exports), use the site importer instead: open the site and choose Import. It
 			previews column mapping and detects overlaps with existing data before writing.
 			This page suits long-format files (one value per row) across sites and parameters.

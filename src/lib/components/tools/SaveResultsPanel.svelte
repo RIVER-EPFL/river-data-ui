@@ -14,7 +14,7 @@
 			? Intl.supportedValuesOf('timeZone')
 			: [BROWSER_ZONE, 'UTC'];
 
-	// Persists a tool's computed outputs to a station as one grab-sample request.
+	// Persists a tool's computed outputs to a site as one grab-sample request.
 	let {
 		open = $bindable(false),
 		toolTitle = '',
@@ -277,14 +277,14 @@
 			);
 			open = false;
 		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Failed to save to station');
+			toastStore.error(e instanceof Error ? e.message : 'Failed to save to site');
 		} finally {
 			saving = false;
 		}
 	}
 </script>
 
-<Dialog bind:open title="Save to Station{toolTitle ? `: ${toolTitle}` : ''}" maxWidth="lg">
+<Dialog bind:open title="Save to Site{toolTitle ? `: ${toolTitle}` : ''}" maxWidth="lg">
 	{#snippet children()}
 		<div class="space-y-3">
 			<div class="grid grid-cols-2 gap-3">
@@ -402,7 +402,7 @@
 										aria-label="Parameter for {row.displayKey}"
 										class="w-full px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm disabled:opacity-50"
 									>
-										<option value="">{loadingSite ? 'Loading…' : !selectedSiteId ? 'Select a site first' : ' - Select parameter - '}</option>
+										<option value="">{loadingSite ? 'Loading…' : !selectedSiteId ? 'Select a site first' : ' - Select a parameter at this site - '}</option>
 										{#each siteParams as sp}
 											<option value={sp.parameter_id}>{paramLabel(sp)}</option>
 										{/each}

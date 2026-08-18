@@ -62,7 +62,7 @@
 				deployment_type: 'permanent',
 			});
 			toastStore.success(incumbent
-				? 'Slot adopted - incumbent deployment closed; readings re-coordinated in the background'
+				? 'Site parameter adopted - incumbent deployment closed; readings re-coordinated in the background'
 				: 'Sensor deployed - readings re-coordinated in the background');
 			open = false;
 			onsuccess?.();
@@ -77,8 +77,8 @@
 		{#if mode === 'choose'}
 			<div class="grid grid-cols-2 gap-3">
 				<button onclick={() => mode = 'adopt'} class="text-left p-4 rounded-md border border-brand-divider hover:border-brand-primary bg-brand-surface cursor-pointer">
-					<div class="font-semibold text-sm mb-1">Adopt a site slot</div>
-					<p class="text-xs text-brand-muted">Deploy this sensor onto a site/parameter slot. If another sensor holds it, its deployment is closed at your chosen time (swap).</p>
+					<div class="font-semibold text-sm mb-1">Adopt a site parameter</div>
+					<p class="text-xs text-brand-muted">Deploy this sensor onto a site parameter. If another sensor holds it, its deployment is closed at your chosen time (swap).</p>
 				</button>
 				<a href="{base}/sites" onclick={() => open = false} class="text-left p-4 rounded-md border border-brand-divider hover:border-brand-primary bg-brand-surface no-underline text-brand-text">
 					<div class="font-semibold text-sm mb-1">Import a CSV</div>
@@ -96,18 +96,18 @@
 				</div>
 				{#if selectedSiteId}
 					<div class="flex flex-col gap-1">
-						<label for="ad-sp" class="text-sm font-medium">Parameter slot</label>
+						<label for="ad-sp" class="text-sm font-medium">Site parameter</label>
 						<select id="ad-sp" bind:value={selectedSiteParamId} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
-							<option value=""> - Select slot - </option>
+							<option value=""> - Select a site parameter - </option>
 							{#each compatibleSiteParams as sp}<option value={sp.id}>{sp.name ?? paramName(sp.parameter_id)}</option>{/each}
 						</select>
 						{#if compatibleSiteParams.length === 0}
-							<p class="text-xs text-severity-warning">No parameter slots at this site.</p>
+							<p class="text-xs text-severity-warning">No parameters configured at this site.</p>
 						{/if}
 					</div>
 					{#if incumbent}
 						<div class="p-2 rounded border border-severity-warning-border bg-severity-warning-soft text-xs">
-							<span class="font-semibold text-severity-warning">Swap:</span> this slot is held by another sensor (deployment {incumbent.id.slice(0, 8)}). Adopting closes it at your chosen time.
+							<span class="font-semibold text-severity-warning">Swap:</span> this site parameter is held by another sensor (deployment {incumbent.id.slice(0, 8)}). Adopting closes it at your chosen time.
 						</div>
 					{/if}
 					<div class="flex flex-col gap-1">

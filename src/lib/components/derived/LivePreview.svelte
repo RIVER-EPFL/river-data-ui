@@ -123,7 +123,7 @@
 					<option value={s.id}>{s.name}</option>
 				{/each}
 				{#if eligibleSites.length === 0}
-					<option value="" disabled>No sites with all required variables</option>
+					<option value="" disabled>No sites with all required parameters</option>
 				{/if}
 			</select>
 		</label>
@@ -142,7 +142,7 @@
 		{#if !formula}
 			<p class="text-sm text-brand-muted">Build a formula to see a preview here.</p>
 		{:else if !selectedSiteId}
-			<p class="text-sm text-brand-muted">No site available with all required variables.</p>
+			<p class="text-sm text-brand-muted">No site available with all required parameters.</p>
 		{:else if loading && !preview}
 			<p class="text-sm text-brand-muted">Loading preview…</p>
 		{:else if previewError}

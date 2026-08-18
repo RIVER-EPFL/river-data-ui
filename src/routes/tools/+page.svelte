@@ -873,7 +873,7 @@
 								variant="primary"
 								size="sm"
 								onclick={() => (showSaveDialog = true)}
-							>Save to Station</Button>
+							>Save to Site</Button>
 						</div>
 						<div class="space-y-2">
 							{#each Object.entries(result).filter(([, v]) => v != null) as [key, value]}

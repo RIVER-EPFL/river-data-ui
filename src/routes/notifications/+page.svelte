@@ -181,7 +181,7 @@
 				parameter_id: muteParameterId,
 				expires_at,
 			});
-			toastStore.success('Slot muted');
+			toastStore.success('Site parameter muted');
 			muteDialogOpen = false;
 			await loadMutes();
 		} catch (e) {
@@ -499,7 +499,7 @@
 				<ErrorNotice message={mutesError} />
 			{/if}
 			<div class="flex justify-end">
-				<Button variant="primary" onclick={openMuteDialog}>Mute a slot</Button>
+				<Button variant="primary" onclick={openMuteDialog}>Mute a site parameter</Button>
 			</div>
 			<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 				<table class="w-full text-sm">
@@ -517,7 +517,7 @@
 						{#if !mutesLoaded}
 							<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">Loading…</td></tr>
 						{:else if mutes.length === 0}
-							<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">No mutes. Every (site, parameter) slot can alert.</td></tr>
+							<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">No mutes. Every site parameter can alert.</td></tr>
 						{:else}
 							{#each mutes as m (m.id)}
 								<tr class="border-b border-brand-divider last:border-b-0">
@@ -530,7 +530,7 @@
 									<td class="px-4 py-2 text-brand-muted">{formatDateTime(m.created_at)}</td>
 									<td class="px-4 py-2">
 										<div class="flex justify-end">
-											<ConfirmPopover message="Remove this mute? The slot will alert again." confirmLabel="Remove" onconfirm={() => deleteMute(m.id)}>
+											<ConfirmPopover message="Remove this mute? This site parameter will alert again." confirmLabel="Remove" onconfirm={() => deleteMute(m.id)}>
 												<Button variant="ghost" size="sm" class="text-severity-alarm" disabled={muteBusy === m.id}>Remove</Button>
 											</ConfirmPopover>
 										</div>
@@ -626,8 +626,8 @@
 	{/if}
 </div>
 
-<!-- Mute a slot -->
-<Dialog bind:open={muteDialogOpen} title="Mute a slot" maxWidth="sm">
+<!-- Mute a site parameter -->
+<Dialog bind:open={muteDialogOpen} title="Mute a site parameter" maxWidth="sm">
 	{#snippet children()}
 		<div class="space-y-3">
 			<label class="block text-sm">
@@ -648,7 +648,7 @@
 				<span class="text-brand-muted">Mute for (days)</span>
 				<input type="number" min="1" bind:value={muteDays} placeholder="Leave blank for permanent" class="mt-1 w-full {inputCls}" />
 			</label>
-			<p class="text-xs text-brand-muted">Leave the days field blank to mute this slot permanently.</p>
+			<p class="text-xs text-brand-muted">Leave the days field blank to mute this site parameter permanently.</p>
 		</div>
 	{/snippet}
 	{#snippet actions()}
