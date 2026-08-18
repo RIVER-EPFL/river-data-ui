@@ -19,6 +19,7 @@
 	import ThresholdDialog from '$components/dialogs/ThresholdDialog.svelte';
 	import DeployMoveSensorDialog from '$components/dialogs/DeployMoveSensorDialog.svelte';
 	import MergeSiteParameterDialog from '$components/dialogs/MergeSiteParameterDialog.svelte';
+	import ProvenanceCard from '$components/samples/ProvenanceCard.svelte';
 	import ParameterChart, { type ChartData } from '$components/charts/ParameterChart.svelte';
 	import { GAP_THRESHOLDS } from '$lib/charts/uPlotTheme';
 	import { autoResolution, type Frequency } from '$lib/charts/multiSiteSeries';
@@ -707,6 +708,15 @@
 	});
 
 	function paramName(paramId: string): string { return parameters.find((p) => p.id === paramId)?.name ?? 'None'; }
+
+	// Sample rows whose provenance card is expanded.
+	let expandedProvenance = $state<Set<string>>(new Set());
+	function toggleProvenance(sampleId: string) {
+		const next = new Set(expandedProvenance);
+		if (next.has(sampleId)) next.delete(sampleId);
+		else next.add(sampleId);
+		expandedProvenance = next;
+	}
 	function paramCode(paramId: string): string { return parameters.find((p) => p.id === paramId)?.code ?? ''; }
 	function paramUnits(sp: SiteParameter): string {
 		const param = parameters.find((p) => p.id === sp.parameter_id);
@@ -1623,6 +1633,7 @@
 								<th class="text-right px-4 py-2 font-semibold">Min</th>
 								<th class="text-right px-4 py-2 font-semibold">Max</th>
 								<th class="text-left px-4 py-2 font-semibold">Standard curve</th>
+								<th class="text-left px-4 py-2 font-semibold">Provenance</th>
 							</tr></thead>
 							<tbody>
 								{#each samples as s}
@@ -1663,7 +1674,24 @@
 												<span class="text-brand-muted">None</span>
 											{/if}
 										</td>
+										<td class="px-4 py-2 text-xs">
+											{#if s.provenance}
+												<button
+													onclick={() => toggleProvenance(s.id)}
+													class="px-2 py-0.5 rounded-full bg-brand-accent/15 text-brand-accent cursor-pointer border-none hover:underline"
+												>{expandedProvenance.has(s.id) ? 'Hide tool run' : 'Tool run'}</button>
+											{:else}
+												<span class="text-brand-muted">Hand-entered</span>
+											{/if}
+										</td>
 									</tr>
+									{#if s.provenance && expandedProvenance.has(s.id)}
+										<tr class="border-b border-brand-divider last:border-b-0">
+											<td colspan="10" class="px-4 py-2 bg-brand-bg/50">
+												<ProvenanceCard provenance={s.provenance} paramName={(id) => paramName(id)} />
+											</td>
+										</tr>
+									{/if}
 								{/each}
 							</tbody>
 						</table>

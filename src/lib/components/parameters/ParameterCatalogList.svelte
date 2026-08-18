@@ -42,6 +42,9 @@
 	let sitesDialogOpen = $state(false);
 	let sitesDialogParam = $state<Parameter | null>(null);
 
+	// Show only mechanically-created entries awaiting a manager's confirmation.
+	let reviewOnly = $state(false);
+
 	const PER_PAGE = 25;
 	let currentPage = $state(1);
 
@@ -106,6 +109,7 @@
 		const rows = parameters.filter((p) => {
 			if (excludedCats.has(p.category)) return false;
 			if (excludedTypes.has(isDerived(p) ? 'derived' : 'direct')) return false;
+			if (reviewOnly && !p.needs_review) return false;
 			if (q) {
 				const hay = `${p.name ?? ''} ${p.code ?? ''} ${p.description ?? ''}`.toLowerCase();
 				if (!hay.includes(q)) return false;
@@ -172,6 +176,10 @@
 				Derived
 			</label>
 		</div>
+		<label class="flex items-center gap-1 text-xs text-brand-muted cursor-pointer" title="Entries created mechanically (tool analyte seed) awaiting a manager's confirmation">
+			<input type="checkbox" bind:checked={reviewOnly} onchange={resetPage} />
+			Needs review only
+		</label>
 	</div>
 
 	<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
@@ -200,6 +208,9 @@
 						<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50">
 							<td class="px-4 py-2">
 								<a href="{base}/parameters/{param.id}" class="text-brand-primary font-semibold no-underline hover:underline">{param.name}</a>
+								{#if param.needs_review}
+									<span title="Created mechanically; a manager confirms or merges it" class="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-severity-warning-soft text-severity-warning-text align-middle">needs review</span>
+								{/if}
 								{#if defId}
 									<a href="{base}/derived/{defId}" title="Formula-derived parameter - view its definition" class="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-brand-accent/15 text-brand-accent align-middle no-underline hover:underline">derived</a>
 								{/if}

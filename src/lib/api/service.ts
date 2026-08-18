@@ -777,6 +777,190 @@ export interface DirectoryUser {
 export const searchDirectoryUsers = (q: string) =>
 	GET<DirectoryUser[]>(`${ADMIN}/users/search`, { q });
 
+// Analytical tools. `GET /tools` serves the manifest of every active DB-stored R script;
+// `POST /tools/{name}/calculate` runs one. Kinds: number | integer | string | boolean |
+// enum:<v1|v2|...> | array | object | replicate_grid.
+export interface ToolParam {
+	name: string;
+	label: string;
+	kind: string;
+	units: string | null;
+	required: boolean;
+	default: unknown;
+	/** Free-text note when requiredness depends on a mode; never hard-required client-side. */
+	when: string | null;
+}
+
+export interface ToolOutput {
+	key: string;
+	label: string;
+	units: string | null;
+	/** Result keys arrive suffixed per replicate ({base}_{rep}). */
+	per_replicate: boolean;
+	/** Set on avg/sd rows computed from another output; display-only, never saved. */
+	aggregate_of: string | null;
+	suggested_parameter_code: string | null;
+}
+
+export interface ToolCurveSlot {
+	name: string;
+	label: string;
+	required: boolean;
+}
+
+export interface ToolDescriptor {
+	name: string;
+	label: string;
+	description: string | null;
+	endpoint: string;
+	params: ToolParam[];
+	outputs: ToolOutput[];
+	constants: string[];
+	curves: ToolCurveSlot[];
+	match_keywords: string[];
+	script_version_id: string;
+	version_no: number;
+}
+
+export interface ToolVersionRef {
+	script_version_id: string;
+	version_no: number;
+	content_hash: string;
+}
+
+export interface ToolCalculateResponse {
+	tool: string;
+	results: Record<string, unknown>;
+	inputs_used: string[];
+	inputs_ignored: string[];
+	tool_version: ToolVersionRef;
+}
+
+export const listTools = () => GET<ToolDescriptor[]>(`${SERVICE}/tools`);
+
+export const calculateTool = (name: string, body: Record<string, unknown>) =>
+	POST<ToolCalculateResponse>(`${SERVICE}/tools/${encodeURIComponent(name)}/calculate`, body);
+
+// Tool script authoring (admin-only). Versions are immutable; activation flips the pointer and
+// activating an older version is the rollback.
+export interface ToolScriptSummary {
+	id: string;
+	name: string;
+	label: string;
+	description: string | null;
+	active_version_id: string | null;
+	active_version_no: number | null;
+	version_count: number;
+	updated_at: string;
+}
+
+export interface ToolVersionSummary {
+	id: string;
+	version_no: number;
+	content_hash: string;
+	entry_function: string;
+	created_by: string | null;
+	created_at: string;
+	validated_at: string | null;
+	active: boolean;
+}
+
+export interface ToolScriptDetail extends ToolScriptSummary {
+	versions: ToolVersionSummary[];
+}
+
+export interface ToolVersionDetail {
+	id: string;
+	version_no: number;
+	script: string;
+	entry_function: string;
+	manifest: Record<string, unknown>;
+	test_cases: Record<string, unknown>;
+	content_hash: string;
+	created_by: string | null;
+	created_at: string;
+	validated_at: string | null;
+}
+
+export interface ToolLintFinding {
+	line: number;
+	message: string;
+}
+
+export interface ToolCaseResult {
+	name: string;
+	passed: boolean;
+	failures: string[];
+	error: string | null;
+}
+
+export interface ToolValidateResponse {
+	passed: boolean;
+	cases: ToolCaseResult[];
+	validated_at: string | null;
+}
+
+export interface ToolActivationRecord {
+	from_version_no: number | null;
+	to_version_no: number;
+	activated_by: string | null;
+	activated_at: string;
+}
+
+export const listToolScripts = () => GET<ToolScriptSummary[]>(`${ADMIN}/tool_scripts`);
+
+export const getToolScript = (id: string) => GET<ToolScriptDetail>(`${ADMIN}/tool_scripts/${id}`);
+
+export const createToolScript = (body: {
+	name: string;
+	label: string;
+	description?: string;
+	created_by?: string;
+}) => POST<ToolScriptSummary>(`${ADMIN}/tool_scripts`, body);
+
+export const updateToolScript = (id: string, body: { label?: string; description?: string }) =>
+	PATCH<ToolScriptSummary>(`${ADMIN}/tool_scripts/${id}`, body);
+
+export const createToolVersion = (
+	id: string,
+	body: {
+		script: string;
+		entry_function?: string;
+		manifest: unknown;
+		test_cases?: unknown;
+		created_by?: string;
+	},
+) =>
+	POST<{ version: ToolVersionSummary; lint: ToolLintFinding[] }>(
+		`${ADMIN}/tool_scripts/${id}/versions`,
+		body,
+	);
+
+export const getToolVersion = (id: string, versionId: string) =>
+	GET<ToolVersionDetail>(`${ADMIN}/tool_scripts/${id}/versions/${versionId}`);
+
+export const validateToolVersion = (id: string, versionId: string) =>
+	POST<ToolValidateResponse>(`${ADMIN}/tool_scripts/${id}/versions/${versionId}/validate`, {});
+
+export const activateToolVersion = (id: string, versionId: string, activatedBy?: string) =>
+	POST<ToolScriptSummary>(`${ADMIN}/tool_scripts/${id}/versions/${versionId}/activate`, {
+		...(activatedBy ? { activated_by: activatedBy } : {}),
+	});
+
+export const listToolActivations = (id: string) =>
+	GET<ToolActivationRecord[]>(`${ADMIN}/tool_scripts/${id}/activations`);
+
+/** Lint findings from a refused version create (409 { error, detail }); null otherwise. */
+export function toolLintFindings(e: unknown): ToolLintFinding[] | null {
+	if (!(e instanceof ApiError) || e.status !== 409) return null;
+	try {
+		const body = JSON.parse(e.message) as { detail?: ToolLintFinding[] };
+		return Array.isArray(body.detail) ? body.detail : null;
+	} catch {
+		return null;
+	}
+}
+
 // Grab samples
 export interface GrabSampleReading {
 	parameter_id: string;
@@ -804,6 +988,9 @@ export interface GrabSampleRequest {
 	mode?: 'replace';
 	// Computes everything (preview and existing_groups included) and writes nothing.
 	dry_run?: boolean;
+	// Tool-run provenance stamped onto every samples row the request touches (the server mints a
+	// run_id when absent and ignores the blob on dry_run since nothing is written).
+	provenance?: unknown;
 	readings: GrabSampleReading[];
 }
 

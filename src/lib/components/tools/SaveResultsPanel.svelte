@@ -1,3 +1,14 @@
+<script lang="ts" module>
+	// A curve consumed by the calculation, recorded into the provenance blob.
+	export interface UsedCurve {
+		name: string;
+		slope: number | null;
+		intercept: number | null;
+		label: string | null;
+		standard_curve_id: string | null;
+	}
+</script>
+
 <script lang="ts">
 	import { base } from '$app/paths';
 	import { api, type Site, type SiteParameter, type Parameter, type Sensor, type StandardCurve } from '$api/crud';
@@ -7,12 +18,15 @@
 		type GrabExistingGroup,
 		type GrabPreviewRow,
 		type GrabSampleReading,
+		type ToolOutput,
+		type ToolVersionRef,
 	} from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { toDatetimeLocal, fromDatetimeLocal, formatDateTime } from '$lib/utils';
 	import { curveEquation, curveLabel } from '$lib/standardCurves';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
+	import ParameterSelect from '$components/ParameterSelect.svelte';
 
 	const BROWSER_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
 	const ZONE_OPTIONS =
@@ -20,18 +34,29 @@
 			? Intl.supportedValuesOf('timeZone')
 			: [BROWSER_ZONE, 'UTC'];
 
-	// Persists a tool's computed outputs to a site as one grab-sample request.
+	// Persists a tool's computed outputs to a site as one grab-sample request, carrying the run's
+	// provenance (tool, script version, inputs, curves, outputs, saved mapping).
 	let {
 		open = $bindable(false),
+		toolName = '',
 		toolTitle = '',
 		results = null,
-		curveNote = '',
+		outputs = [],
+		toolVersion = null,
+		calcInputs = null,
+		curvesUsed = [],
 		appliedCurveLabel = '',
 	}: {
 		open: boolean;
+		toolName?: string;
 		toolTitle?: string;
 		results?: Record<string, unknown> | null;
-		curveNote?: string;
+		/** The tool's manifest outputs; drives replicate grouping and default parameter mapping. */
+		outputs?: ToolOutput[];
+		toolVersion?: ToolVersionRef | null;
+		/** The exact calculate request body these results came from. */
+		calcInputs?: Record<string, unknown> | null;
+		curvesUsed?: UsedCurve[];
 		/**
 		 * Set when the tool consumed a standard curve during the calculation, so these values are
 		 * already corrected. The curve is then shown read-only and no `standard_curve_id` is sent:
@@ -43,59 +68,86 @@
 	interface ResultRow {
 		id: string;
 		displayKey: string;
+		label: string | null;
+		units: string | null;
 		values: { key: string; value: number }[];
 		replicateGroup: boolean;
+		/** avg/sd of another output: display-only, never saved. */
+		aggregate: boolean;
+		suggestedCode: string | null;
 		defaultInclude: boolean;
 	}
 
+	const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+	// Rows follow the manifest: per_replicate outputs group their suffixed result keys
+	// ({base}_{rep}); aggregate_of rows are display-only. Result keys no output covers fall back
+	// to plain single-value rows.
 	const rows = $derived.by((): ResultRow[] => {
 		const numeric = Object.entries(results ?? {}).filter(
 			([, v]) => typeof v === 'number' && Number.isFinite(v as number),
 		) as [string, number][];
-
-		const repRe = /^(.+)_([A-E])$/;
-		const groups = new Map<string, { key: string; value: number; letter: string }[]>();
-		for (const [key, value] of numeric) {
-			const m = key.match(repRe);
-			if (m) {
-				const list = groups.get(m[1]) ?? [];
-				list.push({ key, value, letter: m[2] });
-				groups.set(m[1], list);
-			}
-		}
-		const groupedBases = new Set([...groups.keys()].filter((b) => (groups.get(b)?.length ?? 0) >= 2));
-
+		const byKey = new Map(numeric);
+		const covered = new Set<string>();
 		const out: ResultRow[] = [];
-		const emittedBases = new Set<string>();
-		for (const [key, value] of numeric) {
-			const m = key.match(repRe);
-			if (m && groupedBases.has(m[1])) {
-				if (emittedBases.has(m[1])) continue;
-				emittedBases.add(m[1]);
-				const members = [...groups.get(m[1])!].sort((a, b) => a.letter.localeCompare(b.letter));
+
+		for (const o of outputs) {
+			const cbase = o.key.replace(/_?\{rep\}/, '');
+			if (o.per_replicate) {
+				const re = new RegExp(`^${esc(cbase)}_([A-Za-z0-9]+)$`);
+				const members = numeric
+					.filter(([k]) => !covered.has(k) && re.test(k))
+					.map(([key, value]) => ({ key, value, suffix: key.match(re)![1] }))
+					.sort((a, b) => a.suffix.localeCompare(b.suffix, undefined, { numeric: true }));
+				if (members.length === 0) continue;
+				for (const m of members) covered.add(m.key);
 				out.push({
-					id: m[1],
-					displayKey: m[1],
-					values: members.map(({ key: k, value: v }) => ({ key: k, value: v })),
-					replicateGroup: true,
+					id: cbase,
+					displayKey: cbase,
+					label: o.label,
+					units: o.units,
+					values: members.map(({ key, value }) => ({ key, value })),
+					replicateGroup: members.length > 1,
+					aggregate: false,
+					suggestedCode: o.suggested_parameter_code,
 					defaultInclude: true,
 				});
-				continue;
+			} else {
+				const value = byKey.get(o.key);
+				if (value === undefined || covered.has(o.key)) continue;
+				covered.add(o.key);
+				const aggregate = o.aggregate_of !== null;
+				out.push({
+					id: o.key,
+					displayKey: o.key,
+					label: o.label,
+					units: o.units,
+					values: [{ key: o.key, value }],
+					replicateGroup: false,
+					aggregate,
+					suggestedCode: o.suggested_parameter_code,
+					defaultInclude: !aggregate,
+				});
 			}
-			// An avg/sd alongside its replicate group would land as an extra replicate
-			// and skew the sample mean, so those default to excluded.
-			const statBase = key.replace(/_(avg|sd|std)$/i, '');
-			const shadowedByGroup = statBase !== key && groupedBases.has(statBase);
+		}
+		for (const [key, value] of numeric) {
+			if (covered.has(key)) continue;
 			out.push({
 				id: key,
 				displayKey: key,
+				label: null,
+				units: null,
 				values: [{ key, value }],
 				replicateGroup: false,
-				defaultInclude: !shadowedByGroup,
+				aggregate: false,
+				suggestedCode: null,
+				defaultInclude: true,
 			});
 		}
 		return out;
 	});
+
+	const saveableRows = $derived(rows.filter((r) => !r.aggregate));
 
 	let sites = $state<Site[]>([]);
 	let params = $state<Parameter[]>([]);
@@ -130,6 +182,14 @@
 	let previewTimer: ReturnType<typeof setTimeout> | null = null;
 	let previewGeneration = 0;
 
+	// Stored curves consumed by the calculation, noted into the sample notes by default.
+	const curveNote = $derived(
+		curvesUsed
+			.filter((c) => c.standard_curve_id)
+			.map((c) => `${c.name}: ${c.label ?? c.standard_curve_id} [${c.standard_curve_id}]`)
+			.join('; '),
+	);
+
 	$effect(() => {
 		if (!open) return;
 		selectedSiteId = '';
@@ -146,7 +206,7 @@
 		conflictGroups = null;
 		const inc: Record<string, boolean> = {};
 		const pc: Record<string, string> = {};
-		for (const r of rows) {
+		for (const r of saveableRows) {
 			inc[r.id] = r.defaultInclude;
 			pc[r.id] = '';
 		}
@@ -217,21 +277,30 @@
 		}
 	}
 
-	// Default each row's parameter by case-insensitive match of the result key
-	// against the catalog code/name of parameters configured at the site.
+	// Default each row's parameter from the manifest's suggested_parameter_code against the
+	// catalog code of parameters configured at the site, then a case-insensitive match of the
+	// result key against code/name as fallback.
 	function applyDefaultMappings() {
 		const next = { ...paramChoices };
-		for (const r of rows) {
+		for (const r of saveableRows) {
+			const bySuggestion = r.suggestedCode
+				? siteParams.find((sp) => {
+						const p = params.find((pp) => pp.id === sp.parameter_id);
+						return p?.code.toLowerCase() === r.suggestedCode!.toLowerCase();
+					})
+				: undefined;
 			const wanted = r.displayKey.toLowerCase();
-			const match = siteParams.find((sp) => {
-				const p = params.find((pp) => pp.id === sp.parameter_id);
-				return (
-					p?.code.toLowerCase() === wanted ||
-					p?.name.toLowerCase() === wanted ||
-					sp.name?.toLowerCase() === wanted
-				);
-			});
-			next[r.id] = match?.parameter_id ?? '';
+			const byKey =
+				bySuggestion ??
+				siteParams.find((sp) => {
+					const p = params.find((pp) => pp.id === sp.parameter_id);
+					return (
+						p?.code.toLowerCase() === wanted ||
+						p?.name.toLowerCase() === wanted ||
+						sp.name?.toLowerCase() === wanted
+					);
+				});
+			next[r.id] = byKey?.parameter_id ?? '';
 		}
 		paramChoices = next;
 	}
@@ -243,7 +312,7 @@
 		return units ? `${name} (${units})` : name;
 	}
 
-	const includedRows = $derived(rows.filter((r) => included[r.id]));
+	const includedRows = $derived(saveableRows.filter((r) => included[r.id]));
 
 	const duplicateParam = $derived.by(() => {
 		const seen = new Set<string>();
@@ -282,6 +351,20 @@
 		);
 	}
 
+	// Provenance stamped onto the samples rows: the run's identity, exact inputs, curves,
+	// full output map, and which outputs land on which parameters.
+	function buildProvenance(): Record<string, unknown> | undefined {
+		if (!toolName || !toolVersion) return undefined;
+		return {
+			tool: toolName,
+			tool_version: toolVersion,
+			inputs: calcInputs ?? {},
+			curves: curvesUsed,
+			outputs: results ?? {},
+			saved: Object.fromEntries(includedRows.map((r) => [r.id, paramChoices[r.id]])),
+		};
+	}
+
 	async function refreshPreview() {
 		if (!open) return;
 		const gen = ++previewGeneration;
@@ -290,6 +373,7 @@
 			const res = await saveGrabSample({
 				site_id: selectedSiteId,
 				dry_run: true,
+				provenance: buildProvenance(),
 				readings: buildReadings(),
 			});
 			if (gen !== previewGeneration) return;
@@ -336,6 +420,7 @@
 				...(label.trim() ? { label: label.trim() } : {}),
 				...(notes.trim() ? { notes: notes.trim() } : {}),
 				...(replace ? { mode: 'replace' as const } : {}),
+				provenance: buildProvenance(),
 				readings: buildReadings(),
 			});
 			toastStore.success(
@@ -452,16 +537,19 @@
 					</thead>
 					<tbody>
 						{#each rows as row (row.id)}
-							<tr class="border-t border-brand-divider">
+							<tr class="border-t border-brand-divider {row.aggregate ? 'text-brand-muted' : ''}">
 								<td class="px-1 py-1.5 align-top">
-									<input
-										type="checkbox"
-										bind:checked={included[row.id]}
-										aria-label="Include {row.displayKey}"
-									/>
+									{#if !row.aggregate}
+										<input
+											type="checkbox"
+											bind:checked={included[row.id]}
+											aria-label="Include {row.displayKey}"
+										/>
+									{/if}
 								</td>
 								<td class="px-1 py-1.5 align-top">
-									{row.displayKey.replace(/_/g, ' ')}
+									{row.label ?? row.displayKey.replace(/_/g, ' ')}
+									{#if row.units}<span class="text-xs text-brand-muted">({row.units})</span>{/if}
 									{#if row.replicateGroup}
 										<span class="text-xs text-brand-muted">({row.values.length} replicates)</span>
 									{/if}
@@ -470,17 +558,19 @@
 									{row.values.map((v) => v.value.toPrecision(6)).join(', ')}
 								</td>
 								<td class="px-1 py-1.5 align-top">
-									<select
-										bind:value={paramChoices[row.id]}
-										disabled={!selectedSiteId || loadingSite || !included[row.id]}
-										aria-label="Parameter for {row.displayKey}"
-										class="w-full px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm disabled:opacity-50"
-									>
-										<option value="">{loadingSite ? 'Loading…' : !selectedSiteId ? 'Select a site first' : ' - Select a parameter at this site - '}</option>
-										{#each siteParams as sp}
-											<option value={sp.parameter_id}>{paramLabel(sp)}</option>
-										{/each}
-									</select>
+									{#if row.aggregate}
+										<span class="text-xs text-brand-muted">Computed from replicates; not saved</span>
+									{:else}
+										<ParameterSelect
+											bind:value={paramChoices[row.id]}
+											siteId={selectedSiteId || null}
+											{siteParams}
+											parameters={params}
+											disabled={!selectedSiteId || loadingSite || !included[row.id]}
+											placeholder={loadingSite ? 'Loading…' : !selectedSiteId ? 'Select a site first' : ' - Select a parameter at this site - '}
+											ariaLabel="Parameter for {row.displayKey}"
+										/>
+									{/if}
 								</td>
 							</tr>
 						{/each}
@@ -585,10 +675,11 @@
 
 			<p class="text-xs text-brand-muted">
 				Saves the ticked outputs as grab-sample readings at the selected site. Replicate outputs
-				share a timestamp with replicate indices so a sample (mean, sd, n) forms; the label and
-				notes are stored on those samples. With an instrument set, its calibration for that
-				timestamp is applied, then the standard curve if one is chosen; with neither, the reading
-				keeps its raw value and no corrected value.
+				share a timestamp with replicate indices so a sample (mean, sd, n) forms; the label,
+				notes and the run's provenance (tool version, inputs, curves, outputs) are stored on
+				those samples. With an instrument set, its calibration for that timestamp is applied,
+				then the standard curve if one is chosen; with neither, the reading keeps its raw value
+				and no corrected value.
 			</p>
 		</div>
 	{/snippet}

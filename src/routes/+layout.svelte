@@ -57,6 +57,7 @@
 				{ href: `${base}/explore`, label: 'Explore', icon: 'chart', minCap: 'readData', also: [`${base}/compare`, `${base}/scatter`, `${base}/day-of-year`] },
 				{ href: `${base}/alarms`, label: 'Alarms', icon: 'bell' },
 				{ href: `${base}/tools`, label: 'Tools', icon: 'wrench' },
+				{ href: `${base}/tools/manage`, label: 'Manage Tools', icon: 'settings', minCap: 'admin' },
 				{ href: `${base}/upload`, label: 'Upload', icon: 'upload', minCap: 'writeData' },
 			],
 		},

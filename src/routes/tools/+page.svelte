@@ -1,22 +1,24 @@
 <script lang="ts">
-	import { POST } from '$api/client';
+	import { page } from '$app/state';
+	import {
+		listTools,
+		calculateTool,
+		type ToolDescriptor,
+		type ToolParam,
+		type ToolCalculateResponse,
+	} from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
+	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import CurvePicker, {
 		emptyCurveSelection,
 		type CurveSelection,
 	} from '$components/tools/CurvePicker.svelte';
-	import SaveResultsPanel from '$components/tools/SaveResultsPanel.svelte';
+	import SaveResultsPanel, { type UsedCurve } from '$components/tools/SaveResultsPanel.svelte';
 
-	interface ScalarInput {
-		key: string;
-		label: string;
-		unit?: string;
-		required?: boolean;
-		type?: 'number' | 'select';
-		options?: Array<{ value: string; label: string }>;
-		help?: string;
-	}
+	const letter = (i: number) => String.fromCharCode(65 + i);
+	const num = (s: string | undefined): number | null =>
+		s !== undefined && s !== '' && Number.isFinite(Number(s)) ? Number(s) : null;
 
 	interface GridColumn {
 		key: string;
@@ -30,342 +32,141 @@
 		compute: (row: Record<string, string>) => number | null;
 	}
 
-	interface GridDef {
-		key: string;
+	// Bespoke entry grid for one structured param (object / replicate_grid) that the generic
+	// renderer would otherwise show as a JSON textarea.
+	interface GridSpec {
 		title: string;
 		columns: GridColumn[];
 		defaultRows: number;
-		rowLabel: (i: number) => string;
 		fixedRows?: boolean;
 		maxRows?: number;
+		rowLabel: (i: number) => string;
 		derived?: DerivedColumn[];
+		/** Payload value for the param; null omits it, string is a validation error. */
+		build: (rows: Record<string, string>[]) => unknown | null | { error: string };
+		/** Rows from a prefilled payload value, for "Reload into tool". */
+		restore?: (value: unknown) => Record<string, string>[] | null;
 	}
 
-	interface CurveDef {
-		key: string;
+	// Several kind=array params entered as columns of one grid (paired series).
+	interface ArrayGroup {
 		title: string;
+		params: string[];
+		defaultRows: number;
+	}
+
+	// A curve picker that fills two plain number params (tools whose manifest takes slope/intercept
+	// directly rather than a curve slot).
+	interface CurveParamSpec {
+		title: string;
+		slope: string;
+		intercept: string;
 		required?: boolean;
 	}
 
-	interface BuildCtx {
-		scalars: Record<string, string>;
-		grids: Record<string, Record<string, string>[]>;
-		curves: Record<string, CurveSelection>;
+	interface ToolOverride {
+		domain?: string;
+		grids?: Record<string, GridSpec>;
+		arrayGroups?: ArrayGroup[];
+		arrayDefaultRows?: Record<string, number>;
+		curveParams?: CurveParamSpec[];
 	}
 
-	type Built = { payload: Record<string, unknown> } | { error: string };
-
-	interface Tool {
-		name: string;
-		title: string;
-		description: string;
-		domain: string;
-		scalars?: ScalarInput[];
-		grids?: GridDef[];
-		curves?: CurveDef[];
-		buildPayload: (ctx: BuildCtx) => Built;
-	}
-
-	const letter = (i: number) => String.fromCharCode(65 + i);
-	const num = (s: string | undefined): number | null =>
-		s !== undefined && s !== '' && Number.isFinite(Number(s)) ? Number(s) : null;
-
-	// Scalar fields translate 1:1 into payload keys; required fields must parse.
-	function scalarPayload(defs: ScalarInput[], values: Record<string, string>): Built {
-		const payload: Record<string, unknown> = {};
-		for (const d of defs) {
-			const v = values[d.key];
-			if (d.type === 'select') {
-				if (v) payload[d.key] = v;
-				continue;
-			}
+	function objectFromRow(
+		row: Record<string, string>,
+		requiredKeys: string[],
+		label: string,
+	): Record<string, number> | null | { error: string } {
+		if (Object.values(row).every((v) => v === '')) return null;
+		const out: Record<string, number> = {};
+		for (const [k, v] of Object.entries(row)) {
 			const n = num(v);
-			if (n === null) {
-				if (d.required) return { error: `${d.label} is required` };
-				continue;
-			}
-			payload[d.key] = n;
+			if (n !== null) out[k] = n;
 		}
-		return { payload };
+		for (const k of requiredKeys) {
+			if (out[k] === undefined) return { error: `${label} is incomplete (or clear it)` };
+		}
+		return out;
 	}
 
-	function curvePair(sel: CurveSelection): { slope: number; intercept: number } | null {
-		return sel.slope !== null && sel.intercept !== null
-			? { slope: sel.slope, intercept: sel.intercept }
-			: null;
+	function rowFromObject(value: unknown, keys: string[]): Record<string, string>[] | null {
+		if (typeof value !== 'object' || value === null) return null;
+		const obj = value as Record<string, unknown>;
+		return [
+			Object.fromEntries(keys.map((k) => [k, typeof obj[k] === 'number' ? String(obj[k]) : ''])),
+		];
 	}
 
-	// Species keys as the API expects them. SRP has no NUT_ column in the portal, so it keeps the
-	// legacy SRP_*_ugL series; NH4 exists in both families and current entry goes to NUT_NH4_*.
+	const DIC_REP_COLUMNS: GridColumn[] = [
+		{ key: 'acid_sample_weight_g', label: 'Acid+sample wgt', unit: 'g', required: true },
+		{ key: 'acid_weight_g', label: 'Acid wgt', unit: 'g', required: true },
+		{ key: 'vol_overpressure_ml', label: 'Vol overpressure', unit: 'mL', required: true },
+		{ key: 'sa_added_ml', label: 'SA added', unit: 'mL', required: true },
+		{ key: 'co2_dry_ppm', label: 'CO2 dry', unit: 'ppm', required: true },
+		{ key: 'd13co2_permil', label: 'd13CO2', unit: 'permil' },
+	];
+	const DIC_REP_REQUIRED = DIC_REP_COLUMNS.filter((c) => c.required).map((c) => c.key);
+
+	const PCO2_REP_COLUMNS: GridColumn[] = [
+		{ key: 'co2_ppm', label: 'CO2', unit: 'ppm', required: true },
+		{ key: 'h2o_percent', label: 'H2O', unit: '%', required: true },
+		{ key: 'ch4_ppm', label: 'CH4', unit: 'ppm', required: true },
+		{ key: 'd13co2_permil', label: 'd13CO2', unit: 'permil' },
+	];
+	const PCO2_REP_REQUIRED = PCO2_REP_COLUMNS.filter((c) => c.required).map((c) => c.key);
+
+	// Species keys as the API expects them. SRP keeps the legacy SRP_*_ugL series; current NH4
+	// entry goes to NUT_NH4_*.
 	const NUTRIENT_SPECIES = ['P', 'NUT_NH4', 'SRP', 'NOx', 'NO2', 'TDP', 'TDN'];
 	const NUTRIENT_LABELS = ['P', 'NH4', 'SRP', 'NOx', 'NO2', 'TDP', 'TDN'];
 
-	const tools: Tool[] = [
-		{
-			name: 'doc',
-			title: 'DOC',
-			description: 'Dissolved organic carbon replicates with optional standard-curve correction',
-			domain: 'Carbon',
-			grids: [
-				{
-					key: 'replicates',
-					title: 'Replicates',
-					columns: [{ key: 'value', label: 'DOC', unit: 'ppb', required: true }],
-					defaultRows: 3,
-					rowLabel: (i) => `${i + 1}`,
-				},
-			],
-			curves: [{ key: 'std_curve', title: 'Standard curve correction' }],
-			buildPayload: ({ grids, curves }) => {
-				const reps = grids['replicates']
-					.map((r) => num(r['value']))
-					.filter((n): n is number => n !== null);
-				if (reps.length === 0) return { error: 'Enter at least one replicate' };
-				const c = curvePair(curves['std_curve']);
-				return { payload: { replicates: reps, ...(c ? { std_curve: c } : {}) } };
-			},
-		},
-		{
-			name: 'dic',
-			title: 'DIC',
-			description: 'Dissolved inorganic carbon via acid digestion, replicate A/B pairs',
-			domain: 'Carbon',
-			scalars: [
-				{
-					key: 'lab_temp_c',
-					label: 'Lab temperature',
-					unit: '°C',
-					help: 'Falls back to the lab_temp_avg_degC constant when empty',
-				},
-			],
-			grids: [
-				{
-					key: 'reps',
-					title: 'Replicates',
-					columns: [
-						{ key: 'acid_sample_weight_g', label: 'Acid+sample wgt', unit: 'g', required: true },
-						{ key: 'acid_weight_g', label: 'Acid wgt', unit: 'g', required: true },
-						{ key: 'vol_overpressure_ml', label: 'Vol overpressure', unit: 'mL', required: true },
-						{ key: 'sa_added_ml', label: 'SA added', unit: 'mL', required: true },
-						{ key: 'co2_dry_ppm', label: 'CO₂ dry', unit: 'ppm', required: true },
-						{ key: 'd13co2_permil', label: 'δ¹³CO₂', unit: '‰' },
-					],
-					defaultRows: 2,
+	const DOMAINS: Record<string, string> = {
+		doc: 'Carbon',
+		dic: 'Carbon',
+		pco2: 'Carbon',
+		co2_air: 'Carbon',
+		dom: 'Carbon',
+		alkalinity: 'Ions',
+		nutrients: 'Nutrients',
+		tss_afdm: 'Suspended',
+		benthic: 'Suspended',
+		chlorophyll: 'Field',
+		chla_benthic: 'Field',
+		field_data: 'Hydrology',
+		discharge: 'Hydrology',
+	};
+
+	const overrides: Record<string, ToolOverride> = {
+		dic: {
+			grids: {
+				replicate_b: {
+					title: 'Replicate B (optional)',
+					columns: DIC_REP_COLUMNS,
+					defaultRows: 1,
 					fixedRows: true,
-					rowLabel: letter,
+					rowLabel: () => 'B',
+					build: (rows) => objectFromRow(rows[0] ?? {}, DIC_REP_REQUIRED, 'Replicate B'),
+					restore: (v) => rowFromObject(v, DIC_REP_COLUMNS.map((c) => c.key)),
 				},
-			],
-			buildPayload: ({ scalars, grids }) => {
-				const grid = grids['reps'];
-				const readRep = (row: Record<string, string>) => ({
-					acid_sample_weight_g: num(row['acid_sample_weight_g']),
-					acid_weight_g: num(row['acid_weight_g']),
-					vol_overpressure_ml: num(row['vol_overpressure_ml']),
-					sa_added_ml: num(row['sa_added_ml']),
-					co2_dry_ppm: num(row['co2_dry_ppm']),
-					d13co2_permil: num(row['d13co2_permil']),
-				});
-				const a = readRep(grid[0]);
-				if (
-					a.acid_sample_weight_g === null ||
-					a.acid_weight_g === null ||
-					a.vol_overpressure_ml === null ||
-					a.sa_added_ml === null ||
-					a.co2_dry_ppm === null
-				) {
-					return { error: 'Replicate A needs all five weight/volume/CO₂ fields' };
-				}
-				const payload: Record<string, unknown> = { ...a };
-				const labTemp = num(scalars['lab_temp_c']);
-				if (labTemp !== null) payload.lab_temp_c = labTemp;
-				const bRow = grid[1];
-				const bFilled = Object.values(bRow).some((v) => v !== '');
-				if (bFilled) {
-					const b = readRep(bRow);
-					if (
-						b.acid_sample_weight_g === null ||
-						b.acid_weight_g === null ||
-						b.vol_overpressure_ml === null ||
-						b.sa_added_ml === null ||
-						b.co2_dry_ppm === null
-					) {
-						return { error: 'Replicate B needs all five weight/volume/CO₂ fields (or clear it)' };
-					}
-					payload.replicate_b = b;
-				}
-				return { payload };
 			},
 		},
-		{
-			name: 'pco2',
-			title: 'pCO₂',
-			description: 'Headspace pCO₂ full pipeline with replicate A/B chains',
-			domain: 'Carbon',
-			scalars: [
-				{ key: 'water_temp_c', label: 'Water temperature', unit: '°C', required: true },
-				{ key: 'pressure_hpa', label: 'Field barometric pressure', unit: 'hPa', required: true },
-				{ key: 'lab_temp_c', label: 'Lab temperature', unit: '°C', required: true },
-				{ key: 'lab_pressure_atm', label: 'Lab pressure', unit: 'atm', required: true },
-				{ key: 'vol_sa_ml', label: 'Vol standard air', unit: 'mL', required: true },
-				{ key: 'vol_water_ml', label: 'Vol water', unit: 'mL', required: true },
-			],
-			grids: [
-				{
-					key: 'reps',
-					title: 'Headspace replicates',
-					columns: [
-						{ key: 'co2_ppm', label: 'CO₂', unit: 'ppm', required: true },
-						{ key: 'h2o_percent', label: 'H₂O', unit: '%', required: true },
-						{ key: 'ch4_ppm', label: 'CH₄', unit: 'ppm', required: true },
-						{ key: 'd13co2_permil', label: 'δ¹³CO₂', unit: '‰' },
-					],
-					defaultRows: 2,
+		pco2: {
+			grids: {
+				replicate_b: {
+					title: 'Replicate B (optional, full pipeline)',
+					columns: PCO2_REP_COLUMNS,
+					defaultRows: 1,
 					fixedRows: true,
-					rowLabel: letter,
+					rowLabel: () => 'B',
+					build: (rows) => objectFromRow(rows[0] ?? {}, PCO2_REP_REQUIRED, 'Replicate B'),
+					restore: (v) => rowFromObject(v, PCO2_REP_COLUMNS.map((c) => c.key)),
 				},
-			],
-			buildPayload: ({ scalars, grids, curves: _c }) => {
-				const base = scalarPayload(
-					[
-						{ key: 'water_temp_c', label: 'Water temperature', required: true },
-						{ key: 'pressure_hpa', label: 'Field barometric pressure', required: true },
-						{ key: 'lab_temp_c', label: 'Lab temperature', required: true },
-						{ key: 'lab_pressure_atm', label: 'Lab pressure', required: true },
-						{ key: 'vol_sa_ml', label: 'Vol standard air', required: true },
-						{ key: 'vol_water_ml', label: 'Vol water', required: true },
-					],
-					scalars,
-				);
-				if ('error' in base) return base;
-				const grid = grids['reps'];
-				const a = {
-					co2_ppm: num(grid[0]['co2_ppm']),
-					h2o_percent: num(grid[0]['h2o_percent']),
-					ch4_ppm: num(grid[0]['ch4_ppm']),
-					d13co2_permil: num(grid[0]['d13co2_permil']),
-				};
-				if (a.co2_ppm === null || a.h2o_percent === null || a.ch4_ppm === null) {
-					return { error: 'Replicate A needs CO₂, H₂O and CH₄' };
-				}
-				const payload: Record<string, unknown> = {
-					...base.payload,
-					mode: 'full_pipeline',
-					co2_ppm: a.co2_ppm,
-					h2o_percent: a.h2o_percent,
-					ch4_ppm: a.ch4_ppm,
-					...(a.d13co2_permil !== null ? { d13co2_permil: a.d13co2_permil } : {}),
-				};
-				const bRow = grid[1];
-				if (Object.values(bRow).some((v) => v !== '')) {
-					const b = {
-						co2_ppm: num(bRow['co2_ppm']),
-						h2o_percent: num(bRow['h2o_percent']),
-						ch4_ppm: num(bRow['ch4_ppm']),
-						d13co2_permil: num(bRow['d13co2_permil']),
-					};
-					if (b.co2_ppm === null || b.h2o_percent === null || b.ch4_ppm === null) {
-						return { error: 'Replicate B needs CO₂, H₂O and CH₄ (or clear it)' };
-					}
-					payload.replicate_b = b;
-				}
-				return { payload };
 			},
 		},
-		{
-			name: 'co2_air',
-			title: 'CO₂/CH₄ Air',
-			description: 'CH₄ dry concentration from wet Picarro measurement',
-			domain: 'Carbon',
-			scalars: [
-				{ key: 'ch4_wet', label: 'CH₄ wet', unit: 'ppm', required: true },
-				{ key: 'h2o_percent', label: 'H₂O', unit: '%', required: true },
-			],
-			buildPayload: ({ scalars }) =>
-				scalarPayload(
-					[
-						{ key: 'ch4_wet', label: 'CH₄ wet', required: true },
-						{ key: 'h2o_percent', label: 'H₂O', required: true },
-					],
-					scalars,
-				),
-		},
-		{
-			name: 'dom',
-			title: 'DOM Indices',
-			description: 'SUVA and absorbance/fluorescence peak ratios from UV-Vis',
-			domain: 'Carbon',
-			scalars: [
-				{ key: 'a254', label: 'Absorbance 254 nm' },
-				{ key: 'doc_avg_ppb', label: 'DOC concentration', unit: 'ppb' },
-				{ key: 'abs_numerator', label: 'Absorbance ratio numerator' },
-				{ key: 'abs_denominator', label: 'Absorbance ratio denominator' },
-				{ key: 'peak_a', label: 'Peak A' },
-				{ key: 'peak_c', label: 'Peak C' },
-				{ key: 'peak_m', label: 'Peak M' },
-				{ key: 'peak_t', label: 'Peak T' },
-			],
-			buildPayload: ({ scalars }) => {
-				const built = scalarPayload(
-					[
-						{ key: 'a254', label: 'Absorbance 254 nm' },
-						{ key: 'doc_avg_ppb', label: 'DOC concentration' },
-						{ key: 'abs_numerator', label: 'Absorbance ratio numerator' },
-						{ key: 'abs_denominator', label: 'Absorbance ratio denominator' },
-						{ key: 'peak_a', label: 'Peak A' },
-						{ key: 'peak_c', label: 'Peak C' },
-						{ key: 'peak_m', label: 'Peak M' },
-						{ key: 'peak_t', label: 'Peak T' },
-					],
-					scalars,
-				);
-				if ('error' in built) return built;
-				if (Object.keys(built.payload).length === 0) return { error: 'Enter at least one value' };
-				return built;
-			},
-		},
-		{
-			name: 'alkalinity',
-			title: 'Alkalinity',
-			description: 'Raw alkalinity entry; WTW pH is filled from initial pH when missing',
-			domain: 'Ions',
-			scalars: [
-				{ key: 'Alk_meqL', label: 'Alkalinity', unit: 'meq/L' },
-				{ key: 'Alk_mgL', label: 'Alkalinity', unit: 'mg/L' },
-				{ key: 'Alk_w_weight_g', label: 'Water weight', unit: 'g' },
-				{ key: 'Alk_dyn_pH', label: 'Dynamic pH' },
-				{ key: 'Alk_dyn_trit', label: 'Dynamic titrant' },
-				{ key: 'Alk_temp_degC', label: 'Temperature', unit: '°C' },
-				{ key: 'Alk_init_pH', label: 'Initial pH' },
-				{ key: 'WTW_pH_1', label: 'WTW pH', help: 'Left empty, this fills from initial pH' },
-			],
-			buildPayload: ({ scalars }) => {
-				const built = scalarPayload(
-					[
-						{ key: 'Alk_meqL', label: 'Alkalinity (meq/L)' },
-						{ key: 'Alk_mgL', label: 'Alkalinity (mg/L)' },
-						{ key: 'Alk_w_weight_g', label: 'Water weight' },
-						{ key: 'Alk_dyn_pH', label: 'Dynamic pH' },
-						{ key: 'Alk_dyn_trit', label: 'Dynamic titrant' },
-						{ key: 'Alk_temp_degC', label: 'Temperature' },
-						{ key: 'Alk_init_pH', label: 'Initial pH' },
-						{ key: 'WTW_pH_1', label: 'WTW pH' },
-					],
-					scalars,
-				);
-				if ('error' in built) return built;
-				if (Object.keys(built.payload).length === 0) return { error: 'Enter at least one value' };
-				return built;
-			},
-		},
-		{
-			name: 'nutrients',
-			title: 'Nutrients',
-			description: 'Species replicate grid; NO₃ is derived per replicate from NOx and NO₂',
-			domain: 'Nutrients',
-			grids: [
-				{
-					key: 'species',
-					title: 'Species replicates (µg/L)',
+		nutrients: {
+			grids: {
+				species: {
+					title: 'Species replicates (ug/L)',
 					columns: [
 						{ key: 'a', label: 'Rep A' },
 						{ key: 'b', label: 'Rep B' },
@@ -374,132 +175,36 @@
 					defaultRows: NUTRIENT_SPECIES.length,
 					fixedRows: true,
 					rowLabel: (i) => NUTRIENT_LABELS[i],
-				},
-			],
-			buildPayload: ({ grids }) => {
-				const species: Record<string, number[]> = {};
-				grids['species'].forEach((row, i) => {
-					const reps = [row['a'], row['b'], row['c']]
-						.map(num)
-						.filter((n): n is number => n !== null);
-					if (reps.length > 0) species[NUTRIENT_SPECIES[i]] = reps;
-				});
-				if (Object.keys(species).length === 0) return { error: 'Enter at least one replicate' };
-				return { payload: { species } };
-			},
-		},
-		{
-			name: 'tss_afdm',
-			title: 'TSS / AFDM',
-			description: 'Total suspended solids and ash-free dry mass',
-			domain: 'Suspended',
-			scalars: [
-				{ key: 'wgt_dried_g', label: 'Filter + sample dried weight', unit: 'g', required: true },
-				{ key: 'wgt_prefilt_g', label: 'Pre-filtration filter weight', unit: 'g', required: true },
-				{ key: 'wgt_ashed_g', label: 'Ashed weight', unit: 'g' },
-				{ key: 'vol_filtered_ml', label: 'Volume filtered', unit: 'mL', required: true },
-			],
-			buildPayload: ({ scalars }) =>
-				scalarPayload(
-					[
-						{ key: 'wgt_dried_g', label: 'Dried weight', required: true },
-						{ key: 'wgt_prefilt_g', label: 'Pre-filtration weight', required: true },
-						{ key: 'wgt_ashed_g', label: 'Ashed weight' },
-						{ key: 'vol_filtered_ml', label: 'Volume filtered', required: true },
-					],
-					scalars,
-				),
-		},
-		{
-			name: 'benthic',
-			title: 'Benthic',
-			description: 'Rock surface area and per-m² normalization',
-			domain: 'Suspended',
-			scalars: [
-				{ key: 'volume_filtered_ml', label: 'Volume filtered', unit: 'mL', required: true },
-				{ key: 'total_volume_ml', label: 'Total volume', unit: 'mL', required: true },
-				{ key: 'afdm_g_filter', label: 'AFDM on filter', unit: 'g' },
-				{ key: 'chla_ug_l', label: 'Chlorophyll-a', unit: 'µg/L' },
-			],
-			grids: [
-				{
-					key: 'diameters',
-					title: 'Rock diameters',
-					columns: [{ key: 'value', label: 'Diameter', unit: 'cm', required: true }],
-					defaultRows: 3,
-					rowLabel: (i) => `${i + 1}`,
-				},
-			],
-			buildPayload: ({ scalars, grids }) => {
-				const built = scalarPayload(
-					[
-						{ key: 'volume_filtered_ml', label: 'Volume filtered', required: true },
-						{ key: 'total_volume_ml', label: 'Total volume', required: true },
-						{ key: 'afdm_g_filter', label: 'AFDM on filter' },
-						{ key: 'chla_ug_l', label: 'Chlorophyll-a' },
-					],
-					scalars,
-				);
-				if ('error' in built) return built;
-				const diameters = grids['diameters']
-					.map((r) => num(r['value']))
-					.filter((n): n is number => n !== null);
-				if (diameters.length === 0) return { error: 'Enter at least one rock diameter' };
-				return { payload: { ...built.payload, diameters_cm: diameters } };
-			},
-		},
-		{
-			name: 'chlorophyll',
-			title: 'Chlorophyll-a',
-			description: 'Chlorophyll-a from fluorescence with a standard curve',
-			domain: 'Field',
-			scalars: [
-				{
-					key: 'method',
-					label: 'Method',
-					type: 'select',
-					required: true,
-					options: [
-						{ value: 'acid', label: 'Acid correction' },
-						{ value: 'no_acid', label: 'No acid' },
-					],
-				},
-				{ key: 'fluorescence_before', label: 'Fluorescence (before acid)', required: true },
-				{ key: 'fluorescence_after', label: 'Fluorescence (after acid)' },
-			],
-			curves: [{ key: 'curve', title: 'Standard curve', required: true }],
-			buildPayload: ({ scalars, curves }) => {
-				const before = num(scalars['fluorescence_before']);
-				if (before === null) return { error: 'Fluorescence (before acid) is required' };
-				const after = num(scalars['fluorescence_after']);
-				if (scalars['method'] === 'acid' && after === null) {
-					return { error: 'Fluorescence (after acid) is required for the acid method' };
-				}
-				const c = curvePair(curves['curve']);
-				if (!c) return { error: 'Select or enter a standard curve' };
-				return {
-					payload: {
-						method: scalars['method'],
-						fluorescence_before: before,
-						...(after !== null ? { fluorescence_after: after } : {}),
-						slope: c.slope,
-						intercept: c.intercept,
+					build: (rows) => {
+						const species: Record<string, number[]> = {};
+						rows.forEach((row, i) => {
+							const reps = [row['a'], row['b'], row['c']]
+								.map(num)
+								.filter((n): n is number => n !== null);
+							if (reps.length > 0) species[NUTRIENT_SPECIES[i]] = reps;
+						});
+						if (Object.keys(species).length === 0)
+							return { error: 'Enter at least one replicate' };
+						return species;
 					},
-				};
+					restore: (v) => {
+						if (typeof v !== 'object' || v === null) return null;
+						const map = v as Record<string, unknown>;
+						return NUTRIENT_SPECIES.map((sp) => {
+							const reps = Array.isArray(map[sp]) ? (map[sp] as unknown[]) : [];
+							return {
+								a: typeof reps[0] === 'number' ? String(reps[0]) : '',
+								b: typeof reps[1] === 'number' ? String(reps[1]) : '',
+								c: typeof reps[2] === 'number' ? String(reps[2]) : '',
+							};
+						});
+					},
+				},
 			},
 		},
-		{
-			name: 'chla_benthic',
-			title: 'Chla-Benthic',
-			description: 'Multi-replicate chlorophyll + AFDM per rock area (replicates A-E)',
-			domain: 'Field',
-			curves: [
-				{ key: 'acid', title: 'Acid standard curve', required: true },
-				{ key: 'noacid', title: 'No-acid standard curve', required: true },
-			],
-			grids: [
-				{
-					key: 'reps',
+		chla_benthic: {
+			grids: {
+				replicates: {
 					title: 'Replicates',
 					columns: [
 						{ key: 'fluor_before', label: 'Fluor 1', required: true },
@@ -532,102 +237,71 @@
 							},
 						},
 					],
-				},
-			],
-			buildPayload: ({ grids, curves }) => {
-				const acid = curvePair(curves['acid']);
-				const noacid = curvePair(curves['noacid']);
-				if (!acid || !noacid) return { error: 'Select or enter both standard curves' };
-				const replicates = [];
-				for (const [i, row] of grids['reps'].entries()) {
-					if (Object.values(row).every((v) => v === '')) continue;
-					const fluorBefore = num(row['fluor_before']);
-					const volTotal = num(row['vol_total_ml']);
-					const volAfter = num(row['vol_after_ml']);
-					if (fluorBefore === null || volTotal === null || volAfter === null) {
-						return { error: `Replicate ${letter(i)} needs Fluor 1, Vol total and Vol after` };
-					}
-					const dried = num(row['wgt_dried_g']);
-					const ashed = num(row['wgt_ashed_g']);
-					replicates.push({
-						fluor_before: fluorBefore,
-						fluor_after: num(row['fluor_after']),
-						vol_total_ml: volTotal,
-						vol_after_ml: volAfter,
-						diameters_cm: [row['d1'], row['d2'], row['d3']]
-							.map(num)
-							.filter((n): n is number => n !== null),
-						afdm_g_filter: dried !== null && ashed !== null ? dried - ashed : null,
-					});
-				}
-				if (replicates.length === 0) return { error: 'Enter at least one replicate' };
-				return {
-					payload: {
-						acid_slope: acid.slope,
-						acid_intercept: acid.intercept,
-						noacid_slope: noacid.slope,
-						noacid_intercept: noacid.intercept,
-						replicates,
+					build: (rows) => {
+						const replicates = [];
+						for (const [i, row] of rows.entries()) {
+							if (Object.values(row).every((v) => v === '')) continue;
+							const fluorBefore = num(row['fluor_before']);
+							const volTotal = num(row['vol_total_ml']);
+							const volAfter = num(row['vol_after_ml']);
+							if (fluorBefore === null || volTotal === null || volAfter === null) {
+								return {
+									error: `Replicate ${letter(i)} needs Fluor 1, Vol total and Vol after`,
+								};
+							}
+							const dried = num(row['wgt_dried_g']);
+							const ashed = num(row['wgt_ashed_g']);
+							replicates.push({
+								fluor_before: fluorBefore,
+								fluor_after: num(row['fluor_after']),
+								vol_total_ml: volTotal,
+								vol_after_ml: volAfter,
+								diameters_cm: [row['d1'], row['d2'], row['d3']]
+									.map(num)
+									.filter((n): n is number => n !== null),
+								afdm_g_filter: dried !== null && ashed !== null ? dried - ashed : null,
+							});
+						}
+						if (replicates.length === 0) return { error: 'Enter at least one replicate' };
+						return replicates;
 					},
-				};
+					restore: (v) => {
+						if (!Array.isArray(v)) return null;
+						return v.map((rep) => {
+							const r = (rep ?? {}) as Record<string, unknown>;
+							const d = Array.isArray(r.diameters_cm) ? (r.diameters_cm as unknown[]) : [];
+							const s = (x: unknown) => (typeof x === 'number' ? String(x) : '');
+							// Filter weights are not in the payload (only their AFDM difference), so
+							// they come back blank.
+							return {
+								fluor_before: s(r.fluor_before),
+								fluor_after: s(r.fluor_after),
+								vol_total_ml: s(r.vol_total_ml),
+								vol_after_ml: s(r.vol_after_ml),
+								d1: s(d[0]),
+								d2: s(d[1]),
+								d3: s(d[2]),
+								wgt_dried_g: '',
+								wgt_ashed_g: '',
+							};
+						});
+					},
+				},
 			},
 		},
-		{
-			name: 'field_data',
-			title: 'Field Data',
-			description: 'Vaisala CO₂ min/avg/max correction, BP with altitude fallback, reach depths',
-			domain: 'Hydrology',
-			scalars: [
-				{ key: 'elevation_m', label: 'Elevation', unit: 'm' },
-				{ key: 'temp_c', label: 'Water temperature', unit: '°C' },
-				{
-					key: 'field_bp',
-					label: 'Field barometric pressure',
-					unit: 'hPa',
-					help: 'Used when within 700-1050 hPa; otherwise the altitude-derived BP applies',
-				},
-				{ key: 'raw_co2_min', label: 'Vaisala CO₂ min', unit: 'ppm' },
-				{ key: 'raw_co2_avg', label: 'Vaisala CO₂ avg', unit: 'ppm' },
-				{ key: 'raw_co2_max', label: 'Vaisala CO₂ max', unit: 'ppm' },
+		chlorophyll: {
+			curveParams: [
+				{ title: 'Standard curve', slope: 'slope', intercept: 'intercept', required: true },
 			],
-			curves: [{ key: 'std_curve', title: 'Vaisala CO₂ standard curve' }],
-			grids: [
-				{
-					key: 'reach_depths',
-					title: 'Reach depths',
-					columns: [{ key: 'value', label: 'Depth', unit: 'cm' }],
-					defaultRows: 10,
-					maxRows: 10,
-					rowLabel: (i) => `${i + 1}`,
-				},
-			],
-			buildPayload: ({ scalars, grids, curves }) => {
-				const built = scalarPayload(
-					[
-						{ key: 'elevation_m', label: 'Elevation' },
-						{ key: 'temp_c', label: 'Water temperature' },
-						{ key: 'field_bp', label: 'Field barometric pressure' },
-						{ key: 'raw_co2_min', label: 'Vaisala CO₂ min' },
-						{ key: 'raw_co2_avg', label: 'Vaisala CO₂ avg' },
-						{ key: 'raw_co2_max', label: 'Vaisala CO₂ max' },
-					],
-					scalars,
-				);
-				if ('error' in built) return built;
-				const payload = { ...built.payload };
-				const depths = grids['reach_depths']
-					.map((r) => num(r['value']))
-					.filter((n): n is number => n !== null);
-				if (depths.length > 0) payload.reach_depths = depths;
-				const c = curvePair(curves['std_curve']);
-				if (c) payload.std_curve = c;
-				if (Object.keys(payload).length === 0) return { error: 'Enter at least one value' };
-				return { payload };
-			},
 		},
-	];
+		discharge: {
+			arrayGroups: [{ title: 'Tracer series', params: ['times_s', 'values'], defaultRows: 10 }],
+		},
+		field_data: {
+			arrayDefaultRows: { reach_depths: 10 },
+		},
+	};
 
-	const domains = [...new Set(tools.map((t) => t.domain))];
 	const domainColors: Record<string, string> = {
 		Hydrology: 'border-viz-0/50 bg-viz-0/5',
 		Carbon: 'border-viz-1/50 bg-viz-1/5',
@@ -637,94 +311,410 @@
 		Field: 'border-viz-4/50 bg-viz-4/5',
 	};
 
-	let activeTool = $state<Tool | null>(null);
-	let scalarValues = $state<Record<string, string>>({});
+	let tools = $state<ToolDescriptor[]>([]);
+	let loadError = $state('');
+	let loading = $state(true);
+
+	let activeTool = $state<ToolDescriptor | null>(null);
+	let values = $state<Record<string, string>>({});
+	let boolValues = $state<Record<string, boolean>>({});
+	let arrayRows = $state<Record<string, string[]>>({});
 	let gridRows = $state<Record<string, Record<string, string>[]>>({});
+	let groupRows = $state<Record<string, Record<string, string>[]>>({});
+	let jsonValues = $state<Record<string, string>>({});
 	let curveSelections = $state<Record<string, CurveSelection>>({});
-	let result = $state<Record<string, unknown> | null>(null);
-	let resultCurveLabel = $state('');
+	let curveParamSelections = $state<Record<string, CurveSelection>>({});
+	let result = $state<ToolCalculateResponse | null>(null);
+	let resultInputs = $state<Record<string, unknown> | null>(null);
+	let resultCurves = $state<UsedCurve[]>([]);
 	let calculating = $state(false);
 	let showSaveDialog = $state(false);
 
-	function emptyRow(grid: GridDef): Record<string, string> {
-		return Object.fromEntries(grid.columns.map((c) => [c.key, '']));
+	const domains = $derived([
+		...new Set(tools.map((t) => overrides[t.name]?.domain ?? DOMAINS[t.name] ?? 'Other')),
+	]);
+	const domainOf = (t: ToolDescriptor) => overrides[t.name]?.domain ?? DOMAINS[t.name] ?? 'Other';
+
+	const override = $derived(activeTool ? (overrides[activeTool.name] ?? {}) : {});
+
+	function enumVariants(kind: string): string[] {
+		return kind.startsWith('enum:') ? kind.slice(5).split('|') : [];
 	}
 
-	function selectTool(tool: Tool) {
+	// Render plan: manifest order, with structured params swapped for their bespoke widgets and
+	// curve-backed number pairs collapsed into a picker.
+	type RenderItem =
+		| { type: 'scalar'; param: ToolParam }
+		| { type: 'array'; param: ToolParam }
+		| { type: 'grid'; param: ToolParam; spec: GridSpec }
+		| { type: 'group'; group: ArrayGroup; params: ToolParam[] }
+		| { type: 'json'; param: ToolParam }
+		| { type: 'curveParam'; spec: CurveParamSpec };
+
+	const renderItems = $derived.by((): RenderItem[] => {
+		if (!activeTool) return [];
+		const o = override;
+		const items: RenderItem[] = [];
+		const groupEmitted = new Set<string>();
+		const cpBySlope = new Map((o.curveParams ?? []).map((cp) => [cp.slope, cp]));
+		const cpIntercepts = new Set((o.curveParams ?? []).map((cp) => cp.intercept));
+		for (const p of activeTool.params) {
+			const spec = o.grids?.[p.name];
+			if (spec) {
+				items.push({ type: 'grid', param: p, spec });
+				continue;
+			}
+			const group = o.arrayGroups?.find((g) => g.params.includes(p.name));
+			if (group) {
+				if (!groupEmitted.has(group.title)) {
+					groupEmitted.add(group.title);
+					items.push({
+						type: 'group',
+						group,
+						params: group.params.map(
+							(name) => activeTool!.params.find((q) => q.name === name) ?? p,
+						),
+					});
+				}
+				continue;
+			}
+			const cp = cpBySlope.get(p.name);
+			if (cp) {
+				items.push({ type: 'curveParam', spec: cp });
+				continue;
+			}
+			if (cpIntercepts.has(p.name)) continue;
+			if (p.kind === 'array') items.push({ type: 'array', param: p });
+			else if (p.kind === 'object' || p.kind === 'replicate_grid')
+				items.push({ type: 'json', param: p });
+			else items.push({ type: 'scalar', param: p });
+		}
+		return items;
+	});
+
+	function selectTool(tool: ToolDescriptor, prefill?: Record<string, unknown>) {
 		activeTool = tool;
 		result = null;
-		const sv: Record<string, string> = {};
-		for (const inp of tool.scalars ?? []) {
-			sv[inp.key] = inp.type === 'select' && inp.options?.length ? inp.options[0].value : '';
-		}
-		scalarValues = sv;
+		resultInputs = null;
+		resultCurves = [];
+		const o = overrides[tool.name] ?? {};
+		const v: Record<string, string> = {};
+		const b: Record<string, boolean> = {};
+		const ar: Record<string, string[]> = {};
 		const gr: Record<string, Record<string, string>[]> = {};
-		for (const grid of tool.grids ?? []) {
-			gr[grid.key] = Array.from({ length: grid.defaultRows }, () => emptyRow(grid));
+		const grp: Record<string, Record<string, string>[]> = {};
+		const js: Record<string, string> = {};
+		for (const p of tool.params) {
+			const spec = o.grids?.[p.name];
+			if (spec) {
+				const restored =
+					prefill && spec.restore ? spec.restore(prefill[p.name]) : null;
+				gr[p.name] =
+					restored ??
+					Array.from({ length: spec.defaultRows }, () =>
+						Object.fromEntries(spec.columns.map((c) => [c.key, ''])),
+					);
+				continue;
+			}
+			if (o.arrayGroups?.some((g) => g.params.includes(p.name))) continue;
+			if (p.kind === 'boolean') {
+				b[p.name] =
+					typeof prefill?.[p.name] === 'boolean'
+						? (prefill[p.name] as boolean)
+						: p.default === true;
+				continue;
+			}
+			if (p.kind === 'array') {
+				const pre = Array.isArray(prefill?.[p.name]) ? (prefill![p.name] as unknown[]) : null;
+				const n = o.arrayDefaultRows?.[p.name] ?? 3;
+				ar[p.name] = pre
+					? pre.map((x) => (typeof x === 'number' ? String(x) : ''))
+					: Array.from({ length: n }, () => '');
+				continue;
+			}
+			if (p.kind === 'object' || p.kind === 'replicate_grid') {
+				js[p.name] =
+					prefill?.[p.name] !== undefined ? JSON.stringify(prefill[p.name], null, 2) : '';
+				continue;
+			}
+			const pre = prefill?.[p.name];
+			if (pre !== undefined && pre !== null) v[p.name] = String(pre);
+			else if (p.default !== null && p.default !== undefined) v[p.name] = String(p.default);
+			else if (p.required && enumVariants(p.kind).length > 0) v[p.name] = enumVariants(p.kind)[0];
+			else v[p.name] = '';
 		}
+		for (const g of o.arrayGroups ?? []) {
+			const lists = g.params.map((name) =>
+				Array.isArray(prefill?.[name]) ? (prefill![name] as unknown[]) : null,
+			);
+			const len = Math.max(g.defaultRows, ...lists.map((l) => l?.length ?? 0));
+			grp[g.title] = Array.from({ length: len }, (_, i) =>
+				Object.fromEntries(
+					g.params.map((name, pi) => {
+						const x = lists[pi]?.[i];
+						return [name, typeof x === 'number' ? String(x) : ''];
+					}),
+				),
+			);
+		}
+		values = v;
+		boolValues = b;
+		arrayRows = ar;
 		gridRows = gr;
+		groupRows = grp;
+		jsonValues = js;
 		const cs: Record<string, CurveSelection> = {};
-		for (const c of tool.curves ?? []) cs[c.key] = emptyCurveSelection();
+		for (const c of tool.curves) {
+			cs[c.name] = curveFromPrefill(prefill?.[c.name]) ?? emptyCurveSelection();
+		}
 		curveSelections = cs;
+		const cps: Record<string, CurveSelection> = {};
+		for (const cp of o.curveParams ?? []) {
+			const slope = prefill?.[cp.slope];
+			const intercept = prefill?.[cp.intercept];
+			cps[cp.title] =
+				typeof slope === 'number' && typeof intercept === 'number'
+					? { standardCurveId: null, slope, intercept, label: null }
+					: emptyCurveSelection();
+		}
+		curveParamSelections = cps;
 	}
 
-	function addGridRow(grid: GridDef) {
-		if (grid.maxRows && (gridRows[grid.key]?.length ?? 0) >= grid.maxRows) return;
-		gridRows[grid.key] = [...(gridRows[grid.key] ?? []), emptyRow(grid)];
+	function curveFromPrefill(v: unknown): CurveSelection | null {
+		if (typeof v !== 'object' || v === null) return null;
+		const o = v as Record<string, unknown>;
+		return {
+			standardCurveId: typeof o.standard_curve_id === 'string' ? o.standard_curve_id : null,
+			slope: typeof o.slope === 'number' ? o.slope : null,
+			intercept: typeof o.intercept === 'number' ? o.intercept : null,
+			label: typeof o.label === 'string' ? o.label : null,
+		};
 	}
 
-	function removeGridRow(grid: GridDef, idx: number) {
-		gridRows[grid.key] = (gridRows[grid.key] ?? []).filter((_, i) => i !== idx);
+	function addArrayRow(name: string) {
+		arrayRows[name] = [...(arrayRows[name] ?? []), ''];
+	}
+	function removeArrayRow(name: string, idx: number) {
+		arrayRows[name] = (arrayRows[name] ?? []).filter((_, i) => i !== idx);
+	}
+	function addGridRow(name: string, spec: GridSpec) {
+		if (spec.maxRows && (gridRows[name]?.length ?? 0) >= spec.maxRows) return;
+		gridRows[name] = [
+			...(gridRows[name] ?? []),
+			Object.fromEntries(spec.columns.map((c) => [c.key, ''])),
+		];
+	}
+	function removeGridRow(name: string, idx: number) {
+		gridRows[name] = (gridRows[name] ?? []).filter((_, i) => i !== idx);
+	}
+	function addGroupRow(g: ArrayGroup) {
+		groupRows[g.title] = [
+			...(groupRows[g.title] ?? []),
+			Object.fromEntries(g.params.map((p) => [p, ''])),
+		];
+	}
+	function removeGroupRow(g: ArrayGroup, idx: number) {
+		groupRows[g.title] = (groupRows[g.title] ?? []).filter((_, i) => i !== idx);
 	}
 
-	// Provenance note for the save step: stored curves carry their standard-curve id.
-	const curveNote = $derived.by(() => {
-		if (!activeTool) return '';
-		return (activeTool.curves ?? [])
-			.map((c) => {
-				const sel = curveSelections[c.key];
-				return sel?.standardCurveId ? `${c.title}: ${sel.label} [${sel.standardCurveId}]` : null;
-			})
-			.filter((p): p is string => p !== null)
-			.join('; ');
-	});
+	type Built = { payload: Record<string, unknown> } | { error: string };
 
-	// Curves declared by a tool are applied to the numbers during the calculation, so the save step
-	// records them as text and must not send a curve reference for the API to apply again.
-	const currentCurveLabel = $derived.by(() => {
-		if (!activeTool) return '';
-		return (activeTool.curves ?? [])
-			.map((c) => {
-				const sel = curveSelections[c.key];
-				return sel?.slope != null && sel.intercept != null ? (sel.label ?? c.title) : null;
-			})
-			.filter((p): p is string => p !== null)
-			.join('; ');
-	});
+	function buildPayload(): Built {
+		if (!activeTool) return { error: 'No tool selected' };
+		const o = override;
+		const payload: Record<string, unknown> = {};
+		for (const p of activeTool.params) {
+			const spec = o.grids?.[p.name];
+			if (spec) {
+				const built = spec.build(gridRows[p.name] ?? []);
+				if (built && typeof built === 'object' && 'error' in built) {
+					const msg = (built as { error?: unknown }).error;
+					if (typeof msg === 'string') return { error: msg };
+				}
+				if (built !== null) payload[p.name] = built;
+				else if (p.required && p.when === null) return { error: `${p.label} is required` };
+				continue;
+			}
+			if (o.arrayGroups?.some((g) => g.params.includes(p.name))) continue;
+			if (o.curveParams?.some((cp) => cp.slope === p.name || cp.intercept === p.name)) continue;
+			if (p.kind === 'boolean') {
+				payload[p.name] = boolValues[p.name] ?? false;
+				continue;
+			}
+			if (p.kind === 'array') {
+				const nums = (arrayRows[p.name] ?? [])
+					.map((s) => num(s))
+					.filter((n): n is number => n !== null);
+				if (nums.length > 0) payload[p.name] = nums;
+				else if (p.required && p.when === null)
+					return { error: `${p.label} needs at least one value` };
+				continue;
+			}
+			if (p.kind === 'object' || p.kind === 'replicate_grid') {
+				const raw = (jsonValues[p.name] ?? '').trim();
+				if (!raw) {
+					if (p.required && p.when === null) return { error: `${p.label} is required` };
+					continue;
+				}
+				try {
+					payload[p.name] = JSON.parse(raw);
+				} catch {
+					return { error: `${p.label}: invalid JSON` };
+				}
+				continue;
+			}
+			const raw = (values[p.name] ?? '').trim();
+			if (!raw) {
+				if (p.required && p.when === null) return { error: `${p.label} is required` };
+				continue;
+			}
+			if (p.kind === 'string' || enumVariants(p.kind).length > 0) {
+				payload[p.name] = raw;
+				continue;
+			}
+			if (p.kind === 'integer') {
+				const n = Number(raw);
+				if (!Number.isInteger(n)) return { error: `${p.label} must be an integer` };
+				payload[p.name] = n;
+				continue;
+			}
+			const n = num(raw);
+			if (n === null) return { error: `${p.label} must be a number` };
+			payload[p.name] = n;
+		}
+		for (const cp of o.curveParams ?? []) {
+			const sel = curveParamSelections[cp.title];
+			if (sel && sel.slope !== null && sel.intercept !== null) {
+				payload[cp.slope] = sel.slope;
+				payload[cp.intercept] = sel.intercept;
+			} else if (cp.required) {
+				return { error: `Select or enter the ${cp.title.toLowerCase()}` };
+			}
+		}
+		for (const slot of activeTool.curves) {
+			const sel = curveSelections[slot.name];
+			if (sel?.standardCurveId) {
+				payload[slot.name] = { standard_curve_id: sel.standardCurveId };
+			} else if (sel && sel.slope !== null && sel.intercept !== null) {
+				payload[slot.name] = {
+					slope: sel.slope,
+					intercept: sel.intercept,
+					...(sel.label ? { label: sel.label } : {}),
+				};
+			} else if (slot.required) {
+				return { error: `Select or enter the ${slot.label.toLowerCase()}` };
+			}
+		}
+		if (Object.keys(payload).length === 0) return { error: 'Enter at least one value' };
+		return { payload };
+	}
+
+	// Every curve consumed by the current inputs, for the provenance blob and the save-step note.
+	function usedCurves(): UsedCurve[] {
+		if (!activeTool) return [];
+		const out: UsedCurve[] = [];
+		for (const slot of activeTool.curves) {
+			const sel = curveSelections[slot.name];
+			if (sel && (sel.standardCurveId || (sel.slope !== null && sel.intercept !== null))) {
+				out.push({
+					name: slot.name,
+					slope: sel.slope,
+					intercept: sel.intercept,
+					label: sel.label,
+					standard_curve_id: sel.standardCurveId,
+				});
+			}
+		}
+		for (const cp of override.curveParams ?? []) {
+			const sel = curveParamSelections[cp.title];
+			if (sel && sel.slope !== null && sel.intercept !== null) {
+				out.push({
+					name: cp.title,
+					slope: sel.slope,
+					intercept: sel.intercept,
+					label: sel.label,
+					standard_curve_id: sel.standardCurveId,
+				});
+			}
+		}
+		return out;
+	}
 
 	async function calculate() {
 		if (!activeTool) return;
-		const built = activeTool.buildPayload({ scalars: scalarValues, grids: gridRows, curves: curveSelections });
+		const built = buildPayload();
 		if ('error' in built) {
 			toastStore.error(built.error);
 			return;
 		}
 		calculating = true;
 		result = null;
-		resultCurveLabel = '';
 		try {
-			const res = await POST<{ results: Record<string, unknown> }>(
-				`/api/tools/${activeTool.name}/calculate`,
-				built.payload,
-			);
-			result = res.results;
-			// The curves these numbers were computed with, not whatever the pickers hold later.
-			resultCurveLabel = currentCurveLabel;
+			const res = await calculateTool(activeTool.name, built.payload);
+			result = res;
+			// Snapshots taken now: the provenance records what these numbers were computed with,
+			// not whatever the form holds later.
+			resultInputs = built.payload;
+			resultCurves = usedCurves();
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Calculation failed');
 		} finally {
 			calculating = false;
 		}
+	}
+
+	// The save step must not send a curve reference for a correction the calculation already
+	// applied, so it shows the applied curves read-only instead.
+	const appliedCurveLabel = $derived(
+		resultCurves
+			.map((c) =>
+				c.label ?? (c.slope !== null && c.intercept !== null ? `${c.name} (manual)` : c.name),
+			)
+			.join('; '),
+	);
+
+	const displayResults = $derived(
+		result ? Object.entries(result.results).filter(([, v]) => v != null) : [],
+	);
+
+	$effect(() => {
+		listTools()
+			.then((t) => {
+				tools = t;
+				applyPrefill(t);
+			})
+			.catch((e) => (loadError = e instanceof Error ? e.message : 'Failed to load tools'))
+			.finally(() => (loading = false));
+	});
+
+	// ?tool= names the tool; a "Reload into tool" navigation stashes the inputs in sessionStorage.
+	function applyPrefill(loaded: ToolDescriptor[]) {
+		const wanted = page.url.searchParams.get('tool');
+		if (!wanted) return;
+		const tool = loaded.find((t) => t.name === wanted);
+		if (!tool) return;
+		let inputs: Record<string, unknown> | undefined;
+		if (page.url.searchParams.get('prefill') === 'session') {
+			try {
+				const raw = sessionStorage.getItem('tool-prefill');
+				if (raw) {
+					const blob = JSON.parse(raw) as { tool?: string; inputs?: Record<string, unknown> };
+					if (blob.tool === wanted && blob.inputs && typeof blob.inputs === 'object') {
+						inputs = blob.inputs;
+					}
+				}
+			} catch {
+				inputs = undefined;
+			}
+			sessionStorage.removeItem('tool-prefill');
+		}
+		selectTool(tool, inputs);
+	}
+
+	function fmtValue(value: unknown): string {
+		if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toPrecision(6);
+		if (Array.isArray(value)) return value.map(fmtValue).join(', ');
+		return String(value);
 	}
 </script>
 
@@ -738,17 +728,21 @@
 		{/if}
 	</div>
 
-	{#if !activeTool}
+	{#if loadError}
+		<ErrorNotice message={loadError} />
+	{:else if loading}
+		<p class="text-sm text-brand-muted">Loading tools…</p>
+	{:else if !activeTool}
 		{#each domains as domain}
 			<div>
 				<h3 class="text-sm font-semibold text-brand-muted uppercase tracking-wider mb-2">{domain}</h3>
 				<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-					{#each tools.filter((t) => t.domain === domain) as tool}
+					{#each tools.filter((t) => domainOf(t) === domain) as tool (tool.name)}
 						<button
 							onclick={() => selectTool(tool)}
 							class="text-left p-4 rounded-md border {domainColors[domain] ?? 'border-brand-divider bg-brand-surface'} cursor-pointer hover:shadow-sm transition-shadow"
 						>
-							<div class="font-semibold text-sm">{tool.title}</div>
+							<div class="font-semibold text-sm">{tool.label}</div>
 							<div class="text-xs text-brand-muted mt-1">{tool.description}</div>
 						</button>
 					{/each}
@@ -759,102 +753,210 @@
 		<div class="grid grid-cols-1 xl:grid-cols-[3fr_2fr] gap-6">
 			<div class="space-y-4">
 				<div class="rounded-md border border-brand-divider bg-brand-surface p-4">
-					<h3 class="text-base font-semibold mb-1">{activeTool.title}</h3>
+					<div class="flex items-baseline justify-between mb-1">
+						<h3 class="text-base font-semibold">{activeTool.label}</h3>
+						<span class="text-xs text-brand-muted">v{activeTool.version_no}</span>
+					</div>
 					<p class="text-sm text-brand-muted mb-4">{activeTool.description}</p>
 
 					<form onsubmit={(e) => { e.preventDefault(); calculate(); }} class="space-y-3">
-						{#each activeTool.scalars ?? [] as inp}
-							<div class="flex flex-col gap-1">
-								<label for={inp.key} class="text-sm font-medium">
-									{inp.label}
-									{#if inp.unit}<span class="text-brand-muted font-normal">({inp.unit})</span>{/if}
-									{#if inp.required}<span class="text-severity-alarm">*</span>{/if}
-								</label>
-								{#if inp.type === 'select'}
-									<select
-										id={inp.key}
-										bind:value={scalarValues[inp.key]}
-										class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
-									>
-										{#each inp.options ?? [] as opt}
-											<option value={opt.value}>{opt.label}</option>
+						{#each renderItems as item (item.type === 'curveParam' ? item.spec.title : item.type === 'group' ? item.group.title : item.param.name)}
+							{#if item.type === 'scalar'}
+								{@const p = item.param}
+								<div class="flex flex-col gap-1">
+									<label for="tp-{p.name}" class="text-sm font-medium">
+										{p.label}
+										{#if p.units}<span class="text-brand-muted font-normal">({p.units})</span>{/if}
+										{#if p.required && p.when === null}<span class="text-severity-alarm">*</span>{/if}
+									</label>
+									{#if enumVariants(p.kind).length > 0}
+										<select
+											id="tp-{p.name}"
+											bind:value={values[p.name]}
+											class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+										>
+											{#if !p.required && p.default == null}<option value=""> - </option>{/if}
+											{#each enumVariants(p.kind) as variant}
+												<option value={variant}>{variant.replace(/_/g, ' ')}</option>
+											{/each}
+										</select>
+									{:else if p.kind === 'string'}
+										<input
+											id="tp-{p.name}"
+											type="text"
+											bind:value={values[p.name]}
+											class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+										/>
+									{:else}
+										<input
+											id="tp-{p.name}"
+											type="number"
+											step={p.kind === 'integer' ? '1' : 'any'}
+											bind:value={values[p.name]}
+											class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+										/>
+									{/if}
+									{#if p.when}
+										<p class="text-xs text-brand-muted">Applies when: {p.when}</p>
+									{/if}
+								</div>
+							{:else if item.type === 'array'}
+								{@const p = item.param}
+								<div>
+									<span class="text-sm font-medium">
+										{p.label}
+										{#if p.units}<span class="text-brand-muted font-normal">({p.units})</span>{/if}
+										{#if p.required && p.when === null}<span class="text-severity-alarm">*</span>{/if}
+									</span>
+									{#if p.when}<p class="text-xs text-brand-muted">Applies when: {p.when}</p>{/if}
+									<div class="mt-1 space-y-1">
+										{#each arrayRows[p.name] ?? [] as _, idx}
+											<div class="flex items-center gap-1.5">
+												<span class="text-xs text-brand-muted font-medium w-5 text-right">{idx + 1}</span>
+												<input
+													type="number"
+													step="any"
+													bind:value={arrayRows[p.name][idx]}
+													aria-label="{p.label} {idx + 1}"
+													class="w-40 px-2 py-1 border border-brand-divider rounded bg-brand-surface text-xs"
+												/>
+												{#if (arrayRows[p.name]?.length ?? 0) > 1}
+													<button type="button" onclick={() => removeArrayRow(p.name, idx)} aria-label="Remove value" class="px-1.5 text-severity-alarm bg-transparent border border-brand-divider rounded cursor-pointer text-xs">&times;</button>
+												{/if}
+											</div>
 										{/each}
-									</select>
-								{:else}
-									<input
-										id={inp.key}
-										type="number"
-										step="any"
-										bind:value={scalarValues[inp.key]}
-										class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
-									/>
-								{/if}
-								{#if inp.help}
-									<p class="text-xs text-brand-muted">{inp.help}</p>
-								{/if}
-							</div>
-						{/each}
-
-						{#each activeTool.grids ?? [] as grid}
-							<div>
-								<span class="text-sm font-medium">{grid.title}</span>
-								<div class="overflow-x-auto mt-1">
-									<table class="text-xs w-full">
-										<thead>
-											<tr class="text-left text-brand-muted">
-												<th class="px-1 py-1"></th>
-												{#each grid.columns as col}
-													<th class="px-1 py-1 whitespace-nowrap">
-														{col.label}{#if col.unit}&nbsp;({col.unit}){/if}{#if col.required}<span class="text-severity-alarm">*</span>{/if}
-													</th>
-												{/each}
-												{#each grid.derived ?? [] as d}
-													<th class="px-1 py-1 whitespace-nowrap italic">{d.label}</th>
-												{/each}
-												{#if !grid.fixedRows}<th class="px-1 py-1"></th>{/if}
-											</tr>
-										</thead>
-										<tbody>
-											{#each gridRows[grid.key] ?? [] as row, idx}
-												<tr>
-													<td class="px-1 py-0.5 text-brand-muted font-medium">{grid.rowLabel(idx)}</td>
-													{#each grid.columns as col}
-														<td class="px-1 py-0.5">
-															<input
-																type="number"
-																step="any"
-																bind:value={gridRows[grid.key][idx][col.key]}
-																aria-label="{grid.title} {grid.rowLabel(idx)} {col.label}"
-																class="w-full min-w-16 px-1 py-0.5 border border-brand-divider rounded bg-brand-surface text-xs"
-															/>
-														</td>
+									</div>
+									<Button variant="ghost" size="sm" class="text-brand-primary mt-1" onclick={() => addArrayRow(p.name)}>+ Add value</Button>
+								</div>
+							{:else if item.type === 'grid'}
+								{@const p = item.param}
+								{@const spec = item.spec}
+								<div>
+									<span class="text-sm font-medium">
+										{spec.title}
+										{#if p.required && p.when === null}<span class="text-severity-alarm">*</span>{/if}
+									</span>
+									{#if p.when}<p class="text-xs text-brand-muted">Applies when: {p.when}</p>{/if}
+									<div class="overflow-x-auto mt-1">
+										<table class="text-xs w-full">
+											<thead>
+												<tr class="text-left text-brand-muted">
+													<th class="px-1 py-1"></th>
+													{#each spec.columns as col}
+														<th class="px-1 py-1 whitespace-nowrap">
+															{col.label}{#if col.unit}&nbsp;({col.unit}){/if}{#if col.required}<span class="text-severity-alarm">*</span>{/if}
+														</th>
 													{/each}
-													{#each grid.derived ?? [] as d}
-														{@const dv = d.compute(row)}
-														<td class="px-1 py-0.5 font-mono text-brand-muted">
-															{dv !== null ? (Number.isInteger(dv) ? dv : dv.toPrecision(5)) : ''}
-														</td>
+													{#each spec.derived ?? [] as d}
+														<th class="px-1 py-1 whitespace-nowrap italic">{d.label}</th>
 													{/each}
-													{#if !grid.fixedRows}
+													{#if !spec.fixedRows}<th class="px-1 py-1"></th>{/if}
+												</tr>
+											</thead>
+											<tbody>
+												{#each gridRows[p.name] ?? [] as row, idx}
+													<tr>
+														<td class="px-1 py-0.5 text-brand-muted font-medium">{spec.rowLabel(idx)}</td>
+														{#each spec.columns as col}
+															<td class="px-1 py-0.5">
+																<input
+																	type="number"
+																	step="any"
+																	bind:value={gridRows[p.name][idx][col.key]}
+																	aria-label="{spec.title} {spec.rowLabel(idx)} {col.label}"
+																	class="w-full min-w-16 px-1 py-0.5 border border-brand-divider rounded bg-brand-surface text-xs"
+																/>
+															</td>
+														{/each}
+														{#each spec.derived ?? [] as d}
+															{@const dv = d.compute(row)}
+															<td class="px-1 py-0.5 font-mono text-brand-muted">
+																{dv !== null ? (Number.isInteger(dv) ? dv : dv.toPrecision(5)) : ''}
+															</td>
+														{/each}
+														{#if !spec.fixedRows}
+															<td class="px-1 py-0.5">
+																{#if (gridRows[p.name]?.length ?? 0) > 1}
+																	<button type="button" onclick={() => removeGridRow(p.name, idx)} aria-label="Remove row" class="px-1.5 text-severity-alarm bg-transparent border border-brand-divider rounded cursor-pointer text-xs">&times;</button>
+																{/if}
+															</td>
+														{/if}
+													</tr>
+												{/each}
+											</tbody>
+										</table>
+									</div>
+									{#if !spec.fixedRows && (!spec.maxRows || (gridRows[p.name]?.length ?? 0) < spec.maxRows)}
+										<Button variant="ghost" size="sm" class="text-brand-primary mt-1" onclick={() => addGridRow(p.name, spec)}>+ Add row</Button>
+									{/if}
+								</div>
+							{:else if item.type === 'group'}
+								{@const g = item.group}
+								<div>
+									<span class="text-sm font-medium">{g.title}</span>
+									<div class="overflow-x-auto mt-1">
+										<table class="text-xs w-full">
+											<thead>
+												<tr class="text-left text-brand-muted">
+													<th class="px-1 py-1"></th>
+													{#each item.params as p}
+														<th class="px-1 py-1 whitespace-nowrap">
+															{p.label}{#if p.units}&nbsp;({p.units}){/if}{#if p.required && p.when === null}<span class="text-severity-alarm">*</span>{/if}
+														</th>
+													{/each}
+													<th class="px-1 py-1"></th>
+												</tr>
+											</thead>
+											<tbody>
+												{#each groupRows[g.title] ?? [] as _, idx}
+													<tr>
+														<td class="px-1 py-0.5 text-brand-muted font-medium">{idx + 1}</td>
+														{#each g.params as name}
+															<td class="px-1 py-0.5">
+																<input
+																	type="number"
+																	step="any"
+																	bind:value={groupRows[g.title][idx][name]}
+																	aria-label="{g.title} {idx + 1} {name}"
+																	class="w-full min-w-16 px-1 py-0.5 border border-brand-divider rounded bg-brand-surface text-xs"
+																/>
+															</td>
+														{/each}
 														<td class="px-1 py-0.5">
-															{#if (gridRows[grid.key]?.length ?? 0) > 1}
-																<button type="button" onclick={() => removeGridRow(grid, idx)} aria-label="Remove row" class="px-1.5 text-severity-alarm bg-transparent border border-brand-divider rounded cursor-pointer text-xs">&times;</button>
+															{#if (groupRows[g.title]?.length ?? 0) > 1}
+																<button type="button" onclick={() => removeGroupRow(g, idx)} aria-label="Remove row" class="px-1.5 text-severity-alarm bg-transparent border border-brand-divider rounded cursor-pointer text-xs">&times;</button>
 															{/if}
 														</td>
-													{/if}
-												</tr>
-											{/each}
-										</tbody>
-									</table>
+													</tr>
+												{/each}
+											</tbody>
+										</table>
+									</div>
+									<Button variant="ghost" size="sm" class="text-brand-primary mt-1" onclick={() => addGroupRow(g)}>+ Add row</Button>
 								</div>
-								{#if !grid.fixedRows && (!grid.maxRows || (gridRows[grid.key]?.length ?? 0) < grid.maxRows)}
-									<Button variant="ghost" size="sm" class="text-brand-primary mt-1" onclick={() => addGridRow(grid)}>+ Add row</Button>
-								{/if}
-							</div>
+							{:else if item.type === 'json'}
+								{@const p = item.param}
+								<div class="flex flex-col gap-1">
+									<label for="tp-{p.name}" class="text-sm font-medium">
+										{p.label}
+										{#if p.required && p.when === null}<span class="text-severity-alarm">*</span>{/if}
+										<span class="text-brand-muted font-normal">(JSON)</span>
+									</label>
+									{#if p.when}<p class="text-xs text-brand-muted">Applies when: {p.when}</p>{/if}
+									<textarea
+										id="tp-{p.name}"
+										rows="4"
+										bind:value={jsonValues[p.name]}
+										class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+									></textarea>
+								</div>
+							{:else if item.type === 'curveParam'}
+								<CurvePicker title={item.spec.title} required={item.spec.required} bind:value={curveParamSelections[item.spec.title]} />
+							{/if}
 						{/each}
 
-						{#each activeTool.curves ?? [] as c (activeTool.name + c.key)}
-							<CurvePicker title={c.title} required={c.required} bind:value={curveSelections[c.key]} />
+						{#each activeTool.curves as c (activeTool.name + c.name)}
+							<CurvePicker title={c.label} required={c.required} bind:value={curveSelections[c.name]} />
 						{/each}
 
 						<Button variant="primary" type="submit" disabled={calculating}>
@@ -875,13 +977,21 @@
 								onclick={() => (showSaveDialog = true)}
 							>Save to Site</Button>
 						</div>
+						{#if result.inputs_ignored.length > 0}
+							<p class="text-xs text-severity-warning-text bg-severity-warning-soft border border-severity-warning-border rounded-md px-2 py-1 mb-2">
+								Ignored inputs: {result.inputs_ignored.join(', ')}
+							</p>
+						{/if}
 						<div class="space-y-2">
-							{#each Object.entries(result).filter(([, v]) => v != null) as [key, value]}
+							{#each displayResults as [key, value]}
 								<div class="flex justify-between text-sm border-b border-brand-divider pb-1 last:border-b-0">
 									<span class="text-brand-muted">{key.replace(/_/g, ' ')}</span>
-									<span class="font-mono">{typeof value === 'number' ? value.toPrecision(6) : String(value)}</span>
+									<span class="font-mono">{fmtValue(value)}</span>
 								</div>
 							{/each}
+							{#if displayResults.length === 0}
+								<p class="text-sm text-brand-muted">No outputs were computable from these inputs.</p>
+							{/if}
 						</div>
 					</div>
 				{:else}
@@ -894,4 +1004,14 @@
 	{/if}
 </div>
 
-<SaveResultsPanel bind:open={showSaveDialog} toolTitle={activeTool?.title ?? ''} results={result} {curveNote} appliedCurveLabel={resultCurveLabel} />
+<SaveResultsPanel
+	bind:open={showSaveDialog}
+	toolName={activeTool?.name ?? ''}
+	toolTitle={activeTool?.label ?? ''}
+	results={result?.results ?? null}
+	outputs={activeTool?.outputs ?? []}
+	toolVersion={result?.tool_version ?? null}
+	calcInputs={resultInputs}
+	curvesUsed={resultCurves}
+	{appliedCurveLabel}
+/>
