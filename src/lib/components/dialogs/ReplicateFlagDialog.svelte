@@ -55,6 +55,7 @@
 						parameter_id: parameterId,
 						time: timeIso,
 						replicate_index: rep.replicate_index,
+						measurement_type: 'spot',
 					},
 				],
 			};

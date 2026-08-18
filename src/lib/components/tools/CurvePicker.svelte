@@ -1,7 +1,7 @@
 <script lang="ts" module>
 	export interface CurveSelection {
-		// Set when the slope/intercept came from a stored sensor_calibrations row.
-		calibrationId: string | null;
+		// Set when the slope/intercept came from a stored standard_curves row.
+		standardCurveId: string | null;
 		slope: number | null;
 		intercept: number | null;
 		// Provenance shown at the save step.
@@ -9,27 +9,25 @@
 	}
 
 	export function emptyCurveSelection(): CurveSelection {
-		return { calibrationId: null, slope: null, intercept: null, label: null };
+		return { standardCurveId: null, slope: null, intercept: null, label: null };
 	}
 </script>
 
 <script lang="ts">
-	import { api, type Sensor, type SensorCalibration } from '$api/crud';
+	import { api, type Sensor, type StandardCurve } from '$api/crud';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { formatDate } from '$lib/utils';
+	import { curveEquation, curveLabel, formatEquation } from '$lib/standardCurves';
 
-	// Stored-curve dropdown (instrument -> its sensor_calibrations) with a
+	// Stored-curve dropdown (instrument -> its standard_curves) with a
 	// manual slope/intercept fallback. Writes the resolved selection to `value`.
 	let {
 		title,
 		required = false,
 		value = $bindable(emptyCurveSelection()),
-		previewValue = null,
 	}: {
 		title: string;
 		required?: boolean;
 		value: CurveSelection;
-		previewValue?: number | null;
 	} = $props();
 
 	type Mode = 'stored' | 'manual';
@@ -37,7 +35,7 @@
 
 	let instruments = $state<Sensor[]>([]);
 	let selectedInstrumentId = $state('');
-	let curves = $state<SensorCalibration[]>([]);
+	let curves = $state<StandardCurve[]>([]);
 	let loadingCurves = $state(false);
 	let selectedCurveId = $state('');
 
@@ -46,28 +44,23 @@
 
 	const selectedCurve = $derived(curves.find((c) => c.id === selectedCurveId) ?? null);
 
-	const corrected = $derived.by(() => {
-		if (previewValue === null || value.slope === null || value.intercept === null) return null;
-		return value.slope * previewValue + value.intercept;
-	});
-
 	function instrumentLabel(instrument: Sensor): string {
 		const name = instrument.name ?? instrument.serial_number ?? instrument.id;
 		return `${name} (${instrument.is_lab_instrument ? 'Lab' : 'Field'})`;
 	}
 
-	function curveLabel(c: SensorCalibration): string {
-		const name = c.name ?? 'unnamed';
-		return `${name} (${formatDate(c.valid_from)}): y = ${c.slope}x + ${c.intercept}`;
+	function curveOptionLabel(c: StandardCurve): string {
+		const r2 = c.r_squared != null ? `, R² ${c.r_squared}` : '';
+		return `${curveLabel(c)}: ${curveEquation(c)}${r2}`;
 	}
 
 	function publish() {
 		if (mode === 'stored' && selectedCurve) {
 			value = {
-				calibrationId: selectedCurve.id,
+				standardCurveId: selectedCurve.id,
 				slope: selectedCurve.slope,
 				intercept: selectedCurve.intercept,
-				label: `${selectedCurve.name ?? 'unnamed'} (${formatDate(selectedCurve.valid_from)})`,
+				label: curveLabel(selectedCurve),
 			};
 		} else if (mode === 'manual') {
 			const s = Number(manualSlope);
@@ -75,7 +68,7 @@
 			const ok =
 				manualSlope !== '' && manualIntercept !== '' && Number.isFinite(s) && Number.isFinite(i);
 			value = ok
-				? { calibrationId: null, slope: s, intercept: i, label: `manual y = ${s}x + ${i}` }
+				? { standardCurveId: null, slope: s, intercept: i, label: `manual ${formatEquation(s, i)}` }
 				: emptyCurveSelection();
 		} else {
 			value = emptyCurveSelection();
@@ -108,14 +101,14 @@
 		if (!sensorId) return;
 		loadingCurves = true;
 		try {
-			const res = await api.sensorCalibrations.list({
+			const res = await api.standardCurves.list({
 				perPage: 200,
 				filter: { sensor_id: sensorId },
-				sort: ['valid_from', 'DESC'],
+				sort: ['created_at', 'DESC'],
 			});
 			curves = res.data;
 		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Failed to load curves');
+			toastStore.error(e instanceof Error ? e.message : 'Failed to load standard curves');
 		} finally {
 			loadingCurves = false;
 		}
@@ -161,7 +154,7 @@
 			{#if loadingCurves}
 				<p class="text-xs text-brand-muted">Loading…</p>
 			{:else if curves.length === 0}
-				<p class="text-xs text-brand-muted">No curves on this instrument</p>
+				<p class="text-xs text-brand-muted">No standard curves on this instrument</p>
 			{:else}
 				<select
 					bind:value={selectedCurveId}
@@ -171,7 +164,7 @@
 				>
 					<option value=""> - Select curve - </option>
 					{#each curves as c}
-						<option value={c.id}>{curveLabel(c)}</option>
+						<option value={c.id}>{curveOptionLabel(c)}</option>
 					{/each}
 				</select>
 			{/if}
@@ -200,12 +193,7 @@
 	{/if}
 
 	{#if value.slope !== null && value.intercept !== null}
-		<p class="text-xs text-brand-muted">
-			y = {value.slope}x + {value.intercept}
-			{#if corrected !== null && previewValue !== null}
-				&middot; {previewValue} &rarr; <span class="font-medium text-brand-text">{corrected.toPrecision(6)}</span>
-			{/if}
-		</p>
+		<p class="text-xs text-brand-muted">{formatEquation(value.slope, value.intercept)}</p>
 	{:else if !required}
 		<p class="text-xs text-brand-muted">No correction applied</p>
 	{/if}

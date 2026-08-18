@@ -677,13 +677,13 @@
 		gridRows[grid.key] = (gridRows[grid.key] ?? []).filter((_, i) => i !== idx);
 	}
 
-	// Provenance note for the save step: stored curves carry their calibration id.
+	// Provenance note for the save step: stored curves carry their standard-curve id.
 	const curveNote = $derived.by(() => {
 		if (!activeTool) return '';
 		return (activeTool.curves ?? [])
 			.map((c) => {
 				const sel = curveSelections[c.key];
-				return sel?.calibrationId ? `${c.title}: ${sel.label} [${sel.calibrationId}]` : null;
+				return sel?.standardCurveId ? `${c.title}: ${sel.label} [${sel.standardCurveId}]` : null;
 			})
 			.filter((p): p is string => p !== null)
 			.join('; ');

@@ -4,6 +4,7 @@
 	import 'uplot/dist/uPlot.min.css';
 	import { makeSeries, makeAxis, makeGaps, uPlotTheme, tzDateOption } from '$lib/charts/uPlotTheme';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
+	import { formatEquation } from '$lib/standardCurves';
 	import {
 		sensorVectorBandPlugin, calibrationMarkerPlugin, calibrationWindowBandPlugin,
 		bandAtTime, calibrationAtTime,
@@ -286,7 +287,7 @@
 						{/if}
 						{#if hoverInfo.cal}
 							<div style="font-size:11px;line-height:17px;color:{uPlotTheme.tooltipColor};opacity:0.9">
-								Calibration: y = {hoverInfo.cal.slope}x + {hoverInfo.cal.intercept}
+								Calibration: {formatEquation(hoverInfo.cal.slope, hoverInfo.cal.intercept)}
 							</div>
 						{/if}
 					</div>

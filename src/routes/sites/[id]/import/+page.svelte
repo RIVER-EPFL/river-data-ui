@@ -36,6 +36,7 @@
 		derived_job_id: string | null;
 		derived_timestamps: number;
 		duplicates: number;
+		replicate_groups: number;
 		overlaps_identical: number;
 		overlaps_differing: number;
 		overlap_sample: OverlapDiff[];
@@ -447,6 +448,12 @@
 					</tbody>
 				</table>
 			</div>
+
+			{#if plan.replicate_groups > 0}
+				<div class="mt-3 rounded-md bg-brand-primary/5 border border-brand-primary/30 px-3 py-2 text-sm">
+					<strong>{plan.replicate_groups}</strong> timestamp{plan.replicate_groups === 1 ? ' has' : 's have'} multiple values and will be stored as replicate sets.
+				</div>
+			{/if}
 
 			{#if plan.warnings.length > 0}
 				<div class="mt-3 rounded-md bg-severity-warning-soft px-3 py-2 text-sm">

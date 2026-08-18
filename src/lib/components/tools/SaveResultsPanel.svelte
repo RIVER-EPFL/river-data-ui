@@ -1,9 +1,15 @@
 <script lang="ts">
 	import { base } from '$app/paths';
 	import { api, type Site, type SiteParameter, type Parameter, type Sensor, type StandardCurve } from '$api/crud';
-	import { saveGrabSample } from '$api/service';
+	import {
+		saveGrabSample,
+		grabConflictGroups,
+		type GrabExistingGroup,
+		type GrabPreviewRow,
+		type GrabSampleReading,
+	} from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
+	import { toDatetimeLocal, fromDatetimeLocal, formatDateTime } from '$lib/utils';
 	import { curveEquation, curveLabel } from '$lib/standardCurves';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
@@ -115,6 +121,15 @@
 	let included = $state<Record<string, boolean>>({});
 	let paramChoices = $state<Record<string, string>>({});
 
+	// Server-computed correction chain for the current inputs, refreshed via dry_run.
+	let preview = $state<GrabPreviewRow[]>([]);
+	let previewGroups = $state<GrabExistingGroup[]>([]);
+	let previewBusy = $state(false);
+	// Existing replicate groups from a refused save; confirming re-sends with mode: 'replace'.
+	let conflictGroups = $state<GrabExistingGroup[] | null>(null);
+	let previewTimer: ReturnType<typeof setTimeout> | null = null;
+	let previewGeneration = 0;
+
 	$effect(() => {
 		if (!open) return;
 		selectedSiteId = '';
@@ -126,6 +141,9 @@
 		collectedZone = BROWSER_ZONE;
 		label = '';
 		notes = curveNote;
+		preview = [];
+		previewGroups = [];
+		conflictGroups = null;
 		const inc: Record<string, boolean> = {};
 		const pc: Record<string, string> = {};
 		for (const r of rows) {
@@ -250,34 +268,90 @@
 			!duplicateParam,
 	);
 
-	async function handleSave() {
+	function buildReadings(): GrabSampleReading[] {
+		const time = fromDatetimeLocal(collectedAt, collectedZone);
+		return includedRows.flatMap((r) =>
+			r.values.map((v, idx) => ({
+				parameter_id: paramChoices[r.id],
+				time,
+				value: v.value,
+				replicate_index: idx,
+				...(selectedSensorId ? { sensor_id: selectedSensorId } : {}),
+				...(sentCurveId ? { standard_curve_id: sentCurveId } : {}),
+			})),
+		);
+	}
+
+	async function refreshPreview() {
+		if (!open) return;
+		const gen = ++previewGeneration;
+		previewBusy = true;
+		try {
+			const res = await saveGrabSample({
+				site_id: selectedSiteId,
+				dry_run: true,
+				readings: buildReadings(),
+			});
+			if (gen !== previewGeneration) return;
+			preview = res.preview ?? [];
+			previewGroups = res.existing_groups ?? [];
+		} catch {
+			if (gen !== previewGeneration) return;
+			preview = [];
+			previewGroups = [];
+		} finally {
+			if (gen === previewGeneration) previewBusy = false;
+		}
+	}
+
+	$effect(() => {
+		if (!open || !canSave) {
+			preview = [];
+			previewGroups = [];
+			return;
+		}
+		// Read every input the request depends on so a change re-arms the debounce.
+		void buildReadings();
+		// Changed inputs invalidate a shown conflict; the next save asks again.
+		conflictGroups = null;
+		if (previewTimer) clearTimeout(previewTimer);
+		previewTimer = setTimeout(() => {
+			previewTimer = null;
+			void refreshPreview();
+		}, 400);
+	});
+
+	function paramNameById(parameterId: string): string {
+		const sp = siteParams.find((p) => p.parameter_id === parameterId);
+		if (sp) return paramLabel(sp);
+		return params.find((p) => p.id === parameterId)?.name ?? parameterId.slice(0, 8);
+	}
+
+	async function handleSave(replace = false) {
 		if (!canSave) return;
 		saving = true;
 		try {
-			const time = fromDatetimeLocal(collectedAt, collectedZone);
-			const readings = includedRows.flatMap((r) =>
-				r.values.map((v, idx) => ({
-					parameter_id: paramChoices[r.id],
-					time,
-					value: v.value,
-					replicate_index: idx,
-					...(selectedSensorId ? { sensor_id: selectedSensorId } : {}),
-					...(sentCurveId ? { standard_curve_id: sentCurveId } : {}),
-				})),
-			);
 			const res = await saveGrabSample({
 				site_id: selectedSiteId,
 				...(label.trim() ? { label: label.trim() } : {}),
 				...(notes.trim() ? { notes: notes.trim() } : {}),
-				readings,
+				...(replace ? { mode: 'replace' as const } : {}),
+				readings: buildReadings(),
 			});
 			toastStore.success(
 				`Saved ${res.inserted} reading${res.inserted === 1 ? '' : 's'}` +
-					(res.samples_created ? ` (${res.samples_created} sample${res.samples_created === 1 ? '' : 's'})` : ''),
+					(res.samples_created ? ` (${res.samples_created} sample${res.samples_created === 1 ? '' : 's'})` : '') +
+					(res.replaced ? `, replaced ${res.replaced}` : ''),
 			);
+			conflictGroups = null;
 			open = false;
 		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Failed to save to site');
+			const groups = grabConflictGroups(e);
+			if (groups) {
+				conflictGroups = groups;
+			} else {
+				toastStore.error(e instanceof Error ? e.message : 'Failed to save to site');
+			}
 		} finally {
 			saving = false;
 		}
@@ -420,6 +494,84 @@
 				<p class="text-xs text-brand-muted">Every included output needs a parameter (or untick it).</p>
 			{/if}
 
+			{#if canSave && (preview.length > 0 || previewBusy)}
+				<div class="rounded-md border border-brand-divider bg-brand-bg p-2.5">
+					<div class="flex items-center justify-between mb-1.5">
+						<span class="text-xs font-semibold">Correction preview</span>
+						{#if previewBusy}<span class="text-xs text-brand-muted">Updating…</span>{/if}
+					</div>
+					{#if preview.length > 0}
+						<div class="overflow-x-auto">
+							<table class="w-full text-xs">
+								<thead>
+									<tr class="text-left text-brand-muted">
+										<th class="px-1 py-0.5">Parameter</th>
+										<th class="px-1 py-0.5 text-right">Raw</th>
+										<th class="px-1 py-0.5">Calibration</th>
+										<th class="px-1 py-0.5">Standard curve</th>
+										<th class="px-1 py-0.5">Applied</th>
+										<th class="px-1 py-0.5 text-right">Calibrated</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each preview as row}
+										<tr class="border-t border-brand-divider">
+											<td class="px-1 py-0.5">
+												{paramNameById(row.parameter_id)}
+												{#if preview.filter((p) => p.parameter_id === row.parameter_id).length > 1}
+													<span class="text-brand-muted">#{row.replicate_index}</span>
+												{/if}
+											</td>
+											<td class="px-1 py-0.5 text-right font-mono">{row.raw_value}</td>
+											<td class="px-1 py-0.5 font-mono {row.base_calibration ? '' : 'text-brand-muted'}">
+												{row.base_calibration?.equation ?? 'None'}
+											</td>
+											<td class="px-1 py-0.5 {row.standard_curve ? '' : 'text-brand-muted'}">
+												{#if row.standard_curve}
+													{#if row.standard_curve.name}{row.standard_curve.name} {/if}<span class="font-mono">{row.standard_curve.equation}</span>
+												{:else}
+													None
+												{/if}
+											</td>
+											<td class="px-1 py-0.5 font-mono {row.composed_equation ? '' : 'text-brand-muted'}">
+												{row.composed_equation ?? 'None'}
+											</td>
+											<td class="px-1 py-0.5 text-right font-mono">
+												{row.calibrated_value ?? row.raw_value}
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{/if}
+					{#if previewGroups.length > 0}
+						<p class="text-xs text-severity-warning-text mt-1.5">
+							{previewGroups.length} replicate group{previewGroups.length === 1 ? '' : 's'} already exist
+							at this timestamp; saving will ask before replacing them.
+						</p>
+					{/if}
+				</div>
+			{/if}
+
+			{#if conflictGroups}
+				<div class="rounded-md border border-severity-warning-border bg-severity-warning-soft p-2.5 space-y-1.5">
+					<p class="text-sm font-medium text-severity-warning-text">
+						Readings already exist for {conflictGroups.length === 1 ? 'this parameter and timestamp' : 'these parameters and timestamps'}.
+					</p>
+					{#each conflictGroups as g}
+						<div class="text-xs">
+							<span class="font-medium">{paramNameById(g.parameter_id)}</span>
+							<span class="text-brand-muted">at {formatDateTime(g.time)}:</span>
+							<span class="font-mono">
+								{g.replicates.map((r) => r.calibrated_value ?? r.raw_value).join(', ')}
+							</span>
+						</div>
+					{/each}
+					<p class="text-xs">Replace overwrites the stored replicates with the values above.</p>
+				</div>
+			{/if}
+
 			<div class="grid grid-cols-2 gap-3">
 				<div class="flex flex-col gap-1">
 					<label for="srp-label" class="text-sm font-medium">Label <span class="text-brand-muted font-normal">(optional)</span></label>
@@ -442,8 +594,14 @@
 	{/snippet}
 	{#snippet actions()}
 		<Button onclick={() => (open = false)}>Cancel</Button>
-		<Button variant="primary" onclick={handleSave} disabled={saving || !canSave}>
-			{saving ? 'Saving…' : 'Save'}
-		</Button>
+		{#if conflictGroups}
+			<Button variant="danger" onclick={() => handleSave(true)} disabled={saving || !canSave}>
+				{saving ? 'Saving…' : 'Replace existing'}
+			</Button>
+		{:else}
+			<Button variant="primary" onclick={() => handleSave()} disabled={saving || !canSave}>
+				{saving ? 'Saving…' : 'Save'}
+			</Button>
+		{/if}
 	{/snippet}
 </Dialog>

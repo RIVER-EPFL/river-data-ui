@@ -1,4 +1,4 @@
-import { GET, POST, PATCH, PUT, DELETE } from './client';
+import { ApiError, GET, POST, PATCH, PUT, DELETE } from './client';
 import type { ApiToken, JobLogLine, ReprocessingJob } from './crud';
 
 // Single unified API tier. The `ADMIN` and `SERVICE` constants alias the same path,
@@ -799,16 +799,69 @@ export interface GrabSampleRequest {
 	// Stamped onto the samples rows the request creates or reuses.
 	label?: string;
 	notes?: string;
+	// Without 'replace', writing to an existing replicate group is refused with 409 and the
+	// existing groups in the error detail; 'replace' overwrites them.
+	mode?: 'replace';
+	// Computes everything (preview and existing_groups included) and writes nothing.
+	dry_run?: boolean;
 	readings: GrabSampleReading[];
+}
+
+export interface GrabPreviewCurve {
+	id: string;
+	name: string | null;
+	slope: number;
+	intercept: number;
+	equation: string;
+}
+
+export interface GrabPreviewRow {
+	parameter_id: string;
+	time: string;
+	replicate_index: number;
+	raw_value: number;
+	base_calibration?: GrabPreviewCurve | null;
+	standard_curve?: GrabPreviewCurve | null;
+	composed_equation?: string | null;
+	calibrated_value?: number | null;
+}
+
+export interface GrabExistingReplicate {
+	replicate_index: number;
+	raw_value: number;
+	calibrated_value: number | null;
+	standard_curve_id: string | null;
+}
+
+export interface GrabExistingGroup {
+	parameter_id: string;
+	time: string;
+	replicates: GrabExistingReplicate[];
 }
 
 export interface GrabSampleResponse {
 	inserted: number;
 	samples_created: number;
+	created_sample_ids: string[];
+	dry_run: boolean;
+	replaced: number;
+	preview: GrabPreviewRow[];
+	existing_groups: GrabExistingGroup[];
 }
 
 export const saveGrabSample = (req: GrabSampleRequest) =>
 	POST<GrabSampleResponse>(`${SERVICE}/grab_samples`, req);
+
+/** Existing replicate groups from a grab-sample 409 body ({ error, detail }); null otherwise. */
+export function grabConflictGroups(e: unknown): GrabExistingGroup[] | null {
+	if (!(e instanceof ApiError) || e.status !== 409) return null;
+	try {
+		const body = JSON.parse(e.message) as { detail?: GrabExistingGroup[] };
+		return Array.isArray(body.detail) ? body.detail : [];
+	} catch {
+		return [];
+	}
+}
 
 // Schedules, the recurring-service control plane.
 export type OverlapPolicy = 'skip_if_running' | 'allow_concurrent';

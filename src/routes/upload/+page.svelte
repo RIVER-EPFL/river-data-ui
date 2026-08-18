@@ -3,6 +3,7 @@
 	import Papa from 'papaparse';
 	import { api, type Site, type Parameter } from '$api/crud';
 	import { POST } from '$api/client';
+	import { grabConflictGroups, type GrabExistingGroup } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
@@ -94,6 +95,8 @@
 	let uploadProgress = $state(0);
 	let uploadResult = $state<{ inserted: number; total: number; duplicates: number } | null>(null);
 	let uploadError = $state<{ message: string; insertedBefore: number } | null>(null);
+	// Replicate groups already stored at the uploaded timestamps; confirming re-runs with replace.
+	let grabConflict = $state<GrabExistingGroup[] | null>(null);
 
 	// --- Derived ---
 	const siteMap = $derived(new Map(sites.map((s) => [s.name.toLowerCase(), s])));
@@ -349,7 +352,10 @@
 
 	// Grab samples go to a per-site endpoint, and a replicate group (same parameter and time) must
 	// land in one request so the API can form its sample and number the replicates consistently.
-	function buildGrabSampleRequests(allRows: Array<Record<string, unknown>>): UploadRequest[] {
+	function buildGrabSampleRequests(
+		allRows: Array<Record<string, unknown>>,
+		replace: boolean,
+	): UploadRequest[] {
 		const bySite = new Map<string, Map<string, Array<Record<string, unknown>>>>();
 		for (const row of allRows) {
 			const { site_id, ...reading } = row;
@@ -366,7 +372,11 @@
 			let chunk: Array<Record<string, unknown>> = [];
 			const flush = () => {
 				if (chunk.length === 0) return;
-				requests.push({ endpoint: '/api/grab_samples', body: { site_id: siteId, readings: chunk }, rows: chunk.length });
+				requests.push({
+					endpoint: '/api/grab_samples',
+					body: { site_id: siteId, readings: chunk, ...(replace ? { mode: 'replace' } : {}) },
+					rows: chunk.length,
+				});
 				chunk = [];
 			};
 			for (const group of groups.values()) {
@@ -389,8 +399,8 @@
 		return requests;
 	}
 
-	function buildRequests(allRows: Array<Record<string, unknown>>): UploadRequest[] {
-		return entityType === 'grab_samples' ? buildGrabSampleRequests(allRows) : buildBatchRequests(allRows);
+	function buildRequests(allRows: Array<Record<string, unknown>>, replace: boolean): UploadRequest[] {
+		return entityType === 'grab_samples' ? buildGrabSampleRequests(allRows, replace) : buildBatchRequests(allRows);
 	}
 
 	// The API reports a rejected write as {"error": "…"}; the client surfaces the raw body, so
@@ -406,14 +416,15 @@
 		return raw || 'Upload failed';
 	}
 
-	async function handleUpload() {
+	async function handleUpload(replace = false) {
 		uploading = true;
 		uploadProgress = 0;
 		uploadResult = null;
 		uploadError = null;
+		grabConflict = null;
 
 		const allRows = buildPayload();
-		const requests = buildRequests(allRows);
+		const requests = buildRequests(allRows, replace);
 		let totalInserted = 0;
 
 		try {
@@ -429,11 +440,16 @@
 			toastStore.success(`Uploaded ${totalInserted} records`);
 			step = 'upload';
 		} catch (e) {
-			// The batch endpoints reject a chunk whole, so the message names the offending
-			// timestamp or value. Keep it on the page: a toast is gone before the user has
-			// found the row it refers to.
-			uploadError = { message: serverMessage(e), insertedBefore: totalInserted };
-			toastStore.error('Upload failed');
+			const groups = grabConflictGroups(e);
+			if (groups) {
+				grabConflict = groups;
+			} else {
+				// The batch endpoints reject a chunk whole, so the message names the offending
+				// timestamp or value. Keep it on the page: a toast is gone before the user has
+				// found the row it refers to.
+				uploadError = { message: serverMessage(e), insertedBefore: totalInserted };
+				toastStore.error('Upload failed');
+			}
 		} finally {
 			uploading = false;
 		}
@@ -475,6 +491,7 @@
 		uploadProgress = 0;
 		uploadResult = null;
 		uploadError = null;
+		grabConflict = null;
 	}
 
 	function resolvedSiteName(row: Record<string, string>): string {
@@ -791,7 +808,7 @@
 					</Button>
 					<Button
 						variant="primary"
-						onclick={handleUpload}
+						onclick={() => handleUpload()}
 						disabled={!canUpload || uploading}
 					>
 						{#if uploading}
@@ -805,6 +822,28 @@
 				{#if uploading}
 					<div class="w-full bg-brand-bg rounded-full h-2 overflow-hidden">
 						<div class="bg-brand-primary h-full rounded-full transition-[width] duration-300" style:width="{uploadProgress}%"></div>
+					</div>
+				{/if}
+
+				{#if grabConflict}
+					<div class="rounded-md border border-severity-warning-border bg-severity-warning-soft px-4 py-3 space-y-2 text-sm">
+						<p class="font-medium text-severity-warning-text">
+							{grabConflict.length} replicate group{grabConflict.length === 1 ? '' : 's'} already stored
+							at the uploaded timestamps. Nothing was replaced.
+						</p>
+						{#each grabConflict.slice(0, 10) as g}
+							<div class="text-xs">
+								<span class="font-medium">{params.find((p) => p.id === g.parameter_id)?.name ?? g.parameter_id.slice(0, 8)}</span>
+								<span class="text-brand-muted">at {g.time}:</span>
+								<span class="font-mono">{g.replicates.map((r) => r.calibrated_value ?? r.raw_value).join(', ')}</span>
+							</div>
+						{/each}
+						{#if grabConflict.length > 10}
+							<p class="text-xs text-brand-muted">…and {grabConflict.length - 10} more</p>
+						{/if}
+						<Button variant="danger" size="sm" disabled={uploading} onclick={() => handleUpload(true)}>
+							Replace existing replicates
+						</Button>
 					</div>
 				{/if}
 
