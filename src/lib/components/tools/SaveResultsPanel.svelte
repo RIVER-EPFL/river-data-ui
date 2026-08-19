@@ -12,12 +12,14 @@
 <script lang="ts">
 	import { base } from '$app/paths';
 	import { api, type Site, type SiteParameter, type Parameter, type Sensor, type StandardCurve } from '$api/crud';
+	import { listAll } from '$api/paged';
 	import {
 		saveGrabSample,
 		grabConflictGroups,
 		type GrabExistingGroup,
 		type GrabPreviewRow,
 		type GrabSampleReading,
+		type ToolCurveSnapshot,
 		type ToolOutput,
 		type ToolVersionRef,
 	} from '$api/service';
@@ -45,6 +47,8 @@
 		toolVersion = null,
 		calcInputs = null,
 		curvesUsed = [],
+		serverConstants = null,
+		serverCurves = [],
 		appliedCurveLabel = '',
 	}: {
 		open: boolean;
@@ -56,7 +60,12 @@
 		toolVersion?: ToolVersionRef | null;
 		/** The exact calculate request body these results came from. */
 		calcInputs?: Record<string, unknown> | null;
+		/** The browser's curve picker state; a fallback for provenance when `serverCurves` is empty. */
 		curvesUsed?: UsedCurve[];
+		/** Constant values the server resolved for this run, by name. */
+		serverConstants?: Record<string, number> | null;
+		/** Curves as the runner received them, the authority on what produced these numbers. */
+		serverCurves?: ToolCurveSnapshot[];
 		/**
 		 * Set when the tool consumed a standard curve during the calculation, so these values are
 		 * already corrected. The curve is then shown read-only and no `standard_curve_id` is sent:
@@ -70,19 +79,47 @@
 		displayKey: string;
 		label: string | null;
 		units: string | null;
-		values: { key: string; value: number }[];
+		/** `index` is the replicate slot the value is stored at; see `replicateIndex`. */
+		values: { key: string; value: number; index: number }[];
 		replicateGroup: boolean;
-		/** avg/sd of another output: display-only, never saved. */
-		aggregate: boolean;
+		/** Names no catalog parameter, so there is nowhere to write it: display-only. */
+		displayOnly: boolean;
+		/** The parameter the server resolved this output to, null when it resolves to nothing. */
+		resolvedParameterId: string | null;
 		suggestedCode: string | null;
 		defaultInclude: boolean;
 	}
 
 	const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+	/** The catalog parameter an output declares, by either half of the declaration. */
+	const linkedParameter = (o: ToolOutput) =>
+		o.parameter?.id ?? o.parameter_id ?? o.suggested_parameter_code ?? null;
+
+	/**
+	 * An output is never saved when it names no catalog parameter (nowhere to write it) or when it
+	 * summarises another output, per replicate or not: a replicated measurement is stored at the
+	 * replicate level and its summaries are derived by the database.
+	 */
+	const displayOnlyOutput = (o: ToolOutput) => o.aggregate_of !== null || !linkedParameter(o);
+
+	const LETTER_A = 'A'.charCodeAt(0);
+
+	/**
+	 * The replicate slot a suffix stands for. Replicate letters are a client-side convention with no
+	 * server-side representation, so the mapping is decided here: a single letter is its position in
+	 * the alphabet, anything else falls back to its position in the sorted group.
+	 */
+	function replicateIndices(suffixes: string[]): number[] {
+		const letters = suffixes.map((s) => (/^[A-Za-z]$/.test(s) ? s.toUpperCase().charCodeAt(0) - LETTER_A : -1));
+		const usable = letters.every((n) => n >= 0) && new Set(letters).size === letters.length;
+		return usable ? letters : suffixes.map((_, i) => i);
+	}
+
 	// Rows follow the manifest: per_replicate outputs group their suffixed result keys
-	// ({base}_{rep}); aggregate_of rows are display-only. Result keys no output covers fall back
-	// to plain single-value rows.
+	// ({base}_{rep}). An output that names no catalog parameter has nowhere to be written and is
+	// display-only, whether it summarises another output or nothing at all. Result keys no output
+	// covers fall back to plain single-value rows, mapped by hand.
 	const rows = $derived.by((): ResultRow[] => {
 		const numeric = Object.entries(results ?? {}).filter(
 			([, v]) => typeof v === 'number' && Number.isFinite(v as number),
@@ -90,43 +127,52 @@
 		const byKey = new Map(numeric);
 		const covered = new Set<string>();
 		const out: ResultRow[] = [];
+		// A replicate suffix pattern also matches the manifest's own avg/sd keys (DIC_{rep} against
+		// DIC_avg), so keys another output declares are never swept into the replicate group: they
+		// are aggregates, and saving them as replicates would skew the sample statistics.
+		const declaredElsewhere = new Set(outputs.filter((o) => !o.per_replicate).map((o) => o.key));
 
 		for (const o of outputs) {
 			const cbase = o.key.replace(/_?\{rep\}/, '');
 			if (o.per_replicate) {
 				const re = new RegExp(`^${esc(cbase)}_([A-Za-z0-9]+)$`);
 				const members = numeric
-					.filter(([k]) => !covered.has(k) && re.test(k))
+					.filter(([k]) => !covered.has(k) && !declaredElsewhere.has(k) && re.test(k))
 					.map(([key, value]) => ({ key, value, suffix: key.match(re)![1] }))
 					.sort((a, b) => a.suffix.localeCompare(b.suffix, undefined, { numeric: true }));
 				if (members.length === 0) continue;
 				for (const m of members) covered.add(m.key);
+				// A family can be gapped: a replicate the script could not compute has no key at all.
+				// Indices come from the letters so the gap is stored rather than closed up.
+				const indices = replicateIndices(members.map((m) => m.suffix));
 				out.push({
 					id: cbase,
 					displayKey: cbase,
 					label: o.label,
 					units: o.units,
-					values: members.map(({ key, value }) => ({ key, value })),
+					values: members.map(({ key, value }, i) => ({ key, value, index: indices[i] })),
 					replicateGroup: members.length > 1,
-					aggregate: false,
-					suggestedCode: o.suggested_parameter_code,
-					defaultInclude: true,
+					displayOnly: displayOnlyOutput(o),
+					resolvedParameterId: o.parameter?.id ?? null,
+					suggestedCode: o.parameter?.code ?? o.suggested_parameter_code,
+					defaultInclude: !displayOnlyOutput(o),
 				});
 			} else {
 				const value = byKey.get(o.key);
 				if (value === undefined || covered.has(o.key)) continue;
 				covered.add(o.key);
-				const aggregate = o.aggregate_of !== null;
+				const displayOnly = displayOnlyOutput(o);
 				out.push({
 					id: o.key,
 					displayKey: o.key,
 					label: o.label,
 					units: o.units,
-					values: [{ key: o.key, value }],
+					values: [{ key: o.key, value, index: 0 }],
 					replicateGroup: false,
-					aggregate,
-					suggestedCode: o.suggested_parameter_code,
-					defaultInclude: !aggregate,
+					displayOnly,
+					resolvedParameterId: o.parameter?.id ?? null,
+					suggestedCode: o.parameter?.code ?? o.suggested_parameter_code,
+					defaultInclude: !displayOnly,
 				});
 			}
 		}
@@ -137,9 +183,10 @@
 				displayKey: key,
 				label: null,
 				units: null,
-				values: [{ key, value }],
+				values: [{ key, value, index: 0 }],
 				replicateGroup: false,
-				aggregate: false,
+				displayOnly: false,
+				resolvedParameterId: null,
 				suggestedCode: null,
 				defaultInclude: true,
 			});
@@ -147,7 +194,7 @@
 		return out;
 	});
 
-	const saveableRows = $derived(rows.filter((r) => !r.aggregate));
+	const saveableRows = $derived(rows.filter((r) => !r.displayOnly));
 
 	let sites = $state<Site[]>([]);
 	let params = $state<Parameter[]>([]);
@@ -182,16 +229,42 @@
 	let previewTimer: ReturnType<typeof setTimeout> | null = null;
 	let previewGeneration = 0;
 
+	// What the runner actually received wins over the browser's picker state: the server resolves a
+	// slot to a curve, and only its answer can say which coefficients produced a number. The picker
+	// state stands in when a run predates the server snapshot.
+	const resolvedCurves = $derived.by((): UsedCurve[] =>
+		serverCurves.length > 0
+			? serverCurves.map((c) => ({
+					name: c.name,
+					slope: c.curve.slope,
+					intercept: c.curve.intercept,
+					label: c.curve.label,
+					standard_curve_id: c.curve.standard_curve_id,
+				}))
+			: curvesUsed,
+	);
+
 	// Stored curves consumed by the calculation, noted into the sample notes by default.
 	const curveNote = $derived(
-		curvesUsed
+		resolvedCurves
 			.filter((c) => c.standard_curve_id)
 			.map((c) => `${c.name}: ${c.label ?? c.standard_curve_id} [${c.standard_curve_id}]`)
 			.join('; '),
 	);
 
+	// One calculation's identity. Reopening the dialog on the same results keeps the site, mapping
+	// and notes the operator already set; a new calculation starts clean.
+	const resultSignature = $derived(`${toolName}|${JSON.stringify(results ?? {})}`);
+	// Plain, not reactive: the effect below writes it, and a reactive read would re-arm the effect.
+	let appliedSignature = '';
+
 	$effect(() => {
 		if (!open) return;
+		if (resultSignature === appliedSignature) {
+			void loadSites();
+			return;
+		}
+		appliedSignature = resultSignature;
 		selectedSiteId = '';
 		siteParams = [];
 		selectedSensorId = '';
@@ -215,17 +288,23 @@
 		void loadSites();
 	});
 
+	// Every list is paged to completion: mapping an output to a parameter is a lookup by name over
+	// the whole catalog, and a single page silently stops matching once the table outgrows it.
 	async function loadSites() {
 		if (sites.length > 0) return;
 		try {
 			const [s, p, i] = await Promise.all([
-				api.sites.list({ perPage: 200, sort: ['name', 'ASC'] }),
-				api.parameters.list({ perPage: 500 }),
-				api.sensors.list({ perPage: 1000, filter: { is_active: true }, sort: ['name', 'ASC'] }),
+				listAll(api.sites, { perPage: 200, sort: ['name', 'ASC'] }),
+				listAll(api.parameters, { perPage: 500, sort: ['name', 'ASC'] }),
+				listAll(api.sensors, {
+					perPage: 500,
+					filter: { is_active: true },
+					sort: ['name', 'ASC'],
+				}),
 			]);
-			sites = s.data;
-			params = p.data;
-			instruments = i.data;
+			sites = s;
+			params = p;
+			instruments = i;
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Failed to load sites');
 		}
@@ -262,14 +341,17 @@
 		}
 	}
 
-	async function loadSiteParameters(siteId: string) {
-		siteParams = [];
+	/** `applyDefaults` is false when refreshing after an inline add, which must not clobber choices. */
+	async function loadSiteParameters(siteId: string, applyDefaults = true) {
+		if (applyDefaults) siteParams = [];
 		if (!siteId) return;
 		loadingSite = true;
 		try {
-			const res = await api.siteParameters.list({ perPage: 500, filter: { site_id: siteId } });
-			siteParams = res.data;
-			applyDefaultMappings();
+			siteParams = await listAll(api.siteParameters, {
+				perPage: 500,
+				filter: { site_id: siteId },
+			});
+			if (applyDefaults) applyDefaultMappings();
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Failed to load site parameters');
 		} finally {
@@ -277,33 +359,58 @@
 		}
 	}
 
-	// Default each row's parameter from the manifest's suggested_parameter_code against the
-	// catalog code of parameters configured at the site, then a case-insensitive match of the
-	// result key against code/name as fallback.
+	// Matching ignores case, spaces, underscores and hyphens so a result key still finds the catalog
+	// entry an operator would call the same analyte.
+	const norm = (s: string | null | undefined) =>
+		(s ?? '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+
+	// Each row maps to the parameter the server resolved for that output, matched against the
+	// parameters configured at the site. String matching is the fallback only: the seeded manifests
+	// declare a code rather than an id, and some of those codes still have no catalog row.
 	function applyDefaultMappings() {
 		const next = { ...paramChoices };
 		for (const r of saveableRows) {
-			const bySuggestion = r.suggestedCode
-				? siteParams.find((sp) => {
-						const p = params.find((pp) => pp.id === sp.parameter_id);
-						return p?.code.toLowerCase() === r.suggestedCode!.toLowerCase();
-					})
+			const byId = r.resolvedParameterId
+				? siteParams.find((sp) => sp.parameter_id === r.resolvedParameterId)
 				: undefined;
-			const wanted = r.displayKey.toLowerCase();
+			const bySuggestion =
+				byId ??
+				(r.suggestedCode
+					? siteParams.find((sp) => {
+							const p = params.find((pp) => pp.id === sp.parameter_id);
+							return norm(p?.code) === norm(r.suggestedCode);
+						})
+					: undefined);
+			const wanted = norm(r.displayKey);
 			const byKey =
 				bySuggestion ??
 				siteParams.find((sp) => {
 					const p = params.find((pp) => pp.id === sp.parameter_id);
 					return (
-						p?.code.toLowerCase() === wanted ||
-						p?.name.toLowerCase() === wanted ||
-						sp.name?.toLowerCase() === wanted
+						norm(p?.code) === wanted ||
+						norm(p?.name) === wanted ||
+						norm(sp.name) === wanted ||
+						(p?.aliases ?? []).some((a) => norm(a) === wanted)
 					);
 				});
 			next[r.id] = byKey?.parameter_id ?? '';
 		}
 		paramChoices = next;
 	}
+
+	// A row's parameter arrived at the site while the dialog was open, so map it and keep going. The
+	// catalog is re-read too: a brand new entry is not in the list this panel loaded on open, and
+	// every label and preview name resolves through it.
+	async function handleParameterCreated(rowId: string, parameterId: string) {
+		const [catalog] = await Promise.all([
+			listAll(api.parameters, { perPage: 500, sort: ['name', 'ASC'] }),
+			loadSiteParameters(selectedSiteId, false),
+		]);
+		params = catalog;
+		paramChoices = { ...paramChoices, [rowId]: parameterId };
+	}
+
+	const selectedSiteName = $derived(sites.find((s) => s.id === selectedSiteId)?.name ?? null);
 
 	function paramLabel(sp: SiteParameter): string {
 		const param = params.find((p) => p.id === sp.parameter_id);
@@ -337,29 +444,35 @@
 			!duplicateParam,
 	);
 
+	// Every reading carries its index: the endpoint preserves a set of indices only when all of them
+	// are explicit, and numbers the group contiguously from 0 otherwise, which would close a gap in a
+	// replicate family and record the wrong replicate for every value after it.
 	function buildReadings(): GrabSampleReading[] {
 		const time = fromDatetimeLocal(collectedAt, collectedZone);
 		return includedRows.flatMap((r) =>
-			r.values.map((v, idx) => ({
+			r.values.map((v) => ({
 				parameter_id: paramChoices[r.id],
 				time,
 				value: v.value,
-				replicate_index: idx,
+				replicate_index: v.index,
 				...(selectedSensorId ? { sensor_id: selectedSensorId } : {}),
 				...(sentCurveId ? { standard_curve_id: sentCurveId } : {}),
 			})),
 		);
 	}
 
-	// Provenance stamped onto the samples rows: the run's identity, exact inputs, curves,
-	// full output map, and which outputs land on which parameters.
+	// Provenance stamped onto the samples rows: the run's identity (including the runner image and R
+	// version the response carries), exact inputs, the constants and curves the server resolved,
+	// full output map, and which outputs land on which parameters. The constants and curves come
+	// from the response rather than from this form, so the blob says what produced the numbers.
 	function buildProvenance(): Record<string, unknown> | undefined {
 		if (!toolName || !toolVersion) return undefined;
 		return {
 			tool: toolName,
 			tool_version: toolVersion,
 			inputs: calcInputs ?? {},
-			curves: curvesUsed,
+			constants: serverConstants ?? {},
+			curves: resolvedCurves,
 			outputs: results ?? {},
 			saved: Object.fromEntries(includedRows.map((r) => [r.id, paramChoices[r.id]])),
 		};
@@ -537,9 +650,9 @@
 					</thead>
 					<tbody>
 						{#each rows as row (row.id)}
-							<tr class="border-t border-brand-divider {row.aggregate ? 'text-brand-muted' : ''}">
+							<tr class="border-t border-brand-divider {row.displayOnly ? 'text-brand-muted' : ''}">
 								<td class="px-1 py-1.5 align-top">
-									{#if !row.aggregate}
+									{#if !row.displayOnly}
 										<input
 											type="checkbox"
 											bind:checked={included[row.id]}
@@ -558,17 +671,29 @@
 									{row.values.map((v) => v.value.toPrecision(6)).join(', ')}
 								</td>
 								<td class="px-1 py-1.5 align-top">
-									{#if row.aggregate}
-										<span class="text-xs text-brand-muted">Computed from replicates; not saved</span>
+									{#if row.displayOnly}
+										<span class="text-xs text-brand-muted">Not saved</span>
 									{:else}
+										<!-- Function binding: the choices map is filled by the reset effect, which runs
+										     after the dialog body first renders, so a plain binding would hand the
+										     child `undefined`. -->
 										<ParameterSelect
-											bind:value={paramChoices[row.id]}
+											bind:value={
+												() => paramChoices[row.id] ?? '',
+												(v) => (paramChoices = { ...paramChoices, [row.id]: v })
+											}
 											siteId={selectedSiteId || null}
 											{siteParams}
 											parameters={params}
 											disabled={!selectedSiteId || loadingSite || !included[row.id]}
 											placeholder={loadingSite ? 'Loading…' : !selectedSiteId ? 'Select a site first' : ' - Select a parameter at this site - '}
 											ariaLabel="Parameter for {row.displayKey}"
+											allowAdd
+											siteName={selectedSiteName}
+											wantedCode={row.suggestedCode ?? row.displayKey}
+											wantedLabel={row.label}
+											wantedUnits={row.units}
+											onCreated={(parameterId) => handleParameterCreated(row.id, parameterId)}
 										/>
 									{/if}
 								</td>
@@ -676,7 +801,8 @@
 			<p class="text-xs text-brand-muted">
 				Saves the ticked outputs as grab-sample readings at the selected site. Replicate outputs
 				share a timestamp with replicate indices so a sample (mean, sd, n) forms; the label,
-				notes and the run's provenance (tool version, inputs, curves, outputs) are stored on
+				notes and the run's provenance (tool version and runner, inputs, constants, curves,
+				outputs) are stored on
 				those samples. With an instrument set, its calibration for that timestamp is applied,
 				then the standard curve if one is chosen; with neither, the reading keeps its raw value
 				and no corrected value.

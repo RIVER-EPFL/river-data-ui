@@ -780,6 +780,53 @@ export const searchDirectoryUsers = (q: string) =>
 // Analytical tools. `GET /tools` serves the manifest of every active DB-stored R script;
 // `POST /tools/{name}/calculate` runs one. Kinds: number | integer | string | boolean |
 // enum:<v1|v2|...> | array | object | replicate_grid.
+/**
+ * The object form of a param's `when`: a condition on another param's value, carrying either
+ * `equals` or `any_of`. This is the form the server enforces requiredness through.
+ */
+export interface ToolParamCondition {
+	param: string;
+	equals?: unknown;
+	any_of?: unknown[];
+}
+
+/** A plain string is an advisory note and gates nothing; the object form is a condition. */
+export type ToolParamWhen = string | ToolParamCondition;
+
+export function isToolParamCondition(when: ToolParamWhen | null): when is ToolParamCondition {
+	return typeof when === 'object' && when !== null;
+}
+
+/** One column of a structured param, as the manifest declares it. */
+export interface ToolStructField {
+	name: string;
+	label: string;
+	units: string | null;
+	required: boolean;
+	/** Numbers the field holds; above 1 it is a list, entered as that many inputs. */
+	values: number;
+	/** False for a column typed on the bench to feed a computed one, and never sent. */
+	send: boolean;
+	/** `[minuend, subtrahend]`, both naming fields of the same structure. */
+	computed: { subtract: [string, string] } | null;
+}
+
+/**
+ * What a structured param's value holds. `object` is one object of fields, `rows` an array of
+ * them, `lists` an object of number lists keyed by field name.
+ */
+export interface ToolStructure {
+	layout: 'object' | 'rows' | 'lists';
+	fields: ToolStructField[];
+	rows: number;
+	max_rows: number | null;
+	row_labels: 'letters' | 'numbers';
+	values: number;
+	value_labels: string[];
+	/** True where the tool reads more column spellings than the form offers. */
+	additional_fields: boolean;
+}
+
 export interface ToolParam {
 	name: string;
 	label: string;
@@ -787,8 +834,30 @@ export interface ToolParam {
 	units: string | null;
 	required: boolean;
 	default: unknown;
-	/** Free-text note when requiredness depends on a mode; never hard-required client-side. */
-	when: string | null;
+	/** Null when the param is unconditional; see `ToolParamWhen` for the two forms. */
+	when: ToolParamWhen | null;
+	/** Absent on a scalar param, and on a structured one whose columns nothing declares. */
+	structure?: ToolStructure | null;
+}
+
+/** Which half of an output's declaration the server found the catalog row by. */
+export type ToolParameterResolvedBy = 'id' | 'code';
+
+/**
+ * The catalog parameter an output saves to, resolved server-side against the database serving the
+ * request. A client reads this instead of matching codes against whatever slice of the catalog it
+ * happens to hold.
+ */
+export interface ResolvedParameter {
+	id: string;
+	code: string;
+	name: string;
+	default_units: string | null;
+	/** True for a catalog entry created mechanically rather than by a person. */
+	needs_review: boolean;
+	resolved_by: ToolParameterResolvedBy;
+	/** True when `parameter_id` names no catalog row and the code resolved instead. */
+	dangling_parameter_id: boolean;
 }
 
 export interface ToolOutput {
@@ -799,13 +868,57 @@ export interface ToolOutput {
 	per_replicate: boolean;
 	/** Set on avg/sd rows computed from another output; display-only, never saved. */
 	aggregate_of: string | null;
+	/** The catalog parameter this output saves to. Authoritative over the code when both are set. */
+	parameter_id: string | null;
+	/**
+	 * The portable half of the same link: an id means nothing in another database, so the seeded
+	 * manifests carry only this and the server stamps it whenever an output names an id alone.
+	 */
 	suggested_parameter_code: string | null;
+	/** Served by `GET /tools`, absent from a manifest an author is editing. */
+	parameter?: ResolvedParameter | null;
 }
 
 export interface ToolCurveSlot {
 	name: string;
 	label: string;
 	required: boolean;
+}
+
+/**
+ * A version's manifest: the tool's whole interface. Every list is optional on the wire (the
+ * server defaults each to empty), so a manifest under construction is a valid one.
+ */
+export interface ToolManifest {
+	label: string;
+	description?: string | null;
+	params?: ToolParam[];
+	outputs?: ToolOutput[];
+	/** Bare constant names; the server resolves their values from the constants table. */
+	constants?: string[];
+	curves?: ToolCurveSlot[];
+	match_keywords?: string[];
+}
+
+/**
+ * One stored test case. `curves` are merged into the request body alongside `inputs`, `expected`
+ * is compared key by key within the tolerance, and `absent` names keys the result must not carry.
+ * `constants` makes a case reproducible whatever the constants table holds; without it the case
+ * reads the catalog.
+ */
+export interface ToolTestCase {
+	name?: string;
+	inputs?: Record<string, unknown>;
+	curves?: Record<string, unknown>;
+	expected?: Record<string, unknown>;
+	absent?: string[];
+	constants?: Record<string, number>;
+}
+
+export interface ToolTestCases {
+	/** Relative, applied as tol * max(|expected|, 1). Defaults to 1e-9. */
+	tolerance?: number;
+	cases?: ToolTestCase[];
 }
 
 export interface ToolDescriptor {
@@ -823,9 +936,27 @@ export interface ToolDescriptor {
 }
 
 export interface ToolVersionRef {
-	script_version_id: string;
-	version_no: number;
+	/** Null for a draft run: no stored version produced those numbers. */
+	script_version_id: string | null;
+	version_no: number | null;
 	content_hash: string;
+	/** Null when the runner did not answer with its runtime identity. */
+	runner_image: string | null;
+	r_version: string | null;
+}
+
+/** A curve as the runner received it. `standard_curve_id` is set when it came from the catalog. */
+export interface ToolResolvedCurve {
+	slope: number;
+	intercept: number;
+	standard_curve_id: string | null;
+	label: string | null;
+}
+
+/** One entry of the `curves` snapshot: the manifest slot name and the curve resolved into it. */
+export interface ToolCurveSnapshot {
+	name: string;
+	curve: ToolResolvedCurve;
 }
 
 export interface ToolCalculateResponse {
@@ -833,6 +964,10 @@ export interface ToolCalculateResponse {
 	results: Record<string, unknown>;
 	inputs_used: string[];
 	inputs_ignored: string[];
+	/** The constant values the server resolved, by name. Empty when the manifest declares none. */
+	constants: Record<string, number>;
+	/** Empty when no curve slot was filled. */
+	curves: ToolCurveSnapshot[];
 	tool_version: ToolVersionRef;
 }
 
@@ -859,6 +994,8 @@ export interface ToolVersionSummary {
 	version_no: number;
 	content_hash: string;
 	entry_function: string;
+	/** What changed in this version and why, as its author wrote it. */
+	note: string | null;
 	created_by: string | null;
 	created_at: string;
 	validated_at: string | null;
@@ -877,6 +1014,7 @@ export interface ToolVersionDetail {
 	manifest: Record<string, unknown>;
 	test_cases: Record<string, unknown>;
 	content_hash: string;
+	note: string | null;
 	created_by: string | null;
 	created_at: string;
 	validated_at: string | null;
@@ -926,8 +1064,10 @@ export const createToolVersion = (
 	body: {
 		script: string;
 		entry_function?: string;
-		manifest: unknown;
-		test_cases?: unknown;
+		manifest: ToolManifest;
+		test_cases?: ToolTestCases;
+		note?: string;
+		/** Ignored by the server, which records the authenticated caller. */
 		created_by?: string;
 	},
 ) =>
@@ -949,6 +1089,125 @@ export const activateToolVersion = (id: string, versionId: string, activatedBy?:
 
 export const listToolActivations = (id: string) =>
 	GET<ToolActivationRecord[]>(`${ADMIN}/tool_scripts/${id}/activations`);
+
+// Script inspection. The runner parses the script and walks the tree; nothing is evaluated, so a
+// half-written script is safe to inspect and a syntax error is a 200 with `parse_ok: false`.
+
+/** `line`/`column` are absent when R's message carries no position. */
+export interface ToolParseError {
+	message: string;
+	line: number | null;
+	column: number | null;
+}
+
+/** A detection the parse tree cannot complete. `expressions` is empty when `any` is false. */
+export interface ToolDynamicFlag {
+	any: boolean;
+	expressions: string[];
+}
+
+/**
+ * Every list is a floor rather than a complete set: keys assembled at run time (a replicate
+ * letter pasted onto a base name) do not exist in the source. While `dynamic_outputs.any` is
+ * true, `outputs` is short by an unknown amount and a manifest declaring more is not thereby
+ * wrong; `dynamic_reads.any` says the same about `inputs`, `constants` and `curves`.
+ */
+export interface ToolScriptInspection {
+	parse_ok: boolean;
+	/** Null when the script parses. */
+	parse_error: ToolParseError | null;
+	entry: string;
+	entry_found: boolean;
+	/** The entry function's formals in declaration order; the runner calls them positionally. */
+	entry_args: string[];
+	inputs: string[];
+	constants: string[];
+	curves: string[];
+	outputs: string[];
+	dynamic_outputs: ToolDynamicFlag;
+	dynamic_reads: ToolDynamicFlag;
+	functions_defined: string[];
+	functions_called: string[];
+	/** The script's own top-level functions the entry function calls. */
+	script_functions_used: string[];
+	libraries: string[];
+	namespaces: string[];
+}
+
+/**
+ * What the script reads set against what the manifest declares. A comparison only: it proposes no
+ * manifest. Each list may be empty. When `reads_complete` is false every `unread_*` entry is
+ * possible rather than certain, and when `outputs_complete` is false the same holds for outputs.
+ */
+export interface ToolManifestReconciliation {
+	undeclared_inputs: string[];
+	undeclared_constants: string[];
+	undeclared_curves: string[];
+	unread_params: string[];
+	unread_constants: string[];
+	unread_curves: string[];
+	reads_complete: boolean;
+	outputs_complete: boolean;
+}
+
+export interface ToolInspectResponse extends ToolScriptInspection {
+	/** Null when the request carried no manifest. */
+	reconciliation: ToolManifestReconciliation | null;
+}
+
+export const inspectToolScript = (body: {
+	script: string;
+	entry_function?: string;
+	manifest?: ToolManifest;
+}) => POST<ToolInspectResponse>(`${ADMIN}/tool_scripts/inspect`, body);
+
+// Draft run: unsaved editor content through the same manifest validation, constant resolution and
+// curve resolution as a real calculate. Writes nothing.
+
+export interface ToolDraftRunRequest {
+	script: string;
+	entry_function?: string;
+	manifest: ToolManifest;
+	/** The calculate body: the manifest's params, plus its curve slots as fields of the same body. */
+	inputs?: Record<string, unknown>;
+	/** An override must name every constant the manifest declares; omit it to read the catalog. */
+	constants?: Record<string, number>;
+}
+
+/** Where a draft run ended, and therefore where the editor renders it. */
+export type ToolDraftFailureKind = 'body_refused' | 'script_error' | 'runner_unavailable';
+
+export interface ToolDraftFailure {
+	kind: ToolDraftFailureKind;
+	message: string;
+	/** The R call that raised; null for the two non-script kinds. */
+	call: string | null;
+	traceback: string[];
+}
+
+/**
+ * A draft run answers 200 whether or not the script ran: a refused body, a raised script and an
+ * absent runner are findings about the draft, so they arrive next to the lint findings rather than
+ * discarding them.
+ */
+export interface ToolDraftRunResponse {
+	ran: boolean;
+	/** Present only when `ran`. */
+	results?: Record<string, unknown>;
+	inputs_used?: string[];
+	inputs_ignored?: string[];
+	constants?: Record<string, number>;
+	curves?: ToolCurveSnapshot[];
+	/** Present only when the run ended without results. */
+	failure?: ToolDraftFailure | null;
+	/** The version fields are null here: nothing about a draft is stored. */
+	tool_version: ToolVersionRef;
+	/** Findings do not stop a draft from running; the version create still refuses to store them. */
+	lint: ToolLintFinding[];
+}
+
+export const draftRunToolScript = (body: ToolDraftRunRequest) =>
+	POST<ToolDraftRunResponse>(`${ADMIN}/tool_scripts/draft_run`, body);
 
 /** Lint findings from a refused version create (409 { error, detail }); null otherwise. */
 export function toolLintFindings(e: unknown): ToolLintFinding[] | null {

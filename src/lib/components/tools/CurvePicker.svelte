@@ -117,6 +117,20 @@
 	$effect(() => {
 		void loadInstruments();
 	});
+
+	// A selection can arrive already made (a test case carrying literal coefficients, a form
+	// prefilled from an earlier run). Adopt it once, so the controls show what `value` holds
+	// instead of an empty picker sitting over a live selection.
+	let adopted = false;
+	$effect(() => {
+		if (adopted) return;
+		adopted = true;
+		if (value.standardCurveId === null && value.slope !== null && value.intercept !== null) {
+			mode = 'manual';
+			manualSlope = String(value.slope);
+			manualIntercept = String(value.intercept);
+		}
+	});
 </script>
 
 <div class="flex flex-col gap-1.5 border border-brand-divider rounded-md p-2.5">
