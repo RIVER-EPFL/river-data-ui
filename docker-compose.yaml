@@ -12,6 +12,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
 
   river-data-api:
+    networks:
+      - default
+      - tools
     build:
       context: ../river-data-api
       dockerfile: Dockerfile.dev
@@ -87,19 +90,36 @@ services:
   # ── R tool runner (OpenCPU; executes DB-stored tool scripts; needs no DB or outbound network) ──
   river-tools-r:
     build: ../river-data-tools-r
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost/ocpu/info || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 30s
-    ports:
-      - "${TOOLS_R_EXTERNAL_PORT:-8006}:80"
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.river-tools-r.rule=PathPrefix(`/ocpu`)"
-      - "traefik.http.routers.river-tools-r.priority=90"
-      - "traefik.http.services.river-tools-r.loadbalancer.server.port=80"
+    # No healthcheck override: the image's own check calls riverdata.tools::runtime_info, so it
+    # reports healthy only once a script can actually run. Probing /ocpu/info instead would pass
+    # while the package is unloadable.
+    user: "10001:10001"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # The only writable paths: Apache's pid and mutex, the log streams' fallback, and the temp
+    # directory OpenCPU forks into. Everything the runner needs to read is in the image.
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=1777,size=256m
+      - /run/apache2:uid=10001,gid=10001,mode=0750,size=1m
+      - /var/lock/apache2:uid=10001,gid=10001,mode=0750,size=1m
+      - /var/log/apache2:uid=10001,gid=10001,mode=0750,size=8m
+      - /var/log/opencpu:uid=10001,gid=10001,mode=0750,size=8m
+    # A tool script is a bench calculation. These bound what a runaway one can take from the host;
+    # the per-request time limit that ends it lives in the image (opencpu/riverdata.conf).
+    mem_limit: 2g
+    cpus: 2.0
+    pids_limit: 256
+    # The runner is unauthenticated by design: anything that reaches it executes arbitrary R.
+    # Its protection is that only the API can, so it sits on an internal network with no route
+    # out, no traefik entry and no published port. An internal network cannot publish one anyway;
+    # to run a script by hand, post from a container that is on this network:
+    #   docker exec -i river-data-ui-river-tools-r-1 curl -sS -X POST -H 'Content-Type: application/json' \
+    #     -d @- 'http://localhost/ocpu/library/riverdata.tools/R/run_tool/json?auto_unbox=true&digits=17&na=null'
+    networks:
+      - tools
 
   # ── Dev credential seeder (one-shot, seeds sync service credentials) ──
   dev-seed-credentials:
@@ -127,6 +147,7 @@ services:
 
   river-db-timescale:
     image: timescale/timescaledb:${TIMESCALEDB_VERSION:-2.23.0-pg18}
+    shm_size: 1gb
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-psql}
@@ -348,6 +369,7 @@ services:
   # ── Test infrastructure ──────────────────────────────────────────────
   river-db-test-db:
     image: timescale/timescaledb:${TIMESCALEDB_VERSION:-2.23.0-pg18}
+    shm_size: 1gb
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=psql
@@ -365,6 +387,9 @@ services:
       retries: 5
 
   river-db-test-watcher:
+    networks:
+      - default
+      - tools
     build:
       context: ../river-data-api
       dockerfile: Dockerfile.dev
@@ -402,3 +427,10 @@ volumes:
   portal-cnet-data:
   portal-metalp-data:
   portal-nomis-data:
+
+networks:
+  default:
+  # No route off the host: the runner executes arbitrary R and must not reach the database,
+  # Keycloak or the internet. The API joins both networks to talk to it.
+  tools:
+    internal: true
