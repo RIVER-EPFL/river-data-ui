@@ -127,7 +127,11 @@ function scriptFindings(input: ValidationInput, out: Finding[]) {
 		block(parseError.line != null ? `Line ${parseError.line}: ${parseError.message}` : parseError.message);
 	}
 	if (input.inspection && input.inspection.parse_ok && !input.inspection.entry_found) {
-		block(`No function named ${input.inspection.entry} is defined.`);
+		block(
+			`No ${input.inspection.entry} function is defined. The runner calls exactly ` +
+				`${input.inspection.entry} <- function(inputs, constants, curves), so the script ` +
+				`must define it; anything else in the script is a helper it may call.`
+		);
 	}
 	for (const f of input.lint) block(`Line ${f.line}: ${f.message}`);
 }
