@@ -409,6 +409,7 @@
 							stdev: s?.stdev ?? null,
 							n: s?.n ?? 1,
 							replicates: s?.replicates,
+							sampleId: s?.sample_id,
 							calibrationId,
 							standardCurveId,
 						});

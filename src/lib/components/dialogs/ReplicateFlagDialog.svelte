@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { PATCH } from '$api/client';
+	import { api } from '$api/crud';
 	import type { SampleReplicate } from '$api/types';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { curveRefs } from '$lib/curveRefs.svelte';
@@ -7,6 +8,7 @@
 	import { formatDateTime } from '$lib/utils';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
+	import ProvenanceCard from '$components/samples/ProvenanceCard.svelte';
 
 	let {
 		open = $bindable(false),
@@ -15,6 +17,7 @@
 		parameterName,
 		timeIso,
 		replicates,
+		sampleId = null,
 		onsuccess,
 	}: {
 		open: boolean;
@@ -23,12 +26,18 @@
 		parameterName: string;
 		timeIso: string;
 		replicates: SampleReplicate[];
+		/** The `samples` row behind the point, the only place its tool-run provenance is stored. */
+		sampleId?: string | null;
 		onsuccess?: () => void;
 	} = $props();
 
 	let reason = $state('');
 	let busyIndex = $state<number | null>(null);
 	let openChain = $state<number | null>(null);
+	// Provenance lives on the sample row, not on the readings the chart drew, so it is fetched here.
+	let provenance = $state<Record<string, unknown> | null>(null);
+	let provenanceLoading = $state(false);
+	let provenanceOpen = $state(false);
 
 	$effect(() => {
 		if (!open) return;
@@ -36,6 +45,28 @@
 		openChain = null;
 		curveRefs.ensureCalibrations(replicates.map((r) => r.calibration_id));
 		curveRefs.ensureStandardCurves(replicates.map((r) => r.standard_curve_id));
+	});
+
+	$effect(() => {
+		if (!open) return;
+		const id = sampleId;
+		provenance = null;
+		provenanceOpen = false;
+		if (!id) return;
+		provenanceLoading = true;
+		api.samples
+			.get(id)
+			.then((s) => {
+				if (sampleId !== id) return;
+				provenance = s.provenance;
+			})
+			.catch(() => {
+				// A sample the caller cannot read leaves the section out rather than reporting a
+				// failure: the flagging actions above are unaffected.
+			})
+			.finally(() => {
+				provenanceLoading = false;
+			});
 	});
 
 	const ordered = $derived([...replicates].sort((a, b) => a.replicate_index - b.replicate_index));
@@ -183,6 +214,20 @@
 					{/each}
 				</tbody>
 			</table>
+			{#if provenanceLoading}
+				<p class="text-xs text-brand-muted">Loading tool run…</p>
+			{:else if provenance}
+				<div class="space-y-2">
+					<Button size="sm" variant="ghost" onclick={() => (provenanceOpen = !provenanceOpen)}>
+						{provenanceOpen ? 'Hide tool run' : 'Show tool run'}
+					</Button>
+					{#if provenanceOpen}
+						<ProvenanceCard {provenance} />
+					{/if}
+				</div>
+			{:else if sampleId}
+				<p class="text-xs text-brand-muted">Hand-entered sample, no tool run recorded.</p>
+			{/if}
 		</div>
 	{/snippet}
 	{#snippet actions()}

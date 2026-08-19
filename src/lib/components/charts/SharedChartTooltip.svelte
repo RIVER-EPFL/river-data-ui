@@ -30,6 +30,9 @@
 		flagged: boolean;
 		flagReason: string | null;
 		sampleLine: string | null;
+		// A grab point under the cursor can be clicked open; the panel behind it is the only route
+		// to the replicates and to the tool run that produced them, so the tooltip says so.
+		spotClickable: boolean;
 		annotations: AnnotationRow[];
 		sensorLabel: string | null;
 		calEquation: string | null;
@@ -101,9 +104,11 @@
 
 			// A spot point backed by a sample shows the replicates behind its mean
 			let sampleLine: string | null = null;
+			let spotClickable = false;
 			let recordedCurves: Row['recordedCurves'] = null;
 			if (tMs != null) {
 				const stat = reg.spotStats?.get(tMs);
+				spotClickable = (stat?.replicates?.length ?? 0) > 0;
 				if (stat && (stat.calibrationId !== undefined || stat.standardCurveId !== undefined)) {
 					const rep = stat.n === 1 ? (stat.replicates?.[0] ?? null) : null;
 					recordedCurves = {
@@ -134,6 +139,7 @@
 				flagged,
 				flagReason,
 				sampleLine,
+				spotClickable,
 				annotations: rowAnns,
 				sensorLabel,
 				calEquation,
@@ -226,6 +232,9 @@
 			{/if}
 			{#if row.sampleLine}
 				<div style="font-size:10px;color:{uPlotTheme.tooltipColor};opacity:0.8;padding-left:14px;white-space:normal;line-height:14px;margin-bottom:2px">{row.sampleLine}</div>
+			{/if}
+			{#if row.spotClickable}
+				<div style="font-size:10px;color:{uPlotTheme.tooltipColor};opacity:0.7;padding-left:14px;white-space:normal;line-height:14px;margin-bottom:2px">Click the marker for replicates and the tool run</div>
 			{/if}
 			{#each row.annotations as a}
 				<div style="font-size:10px;color:{uPlotTheme.tooltipColor};line-height:14px;white-space:normal;padding-left:14px;margin-bottom:2px" class="flex items-start gap-1.5">
