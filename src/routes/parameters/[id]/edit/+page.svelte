@@ -4,19 +4,30 @@
 	import { page } from '$app/state';
 	import CrudForm from '$components/crud/CrudForm.svelte';
 	import MergeParameterDialog from '$components/dialogs/MergeParameterDialog.svelte';
-	import { api } from '$api/crud';
+	import ConfirmParameterButton from '$components/parameters/ConfirmParameterButton.svelte';
+	import { api, type Parameter } from '$api/crud';
 
 	let mergeOpen = $state(false);
-	let paramData = $state<{ id: string; code: string; name: string; default_units: string } | null>(null);
+	let paramData = $state<Parameter | null>(null);
 
 	$effect(() => {
 		api.parameters.get(page.params.id!).then((p) => {
-			paramData = { id: p.id, code: p.code, name: p.name, default_units: p.default_units };
+			paramData = p;
 		});
 	});
 </script>
 
 <svelte:head><title>Edit Parameter | River Data</title></svelte:head>
+
+{#if paramData?.needs_review}
+	<div class="mb-4 max-w-2xl rounded-md border border-severity-warning-border bg-severity-warning-soft p-3 flex items-start justify-between gap-3">
+		<p class="text-sm text-severity-warning-text">
+			This entry was created mechanically and has not been confirmed. Confirm it once the code,
+			name and units are the ones the catalog should keep, or merge it into an existing parameter.
+		</p>
+		<ConfirmParameterButton parameter={paramData} onconfirmed={(p) => (paramData = p)} />
+	</div>
+{/if}
 
 <CrudForm
 	client={api.parameters}

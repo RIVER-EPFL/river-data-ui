@@ -9,6 +9,7 @@
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import MultiSiteParameterPlot from '$components/parameters/MultiSiteParameterPlot.svelte';
+	import ConfirmParameterButton from '$components/parameters/ConfirmParameterButton.svelte';
 
 	let param = $state<Parameter | null>(null);
 	let siteParams = $state<SiteParameter[]>([]);
@@ -77,6 +78,10 @@
 				<Badge variant={param.category === 'device_health' ? 'accent' : 'default'}>
 					{param.category === 'device_health' ? 'Device Health' : 'Measurement'}
 				</Badge>
+				{#if param.needs_review}
+					<Badge variant="warning">Needs review</Badge>
+					<ConfirmParameterButton parameter={param} onconfirmed={(p) => (param = p)} />
+				{/if}
 				<a href="{base}/parameters/{paramId}/edit" class="px-3 py-1 text-sm border border-brand-divider bg-brand-surface rounded-md no-underline text-brand-text hover:bg-brand-bg">Edit</a>
 			</div>
 		</div>
