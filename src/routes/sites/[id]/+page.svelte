@@ -203,8 +203,8 @@
 	const cursorSyncKey = 'site-charts';
 	let resolutionOverride = $state<'auto' | 'raw' | 'hourly' | 'daily'>('auto');
 	// Frequency selects which readings drive the charts, by measurement_type:
-	//   high = continuous field-sensor line (default), low = discrete spot/grab markers, all = both.
-	let frequency = $state<Frequency>('high');
+	//   high = continuous field-sensor line, low = discrete spot/grab markers, all = both (default).
+	let frequency = $state<Frequency>('all');
 
 	let sliderMax = $state(Date.now());
 	let sliderMin = $state(Date.now() - 90 * 86400000);
@@ -595,15 +595,11 @@
 				const detailRes = await GET<SiteDetailResponse>(`/api/sites/${id}/detail`);
 				if (detailRes.data_start) sliderMin = new Date(detailRes.data_start).getTime();
 				if (detailRes.data_end) sliderMax = new Date(detailRes.data_end).getTime();
-				// Default the frequency chip from the data: a spot-only site opens on Low (its
-				// points would otherwise be invisible behind the High default); any spot data at
-				// all opens on All so nothing is hidden.
+				// A spot-only site opens on Low; everything else keeps the All default.
 				{
 					const withData = detailRes.parameters.filter((p) => (p.reading_count ?? 0) > 0);
 					if (withData.length > 0 && withData.every((p) => p.frequency === 'low')) {
 						frequency = 'low';
-					} else if (withData.some((p) => p.has_spot)) {
-						frequency = 'all';
 					}
 				}
 				if (deepLink) {
