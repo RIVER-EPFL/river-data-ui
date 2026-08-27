@@ -220,9 +220,9 @@
 		let streams = 0;
 		let columns = 0;
 		for (const e of planEntries) {
-			if (e.action !== 'pair' || !e.parameter.replicates) continue;
+			if (e.action !== 'pair' || !e.replicates) continue;
 			streams += 1;
-			columns += e.parameter.replicates.member_columns.length;
+			columns += e.replicates.member_columns.length;
 		}
 		return { streams, columns };
 	});
@@ -249,9 +249,9 @@
 		for (const e of planEntries) {
 			const key = `${e.parameter.name}::${e.parameter.units}`;
 			let g = map.get(key);
-			if (!g) { g = { name: e.parameter.name, label: e.parameter.label ?? null, originalName: e.source_name ?? e.source_key, originalNames: new Set(), groupKey: e.parameter.group_key ?? null, units: e.parameter.units, create: e.parameter.create, confs: new Set(), siteNames: new Set(), streamIds: [], warnings: new Set(), replicates: e.parameter.replicates ?? null }; map.set(key, g); }
+			if (!g) { g = { name: e.parameter.name, label: e.parameter.label ?? null, originalName: e.source_name ?? e.source_key, originalNames: new Set(), groupKey: e.parameter.group_key ?? null, units: e.parameter.units, create: e.parameter.create, confs: new Set(), siteNames: new Set(), streamIds: [], warnings: new Set(), replicates: e.replicates ?? null }; map.set(key, g); }
 			if (!g.label && e.parameter.label) g.label = e.parameter.label;
-			if (!g.replicates && e.parameter.replicates) g.replicates = e.parameter.replicates;
+			if (!g.replicates && e.replicates) g.replicates = e.replicates;
 			if (e.original_parameter_name) g.originalNames.add(e.original_parameter_name);
 			g.confs.add(e.confidence);
 			g.siteNames.add(e.site.name);
@@ -1221,7 +1221,7 @@
 								{#each group.entries as entry}
 								{@const entryMatched = matchParam(entry.parameter.name)}
 								{@const entryEditing = editingParam?.streamId === entry.stream_id}
-								{@const entryReplicates = entry.parameter.replicates}
+								{@const entryReplicates = entry.replicates}
 									<div class="flex items-center gap-2 pl-10 pr-2 py-1.5 border-b border-brand-divider bg-brand-bg/30 text-xs {entry.action === 'skip' ? 'opacity-50' : ''}">
 										<div class="flex-1 min-w-0 flex items-center gap-1.5">
 											{#if entryEditing}

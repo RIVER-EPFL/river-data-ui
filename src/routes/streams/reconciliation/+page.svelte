@@ -89,15 +89,14 @@
 
 	// ── Job polling (steps 2-4; recovers from ?job= on reload) ──
 	interface ReconMismatch {
-		stream_id: string;
+		family: string;
 		time: string;
 		old_value: number | null;
-		new_mean: number | null;
+		new_value: number | null;
 		delta: number | null;
 	}
 	interface ReconDetail {
 		scope?: Record<string, unknown>;
-		phase?: string;
 		counts?: Record<string, number>;
 		mismatches?: ReconMismatch[];
 	}
@@ -287,7 +286,7 @@
 								<th class="text-left px-4 py-2 font-semibold">Family stream</th>
 								<th class="text-left px-4 py-2 font-semibold">Old avg stream</th>
 								<th class="text-right px-4 py-2 font-semibold">Old readings</th>
-								<th class="text-right px-4 py-2 font-semibold">New group times</th>
+								<th class="text-right px-4 py-2 font-semibold" title="Old-stream instants the family stream has no readings for; zero means ready for cutover">Missing instants</th>
 								<th class="text-left px-4 py-2 font-semibold">Readiness</th>
 							</tr></thead>
 							<tbody>
@@ -296,7 +295,7 @@
 										<td class="px-4 py-2 font-mono text-xs">{f.family_source_key}</td>
 										<td class="px-4 py-2 font-mono text-xs text-brand-muted">{f.old_source_key}</td>
 										<td class="px-4 py-2 text-right font-mono text-xs">{f.old_readings.toLocaleString()}</td>
-										<td class="px-4 py-2 text-right font-mono text-xs">{f.new_group_times.toLocaleString()}</td>
+										<td class="px-4 py-2 text-right font-mono text-xs">{f.missing_instants.toLocaleString()}</td>
 										<td class="px-4 py-2">
 											{#if f.ready}
 												<Badge variant="ok">Ready</Badge>
@@ -356,9 +355,6 @@
 							{#if job.total != null && job.progress != null}{job.progress}/{job.total}{:else}{job.status}{/if}
 						</span>
 					</div>
-					{#if jobDetail.phase}
-						<p class="text-xs text-brand-muted">Phase: <span class="font-mono">{jobDetail.phase}</span></p>
-					{/if}
 					{#if countEntries.length > 0}
 						<div class="grid grid-cols-2 gap-2 text-xs md:grid-cols-3">
 							{#each countEntries as [name, value]}
@@ -417,19 +413,19 @@
 					<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 						<table class="w-full text-sm">
 							<thead><tr class="bg-brand-bg border-b border-brand-divider">
-								<th class="text-left px-4 py-2 font-semibold">Stream</th>
+								<th class="text-left px-4 py-2 font-semibold">Family</th>
 								<th class="text-left px-4 py-2 font-semibold">Instant</th>
 								<th class="text-right px-4 py-2 font-semibold">Old value</th>
-								<th class="text-right px-4 py-2 font-semibold">New mean</th>
+								<th class="text-right px-4 py-2 font-semibold">New value</th>
 								<th class="text-right px-4 py-2 font-semibold">Δ</th>
 							</tr></thead>
 							<tbody>
 								{#each pagedMismatches as m}
 									<tr class="border-b border-brand-divider last:border-b-0">
-										<td class="px-4 py-2 font-mono text-xs">{m.stream_id}</td>
+										<td class="px-4 py-2 font-mono text-xs">{m.family}</td>
 										<td class="px-4 py-2 text-xs">{formatDateTime(m.time)}</td>
 										<td class="px-4 py-2 text-right font-mono text-xs">{fmtValue(m.old_value)}</td>
-										<td class="px-4 py-2 text-right font-mono text-xs">{fmtValue(m.new_mean)}</td>
+										<td class="px-4 py-2 text-right font-mono text-xs">{fmtValue(m.new_value)}</td>
 										<td class="px-4 py-2 text-right font-mono text-xs text-severity-warning-text">{fmtValue(m.delta)}</td>
 									</tr>
 								{/each}
@@ -503,9 +499,6 @@
 								{#if job.total != null && job.progress != null}{job.progress}/{job.total}{:else}{job.status}{/if}
 							</span>
 						</div>
-					{/if}
-					{#if jobDetail.phase}
-						<p class="text-xs text-brand-muted">Phase: <span class="font-mono">{jobDetail.phase}</span></p>
 					{/if}
 					{#if countEntries.length > 0}
 						<div class="grid grid-cols-2 gap-2 text-xs md:grid-cols-3">

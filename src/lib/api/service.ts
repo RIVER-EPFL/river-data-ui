@@ -624,11 +624,13 @@ export interface PairingPlanEntry {
 		units: string;
 		group_key: string | null;
 		original_names: string[];
-		replicates: PlanReplicateSummary | null;
 	};
 	confidence: string;
 	warnings: string[];
 	original_parameter_name: string | null;
+	// Present when the stream is a replicate family: what is being paired is the group of
+	// member columns, not the portal's average.
+	replicates: PlanReplicateSummary | null;
 }
 
 // Replicate-family summary on a plan entry: how the portal's columns route into one stream.
@@ -744,8 +746,10 @@ export const getUnpairedSummary = () =>
 	);
 
 // Replicate families: one stream per replicate group. The stream's metadata.replicates spec names
-// the portal columns feeding replicate_index 0..n-1 and the portal's precomputed avg/sd columns,
-// which are audited at sync time rather than stored.
+// the portal columns feeding the stream (a reading's replicate_index is its column's position in
+// source_columns; a column with no value at an instant leaves that index absent, so a group can
+// lack index 0) and the portal's precomputed avg/sd columns, which are audited at sync time
+// rather than stored.
 export interface ReplicateSpec {
 	source_columns: string[];
 	portal_mean_column?: string;
@@ -886,8 +890,10 @@ export interface ReconciliationFamily {
 	old_stream_id: string;
 	old_source_key: string;
 	site_parameter_id: string | null;
+	migrated: boolean;
 	old_readings: number;
-	new_group_times: number;
+	// Old-stream instants the family stream has no readings for. Zero = ready for cutover.
+	missing_instants: number;
 	ready: boolean;
 }
 
