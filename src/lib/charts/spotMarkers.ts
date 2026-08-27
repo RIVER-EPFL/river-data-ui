@@ -16,6 +16,9 @@ export interface SpotPointStats {
 	n: number;
 	// Individual replicate values behind the mean, each carrying its own curve references.
 	replicates?: SampleReplicate[];
+	// The `samples` row behind the point. Carried so a chart click can reach the sample's tool-run
+	// provenance, which is stored on that row and not on the readings.
+	sampleId?: string;
 	// Curve references of the point itself, present when the fetch asked for include_curves.
 	// Both are independently nullable: null is "no curve of that kind was applied".
 	calibrationId?: string | null;

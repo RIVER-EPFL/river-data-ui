@@ -6,6 +6,7 @@
 	import { recalibrateCalibration, rollbackDeployment, reprocessSensor, retagSensorFrequency, getCalibrationCandidates } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatDateTime, formatDate, toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
+	import { formatEquation } from '$lib/standardCurves';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Tabs from '$components/ui/Tabs.svelte';
@@ -564,7 +565,7 @@
 								<td class="px-4 py-2 text-xs text-brand-muted">{cal.valid_until ? formatDateTime(cal.valid_until) : 'None'}</td>
 								<td class="px-4 py-2 font-mono text-xs">{cal.slope}</td>
 								<td class="px-4 py-2 font-mono text-xs">{cal.intercept}</td>
-								<td class="px-4 py-2 font-mono text-xs">y = {cal.slope}x + {cal.intercept}</td>
+								<td class="px-4 py-2 font-mono text-xs">{formatEquation(cal.slope, cal.intercept)}</td>
 								<td class="px-4 py-2 space-x-3">
 									<Button variant="ghost" size="sm" class="text-brand-primary" onclick={() => editingCalId = editingCalId === cal.id ? null : cal.id}>{editingCalId === cal.id ? 'Close' : 'Edit window'}</Button>
 									<Button variant="ghost" size="sm" class="text-brand-primary" onclick={() => handleRecalibrate(cal.id)}>Reprocess</Button>

@@ -11,6 +11,7 @@
 	} from '$api/service';
 	import { me } from '$auth/me.svelte';
 	import { formatDate, formatRelativeTime } from '$lib/utils';
+	import { formatEquation } from '$lib/standardCurves';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
@@ -435,7 +436,7 @@
 																<td class="px-3 py-1.5 font-mono">{cal.slope}</td>
 																<td class="px-3 py-1.5 font-mono">{cal.intercept}</td>
 																<td class="px-3 py-1.5 font-mono">{cal.r_squared?.toFixed(4) ?? '-'}</td>
-																<td class="px-3 py-1.5 font-mono">y = {cal.slope}x + {cal.intercept}</td>
+																<td class="px-3 py-1.5 font-mono">{formatEquation(cal.slope, cal.intercept)}</td>
 															</tr>
 														{/each}
 													</tbody>

@@ -10,9 +10,14 @@ export function curveLabel(curve: Pick<StandardCurve, 'id' | 'name'>): string {
 	return curve.name?.trim() || `Curve ${curve.id.slice(0, 8)}`;
 }
 
+/** Renders "y = 2x + 1" / "y = 0.9x - 0.1"; a negative intercept becomes a subtraction. */
+export function formatEquation(slope: number, intercept: number): string {
+	const sign = intercept < 0 ? '-' : '+';
+	return `y = ${slope}x ${sign} ${Math.abs(intercept)}`;
+}
+
 export function curveEquation(curve: Pick<StandardCurve, 'slope' | 'intercept'>): string {
-	const sign = curve.intercept < 0 ? '-' : '+';
-	return `y = ${curve.slope}x ${sign} ${Math.abs(curve.intercept)}`;
+	return formatEquation(curve.slope, curve.intercept);
 }
 
 export interface Coefficients {

@@ -1,4 +1,4 @@
-import { GET, POST, PATCH, PUT, DELETE } from './client';
+import { ApiError, GET, POST, PATCH, PUT, DELETE } from './client';
 import type { ApiToken, DataStream, JobLogLine, ReprocessingJob } from './crud';
 
 // Single unified API tier. The `ADMIN` and `SERVICE` constants alias the same path,
@@ -972,6 +972,449 @@ export interface DirectoryUser {
 export const searchDirectoryUsers = (q: string) =>
 	GET<DirectoryUser[]>(`${ADMIN}/users/search`, { q });
 
+// Analytical tools. `GET /tools` serves the manifest of every active DB-stored R script;
+// `POST /tools/{name}/calculate` runs one. Kinds: number | integer | string | boolean |
+// enum:<v1|v2|...> | array | object | replicate_grid.
+/**
+ * The object form of a param's `when`: a condition on another param's value, carrying either
+ * `equals` or `any_of`. This is the form the server enforces requiredness through.
+ */
+export interface ToolParamCondition {
+	param: string;
+	equals?: unknown;
+	any_of?: unknown[];
+}
+
+/** A plain string is an advisory note and gates nothing; the object form is a condition. */
+export type ToolParamWhen = string | ToolParamCondition;
+
+export function isToolParamCondition(when: ToolParamWhen | null): when is ToolParamCondition {
+	return typeof when === 'object' && when !== null;
+}
+
+/** One column of a structured param, as the manifest declares it. */
+export interface ToolStructField {
+	name: string;
+	label: string;
+	units: string | null;
+	required: boolean;
+	/** Numbers the field holds; above 1 it is a list, entered as that many inputs. */
+	values: number;
+	/** False for a column typed on the bench to feed a computed one, and never sent. */
+	send: boolean;
+	/** `[minuend, subtrahend]`, both naming fields of the same structure. */
+	computed: { subtract: [string, string] } | null;
+}
+
+/**
+ * What a structured param's value holds. `object` is one object of fields, `rows` an array of
+ * them, `lists` an object of number lists keyed by field name.
+ */
+export interface ToolStructure {
+	layout: 'object' | 'rows' | 'lists';
+	fields: ToolStructField[];
+	rows: number;
+	max_rows: number | null;
+	row_labels: 'letters' | 'numbers';
+	values: number;
+	value_labels: string[];
+	/** True where the tool reads more column spellings than the form offers. */
+	additional_fields: boolean;
+}
+
+export interface ToolParam {
+	name: string;
+	label: string;
+	kind: string;
+	units: string | null;
+	required: boolean;
+	default: unknown;
+	/** Null when the param is unconditional; see `ToolParamWhen` for the two forms. */
+	when: ToolParamWhen | null;
+	/** Absent on a scalar param, and on a structured one whose columns nothing declares. */
+	structure?: ToolStructure | null;
+}
+
+/** Which half of an output's declaration the server found the catalog row by. */
+export type ToolParameterResolvedBy = 'id' | 'code';
+
+/**
+ * The catalog parameter an output saves to, resolved server-side against the database serving the
+ * request. A client reads this instead of matching codes against whatever slice of the catalog it
+ * happens to hold.
+ */
+export interface ResolvedParameter {
+	id: string;
+	code: string;
+	name: string;
+	default_units: string | null;
+	/** True for a catalog entry created mechanically rather than by a person. */
+	needs_review: boolean;
+	resolved_by: ToolParameterResolvedBy;
+	/** True when `parameter_id` names no catalog row and the code resolved instead. */
+	dangling_parameter_id: boolean;
+}
+
+export interface ToolOutput {
+	key: string;
+	label: string;
+	units: string | null;
+	/** Result keys arrive suffixed per replicate ({base}_{rep}). */
+	per_replicate: boolean;
+	/** Set on avg/sd rows computed from another output; display-only, never saved. */
+	aggregate_of: string | null;
+	/** The catalog parameter this output saves to. Authoritative over the code when both are set. */
+	parameter_id: string | null;
+	/**
+	 * The portable half of the same link: an id means nothing in another database, so the seeded
+	 * manifests carry only this and the server stamps it whenever an output names an id alone.
+	 */
+	suggested_parameter_code: string | null;
+	/** Served by `GET /tools`, absent from a manifest an author is editing. */
+	parameter?: ResolvedParameter | null;
+}
+
+export interface ToolCurveSlot {
+	name: string;
+	label: string;
+	required: boolean;
+}
+
+/**
+ * A version's manifest: the tool's whole interface. Every list is optional on the wire (the
+ * server defaults each to empty), so a manifest under construction is a valid one.
+ */
+export interface ToolManifest {
+	label: string;
+	description?: string | null;
+	params?: ToolParam[];
+	outputs?: ToolOutput[];
+	/** Bare constant names; the server resolves their values from the constants table. */
+	constants?: string[];
+	curves?: ToolCurveSlot[];
+	match_keywords?: string[];
+}
+
+/**
+ * One stored test case. `curves` are merged into the request body alongside `inputs`, `expected`
+ * is compared key by key within the tolerance, and `absent` names keys the result must not carry.
+ * `constants` makes a case reproducible whatever the constants table holds; without it the case
+ * reads the catalog.
+ */
+export interface ToolTestCase {
+	name?: string;
+	inputs?: Record<string, unknown>;
+	curves?: Record<string, unknown>;
+	expected?: Record<string, unknown>;
+	absent?: string[];
+	constants?: Record<string, number>;
+}
+
+export interface ToolTestCases {
+	/** Relative, applied as tol * max(|expected|, 1). Defaults to 1e-9. */
+	tolerance?: number;
+	cases?: ToolTestCase[];
+}
+
+export interface ToolDescriptor {
+	name: string;
+	label: string;
+	description: string | null;
+	endpoint: string;
+	params: ToolParam[];
+	outputs: ToolOutput[];
+	constants: string[];
+	curves: ToolCurveSlot[];
+	match_keywords: string[];
+	script_version_id: string;
+	version_no: number;
+}
+
+export interface ToolVersionRef {
+	/** Null for a draft run: no stored version produced those numbers. */
+	script_version_id: string | null;
+	version_no: number | null;
+	content_hash: string;
+	/** Null when the runner did not answer with its runtime identity. */
+	runner_image: string | null;
+	r_version: string | null;
+}
+
+/** A curve as the runner received it. `standard_curve_id` is set when it came from the catalog. */
+export interface ToolResolvedCurve {
+	slope: number;
+	intercept: number;
+	standard_curve_id: string | null;
+	label: string | null;
+}
+
+/** One entry of the `curves` snapshot: the manifest slot name and the curve resolved into it. */
+export interface ToolCurveSnapshot {
+	name: string;
+	curve: ToolResolvedCurve;
+}
+
+export interface ToolCalculateResponse {
+	tool: string;
+	results: Record<string, unknown>;
+	inputs_used: string[];
+	inputs_ignored: string[];
+	/** The constant values the server resolved, by name. Empty when the manifest declares none. */
+	constants: Record<string, number>;
+	/** Empty when no curve slot was filled. */
+	curves: ToolCurveSnapshot[];
+	tool_version: ToolVersionRef;
+}
+
+export const listTools = () => GET<ToolDescriptor[]>(`${SERVICE}/tools`);
+
+export const calculateTool = (name: string, body: Record<string, unknown>) =>
+	POST<ToolCalculateResponse>(`${SERVICE}/tools/${encodeURIComponent(name)}/calculate`, body);
+
+// Tool script authoring (admin-only). Versions are immutable; activation flips the pointer and
+// activating an older version is the rollback.
+export interface ToolScriptSummary {
+	id: string;
+	name: string;
+	label: string;
+	description: string | null;
+	active_version_id: string | null;
+	active_version_no: number | null;
+	version_count: number;
+	updated_at: string;
+}
+
+export interface ToolVersionSummary {
+	id: string;
+	version_no: number;
+	content_hash: string;
+	entry_function: string;
+	/** What changed in this version and why, as its author wrote it. */
+	note: string | null;
+	created_by: string | null;
+	created_at: string;
+	validated_at: string | null;
+	active: boolean;
+}
+
+export interface ToolScriptDetail extends ToolScriptSummary {
+	versions: ToolVersionSummary[];
+}
+
+export interface ToolVersionDetail {
+	id: string;
+	version_no: number;
+	script: string;
+	entry_function: string;
+	manifest: Record<string, unknown>;
+	test_cases: Record<string, unknown>;
+	content_hash: string;
+	note: string | null;
+	created_by: string | null;
+	created_at: string;
+	validated_at: string | null;
+}
+
+export interface ToolLintFinding {
+	line: number;
+	message: string;
+}
+
+export interface ToolCaseResult {
+	name: string;
+	passed: boolean;
+	failures: string[];
+	error: string | null;
+}
+
+export interface ToolValidateResponse {
+	passed: boolean;
+	cases: ToolCaseResult[];
+	validated_at: string | null;
+}
+
+export interface ToolActivationRecord {
+	from_version_no: number | null;
+	to_version_no: number;
+	activated_by: string | null;
+	activated_at: string;
+}
+
+export const listToolScripts = () => GET<ToolScriptSummary[]>(`${ADMIN}/tool_scripts`);
+
+export const getToolScript = (id: string) => GET<ToolScriptDetail>(`${ADMIN}/tool_scripts/${id}`);
+
+export const createToolScript = (body: {
+	name: string;
+	label: string;
+	description?: string;
+	created_by?: string;
+}) => POST<ToolScriptSummary>(`${ADMIN}/tool_scripts`, body);
+
+export const updateToolScript = (id: string, body: { label?: string; description?: string }) =>
+	PATCH<ToolScriptSummary>(`${ADMIN}/tool_scripts/${id}`, body);
+
+export const createToolVersion = (
+	id: string,
+	body: {
+		script: string;
+		entry_function?: string;
+		manifest: ToolManifest;
+		test_cases?: ToolTestCases;
+		note?: string;
+		/** Ignored by the server, which records the authenticated caller. */
+		created_by?: string;
+	},
+) =>
+	POST<{ version: ToolVersionSummary; lint: ToolLintFinding[] }>(
+		`${ADMIN}/tool_scripts/${id}/versions`,
+		body,
+	);
+
+export const getToolVersion = (id: string, versionId: string) =>
+	GET<ToolVersionDetail>(`${ADMIN}/tool_scripts/${id}/versions/${versionId}`);
+
+export const validateToolVersion = (id: string, versionId: string) =>
+	POST<ToolValidateResponse>(`${ADMIN}/tool_scripts/${id}/versions/${versionId}/validate`, {});
+
+export const activateToolVersion = (id: string, versionId: string, activatedBy?: string) =>
+	POST<ToolScriptSummary>(`${ADMIN}/tool_scripts/${id}/versions/${versionId}/activate`, {
+		...(activatedBy ? { activated_by: activatedBy } : {}),
+	});
+
+export const listToolActivations = (id: string) =>
+	GET<ToolActivationRecord[]>(`${ADMIN}/tool_scripts/${id}/activations`);
+
+// Script inspection. The runner parses the script and walks the tree; nothing is evaluated, so a
+// half-written script is safe to inspect and a syntax error is a 200 with `parse_ok: false`.
+
+/** `line`/`column` are absent when R's message carries no position. */
+export interface ToolParseError {
+	message: string;
+	line: number | null;
+	column: number | null;
+}
+
+/** A detection the parse tree cannot complete. `expressions` is empty when `any` is false. */
+export interface ToolDynamicFlag {
+	any: boolean;
+	expressions: string[];
+}
+
+/**
+ * Every list is a floor rather than a complete set: keys assembled at run time (a replicate
+ * letter pasted onto a base name) do not exist in the source. While `dynamic_outputs.any` is
+ * true, `outputs` is short by an unknown amount and a manifest declaring more is not thereby
+ * wrong; `dynamic_reads.any` says the same about `inputs`, `constants` and `curves`.
+ */
+export interface ToolScriptInspection {
+	parse_ok: boolean;
+	/** Null when the script parses. */
+	parse_error: ToolParseError | null;
+	entry: string;
+	entry_found: boolean;
+	/** The entry function's formals in declaration order; the runner calls them positionally. */
+	entry_args: string[];
+	inputs: string[];
+	constants: string[];
+	curves: string[];
+	outputs: string[];
+	dynamic_outputs: ToolDynamicFlag;
+	dynamic_reads: ToolDynamicFlag;
+	functions_defined: string[];
+	functions_called: string[];
+	/** The script's own top-level functions the entry function calls. */
+	script_functions_used: string[];
+	libraries: string[];
+	namespaces: string[];
+}
+
+/**
+ * What the script reads set against what the manifest declares. A comparison only: it proposes no
+ * manifest. Each list may be empty. When `reads_complete` is false every `unread_*` entry is
+ * possible rather than certain, and when `outputs_complete` is false the same holds for outputs.
+ */
+export interface ToolManifestReconciliation {
+	undeclared_inputs: string[];
+	undeclared_constants: string[];
+	undeclared_curves: string[];
+	unread_params: string[];
+	unread_constants: string[];
+	unread_curves: string[];
+	reads_complete: boolean;
+	outputs_complete: boolean;
+}
+
+export interface ToolInspectResponse extends ToolScriptInspection {
+	/** Null when the request carried no manifest. */
+	reconciliation: ToolManifestReconciliation | null;
+}
+
+export const inspectToolScript = (body: {
+	script: string;
+	entry_function?: string;
+	manifest?: ToolManifest;
+}) => POST<ToolInspectResponse>(`${ADMIN}/tool_scripts/inspect`, body);
+
+// Draft run: unsaved editor content through the same manifest validation, constant resolution and
+// curve resolution as a real calculate. Writes nothing.
+
+export interface ToolDraftRunRequest {
+	script: string;
+	entry_function?: string;
+	manifest: ToolManifest;
+	/** The calculate body: the manifest's params, plus its curve slots as fields of the same body. */
+	inputs?: Record<string, unknown>;
+	/** An override must name every constant the manifest declares; omit it to read the catalog. */
+	constants?: Record<string, number>;
+}
+
+/** Where a draft run ended, and therefore where the editor renders it. */
+export type ToolDraftFailureKind = 'body_refused' | 'script_error' | 'runner_unavailable';
+
+export interface ToolDraftFailure {
+	kind: ToolDraftFailureKind;
+	message: string;
+	/** The R call that raised; null for the two non-script kinds. */
+	call: string | null;
+	traceback: string[];
+}
+
+/**
+ * A draft run answers 200 whether or not the script ran: a refused body, a raised script and an
+ * absent runner are findings about the draft, so they arrive next to the lint findings rather than
+ * discarding them.
+ */
+export interface ToolDraftRunResponse {
+	ran: boolean;
+	/** Present only when `ran`. */
+	results?: Record<string, unknown>;
+	inputs_used?: string[];
+	inputs_ignored?: string[];
+	constants?: Record<string, number>;
+	curves?: ToolCurveSnapshot[];
+	/** Present only when the run ended without results. */
+	failure?: ToolDraftFailure | null;
+	/** The version fields are null here: nothing about a draft is stored. */
+	tool_version: ToolVersionRef;
+	/** Findings do not stop a draft from running; the version create still refuses to store them. */
+	lint: ToolLintFinding[];
+}
+
+export const draftRunToolScript = (body: ToolDraftRunRequest) =>
+	POST<ToolDraftRunResponse>(`${ADMIN}/tool_scripts/draft_run`, body);
+
+/** Lint findings from a refused version create (409 { error, detail }); null otherwise. */
+export function toolLintFindings(e: unknown): ToolLintFinding[] | null {
+	if (!(e instanceof ApiError) || e.status !== 409) return null;
+	try {
+		const body = JSON.parse(e.message) as { detail?: ToolLintFinding[] };
+		return Array.isArray(body.detail) ? body.detail : null;
+	} catch {
+		return null;
+	}
+}
+
 // Grab samples
 export interface GrabSampleReading {
 	parameter_id: string;
@@ -994,16 +1437,72 @@ export interface GrabSampleRequest {
 	// Stamped onto the samples rows the request creates or reuses.
 	label?: string;
 	notes?: string;
+	// Without 'replace', writing to an existing replicate group is refused with 409 and the
+	// existing groups in the error detail; 'replace' overwrites them.
+	mode?: 'replace';
+	// Computes everything (preview and existing_groups included) and writes nothing.
+	dry_run?: boolean;
+	// Tool-run provenance stamped onto every samples row the request touches (the server mints a
+	// run_id when absent and ignores the blob on dry_run since nothing is written).
+	provenance?: unknown;
 	readings: GrabSampleReading[];
+}
+
+export interface GrabPreviewCurve {
+	id: string;
+	name: string | null;
+	slope: number;
+	intercept: number;
+	equation: string;
+}
+
+export interface GrabPreviewRow {
+	parameter_id: string;
+	time: string;
+	replicate_index: number;
+	raw_value: number;
+	base_calibration?: GrabPreviewCurve | null;
+	standard_curve?: GrabPreviewCurve | null;
+	composed_equation?: string | null;
+	calibrated_value?: number | null;
+}
+
+export interface GrabExistingReplicate {
+	replicate_index: number;
+	raw_value: number;
+	calibrated_value: number | null;
+	standard_curve_id: string | null;
+}
+
+export interface GrabExistingGroup {
+	parameter_id: string;
+	time: string;
+	replicates: GrabExistingReplicate[];
 }
 
 export interface GrabSampleResponse {
 	inserted: number;
 	samples_created: number;
+	created_sample_ids: string[];
+	dry_run: boolean;
+	replaced: number;
+	preview: GrabPreviewRow[];
+	existing_groups: GrabExistingGroup[];
 }
 
 export const saveGrabSample = (req: GrabSampleRequest) =>
 	POST<GrabSampleResponse>(`${SERVICE}/grab_samples`, req);
+
+/** Existing replicate groups from a grab-sample 409 body ({ error, detail }); null otherwise. */
+export function grabConflictGroups(e: unknown): GrabExistingGroup[] | null {
+	if (!(e instanceof ApiError) || e.status !== 409) return null;
+	try {
+		const body = JSON.parse(e.message) as { detail?: GrabExistingGroup[] };
+		return Array.isArray(body.detail) ? body.detail : [];
+	} catch {
+		return [];
+	}
+}
 
 // Schedules, the recurring-service control plane.
 export type OverlapPolicy = 'skip_if_running' | 'allow_concurrent';

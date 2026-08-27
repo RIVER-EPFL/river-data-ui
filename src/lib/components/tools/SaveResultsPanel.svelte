@@ -1,12 +1,34 @@
+<script lang="ts" module>
+	// A curve consumed by the calculation, recorded into the provenance blob.
+	export interface UsedCurve {
+		name: string;
+		slope: number | null;
+		intercept: number | null;
+		label: string | null;
+		standard_curve_id: string | null;
+	}
+</script>
+
 <script lang="ts">
 	import { base } from '$app/paths';
 	import { api, type Site, type SiteParameter, type Parameter, type Sensor, type StandardCurve } from '$api/crud';
-	import { saveGrabSample } from '$api/service';
+	import { listAll } from '$api/paged';
+	import {
+		saveGrabSample,
+		grabConflictGroups,
+		type GrabExistingGroup,
+		type GrabPreviewRow,
+		type GrabSampleReading,
+		type ToolCurveSnapshot,
+		type ToolOutput,
+		type ToolVersionRef,
+	} from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
+	import { toDatetimeLocal, fromDatetimeLocal, formatDateTime } from '$lib/utils';
 	import { curveEquation, curveLabel } from '$lib/standardCurves';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
+	import ParameterSelect from '$components/ParameterSelect.svelte';
 
 	const BROWSER_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
 	const ZONE_OPTIONS =
@@ -14,18 +36,36 @@
 			? Intl.supportedValuesOf('timeZone')
 			: [BROWSER_ZONE, 'UTC'];
 
-	// Persists a tool's computed outputs to a site as one grab-sample request.
+	// Persists a tool's computed outputs to a site as one grab-sample request, carrying the run's
+	// provenance (tool, script version, inputs, curves, outputs, saved mapping).
 	let {
 		open = $bindable(false),
+		toolName = '',
 		toolTitle = '',
 		results = null,
-		curveNote = '',
+		outputs = [],
+		toolVersion = null,
+		calcInputs = null,
+		curvesUsed = [],
+		serverConstants = null,
+		serverCurves = [],
 		appliedCurveLabel = '',
 	}: {
 		open: boolean;
+		toolName?: string;
 		toolTitle?: string;
 		results?: Record<string, unknown> | null;
-		curveNote?: string;
+		/** The tool's manifest outputs; drives replicate grouping and default parameter mapping. */
+		outputs?: ToolOutput[];
+		toolVersion?: ToolVersionRef | null;
+		/** The exact calculate request body these results came from. */
+		calcInputs?: Record<string, unknown> | null;
+		/** The browser's curve picker state; a fallback for provenance when `serverCurves` is empty. */
+		curvesUsed?: UsedCurve[];
+		/** Constant values the server resolved for this run, by name. */
+		serverConstants?: Record<string, number> | null;
+		/** Curves as the runner received them, the authority on what produced these numbers. */
+		serverCurves?: ToolCurveSnapshot[];
 		/**
 		 * Set when the tool consumed a standard curve during the calculation, so these values are
 		 * already corrected. The curve is then shown read-only and no `standard_curve_id` is sent:
@@ -37,59 +77,124 @@
 	interface ResultRow {
 		id: string;
 		displayKey: string;
-		values: { key: string; value: number }[];
+		label: string | null;
+		units: string | null;
+		/** `index` is the replicate slot the value is stored at; see `replicateIndex`. */
+		values: { key: string; value: number; index: number }[];
 		replicateGroup: boolean;
+		/** Names no catalog parameter, so there is nowhere to write it: display-only. */
+		displayOnly: boolean;
+		/** The parameter the server resolved this output to, null when it resolves to nothing. */
+		resolvedParameterId: string | null;
+		suggestedCode: string | null;
 		defaultInclude: boolean;
 	}
 
+	const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+	/** The catalog parameter an output declares, by either half of the declaration. */
+	const linkedParameter = (o: ToolOutput) =>
+		o.parameter?.id ?? o.parameter_id ?? o.suggested_parameter_code ?? null;
+
+	/**
+	 * An output is never saved when it names no catalog parameter (nowhere to write it) or when it
+	 * summarises another output, per replicate or not: a replicated measurement is stored at the
+	 * replicate level and its summaries are derived by the database.
+	 */
+	const displayOnlyOutput = (o: ToolOutput) => o.aggregate_of !== null || !linkedParameter(o);
+
+	const LETTER_A = 'A'.charCodeAt(0);
+
+	/**
+	 * The replicate slot a suffix stands for. Replicate letters are a client-side convention with no
+	 * server-side representation, so the mapping is decided here: a single letter is its position in
+	 * the alphabet, anything else falls back to its position in the sorted group.
+	 */
+	function replicateIndices(suffixes: string[]): number[] {
+		const letters = suffixes.map((s) => (/^[A-Za-z]$/.test(s) ? s.toUpperCase().charCodeAt(0) - LETTER_A : -1));
+		const usable = letters.every((n) => n >= 0) && new Set(letters).size === letters.length;
+		return usable ? letters : suffixes.map((_, i) => i);
+	}
+
+	// Rows follow the manifest: per_replicate outputs group their suffixed result keys
+	// ({base}_{rep}). An output that names no catalog parameter has nowhere to be written and is
+	// display-only, whether it summarises another output or nothing at all. Result keys no output
+	// covers fall back to plain single-value rows, mapped by hand.
 	const rows = $derived.by((): ResultRow[] => {
 		const numeric = Object.entries(results ?? {}).filter(
 			([, v]) => typeof v === 'number' && Number.isFinite(v as number),
 		) as [string, number][];
+		const byKey = new Map(numeric);
+		const covered = new Set<string>();
+		const out: ResultRow[] = [];
+		// A replicate suffix pattern also matches the manifest's own avg/sd keys (DIC_{rep} against
+		// DIC_avg), so keys another output declares are never swept into the replicate group: they
+		// are aggregates, and saving them as replicates would skew the sample statistics.
+		const declaredElsewhere = new Set(outputs.filter((o) => !o.per_replicate).map((o) => o.key));
 
-		const repRe = /^(.+)_([A-E])$/;
-		const groups = new Map<string, { key: string; value: number; letter: string }[]>();
-		for (const [key, value] of numeric) {
-			const m = key.match(repRe);
-			if (m) {
-				const list = groups.get(m[1]) ?? [];
-				list.push({ key, value, letter: m[2] });
-				groups.set(m[1], list);
+		for (const o of outputs) {
+			const cbase = o.key.replace(/_?\{rep\}/, '');
+			if (o.per_replicate) {
+				const re = new RegExp(`^${esc(cbase)}_([A-Za-z0-9]+)$`);
+				const members = numeric
+					.filter(([k]) => !covered.has(k) && !declaredElsewhere.has(k) && re.test(k))
+					.map(([key, value]) => ({ key, value, suffix: key.match(re)![1] }))
+					.sort((a, b) => a.suffix.localeCompare(b.suffix, undefined, { numeric: true }));
+				if (members.length === 0) continue;
+				for (const m of members) covered.add(m.key);
+				// A family can be gapped: a replicate the script could not compute has no key at all.
+				// Indices come from the letters so the gap is stored rather than closed up.
+				const indices = replicateIndices(members.map((m) => m.suffix));
+				out.push({
+					id: cbase,
+					displayKey: cbase,
+					label: o.label,
+					units: o.units,
+					values: members.map(({ key, value }, i) => ({ key, value, index: indices[i] })),
+					replicateGroup: members.length > 1,
+					displayOnly: displayOnlyOutput(o),
+					resolvedParameterId: o.parameter?.id ?? null,
+					suggestedCode: o.parameter?.code ?? o.suggested_parameter_code,
+					defaultInclude: !displayOnlyOutput(o),
+				});
+			} else {
+				const value = byKey.get(o.key);
+				if (value === undefined || covered.has(o.key)) continue;
+				covered.add(o.key);
+				const displayOnly = displayOnlyOutput(o);
+				out.push({
+					id: o.key,
+					displayKey: o.key,
+					label: o.label,
+					units: o.units,
+					values: [{ key: o.key, value, index: 0 }],
+					replicateGroup: false,
+					displayOnly,
+					resolvedParameterId: o.parameter?.id ?? null,
+					suggestedCode: o.parameter?.code ?? o.suggested_parameter_code,
+					defaultInclude: !displayOnly,
+				});
 			}
 		}
-		const groupedBases = new Set([...groups.keys()].filter((b) => (groups.get(b)?.length ?? 0) >= 2));
-
-		const out: ResultRow[] = [];
-		const emittedBases = new Set<string>();
 		for (const [key, value] of numeric) {
-			const m = key.match(repRe);
-			if (m && groupedBases.has(m[1])) {
-				if (emittedBases.has(m[1])) continue;
-				emittedBases.add(m[1]);
-				const members = [...groups.get(m[1])!].sort((a, b) => a.letter.localeCompare(b.letter));
-				out.push({
-					id: m[1],
-					displayKey: m[1],
-					values: members.map(({ key: k, value: v }) => ({ key: k, value: v })),
-					replicateGroup: true,
-					defaultInclude: true,
-				});
-				continue;
-			}
-			// An avg/sd alongside its replicate group would land as an extra replicate
-			// and skew the sample mean, so those default to excluded.
-			const statBase = key.replace(/_(avg|sd|std)$/i, '');
-			const shadowedByGroup = statBase !== key && groupedBases.has(statBase);
+			if (covered.has(key)) continue;
 			out.push({
 				id: key,
 				displayKey: key,
-				values: [{ key, value }],
+				label: null,
+				units: null,
+				values: [{ key, value, index: 0 }],
 				replicateGroup: false,
-				defaultInclude: !shadowedByGroup,
+				displayOnly: false,
+				resolvedParameterId: null,
+				suggestedCode: null,
+				defaultInclude: true,
 			});
 		}
 		return out;
 	});
+
+	const saveableRows = $derived(rows.filter((r) => !r.displayOnly));
 
 	let sites = $state<Site[]>([]);
 	let params = $state<Parameter[]>([]);
@@ -115,8 +220,51 @@
 	let included = $state<Record<string, boolean>>({});
 	let paramChoices = $state<Record<string, string>>({});
 
+	// Server-computed correction chain for the current inputs, refreshed via dry_run.
+	let preview = $state<GrabPreviewRow[]>([]);
+	let previewGroups = $state<GrabExistingGroup[]>([]);
+	let previewBusy = $state(false);
+	// Existing replicate groups from a refused save; confirming re-sends with mode: 'replace'.
+	let conflictGroups = $state<GrabExistingGroup[] | null>(null);
+	let previewTimer: ReturnType<typeof setTimeout> | null = null;
+	let previewGeneration = 0;
+
+	// What the runner actually received wins over the browser's picker state: the server resolves a
+	// slot to a curve, and only its answer can say which coefficients produced a number. The picker
+	// state stands in when a run predates the server snapshot.
+	const resolvedCurves = $derived.by((): UsedCurve[] =>
+		serverCurves.length > 0
+			? serverCurves.map((c) => ({
+					name: c.name,
+					slope: c.curve.slope,
+					intercept: c.curve.intercept,
+					label: c.curve.label,
+					standard_curve_id: c.curve.standard_curve_id,
+				}))
+			: curvesUsed,
+	);
+
+	// Stored curves consumed by the calculation, noted into the sample notes by default.
+	const curveNote = $derived(
+		resolvedCurves
+			.filter((c) => c.standard_curve_id)
+			.map((c) => `${c.name}: ${c.label ?? c.standard_curve_id} [${c.standard_curve_id}]`)
+			.join('; '),
+	);
+
+	// One calculation's identity. Reopening the dialog on the same results keeps the site, mapping
+	// and notes the operator already set; a new calculation starts clean.
+	const resultSignature = $derived(`${toolName}|${JSON.stringify(results ?? {})}`);
+	// Plain, not reactive: the effect below writes it, and a reactive read would re-arm the effect.
+	let appliedSignature = '';
+
 	$effect(() => {
 		if (!open) return;
+		if (resultSignature === appliedSignature) {
+			void loadSites();
+			return;
+		}
+		appliedSignature = resultSignature;
 		selectedSiteId = '';
 		siteParams = [];
 		selectedSensorId = '';
@@ -126,9 +274,12 @@
 		collectedZone = BROWSER_ZONE;
 		label = '';
 		notes = curveNote;
+		preview = [];
+		previewGroups = [];
+		conflictGroups = null;
 		const inc: Record<string, boolean> = {};
 		const pc: Record<string, string> = {};
-		for (const r of rows) {
+		for (const r of saveableRows) {
 			inc[r.id] = r.defaultInclude;
 			pc[r.id] = '';
 		}
@@ -137,17 +288,23 @@
 		void loadSites();
 	});
 
+	// Every list is paged to completion: mapping an output to a parameter is a lookup by name over
+	// the whole catalog, and a single page silently stops matching once the table outgrows it.
 	async function loadSites() {
 		if (sites.length > 0) return;
 		try {
 			const [s, p, i] = await Promise.all([
-				api.sites.list({ perPage: 200, sort: ['name', 'ASC'] }),
-				api.parameters.list({ perPage: 500 }),
-				api.sensors.list({ perPage: 1000, filter: { is_active: true }, sort: ['name', 'ASC'] }),
+				listAll(api.sites, { perPage: 200, sort: ['name', 'ASC'] }),
+				listAll(api.parameters, { perPage: 500, sort: ['name', 'ASC'] }),
+				listAll(api.sensors, {
+					perPage: 500,
+					filter: { is_active: true },
+					sort: ['name', 'ASC'],
+				}),
 			]);
-			sites = s.data;
-			params = p.data;
-			instruments = i.data;
+			sites = s;
+			params = p;
+			instruments = i;
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Failed to load sites');
 		}
@@ -184,14 +341,17 @@
 		}
 	}
 
-	async function loadSiteParameters(siteId: string) {
-		siteParams = [];
+	/** `applyDefaults` is false when refreshing after an inline add, which must not clobber choices. */
+	async function loadSiteParameters(siteId: string, applyDefaults = true) {
+		if (applyDefaults) siteParams = [];
 		if (!siteId) return;
 		loadingSite = true;
 		try {
-			const res = await api.siteParameters.list({ perPage: 500, filter: { site_id: siteId } });
-			siteParams = res.data;
-			applyDefaultMappings();
+			siteParams = await listAll(api.siteParameters, {
+				perPage: 500,
+				filter: { site_id: siteId },
+			});
+			if (applyDefaults) applyDefaultMappings();
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Failed to load site parameters');
 		} finally {
@@ -199,24 +359,58 @@
 		}
 	}
 
-	// Default each row's parameter by case-insensitive match of the result key
-	// against the catalog code/name of parameters configured at the site.
+	// Matching ignores case, spaces, underscores and hyphens so a result key still finds the catalog
+	// entry an operator would call the same analyte.
+	const norm = (s: string | null | undefined) =>
+		(s ?? '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+
+	// Each row maps to the parameter the server resolved for that output, matched against the
+	// parameters configured at the site. String matching is the fallback only: the seeded manifests
+	// declare a code rather than an id, and some of those codes still have no catalog row.
 	function applyDefaultMappings() {
 		const next = { ...paramChoices };
-		for (const r of rows) {
-			const wanted = r.displayKey.toLowerCase();
-			const match = siteParams.find((sp) => {
-				const p = params.find((pp) => pp.id === sp.parameter_id);
-				return (
-					p?.code.toLowerCase() === wanted ||
-					p?.name.toLowerCase() === wanted ||
-					sp.name?.toLowerCase() === wanted
-				);
-			});
-			next[r.id] = match?.parameter_id ?? '';
+		for (const r of saveableRows) {
+			const byId = r.resolvedParameterId
+				? siteParams.find((sp) => sp.parameter_id === r.resolvedParameterId)
+				: undefined;
+			const bySuggestion =
+				byId ??
+				(r.suggestedCode
+					? siteParams.find((sp) => {
+							const p = params.find((pp) => pp.id === sp.parameter_id);
+							return norm(p?.code) === norm(r.suggestedCode);
+						})
+					: undefined);
+			const wanted = norm(r.displayKey);
+			const byKey =
+				bySuggestion ??
+				siteParams.find((sp) => {
+					const p = params.find((pp) => pp.id === sp.parameter_id);
+					return (
+						norm(p?.code) === wanted ||
+						norm(p?.name) === wanted ||
+						norm(sp.name) === wanted ||
+						(p?.aliases ?? []).some((a) => norm(a) === wanted)
+					);
+				});
+			next[r.id] = byKey?.parameter_id ?? '';
 		}
 		paramChoices = next;
 	}
+
+	// A row's parameter arrived at the site while the dialog was open, so map it and keep going. The
+	// catalog is re-read too: a brand new entry is not in the list this panel loaded on open, and
+	// every label and preview name resolves through it.
+	async function handleParameterCreated(rowId: string, parameterId: string) {
+		const [catalog] = await Promise.all([
+			listAll(api.parameters, { perPage: 500, sort: ['name', 'ASC'] }),
+			loadSiteParameters(selectedSiteId, false),
+		]);
+		params = catalog;
+		paramChoices = { ...paramChoices, [rowId]: parameterId };
+	}
+
+	const selectedSiteName = $derived(sites.find((s) => s.id === selectedSiteId)?.name ?? null);
 
 	function paramLabel(sp: SiteParameter): string {
 		const param = params.find((p) => p.id === sp.parameter_id);
@@ -225,7 +419,7 @@
 		return units ? `${name} (${units})` : name;
 	}
 
-	const includedRows = $derived(rows.filter((r) => included[r.id]));
+	const includedRows = $derived(saveableRows.filter((r) => included[r.id]));
 
 	const duplicateParam = $derived.by(() => {
 		const seen = new Set<string>();
@@ -250,34 +444,112 @@
 			!duplicateParam,
 	);
 
-	async function handleSave() {
+	// Every reading carries its index: the endpoint preserves a set of indices only when all of them
+	// are explicit, and numbers the group contiguously from 0 otherwise, which would close a gap in a
+	// replicate family and record the wrong replicate for every value after it.
+	function buildReadings(): GrabSampleReading[] {
+		const time = fromDatetimeLocal(collectedAt, collectedZone);
+		return includedRows.flatMap((r) =>
+			r.values.map((v) => ({
+				parameter_id: paramChoices[r.id],
+				time,
+				value: v.value,
+				replicate_index: v.index,
+				...(selectedSensorId ? { sensor_id: selectedSensorId } : {}),
+				...(sentCurveId ? { standard_curve_id: sentCurveId } : {}),
+			})),
+		);
+	}
+
+	// Provenance stamped onto the samples rows: the run's identity (including the runner image and R
+	// version the response carries), exact inputs, the constants and curves the server resolved,
+	// full output map, and which outputs land on which parameters. The constants and curves come
+	// from the response rather than from this form, so the blob says what produced the numbers.
+	function buildProvenance(): Record<string, unknown> | undefined {
+		if (!toolName || !toolVersion) return undefined;
+		return {
+			tool: toolName,
+			tool_version: toolVersion,
+			inputs: calcInputs ?? {},
+			constants: serverConstants ?? {},
+			curves: resolvedCurves,
+			outputs: results ?? {},
+			saved: Object.fromEntries(includedRows.map((r) => [r.id, paramChoices[r.id]])),
+		};
+	}
+
+	async function refreshPreview() {
+		if (!open) return;
+		const gen = ++previewGeneration;
+		previewBusy = true;
+		try {
+			const res = await saveGrabSample({
+				site_id: selectedSiteId,
+				dry_run: true,
+				provenance: buildProvenance(),
+				readings: buildReadings(),
+			});
+			if (gen !== previewGeneration) return;
+			preview = res.preview ?? [];
+			previewGroups = res.existing_groups ?? [];
+		} catch {
+			if (gen !== previewGeneration) return;
+			preview = [];
+			previewGroups = [];
+		} finally {
+			if (gen === previewGeneration) previewBusy = false;
+		}
+	}
+
+	$effect(() => {
+		if (!open || !canSave) {
+			preview = [];
+			previewGroups = [];
+			return;
+		}
+		// Read every input the request depends on so a change re-arms the debounce.
+		void buildReadings();
+		// Changed inputs invalidate a shown conflict; the next save asks again.
+		conflictGroups = null;
+		if (previewTimer) clearTimeout(previewTimer);
+		previewTimer = setTimeout(() => {
+			previewTimer = null;
+			void refreshPreview();
+		}, 400);
+	});
+
+	function paramNameById(parameterId: string): string {
+		const sp = siteParams.find((p) => p.parameter_id === parameterId);
+		if (sp) return paramLabel(sp);
+		return params.find((p) => p.id === parameterId)?.name ?? parameterId.slice(0, 8);
+	}
+
+	async function handleSave(replace = false) {
 		if (!canSave) return;
 		saving = true;
 		try {
-			const time = fromDatetimeLocal(collectedAt, collectedZone);
-			const readings = includedRows.flatMap((r) =>
-				r.values.map((v, idx) => ({
-					parameter_id: paramChoices[r.id],
-					time,
-					value: v.value,
-					replicate_index: idx,
-					...(selectedSensorId ? { sensor_id: selectedSensorId } : {}),
-					...(sentCurveId ? { standard_curve_id: sentCurveId } : {}),
-				})),
-			);
 			const res = await saveGrabSample({
 				site_id: selectedSiteId,
 				...(label.trim() ? { label: label.trim() } : {}),
 				...(notes.trim() ? { notes: notes.trim() } : {}),
-				readings,
+				...(replace ? { mode: 'replace' as const } : {}),
+				provenance: buildProvenance(),
+				readings: buildReadings(),
 			});
 			toastStore.success(
 				`Saved ${res.inserted} reading${res.inserted === 1 ? '' : 's'}` +
-					(res.samples_created ? ` (${res.samples_created} sample${res.samples_created === 1 ? '' : 's'})` : ''),
+					(res.samples_created ? ` (${res.samples_created} sample${res.samples_created === 1 ? '' : 's'})` : '') +
+					(res.replaced ? `, replaced ${res.replaced}` : ''),
 			);
+			conflictGroups = null;
 			open = false;
 		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Failed to save to site');
+			const groups = grabConflictGroups(e);
+			if (groups) {
+				conflictGroups = groups;
+			} else {
+				toastStore.error(e instanceof Error ? e.message : 'Failed to save to site');
+			}
 		} finally {
 			saving = false;
 		}
@@ -378,16 +650,19 @@
 					</thead>
 					<tbody>
 						{#each rows as row (row.id)}
-							<tr class="border-t border-brand-divider">
+							<tr class="border-t border-brand-divider {row.displayOnly ? 'text-brand-muted' : ''}">
 								<td class="px-1 py-1.5 align-top">
-									<input
-										type="checkbox"
-										bind:checked={included[row.id]}
-										aria-label="Include {row.displayKey}"
-									/>
+									{#if !row.displayOnly}
+										<input
+											type="checkbox"
+											bind:checked={included[row.id]}
+											aria-label="Include {row.displayKey}"
+										/>
+									{/if}
 								</td>
 								<td class="px-1 py-1.5 align-top">
-									{row.displayKey.replace(/_/g, ' ')}
+									{row.label ?? row.displayKey.replace(/_/g, ' ')}
+									{#if row.units}<span class="text-xs text-brand-muted">({row.units})</span>{/if}
 									{#if row.replicateGroup}
 										<span class="text-xs text-brand-muted">({row.values.length} replicates)</span>
 									{/if}
@@ -396,17 +671,31 @@
 									{row.values.map((v) => v.value.toPrecision(6)).join(', ')}
 								</td>
 								<td class="px-1 py-1.5 align-top">
-									<select
-										bind:value={paramChoices[row.id]}
-										disabled={!selectedSiteId || loadingSite || !included[row.id]}
-										aria-label="Parameter for {row.displayKey}"
-										class="w-full px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm disabled:opacity-50"
-									>
-										<option value="">{loadingSite ? 'Loading…' : !selectedSiteId ? 'Select a site first' : ' - Select a parameter at this site - '}</option>
-										{#each siteParams as sp}
-											<option value={sp.parameter_id}>{paramLabel(sp)}</option>
-										{/each}
-									</select>
+									{#if row.displayOnly}
+										<span class="text-xs text-brand-muted">Not saved</span>
+									{:else}
+										<!-- Function binding: the choices map is filled by the reset effect, which runs
+										     after the dialog body first renders, so a plain binding would hand the
+										     child `undefined`. -->
+										<ParameterSelect
+											bind:value={
+												() => paramChoices[row.id] ?? '',
+												(v) => (paramChoices = { ...paramChoices, [row.id]: v })
+											}
+											siteId={selectedSiteId || null}
+											{siteParams}
+											parameters={params}
+											disabled={!selectedSiteId || loadingSite || !included[row.id]}
+											placeholder={loadingSite ? 'Loading…' : !selectedSiteId ? 'Select a site first' : ' - Select a parameter at this site - '}
+											ariaLabel="Parameter for {row.displayKey}"
+											allowAdd
+											siteName={selectedSiteName}
+											wantedCode={row.suggestedCode ?? row.displayKey}
+											wantedLabel={row.label}
+											wantedUnits={row.units}
+											onCreated={(parameterId) => handleParameterCreated(row.id, parameterId)}
+										/>
+									{/if}
 								</td>
 							</tr>
 						{/each}
@@ -418,6 +707,84 @@
 				<p class="text-xs text-severity-alarm">Two included outputs map to the same parameter; each parameter can only be saved once per timestamp.</p>
 			{:else if selectedSiteId && unmappedIncluded}
 				<p class="text-xs text-brand-muted">Every included output needs a parameter (or untick it).</p>
+			{/if}
+
+			{#if canSave && (preview.length > 0 || previewBusy)}
+				<div class="rounded-md border border-brand-divider bg-brand-bg p-2.5">
+					<div class="flex items-center justify-between mb-1.5">
+						<span class="text-xs font-semibold">Correction preview</span>
+						{#if previewBusy}<span class="text-xs text-brand-muted">Updating…</span>{/if}
+					</div>
+					{#if preview.length > 0}
+						<div class="overflow-x-auto">
+							<table class="w-full text-xs">
+								<thead>
+									<tr class="text-left text-brand-muted">
+										<th class="px-1 py-0.5">Parameter</th>
+										<th class="px-1 py-0.5 text-right">Raw</th>
+										<th class="px-1 py-0.5">Calibration</th>
+										<th class="px-1 py-0.5">Standard curve</th>
+										<th class="px-1 py-0.5">Applied</th>
+										<th class="px-1 py-0.5 text-right">Calibrated</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each preview as row}
+										<tr class="border-t border-brand-divider">
+											<td class="px-1 py-0.5">
+												{paramNameById(row.parameter_id)}
+												{#if preview.filter((p) => p.parameter_id === row.parameter_id).length > 1}
+													<span class="text-brand-muted">#{row.replicate_index}</span>
+												{/if}
+											</td>
+											<td class="px-1 py-0.5 text-right font-mono">{row.raw_value}</td>
+											<td class="px-1 py-0.5 font-mono {row.base_calibration ? '' : 'text-brand-muted'}">
+												{row.base_calibration?.equation ?? 'None'}
+											</td>
+											<td class="px-1 py-0.5 {row.standard_curve ? '' : 'text-brand-muted'}">
+												{#if row.standard_curve}
+													{#if row.standard_curve.name}{row.standard_curve.name} {/if}<span class="font-mono">{row.standard_curve.equation}</span>
+												{:else}
+													None
+												{/if}
+											</td>
+											<td class="px-1 py-0.5 font-mono {row.composed_equation ? '' : 'text-brand-muted'}">
+												{row.composed_equation ?? 'None'}
+											</td>
+											<td class="px-1 py-0.5 text-right font-mono">
+												{row.calibrated_value ?? row.raw_value}
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{/if}
+					{#if previewGroups.length > 0}
+						<p class="text-xs text-severity-warning-text mt-1.5">
+							{previewGroups.length} replicate group{previewGroups.length === 1 ? '' : 's'} already exist
+							at this timestamp; saving will ask before replacing them.
+						</p>
+					{/if}
+				</div>
+			{/if}
+
+			{#if conflictGroups}
+				<div class="rounded-md border border-severity-warning-border bg-severity-warning-soft p-2.5 space-y-1.5">
+					<p class="text-sm font-medium text-severity-warning-text">
+						Readings already exist for {conflictGroups.length === 1 ? 'this parameter and timestamp' : 'these parameters and timestamps'}.
+					</p>
+					{#each conflictGroups as g}
+						<div class="text-xs">
+							<span class="font-medium">{paramNameById(g.parameter_id)}</span>
+							<span class="text-brand-muted">at {formatDateTime(g.time)}:</span>
+							<span class="font-mono">
+								{g.replicates.map((r) => r.calibrated_value ?? r.raw_value).join(', ')}
+							</span>
+						</div>
+					{/each}
+					<p class="text-xs">Replace overwrites the stored replicates with the values above.</p>
+				</div>
 			{/if}
 
 			<div class="grid grid-cols-2 gap-3">
@@ -433,17 +800,25 @@
 
 			<p class="text-xs text-brand-muted">
 				Saves the ticked outputs as grab-sample readings at the selected site. Replicate outputs
-				share a timestamp with replicate indices so a sample (mean, sd, n) forms; the label and
-				notes are stored on those samples. With an instrument set, its calibration for that
-				timestamp is applied, then the standard curve if one is chosen; with neither, the reading
-				keeps its raw value and no corrected value.
+				share a timestamp with replicate indices so a sample (mean, sd, n) forms; the label,
+				notes and the run's provenance (tool version and runner, inputs, constants, curves,
+				outputs) are stored on
+				those samples. With an instrument set, its calibration for that timestamp is applied,
+				then the standard curve if one is chosen; with neither, the reading keeps its raw value
+				and no corrected value.
 			</p>
 		</div>
 	{/snippet}
 	{#snippet actions()}
 		<Button onclick={() => (open = false)}>Cancel</Button>
-		<Button variant="primary" onclick={handleSave} disabled={saving || !canSave}>
-			{saving ? 'Saving…' : 'Save'}
-		</Button>
+		{#if conflictGroups}
+			<Button variant="danger" onclick={() => handleSave(true)} disabled={saving || !canSave}>
+				{saving ? 'Saving…' : 'Replace existing'}
+			</Button>
+		{:else}
+			<Button variant="primary" onclick={() => handleSave()} disabled={saving || !canSave}>
+				{saving ? 'Saving…' : 'Save'}
+			</Button>
+		{/if}
 	{/snippet}
 </Dialog>

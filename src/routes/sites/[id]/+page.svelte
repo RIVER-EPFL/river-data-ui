@@ -20,6 +20,7 @@
 	import ThresholdDialog from '$components/dialogs/ThresholdDialog.svelte';
 	import DeployMoveSensorDialog from '$components/dialogs/DeployMoveSensorDialog.svelte';
 	import MergeSiteParameterDialog from '$components/dialogs/MergeSiteParameterDialog.svelte';
+	import ProvenanceCard from '$components/samples/ProvenanceCard.svelte';
 	import ParameterChart, { type ChartData } from '$components/charts/ParameterChart.svelte';
 	import { GAP_THRESHOLDS } from '$lib/charts/uPlotTheme';
 	import { autoResolution, type Frequency } from '$lib/charts/multiSiteSeries';
@@ -28,8 +29,9 @@
 	import SharedChartTooltip from '$components/charts/SharedChartTooltip.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
 	import ResolutionChips from '$components/charts/ResolutionChips.svelte';
-	import type { SampleStat, StatusEventsResponse } from '$lib/api/types';
+	import type { SampleReplicate, SampleStat, StatusEventsResponse } from '$lib/api/types';
 	import { curveRefs } from '$lib/curveRefs.svelte';
+	import { formatEquation } from '$lib/standardCurves';
 	import { eventBus, INGEST_COALESCE_MS } from '$lib/stores/events.svelte';
 	import { formatThresholdRange } from '$lib/alarms';
 	import { me } from '$auth/me.svelte';
@@ -284,13 +286,18 @@
 	let spotStatsMap = $state<Map<string, Map<number, SpotPointStats>>>(new Map());
 	// Standard curve behind each sample in the loaded window, keyed by sample id. Replicates of one
 	// sample may carry different curves, which is reported rather than reduced to the first one.
-	interface SampleCurve { curveId: string | null; mixed: boolean }
+	interface SampleCurve {
+		curveId: string | null;
+		mixed: boolean;
+		replicates: SampleReplicate[];
+	}
 	let sampleCurves = $state<Map<string, SampleCurve>>(new Map());
 
 	function sampleCurve(stat: SampleStat): SampleCurve {
-		const ids = new Set((stat.replicates ?? []).map((r) => r.standard_curve_id ?? null));
-		if (ids.size > 1) return { curveId: null, mixed: true };
-		return { curveId: [...ids][0] ?? null, mixed: false };
+		const replicates = stat.replicates ?? [];
+		const ids = new Set(replicates.map((r) => r.standard_curve_id ?? null));
+		if (ids.size > 1) return { curveId: null, mixed: true, replicates };
+		return { curveId: [...ids][0] ?? null, mixed: false, replicates };
 	}
 	let annotationsByParam = $state<Map<string, Annotation[]>>(new Map());
 	let showSensorVectors = $state(false);
@@ -407,6 +414,7 @@
 							stdev: s?.stdev ?? null,
 							n: s?.n ?? 1,
 							replicates: s?.replicates,
+							sampleId: s?.sample_id,
 							calibrationId,
 							standardCurveId,
 						});
@@ -727,6 +735,15 @@
 	});
 
 	function paramName(paramId: string): string { return parameters.find((p) => p.id === paramId)?.name ?? 'None'; }
+
+	// Sample rows whose provenance card is expanded.
+	let expandedProvenance = $state<Set<string>>(new Set());
+	function toggleProvenance(sampleId: string) {
+		const next = new Set(expandedProvenance);
+		if (next.has(sampleId)) next.delete(sampleId);
+		else next.add(sampleId);
+		expandedProvenance = next;
+	}
 	function paramCode(paramId: string): string { return parameters.find((p) => p.id === paramId)?.code ?? ''; }
 	function paramUnits(sp: SiteParameter): string {
 		const param = parameters.find((p) => p.id === sp.parameter_id);
@@ -1587,7 +1604,7 @@
 								<td class="px-4 py-2 font-mono text-brand-muted">{sensor.serial_number ?? 'None'}</td>
 								<td class="px-4 py-2 text-brand-muted">{dep ? formatRelativeTime(dep.deployed_from) : 'None'}</td>
 								<td class="px-4 py-2">
-									{#if cal}<span class="font-mono">{cal.slope}x + {cal.intercept}</span> <span class="text-brand-muted text-xs">({formatRelativeTime(cal.valid_from)})</span>{:else}<span class="text-brand-muted">None</span>{/if}
+									{#if cal}<span class="font-mono">{formatEquation(cal.slope, cal.intercept)}</span> <span class="text-brand-muted text-xs">({formatRelativeTime(cal.valid_from)})</span>{:else}<span class="text-brand-muted">None</span>{/if}
 								</td>
 								<td class="px-4 py-2 text-right whitespace-nowrap" onclick={(e) => e.stopPropagation()}>
 									<Button size="sm" onclick={() => { moveSensor = sensor; moveOpen = true; }}>Move…</Button>
@@ -1609,7 +1626,7 @@
 													<span class="font-mono text-brand-muted">{formatDateTime(c.valid_from)}</span>
 													<span class="text-brand-muted">to</span>
 													<span class="font-mono text-brand-muted">{c.valid_until ? formatDateTime(c.valid_until) : 'present'}</span>
-													<span class="ml-auto font-mono">{c.slope}x + {c.intercept}</span>
+													<span class="ml-auto font-mono">{formatEquation(c.slope, c.intercept)}</span>
 													{#if active}<span class="text-brand-primary font-semibold ml-1">Active</span>{/if}
 												</div>
 											{/each}
@@ -1649,6 +1666,7 @@
 									<th class="text-left px-4 py-2 font-semibold">Source</th>
 								{/if}
 								<th class="text-left px-4 py-2 font-semibold">Standard curve</th>
+								<th class="text-left px-4 py-2 font-semibold">Provenance</th>
 							</tr></thead>
 							<tbody>
 								{#each samples as s}
@@ -1679,18 +1697,46 @@
 											{:else if sampleCurves.get(s.id)?.mixed}
 												<span class="text-brand-muted">Mixed</span>
 											{:else if sampleCurves.get(s.id)?.curveId}
-												{@const curveId = sampleCurves.get(s.id)!.curveId!}
+												{@const sc = sampleCurves.get(s.id)!}
+												{@const curveId = sc.curveId!}
 												{@const sensorId = curveRefs.standardCurveSensorId(curveId)}
+												{@const equation = curveRefs.standardCurveEquation(curveId)}
+												{@const corrected = sc.replicates.filter((r) => r.calibrated_value != null)}
 												{#if sensorId}
 													<a href="{base}/sensors/{sensorId}?tab=curves&curve={curveId}" class="text-brand-primary hover:underline">{curveRefs.standardCurveLabel(curveId)}</a>
 												{:else}
 													{curveRefs.standardCurveLabel(curveId)}
 												{/if}
+												{#if equation}
+													<div class="font-mono text-brand-muted">{equation}</div>
+												{/if}
+												{#if corrected.length > 0}
+													<div class="font-mono text-brand-muted" title="Raw values and the corrected values served from them">
+														{corrected.map((r) => r.raw_value).join(', ')} → {corrected.map((r) => r.calibrated_value).join(', ')}
+													</div>
+												{/if}
 											{:else}
 												<span class="text-brand-muted">None</span>
 											{/if}
 										</td>
+										<td class="px-4 py-2 text-xs">
+											{#if s.provenance}
+												<button
+													onclick={() => toggleProvenance(s.id)}
+													class="px-2 py-0.5 rounded-full bg-brand-accent/15 text-brand-accent cursor-pointer border-none hover:underline"
+												>{expandedProvenance.has(s.id) ? 'Hide tool run' : 'Tool run'}</button>
+											{:else}
+												<span class="text-brand-muted">Hand-entered</span>
+											{/if}
+										</td>
 									</tr>
+									{#if s.provenance && expandedProvenance.has(s.id)}
+										<tr class="border-b border-brand-divider last:border-b-0">
+											<td colspan="10" class="px-4 py-2 bg-brand-bg/50">
+												<ProvenanceCard provenance={s.provenance} paramName={(id) => paramName(id)} />
+											</td>
+										</tr>
+									{/if}
 								{/each}
 							</tbody>
 						</table>

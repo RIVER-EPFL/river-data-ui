@@ -1,5 +1,6 @@
 import type uPlot from 'uplot';
 import { tokens, withAlpha } from './tokens';
+import { formatEquation } from '$lib/standardCurves';
 import type { SensorIdentityBand, CalibrationMarker } from '$api/sensors';
 
 export interface OverlayVisibility {
@@ -80,8 +81,7 @@ export function sensorVectorBandPlugin(
 
 export const CALIBRATION_STRIP_CSS = 14;
 
-const calLabel = (m: CalibrationMarker) =>
-	m.intercept >= 0 ? `${m.slope}x + ${m.intercept}` : `${m.slope}x − ${Math.abs(m.intercept)}`;
+const calLabel = (m: CalibrationMarker) => formatEquation(m.slope, m.intercept);
 
 /** Calibration-window strips drawn below the deployment strip. */
 export function calibrationMarkerPlugin(

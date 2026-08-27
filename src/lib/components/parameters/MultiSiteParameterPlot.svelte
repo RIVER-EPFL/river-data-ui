@@ -258,7 +258,7 @@
 			for (const s of res.data) {
 				const t = new Date(s.collected_at).getTime();
 				if (t < startMs || t > endMs || s.mean == null) continue;
-				map.set(t, { mean: s.mean, stdev: s.stdev, n: s.n });
+				map.set(t, { mean: s.mean, stdev: s.stdev, n: s.n, sampleId: s.id });
 			}
 			return map;
 		} catch {

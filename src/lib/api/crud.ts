@@ -111,6 +111,8 @@ export interface Parameter {
 	default_warning_max: number | null;
 	default_alarm_min: number | null;
 	default_alarm_max: number | null;
+	/** Catalog entry created mechanically (analyte seed); a manager confirms or merges it. */
+	needs_review: boolean;
 	created_at: string;
 	updated_at: string;
 }
@@ -243,6 +245,8 @@ export interface Sample {
 	n: number;
 	min_value: number | null;
 	max_value: number | null;
+	/** Tool-run provenance blob stamped by POST /grab_samples; null for hand-entered grabs. */
+	provenance: Record<string, unknown> | null;
 	updated_at: string | null;
 }
 

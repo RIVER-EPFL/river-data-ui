@@ -5,6 +5,7 @@
 	import { bandAtTime, calibrationAtTime, severityForValue } from '$lib/charts/overlay-plugins';
 	import { severityLabel } from '$lib/alarms';
 	import { curveRefs } from '$lib/curveRefs.svelte';
+	import { formatEquation } from '$lib/standardCurves';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
 
 	let { syncKey }: { syncKey: string } = $props();
@@ -29,12 +30,21 @@
 		flagged: boolean;
 		flagReason: string | null;
 		sampleLine: string | null;
+		// A grab point under the cursor can be clicked open; the panel behind it is the only route
+		// to the replicates and to the tool run that produced them, so the tooltip says so.
+		spotClickable: boolean;
 		annotations: AnnotationRow[];
 		sensorLabel: string | null;
 		calEquation: string | null;
 		// Corrections the point itself records. Both are reported even when null, since a value
 		// with no curve applied reads differently from one corrected by an identity curve.
-		recordedCurves: { calibration: string; standardCurve: string } | null;
+		recordedCurves: {
+			calibration: string;
+			standardCurve: string;
+			standardCurveEquation: string | null;
+			raw: number | null;
+			calibrated: number | null;
+		} | null;
 	}
 
 	const cursorTimeSec = $derived.by(() => {
@@ -73,7 +83,7 @@
 				const band = reg.sensorBands?.length ? bandAtTime(reg.sensorBands, ts) : null;
 				if (band) sensorLabel = band.sensor_name ?? band.sensor_serial ?? band.site_name ?? null;
 				const cal = reg.calibrationMarkers?.length ? calibrationAtTime(reg.calibrationMarkers, ts) : null;
-				if (cal) calEquation = `y = ${cal.slope}x + ${cal.intercept}`;
+				if (cal) calEquation = formatEquation(cal.slope, cal.intercept);
 			}
 
 			const rowAnns: AnnotationRow[] = [];
@@ -94,13 +104,19 @@
 
 			// A spot point backed by a sample shows the replicates behind its mean
 			let sampleLine: string | null = null;
+			let spotClickable = false;
 			let recordedCurves: Row['recordedCurves'] = null;
 			if (tMs != null) {
 				const stat = reg.spotStats?.get(tMs);
+				spotClickable = (stat?.replicates?.length ?? 0) > 0;
 				if (stat && (stat.calibrationId !== undefined || stat.standardCurveId !== undefined)) {
+					const rep = stat.n === 1 ? (stat.replicates?.[0] ?? null) : null;
 					recordedCurves = {
 						calibration: curveRefs.calibrationLabel(stat.calibrationId),
 						standardCurve: curveRefs.standardCurveLabel(stat.standardCurveId),
+						standardCurveEquation: curveRefs.standardCurveEquation(stat.standardCurveId),
+						raw: rep != null && rep.calibrated_value != null ? rep.raw_value : null,
+						calibrated: rep?.calibrated_value ?? null,
 					};
 				}
 				if (stat && stat.n >= 2) {
@@ -123,6 +139,7 @@
 				flagged,
 				flagReason,
 				sampleLine,
+				spotClickable,
 				annotations: rowAnns,
 				sensorLabel,
 				calEquation,
@@ -158,7 +175,7 @@
 		if (!c) return { left: 0, top: 0 };
 		let left = c.mouseX + 20;
 		let top = c.mouseY + 20;
-		const extraRows = rows.reduce((acc, r) => acc + r.annotations.length + (r.flagged ? 1 : 0) + (r.sensorLabel ? 1 : 0) + (r.recordedCurves ? 2 : r.calEquation ? 1 : 0), 0);
+		const extraRows = rows.reduce((acc, r) => acc + r.annotations.length + (r.flagged ? 1 : 0) + (r.sensorLabel ? 1 : 0) + (r.recordedCurves ? (r.recordedCurves.raw != null ? 3 : 2) : r.calEquation ? 1 : 0), 0);
 		const w = 280, h = (rows.length + extraRows) * 22 + 32;
 		if (left + w > window.innerWidth - 10) left = c.mouseX - w - 20;
 		if (top + h > window.innerHeight - 10) top = c.mouseY - h - 20;
@@ -199,7 +216,12 @@
 					{/if}
 					{#if row.recordedCurves}
 						<div style="font-size:11px;color:{uPlotTheme.tooltipColor};opacity:0.9;line-height:16px">Calibration: {row.recordedCurves.calibration}</div>
-						<div style="font-size:11px;color:{uPlotTheme.tooltipColor};opacity:0.9;line-height:16px">Standard curve: {row.recordedCurves.standardCurve}</div>
+						<div style="font-size:11px;color:{uPlotTheme.tooltipColor};opacity:0.9;line-height:16px">
+							Standard curve: {row.recordedCurves.standardCurve}{#if row.recordedCurves.standardCurveEquation}&nbsp;· {row.recordedCurves.standardCurveEquation}{/if}
+						</div>
+						{#if row.recordedCurves.raw != null}
+							<div style="font-size:11px;color:{uPlotTheme.tooltipColor};opacity:0.9;line-height:16px">Raw {row.recordedCurves.raw} → {row.recordedCurves.calibrated}</div>
+						{/if}
 					{:else if row.calEquation}
 						<div style="font-size:11px;color:{uPlotTheme.tooltipColor};opacity:0.9;line-height:16px">Calibration: {row.calEquation}</div>
 					{/if}
@@ -210,6 +232,9 @@
 			{/if}
 			{#if row.sampleLine}
 				<div style="font-size:10px;color:{uPlotTheme.tooltipColor};opacity:0.8;padding-left:14px;white-space:normal;line-height:14px;margin-bottom:2px">{row.sampleLine}</div>
+			{/if}
+			{#if row.spotClickable}
+				<div style="font-size:10px;color:{uPlotTheme.tooltipColor};opacity:0.7;padding-left:14px;white-space:normal;line-height:14px;margin-bottom:2px">Click the marker for replicates and the tool run</div>
 			{/if}
 			{#each row.annotations as a}
 				<div style="font-size:10px;color:{uPlotTheme.tooltipColor};line-height:14px;white-space:normal;padding-left:14px;margin-bottom:2px" class="flex items-start gap-1.5">
