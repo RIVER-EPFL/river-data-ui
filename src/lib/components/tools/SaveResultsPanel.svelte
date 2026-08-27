@@ -36,10 +36,12 @@
 			? Intl.supportedValuesOf('timeZone')
 			: [BROWSER_ZONE, 'UTC'];
 
-	// Persists a tool's computed outputs to a site as one grab-sample request, carrying the run's
-	// provenance (tool, script version, inputs, curves, outputs, saved mapping).
+	// Persists a tool's computed outputs to a site as one grab-sample request. The request names
+	// the server-stored tool run (`tool_run_id`) and each reading's output key; the server builds
+	// the provenance blob from its own run row, so nothing here authors provenance.
 	let {
 		open = $bindable(false),
+		runId = null,
 		toolName = '',
 		toolTitle = '',
 		results = null,
@@ -52,6 +54,8 @@
 		appliedCurveLabel = '',
 	}: {
 		open: boolean;
+		/** The stored tool run these results came from (`run_id` on the calculate response). */
+		runId?: string | null;
 		toolName?: string;
 		toolTitle?: string;
 		results?: Record<string, unknown> | null;
@@ -455,27 +459,11 @@
 				time,
 				value: v.value,
 				replicate_index: v.index,
+				output: v.key,
 				...(selectedSensorId ? { sensor_id: selectedSensorId } : {}),
 				...(sentCurveId ? { standard_curve_id: sentCurveId } : {}),
 			})),
 		);
-	}
-
-	// Provenance stamped onto the samples rows: the run's identity (including the runner image and R
-	// version the response carries), exact inputs, the constants and curves the server resolved,
-	// full output map, and which outputs land on which parameters. The constants and curves come
-	// from the response rather than from this form, so the blob says what produced the numbers.
-	function buildProvenance(): Record<string, unknown> | undefined {
-		if (!toolName || !toolVersion) return undefined;
-		return {
-			tool: toolName,
-			tool_version: toolVersion,
-			inputs: calcInputs ?? {},
-			constants: serverConstants ?? {},
-			curves: resolvedCurves,
-			outputs: results ?? {},
-			saved: Object.fromEntries(includedRows.map((r) => [r.id, paramChoices[r.id]])),
-		};
 	}
 
 	async function refreshPreview() {
@@ -486,7 +474,7 @@
 			const res = await saveGrabSample({
 				site_id: selectedSiteId,
 				dry_run: true,
-				provenance: buildProvenance(),
+				...(runId ? { tool_run_id: runId } : {}),
 				readings: buildReadings(),
 			});
 			if (gen !== previewGeneration) return;
@@ -533,7 +521,7 @@
 				...(label.trim() ? { label: label.trim() } : {}),
 				...(notes.trim() ? { notes: notes.trim() } : {}),
 				...(replace ? { mode: 'replace' as const } : {}),
-				provenance: buildProvenance(),
+				...(runId ? { tool_run_id: runId } : {}),
 				readings: buildReadings(),
 			});
 			toastStore.success(

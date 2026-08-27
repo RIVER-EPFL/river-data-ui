@@ -269,6 +269,7 @@
 
 <SaveResultsPanel
 	bind:open={showSaveDialog}
+	runId={result?.run_id ?? null}
 	toolName={activeTool?.name ?? ''}
 	toolTitle={activeTool?.label ?? ''}
 	results={result?.results ?? null}

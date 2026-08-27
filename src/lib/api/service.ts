@@ -1164,6 +1164,8 @@ export interface ToolCalculateResponse {
 	/** Empty when no curve slot was filled. */
 	curves: ToolCurveSnapshot[];
 	tool_version: ToolVersionRef;
+	/** The stored tool_runs row for this calculation; pass as `tool_run_id` when saving. */
+	run_id: string;
 }
 
 export const listTools = () => GET<ToolDescriptor[]>(`${SERVICE}/tools`);
@@ -1423,6 +1425,11 @@ export interface GrabSampleReading {
 	replicate_index?: number;
 	sensor_id?: string;
 	/**
+	 * The named output of the referenced tool run this reading stores. Required on every reading
+	 * when the request carries `tool_run_id`, refused otherwise.
+	 */
+	output?: string;
+	/**
 	 * A `standard_curves` row on the same instrument as `sensor_id`, applied on top of the base
 	 * calibration the API resolves from that instrument's windows at `time`. Sending a curve from
 	 * another instrument, or one without `sensor_id`, is refused. Omit it when the value has
@@ -1442,9 +1449,10 @@ export interface GrabSampleRequest {
 	mode?: 'replace';
 	// Computes everything (preview and existing_groups included) and writes nothing.
 	dry_run?: boolean;
-	// Tool-run provenance stamped onto every samples row the request touches (the server mints a
-	// run_id when absent and ignores the blob on dry_run since nothing is written).
-	provenance?: unknown;
+	// The tool run (calculate response `run_id`) these readings came from. The server builds the
+	// provenance blob from its stored run row; every reading must then name the run output it
+	// stores and carry that output's value.
+	tool_run_id?: string;
 	readings: GrabSampleReading[];
 }
 

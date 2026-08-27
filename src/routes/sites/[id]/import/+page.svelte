@@ -70,6 +70,9 @@
 	let conflictMode = $state<'skip' | 'overwrite'>('skip');
 	// Cadence stamped on every imported reading: continuous sensor series or spot (grab/lab) results.
 	let measurementType = $state<'continuous' | 'spot'>('continuous');
+	// Whether the file holds raw instrument output (the covering calibration is stamped and
+	// applied) or already-processed values (stored as served, no calibration claimed).
+	let valueState = $state<'raw' | 'corrected'>('corrected');
 
 	let stagingSessionId = $state<string | null>(null);
 
@@ -218,6 +221,7 @@
 				conflict: conflictMode,
 				tz_offset_hours: tzOffsetHours || undefined,
 				measurement_type: measurementType,
+				values: valueState,
 			};
 			if (stagingSessionId) {
 				body.session_id = stagingSessionId;
@@ -277,6 +281,7 @@
 		job = null;
 		conflictMode = 'skip';
 		measurementType = 'continuous';
+		valueState = 'corrected';
 		stagingSessionId = null;
 		tzOffsetHours = 0;
 		tzAutoDetected = false;
@@ -404,6 +409,18 @@
 				<label class="flex items-center gap-1.5 text-sm">
 					<input type="radio" name="measurement-type" value="spot" bind:group={measurementType} />
 					Spot (grab or lab)
+				</label>
+			</div>
+
+			<div class="mb-3 flex items-center gap-3">
+				<span class="text-sm font-medium whitespace-nowrap">Values are</span>
+				<label class="flex items-center gap-1.5 text-sm">
+					<input type="radio" name="value-state" value="corrected" bind:group={valueState} />
+					Processed (stored as-is, no calibration applied)
+				</label>
+				<label class="flex items-center gap-1.5 text-sm">
+					<input type="radio" name="value-state" value="raw" bind:group={valueState} />
+					Raw instrument output (apply the covering calibration)
 				</label>
 			</div>
 
