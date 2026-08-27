@@ -7,14 +7,22 @@
 	import {
 		pairStream, unpairStream, importStream, getStreamStats, retagStreams, createPairingPlan, updatePairingPlan,
 		applyPairingPlan, revertPairingPlan, pollJob, getUnpairedSummary, getPlanSiteMetadata,
+		replicateSpec, getPendingAuditCount, getReconciliationCandidates,
 		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
+		type PlanReplicateSummary,
 	} from '$api/service';
+	import { listReplicateAudits } from '$api/service';
+	import { me } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatRelativeTime } from '$lib/utils';
+	import { createUrlTab } from '$lib/urlTab.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import Button from '$components/ui/Button.svelte';
+	import Tabs from '$components/ui/Tabs.svelte';
+	import ReplicateFamilyBadge from '$components/streams/ReplicateFamilyBadge.svelte';
+	import ReplicateAuditsPanel from '$components/logs/ReplicateAuditsPanel.svelte';
 
 	// ── Stream list state ──
 	let streams = $state<DataStream[]>([]);
@@ -40,6 +48,46 @@
 	let selectedSources = $state<Set<string>>(new Set());
 	let sourcesInitialized = $state(false);
 	const allSourceSystems = $derived(sourceSummary.map((s) => s.source_system));
+
+	// Replicate-sync surfacing: withheld audit groups banner + reconciliation entry point
+	// (shown when any source still has legacy per-avg-column streams to migrate).
+	let pendingAudits = $state(0);
+	// The list mode is a two-tab hub: the streams table and the replicate-audit holds.
+	// The audit surface is manager-only; below that level the page is the streams table alone.
+	const canAudit = $derived(me.can('manageSensors'));
+	const tab = createUrlTab({ keys: ['streams', 'audits'] });
+	const tabLabels = $derived(
+		canAudit
+			? ['Streams', pendingAudits > 0 ? `Audits (${pendingAudits})` : 'Audits']
+			: ['Streams'],
+	);
+	let reconFamilyCount = $state(0);
+	// Expanded replicate-routing blocks in the plan review, keyed by stream id or `param:{name}`.
+	let expandedReplicates = $state<Set<string>>(new Set());
+	function toggleReplicateExpand(key: string) {
+		const next = new Set(expandedReplicates);
+		if (next.has(key)) next.delete(key);
+		else next.add(key);
+		expandedReplicates = next;
+	}
+
+	async function loadReplicateSurfacing(sources: string[]) {
+		if (canAudit) {
+			try {
+				pendingAudits = await getPendingAuditCount();
+			} catch { /* banner is best-effort */ }
+		}
+		if (canAudit) {
+			try {
+				const results = await Promise.all(
+					sources
+						.filter((s) => !NON_INSTRUMENT_SOURCES.includes(s))
+						.map((s) => getReconciliationCandidates(s).catch(() => null)),
+				);
+				reconFamilyCount = results.reduce((n, r) => n + (r?.families.length ?? 0), 0);
+			} catch { /* entry point is best-effort */ }
+		}
+	}
 
 	// ── Manual pair dialog ──
 	let pairDialogOpen = $state(false);
@@ -166,9 +214,23 @@
 		return { toPair, toSkip, total: planEntries.length, warnings, newSites: newSites.size, newParams: newParams.size, newProjects: newProjects.size };
 	});
 
+	// Replicate families among the entries that will pair: stream count and how many portal
+	// readings columns collapse into them.
+	const familySummary = $derived.by(() => {
+		let streams = 0;
+		let columns = 0;
+		for (const e of planEntries) {
+			if (e.action !== 'pair' || !e.parameter.replicates) continue;
+			streams += 1;
+			columns += e.parameter.replicates.member_columns.length;
+		}
+		return { streams, columns };
+	});
+
 	// ── Consolidated parameter view ──
 	interface ParamGroup {
 		name: string;
+		label: string | null;
 		originalName: string;
 		originalNames: string[];
 		groupKey: string | null;
@@ -178,15 +240,18 @@
 		siteCount: number;
 		streamIds: string[];
 		warnings: string[];
+		replicates: PlanReplicateSummary | null;
 	}
 
 	const paramGroups = $derived.by((): ParamGroup[] => {
 		// Keyed on name AND units so same-name parameters with different units get separate rows.
-		const map = new Map<string, { name: string; originalName: string; originalNames: Set<string>; groupKey: string | null; units: string; create: boolean; confs: Set<string>; siteNames: Set<string>; streamIds: string[]; warnings: Set<string> }>();
+		const map = new Map<string, { name: string; label: string | null; originalName: string; originalNames: Set<string>; groupKey: string | null; units: string; create: boolean; confs: Set<string>; siteNames: Set<string>; streamIds: string[]; warnings: Set<string>; replicates: PlanReplicateSummary | null }>();
 		for (const e of planEntries) {
 			const key = `${e.parameter.name}::${e.parameter.units}`;
 			let g = map.get(key);
-			if (!g) { g = { name: e.parameter.name, originalName: e.source_name ?? e.source_key, originalNames: new Set(), groupKey: e.parameter.group_key ?? null, units: e.parameter.units, create: e.parameter.create, confs: new Set(), siteNames: new Set(), streamIds: [], warnings: new Set() }; map.set(key, g); }
+			if (!g) { g = { name: e.parameter.name, label: e.parameter.label ?? null, originalName: e.source_name ?? e.source_key, originalNames: new Set(), groupKey: e.parameter.group_key ?? null, units: e.parameter.units, create: e.parameter.create, confs: new Set(), siteNames: new Set(), streamIds: [], warnings: new Set(), replicates: e.parameter.replicates ?? null }; map.set(key, g); }
+			if (!g.label && e.parameter.label) g.label = e.parameter.label;
+			if (!g.replicates && e.parameter.replicates) g.replicates = e.parameter.replicates;
 			if (e.original_parameter_name) g.originalNames.add(e.original_parameter_name);
 			g.confs.add(e.confidence);
 			g.siteNames.add(e.site.name);
@@ -196,7 +261,7 @@
 		const groups: ParamGroup[] = [];
 		for (const g of map.values()) {
 			const confidence = g.confs.size === 1 ? (g.confs.has('exact') ? 'exact' : 'none') : 'mixed';
-			groups.push({ name: g.name, originalName: g.originalName, originalNames: [...g.originalNames], groupKey: g.groupKey, units: g.units, create: g.create, confidence, siteCount: g.siteNames.size, streamIds: g.streamIds, warnings: [...g.warnings] });
+			groups.push({ name: g.name, label: g.label, originalName: g.originalName, originalNames: [...g.originalNames], groupKey: g.groupKey, units: g.units, create: g.create, confidence, siteCount: g.siteNames.size, streamIds: g.streamIds, warnings: [...g.warnings], replicates: g.replicates });
 		}
 		return groups.sort((a, b) => a.name.localeCompare(b.name) || a.units.localeCompare(b.units));
 	});
@@ -339,6 +404,38 @@
 		}
 		planEntries = [...planEntries];
 		editingGlobalUnits = null;
+		queueUpdate(updates);
+	}
+
+	// Display-label editing applies only to parameters the plan creates; a matched existing
+	// parameter keeps its own name (edited on the Parameters page).
+	let editingLabel = $state<string | null>(null);
+	let editLabelValue = $state('');
+
+	function startEditLabel(pg: { name: string; label: string | null }) {
+		editingLabel = pg.name;
+		editLabelValue = pg.label ?? '';
+	}
+
+	function focusOnMount(node: HTMLInputElement) {
+		node.focus();
+	}
+
+	function commitEditLabel() {
+		if (editingLabel === null) return;
+		const name = editingLabel;
+		const newLabel = editLabelValue.trim();
+		editingLabel = null;
+		if (!newLabel) return;
+		const updates: PlanEntryUpdate[] = [];
+		for (const e of planEntries) {
+			if (e.parameter.name === name && (e.parameter.label ?? '') !== newLabel) {
+				(e.parameter as any).label = newLabel;
+				updates.push({ stream_id: e.stream_id, parameter_label: newLabel });
+			}
+		}
+		if (updates.length === 0) return;
+		planEntries = [...planEntries];
 		queueUpdate(updates);
 	}
 
@@ -625,6 +722,18 @@
 		);
 	}
 
+	// Deferred audit holds for the plan's source: discrepancies recorded on unpaired streams that
+	// become reviewable once pairing applies. Scoped by source system (a plan covers one source).
+	let planDeferredCount = $state(0);
+	async function loadPlanDeferred(sourceSystem: string) {
+		if (!canAudit) { planDeferredCount = 0; return; }
+		try {
+			planDeferredCount = (
+				await listReplicateAudits({ status: 'deferred', source_system: sourceSystem, page_size: 1 })
+			).total;
+		} catch { planDeferredCount = 0; }
+	}
+
 	async function createPlan(sourceSystem: string) {
 		planLoading = true;
 		try {
@@ -641,10 +750,12 @@
 			existingParams = params;
 			existingSites = sites;
 			expandedSites = new Set();
+			expandedReplicates = new Set();
 			siteSearch = '';
 			reviewFilter = 'all';
 			sitePage = 0;
 			applyResult = null;
+			void loadPlanDeferred(sourceSystem);
 			setMode('review');
 			getPlanSiteMetadata(plan.id).then((meta) => {
 				const map = new Map<string, SiteMetadata>();
@@ -716,8 +827,33 @@
 			sourcesInitialized = true;
 		}
 		await load();
+		void loadReplicateSurfacing(sourceSummary.map((s) => s.source_system));
 	});
 </script>
+
+{#snippet replicateChip(key: string, rep: PlanReplicateSummary)}
+	<button
+		onclick={(e) => { e.stopPropagation(); toggleReplicateExpand(key); }}
+		class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-brand-accent/10 text-brand-accent border border-brand-accent/30 cursor-pointer text-[10px] font-semibold whitespace-nowrap"
+		title="This stream records {rep.n} replicates per instant; expand to see how the portal columns route"
+	>⧉ {rep.n} replicates {expandedReplicates.has(key) ? '▾' : '▸'}</button>
+{/snippet}
+
+{#snippet replicateRouting(rep: PlanReplicateSummary)}
+	<div class="space-y-0.5 text-[11px]">
+		{#each rep.member_columns as col, i}
+			<div class="font-mono">{col} → replicate {i}</div>
+		{/each}
+		{#if rep.curve_ref_column}
+			<div class="font-mono text-brand-muted">{rep.curve_ref_column} → standard curve reference</div>
+		{/if}
+		<p class="text-brand-muted pt-0.5">
+			x̄ and s are calculated from the {rep.n} stored replicates. The portal's
+			{rep.portal_mean_column ?? 'average'}{rep.portal_sd_column ? ` / ${rep.portal_sd_column}` : ''}
+			are checked against them, not stored.
+		</p>
+	</div>
+{/snippet}
 
 <svelte:head><title>Streams | River Data</title></svelte:head>
 
@@ -726,8 +862,40 @@
 	<div class="space-y-4">
 		<div class="flex items-center justify-between">
 			<h2 class="text-xl font-semibold">Data Streams</h2>
-			<Button variant="primary" onclick={enterSourceSelect} class="font-semibold">Discover & Pair</Button>
+			<div class="flex items-center gap-3">
+				{#if reconFamilyCount > 0}
+					<a
+						href="{base}/streams/reconciliation"
+						class="text-sm text-brand-primary no-underline hover:underline"
+						title="Migrate legacy per-avg-column streams onto their replicate families"
+					>Replicate reconciliation ({reconFamilyCount})</a>
+				{/if}
+				<Button variant="primary" onclick={enterSourceSelect} class="font-semibold">Discover & Pair</Button>
+			</div>
 		</div>
+
+		<Tabs tabs={tabLabels} bind:active={tab.index} />
+
+		{#if tab.key === 'audits' && canAudit}
+		<p class="text-sm text-brand-muted">
+			Replicate groups whose recomputed mean/sd disagrees with the portal's stored avg/sd. The
+			replicates are stored and served either way; each disagreement is queued here for review.
+		</p>
+		<ReplicateAuditsPanel
+			initialView={page.url.searchParams.get('view') === 'deferred' ? 'deferred' : 'review'}
+			onPendingChange={(n) => (pendingAudits = n)}
+		/>
+		{:else}
+
+		{#if pendingAudits > 0 && canAudit}
+			<div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md bg-severity-warning-soft border border-severity-warning-border text-sm text-severity-warning-text">
+				<span>{pendingAudits} replicate group{pendingAudits === 1 ? '' : 's'} need{pendingAudits === 1 ? 's' : ''} audit review</span>
+				<button
+					onclick={() => tab.go('audits')}
+					class="font-semibold text-severity-warning-text bg-transparent border-none p-0 cursor-pointer underline-offset-2 hover:underline"
+				>Review</button>
+			</div>
+		{/if}
 
 		<div class="flex flex-wrap items-center gap-3">
 			<input
@@ -789,6 +957,9 @@
 									{:else if stream.measurement_type === 'derived'}
 										<Badge variant="muted">derived</Badge>
 									{/if}
+									{#if replicateSpec(stream)}
+										<ReplicateFamilyBadge spec={replicateSpec(stream)!} />
+									{/if}
 								</td>
 								<td class="px-4 py-2 text-xs">
 									{#if stream.site_parameter_id}
@@ -845,6 +1016,8 @@
 				</div>
 			</div>
 		{/if}
+
+		{/if}
 	</div>
 
 <!-- ════════════════════ SOURCE SELECT ════════════════════ -->
@@ -899,6 +1072,13 @@
 				Apply {summary.toPair.toLocaleString()} pairings &rarr;
 			</Button>
 		</div>
+
+		{#if planDeferredCount > 0}
+			<div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md bg-severity-warning-soft border border-severity-warning-border text-sm text-severity-warning-text">
+				<span>{planDeferredCount} sync audit discrepanc{planDeferredCount === 1 ? 'y' : 'ies'} on these streams will need review after pairing</span>
+				<a href="{base}/streams?tab=audits&view=deferred" class="font-semibold text-severity-warning-text underline-offset-2 hover:underline">View audits</a>
+			</div>
+		{/if}
 
 		<div class="grid grid-cols-[260px_1fr] gap-4">
 			<!-- Sidebar -->
@@ -1041,6 +1221,7 @@
 								{#each group.entries as entry}
 								{@const entryMatched = matchParam(entry.parameter.name)}
 								{@const entryEditing = editingParam?.streamId === entry.stream_id}
+								{@const entryReplicates = entry.parameter.replicates}
 									<div class="flex items-center gap-2 pl-10 pr-2 py-1.5 border-b border-brand-divider bg-brand-bg/30 text-xs {entry.action === 'skip' ? 'opacity-50' : ''}">
 										<div class="flex-1 min-w-0 flex items-center gap-1.5">
 											{#if entryEditing}
@@ -1131,6 +1312,9 @@
 													title="Edit this parameter for all sites"
 												>edit all</button>
 											{/if}
+											{#if entryReplicates}
+												{@render replicateChip(entry.stream_id, entryReplicates)}
+											{/if}
 										</div>
 										{#if entry.warnings.length > 0}
 											<Button
@@ -1146,6 +1330,11 @@
 											onclick={() => setEntryAction(entry, 'skip')}
 											class="px-1.5 py-0.5 rounded cursor-pointer border-none shrink-0 {entry.action === 'skip' ? 'bg-severity-alarm-soft text-severity-alarm' : 'bg-brand-bg text-brand-muted opacity-50'}">Skip</button>
 									</div>
+									{#if entryReplicates && expandedReplicates.has(entry.stream_id)}
+										<div class="pl-12 pr-2 py-1.5 border-b border-brand-divider bg-brand-bg/30">
+											{@render replicateRouting(entryReplicates)}
+										</div>
+									{/if}
 								{/each}
 							{/if}
 						{/each}
@@ -1232,11 +1421,42 @@
 									</td>
 										<td class="px-3 py-2">
 											{#if matched}
-												<span class="font-medium text-brand-text" title="Already exists in the database - edit via the Parameters page">{matched.name}</span>
+												<span class="font-medium text-brand-text font-mono" title="Already exists in the database - edit via the Parameters page">{matched.code ?? matched.name}</span>
 											{:else if editingGlobalParam === pg.name}
 												<input type="text" bind:value={editValue} onkeydown={(e) => { if (e.key === 'Enter') commitEditGlobalParam(); if (e.key === 'Escape') editingGlobalParam = null; }} onblur={commitEditGlobalParam} class="px-1 py-0.5 border border-brand-primary rounded text-sm bg-brand-surface w-40" autofocus />
 											{:else}
-												<button onclick={() => startEditGlobalParam(pg.name)} class="bg-transparent border-0 border-b border-dashed border-brand-muted cursor-pointer text-brand-text hover:text-brand-primary hover:border-brand-primary text-left font-medium">{pg.name}</button>
+												<button onclick={() => startEditGlobalParam(pg.name)} class="bg-transparent border-0 border-b border-dashed border-brand-muted cursor-pointer text-brand-text hover:text-brand-primary hover:border-brand-primary text-left font-medium font-mono">{pg.name}</button>
+											{/if}
+											{#if matched}
+												{#if pg.label}
+													<div class="text-xs text-brand-muted mt-0.5">{pg.label}</div>
+												{/if}
+											{:else if editingLabel === pg.name}
+												<input
+													type="text"
+													bind:value={editLabelValue}
+													onkeydown={(e) => { if (e.key === 'Enter') commitEditLabel(); if (e.key === 'Escape') editingLabel = null; }}
+													onblur={commitEditLabel}
+													placeholder="Display label"
+													class="mt-0.5 px-1 py-0.5 border border-brand-primary rounded text-xs bg-brand-surface w-40"
+													use:focusOnMount
+												/>
+											{:else}
+												<button
+													onclick={() => startEditLabel(pg)}
+													class="block bg-transparent border-0 border-b border-dashed border-brand-muted cursor-pointer text-xs text-brand-muted hover:text-brand-primary hover:border-brand-primary mt-0.5 text-left"
+													title="Display label for the created parameter; the code stays the portal column name"
+												>{pg.label ?? 'Add display label'}</button>
+											{/if}
+											{#if pg.replicates}
+												<div class="mt-1">
+													{@render replicateChip(`param:${pg.name}`, pg.replicates)}
+												</div>
+												{#if expandedReplicates.has(`param:${pg.name}`)}
+													<div class="mt-1 pl-2 border-l-2 border-brand-divider">
+														{@render replicateRouting(pg.replicates)}
+													</div>
+												{/if}
 											{/if}
 											{#if pg.warnings.length > 0}
 												<div class="text-xs text-severity-warning mt-0.5">{pg.warnings[0]}</div>
@@ -1348,6 +1568,13 @@
 				{/if}
 			</div>
 
+			{#if familySummary.streams > 0}
+				<p class="text-xs text-brand-muted">
+					{familySummary.streams} of these streams are replicate families ({familySummary.columns}
+					readings columns collapse into them). Replicates are stored per instant at indices
+					0..n-1; portal averages and standard deviations are audited, not stored.
+				</p>
+			{/if}
 			<p class="text-xs text-brand-muted">Readings will be backfilled with site and parameter IDs. Continuous aggregates will refresh in the background. This operation can be reverted.</p>
 
 			<div class="flex gap-3 pt-2">

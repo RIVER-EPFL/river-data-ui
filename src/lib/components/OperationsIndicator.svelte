@@ -2,6 +2,8 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { base } from '$app/paths';
 	import { api, type ReprocessingJob } from '$api/crud';
+	import { getPendingAuditCount } from '$api/service';
+	import { me } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { eventBus } from '$lib/stores/events.svelte';
 	import { formatRelativeTime, triggerLabel } from '$lib/utils';
@@ -26,7 +28,9 @@
 	const completedJobs = $derived(
 		jobs.filter((j) => (j.status === 'completed' || j.status === 'failed') && !recentJobIds.has(j.id)).slice(0, 3),
 	);
-	const badgeCount = $derived(activeJobs.length);
+	// Replicate groups withheld behind an audit hold; surfaced alongside active jobs.
+	let pendingAudits = $state(0);
+	const badgeCount = $derived(activeJobs.length + pendingAudits);
 
 	function progressPercent(job: ReprocessingJob): number | null {
 		if (job.total && job.total > 0 && job.progress != null) {
@@ -76,6 +80,15 @@
 			consecutiveErrors = 0;
 		} catch {
 			consecutiveErrors++;
+		}
+		if (me.can('manageSensors')) {
+			try {
+				pendingAudits = await getPendingAuditCount();
+			} catch {
+				// Audit count is best-effort; the jobs poll retries it.
+			}
+		} else {
+			pendingAudits = 0;
 		}
 	}
 
@@ -156,6 +169,14 @@
 			</div>
 			{#if consecutiveErrors > 5}
 				<div class="px-3 py-1 text-xs text-severity-warning bg-severity-warning-soft">Connection issue - retrying</div>
+			{/if}
+			{#if pendingAudits > 0}
+				<a
+					href="{base}/streams?tab=audits"
+					class="block px-3 py-2 text-xs bg-severity-warning-soft text-severity-warning-text border-b border-brand-divider no-underline hover:opacity-80"
+				>
+					{pendingAudits} replicate group{pendingAudits === 1 ? '' : 's'} held pending audit review
+				</a>
 			{/if}
 			<div class="max-h-96 overflow-y-auto">
 				{#if activeJobs.length === 0 && recentJobs.length === 0 && completedJobs.length === 0}

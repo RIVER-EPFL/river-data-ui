@@ -1,5 +1,5 @@
 import { GET, POST, PATCH, PUT, DELETE } from './client';
-import type { ApiToken, JobLogLine, ReprocessingJob } from './crud';
+import type { ApiToken, DataStream, JobLogLine, ReprocessingJob } from './crud';
 
 // Single unified API tier. The `ADMIN` and `SERVICE` constants alias the same path,
 // retained as documentation hints about which Keycloak role/token scope each endpoint
@@ -616,10 +616,28 @@ export interface PairingPlanEntry {
 		longitude: number | null;
 		altitude_m: number | null;
 	};
-	parameter: { id: string | null; name: string; create: boolean; units: string; group_key: string | null; original_names: string[] };
+	parameter: {
+		id: string | null;
+		name: string;
+		label: string | null;
+		create: boolean;
+		units: string;
+		group_key: string | null;
+		original_names: string[];
+		replicates: PlanReplicateSummary | null;
+	};
 	confidence: string;
 	warnings: string[];
 	original_parameter_name: string | null;
+}
+
+// Replicate-family summary on a plan entry: how the portal's columns route into one stream.
+export interface PlanReplicateSummary {
+	n: number;
+	member_columns: string[];
+	curve_ref_column: string | null;
+	portal_mean_column: string | null;
+	portal_sd_column: string | null;
 }
 
 export interface PairingPlanSummary {
@@ -662,6 +680,8 @@ export interface PlanEntryUpdate {
 	site_name?: string;
 	parameter_name?: string;
 	parameter_units?: string;
+	// Display label for a parameter the plan will create; ignored for matched existing parameters.
+	parameter_label?: string;
 }
 
 export const createPairingPlan = (sourceSystem: string) =>
@@ -722,6 +742,175 @@ export const getUnpairedSummary = () =>
 	GET<{ source_system: string; unpaired: number; paired: number }[]>(
 		`${ADMIN}/sync/unpaired-summary`,
 	);
+
+// Replicate families: one stream per replicate group. The stream's metadata.replicates spec names
+// the portal columns feeding replicate_index 0..n-1 and the portal's precomputed avg/sd columns,
+// which are audited at sync time rather than stored.
+export interface ReplicateSpec {
+	source_columns: string[];
+	portal_mean_column?: string;
+	portal_sd_column?: string;
+	curve_ref_column?: string;
+	calc?: string;
+}
+
+/** The replicate-family spec carried in a stream's metadata, or null for ordinary streams. */
+export function replicateSpec(stream: DataStream): ReplicateSpec | null {
+	const raw = stream.metadata?.['replicates'];
+	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+	const spec = raw as Record<string, unknown>;
+	if (!Array.isArray(spec.source_columns)) return null;
+	return raw as unknown as ReplicateSpec;
+}
+
+// One stored value with the replicate index it is stored at, which is the source's column
+// position and the only handle a flag can name.
+export interface ReplicateAuditValue {
+	index: number;
+	value: number;
+}
+
+// A replicate group whose recomputed mean/sd disagrees with the portal's stored avg/sd. The group
+// is stored and served (our recomputed statistics); the hold queues the disagreement for review.
+export interface ReplicateAuditHold {
+	id: string;
+	stream_id: string;
+	source_system: string;
+	source_key: string;
+	source_name: string | null;
+	site_name: string | null;
+	parameter_name: string | null;
+	parameter_code: string | null;
+	paired: boolean;
+	group_time: string;
+	expected: { mean: number | null; sd: number | null; n?: number | null };
+	// Each value carries the replicate index it is stored at. Holds recorded before the index
+	// travelled with the value hold bare numbers, and no position in that array stands for one.
+	computed: {
+		mean: number | null;
+		sd: number | null;
+		n: number;
+		values?: ReplicateAuditValue[] | number[];
+	};
+	delta: { mean: number | null; sd: number | null; n?: number | null };
+	// deferred holds sit on unpaired streams and become pending when the stream is paired;
+	// remediated means replicates were flagged. use_portal/use_manual/consumed are legacy
+	// statuses from the replaced-value model and occur only in history.
+	status:
+		| 'pending'
+		| 'deferred'
+		| 'acknowledged'
+		| 'remediated'
+		| 'use_portal'
+		| 'use_manual'
+		| 'consumed'
+		| 'superseded';
+	// Detected disagreement signature.
+	classification: 'n_mismatch' | 'population_sd' | 'stale_subset' | 'quantization' | 'unexplained';
+	// What a remediation did: which replicate indexes were flagged, and why.
+	resolution: { action?: string; replicate_indexes?: number[]; reason?: string | null } | null;
+	created_at: string;
+	acknowledged_by: string | null;
+	acknowledged_at: string | null;
+	// Disagreement sizes normalized by the mean magnitude; relative_delta is the
+	// max of the two and remains the sort key.
+	relative_delta: number;
+	mean_relative_delta: number;
+	sd_relative_delta: number;
+}
+
+export interface ReplicateAuditListResponse {
+	holds: ReplicateAuditHold[];
+	total: number;
+	pending: number;
+	deferred: number;
+}
+
+
+// Omitting `status` returns live holds. `status` also accepts the meta-value 'resolved'
+// (everything past review) and 'deferred' (unpaired streams).
+export const listReplicateAudits = (
+	filter: {
+		stream_id?: string;
+		// Comma-separated stream UUIDs.
+		stream_ids?: string;
+		source_system?: string;
+		status?: string;
+		// Ceilings on the per-statistic disagreements; combined with AND.
+		max_mean_relative_delta?: number;
+		max_sd_relative_delta?: number;
+		sort?: 'relative_delta_desc' | 'relative_delta_asc' | 'created_at_desc';
+		page?: number;
+		page_size?: number;
+	} = {},
+) => GET<ReplicateAuditListResponse>(`${ADMIN}/sync/replicate_audit_holds`, { ...filter });
+
+export const acknowledgeReplicateAudit = (id: string) =>
+	POST<{ acknowledged: number }>(`${ADMIN}/sync/replicate_audit_holds/${id}/acknowledge`, {});
+
+export const acknowledgeReplicateAuditsBulk = (req: {
+	stream_id?: string;
+	source_system?: string;
+	start?: string;
+	end?: string;
+	// Only acknowledge holds whose disagreements are at or below both ceilings (AND).
+	max_mean_relative_delta?: number;
+	max_sd_relative_delta?: number;
+}) =>
+	POST<{ acknowledged: number }>(`${ADMIN}/sync/replicate_audit_holds/acknowledge_bulk`, req);
+
+// Resolve a pending hold. 'ours' records that the recomputed statistics stand. 'flag' flags the
+// named replicate indexes; the sample's mean/sd/n recompute immediately from the rest. Statistics
+// are never entered directly: only input data can be flagged.
+export const resolveReplicateAudit = (
+	id: string,
+	body: { mode: 'ours' } | { mode: 'flag'; replicate_indexes: number[]; reason?: string },
+) => POST<{ status: string }>(`${ADMIN}/sync/replicate_audit_holds/${id}/resolve`, body);
+
+// Unflag a remediated hold's replicates and return it to review.
+export const reopenReplicateAudit = (id: string) =>
+	POST<{ status: string }>(`${ADMIN}/sync/replicate_audit_holds/${id}/reopen`, {});
+
+export const getSyncCommand = (id: string) =>
+	GET<SyncCommand>(`${ADMIN}/sync/commands/${id}`);
+
+export const getPendingAuditCount = async (): Promise<number> =>
+	(await listReplicateAudits({ page_size: 1 })).pending;
+
+// Replicate reconciliation: migrate readings from legacy per-`_avg`-column streams onto their
+// replicate-family streams (tracked job, migrate + verify, never deletes), then a separate
+// re-verify + delete pass for the obsolete avg streams.
+export interface ReconciliationFamily {
+	family_stream_id: string;
+	family_source_key: string;
+	old_stream_id: string;
+	old_source_key: string;
+	site_parameter_id: string | null;
+	old_readings: number;
+	new_group_times: number;
+	ready: boolean;
+}
+
+export interface ReconciliationCandidatesResponse {
+	families: ReconciliationFamily[];
+	total_old_streams: number;
+}
+
+export const getReconciliationCandidates = (sourceSystem: string) =>
+	GET<ReconciliationCandidatesResponse>(`${ADMIN}/sync/replicate_reconciliation/candidates`, {
+		source_system: sourceSystem,
+	});
+
+export const startReplicateReconciliation = (sourceSystem: string, dryRun = false) =>
+	POST<{ job_id: string }>(`${ADMIN}/sync/replicate_reconciliation`, {
+		source_system: sourceSystem,
+		...(dryRun ? { dry_run: true } : {}),
+	});
+
+export const startReconciliationDelete = (sourceSystem: string) =>
+	POST<{ job_id: string }>(`${ADMIN}/sync/replicate_reconciliation/delete`, {
+		source_system: sourceSystem,
+	});
 
 // Roles
 export interface KeycloakRole {

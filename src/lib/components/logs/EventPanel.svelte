@@ -25,12 +25,16 @@
 		detailMaxWidth = 'sm',
 		detail,
 		detailActions,
+		rowClass,
 	}: {
 		fetchPage: (args: { page: number; perPage: number }) => Promise<{ data: T[]; total: number }>;
 		perPage?: number;
 		colCount: number;
-		head: Snippet;
+		// Snippets declared with no params remain assignable; take the ctx only when needed
+		// (e.g. a sortable header that re-fetches server-side).
+		head: Snippet<[{ reload: () => Promise<void> }]>;
 		row: Snippet<[T]>;
+		rowClass?: (item: T) => string;
 		filterBar?: Snippet<[{ reload: () => Promise<void> }]>;
 		pollWhile?: (items: T[]) => boolean;
 		emptyText?: string;
@@ -119,7 +123,7 @@
 		<table class="w-full text-sm">
 			<thead>
 				<tr class="bg-brand-bg border-b border-brand-divider">
-					{@render head()}
+					{@render head({ reload })}
 				</tr>
 			</thead>
 			<tbody>
@@ -130,7 +134,7 @@
 				{:else}
 					{#each items as item}
 						<tr
-							class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 cursor-pointer"
+							class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 cursor-pointer {rowClass?.(item) ?? ''}"
 							onclick={() => handleRow(item)}
 						>
 							{@render row(item)}

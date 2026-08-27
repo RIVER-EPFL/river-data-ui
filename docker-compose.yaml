@@ -229,7 +229,8 @@ services:
   river-data-sync-cnet:
     profiles: [portal]
     build:
-      context: ../river-data-rshiny
+      context: ..
+      dockerfile: river-data-rshiny/Dockerfile.dev
     environment:
       - PORTAL_TYPE=cnet
       - PORTAL_DB_HOST=portal-db-cnet
@@ -255,7 +256,8 @@ services:
   river-data-sync-metalp:
     profiles: [portal]
     build:
-      context: ../river-data-rshiny
+      context: ..
+      dockerfile: river-data-rshiny/Dockerfile.dev
     environment:
       - PORTAL_TYPE=metalp
       - PORTAL_DB_HOST=portal-db-metalp
@@ -281,7 +283,8 @@ services:
   river-data-sync-nomis:
     profiles: [portal]
     build:
-      context: ../river-data-rshiny
+      context: ..
+      dockerfile: river-data-rshiny/Dockerfile.dev
     environment:
       - PORTAL_TYPE=nomis
       - PORTAL_DB_HOST=portal-db-nomis

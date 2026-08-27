@@ -15,6 +15,7 @@
 	import Dialog from '$components/ui/Dialog.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import PaginationControls from '$components/ui/PaginationControls.svelte';
+	import Badge from '$components/ui/Badge.svelte';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
 	import ThresholdDialog from '$components/dialogs/ThresholdDialog.svelte';
 	import DeployMoveSensorDialog from '$components/dialogs/DeployMoveSensorDialog.svelte';
@@ -45,6 +46,10 @@
 	let derivedDefs = $state<DerivedParameter[]>([]);
 	let samples = $state<Sample[]>([]);
 	let samplesLoading = $state(false);
+	const SAMPLES_PER_PAGE = 50;
+	let samplesPage = $state(1);
+	let samplesTotal = $state(0);
+	let samplesSiteId = '';
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let activeTab = $state(0);
@@ -635,16 +640,41 @@
 			error = e instanceof Error ? e.message : 'Failed to load site';
 		} finally { loading = false; }
 
+		samplesSiteId = id;
+		samplesPage = 1;
 		try {
-			const [derivedResult, samplesResult] = await Promise.all([
+			const [derivedResult] = await Promise.all([
 				api.derivedParameters.list({ perPage: 200 }),
-				api.samples.list({ perPage: 200, filter: { site_id: id }, sort: ['collected_at', 'DESC'] }),
+				loadSamples(),
 			]);
 			derivedDefs = derivedResult.data;
-			samples = samplesResult.data;
 		} catch (e) {
 			toastStore.error(e instanceof Error ? `Failed to load derived parameters / samples: ${e.message}` : 'Failed to load derived parameters / samples');
 		}
+	}
+
+	async function loadSamples() {
+		if (!samplesSiteId) return;
+		samplesLoading = true;
+		try {
+			const result = await api.samples.list({
+				page: samplesPage,
+				perPage: SAMPLES_PER_PAGE,
+				filter: { site_id: samplesSiteId },
+				sort: ['collected_at', 'DESC'],
+			});
+			samples = result.data;
+			samplesTotal = result.total;
+		} finally {
+			samplesLoading = false;
+		}
+	}
+
+	/** Provenance chip for a sample row: `sync:cnet` renders as a "cnet" badge. */
+	function sampleSource(createdBy: string | null): { label: string; synced: boolean } | null {
+		if (!createdBy) return null;
+		if (createdBy.startsWith('sync:')) return { label: createdBy.slice(5), synced: true };
+		return { label: createdBy, synced: false };
 	}
 
 	// (Re)load whenever the site id or deep-link window changes. SvelteKit reuses this component when
@@ -1598,9 +1628,12 @@
 		<!-- Samples tab -->
 		{:else if activeKey === 'samples'}
 			<div class="space-y-3">
-				{#if samples.length === 0}
+				{#if samplesLoading}
+					<p class="text-sm text-brand-muted">Loading samples…</p>
+				{:else if samples.length === 0}
 					<p class="text-sm text-brand-muted">No grab samples recorded for this site.</p>
 				{:else}
+					{@const showSource = samples.some((s) => s.created_by)}
 					<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 						<table class="w-full text-sm">
 							<thead><tr class="bg-brand-bg border-b border-brand-divider">
@@ -1612,10 +1645,14 @@
 								<th class="text-right px-4 py-2 font-semibold">N</th>
 								<th class="text-right px-4 py-2 font-semibold">Min</th>
 								<th class="text-right px-4 py-2 font-semibold">Max</th>
+								{#if showSource}
+									<th class="text-left px-4 py-2 font-semibold">Source</th>
+								{/if}
 								<th class="text-left px-4 py-2 font-semibold">Standard curve</th>
 							</tr></thead>
 							<tbody>
 								{#each samples as s}
+									{@const src = sampleSource(s.created_by)}
 									<tr class="border-b border-brand-divider last:border-b-0">
 										<td class="px-4 py-2 text-xs">{formatDateTime(s.collected_at)}</td>
 										<td class="px-4 py-2">{paramName(s.parameter_id)}</td>
@@ -1625,6 +1662,17 @@
 										<td class="px-4 py-2 text-right font-mono">{s.n}</td>
 										<td class="px-4 py-2 text-right font-mono">{s.min_value != null ? s.min_value.toFixed(3) : 'None'}</td>
 										<td class="px-4 py-2 text-right font-mono">{s.max_value != null ? s.max_value.toFixed(3) : 'None'}</td>
+										{#if showSource}
+											<td class="px-4 py-2 text-xs">
+												{#if !src}
+													<span class="text-brand-muted">None</span>
+												{:else if src.synced}
+													<Badge variant="accent">{src.label}</Badge>
+												{:else}
+													<span class="text-brand-muted">{src.label}</span>
+												{/if}
+											</td>
+										{/if}
 										<td class="px-4 py-2 text-xs">
 											{#if !sampleCurves.has(s.id)}
 												<span class="text-brand-muted" title="Curve references load with the charts; this sample falls outside the selected time range.">Not loaded</span>
@@ -1647,6 +1695,12 @@
 							</tbody>
 						</table>
 					</div>
+					<PaginationControls
+						total={samplesTotal}
+						page={samplesPage}
+						perPage={SAMPLES_PER_PAGE}
+						onPageChange={(p) => { samplesPage = p; loadSamples(); }}
+					/>
 				{/if}
 			</div>
 

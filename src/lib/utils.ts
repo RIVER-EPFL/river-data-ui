@@ -148,6 +148,8 @@ export function triggerLabel(triggerType: string): string {
 		case 'compute_derived': return 'Compute derived';
 		case 'csv_import': return 'CSV import';
 		case 'pairing_backfill': return 'Pairing backfill';
+		case 'replicate_reconciliation': return 'Replicate migration';
+		case 'replicate_reconciliation_delete': return 'Replicate migration cleanup';
 		default: return triggerType;
 	}
 }

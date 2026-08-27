@@ -1,5 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { base } from '$app/paths';
+	import { page } from '$app/state';
 	import { createUrlTab } from '$lib/urlTab.svelte';
 	import { me } from '$auth/me.svelte';
 	import {
@@ -44,6 +47,15 @@
 	const tab = createUrlTab({
 		keys: ['status', 'logs', 'jobs', 'schedules'],
 		aliases: { audit: 'logs', sync: 'logs' },
+	});
+
+	// The Audits view moved to /streams; old deep links follow it there. Captured synchronously so
+	// the tab writeback rewriting ?tab can't erase the request before the redirect fires.
+	const requestedTab = page.url.searchParams.get('tab');
+	onMount(() => {
+		if (requestedTab === 'audits' || requestedTab === 'replicate_audits' || requestedTab === 'holds') {
+			goto(`${base}/streams?tab=audits`, { replaceState: true });
+		}
 	});
 
 	// Load (and poll) only the data the active tab needs. Jobs / Logs use self-fetching panels.
