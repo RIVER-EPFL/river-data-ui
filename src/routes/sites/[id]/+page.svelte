@@ -72,18 +72,22 @@
 	const tabLabels = $derived(tabDefs.map((t) => t.label));
 	const activeKey = $derived(tabDefs[activeTab]?.key ?? 'charts');
 
-	// URL-synced tab (?tab=), so visits and provenance links can land on a specific tab. The two
-	// effects converge: one only reads a differing URL, the other only writes a differing one.
+	// URL-synced tab (?tab=), so visits and provenance links can land on a specific tab. The reader
+	// must not track `activeTab`: a click sets it before the writeback lands, so tracking it would
+	// re-run this from the stale URL and snap the tab back, locking the page on its first choice.
 	$effect(() => {
 		const wanted = page.url.searchParams.get('tab');
 		if (!wanted) return;
 		const idx = tabDefs.findIndex((t) => t.key === wanted);
-		if (idx >= 0 && idx !== activeTab) activeTab = idx;
+		if (idx >= 0 && idx !== untrack(() => activeTab)) activeTab = idx;
 	});
 	$effect(() => {
 		const key = activeKey;
 		const current = page.url.searchParams.get('tab') ?? 'charts';
 		if (current === key) return;
+		// A named tab this render can't resolve is a deep link waiting on data (Status appears only
+		// once the caller's role has loaded). Writing back would erase the request before it lands.
+		if (!tabDefs.some((t) => t.key === current)) return;
 		const url = new URL(page.url.href);
 		if (key === 'charts') url.searchParams.delete('tab');
 		else url.searchParams.set('tab', key);
