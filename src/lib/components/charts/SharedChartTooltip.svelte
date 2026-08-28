@@ -33,6 +33,8 @@
 		// A grab point under the cursor can be clicked open; the panel behind it is the only route
 		// to the replicates and to the tool run that produced them, so the tooltip says so.
 		spotClickable: boolean;
+		// One-line ingestion origin for the series (from include_origin).
+		originLabel: string | null;
 		annotations: AnnotationRow[];
 		sensorLabel: string | null;
 		calEquation: string | null;
@@ -140,6 +142,7 @@
 				flagReason,
 				sampleLine,
 				spotClickable,
+				originLabel: reg.originLabel || null,
 				annotations: rowAnns,
 				sensorLabel,
 				calEquation,
@@ -233,8 +236,11 @@
 			{#if row.sampleLine}
 				<div style="font-size:10px;color:{uPlotTheme.tooltipColor};opacity:0.8;padding-left:14px;white-space:normal;line-height:14px;margin-bottom:2px">{row.sampleLine}</div>
 			{/if}
+			{#if row.originLabel}
+				<div style="font-size:10px;color:{uPlotTheme.tooltipColor};opacity:0.7;padding-left:14px;white-space:normal;line-height:14px;margin-bottom:2px">{row.originLabel}</div>
+			{/if}
 			{#if row.spotClickable}
-				<div style="font-size:10px;color:{uPlotTheme.tooltipColor};opacity:0.7;padding-left:14px;white-space:normal;line-height:14px;margin-bottom:2px">Click the marker for replicates and the tool run</div>
+				<div style="font-size:10px;color:{uPlotTheme.tooltipColor};opacity:0.7;padding-left:14px;white-space:normal;line-height:14px;margin-bottom:2px">Click for the full record</div>
 			{/if}
 			{#each row.annotations as a}
 				<div style="font-size:10px;color:{uPlotTheme.tooltipColor};line-height:14px;white-space:normal;padding-left:14px;margin-bottom:2px" class="flex items-start gap-1.5">

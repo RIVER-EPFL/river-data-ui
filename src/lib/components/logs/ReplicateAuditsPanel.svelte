@@ -1,13 +1,16 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
+	import { base } from '$app/paths';
 	import {
 		listReplicateAudits,
+		acknowledgeReplicateAudit,
 		acknowledgeReplicateAuditsBulk,
 		resolveReplicateAudit,
 		reopenReplicateAudit,
 		issueSyncCommand,
 		getSyncCommand,
 		type ReplicateAuditHold,
+		type HoldKind,
 		type SyncCommand,
 		type SyncService,
 	} from '$api/service';
@@ -142,7 +145,9 @@
 		});
 		onPendingChange?.(result.pending);
 		deferredCount = result.deferred;
-		visibleSources = [...new Set(result.holds.map((h) => h.source_system))].sort();
+		visibleSources = [
+			...new Set(result.holds.map((h) => h.source_system).filter((s): s is string => s != null)),
+		].sort();
 		refreshThresholdCount();
 		return { data: result.holds, total: result.total };
 	}
@@ -252,13 +257,47 @@
 		return hold.expected.n != null && hold.expected.n !== hold.computed.n;
 	}
 
-	// The stream cell names the slot when paired, else the source's own display name; the raw
-	// source key stays reachable via tooltip and detail dialog.
+	// The stream cell names the slot when one resolves (paired streams and event findings both
+	// carry site/parameter names), else the source's own display name; the raw source key stays
+	// reachable via tooltip and detail dialog.
 	function streamLabel(hold: ReplicateAuditHold): string {
-		if (hold.paired && hold.site_name && hold.parameter_name) {
+		if (hold.site_name && hold.parameter_name) {
 			return `${hold.site_name} · ${hold.parameter_name}`;
 		}
-		return hold.source_name ?? hold.source_key;
+		return hold.source_name ?? hold.source_key ?? 'unknown source';
+	}
+
+	// Kinds beyond the replicate-statistics disagreement: reconciliation holds (stream-keyed) and
+	// event-audit findings (slot-keyed, stream_id null).
+	const KIND_LABEL: Record<HoldKind, string> = {
+		replicate_stats: 'statistics',
+		source_modified: 'source modified',
+		brake_fired: 'brake fired',
+		missing_output: 'missing output',
+		stale_output: 'stale output',
+	};
+	const KIND_STYLE: Record<HoldKind, string> = {
+		replicate_stats: 'bg-brand-bg text-brand-text',
+		source_modified: 'bg-severity-warning-soft text-severity-warning-text',
+		brake_fired: 'bg-severity-alarm-soft text-severity-alarm',
+		missing_output: 'bg-severity-warning-soft text-severity-warning-text',
+		stale_output: 'bg-severity-warning-soft text-severity-warning-text',
+	};
+	const KIND_TIP: Record<HoldKind, string> = {
+		replicate_stats:
+			"The group's recomputed statistics disagree with the portal's stored avg/sd.",
+		source_modified:
+			'The source changed or withdrew a reading that carries curation (a flag, a hand-picked curve, or a labelled sample). The value change applied; the curation and servedness did not move without this review.',
+		brake_fired:
+			'A reconciliation pass wanted to change or withdraw more of this stream than the brake allows. Its new rows applied; the reshape did not. Acknowledging admits exactly one braked-scale pass on the next sync cycle.',
+		missing_output:
+			"The tool's declared inputs exist at this visit but its output was never saved.",
+		stale_output:
+			'The stored output disagrees with a recompute under the same pinned script version, typically after an upstream correction.',
+	};
+
+	function isStats(hold: ReplicateAuditHold): boolean {
+		return !hold.kind || hold.kind === 'replicate_stats';
 	}
 
 	const STATUS_LABEL: Record<ReplicateAuditHold['status'], string> = {
@@ -377,7 +416,28 @@
 		}
 	}
 
+	// Acknowledge one non-statistics hold: for brake_fired this IS the release (one braked-scale
+	// pass is admitted, then the hold moves to remediated); for the others it records review.
+	async function handleAcknowledgeHold(
+		hold: ReplicateAuditHold,
+		ctx: { close: () => void; reload: () => Promise<void> },
+		successMessage: string,
+	) {
+		acknowledging = true;
+		try {
+			await acknowledgeReplicateAudit(hold.id);
+			toastStore.success(successMessage);
+			ctx.close();
+			await ctx.reload();
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Failed to acknowledge');
+		} finally {
+			acknowledging = false;
+		}
+	}
+
 	async function handleAcknowledgeStream(hold: ReplicateAuditHold, ctx: { close: () => void; reload: () => Promise<void> }) {
+		if (!hold.stream_id) return;
 		acknowledging = true;
 		try {
 			const res = await acknowledgeReplicateAuditsBulk({ stream_id: hold.stream_id });
@@ -550,9 +610,9 @@
 	{/snippet}
 
 	{#snippet row(hold)}
-		<td class="px-4 py-2 text-xs" title={hold.source_key}>
+		<td class="px-4 py-2 text-xs" title={hold.source_key ?? undefined}>
 			<div class="flex items-center gap-1.5">
-				<span class="px-1.5 py-0.5 rounded bg-brand-bg font-mono text-[10px] text-brand-muted shrink-0">{hold.source_system}</span>
+				<span class="px-1.5 py-0.5 rounded bg-brand-bg font-mono text-[10px] text-brand-muted shrink-0">{hold.source_system ?? (hold.tool ? `tool ${hold.tool}` : 'audit')}</span>
 				<span class="truncate max-w-56">{streamLabel(hold)}</span>
 			</div>
 		</td>
@@ -577,9 +637,15 @@
 			</div>
 		</td>
 		<td class="px-3 py-2">
-			<span class="px-1.5 py-0.5 rounded text-[10px] whitespace-nowrap {CLASS_STYLE[hold.classification]}" title={CLASS_TIP[hold.classification]}>
-				{CLASS_LABEL[hold.classification]}
-			</span>
+			{#if isStats(hold)}
+				<span class="px-1.5 py-0.5 rounded text-[10px] whitespace-nowrap {CLASS_STYLE[hold.classification]}" title={CLASS_TIP[hold.classification]}>
+					{CLASS_LABEL[hold.classification]}
+				</span>
+			{:else}
+				<span class="px-1.5 py-0.5 rounded text-[10px] whitespace-nowrap {KIND_STYLE[hold.kind]}" title={KIND_TIP[hold.kind]}>
+					{KIND_LABEL[hold.kind]}
+				</span>
+			{/if}
 		</td>
 		<td class="px-4 py-2">
 			<Badge variant={statusVariant(hold.status)}>{STATUS_LABEL[hold.status]}</Badge>
@@ -597,8 +663,14 @@
 				</div>
 				<div>
 					<span class="text-brand-muted text-xs">Source system</span>
-					<p>{hold.source_system}</p>
+					<p>{hold.source_system ?? '—'}</p>
 				</div>
+				{#if hold.tool}
+					<div>
+						<span class="text-brand-muted text-xs">Tool</span>
+						<p>{hold.tool}</p>
+					</div>
+				{/if}
 				<div>
 					<span class="text-brand-muted text-xs">Instant</span>
 					<p>{formatDateTime(hold.group_time)}</p>
@@ -609,7 +681,7 @@
 				</div>
 				<div>
 					<span class="text-brand-muted text-xs">Cause</span>
-					<p class="text-xs">{CLASS_TIP[hold.classification]}</p>
+					<p class="text-xs">{isStats(hold) ? CLASS_TIP[hold.classification] : KIND_TIP[hold.kind]}</p>
 				</div>
 				{#if hold.acknowledged_at}
 					<div>
@@ -619,6 +691,33 @@
 				{/if}
 			</div>
 
+			{#if !isStats(hold)}
+				<div class="rounded-md border border-brand-divider bg-brand-bg p-3 text-xs space-y-2">
+					{#if hold.kind === 'stale_output' || hold.kind === 'missing_output'}
+						<div class="grid grid-cols-2 gap-3">
+							<div>
+								<span class="text-brand-muted block mb-1">Recomputed (expected)</span>
+								<pre class="font-mono whitespace-pre-wrap break-all">{JSON.stringify(hold.expected, null, 1)}</pre>
+							</div>
+							<div>
+								<span class="text-brand-muted block mb-1">Stored</span>
+								<pre class="font-mono whitespace-pre-wrap break-all">{JSON.stringify(hold.computed, null, 1)}</pre>
+							</div>
+						</div>
+					{:else}
+						<div>
+							<span class="text-brand-muted block mb-1">What the pass recorded</span>
+							<pre class="font-mono whitespace-pre-wrap break-all">{JSON.stringify(hold.expected, null, 1)}</pre>
+						</div>
+						{#if hold.computed && Object.keys(hold.computed).length > 0}
+							<div>
+								<span class="text-brand-muted block mb-1">Stored state</span>
+								<pre class="font-mono whitespace-pre-wrap break-all">{JSON.stringify(hold.computed, null, 1)}</pre>
+							</div>
+						{/if}
+					{/if}
+				</div>
+			{:else}
 			<div class="rounded-md border border-brand-divider overflow-hidden">
 				<table class="w-full text-sm">
 					<thead>
@@ -704,7 +803,7 @@
 				</div>
 			{/if}
 
-			{#if hold.status === 'remediated' && hold.resolution}
+			{#if hold.status === 'remediated' && hold.resolution && resolutionIndexes(hold).length > 0}
 				<div class="rounded-md border border-brand-divider bg-brand-bg p-3 text-xs space-y-1">
 					<p>
 						Replicates flagged: <span class="font-mono">{resolutionIndexes(hold).join(', ')}</span>
@@ -714,11 +813,48 @@
 					{/if}
 				</div>
 			{/if}
+			{/if}
 		</div>
 	{/snippet}
 
 	{#snippet detailActions(hold, ctx)}
-		{#if hold.status === 'pending'}
+		{#if hold.status === 'pending' && hold.kind === 'brake_fired'}
+			<ConfirmPopover
+				message="Release the brake for {streamLabel(hold)}? Exactly one braked-scale reconciliation pass is admitted on the next sync cycle; a later reshape brakes afresh."
+				confirmLabel="Release"
+				confirmVariant="primary"
+				above
+				onconfirm={() => handleAcknowledgeHold(hold, ctx, 'Brake released: the next pass may apply the reshape')}
+			>
+				<Button variant="primary" disabled={acknowledging}>{acknowledging ? 'Releasing…' : 'Release the brake'}</Button>
+			</ConfirmPopover>
+		{:else if hold.status === 'pending' && hold.kind === 'source_modified'}
+			<ConfirmPopover
+				message="Mark this reviewed? The correction has already applied; the curation on the affected reading stands as it is."
+				confirmLabel="Acknowledge"
+				confirmVariant="primary"
+				above
+				onconfirm={() => handleAcknowledgeHold(hold, ctx, 'Reviewed')}
+			>
+				<Button variant="primary" disabled={acknowledging}>Acknowledge</Button>
+			</ConfirmPopover>
+		{:else if hold.status === 'pending' && (hold.kind === 'missing_output' || hold.kind === 'stale_output')}
+			{#if hold.site_name}
+				<Button
+					variant="secondary"
+					onclick={() => { window.location.href = `${base}/sites/${encodeURIComponent(hold.site_name ?? '')}?tab=visits`; }}
+				>Open the visit</Button>
+			{/if}
+			<ConfirmPopover
+				message="Mark this finding reviewed? The stored values stay as they are; recomputing the visit resolves it properly."
+				confirmLabel="Acknowledge"
+				confirmVariant="primary"
+				above
+				onconfirm={() => handleAcknowledgeHold(hold, ctx, 'Finding acknowledged')}
+			>
+				<Button disabled={acknowledging}>Acknowledge finding</Button>
+			</ConfirmPopover>
+		{:else if hold.status === 'pending'}
 			<ConfirmPopover
 				message="Accept every pending hold on {streamLabel(hold)}? The recomputed statistics stand for all of them."
 				confirmLabel="Accept all"

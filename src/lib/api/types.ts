@@ -37,6 +37,8 @@ export interface ReadingsParameter {
 	// that kind was applied, which is why the two are reported separately rather than collapsed.
 	calibration_ids?: (string | null)[] | null;
 	standard_curve_ids?: (string | null)[] | null;
+	// The streams paired into this slot; present when include_origin=true.
+	origins?: { stream_id: string; source_system: string; source_key: string }[];
 }
 
 export interface ReadingsResponse {

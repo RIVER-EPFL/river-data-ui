@@ -59,6 +59,8 @@
 		isDerived = false,
 		activeBreach = null,
 		nowMs = 0,
+		originLabel = '',
+		onpointclick,
 	}: {
 		siteId: string;
 		siteParameterId: string;
@@ -91,6 +93,15 @@
 		activeBreach?: { severity: number; started_at?: string | null; since: string } | null;
 		/** Ticking clock (ms) from the parent so the badge's "active for …" stays fresh. */
 		nowMs?: number;
+		/** One-line ingestion origin for the series, shown in the shared tooltip. */
+		originLabel?: string;
+		/** Pin a point's provenance record: called on click for continuous points and (instead of
+		 *  the replicate dialog) for spot points. */
+		onpointclick?: (p: {
+			timeMs: number;
+			measurementType: 'continuous' | 'spot';
+			sampleId?: string | null;
+		}) => void;
 	} = $props();
 
 	function breachDuration(fromIso: string): string {
@@ -517,10 +528,13 @@
 	function spotPointAt(u: uPlot, xCss: number): { timeMs: number; stats: SpotPointStats } | null {
 		const stats = spotStats;
 		if (!stats || stats.size === 0) return null;
+		// Without an inspector wired, only replicate-carrying points are actionable (the dialog
+		// is a flagging surface); with one, every spot point has a record to show.
+		const requireReplicates = !onpointclick;
 		let best: { timeMs: number; stats: SpotPointStats } | null = null;
 		let bestDistance = Number.POSITIVE_INFINITY;
 		for (const [timeMs, stat] of stats) {
-			if (!stat.replicates || stat.replicates.length === 0) continue;
+			if (requireReplicates && (!stat.replicates || stat.replicates.length === 0)) continue;
 			const distance = Math.abs(u.valToPos(timeMs / 1000, 'x') - xCss);
 			if (distance < bestDistance) {
 				bestDistance = distance;
@@ -528,6 +542,36 @@
 			}
 		}
 		return bestDistance <= SPOT_CLICK_TOLERANCE_PX ? best : null;
+	}
+
+	/// The continuous data point under the click: nearest in x, and vertically close to the line.
+	const CONTINUOUS_CLICK_TOLERANCE_PX = 12;
+
+	function continuousPointAt(u: uPlot, xCss: number, yCss: number): { timeMs: number } | null {
+		if (!onpointclick || !chartData || chartData.times.length === 0) return null;
+		const targetSec = u.posToVal(xCss, 'x');
+		const times = chartData.times;
+		let lo = 0;
+		let hi = times.length - 1;
+		while (lo < hi) {
+			const mid = (lo + hi) >> 1;
+			if (times[mid] / 1000 < targetSec) lo = mid + 1;
+			else hi = mid;
+		}
+		let best: { timeMs: number } | null = null;
+		let bestDistance = Number.POSITIVE_INFINITY;
+		for (let i = Math.max(0, lo - 2); i <= Math.min(times.length - 1, lo + 2); i++) {
+			const value = chartData.values[i];
+			if (value == null) continue;
+			const dx = Math.abs(u.valToPos(times[i] / 1000, 'x') - xCss);
+			const dy = Math.abs(u.valToPos(value, 'y') - yCss);
+			const distance = Math.hypot(dx, dy);
+			if (dx <= SPOT_CLICK_TOLERANCE_PX && dy <= CONTINUOUS_CLICK_TOLERANCE_PX && distance < bestDistance) {
+				bestDistance = distance;
+				best = { timeMs: times[i] };
+			}
+		}
+		return best;
 	}
 
 	function bandStripAt(u: uPlot, xCss: number, yCss: number): SensorIdentityBand | null {
@@ -553,7 +597,10 @@
 			const xCss = e.clientX - rect.left;
 			const yCss = e.clientY - rect.top;
 			const actionable =
-				bandStripAt(u, xCss, yCss) || calStripAt(u, xCss, yCss) || spotPointAt(u, xCss);
+				bandStripAt(u, xCss, yCss) ||
+				calStripAt(u, xCss, yCss) ||
+				spotPointAt(u, xCss) ||
+				continuousPointAt(u, xCss, yCss);
 			over.style.cursor = actionable ? 'pointer' : '';
 		};
 		const onUp = (e: MouseEvent) => {
@@ -570,9 +617,20 @@
 			if (cal) { goto(`${base}/sensors/${cal.sensorId}?tab=calibrations&cal=${cal.calId}`); return; }
 			const spot = spotPointAt(u, xCss);
 			if (spot) {
-				replicateTarget = spot;
-				replicateOpen = true;
+				if (onpointclick) {
+					onpointclick({
+						timeMs: spot.timeMs,
+						measurementType: 'spot',
+						sampleId: spot.stats.sampleId ?? null,
+					});
+				} else {
+					replicateTarget = spot;
+					replicateOpen = true;
+				}
+				return;
 			}
+			const point = continuousPointAt(u, xCss, yCss);
+			if (point) onpointclick?.({ timeMs: point.timeMs, measurementType: 'continuous' });
 		};
 		over.addEventListener('mousedown', onDown);
 		over.addEventListener('mousemove', onMove);
@@ -674,6 +732,7 @@
 				sensorBands: showSensorVectors ? sensorBands : [],
 				calibrationMarkers: showCalibrationMarkers ? calibrationMarkers : [],
 				spotStats,
+				originLabel,
 			});
 			tick().then(() => renderChart());
 		}
