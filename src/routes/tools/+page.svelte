@@ -2,6 +2,8 @@
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
 	import { me } from '$auth/me.svelte';
+	import { api, type Site } from '$api/crud';
+	import { listAll } from '$api/paged';
 	import {
 		listTools,
 		calculateTool,
@@ -43,6 +45,25 @@
 	let resultCurves = $state<UsedCurve[]>([]);
 	let calculating = $state(false);
 	let showSaveDialog = $state(false);
+
+	// Calculation context: a tool that declares station or event inputs resolves them from the
+	// selected site (and collection instant) at calculate time. Fill-if-missing — a typed value
+	// always wins — so the context is offered, never required, except where the manifest requires
+	// a station property.
+	let sites = $state<Site[]>([]);
+	let contextSiteId = $state('');
+	let contextTime = $state('');
+	const needsContext = $derived(
+		!!activeTool &&
+			((activeTool.station_inputs?.length ?? 0) > 0 || (activeTool.event_inputs?.length ?? 0) > 0),
+	);
+	$effect(() => {
+		if (!needsContext || sites.length > 0) return;
+		listAll(api.sites, { perPage: 200, sort: ['name', 'ASC'] })
+			.then((s) => (sites = s))
+			.catch(() => {});
+	});
+	const contextIso = $derived(contextTime ? new Date(contextTime).toISOString() : '');
 
 	// Every tool the API serves is listed, so a tool added in the portal appears without a UI
 	// change. Keywords widen the search without deciding where a tool belongs.
@@ -95,7 +116,12 @@
 		calculating = true;
 		result = null;
 		try {
-			const res = await calculateTool(activeTool.name, built.body);
+			const body = { ...built.body };
+			if (needsContext && contextSiteId) {
+				body.site_id = contextSiteId;
+				if (contextIso) body.collected_at = contextIso;
+			}
+			const res = await calculateTool(activeTool.name, body);
 			result = res;
 			// Snapshots taken now: the provenance records what these numbers were computed with,
 			// not whatever the form holds later.
@@ -220,6 +246,35 @@
 					<p class="text-sm text-brand-muted mb-4">{activeTool.description}</p>
 
 					<form onsubmit={(e) => { e.preventDefault(); calculate(); }} class="space-y-3">
+						{#if needsContext}
+							<div class="rounded-md border border-brand-divider bg-brand-bg p-3 space-y-2">
+								<p class="text-xs font-semibold">Calculation context</p>
+								<p class="text-xs text-brand-muted">
+									This tool reads
+									{[
+										...(activeTool.station_inputs ?? []).map((si) => `the station's ${si.property}`),
+										...(activeTool.event_inputs ?? []).map((ei) => `${ei.parameter_code} from the same visit`),
+									].join(', ')}. Values you type below always win; the rest resolve from the
+									selected station and collection time.
+								</p>
+								<div class="grid grid-cols-2 gap-3">
+									<select
+										bind:value={contextSiteId}
+										aria-label="Station"
+										class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
+									>
+										<option value=""> - No station context - </option>
+										{#each sites as s}<option value={s.id}>{s.name}</option>{/each}
+									</select>
+									<input
+										type="datetime-local"
+										bind:value={contextTime}
+										aria-label="Collection time"
+										class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
+									/>
+								</div>
+							</div>
+						{/if}
 						<ToolForm spec={activeTool} bind:form bind:curveSelections />
 
 						<Button variant="primary" type="submit" disabled={calculating}>
@@ -240,6 +295,16 @@
 								onclick={() => (showSaveDialog = true)}
 							>Save to Site</Button>
 						</div>
+						{#if (result.station_inputs?.length ?? 0) > 0 || (result.event_inputs?.length ?? 0) > 0}
+							<div class="text-xs text-brand-muted bg-brand-bg border border-brand-divider rounded-md px-2 py-1 mb-2 space-y-0.5">
+								{#each result.station_inputs ?? [] as si}
+									<p>Resolved {si.param} = {si.value} from the station's {si.property}.</p>
+								{/each}
+								{#each result.event_inputs ?? [] as ei}
+									<p>Resolved {ei.param} = {ei.value} from {ei.parameter_code} at this visit.</p>
+								{/each}
+							</div>
+						{/if}
 						{#if result.inputs_ignored.length > 0}
 							<p class="text-xs text-severity-warning-text bg-severity-warning-soft border border-severity-warning-border rounded-md px-2 py-1 mb-2">
 								Ignored inputs: {result.inputs_ignored.join(', ')}
@@ -269,6 +334,8 @@
 
 <SaveResultsPanel
 	bind:open={showSaveDialog}
+	contextSiteId={contextSiteId || null}
+	contextTime={contextIso || null}
 	runId={result?.run_id ?? null}
 	toolName={activeTool?.name ?? ''}
 	toolTitle={activeTool?.label ?? ''}

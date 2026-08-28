@@ -16,6 +16,8 @@
 	import {
 		saveGrabSample,
 		grabConflictGroups,
+		seasonalCheck,
+		type SeasonalFinding,
 		type GrabExistingGroup,
 		type GrabPreviewRow,
 		type GrabSampleReading,
@@ -52,6 +54,8 @@
 		serverConstants = null,
 		serverCurves = [],
 		appliedCurveLabel = '',
+		contextSiteId = null,
+		contextTime = null,
 	}: {
 		open: boolean;
 		/** The stored tool run these results came from (`run_id` on the calculate response). */
@@ -76,6 +80,10 @@
 		 * the API would otherwise apply the same correction a second time.
 		 */
 		appliedCurveLabel?: string;
+		/** The calculation context, when the run was calculated against a site: preselects the save. */
+		contextSiteId?: string | null;
+		/** RFC 3339 collection instant the run was calculated against. */
+		contextTime?: string | null;
 	} = $props();
 
 	interface ResultRow {
@@ -224,6 +232,12 @@
 	let included = $state<Record<string, boolean>>({});
 	let paramChoices = $state<Record<string, string>>({});
 
+	// The seasonal check gate (the portal's Check button): the save is enabled once the exact
+	// values being saved have been screened. Any edit changes the signature and re-arms the gate;
+	// the server enforces the same rule on the check_id the save names.
+	let check = $state<{ id: string; signature: string; findings: SeasonalFinding[] } | null>(null);
+	let checking = $state(false);
+
 	// Server-computed correction chain for the current inputs, refreshed via dry_run.
 	let preview = $state<GrabPreviewRow[]>([]);
 	let previewGroups = $state<GrabExistingGroup[]>([]);
@@ -269,13 +283,16 @@
 			return;
 		}
 		appliedSignature = resultSignature;
-		selectedSiteId = '';
+		selectedSiteId = contextSiteId ?? '';
 		siteParams = [];
 		selectedSensorId = '';
 		selectedCurveId = '';
 		curves = [];
-		collectedAt = toDatetimeLocal(Date.now(), BROWSER_ZONE);
+		collectedAt = contextTime
+			? toDatetimeLocal(Date.parse(contextTime), BROWSER_ZONE)
+			: toDatetimeLocal(Date.now(), BROWSER_ZONE);
 		collectedZone = BROWSER_ZONE;
+		check = null;
 		label = '';
 		notes = curveNote;
 		preview = [];
@@ -290,6 +307,7 @@
 		included = inc;
 		paramChoices = pc;
 		void loadSites();
+		if (contextSiteId) void loadSiteParameters(contextSiteId);
 	});
 
 	// Every list is paged to completion: mapping an output to a parameter is a lookup by name over
@@ -448,6 +466,52 @@
 			!duplicateParam,
 	);
 
+	// What a check would cover: the exact (parameter, value) pairs the save will write.
+	const checkValues = $derived(
+		includedRows.flatMap((r) =>
+			r.values.map((v) => ({ parameter_id: paramChoices[r.id], value: v.value })),
+		),
+	);
+	const checkSignature = $derived(
+		`${selectedSiteId}|${JSON.stringify(checkValues)}`,
+	);
+	const checkSatisfied = $derived(check !== null && check.signature === checkSignature);
+	const checkStale = $derived(check !== null && check.signature !== checkSignature);
+
+	const CLASS_LABELS: Record<string, string> = {
+		no_history: 'no history',
+		below_min: 'below recorded minimum',
+		below_q10: 'below Q10',
+		normal: 'normal',
+		above_q90: 'above Q90',
+		above_max: 'above recorded maximum',
+	};
+
+	async function runCheck() {
+		if (!canSave) return;
+		checking = true;
+		try {
+			const res = await seasonalCheck({
+				site_id: selectedSiteId,
+				time: fromDatetimeLocal(collectedAt, collectedZone),
+				values: checkValues,
+			});
+			check = { id: res.check_id, signature: checkSignature, findings: res.findings };
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Check failed');
+		} finally {
+			checking = false;
+		}
+	}
+
+	function findingLabel(f: SeasonalFinding): string {
+		const range =
+			f.min !== null && f.max !== null
+				? ` (seasonal range ${f.min.toPrecision(4)} – ${f.max.toPrecision(4)}, n=${f.n})`
+				: '';
+		return `${paramNameById(f.parameter_id)}: ${CLASS_LABELS[f.class] ?? f.class}${range}`;
+	}
+
 	// Every reading carries its index: the endpoint preserves a set of indices only when all of them
 	// are explicit, and numbers the group contiguously from 0 otherwise, which would close a gap in a
 	// replicate family and record the wrong replicate for every value after it.
@@ -522,6 +586,7 @@
 				...(notes.trim() ? { notes: notes.trim() } : {}),
 				...(replace ? { mode: 'replace' as const } : {}),
 				...(runId ? { tool_run_id: runId } : {}),
+				...(checkSatisfied && check ? { check_id: check.id } : {}),
 				readings: buildReadings(),
 			});
 			toastStore.success(
@@ -775,6 +840,34 @@
 				</div>
 			{/if}
 
+			{#if canSave}
+				<div class="rounded-md border border-brand-divider bg-brand-bg p-2.5 space-y-1.5">
+					<div class="flex items-center justify-between">
+						<span class="text-xs font-semibold">Seasonal check</span>
+						<Button size="sm" onclick={runCheck} disabled={checking}>
+							{checking ? 'Checking…' : checkSatisfied ? 'Re-check' : 'Check against site history'}
+						</Button>
+					</div>
+					{#if checkStale}
+						<p class="text-xs text-severity-warning-text">
+							Values changed since the last check; check again before saving.
+						</p>
+					{:else if check}
+						{#each check.findings as f}
+							<p class="text-xs {f.warning ? 'text-severity-warning-text' : 'text-brand-muted'}">
+								{findingLabel(f)}
+							</p>
+						{/each}
+					{:else}
+						<p class="text-xs text-brand-muted">
+							Screens each value against this site's history for the entry month ±2 across all
+							years (replicates pooled). Advisory, but saving requires a check of exactly these
+							values.
+						</p>
+					{/if}
+				</div>
+			{/if}
+
 			<div class="grid grid-cols-2 gap-3">
 				<div class="flex flex-col gap-1">
 					<label for="srp-label" class="text-sm font-medium">Label <span class="text-brand-muted font-normal">(optional)</span></label>
@@ -800,11 +893,11 @@
 	{#snippet actions()}
 		<Button onclick={() => (open = false)}>Cancel</Button>
 		{#if conflictGroups}
-			<Button variant="danger" onclick={() => handleSave(true)} disabled={saving || !canSave}>
+			<Button variant="danger" onclick={() => handleSave(true)} disabled={saving || !canSave || !checkSatisfied}>
 				{saving ? 'Saving…' : 'Replace existing'}
 			</Button>
 		{:else}
-			<Button variant="primary" onclick={() => handleSave()} disabled={saving || !canSave}>
+			<Button variant="primary" onclick={() => handleSave()} disabled={saving || !canSave || !checkSatisfied}>
 				{saving ? 'Saving…' : 'Save'}
 			</Button>
 		{/if}

@@ -1125,9 +1125,26 @@ export interface ToolDescriptor {
 	outputs: ToolOutput[];
 	constants: string[];
 	curves: ToolCurveSlot[];
+	/** Station properties resolved from the site at calculate time (fill-if-missing). */
+	station_inputs?: ToolStationInput[];
+	/** Same-event parameter reads resolved at (site_id, collected_at) (fill-if-missing). */
+	event_inputs?: ToolEventInput[];
+	/** QC declarations (replicate pooling, check exclusions), as authored. */
+	qc?: Record<string, unknown>;
 	match_keywords: string[];
 	script_version_id: string;
 	version_no: number;
+}
+
+export interface ToolStationInput {
+	property: string;
+	param?: string | null;
+	required: boolean;
+}
+
+export interface ToolEventInput {
+	param: string;
+	parameter_code: string;
 }
 
 export interface ToolVersionRef {
@@ -1164,6 +1181,10 @@ export interface ToolCalculateResponse {
 	/** Empty when no curve slot was filled. */
 	curves: ToolCurveSnapshot[];
 	tool_version: ToolVersionRef;
+	/** Station properties resolved from the site, as {property, param, value}. */
+	station_inputs?: { property: string; param: string; value: number }[];
+	/** Same-event values resolved at (site_id, collected_at). */
+	event_inputs?: { param: string; parameter_code: string; parameter_id: string; value: number }[];
 	/** The stored tool_runs row for this calculation; pass as `tool_run_id` when saving. */
 	run_id: string;
 }
@@ -1453,6 +1474,9 @@ export interface GrabSampleRequest {
 	// provenance blob from its stored run row; every reading must then name the run output it
 	// stores and carry that output's value.
 	tool_run_id?: string;
+	// A seasonal check (from seasonalCheck) covering exactly these (parameter, value) pairs. The
+	// server refuses a save whose values the named check did not screen.
+	check_id?: string;
 	readings: GrabSampleReading[];
 }
 
@@ -1500,6 +1524,49 @@ export interface GrabSampleResponse {
 
 export const saveGrabSample = (req: GrabSampleRequest) =>
 	POST<GrabSampleResponse>(`${SERVICE}/grab_samples`, req);
+
+// --- Seasonal check (the portal's Check gate) --------------------------------------------------
+
+export interface SeasonalCheckValue {
+	parameter_id: string;
+	value: number;
+}
+
+export type SeasonalClass =
+	| 'no_history'
+	| 'below_min'
+	| 'below_q10'
+	| 'normal'
+	| 'above_q90'
+	| 'above_max';
+
+export interface SeasonalFinding {
+	parameter_id: string;
+	value: number;
+	class: SeasonalClass;
+	warning: boolean;
+	n: number;
+	min: number | null;
+	q10: number | null;
+	q90: number | null;
+	max: number | null;
+	/** Pooled historical values (capped) for the distribution plot. */
+	distribution: number[];
+}
+
+export interface SeasonalCheckResponse {
+	check_id: string;
+	findings: SeasonalFinding[];
+	warnings: number;
+}
+
+/**
+ * Screen entered values against the site's seasonal distribution (entry month ±2 across all
+ * years, unflagged spot replicates pooled). The returned check_id gates the save: pass it on
+ * saveGrabSample and the server holds the save to exactly the checked values.
+ */
+export const seasonalCheck = (req: { site_id: string; time: string; values: SeasonalCheckValue[] }) =>
+	POST<SeasonalCheckResponse>(`${SERVICE}/readings/seasonal_check`, req);
 
 /** Existing replicate groups from a grab-sample 409 body ({ error, detail }); null otherwise. */
 export function grabConflictGroups(e: unknown): GrabExistingGroup[] | null {
