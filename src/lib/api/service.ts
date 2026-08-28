@@ -1134,6 +1134,21 @@ export interface EventDetailResponse {
 export const getCollectionEventDetail = (id: string) =>
 	GET<EventDetailResponse>(`${SERVICE}/collection_events/${id}/detail`);
 
+export interface StagedEvent {
+	id: string;
+	site_id: string;
+	collected_at: string;
+	source: string;
+	created_by?: string;
+	notes?: string;
+	/** False when the visit already stood at this instant. */
+	created: boolean;
+}
+
+/** Stage a field visit, or adopt the one already standing at that (station, instant). */
+export const stageCollectionEvent = (req: { site_id: string; collected_at: string; notes?: string }) =>
+	POST<StagedEvent>(`${SERVICE}/collection_events/stage`, req);
+
 export const recomputeCollectionEvent = (id: string) =>
 	POST<{ job_id: string | null }>(`${SERVICE}/collection_events/${id}/recompute`, {});
 

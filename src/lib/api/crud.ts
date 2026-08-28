@@ -37,6 +37,7 @@ export const api = {
 	derivedParameters: crudClient<DerivedParameter>('derived_parameters'),
 	derivedParameterSources: crudClient<DerivedParameterSource>('derived_parameter_sources'),
 	samples: crudClient<Sample>('samples'),
+	collectionEvents: crudClient<CollectionEvent>('collection_events'),
 	constants: crudClient<Constant>('constants'),
 	alarmThresholds: crudClient<AlarmThreshold>('alarm_thresholds'),
 	dataStreams: crudClient<DataStream>('data_streams'),
@@ -61,6 +62,18 @@ export interface RealmUser {
 	lastName: string;
 	enabled: boolean;
 	roles?: string[];
+}
+
+/** A field visit: one (site, collection instant) every spot reading of that visit attaches to. */
+export interface CollectionEvent {
+	id: string;
+	site_id: string;
+	collected_at: string;
+	source: string;
+	created_by: string | null;
+	notes: string | null;
+	created_at: string;
+	updated_at: string | null;
 }
 
 export interface Project {

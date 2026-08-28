@@ -56,6 +56,8 @@
 		appliedCurveLabel = '',
 		contextSiteId = null,
 		contextTime = null,
+		visitLocked = false,
+		onsaved,
 	}: {
 		open: boolean;
 		/** The stored tool run these results came from (`run_id` on the calculate response). */
@@ -84,6 +86,13 @@
 		contextSiteId?: string | null;
 		/** RFC 3339 collection instant the run was calculated against. */
 		contextTime?: string | null;
+		/**
+		 * The context came from a staged field visit, so the station and instant are the visit's
+		 * and are shown rather than chosen: an edit here would write into a different visit.
+		 */
+		visitLocked?: boolean;
+		/** Called after a successful save, so a caller can refresh what the visit now records. */
+		onsaved?: () => void;
 	} = $props();
 
 	interface ResultRow {
@@ -310,6 +319,17 @@
 		if (contextSiteId) void loadSiteParameters(contextSiteId);
 	});
 
+	// The staged visit can change while a result is on screen, so the save follows it rather than
+	// the site the dialog was first opened with.
+	$effect(() => {
+		if (!open || !contextSiteId) return;
+		if (selectedSiteId !== contextSiteId) {
+			selectedSiteId = contextSiteId;
+			void loadSiteParameters(contextSiteId);
+		}
+		if (contextTime) collectedAt = toDatetimeLocal(Date.parse(contextTime), BROWSER_ZONE);
+	});
+
 	// Every list is paged to completion: mapping an output to a parameter is a lookup by name over
 	// the whole catalog, and a single page silently stops matching once the table outgrows it.
 	async function loadSites() {
@@ -478,6 +498,13 @@
 	const checkSatisfied = $derived(check !== null && check.signature === checkSignature);
 	const checkStale = $derived(check !== null && check.signature !== checkSignature);
 
+	// The instant these readings are written at. A staged visit's instant is used exactly as the
+	// event holds it: recomposing it from the datetime-local field would round to the minute and
+	// land the save on a different visit.
+	const saveTime = $derived(
+		visitLocked && contextTime ? contextTime : fromDatetimeLocal(collectedAt, collectedZone),
+	);
+
 	const CLASS_LABELS: Record<string, string> = {
 		no_history: 'no history',
 		below_min: 'below recorded minimum',
@@ -493,7 +520,7 @@
 		try {
 			const res = await seasonalCheck({
 				site_id: selectedSiteId,
-				time: fromDatetimeLocal(collectedAt, collectedZone),
+				time: saveTime,
 				values: checkValues,
 			});
 			check = { id: res.check_id, signature: checkSignature, findings: res.findings };
@@ -516,7 +543,7 @@
 	// are explicit, and numbers the group contiguously from 0 otherwise, which would close a gap in a
 	// replicate family and record the wrong replicate for every value after it.
 	function buildReadings(): GrabSampleReading[] {
-		const time = fromDatetimeLocal(collectedAt, collectedZone);
+		const time = saveTime;
 		return includedRows.flatMap((r) =>
 			r.values.map((v) => ({
 				parameter_id: paramChoices[r.id],
@@ -596,6 +623,7 @@
 			);
 			conflictGroups = null;
 			open = false;
+			onsaved?.();
 		} catch (e) {
 			const groups = grabConflictGroups(e);
 			if (groups) {
@@ -612,29 +640,43 @@
 <Dialog bind:open title="Save to Site{toolTitle ? `: ${toolTitle}` : ''}" maxWidth="lg">
 	{#snippet children()}
 		<div class="space-y-3">
-			<div class="grid grid-cols-2 gap-3">
-				<div class="flex flex-col gap-1">
-					<label for="srp-site" class="text-sm font-medium">Site <span class="text-severity-alarm">*</span></label>
-					<select
-						id="srp-site"
-						bind:value={selectedSiteId}
-						onchange={() => loadSiteParameters(selectedSiteId)}
-						class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
-					>
-						<option value=""> - Select site - </option>
-						{#each sites as s}
-							<option value={s.id}>{s.name}</option>
-						{/each}
-					</select>
+			{#if visitLocked}
+				<div class="rounded-md border border-brand-divider bg-brand-bg px-3 py-2">
+					<p class="text-xs uppercase tracking-wide text-brand-muted">Staged field visit</p>
+					<p class="text-sm font-medium">
+						{sites.find((s) => s.id === selectedSiteId)?.name ?? selectedSiteId}
+						&middot; {contextTime ? formatDateTime(contextTime) : ''}
+					</p>
+					<p class="text-xs text-brand-muted">
+						These outputs are recorded against this visit. Change the visit above the tool to
+						write somewhere else.
+					</p>
 				</div>
-				<div class="flex flex-col gap-1">
-					<label for="srp-time" class="text-sm font-medium">Timestamp <span class="text-severity-alarm">*</span></label>
-					<input id="srp-time" type="datetime-local" bind:value={collectedAt} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" />
-					<select bind:value={collectedZone} aria-label="Time zone" class="px-3 py-1 border border-brand-divider rounded-md bg-brand-surface text-xs">
-						{#each ZONE_OPTIONS as z}<option value={z}>{z}</option>{/each}
-					</select>
+			{:else}
+				<div class="grid grid-cols-2 gap-3">
+					<div class="flex flex-col gap-1">
+						<label for="srp-site" class="text-sm font-medium">Site <span class="text-severity-alarm">*</span></label>
+						<select
+							id="srp-site"
+							bind:value={selectedSiteId}
+							onchange={() => loadSiteParameters(selectedSiteId)}
+							class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
+						>
+							<option value=""> - Select site - </option>
+							{#each sites as s}
+								<option value={s.id}>{s.name}</option>
+							{/each}
+						</select>
+					</div>
+					<div class="flex flex-col gap-1">
+						<label for="srp-time" class="text-sm font-medium">Timestamp <span class="text-severity-alarm">*</span></label>
+						<input id="srp-time" type="datetime-local" bind:value={collectedAt} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" />
+						<select bind:value={collectedZone} aria-label="Time zone" class="px-3 py-1 border border-brand-divider rounded-md bg-brand-surface text-xs">
+							{#each ZONE_OPTIONS as z}<option value={z}>{z}</option>{/each}
+						</select>
+					</div>
 				</div>
-			</div>
+			{/if}
 
 			<div class="grid grid-cols-2 gap-3">
 				<div class="flex flex-col gap-1">

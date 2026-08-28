@@ -2,8 +2,6 @@
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
 	import { me } from '$auth/me.svelte';
-	import { api, type Site } from '$api/crud';
-	import { listAll } from '$api/paged';
 	import {
 		listTools,
 		calculateTool,
@@ -15,6 +13,8 @@
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import { type CurveSelection } from '$components/tools/CurvePicker.svelte';
 	import SaveResultsPanel, { type UsedCurve } from '$components/tools/SaveResultsPanel.svelte';
+	import StagedVisitBar from '$components/tools/StagedVisitBar.svelte';
+	import { stagedVisit } from '$lib/stores/visit.svelte';
 	import ToolForm from '$components/tools/ToolForm.svelte';
 	import {
 		buildRequestBody,
@@ -46,24 +46,17 @@
 	let calculating = $state(false);
 	let showSaveDialog = $state(false);
 
-	// Calculation context: a tool that declares station or event inputs resolves them from the
-	// selected site (and collection instant) at calculate time. Fill-if-missing — a typed value
-	// always wins — so the context is offered, never required, except where the manifest requires
-	// a station property.
-	let sites = $state<Site[]>([]);
-	let contextSiteId = $state('');
-	let contextTime = $state('');
+	// Calculation context: the staged field visit. Every tool run carries the visit's station and
+	// instant, so a tool that declares station or event inputs resolves them from the same row the
+	// save writes into. Fill-if-missing (a typed value always wins), so the context is offered,
+	// never required, except where the manifest requires a station property.
+	let visitBar = $state<{ begin: () => void } | null>(null);
+	const contextSiteId = $derived(stagedVisit.current?.siteId ?? '');
+	const contextIso = $derived(stagedVisit.current?.collectedAt ?? '');
 	const needsContext = $derived(
 		!!activeTool &&
 			((activeTool.station_inputs?.length ?? 0) > 0 || (activeTool.event_inputs?.length ?? 0) > 0),
 	);
-	$effect(() => {
-		if (!needsContext || sites.length > 0) return;
-		listAll(api.sites, { perPage: 200, sort: ['name', 'ASC'] })
-			.then((s) => (sites = s))
-			.catch(() => {});
-	});
-	const contextIso = $derived(contextTime ? new Date(contextTime).toISOString() : '');
 
 	// Every tool the API serves is listed, so a tool added in the portal appears without a UI
 	// change. Keywords widen the search without deciding where a tool belongs.
@@ -117,7 +110,7 @@
 		result = null;
 		try {
 			const body = { ...built.body };
-			if (needsContext && contextSiteId) {
+			if (contextSiteId) {
 				body.site_id = contextSiteId;
 				if (contextIso) body.collected_at = contextIso;
 			}
@@ -192,6 +185,8 @@
 <svelte:head><title>Tools | River Data</title></svelte:head>
 
 <div class="space-y-4">
+	<StagedVisitBar bind:this={visitBar} />
+
 	<div class="flex items-center justify-between">
 		<h2 class="text-xl font-semibold">Analytical Tools</h2>
 		{#if activeTool}
@@ -255,24 +250,18 @@
 										...(activeTool.station_inputs ?? []).map((si) => `the station's ${si.property}`),
 										...(activeTool.event_inputs ?? []).map((ei) => `${ei.parameter_code} from the same visit`),
 									].join(', ')}. Values you type below always win; the rest resolve from the
-									selected station and collection time.
+									staged visit.
 								</p>
-								<div class="grid grid-cols-2 gap-3">
-									<select
-										bind:value={contextSiteId}
-										aria-label="Station"
-										class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
-									>
-										<option value=""> - No station context - </option>
-										{#each sites as s}<option value={s.id}>{s.name}</option>{/each}
-									</select>
-									<input
-										type="datetime-local"
-										bind:value={contextTime}
-										aria-label="Collection time"
-										class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
-									/>
-								</div>
+								{#if !contextSiteId}
+									<div class="flex items-center gap-2">
+										<p class="text-xs text-severity-warning-text">
+											No visit is staged, so nothing resolves from the station or the visit.
+										</p>
+										<Button variant="secondary" size="sm" onclick={() => visitBar?.begin()}>
+											Stage a field visit
+										</Button>
+									</div>
+								{/if}
 							</div>
 						{/if}
 						<ToolForm spec={activeTool} bind:form bind:curveSelections />
@@ -336,6 +325,8 @@
 	bind:open={showSaveDialog}
 	contextSiteId={contextSiteId || null}
 	contextTime={contextIso || null}
+	visitLocked={!!stagedVisit.current}
+	onsaved={() => stagedVisit.refresh()}
 	runId={result?.run_id ?? null}
 	toolName={activeTool?.name ?? ''}
 	toolTitle={activeTool?.label ?? ''}
