@@ -17,6 +17,8 @@ export interface ChartRegistration {
 	calibrationMarkers?: CalibrationMarker[];
 	// Sample stats keyed by time (ms) for spot points.
 	spotStats?: Map<number, SpotPointStats> | null;
+	// One-line ingestion origin for the series, e.g. "via cnet portal sync".
+	originLabel?: string;
 }
 
 export interface CursorState {

@@ -282,6 +282,8 @@ export const getAuditStatusCodes = () =>
 export interface StreamStats {
 	stream_id: string;
 	reading_count: number;
+	// Rows stamped withdrawn by windowed reconciliation (included in reading_count).
+	withdrawn_count: number;
 	min_time: string | null;
 	max_time: string | null;
 	latest_value: number | null;
@@ -289,6 +291,35 @@ export interface StreamStats {
 
 export const getStreamStats = (streamId: string) =>
 	GET<StreamStats>(`${SERVICE}/streams/${streamId}/stats`);
+
+// One windowed-ingest pass over a stream: what was submitted and what the diff did.
+export interface StreamReceipt {
+	id: string;
+	at: string;
+	window_from: string | null;
+	window_to: string | null;
+	submitted: number;
+	new_rows: number;
+	changed: number;
+	unchanged: number;
+	retained: number;
+	rejected_total: number;
+	dropped: number;
+	withdrawn: number;
+	braked: boolean;
+}
+
+export interface StreamReceiptsResponse {
+	stream_id: string;
+	total: number;
+	receipts: StreamReceipt[];
+}
+
+export const listStreamReceipts = (streamId: string, page = 1, pageSize = 50) =>
+	GET<StreamReceiptsResponse>(`${SERVICE}/streams/${streamId}/receipts`, {
+		page,
+		page_size: pageSize,
+	});
 
 export const pairStream = (streamId: string, siteParameterId: string) =>
 	POST(`${SERVICE}/streams/${streamId}/pair`, { site_parameter_id: siteParameterId });
@@ -776,15 +807,26 @@ export interface ReplicateAuditValue {
 
 // A replicate group whose recomputed mean/sd disagrees with the portal's stored avg/sd. The group
 // is stored and served (our recomputed statistics); the hold queues the disagreement for review.
+export type HoldKind =
+	| 'replicate_stats'
+	| 'source_modified'
+	| 'brake_fired'
+	| 'missing_output'
+	| 'stale_output';
+
 export interface ReplicateAuditHold {
 	id: string;
-	stream_id: string;
-	source_system: string;
-	source_key: string;
+	// null on event-audit findings, which are keyed on (site, parameter, instant) instead.
+	stream_id: string | null;
+	kind: HoldKind;
+	source_system: string | null;
+	source_key: string | null;
 	source_name: string | null;
 	site_name: string | null;
 	parameter_name: string | null;
 	parameter_code: string | null;
+	// The tool an event finding names.
+	tool: string | null;
 	paired: boolean;
 	group_time: string;
 	expected: { mean: number | null; sd: number | null; n?: number | null };
@@ -880,6 +922,178 @@ export const getSyncCommand = (id: string) =>
 
 export const getPendingAuditCount = async (): Promise<number> =>
 	(await listReplicateAudits({ page_size: 1 })).pending;
+
+// Provenance: the assembled record of one measured instant.
+
+export interface ProvenanceCalibrationRef {
+	id: string;
+	slope: number;
+	intercept: number;
+	valid_from: string;
+	valid_until?: string;
+}
+
+export interface ProvenanceCurveRef {
+	id: string;
+	name?: string;
+	slope: number;
+	intercept: number;
+}
+
+export interface ProvenanceReading {
+	replicate_index: number;
+	raw_value: number;
+	calibrated_value?: number;
+	measurement_type?: string;
+	is_flagged: boolean;
+	flag_reason?: string;
+	withdrawn_at?: string;
+	withdrawn_reason?: string;
+	ingested_at?: string;
+	calibration?: ProvenanceCalibrationRef;
+	standard_curve?: ProvenanceCurveRef;
+}
+
+export interface ProvenanceOrigin {
+	stream_id: string;
+	source_system: string;
+	source_key: string;
+	source_name?: string;
+	classification: 'sync' | 'manual' | 'csv' | 'api';
+	paired_at?: string;
+	ingested_at?: string;
+	receipt?: StreamReceipt;
+}
+
+export interface ProvenanceChain {
+	sensor?: {
+		id: string;
+		serial_number?: string;
+		name?: string;
+		manufacturer?: string;
+		model?: string;
+	};
+	deployment?: {
+		id: string;
+		site_id: string;
+		site_name?: string;
+		deployed_from: string;
+		deployed_until?: string;
+	};
+}
+
+export interface ProvenanceRecord {
+	origin: ProvenanceOrigin;
+	readings: ProvenanceReading[];
+	chain: ProvenanceChain;
+	event?: { id: string; collected_at: string; source: string; created_by?: string };
+	computation?: {
+		sample_id: string;
+		created_by?: string;
+		provenance?: Record<string, unknown>;
+		run_source?: 'interactive' | 'csv_import' | 'chain' | string;
+	};
+	holds: { id: string; kind: HoldKind; status: string; created_at: string }[];
+}
+
+export interface ProvenanceResponse {
+	time: string;
+	site_id: string | null;
+	parameter_id: string | null;
+	duplicate_slot: boolean;
+	records: ProvenanceRecord[];
+}
+
+// Either { stream_id } or { site_id, parameter_id }, plus the exact reading timestamp.
+export const getReadingProvenance = (key: {
+	time: string;
+	stream_id?: string;
+	site_id?: string;
+	parameter_id?: string;
+	measurement_type?: string;
+}) => GET<ProvenanceResponse>(`${SERVICE}/readings/provenance`, { ...key });
+
+// Visits: the portal's wide data row per (site, date).
+
+export interface VisitCell {
+	parameter_id: string;
+	value?: number;
+	// Every replicate in the group is flagged / withdrawn.
+	flagged: boolean;
+	withdrawn: boolean;
+	finding?: 'missing_output' | 'stale_output' | string;
+}
+
+export interface VisitRow {
+	id: string;
+	collected_at: string;
+	source: 'manual' | 'portal_sync' | string;
+	created_by: string | null;
+	notes: string | null;
+	parameters_filled: number;
+	findings_open: number;
+	cells: VisitCell[];
+}
+
+export interface VisitsResponse {
+	site_id: string;
+	total: number;
+	page: number;
+	page_size: number;
+	// The grid's column set: parameters with spot readings at the site, ordered by code.
+	expected_parameters: { parameter_id: string; code: string; name: string }[];
+	visits: VisitRow[];
+}
+
+export const listSiteVisits = (
+	siteId: string,
+	opts: { start?: string; end?: string; page?: number; page_size?: number } = {},
+) => GET<VisitsResponse>(`${SERVICE}/sites/${siteId}/visits`, { ...opts });
+
+export interface EventCellReplicate {
+	replicate_index: number;
+	raw_value: number;
+	calibrated_value?: number;
+	flagged: boolean;
+	withdrawn: boolean;
+}
+
+export interface EventCell {
+	parameter_id: string;
+	parameter_code: string;
+	parameter_name: string;
+	stream_id: string;
+	served_value?: number;
+	sample?: {
+		sample_id: string;
+		mean?: number;
+		stdev?: number;
+		n: number;
+		has_provenance: boolean;
+		tool?: string;
+	};
+	replicates: EventCellReplicate[];
+	finding?: { id: string; kind: HoldKind; tool?: string; status: string };
+}
+
+export interface EventDetailResponse {
+	id: string;
+	site_id: string;
+	collected_at: string;
+	source: string;
+	created_by?: string;
+	notes?: string;
+	cells: EventCell[];
+}
+
+export const getCollectionEventDetail = (id: string) =>
+	GET<EventDetailResponse>(`${SERVICE}/collection_events/${id}/detail`);
+
+export const recomputeCollectionEvent = (id: string) =>
+	POST<{ job_id: string | null }>(`${SERVICE}/collection_events/${id}/recompute`, {});
+
+export const runEventAudit = (req: { site_id?: string; collection_event_id?: string }) =>
+	POST<{ job_id: string | null }>(`${SERVICE}/actions/event_audit`, req);
 
 // Replicate reconciliation: migrate readings from legacy per-`_avg`-column streams onto their
 // replicate-family streams (tracked job, migrate + verify, never deletes), then a separate

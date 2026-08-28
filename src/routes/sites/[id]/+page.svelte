@@ -2,9 +2,10 @@
 	import { onMount, onDestroy, untrack } from 'svelte';
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
+	import { goto } from '$app/navigation';
 	import { api, type Site, type Project, type SiteParameter, type Parameter, type Sensor, type SensorDeployment, type SensorCalibration, type Note, type AlarmThreshold, type DerivedParameter, type Sample, type Annotation, type Subproject } from '$api/crud';
 	import { GET, POST, PATCH } from '$api/client';
-	import { recomputeDerived, getThresholds, getActiveAlarms, type ResolvedThreshold, type ActiveAlarm } from '$api/service';
+	import { recomputeDerived, getThresholds, getActiveAlarms, listSiteVisits, getCollectionEventDetail, recomputeCollectionEvent, runEventAudit, pollJob, type ResolvedThreshold, type ActiveAlarm, type VisitRow, type VisitsResponse, type EventDetailResponse } from '$api/service';
 	import { getSiteSensorIdentity, type SensorIdentityResponse } from '$api/sensors';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { siteNavigator } from '$lib/stores/sites.svelte';
@@ -21,6 +22,8 @@
 	import DeployMoveSensorDialog from '$components/dialogs/DeployMoveSensorDialog.svelte';
 	import MergeSiteParameterDialog from '$components/dialogs/MergeSiteParameterDialog.svelte';
 	import ProvenanceCard from '$components/samples/ProvenanceCard.svelte';
+	import PointInspector from '$components/provenance/PointInspector.svelte';
+	import ReplicateFlagDialog from '$components/dialogs/ReplicateFlagDialog.svelte';
 	import ParameterChart, { type ChartData } from '$components/charts/ParameterChart.svelte';
 	import { GAP_THRESHOLDS } from '$lib/charts/uPlotTheme';
 	import { autoResolution, type Frequency } from '$lib/charts/multiSiteSeries';
@@ -62,14 +65,178 @@
 		{ key: 'parameters', label: 'Parameters' },
 		{ key: 'sensors', label: 'Sensors' },
 		{ key: 'samples', label: 'Samples' },
+		{ key: 'visits', label: 'Visits' },
 		...(me.can('admin') ? [{ key: 'status', label: 'Status' }] : []),
 		{ key: 'notes', label: 'Notes' },
 	]);
 	const tabLabels = $derived(tabDefs.map((t) => t.label));
 	const activeKey = $derived(tabDefs[activeTab]?.key ?? 'charts');
+
+	// URL-synced tab (?tab=), so visits and provenance links can land on a specific tab. The two
+	// effects converge: one only reads a differing URL, the other only writes a differing one.
+	$effect(() => {
+		const wanted = page.url.searchParams.get('tab');
+		if (!wanted) return;
+		const idx = tabDefs.findIndex((t) => t.key === wanted);
+		if (idx >= 0 && idx !== activeTab) activeTab = idx;
+	});
+	$effect(() => {
+		const key = activeKey;
+		const current = page.url.searchParams.get('tab') ?? 'charts';
+		if (current === key) return;
+		const url = new URL(page.url.href);
+		if (key === 'charts') url.searchParams.delete('tab');
+		else url.searchParams.set('tab', key);
+		if (key !== 'visits') url.searchParams.delete('event');
+		goto(url, { replaceState: true, noScroll: true, keepFocus: true });
+	});
 	let statsOpen = $state(false);
 	let recomputingId = $state<string | null>(null);
 	let confirmingRemove = $state<string | null>(null);
+
+	// --- Point inspector: the pinned provenance record under a clicked chart point ---
+	let inspector = $state<{
+		siteParameterId: string;
+		parameterId: string;
+		parameterName: string;
+		timeIso: string;
+		measurementType: 'continuous' | 'spot';
+	} | null>(null);
+	// Series-level origin labels by site_parameter id, kept across fetches (an aggregate-only
+	// fetch carries no origins and must not erase what a raw fetch learned).
+	let originLabels = $state<Map<string, string>>(new Map());
+	let inspectorFlagOpen = $state(false);
+	let inspectorFlagReplicates = $state<SampleReplicate[]>([]);
+	let inspectorFlagSampleId = $state<string | null>(null);
+
+	function originLabelOf(origins: { source_system: string }[] | undefined): string {
+		if (!origins?.length) return '';
+		const label = (s: string) =>
+			s === 'grab_sample'
+				? 'manual entry'
+				: s === 'csv' || s === 'csv_import'
+					? 'CSV import'
+					: s === 'api'
+						? 'API'
+						: `${s} sync`;
+		const systems = [...new Set(origins.map((o) => label(o.source_system)))];
+		return `via ${systems.join(' + ')}`;
+	}
+
+	function pinInspector(
+		sp: SiteParameter,
+		name: string,
+		p: { timeMs: number; measurementType: 'continuous' | 'spot' },
+	) {
+		inspector = {
+			siteParameterId: sp.id,
+			parameterId: sp.parameter_id,
+			parameterName: name,
+			timeIso: new Date(p.timeMs).toISOString(),
+			measurementType: p.measurementType,
+		};
+	}
+
+	function openInspectorFlag(sampleId: string | null) {
+		if (!inspector) return;
+		const stat = spotStatsMap
+			.get(inspector.parameterId)
+			?.get(new Date(inspector.timeIso).getTime());
+		inspectorFlagReplicates = stat?.replicates ?? [];
+		inspectorFlagSampleId = sampleId ?? stat?.sampleId ?? null;
+		inspectorFlagOpen = true;
+	}
+
+	// --- Visits: the portal's wide data row, one per (site, date) ---
+	const VISITS_PER_PAGE = 50;
+	let visits = $state<VisitRow[]>([]);
+	let visitsTotal = $state(0);
+	let visitsPage = $state(1);
+	let visitColumns = $state<VisitsResponse['expected_parameters']>([]);
+	let visitsLoading = $state(false);
+	let visitsLoadedKey = '';
+	let expandedVisit = $state<string | null>(null);
+	let visitDetail = $state<EventDetailResponse | null>(null);
+	let visitDetailLoading = $state(false);
+	let visitBusy = $state<string | null>(null);
+	let visitCell = $state<{ parameterId: string; parameterName: string } | null>(null);
+
+	async function loadVisits() {
+		visitsLoading = true;
+		try {
+			const r = await listSiteVisits(siteId, { page: visitsPage, page_size: VISITS_PER_PAGE });
+			visits = r.visits;
+			visitsTotal = r.total;
+			visitColumns = r.expected_parameters;
+		} catch (e) {
+			toastStore.error(e instanceof Error ? `Failed to load visits: ${e.message}` : 'Failed to load visits');
+		} finally {
+			visitsLoading = false;
+		}
+	}
+
+	async function openVisit(id: string, forceOpen = false) {
+		if (expandedVisit === id && !forceOpen) {
+			expandedVisit = null;
+			visitDetail = null;
+			visitCell = null;
+			return;
+		}
+		expandedVisit = id;
+		visitCell = null;
+		visitDetail = null;
+		visitDetailLoading = true;
+		try {
+			visitDetail = await getCollectionEventDetail(id);
+		} catch {
+			toastStore.error('Failed to load the visit');
+		} finally {
+			visitDetailLoading = false;
+		}
+	}
+
+	// Recompute and audit are tracked jobs: enqueue, poll, then refresh the grid.
+	async function runVisitJob(id: string, kind: 'recompute' | 'audit') {
+		visitBusy = id;
+		try {
+			const r =
+				kind === 'recompute'
+					? await recomputeCollectionEvent(id)
+					: await runEventAudit({ collection_event_id: id });
+			if (r.job_id) {
+				const job = await pollJob(r.job_id);
+				if (job.status === 'completed') {
+					toastStore.success(kind === 'recompute' ? 'Visit recomputed' : 'Visit audited');
+				} else {
+					toastStore.error(job.error_message ?? `The ${kind} job did not complete`);
+				}
+			}
+			await Promise.all([openVisit(id, true), loadVisits()]);
+			if (kind === 'recompute') scheduleFetch();
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : `Failed to ${kind} the visit`);
+		} finally {
+			visitBusy = null;
+		}
+	}
+
+	$effect(() => {
+		if (activeKey !== 'visits' || !siteId) return;
+		const key = `${siteId}|${visitsPage}`;
+		if (key === visitsLoadedKey) return;
+		visitsLoadedKey = key;
+		untrack(() => void loadVisits());
+	});
+
+	// A ?event= deep link expands its visit once the tab is active.
+	let consumedEventParam = '';
+	$effect(() => {
+		if (activeKey !== 'visits') return;
+		const ev = page.url.searchParams.get('event');
+		if (!ev || ev === consumedEventParam) return;
+		consumedEventParam = ev;
+		untrack(() => void openVisit(ev, true));
+	});
 
 	// Inline subproject move: the picker lists every subproject (Project - Subproject), so a site can
 	// be moved across projects too; the DB trigger re-syncs project_id from the chosen subproject.
@@ -271,6 +438,7 @@
 			samples?: (import('$lib/api/types').SampleStat | null)[] | null;
 			calibration_ids?: (string | null)[] | null;
 			standard_curve_ids?: (string | null)[] | null;
+			origins?: { stream_id: string; source_system: string; source_key: string }[];
 		}>;
 	}
 	interface AggregatesResponse {
@@ -345,13 +513,13 @@
 				: res === 'raw'
 					// RAW readings must be filtered to continuous only; the spot samples come from the
 					// separate spot fetch. (Aggregates are already continuous-only by design.)
-					? GET<ReadingsResponse>(`/api/sites/${siteId}/readings`, { start: startDate, end: endDate, measurement_type: 'continuous' })
+					? GET<ReadingsResponse>(`/api/sites/${siteId}/readings`, { start: startDate, end: endDate, measurement_type: 'continuous', include_origin: 'true' })
 					: GET<AggregatesResponse>(`/api/sites/${siteId}/aggregates/${res}`, { start: startDate, end: endDate });
 			// Spot values arrive as sample means with per-point stats and replicates inline. Only spot
 			// rows can carry a standard curve, so include_curves rides on this fetch alone and the
 			// continuous payload is left as it was.
 			const spotPromise = wantSpot
-				? GET<ReadingsResponse>(`/api/sites/${siteId}/readings`, { start: startDate, end: endDate, measurement_type: 'spot', include_sample_stats: 'true', include_curves: 'true' }).catch(() => null)
+				? GET<ReadingsResponse>(`/api/sites/${siteId}/readings`, { start: startDate, end: endDate, measurement_type: 'spot', include_sample_stats: 'true', include_curves: 'true', include_origin: 'true' }).catch(() => null)
 				: Promise.resolve(null);
 			const annotationsPromise = GET<Annotation[]>(`/api/sites/${siteId}/annotations`, { start: startDate, end: endDate })
 				.catch(() => [] as Annotation[]);
@@ -433,6 +601,17 @@
 			sampleCurves = curveBySample;
 			curveRefs.ensureCalibrations(calibrationIds);
 			curveRefs.ensureStandardCurves(standardCurveIds);
+
+			// Merge series origin labels from whichever fetch carried them (aggregates never do).
+			const labels = new Map(originLabels);
+			for (const source of [result, spotResult]) {
+				if (!source || !('parameters' in source)) continue;
+				for (const p of (source as ReadingsResponse).parameters ?? []) {
+					const label = originLabelOf(p.origins);
+					if (label) labels.set(p.id, label);
+				}
+			}
+			originLabels = labels;
 
 			const annMap = new Map<string, Annotation[]>();
 			for (const a of anns) {
@@ -690,7 +869,12 @@
 	// alarm for a different site (e.g. from the notification bell) would change the URL but not the page.
 	let loadedKey = '';
 	$effect(() => {
-		const key = `${siteId}|${page.url.search}`;
+		// The tab and expanded-visit params are page-local UI state, not a different site view:
+		// excluding them keeps a tab switch from refetching everything.
+		const params = new URLSearchParams(page.url.search);
+		params.delete('tab');
+		params.delete('event');
+		const key = `${siteId}|${params.toString()}`;
 		if (key === loadedKey) return;
 		loadedKey = key;
 		untrack(() => {
@@ -1338,7 +1522,20 @@
 							{showAlarmBands}
 							activeBreach={activeBreachByParam.get(sp.parameter_id) ?? null}
 							nowMs={now}
+							originLabel={originLabels.get(sp.id) ?? ''}
+							onpointclick={(p) => pinInspector(sp, param.name, p)}
 						/>
+						{#if inspector?.siteParameterId === sp.id}
+							<PointInspector
+								siteId={siteId}
+								parameterId={sp.parameter_id}
+								parameterName={param.name}
+								timeIso={inspector.timeIso}
+								measurementType={inspector.measurementType}
+								onclose={() => (inspector = null)}
+								onflag={openInspectorFlag}
+							/>
+						{/if}
 					{/if}
 				{/each}
 				{#if measurementParams.length === 0}
@@ -1381,7 +1578,20 @@
 										{showAlarmBands}
 										activeBreach={activeBreachByParam.get(sp.parameter_id) ?? null}
 										nowMs={now}
+										originLabel={originLabels.get(sp.id) ?? ''}
+										onpointclick={(p) => pinInspector(sp, param.name, p)}
 									/>
+									{#if inspector?.siteParameterId === sp.id}
+										<PointInspector
+											siteId={siteId}
+											parameterId={sp.parameter_id}
+											parameterName={param.name}
+											timeIso={inspector.timeIso}
+											measurementType={inspector.measurementType}
+											onclose={() => (inspector = null)}
+											onflag={openInspectorFlag}
+										/>
+									{/if}
 								{/if}
 							{/each}
 						</div>
@@ -1750,6 +1960,173 @@
 				{/if}
 			</div>
 
+		<!-- Visits tab: the portal's wide data row, one per field date -->
+		{:else if activeKey === 'visits'}
+			<div class="space-y-3">
+				{#if visitsLoading && visits.length === 0}
+					<p class="text-sm text-brand-muted">Loading…</p>
+				{:else if visits.length === 0}
+					<p class="text-sm text-brand-muted">No visits recorded for this site.</p>
+				{:else}
+					<div class="rounded-md border border-brand-divider bg-brand-surface overflow-x-auto">
+						<table class="w-full text-sm">
+							<thead>
+								<tr class="bg-brand-bg text-left text-xs text-brand-muted">
+									<th class="sticky left-0 z-10 bg-brand-bg px-4 py-2 font-medium">Date</th>
+									<th class="px-3 py-2 font-medium">Source</th>
+									<th class="px-3 py-2 font-medium">Filled</th>
+									{#each visitColumns as col (col.parameter_id)}
+										<th class="px-3 py-2 font-medium whitespace-nowrap" title={col.name}>{col.code}</th>
+									{/each}
+								</tr>
+							</thead>
+							<tbody>
+								{#each visits as v (v.id)}
+									{@const cellsById = new Map(v.cells.map((c) => [c.parameter_id, c]))}
+									<tr
+										class="border-t border-brand-divider cursor-pointer hover:bg-brand-bg/50 {expandedVisit === v.id ? 'bg-brand-bg/50' : ''}"
+										onclick={() => openVisit(v.id)}
+									>
+										<td class="sticky left-0 z-10 bg-brand-surface px-4 py-2 whitespace-nowrap">
+											{formatDateTime(v.collected_at)}
+											{#if v.findings_open > 0}
+												<Badge variant="warning">{v.findings_open} finding{v.findings_open === 1 ? '' : 's'}</Badge>
+											{/if}
+										</td>
+										<td class="px-3 py-2">
+											{#if v.source === 'portal_sync'}
+												<Badge variant="accent">portal</Badge>
+											{:else}
+												<span class="text-brand-muted">{v.created_by ?? 'manual'}</span>
+											{/if}
+										</td>
+										<td class="px-3 py-2 text-brand-muted whitespace-nowrap">{v.parameters_filled}/{visitColumns.length}</td>
+										{#each visitColumns as col (col.parameter_id)}
+											{@const cell = cellsById.get(col.parameter_id)}
+											<td
+												class="px-3 py-2 tabular-nums whitespace-nowrap
+													{cell?.finding === 'stale_output' ? 'bg-severity-warning-soft' : ''}
+													{cell?.withdrawn ? 'text-brand-muted line-through' : ''}
+													{cell?.flagged ? 'text-severity-warning-text' : ''}"
+											>
+												{#if !cell}
+													<span class="text-brand-muted">—</span>
+												{:else if cell.finding === 'missing_output' && cell.value == null}
+													<Badge variant="warning">missing</Badge>
+												{:else if cell.value != null}
+													{Number(cell.value.toPrecision(6))}
+												{:else}
+													<span class="text-brand-muted">—</span>
+												{/if}
+											</td>
+										{/each}
+									</tr>
+									{#if expandedVisit === v.id}
+										<tr class="border-t border-brand-divider">
+											<td colspan={3 + visitColumns.length} class="bg-brand-bg/50 px-4 py-3">
+												{#if visitDetailLoading}
+													<p class="text-xs text-brand-muted">Loading…</p>
+												{:else if visitDetail}
+													<div class="mb-2 flex items-center justify-between gap-2">
+														<div class="text-xs text-brand-muted">
+															{visitDetail.source === 'portal_sync'
+																? 'Synced from the portal'
+																: `Entered manually${visitDetail.created_by ? ` by ${visitDetail.created_by}` : ''}`}
+															{#if visitDetail.notes}· {visitDetail.notes}{/if}
+														</div>
+														{#if me.can('writeData')}
+															<div class="flex gap-2">
+																<Button
+																	size="sm"
+																	variant="secondary"
+																	disabled={visitBusy === v.id}
+																	onclick={(e) => { e.stopPropagation(); runVisitJob(v.id, 'recompute'); }}
+																>{visitBusy === v.id ? 'Working…' : 'Recompute tools'}</Button>
+																<Button
+																	size="sm"
+																	variant="ghost"
+																	disabled={visitBusy === v.id}
+																	onclick={(e) => { e.stopPropagation(); runVisitJob(v.id, 'audit'); }}
+																>Audit this visit</Button>
+															</div>
+														{/if}
+													</div>
+													<table class="w-full text-xs">
+														<thead class="text-brand-muted">
+															<tr>
+																<th class="py-1 pr-3 text-left font-medium">Parameter</th>
+																<th class="py-1 pr-3 text-left font-medium">Served</th>
+																<th class="py-1 pr-3 text-left font-medium">Replicates</th>
+																<th class="py-1 pr-3 text-left font-medium">Provenance</th>
+																<th class="py-1 text-left font-medium">Finding</th>
+															</tr>
+														</thead>
+														<tbody>
+															{#each visitDetail.cells as cell (cell.parameter_id + cell.stream_id)}
+																<tr
+																	class="border-t border-brand-divider/60 cursor-pointer hover:bg-brand-bg/60"
+																	onclick={() => (visitCell = { parameterId: cell.parameter_id, parameterName: cell.parameter_name })}
+																>
+																	<td class="py-1 pr-3">{cell.parameter_name}</td>
+																	<td class="py-1 pr-3 tabular-nums">
+																		{cell.served_value != null ? Number(cell.served_value.toPrecision(6)) : '—'}
+																		{#if cell.sample && cell.sample.n >= 2 && cell.sample.stdev != null}
+																			<span class="text-brand-muted">±{Number(cell.sample.stdev.toPrecision(3))} (n={cell.sample.n})</span>
+																		{/if}
+																	</td>
+																	<td class="py-1 pr-3 tabular-nums text-brand-muted">
+																		{cell.replicates
+																			.map((r) => `${Number((r.calibrated_value ?? r.raw_value).toPrecision(6))}${r.flagged ? '*' : ''}${r.withdrawn ? '†' : ''}`)
+																			.join(', ')}
+																	</td>
+																	<td class="py-1 pr-3">
+																		{#if cell.sample?.has_provenance}
+																			<Badge variant="ok">{cell.sample.tool ?? 'tool run'}</Badge>
+																		{:else}
+																			<span class="text-brand-muted">portal / hand-entered</span>
+																		{/if}
+																	</td>
+																	<td class="py-1">
+																		{#if cell.finding}
+																			<Badge variant="warning">{cell.finding.kind === 'stale_output' ? 'stale' : 'missing'}</Badge>
+																		{:else}
+																			<span class="text-brand-muted">—</span>
+																		{/if}
+																	</td>
+																</tr>
+															{/each}
+														</tbody>
+													</table>
+													{#if visitDetail.cells.some((c) => c.replicates.some((r) => r.flagged || r.withdrawn))}
+														<p class="mt-1 text-[11px] text-brand-muted">* flagged · † withdrawn at source</p>
+													{/if}
+													{#if visitCell}
+														<PointInspector
+															siteId={siteId}
+															parameterId={visitCell.parameterId}
+															parameterName={visitCell.parameterName}
+															timeIso={visitDetail.collected_at}
+															measurementType="spot"
+															onclose={() => (visitCell = null)}
+														/>
+													{/if}
+												{/if}
+											</td>
+										</tr>
+									{/if}
+								{/each}
+							</tbody>
+						</table>
+					</div>
+					<PaginationControls
+						total={visitsTotal}
+						page={visitsPage}
+						perPage={VISITS_PER_PAGE}
+						onPageChange={(p) => { visitsPage = p; }}
+					/>
+				{/if}
+			</div>
+
 		<!-- Status tab (admin-only) -->
 		{:else if activeKey === 'status'}
 			<div class="space-y-3">
@@ -1949,6 +2326,19 @@
 				source={mergeSource}
 				candidates={siteParameters.filter((s) => !s.is_derived).map((s) => ({ id: s.id, label: paramName(s.parameter_id) }))}
 				onsuccess={reloadSiteParameters}
+			/>
+		{/if}
+
+		{#if inspectorFlagOpen && inspector}
+			<ReplicateFlagDialog
+				bind:open={inspectorFlagOpen}
+				siteId={site.id}
+				parameterId={inspector.parameterId}
+				parameterName={inspector.parameterName}
+				timeIso={inspector.timeIso}
+				replicates={inspectorFlagReplicates}
+				sampleId={inspectorFlagSampleId}
+				onsuccess={scheduleFetch}
 			/>
 		{/if}
 	{/if}

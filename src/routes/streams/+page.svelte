@@ -5,11 +5,11 @@
 	import { page } from '$app/state';
 	import { api, type DataStream, type SiteParameter, type Site, type Parameter } from '$api/crud';
 	import {
-		pairStream, unpairStream, importStream, getStreamStats, retagStreams, createPairingPlan, updatePairingPlan,
+		pairStream, unpairStream, importStream, getStreamStats, listStreamReceipts, retagStreams, createPairingPlan, updatePairingPlan,
 		applyPairingPlan, revertPairingPlan, pollJob, getUnpairedSummary, getPlanSiteMetadata,
 		replicateSpec, getPendingAuditCount, getReconciliationCandidates,
 		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
-		type PlanReplicateSummary,
+		type PlanReplicateSummary, type StreamReceipt,
 	} from '$api/service';
 	import { listReplicateAudits } from '$api/service';
 	import { me } from '$auth/me.svelte';
@@ -19,6 +19,7 @@
 	import Dialog from '$components/ui/Dialog.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import Badge from '$components/ui/Badge.svelte';
+	import { formatDateTime } from '$lib/utils';
 	import Button from '$components/ui/Button.svelte';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import ReplicateFamilyBadge from '$components/streams/ReplicateFamilyBadge.svelte';
@@ -105,6 +106,7 @@
 	let statsDialogOpen = $state(false);
 	let statsStream = $state<DataStream | null>(null);
 	let stats = $state<StreamStats | null>(null);
+	let receipts = $state<StreamReceipt[] | null>(null);
 
 	// ── Plan wizard state (URL-driven for browser back/forward) ──
 	type WizardMode = 'list' | 'source-select' | 'review' | 'confirm' | 'results';
@@ -693,8 +695,11 @@
 	}
 
 	async function openStats(stream: DataStream) {
-		statsStream = stream; stats = null; statsDialogOpen = true;
+		statsStream = stream; stats = null; receipts = null; statsDialogOpen = true;
 		try { stats = await getStreamStats(stream.id); } catch (e) { toastStore.error(`Failed to load stats: ${e instanceof Error ? e.message : e}`); }
+		// The reconciliation ledger only exists for windowed (portal spot) streams; absence is
+		// normal and renders as nothing.
+		try { receipts = (await listStreamReceipts(stream.id, 1, 10)).receipts; } catch { receipts = []; }
 	}
 
 	// ── Wizard navigation ──
@@ -1657,7 +1662,7 @@
 	{/snippet}
 </Dialog>
 
-<Dialog bind:open={statsDialogOpen} title="Stream Stats" maxWidth="xs">
+<Dialog bind:open={statsDialogOpen} title="Stream Stats" maxWidth={receipts?.length ? 'sm' : 'xs'}>
 	{#snippet children()}
 		{#if statsStream}
 			<div class="space-y-2 text-sm">
@@ -1668,9 +1673,47 @@
 						<div><span class="text-brand-muted block">Latest Value</span>{stats.latest_value ?? '--'}</div>
 						<div><span class="text-brand-muted block">Min Time</span><span class="text-xs">{stats.min_time ?? '--'}</span></div>
 						<div><span class="text-brand-muted block">Max Time</span><span class="text-xs">{stats.max_time ?? '--'}</span></div>
+						{#if stats.withdrawn_count > 0}
+							<div><span class="text-brand-muted block">Withdrawn at source</span>{stats.withdrawn_count.toLocaleString()}</div>
+						{/if}
 					</div>
 				{:else}
 					<p class="text-brand-muted">Loading stats…</p>
+				{/if}
+				{#if receipts?.length}
+					<div class="mt-3">
+						<span class="text-brand-muted block text-xs mb-1">Reconciliation passes (latest {receipts.length})</span>
+						<div class="overflow-x-auto rounded-md border border-brand-divider">
+							<table class="w-full text-xs">
+								<thead>
+									<tr class="bg-brand-bg text-left text-brand-muted">
+										<th class="px-2 py-1 font-medium">At</th>
+										<th class="px-2 py-1 text-right font-medium">Submitted</th>
+										<th class="px-2 py-1 text-right font-medium">New</th>
+										<th class="px-2 py-1 text-right font-medium">Changed</th>
+										<th class="px-2 py-1 text-right font-medium">Unchanged</th>
+										<th class="px-2 py-1 text-right font-medium">Withdrawn</th>
+										<th class="px-2 py-1 text-right font-medium">Rejected</th>
+										<th class="px-2 py-1 font-medium"></th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each receipts as r (r.id)}
+										<tr class="border-t border-brand-divider">
+											<td class="px-2 py-1 whitespace-nowrap">{formatDateTime(r.at)}</td>
+											<td class="px-2 py-1 text-right tabular-nums">{r.submitted}</td>
+											<td class="px-2 py-1 text-right tabular-nums">{r.new_rows}</td>
+											<td class="px-2 py-1 text-right tabular-nums">{r.changed}</td>
+											<td class="px-2 py-1 text-right tabular-nums">{r.unchanged}</td>
+											<td class="px-2 py-1 text-right tabular-nums">{r.withdrawn}</td>
+											<td class="px-2 py-1 text-right tabular-nums">{r.rejected_total}</td>
+											<td class="px-2 py-1">{#if r.braked}<Badge variant="warning">braked</Badge>{/if}</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					</div>
 				{/if}
 			</div>
 		{/if}
