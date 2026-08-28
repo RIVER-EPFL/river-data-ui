@@ -24,14 +24,17 @@
 	}
 </script>
 
+<!-- Escape is bound on the window: the backdrop is never focused, so a keydown on it never fires. -->
+<svelte:window onkeydown={open ? handleKeydown : undefined} />
+
 {#if open}
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div
 		class="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
 		role="dialog"
 		aria-modal="true"
 		onclick={handleBackdrop}
-		onkeydown={handleKeydown}
 	>
 		<div class="bg-brand-surface rounded-lg shadow-lg w-full {widths[maxWidth]} mx-4 max-h-[90vh] flex flex-col">
 			{#if title}
