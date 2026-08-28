@@ -244,7 +244,7 @@
 		<p class="text-severity-alarm">{eventsError}</p>
 	{/if}
 
-	<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
+	<div class="rounded-md border border-brand-divider bg-brand-surface overflow-x-auto">
 		<table class="w-full text-sm">
 			<thead>
 				<tr class="bg-brand-bg border-b border-brand-divider">

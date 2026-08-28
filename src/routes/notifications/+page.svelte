@@ -16,7 +16,6 @@
 		type NotificationSubscriber,
 	} from '$api/service';
 	import { api, type Site, type Parameter, type NotificationLog, type NotificationMute, type RealmUser } from '$api/crud';
-	import { telegramLinkLabel, telegramLinkVariant } from '$lib/users';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
@@ -28,8 +27,8 @@
 	const ready = $derived(me.status !== 'loading');
 	const isAdmin = $derived(me.can('admin'));
 
-	const TABS = ['Status', 'Subscribers', 'Mutes', 'Delivery log'];
-	const tab = createUrlTab({ keys: ['status', 'subscribers', 'mutes', 'log'] });
+	const TABS = ['Status', 'Mutes', 'Delivery log'];
+	const tab = createUrlTab({ keys: ['status', 'mutes', 'log'], aliases: { subscribers: 'status' } });
 
 	// ── Lookups shared by Mutes tab ──
 	let sites = $state<Site[]>([]);
@@ -44,12 +43,9 @@
 	let refreshing = $state(false);
 	let pollInterval: ReturnType<typeof setInterval> | undefined;
 
-	const telegramHealth = $derived(channels.find((c) => c.name === 'telegram') ?? null);
-	const emailHealth = $derived(channels.find((c) => c.name === 'email') ?? null);
+	const webPushHealth = $derived(channels.find((c) => c.name === 'web_push') ?? null);
 
-	// Per-channel test-send recipient inputs + busy state.
-	let testRecipient = $state<{ telegram: string; email: string }>({ telegram: '', email: '' });
-	let testBusy = $state<{ telegram: boolean; email: boolean }>({ telegram: false, email: false });
+	let testBusy = $state(false);
 
 	async function loadHealth() {
 		try {
@@ -73,17 +69,12 @@
 		}
 	}
 
-	async function doTestSend(channel: 'telegram' | 'email') {
-		const recipient = testRecipient[channel].trim();
-		if (!recipient) {
-			toastStore.error('Enter a recipient first');
-			return;
-		}
-		testBusy = { ...testBusy, [channel]: true };
+	async function doTestSend() {
+		testBusy = true;
 		try {
-			const res = await testSend({ channel, recipient });
+			const res = await testSend({ channel: 'web_push', recipient: 'all' });
 			if (res.allSent) {
-				toastStore.success(`Test ${channel} message sent`);
+				toastStore.success('Test push notification sent');
 			} else {
 				const firstError = res.results.find((r) => r.status === 'failed')?.error;
 				toastStore.error(firstError ? `Test failed: ${firstError}` : 'Test message failed');
@@ -91,7 +82,7 @@
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Test send failed');
 		} finally {
-			testBusy = { ...testBusy, [channel]: false };
+			testBusy = false;
 		}
 	}
 
@@ -214,7 +205,6 @@
 		'sync_failure',
 		'test',
 	];
-	const LOG_CHANNELS = ['telegram', 'email'];
 
 
 	// ── Log tab ──
@@ -226,9 +216,8 @@
 	let logError = $state<string | null>(null);
 
 	let fKind = $state('');
-	let fChannel = $state('');
 	let fStatus = $state('');
-	const hasLogFilters = $derived(Boolean(fKind || fChannel || fStatus));
+	const hasLogFilters = $derived(Boolean(fKind || fStatus));
 
 	async function loadLogs() {
 		logLoading = true;
@@ -236,7 +225,7 @@
 		try {
 			const filter: Record<string, unknown> = {};
 			if (fKind) filter.kind = fKind;
-			if (fChannel) filter.channel = fChannel;
+			filter.channel = 'web_push';
 			if (fStatus) filter.status = fStatus;
 			const r = await api.notificationLogs.list({
 				page: logPage,
@@ -267,7 +256,7 @@
 		const t = tab.key;
 		if (!ready || !isAdmin) return;
 		untrack(() => {
-			if (t === 'subscribers' && !subscribersLoaded) loadSubscribers();
+			if (t === 'status' && !subscribersLoaded) loadSubscribers();
 			if (t === 'mutes' && !mutesLoaded) loadMutes();
 			if (t === 'log' && logs.length === 0 && !logLoading && logError === null) loadLogs();
 		});
@@ -316,62 +305,6 @@
 
 <svelte:head><title>Notifications | River Data</title></svelte:head>
 
-{#snippet channelCard(
-	name: 'telegram' | 'email',
-	title: string,
-	available: boolean,
-	envHint: string,
-	health: ChannelHealth | null,
-)}
-	<div class="rounded-md border border-brand-divider bg-brand-surface p-4 {available ? '' : 'opacity-50'}">
-		<div class="flex items-center justify-between gap-3 mb-2">
-			<h3 class="text-sm font-semibold">{title}</h3>
-			{#if available}
-				{@const b = healthBadge(health)}
-				<Badge variant={b.variant}>{b.label}</Badge>
-			{:else}
-				<Badge variant="muted">Unavailable</Badge>
-			{/if}
-		</div>
-
-		{#if !available}
-			<p class="text-sm text-brand-muted">
-				Not configured, set <code class="font-mono">{envHint}</code> on the server.
-			</p>
-		{:else}
-			<div class="text-sm text-brand-muted space-y-1">
-				{#if name === 'telegram' && caps?.telegram.botUsername}
-					<div>Bot: <span class="font-mono text-brand-text">@{caps.telegram.botUsername}</span></div>
-				{/if}
-				{#if name === 'email'}
-					<div>Backend: <span class="font-mono text-brand-text">{caps?.email.backend ?? 'unknown'}</span></div>
-				{/if}
-				{#if health?.detail}
-					<div>{health.detail}</div>
-				{/if}
-				<div>
-					{#if health?.checkedAt}
-						Checked {formatRelativeTime(health.checkedAt)}
-					{:else}
-						Not probed yet
-					{/if}
-				</div>
-			</div>
-
-			<div class="mt-3 flex flex-wrap items-center gap-2">
-				<input
-					type="text"
-					bind:value={testRecipient[name]}
-					placeholder={name === 'telegram' ? 'Chat id' : 'Email address'}
-					class="{inputCls} flex-1 min-w-[12rem]"
-				/>
-				<Button size="sm" disabled={testBusy[name]} onclick={() => doTestSend(name)}>
-					{testBusy[name] ? 'Sending…' : 'Send test'}
-				</Button>
-			</div>
-		{/if}
-	</div>
-{/snippet}
 
 <div class="space-y-4">
 	<h2 class="text-xl font-semibold">Notifications</h2>
@@ -387,110 +320,67 @@
 			<a href="{base}/" class="text-sm text-brand-primary no-underline">&larr; Back to dashboard</a>
 		</div>
 	{:else}
+		<p class="text-sm text-brand-text-muted mb-4">
+			Looking for your own notification preferences?
+			<a href="{base}/settings" class="text-brand-primary no-underline hover:underline">Go to Settings</a>
+		</p>
 		<Tabs tabs={TABS} bind:active={tab.index} />
 
 		<!-- ── STATUS TAB ── -->
 		{#if tab.key === 'status'}
+			{@const available = caps?.webPush.available ?? false}
+			{@const health = webPushHealth}
+
 			{#if healthError}
 				<ErrorNotice message={healthError} />
 			{/if}
-			<div class="flex justify-end">
-				<Button disabled={refreshing} onclick={doRefreshHealth}>
-					{refreshing ? 'Refreshing…' : 'Refresh health'}
-				</Button>
-			</div>
-			<div class="grid gap-4 md:grid-cols-2">
-				{@render channelCard(
-					'telegram',
-					'Telegram',
-					caps?.telegram.available ?? false,
-					'TELEGRAM_BOT_TOKEN',
-					telegramHealth,
-				)}
-				{@render channelCard(
-					'email',
-					'Email',
-					caps?.email.available ?? false,
-					'EMAIL_BACKEND (+ credentials)',
-					emailHealth,
-				)}
-			</div>
 
-		<!-- ── SUBSCRIBERS TAB ── -->
-		{:else if tab.key === 'subscribers'}
-			{#if subscribersError}
-				<ErrorNotice message={subscribersError} />
-			{/if}
-			<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
-				<table class="w-full text-sm">
-					<thead>
-						<tr class="bg-brand-bg border-b border-brand-divider">
-							<th class="text-left px-4 py-2 font-semibold">User</th>
-							<th class="text-left px-4 py-2 font-semibold">Email alerts</th>
-							<th class="text-left px-4 py-2 font-semibold">Telegram alerts</th>
-							<th class="text-left px-4 py-2 font-semibold">Telegram link</th>
-							<th class="text-left px-4 py-2 font-semibold">Overrides</th>
-							<th class="text-left px-4 py-2 font-semibold">Active</th>
-						</tr>
-					</thead>
-					<tbody>
-						{#if !subscribersLoaded}
-							<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">Loading…</td></tr>
-						{:else if subscribers.length === 0}
-							<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">No subscribers yet.</td></tr>
+			<div class="space-y-4 max-w-xl">
+				<div class="flex items-center justify-between">
+					<div class="flex items-center gap-3">
+						<h3 class="text-base font-semibold text-brand-text">Web Push</h3>
+						{#if available}
+							{@const b = healthBadge(health)}
+							<Badge variant={b.variant}>{b.label}</Badge>
 						{:else}
-							{#each subscribers as s (s.keycloak_sub)}
-								{@const u = subscriberUsers.get(s.keycloak_sub)}
-								<tr class="border-b border-brand-divider last:border-b-0">
-									<td class="px-4 py-2">
-										{#if u}
-											<a
-												href="{base}/users/{u.id}"
-												class="text-brand-primary font-semibold no-underline hover:underline"
-											>
-												{u.username}
-											</a>
-											{#if displayName(u)}
-												<span class="text-brand-muted"> · {displayName(u)}</span>
-											{/if}
-										{:else}
-											<span class="font-mono text-xs break-all">{s.keycloak_sub}</span>
-											<span class="text-brand-muted text-xs"> (no matching account)</span>
-										{/if}
-									</td>
-									<td class="px-4 py-2">
-										{#if s.email_enabled}<Badge variant="ok">On</Badge>{:else}<Badge variant="muted">Off</Badge>{/if}
-									</td>
-									<td class="px-4 py-2">
-										{#if s.telegram_enabled}<Badge variant="ok">On</Badge>{:else}<Badge variant="muted">Off</Badge>{/if}
-									</td>
-									<td class="px-4 py-2">
-										<Badge variant={telegramLinkVariant(s.telegram_status)}>
-											{telegramLinkLabel(s.telegram_status)}
-										</Badge>
-										{#if s.expiry_exempt}
-											<span title="Held open against idle expiry. Does not shield a revoked user, and does not excuse attestation.">
-												<Badge variant="accent">Pinned</Badge>
-											</span>
-										{/if}
-										{#if s.attested_until}
-											<span
-												class="block text-xs text-brand-muted"
-												title="Lapses unless this user signs in to the dashboard. Renewed automatically when they do."
-											>
-												Expires {formatDateTime(s.attested_until)}
-											</span>
-										{/if}
-									</td>
-									<td class="px-4 py-2">{s.subscription_overrides}</td>
-									<td class="px-4 py-2">
-										{#if s.is_active}<Badge variant="ok">Active</Badge>{:else}<Badge variant="muted">Inactive</Badge>{/if}
-									</td>
-								</tr>
-							{/each}
+							<Badge variant="muted">Unavailable</Badge>
 						{/if}
-					</tbody>
-				</table>
+					</div>
+					<Button size="sm" disabled={refreshing} onclick={doRefreshHealth}>
+						{refreshing ? 'Refreshing…' : 'Refresh'}
+					</Button>
+				</div>
+
+				{#if !available}
+					<p class="text-sm text-brand-muted">
+						Not configured. Set <code class="font-mono">VAPID_PRIVATE_KEY_PEM</code> on the server.
+					</p>
+				{:else}
+					<div class="text-sm text-brand-muted space-y-1">
+						{#if health?.detail}
+							<div>{health.detail}</div>
+						{/if}
+						{#if health?.checkedAt}
+							<div>Last checked {formatRelativeTime(health.checkedAt)}</div>
+						{/if}
+					</div>
+
+					{#if subscribersLoaded}
+						{@const activeUsers = subscribers.filter((s) => s.isActive && s.webPushEnabled).length}
+						{@const totalDevices = subscribers.reduce((n, s) => n + s.pushSubscriptionCount, 0)}
+						<div class="text-sm text-brand-text">
+							{activeUsers} user{activeUsers === 1 ? '' : 's'} with push enabled,
+							{totalDevices} device{totalDevices === 1 ? '' : 's'} registered.
+							<a href="{base}/users" class="text-brand-primary no-underline hover:underline">View users</a>
+						</div>
+					{/if}
+
+					<div>
+						<Button size="sm" disabled={testBusy} onclick={doTestSend}>
+							{testBusy ? 'Sending…' : 'Send test notification'}
+						</Button>
+					</div>
+				{/if}
 			</div>
 
 		<!-- ── MUTES TAB ── -->
@@ -501,7 +391,7 @@
 			<div class="flex justify-end">
 				<Button variant="primary" onclick={openMuteDialog}>Mute a site parameter</Button>
 			</div>
-			<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
+			<div class="rounded-md border border-brand-divider bg-brand-surface overflow-x-auto">
 				<table class="w-full text-sm">
 					<thead>
 						<tr class="bg-brand-bg border-b border-brand-divider">
@@ -554,16 +444,7 @@
 						{/each}
 					</select>
 				</label>
-				<label class="flex flex-col gap-1 text-xs text-brand-muted">
-					Channel
-					<select bind:value={fChannel} onchange={applyLogFilters} class={selectCls}>
-						<option value="">Any</option>
-						{#each LOG_CHANNELS as c}
-							<option value={c}>{c}</option>
-						{/each}
-					</select>
-				</label>
-				<label class="flex flex-col gap-1 text-xs text-brand-muted">
+					<label class="flex flex-col gap-1 text-xs text-brand-muted">
 					Status
 					<select bind:value={fStatus} onchange={applyLogFilters} class={selectCls}>
 						<option value="">Any</option>
@@ -577,7 +458,7 @@
 				<ErrorNotice message={logError} />
 			{/if}
 
-			<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
+			<div class="rounded-md border border-brand-divider bg-brand-surface overflow-x-auto">
 				<table class="w-full text-sm">
 					<thead>
 						<tr class="bg-brand-bg border-b border-brand-divider">

@@ -13,11 +13,13 @@
 	import Unauthorized from '$components/Unauthorized.svelte';
 	import AlarmIndicator from '$components/AlarmIndicator.svelte';
 	import OperationsIndicator from '$components/OperationsIndicator.svelte';
-	import { getVersion } from '$api/service';
+	import { getVersion, getNotificationsConfig, registerPushSubscription } from '$api/service';
+	import { syncSubscription, isWebPushSupported } from '$lib/push';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
 
 	let { children } = $props();
 	let sidebarCollapsed = $state(false);
+	let mobileMenuOpen = $state(false);
 
 	// Build versions for the sidebar footer. UI version is baked into the bundle at build time; the
 	// API version is fetched once (authenticated) so it reflects the actual running backend.
@@ -31,6 +33,22 @@
 			getVersion()
 				.then((v) => (apiVersion = `${v.version} (${v.commit})`))
 				.catch(() => (apiVersion = 'unknown'));
+		}
+	});
+
+	let pushSynced = false;
+	$effect(() => {
+		const status = auth.state.status;
+		if (!pushSynced && status !== 'loading' && status !== 'error' && isWebPushSupported()) {
+			pushSynced = true;
+			getNotificationsConfig()
+				.then((cfg) => {
+					const key = cfg.webPush?.vapidPublicKey;
+					if (key) {
+						syncSubscription(key, (payload) => registerPushSubscription(payload).then(() => {}));
+					}
+				})
+				.catch(() => {});
 		}
 	});
 
@@ -112,9 +130,19 @@
 	<Unauthorized />
 {:else}
 	<div class="flex h-screen overflow-hidden">
+		<!-- Mobile sidebar backdrop -->
+		{#if mobileMenuOpen}
+			<button
+				class="fixed inset-0 z-40 bg-black/40 md:hidden"
+				onclick={() => (mobileMenuOpen = false)}
+				aria-label="Close menu"
+			></button>
+		{/if}
 		<!-- Sidebar -->
 		<nav
-			class="flex flex-col bg-brand-surface border-r border-brand-divider overflow-y-auto shrink-0 transition-[width] duration-200"
+			class="flex flex-col bg-brand-surface border-r border-brand-divider overflow-y-auto shrink-0 transition-[width,transform] duration-200
+				fixed inset-y-0 left-0 z-50 md:relative md:z-auto
+				{mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0"
 			style:width={sidebarCollapsed ? 'var(--sidebar-collapsed-width)' : 'var(--sidebar-width)'}
 		>
 			<!-- Logo / title -->
@@ -192,6 +220,17 @@
 		<div class="flex flex-col flex-1 overflow-hidden">
 			<!-- Top bar -->
 			<header class="flex items-center h-12 px-4 bg-brand-primary text-white shrink-0 gap-3">
+				<button
+					class="md:hidden p-1 text-white/80 hover:text-white bg-transparent border-none cursor-pointer"
+					onclick={() => (mobileMenuOpen = !mobileMenuOpen)}
+					aria-label="Toggle menu"
+				>
+					<svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+						<rect y="3" width="20" height="2" rx="1" />
+						<rect y="9" width="20" height="2" rx="1" />
+						<rect y="15" width="20" height="2" rx="1" />
+					</svg>
+				</button>
 				<h1 class="text-[0.95rem] font-semibold">River Data: Admin</h1>
 				<div class="flex-1"></div>
 				<SearchBar />

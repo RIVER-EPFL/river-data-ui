@@ -38,18 +38,9 @@ export const getJobLogs = (jobId: string, afterSeq?: number) =>
 		`${SERVICE}/reprocessing_jobs/${jobId}/logs${afterSeq != null ? `?after_seq=${afterSeq}` : ''}`,
 	);
 
-// Notifications, channel capabilities (env-gated; carries no secrets). The frontend uses this to
-// enable a channel or render it greyed-out with a "configured via environment" note.
+// Notifications: Web Push capability (env-gated).
 export interface NotificationsConfig {
-	// botUsername/botName/botDescription come from Telegram's getMe for the configured token, so
-	// they always describe the bot actually in use rather than what config claims.
-	telegram: {
-		available: boolean;
-		botUsername?: string;
-		botName?: string;
-		botDescription?: string;
-	};
-	email: { available: boolean; backend: 'smtp' | 'graph' | 'disabled' };
+	webPush: { available: boolean; vapidPublicKey?: string };
 }
 
 export const getNotificationsConfig = () =>
@@ -64,44 +55,49 @@ export interface MySubscriptionScope {
 }
 
 export interface MyNotifications {
-	email: string | null;
-	email_verified: boolean;
-	email_enabled: boolean;
-	telegram_enabled: boolean;
-	telegram: {
-		status: 'unlinked' | 'pending' | 'linked';
-		code_expires_at?: string;
-		linked_at?: string;
-		last_used_at?: string;
-		// When the link lapses unless its owner signs in again. Renewal is passive.
-		attested_until?: string;
-	};
-	// Whether this link is held open against idle expiry. Administrator-settable only.
-	expiry_exempt: boolean;
+	webPushEnabled: boolean;
+	pushSubscriptionCount: number;
 	subscriptions: MySubscriptionScope[];
 }
 
 export const getMyNotifications = () => GET<MyNotifications>(`${SERVICE}/notifications/me`);
 
-export const updateMyNotifications = (body: {
-	email_enabled?: boolean;
-	telegram_enabled?: boolean;
-	// Administrators only; the API rejects it for anyone else rather than ignoring it.
-	expiry_exempt?: boolean;
-}) => PATCH<MyNotifications>(`${SERVICE}/notifications/me`, body);
+export const updateMyNotifications = (body: { web_push_enabled?: boolean }) =>
+	PATCH<MyNotifications>(`${SERVICE}/notifications/me`, body);
 
 export const setMySubscriptions = (subscriptions: MySubscriptionScope[]) =>
 	PUT<MyNotifications>(`${SERVICE}/notifications/me/subscriptions`, { subscriptions });
 
-export const mintMyLinkCode = () =>
-	POST<{ code: string; expires_at: string }>(`${SERVICE}/notifications/me/link_code`, {});
+export interface PushSubscriptionRow {
+	id: string;
+	endpoint: string;
+	user_agent?: string;
+	created_at: string;
+	last_success_at?: string;
+}
 
-export const unlinkMyTelegram = () => DELETE<void>(`${SERVICE}/notifications/me/telegram`);
+export const registerPushSubscription = (body: {
+	endpoint: string;
+	p256dh: string;
+	auth: string;
+	user_agent?: string;
+}) => POST<PushSubscriptionRow>(`${SERVICE}/notifications/me/push`, body);
 
-// Admin notification oversight, per-channel health probe (admin-only). `healthy` is null until a
-// probe has run; `detail` carries the probe message (or failure reason).
+export const getMyPushSubscriptions = () =>
+	GET<PushSubscriptionRow[]>(`${SERVICE}/notifications/me/push`);
+
+export const deletePushSubscription = (endpoint: string) =>
+	DELETE<void>(`${SERVICE}/notifications/me/push`, { endpoint });
+
+export const testMyPush = () =>
+	POST<void>(`${SERVICE}/notifications/me/push/test`, {});
+
+export const scheduleMyPing = (seconds: number = 10) =>
+	POST<{ seconds: number }>(`${SERVICE}/notifications/me/push/ping`, { seconds });
+
+// Admin notification oversight.
 export interface ChannelHealth {
-	name: 'telegram' | 'email';
+	name: string;
 	available: boolean;
 	healthy: boolean | null;
 	detail: string | null;
@@ -118,28 +114,21 @@ export const getNotificationsHealth = () =>
 export const refreshNotificationsHealth = () =>
 	POST<NotificationHealth>(`${ADMIN}/notifications/health/refresh`, {});
 
-// Send a one-off test message through a channel to a single recipient (admin-only).
 export interface TestSendResult {
 	channel: string;
 	results: Array<{ recipient: string; status: 'sent' | 'failed'; error: string | null }>;
 	allSent: boolean;
 }
 
-export const testSend = (body: { channel: 'telegram' | 'email'; recipient: string }) =>
+export const testSend = (body: { channel: string; recipient: string }) =>
 	POST<TestSendResult>(`${ADMIN}/notifications/test-send`, body);
 
-// Roster of users with notification preferences (admin-only, read-only).
 export interface NotificationSubscriber {
-	keycloak_sub: string;
-	email_enabled: boolean;
-	telegram_enabled: boolean;
-	is_active: boolean;
-	telegram_status: 'unlinked' | 'pending' | 'linked';
-	// Held open against idle expiry. Administrator-settable only.
-	expiry_exempt: boolean;
-	// When the link lapses unless its owner signs in to the dashboard again.
-	attested_until?: string;
-	subscription_overrides: number;
+	keycloakSub: string;
+	webPushEnabled: boolean;
+	isActive: boolean;
+	pushSubscriptionCount: number;
+	subscriptionOverrides: number;
 }
 
 export const getNotificationSubscribers = () =>

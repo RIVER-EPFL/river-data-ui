@@ -9,9 +9,6 @@
 		accessLevelLabel,
 		accessLevelVariant,
 		highestAccessRole,
-		telegramLinkLabel,
-		telegramLinkVariant,
-		type TelegramLinkStatus,
 	} from '$lib/users';
 	import { createUrlTab } from '$lib/urlTab.svelte';
 	import Tabs from '$components/ui/Tabs.svelte';
@@ -29,9 +26,9 @@
 	type User = RealmUser;
 
 	let users = $state<User[]>([]);
-	// Telegram link state per Keycloak sub. Absent from the roster means no subscriber row and no
+	// Push subscription count per Keycloak sub.
 	// identity, which reads the same as unlinked.
-	let telegramStatus = $state(new Map<string, TelegramLinkStatus>());
+	let pushCounts = $state(new Map<string, number>());
 	let loading = $state(true);
 	let error = $state('');
 	let search = $state('');
@@ -50,14 +47,12 @@
 
 	onMount(async () => {
 		try {
-			// The roster is supplementary: if it fails, the Telegram column degrades to "Not linked"
-			// rather than taking the whole user list down with it.
 			const [result, roster] = await Promise.all([
 				api.users.list({ perPage: 500, sort: ['username', 'ASC'] }),
 				getNotificationSubscribers().catch(() => []),
 			]);
 			users = result.data;
-			telegramStatus = new Map(roster.map((s) => [s.keycloak_sub, s.telegram_status]));
+			pushCounts = new Map(roster.map((s) => [s.keycloakSub, s.pushSubscriptionCount]));
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 		} finally {
@@ -142,7 +137,7 @@
 					<th class="text-left px-4 py-2 font-semibold text-brand-muted">Email</th>
 					<th class="text-left px-4 py-2 font-semibold">Name</th>
 					<th class="text-left px-4 py-2 font-semibold">Role</th>
-					<th class="text-left px-4 py-2 font-semibold">Telegram</th>
+					<th class="text-left px-4 py-2 font-semibold">Push</th>
 					<th class="text-left px-4 py-2 font-semibold">Enabled</th>
 				</tr>
 			</thead>
@@ -172,8 +167,8 @@
 								<Badge variant={accessLevelVariant(u.roles)}>{accessLevelLabel(u.roles)}</Badge>
 							</td>
 							<td class="px-4 py-2">
-								<Badge variant={telegramLinkVariant(telegramStatus.get(u.id))}>
-									{telegramLinkLabel(telegramStatus.get(u.id))}
+								<Badge variant={pushCounts.get(u.id) ? 'ok' : 'muted'}>
+									{pushCounts.get(u.id) ?? 0} device{(pushCounts.get(u.id) ?? 0) === 1 ? '' : 's'}
 								</Badge>
 							</td>
 							<td class="px-4 py-2">{u.enabled ? '✓' : 'None'}</td>

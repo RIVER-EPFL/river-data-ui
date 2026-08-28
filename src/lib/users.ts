@@ -55,31 +55,3 @@ export function accessLevelVariant(roles: string[] | undefined): RoleVariant {
 	return role ? roleBadgeVariant(role) : 'muted';
 }
 
-// Telegram link state, as reported by GET /api/notifications/subscribers. A user with no
-// subscriber row and no identity is absent from that roster entirely, which reads the same as
-// `unlinked`, so callers pass undefined for "not on the roster".
-export type TelegramLinkStatus = 'unlinked' | 'pending' | 'linked';
-
-export function telegramLinkLabel(status: TelegramLinkStatus | undefined): string {
-	switch (status) {
-		case 'linked':
-			return 'Linked';
-		case 'pending':
-			return 'Code pending';
-		default:
-			return 'Not linked';
-	}
-}
-
-// Only a live link is affirmative. A pending code is a warning because it expires (60 min TTL),
-// so a roster full of `pending` means people started linking and did not finish.
-export function telegramLinkVariant(status: TelegramLinkStatus | undefined): RoleVariant {
-	switch (status) {
-		case 'linked':
-			return 'ok';
-		case 'pending':
-			return 'accent';
-		default:
-			return 'muted';
-	}
-}

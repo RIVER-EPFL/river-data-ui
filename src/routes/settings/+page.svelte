@@ -1,26 +1,31 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import QRCode from 'qrcode';
 	import { auth } from '$auth/keycloak.svelte';
-	import { me as meStore } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import {
 		getNotificationsConfig,
 		getMyNotifications,
 		updateMyNotifications,
 		setMySubscriptions,
-		mintMyLinkCode,
-		unlinkMyTelegram,
+		registerPushSubscription,
+		testMyPush,
+		scheduleMyPing,
 		type NotificationsConfig,
 		type MyNotifications,
 	} from '$api/service';
 	import { api, type Project, type Site } from '$api/crud';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
-	import { formatDateTime } from '$lib/utils';
+	import {
+		isWebPushSupported,
+		isIOSSafari,
+		isStandalonePWA,
+		subscribe,
+		getSubscription,
+		unsubscribe,
+		subscriptionToPayload,
+	} from '$lib/push';
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
-	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
-	import CopyButton from '$components/ui/CopyButton.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 
 	let caps = $state<NotificationsConfig | null>(null);
@@ -29,12 +34,14 @@
 	let sites = $state<Site[]>([]);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
-
-	// Telegram link code (only held in memory right after minting, never returned by GET).
-	let linkCode = $state<string | null>(null);
 	let busy = $state(false);
 
-	// Sites the user has turned OFF (default is on). Saved as site-level enabled=false overrides.
+	let pushSupported = $state(false);
+	let pushSubscribed = $state(false);
+	let iosNeedsInstall = $state(false);
+	let pingSeconds = $state(10);
+	let testBusy = $state(false);
+
 	let mutedSites = $state<Set<string>>(new Set());
 
 	const sitesByProject = $derived.by(() => {
@@ -64,6 +71,9 @@
 	}
 
 	onMount(async () => {
+		pushSupported = isWebPushSupported();
+		iosNeedsInstall = isIOSSafari() && !isStandalonePWA();
+
 		try {
 			caps = await getNotificationsConfig();
 			const [n, p, s] = await Promise.all([
@@ -75,6 +85,11 @@
 			projects = p.data;
 			sites = s.data;
 			mutedSites = deriveMuted(n);
+
+			if (pushSupported) {
+				const sub = await getSubscription();
+				pushSubscribed = !!sub;
+			}
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load notification settings';
 		} finally {
@@ -82,11 +97,11 @@
 		}
 	});
 
-	async function toggleEmail(enabled: boolean) {
+	async function togglePush(enabled: boolean) {
 		busy = true;
 		try {
-			me = await updateMyNotifications({ email_enabled: enabled });
-			toastStore.success(enabled ? 'Email alerts enabled' : 'Email alerts disabled');
+			me = await updateMyNotifications({ web_push_enabled: enabled });
+			toastStore.success(enabled ? 'Push notifications enabled' : 'Push notifications disabled');
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Update failed');
 		} finally {
@@ -94,54 +109,58 @@
 		}
 	}
 
-	async function toggleTelegram(enabled: boolean) {
+	async function enablePush() {
+		if (!caps?.webPush.vapidPublicKey) return;
 		busy = true;
 		try {
-			me = await updateMyNotifications({ telegram_enabled: enabled });
-			toastStore.success(enabled ? 'Telegram alerts enabled' : 'Telegram alerts disabled');
+			const permission = await Notification.requestPermission();
+			if (permission !== 'granted') {
+				toastStore.error('Notification permission was denied');
+				return;
+			}
+			const sub = await subscribe(caps.webPush.vapidPublicKey);
+			await registerPushSubscription(subscriptionToPayload(sub));
+			pushSubscribed = true;
+			toastStore.success('Push notifications active on this device');
 		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Update failed');
+			toastStore.error(e instanceof Error ? e.message : 'Failed to enable push notifications');
 		} finally {
 			busy = false;
 		}
 	}
 
-	async function togglePin(exempt: boolean) {
-		busy = true;
+	async function sendTest() {
+		testBusy = true;
 		try {
-			me = await updateMyNotifications({ expiry_exempt: exempt });
-			toastStore.success(
-				exempt ? 'Link pinned, it will not expire' : 'Link unpinned, idle expiry applies',
-			);
+			await testMyPush();
+			toastStore.success('Test notification sent');
 		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Update failed');
+			toastStore.error(e instanceof Error ? e.message : 'Test failed');
 		} finally {
-			busy = false;
+			testBusy = false;
 		}
 	}
 
-	async function linkTelegram() {
-		busy = true;
+	async function sendPing() {
+		testBusy = true;
 		try {
-			const res = await mintMyLinkCode();
-			linkCode = res.code;
-			me = await getMyNotifications();
+			const res = await scheduleMyPing(pingSeconds);
+			toastStore.success(`Ping scheduled in ${res.seconds} second${res.seconds === 1 ? '' : 's'}`);
 		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Could not generate a link code');
+			toastStore.error(e instanceof Error ? e.message : 'Scheduling failed');
 		} finally {
-			busy = false;
+			testBusy = false;
 		}
 	}
 
-	async function unlink() {
+	async function disablePush() {
 		busy = true;
 		try {
-			await unlinkMyTelegram();
-			linkCode = null;
-			me = await getMyNotifications();
-			toastStore.success('Telegram unlinked');
+			await unsubscribe();
+			pushSubscribed = false;
+			toastStore.success('Push notifications disabled on this device');
 		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Unlink failed');
+			toastStore.error(e instanceof Error ? e.message : 'Failed to disable push');
 		} finally {
 			busy = false;
 		}
@@ -176,61 +195,6 @@
 			busy = false;
 		}
 	}
-
-	const deepLink = $derived(
-		caps?.telegram.botUsername && linkCode
-			? `https://t.me/${caps.telegram.botUsername}?start=${linkCode}`
-			: null,
-	);
-
-	// Each deployment runs its own bot, so the handle has to be shown, not assumed.
-	const botHandle = $derived(caps?.telegram.botUsername ? `@${caps.telegram.botUsername}` : null);
-	const botLink = $derived(
-		caps?.telegram.botUsername ? `https://t.me/${caps.telegram.botUsername}` : null,
-	);
-	// t.me hands off to the desktop app, which is no use to someone on Telegram Web.
-	const botWebLink = $derived(
-		caps?.telegram.botUsername ? `https://web.telegram.org/k/#@${caps.telegram.botUsername}` : null,
-	);
-
-	// Bridges the usual split of dashboard on a desktop, Telegram on a phone.
-	let qrDataUrl = $state<string | null>(null);
-	$effect(() => {
-		const target = deepLink;
-		if (!target) {
-			qrDataUrl = null;
-			return;
-		}
-		let cancelled = false;
-		QRCode.toDataURL(target, { margin: 1, width: 176 })
-			.then((url) => {
-				if (!cancelled) qrDataUrl = url;
-			})
-			.catch(() => {
-				if (!cancelled) qrDataUrl = null;
-			});
-		return () => {
-			cancelled = true;
-		};
-	});
-
-	// The link completes in Telegram, so this tab has to poll to notice.
-	$effect(() => {
-		if (!linkCode || me?.telegram.status === 'linked') return;
-		const timer = setInterval(async () => {
-			try {
-				const next = await getMyNotifications();
-				me = next;
-				if (next.telegram.status === 'linked') {
-					linkCode = null;
-					toastStore.success('Telegram connected');
-				}
-			} catch {
-				// A failed poll is not worth a toast; the next tick retries.
-			}
-		}, 3000);
-		return () => clearInterval(timer);
-	});
 
 	const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 </script>
@@ -281,24 +245,23 @@
 		<section class="mb-8">
 			<h2 class="text-lg font-medium text-brand-text mb-3">Notifications</h2>
 
-			<!-- Email -->
+			<!-- Push notifications -->
 			<div class="border border-brand-divider rounded-lg p-4 mb-4">
 				<div class="flex items-center justify-between gap-4">
 					<div>
-						<div class="font-medium text-brand-text">Email alerts</div>
+						<div class="font-medium text-brand-text">Push notifications</div>
 						<div class="text-sm text-brand-text-muted">
-							{#if !caps.email.available}
-								Unavailable, the server has no email backend configured (set
-								<code>EMAIL_BACKEND</code> and its credentials).
-							{:else if me.email}
-								Sent to <span class="font-mono">{me.email}</span>
-								{#if me.email_verified}
-									<Badge variant="ok">verified</Badge>
-								{:else}
-									<Badge variant="warning">unverified</Badge>
-								{/if}
+							{#if !caps.webPush.available}
+								Unavailable — the server has no VAPID key configured.
+							{:else if !pushSupported}
+								Your browser does not support push notifications.
+							{:else if iosNeedsInstall}
+								To receive push notifications on iOS, add this site to your Home Screen first:
+								tap the Share button, then "Add to Home Screen".
+							{:else if pushSubscribed}
+								Active on this device.
 							{:else}
-								No email address on your account.
+								Enable to receive alarm alerts on this device.
 							{/if}
 						</div>
 					</div>
@@ -306,208 +269,48 @@
 						<input
 							type="checkbox"
 							class="w-4 h-4"
-							checked={me.email_enabled}
-							disabled={busy || !caps.email.available || !me.email_verified}
-							onchange={(e) => toggleEmail(e.currentTarget.checked)}
+							checked={me.webPushEnabled}
+							disabled={busy || !caps.webPush.available}
+							onchange={(e) => togglePush(e.currentTarget.checked)}
 						/>
 						<span class="text-sm">Enabled</span>
 					</label>
 				</div>
-				{#if caps.email.available && me.email && !me.email_verified}
-					<p class="text-sm text-severity-warning-text mt-2">
-						Verify your email in your account to enable email alerts.
-					</p>
-				{/if}
-			</div>
 
-			<!-- Telegram -->
-			<div class="border border-brand-divider rounded-lg p-4 mb-4">
-				<div class="flex items-center justify-between gap-4">
-					<div>
-						<div class="font-medium text-brand-text">Telegram alerts</div>
-						<div class="text-sm text-brand-text-muted">
-							{#if !caps.telegram.available}
-								Unavailable, the server has no bot configured (set <code>TELEGRAM_BOT_TOKEN</code>).
-							{:else if me.telegram.status === 'linked'}
-								<Badge variant="ok">linked</Badge>
-								Connected to
-								{#if botHandle}
-									<a class="text-brand-primary underline" href={botLink} target="_blank" rel="noopener">
-										{botHandle}
-									</a>.
-								{:else}
-									the bot.
-								{/if}
-							{:else if me.telegram.status === 'pending'}
-								<Badge variant="warning">pending</Badge>
-								Waiting for you to message {botHandle ?? 'the bot'}.
-							{:else}
-								<Badge variant="muted">not linked</Badge>
-								Get alarms and query the data from Telegram
-								{#if botHandle}
-									via
-									<a class="text-brand-primary underline" href={botLink} target="_blank" rel="noopener">
-										{botHandle}
-									</a>.
-								{/if}
-							{/if}
-						</div>
-					</div>
-					{#if caps.telegram.available}
-						<label class="flex items-center gap-2 shrink-0">
-							<input
-								type="checkbox"
-								class="w-4 h-4"
-								checked={me.telegram_enabled}
-								disabled={busy}
-								onchange={(e) => toggleTelegram(e.currentTarget.checked)}
-							/>
-							<span class="text-sm">Enabled</span>
-						</label>
-					{/if}
-				</div>
-
-				<!-- Each deployment runs its own bot, so which one this is matters. -->
-				{#if caps.telegram.available && botHandle}
-					<div class="mt-3 flex items-start gap-3 rounded-md border border-brand-divider p-3">
-						<div class="text-sm">
-							<div class="font-medium text-brand-text">
-								{caps.telegram.botName ?? botHandle}
-								{#if caps.telegram.botName}
-									<span class="font-normal text-brand-text-muted">{botHandle}</span>
-								{/if}
-							</div>
-							{#if caps.telegram.botDescription}
-								<p class="text-brand-text-muted mt-0.5">{caps.telegram.botDescription}</p>
-							{/if}
-							<a
-								class="text-brand-primary underline"
-								href={botLink}
-								target="_blank"
-								rel="noopener">Open in Telegram</a
-							>
-						</div>
-					</div>
-				{/if}
-
-				{#if caps.telegram.available && me.telegram.status === 'linked'}
-					<dl class="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm text-brand-muted">
-						{#if me.telegram.linked_at}
-							<dt>Linked</dt>
-							<dd>{formatDateTime(me.telegram.linked_at)}</dd>
-						{/if}
-						{#if me.telegram.last_used_at}
-							<dt>Last used</dt>
-							<dd>{formatDateTime(me.telegram.last_used_at)}</dd>
-						{/if}
-						{#if me.telegram.attested_until}
-							<dt>Expires</dt>
-							<dd>
-								{formatDateTime(me.telegram.attested_until)}
-								<span class="block text-xs">
-									Renewed automatically whenever you sign in here, so there is nothing to do.
-								</span>
-							</dd>
-						{/if}
-					</dl>
-				{/if}
-
-				{#if caps.telegram.available}
-					<div class="mt-3 flex flex-wrap items-center gap-2">
-						{#if me.telegram.status === 'linked'}
-							<ConfirmPopover message="Unlink your Telegram chat?" onconfirm={unlink}>
-								<Button variant="danger" size="sm" disabled={busy}>Unlink</Button>
-							</ConfirmPopover>
-							<!-- Admin-only: if anyone could opt out, nothing would ever expire. -->
-							{#if meStore.can('admin')}
-								<label class="flex items-center gap-2 text-sm">
-									<input
-										type="checkbox"
-										class="w-4 h-4"
-										checked={me.expiry_exempt}
-										disabled={busy}
-										onchange={(e) => togglePin(e.currentTarget.checked)}
-									/>
-									<span title="Exempt this link from idle expiry. It still lapses if nobody signs in, and a revoked account is still cut off.">
-										Never expire
-									</span>
-								</label>
-							{/if}
-						{:else}
-							<Button variant="primary" size="sm" disabled={busy} onclick={linkTelegram}>
-								{me.telegram.status === 'pending' ? 'Generate a new code' : 'Link Telegram'}
+				{#if caps.webPush.available && pushSupported && !iosNeedsInstall}
+					<div class="mt-3 pt-3 border-t border-brand-divider flex flex-wrap items-center gap-3">
+						{#if pushSubscribed}
+							<Badge variant="ok">Active on this device</Badge>
+							<Button size="sm" variant="secondary" disabled={busy} onclick={disablePush}>
+								Disable on this device
 							</Button>
+						{:else}
+							<Button size="sm" disabled={busy} onclick={enablePush}>
+								Enable on this device
+							</Button>
+							<span class="text-sm text-brand-text-muted">
+								{me.pushSubscriptionCount} device{me.pushSubscriptionCount === 1 ? '' : 's'} registered
+							</span>
 						{/if}
 					</div>
 
-					{#if linkCode}
-						<div class="mt-3 rounded-md bg-brand-bg p-4 text-sm">
-							<div class="flex flex-wrap gap-4">
-								<div class="flex-1 min-w-[16rem] space-y-3">
-									<div>
-										<div class="font-medium text-brand-text mb-1">On this device</div>
-										{#if deepLink}
-											<a href={deepLink} target="_blank" rel="noopener">
-												<Button variant="primary" size="sm">Open Telegram and connect</Button>
-											</a>
-											{#if botWebLink}
-												<p class="text-brand-text-muted mt-1">
-													Using Telegram in the browser? Open
-													<a
-														class="text-brand-primary underline"
-														href={botWebLink}
-														target="_blank"
-														rel="noopener">{botHandle} on Telegram Web</a
-													>
-													and send the command below.
-												</p>
-											{/if}
-										{:else}
-											<p class="text-brand-text-muted">
-												This deployment has no bot name configured, so send the code by hand.
-											</p>
-										{/if}
-									</div>
-
-									<div>
-										<div class="font-medium text-brand-text mb-1">By hand</div>
-										<p class="text-brand-text-muted mb-1">
-											{#if botHandle}
-												Search Telegram for
-												<a class="text-brand-primary underline" href={botLink} target="_blank" rel="noopener">
-													{botHandle}
-												</a>, start a chat, and send:
-											{:else}
-												Start a chat with the bot and send:
-											{/if}
-										</p>
-										<div class="flex items-center gap-2">
-											<code class="font-mono px-2 py-1 bg-white border border-brand-divider rounded">/start {linkCode}</code>
-											<CopyButton text={`/start ${linkCode}`} />
-										</div>
-									</div>
-
-									{#if me.telegram.code_expires_at}
-										<p class="text-brand-text-muted">
-											This code expires {formatDateTime(me.telegram.code_expires_at)}. Generate a new
-											one if it runs out.
-										</p>
-									{/if}
-									<p class="text-brand-text-muted">Waiting for you to connect…</p>
-								</div>
-
-								{#if qrDataUrl}
-									<div class="text-center">
-										<div class="font-medium text-brand-text mb-1">On your phone</div>
-										<img
-											src={qrDataUrl}
-											alt="QR code that opens the bot and sends your link code"
-											class="rounded border border-brand-divider bg-white p-1"
-											width="176"
-											height="176"
-										/>
-									</div>
-								{/if}
+					{#if pushSubscribed}
+						<div class="mt-3 pt-3 border-t border-brand-divider flex flex-wrap items-center gap-3">
+							<Button size="sm" variant="secondary" disabled={testBusy} onclick={sendTest}>
+								Send test
+							</Button>
+							<div class="flex items-center gap-2">
+								<Button size="sm" variant="secondary" disabled={testBusy} onclick={sendPing}>
+									Ping me in
+								</Button>
+								<input
+									type="number"
+									min="5"
+									max="3600"
+									bind:value={pingSeconds}
+									class="w-16 text-sm border border-brand-divider rounded px-2 py-1 bg-brand-surface text-brand-text"
+								/>
+								<span class="text-sm text-brand-text-muted">sec</span>
 							</div>
 						</div>
 					{/if}
