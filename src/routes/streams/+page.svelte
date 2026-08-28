@@ -282,6 +282,7 @@
 		warnings: string[];
 		replicates: PlanReplicateSummary | null;
 		instrument: PlanInstrumentRef | null;
+		pairCount: number;
 	}
 
 	const paramGroups = $derived.by((): ParamGroup[] => {
@@ -303,7 +304,8 @@
 		const groups: ParamGroup[] = [];
 		for (const g of map.values()) {
 			const confidence = g.confs.size === 1 ? (g.confs.has('exact') ? 'exact' : 'none') : 'mixed';
-			groups.push({ name: g.name, label: g.label, originalName: g.originalName, originalNames: [...g.originalNames], groupKey: g.groupKey, units: g.units, create: g.create, confidence, siteCount: g.siteNames.size, streamIds: g.streamIds, warnings: [...g.warnings], replicates: g.replicates, instrument: g.instrument });
+			const pairCount = planEntries.filter((e) => g.streamIds.includes(e.stream_id) && e.action === 'pair').length;
+			groups.push({ name: g.name, label: g.label, originalName: g.originalName, originalNames: [...g.originalNames], groupKey: g.groupKey, units: g.units, create: g.create, confidence, siteCount: g.siteNames.size, streamIds: g.streamIds, warnings: [...g.warnings], replicates: g.replicates, instrument: g.instrument, pairCount });
 		}
 		return groups.sort((a, b) => a.name.localeCompare(b.name) || a.units.localeCompare(b.units));
 	});
@@ -577,12 +579,13 @@
 		if (updates.length > 0) { planEntries = [...planEntries]; queueUpdate(updates); }
 	}
 
-	function bulkAction(action: 'pair' | 'skip', filter?: 'exact' | 'none') {
+	// Pair or skip a parameter everywhere it appears. This is the bulk action the review actually
+	// needs: a parameter is one decision across every station, not one per stream.
+	function setParamGroupAction(pg: ParamGroup, action: 'pair' | 'skip') {
 		const updates: PlanEntryUpdate[] = [];
 		for (const e of planEntries) {
-			if (filter === 'exact' && e.confidence !== 'exact') continue;
-			if (filter === 'none' && e.confidence !== 'none') continue;
-			// Entries missing a site or parameter name cannot pair; the server skips them too.
+			if (!pg.streamIds.includes(e.stream_id)) continue;
+			// An entry missing a site or parameter name cannot pair; the server skips it too.
 			if (action === 'pair' && (!e.site.name.trim() || !e.parameter.name.trim())) continue;
 			if (e.action !== action) {
 				(e as any).action = action;
@@ -1213,7 +1216,9 @@
 		{#if unresolvedInstruments.length > 0 || uniqueWarnings.length > 0}
 			<div class="rounded-md border border-severity-warning-border bg-severity-warning-soft overflow-hidden">
 				<div class="px-3 py-2 text-sm font-semibold text-severity-warning-text border-b border-severity-warning-border">
-					Needs a decision before applying
+					{unresolvedInstruments.length > 0
+						? 'Must be resolved before applying'
+						: 'Worth deciding before applying'}
 				</div>
 
 				{#each unresolvedInstruments as g (g.key)}
@@ -1540,6 +1545,7 @@
 								<th class="text-left px-3 py-2 font-semibold">Map to</th>
 								<th class="text-left px-3 py-2 font-semibold">Status</th>
 								<th class="text-right px-3 py-2 font-semibold">Sites</th>
+								<th class="text-right px-3 py-2 font-semibold">Everywhere</th>
 							</tr></thead>
 							<tbody>
 								{#each paramGroups as pg}
@@ -1682,6 +1688,16 @@
 											<span class="text-xs px-1.5 py-0.5 rounded {matched ? 'bg-severity-ok-soft text-severity-ok' : 'bg-severity-warning-soft text-severity-warning'}">{matched ? 'existing' : 'new'}</span>
 										</td>
 										<td class="px-4 py-2 text-right text-brand-muted">{pg.siteCount}</td>
+										<td class="px-4 py-2 text-right whitespace-nowrap">
+											<button
+												onclick={() => setParamGroupAction(pg, 'pair')}
+												class="px-2 py-0.5 text-xs rounded cursor-pointer border-none {pg.pairCount === pg.streamIds.length ? 'bg-severity-ok-soft text-severity-ok' : 'bg-brand-bg text-brand-muted opacity-60'}"
+											>Pair</button>
+											<button
+												onclick={() => setParamGroupAction(pg, 'skip')}
+												class="px-2 py-0.5 text-xs rounded cursor-pointer border-none ml-1 {pg.pairCount === 0 ? 'bg-severity-alarm-soft text-severity-alarm' : 'bg-brand-bg text-brand-muted opacity-60'}"
+											>Skip</button>
+										</td>
 									</tr>
 								{/each}
 							</tbody>
