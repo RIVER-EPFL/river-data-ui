@@ -646,11 +646,60 @@ export interface PairingPlanEntry {
 		original_names: string[];
 	};
 	confidence: string;
-	warnings: string[];
+	warnings: PlanWarning[];
 	original_parameter_name: string | null;
 	// Present when the stream is a replicate family: what is being paired is the group of
 	// member columns, not the portal's average.
 	replicates: PlanReplicateSummary | null;
+	// The lab instrument this stream's standard curves belong to. A curve is fitted on one
+	// instrument, so a reading naming a curve must name that instrument too; a stream that will
+	// carry curve references and resolves to none has those readings dropped at ingest.
+	instrument: PlanInstrumentRef | null;
+}
+
+// A catalog parameter an entry collides with, and what already depends on it. "Exists" alone does
+// not say where or whether anything uses it, which is what decides a units conflict.
+export interface ExistingParamRef {
+	id: string;
+	code: string;
+	name: string;
+	units: string;
+	category: string;
+	site_parameter_count: number;
+	reading_count: number;
+}
+
+export interface PlanWarning {
+	kind: 'units_mismatch' | 'empty_name' | string;
+	message: string;
+	parameter: string | null;
+	existing: ExistingParamRef | null;
+	source_units: string | null;
+}
+
+export interface PlanCurveRef {
+	id: string;
+	name: string | null;
+	slope: number;
+	intercept: number;
+}
+
+export interface PlanInstrumentRef {
+	// The source column naming a curve per reading, e.g. `doc_std_curve_id`. Null when the
+	// instrument came from the stream and no column names a curve.
+	curve_column: string | null;
+	id: string | null;
+	name: string;
+	source_key: string;
+	// How it was decided: already on the stream, matched against the source's curve labels,
+	// repointed by hand, or proposed because nothing matched.
+	resolved_by: 'stream' | 'curve_label' | 'manual' | 'placeholder' | string;
+	create: boolean;
+	confirmed: boolean;
+	// True when each reading stores a standard_curve_id. False when the curve was applied
+	// upstream and only the instrument is attributed, where stamping would correct twice.
+	stamps_readings: boolean;
+	curves: PlanCurveRef[];
 }
 
 // Replicate-family summary on a plan entry: how the portal's columns route into one stream.
@@ -669,6 +718,8 @@ export interface PairingPlanSummary {
 	projects_to_create: number;
 	sites_to_create: number;
 	parameters_to_create: number;
+	instruments_to_create: number;
+	instruments_unconfirmed: number;
 	unique_projects: number;
 	unique_sites: number;
 	unique_parameters: number;
@@ -692,6 +743,7 @@ export interface PairingPlanApplyResult {
 	parameters_created: number;
 	site_parameters_created: number;
 	streams_paired: number;
+	instruments_created: number;
 	readings_backfilled: number;
 }
 
@@ -704,6 +756,10 @@ export interface PlanEntryUpdate {
 	parameter_units?: string;
 	// Display label for a parameter the plan will create; ignored for matched existing parameters.
 	parameter_label?: string;
+	// Instrument decisions are per curve column, so any one entry settles every entry sharing it.
+	instrument_id?: string;
+	instrument_name?: string;
+	instrument_confirmed?: boolean;
 }
 
 export const createPairingPlan = (sourceSystem: string) =>

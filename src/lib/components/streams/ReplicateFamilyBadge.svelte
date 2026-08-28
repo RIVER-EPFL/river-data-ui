@@ -2,7 +2,7 @@
 	import type { ReplicateSpec } from '$api/service';
 
 	// Compact chip marking a replicate-family stream. Clicking toggles an inline expansion listing
-	// the member columns in replicate order plus the portal columns audited (not stored) at sync.
+	// the member columns in replicate order plus the source columns audited (not stored) at sync.
 	let { spec }: { spec: ReplicateSpec } = $props();
 
 	let expanded = $state(false);

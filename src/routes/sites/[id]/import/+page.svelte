@@ -408,7 +408,7 @@
 				</label>
 				<label class="flex items-center gap-1.5 text-sm">
 					<input type="radio" name="measurement-type" value="spot" bind:group={measurementType} />
-					Spot (grab or lab)
+					Grab sample
 				</label>
 			</div>
 

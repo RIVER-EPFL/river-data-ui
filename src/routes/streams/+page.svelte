@@ -9,7 +9,7 @@
 		applyPairingPlan, revertPairingPlan, pollJob, getUnpairedSummary, getPlanSiteMetadata,
 		replicateSpec, getPendingAuditCount, getReconciliationCandidates,
 		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
-		type PlanReplicateSummary, type StreamReceipt,
+		type PlanReplicateSummary, type StreamReceipt, type PlanWarning, type PlanInstrumentRef,
 	} from '$api/service';
 	import { listReplicateAudits } from '$api/service';
 	import { me } from '$auth/me.svelte';
@@ -133,7 +133,7 @@
 
 	// ── Plan review controls ──
 	let siteSearch = $state('');
-	let reviewFilter = $state<'all' | 'pair' | 'skip' | 'exact' | 'none' | 'warnings'>('all');
+	let reviewFilter = $state<'all' | 'pair' | 'skip'>('all');
 	let expandedSites = $state<Set<string>>(new Set());
 	let editingSite = $state<string | null>(null);
 	let editingParam = $state<{ site: string; streamId: string } | null>(null);
@@ -145,7 +145,10 @@
 	let splitParamValue = $state('');
 	let sitePage = $state(0);
 	const sitesPerPage = 50;
-	let reviewTab = $state<'sites' | 'parameters' | 'warnings'>('sites');
+	// Parameters first: it is the cross-site editor, and every decision in the plan (naming, units,
+	// instruments) is made once there rather than 31 times in Sites.
+	let reviewTab = $state<'parameters' | 'sites'>('parameters');
+	let instrumentSaving = $state<string | null>(null);
 
 	// ── Derived: group entries by site ──
 	interface SiteGroup {
@@ -190,9 +193,6 @@
 		}
 		if (reviewFilter === 'pair') groups = groups.filter((g) => g.pairCount > 0);
 		else if (reviewFilter === 'skip') groups = groups.filter((g) => g.skipCount === g.entries.length);
-		else if (reviewFilter === 'exact') groups = groups.filter((g) => g.exactCount > 0);
-		else if (reviewFilter === 'none') groups = groups.filter((g) => g.noneCount > 0);
-		else if (reviewFilter === 'warnings') groups = groups.filter((g) => g.warningCount > 0);
 		return groups;
 	});
 
@@ -215,6 +215,44 @@
 		}
 		return { toPair, toSkip, total: planEntries.length, warnings, newSites: newSites.size, newParams: newParams.size, newProjects: newProjects.size };
 	});
+
+	// One curve column is one instrument across the whole source, so these are grouped by the
+	// instrument's identity, never by stream: 31 DOC streams are one decision.
+	interface InstrumentGroup {
+		key: string;
+		instrument: PlanInstrumentRef;
+		streamCount: number;
+		siteCount: number;
+		parameters: string[];
+		anchorStreamId: string;
+	}
+
+	const instrumentGroups = $derived.by((): InstrumentGroup[] => {
+		const map = new Map<string, { instrument: PlanInstrumentRef; streams: Set<string>; sites: Set<string>; params: Set<string>; anchor: string }>();
+		for (const e of planEntries) {
+			if (e.action !== 'pair' || !e.instrument) continue;
+			const key = e.instrument.curve_column ?? e.instrument.source_key ?? e.instrument.name;
+			let g = map.get(key);
+			if (!g) { g = { instrument: e.instrument, streams: new Set(), sites: new Set(), params: new Set(), anchor: e.stream_id }; map.set(key, g); }
+			g.streams.add(e.stream_id);
+			g.sites.add(e.site.name);
+			g.params.add(e.parameter.name);
+		}
+		return [...map.entries()]
+			.map(([key, g]) => ({
+				key,
+				instrument: g.instrument,
+				streamCount: g.streams.size,
+				siteCount: g.sites.size,
+				parameters: [...g.params].sort(),
+				anchorStreamId: g.anchor,
+			}))
+			.sort((a, b) => a.key.localeCompare(b.key));
+	});
+
+	const unresolvedInstruments = $derived(
+		instrumentGroups.filter((g) => g.instrument.create && !g.instrument.confirmed),
+	);
 
 	// Replicate families among the entries that will pair: stream count and how many portal
 	// readings columns collapse into them.
@@ -243,43 +281,94 @@
 		streamIds: string[];
 		warnings: string[];
 		replicates: PlanReplicateSummary | null;
+		instrument: PlanInstrumentRef | null;
 	}
 
 	const paramGroups = $derived.by((): ParamGroup[] => {
 		// Keyed on name AND units so same-name parameters with different units get separate rows.
-		const map = new Map<string, { name: string; label: string | null; originalName: string; originalNames: Set<string>; groupKey: string | null; units: string; create: boolean; confs: Set<string>; siteNames: Set<string>; streamIds: string[]; warnings: Set<string>; replicates: PlanReplicateSummary | null }>();
+		const map = new Map<string, { name: string; label: string | null; originalName: string; originalNames: Set<string>; groupKey: string | null; units: string; create: boolean; confs: Set<string>; siteNames: Set<string>; streamIds: string[]; warnings: Set<string>; replicates: PlanReplicateSummary | null; instrument: PlanInstrumentRef | null }>();
 		for (const e of planEntries) {
 			const key = `${e.parameter.name}::${e.parameter.units}`;
 			let g = map.get(key);
-			if (!g) { g = { name: e.parameter.name, label: e.parameter.label ?? null, originalName: e.source_name ?? e.source_key, originalNames: new Set(), groupKey: e.parameter.group_key ?? null, units: e.parameter.units, create: e.parameter.create, confs: new Set(), siteNames: new Set(), streamIds: [], warnings: new Set(), replicates: e.replicates ?? null }; map.set(key, g); }
+			if (!g) { g = { name: e.parameter.name, label: e.parameter.label ?? null, originalName: e.source_name ?? e.source_key, originalNames: new Set(), groupKey: e.parameter.group_key ?? null, units: e.parameter.units, create: e.parameter.create, confs: new Set(), siteNames: new Set(), streamIds: [], warnings: new Set(), replicates: e.replicates ?? null, instrument: e.instrument ?? null }; map.set(key, g); }
 			if (!g.label && e.parameter.label) g.label = e.parameter.label;
 			if (!g.replicates && e.replicates) g.replicates = e.replicates;
+			if (!g.instrument && e.instrument) g.instrument = e.instrument;
 			if (e.original_parameter_name) g.originalNames.add(e.original_parameter_name);
 			g.confs.add(e.confidence);
 			g.siteNames.add(e.site.name);
 			g.streamIds.push(e.stream_id);
-			for (const w of e.warnings) g.warnings.add(w);
+			for (const w of e.warnings) g.warnings.add(w.message);
 		}
 		const groups: ParamGroup[] = [];
 		for (const g of map.values()) {
 			const confidence = g.confs.size === 1 ? (g.confs.has('exact') ? 'exact' : 'none') : 'mixed';
-			groups.push({ name: g.name, label: g.label, originalName: g.originalName, originalNames: [...g.originalNames], groupKey: g.groupKey, units: g.units, create: g.create, confidence, siteCount: g.siteNames.size, streamIds: g.streamIds, warnings: [...g.warnings], replicates: g.replicates });
+			groups.push({ name: g.name, label: g.label, originalName: g.originalName, originalNames: [...g.originalNames], groupKey: g.groupKey, units: g.units, create: g.create, confidence, siteCount: g.siteNames.size, streamIds: g.streamIds, warnings: [...g.warnings], replicates: g.replicates, instrument: g.instrument });
 		}
 		return groups.sort((a, b) => a.name.localeCompare(b.name) || a.units.localeCompare(b.units));
 	});
 
-	const uniqueWarnings = $derived.by((): Array<{ message: string; paramName: string; count: number }> => {
-		const map = new Map<string, { paramName: string; count: number }>();
+	// One row per distinct warning, carrying the structured warning so the block can offer the
+	// resolutions rather than only naming the problem.
+	const uniqueWarnings = $derived.by((): Array<{ warning: PlanWarning; paramName: string; count: number; anchorStreamId: string }> => {
+		const map = new Map<string, { warning: PlanWarning; paramName: string; count: number; anchorStreamId: string }>();
 		for (const e of planEntries) {
 			for (const w of e.warnings) {
-				const existing = map.get(w);
-				if (existing) existing.count++; else map.set(w, { paramName: e.parameter.name, count: 1 });
+				const existing = map.get(w.message);
+				if (existing) existing.count++;
+				else map.set(w.message, { warning: w, paramName: w.parameter ?? e.parameter.name, count: 1, anchorStreamId: e.stream_id });
 			}
 		}
-		return [...map.entries()].map(([message, v]) => ({ message, paramName: v.paramName, count: v.count }));
+		return [...map.values()];
 	});
 
-	function jumpToParamRow(paramName: string) {
+	// ── Instrument decisions ──
+	// All three write through the same debounced PATCH the rest of the review uses; the server
+	// applies them to every entry sharing the curve column, so one click settles the whole group.
+	function renameInstrument(streamId: string, name: string) {
+		if (!name.trim()) return;
+		queueUpdate([{ stream_id: streamId, instrument_name: name.trim() }]);
+	}
+
+	async function confirmInstrument(group: { key: string; anchorStreamId: string }) {
+		instrumentSaving = group.key;
+		queueUpdate([{ stream_id: group.anchorStreamId, instrument_confirmed: true }]);
+		try { await flushUpdates(); } catch { /* the toast from the failed flush is the signal */ }
+		finally { instrumentSaving = null; }
+	}
+
+	async function repointInstrument(streamId: string, sensorId: string) {
+		if (!sensorId) return;
+		queueUpdate([{ stream_id: streamId, instrument_id: sensorId }]);
+		try { await flushUpdates(); } catch { /* as above */ }
+	}
+
+	// ── Units-conflict resolutions ──
+	// Keeping the catalog's units drops the plan's override so the entry matches the existing
+	// parameter as it stands; taking the source's units renames it, which is what makes the apply
+	// create a separate parameter rather than redefine one other data already depends on.
+	function adoptCatalogUnits(w: { warning: PlanWarning; paramName: string }) {
+		const units = w.warning.existing?.units;
+		if (!units) return;
+		const updates: PlanEntryUpdate[] = [];
+		for (const e of planEntries) {
+			if (e.parameter.name !== w.paramName || e.parameter.units === units) continue;
+			(e.parameter as any).units = units;
+			updates.push({ stream_id: e.stream_id, parameter_units: units });
+		}
+		if (updates.length === 0) return;
+		planEntries = [...planEntries];
+		queueUpdate(updates);
+	}
+
+	function adoptSourceUnits(w: { warning: PlanWarning; paramName: string }) {
+		const units = w.warning.source_units;
+		if (!units) return;
+		const newName = `${w.paramName}_${units.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'alt'}`;
+		renameGlobalParam(w.paramName, newName, units);
+	}
+
+	function goToParam(paramName: string) {
 		reviewTab = 'parameters';
 		setTimeout(() => {
 			const row = document.getElementById(`param-row-${paramName}`);
@@ -287,24 +376,6 @@
 			row.scrollIntoView({ behavior: 'smooth', block: 'center' });
 			row.classList.add('flash-highlight');
 			setTimeout(() => row.classList.remove('flash-highlight'), 1600);
-		}, 0);
-	}
-
-	function jumpToWarnings(messages: string[]) {
-		reviewTab = 'warnings';
-		const unique = [...new Set(messages)];
-		setTimeout(() => {
-			let firstRow: HTMLElement | null = null;
-			for (const msg of unique) {
-				const row = document.querySelector<HTMLElement>(
-					`[data-warning="${CSS.escape(msg)}"]`
-				);
-				if (!row) continue;
-				if (!firstRow) firstRow = row;
-				row.classList.add('flash-highlight');
-				setTimeout(() => row.classList.remove('flash-highlight'), 1600);
-			}
-			firstRow?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 		}, 0);
 	}
 
@@ -373,16 +444,6 @@
 
 	function mapParamToExisting(oldName: string, existingParam: Parameter) {
 		renameGlobalParam(oldName, existingParam.code);
-	}
-
-	function goToParam(paramName: string) {
-		reviewTab = 'parameters';
-		requestAnimationFrame(() => {
-			const el = document.getElementById(`param-row-${paramName}`);
-			el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-			el?.classList.add('ring-2', 'ring-brand-primary');
-			setTimeout(() => el?.classList.remove('ring-2', 'ring-brand-primary'), 2000);
-		});
 	}
 
 	let editingGlobalUnits = $state<{ name: string; units: string } | null>(null);
@@ -689,7 +750,9 @@
 	async function handleRetagStream(stream: DataStream, type: 'continuous' | 'spot') {
 		try {
 			await retagStreams({ streamIds: [stream.id] }, type, true);
-			toastStore.success(`Stream classified as ${type}; existing readings are being retagged`);
+			toastStore.success(
+				`Stream classified as ${type === 'spot' ? 'grab samples' : type}; existing readings are being retagged`,
+			);
 			load();
 		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Reclassification failed'); }
 	}
@@ -713,6 +776,9 @@
 
 	let existingParams = $state<Parameter[]>([]);
 	let existingSites = $state<Site[]>([]);
+	// Candidates for repointing a curve column, so an operator can correct a bad match instead of
+	// creating a second instrument beside the right one.
+	let labInstruments = $state<Array<{ id: string; name: string | null; serial_number: string | null }>>([]);
 	let siteMetadataMap = $state<Map<string, SiteMetadata>>(new Map());
 
 	// Case-insensitive match against code, name, and aliases (mirrors server-side matching).
@@ -743,11 +809,17 @@
 		planLoading = true;
 		try {
 			// Always refetch the full catalogs so dropdowns and matched-badges see every entity.
-			const [newPlan, paramResult, siteResult] = await Promise.all([
+			const [newPlan, paramResult, siteResult, instrumentResult] = await Promise.all([
 				createPairingPlan(sourceSystem),
 				api.parameters.list({ perPage: 1000 }),
 				api.sites.list({ perPage: 1000 }),
+				api.sensors.list({ perPage: 500, filter: { is_lab_instrument: true } }),
 			]);
+			labInstruments = instrumentResult.data.map((s) => ({
+				id: s.id,
+				name: s.name ?? null,
+				serial_number: s.serial_number ?? null,
+			}));
 			plan = newPlan;
 			planEntries = [...plan.entries];
 			params = paramResult.data;
@@ -840,7 +912,7 @@
 	<button
 		onclick={(e) => { e.stopPropagation(); toggleReplicateExpand(key); }}
 		class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-brand-accent/10 text-brand-accent border border-brand-accent/30 cursor-pointer text-[10px] font-semibold whitespace-nowrap"
-		title="This stream records {rep.n} replicates per instant; expand to see how the portal columns route"
+		title="This stream records {rep.n} replicates per instant; expand to see how the source columns route"
 	>⧉ {rep.n} replicates {expandedReplicates.has(key) ? '▾' : '▸'}</button>
 {/snippet}
 
@@ -853,10 +925,37 @@
 			<div class="font-mono text-brand-muted">{rep.curve_ref_column} → standard curve reference</div>
 		{/if}
 		<p class="text-brand-muted pt-0.5">
-			x̄ and s are calculated from the {rep.n} stored replicates. The portal's
+			x̄ and s are calculated from the {rep.n} stored replicates. The source's
 			{rep.portal_mean_column ?? 'average'}{rep.portal_sd_column ? ` / ${rep.portal_sd_column}` : ''}
 			are checked against them, not stored.
 		</p>
+	</div>
+{/snippet}
+
+{#snippet instrumentCell(inst: PlanInstrumentRef)}
+	{@const tone = inst.create && !inst.confirmed ? 'warning' : 'ok'}
+	<div class="mt-1 text-[11px] text-brand-muted">
+		<span class="text-severity-{tone}">⚗</span>
+		{#if inst.curve_column}
+			<span class="font-mono">{inst.curve_column}</span> →
+		{/if}
+		<span class="text-brand-text">{inst.name}</span>
+		<span class="opacity-70">
+			({inst.resolved_by === 'stream' ? 'from the stream'
+				: inst.resolved_by === 'curve_label' ? 'matched on the curve label'
+				: inst.resolved_by === 'manual' ? 'chosen here'
+				: 'to be created'})
+		</span>
+		<div class="pl-3">
+			{#if inst.stamps_readings}
+				Each reading stores the curve it was corrected with.
+			{:else}
+				Corrected upstream: the instrument is recorded, the curve is not re-applied.
+			{/if}
+		</div>
+		{#each inst.curves as c}
+			<div class="pl-3 font-mono">{c.name ?? c.id} · slope {c.slope} · intercept {c.intercept}</div>
+		{/each}
 	</div>
 {/snippet}
 
@@ -883,7 +982,8 @@
 
 		{#if tab.key === 'audits' && canAudit}
 		<p class="text-sm text-brand-muted">
-			Replicate groups whose recomputed mean/sd disagrees with the portal's stored avg/sd. The
+			Replicate groups whose recomputed mean/sd disagrees with the avg/sd the source system
+			stores. The
 			replicates are stored and served either way; each disagreement is queued here for review.
 		</p>
 		<ReplicateAuditsPanel
@@ -958,7 +1058,7 @@
 								<td class="px-4 py-2 text-xs">
 									<Badge variant="default">{stream.source_system}</Badge>
 									{#if stream.measurement_type === 'spot'}
-										<Badge variant="accent">spot</Badge>
+										<Badge variant="accent">grab</Badge>
 									{:else if stream.measurement_type === 'derived'}
 										<Badge variant="muted">derived</Badge>
 									{/if}
@@ -988,8 +1088,8 @@
 											<Button variant="ghost" size="sm" class="text-brand-primary">Mark continuous</Button>
 										</ConfirmPopover>
 									{:else if stream.measurement_type !== 'derived'}
-										<ConfirmPopover message="Classify this stream as spot (low-frequency)? Existing readings render as points and leave hourly/daily averages." confirmLabel="Mark spot" confirmVariant="primary" onconfirm={() => handleRetagStream(stream, 'spot')}>
-											<Button variant="ghost" size="sm" class="text-brand-primary">Mark spot</Button>
+										<ConfirmPopover message="Classify this stream as grab samples (low-frequency)? Existing readings render as points and leave hourly/daily averages." confirmLabel="Mark as grab" confirmVariant="primary" onconfirm={() => handleRetagStream(stream, 'spot')}>
+											<Button variant="ghost" size="sm" class="text-brand-primary">Mark as grab</Button>
 										</ConfirmPopover>
 									{/if}
 									{#if stream.site_parameter_id}
@@ -1081,61 +1181,127 @@
 		{#if planDeferredCount > 0}
 			<div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md bg-severity-warning-soft border border-severity-warning-border text-sm text-severity-warning-text">
 				<span>{planDeferredCount} sync audit discrepanc{planDeferredCount === 1 ? 'y' : 'ies'} on these streams will need review after pairing</span>
-				<a href="{base}/streams?tab=audits&view=deferred" class="font-semibold text-severity-warning-text underline-offset-2 hover:underline">View audits</a>
+				<button
+					onclick={() => {
+						void flushUpdates();
+						tab.go('audits', (url) => { url.searchParams.delete('step'); url.searchParams.set('view', 'deferred'); });
+					}}
+					class="font-semibold text-severity-warning-text bg-transparent border-none p-0 cursor-pointer underline-offset-2 hover:underline"
+				>View audits</button>
 			</div>
 		{/if}
 
-		<div class="grid grid-cols-[260px_1fr] gap-4">
-			<!-- Sidebar -->
-			<div class="space-y-4">
-				<!-- Summary -->
-				<div class="rounded-md border border-brand-divider bg-brand-surface p-3 space-y-2 text-sm">
-					<div class="flex justify-between"><span class="text-brand-muted">To pair</span><span class="font-semibold text-severity-ok">{summary.toPair.toLocaleString()}</span></div>
-					<div class="flex justify-between"><span class="text-brand-muted">Skipped</span><span class="font-semibold">{summary.toSkip.toLocaleString()}</span></div>
-					<div class="flex justify-between"><span class="text-brand-muted">Total streams</span><span>{summary.total.toLocaleString()}</span></div>
-					<hr class="border-brand-divider" />
-					<div class="text-xs text-brand-muted font-semibold uppercase tracking-wider">Will create</div>
-					<div class="flex justify-between text-xs"><span class="text-brand-muted">Projects</span><span>{summary.newProjects}</span></div>
-					<div class="flex justify-between text-xs"><span class="text-brand-muted">Sites</span><span>{summary.newSites}</span></div>
-					<div class="flex justify-between text-xs"><span class="text-brand-muted">Parameters</span><span>{summary.newParams}</span></div>
-					{#if summary.warnings > 0}
-						<hr class="border-brand-divider" />
-						<Button variant="ghost" size="sm" onclick={() => reviewFilter = 'warnings'} class="text-severity-warning">{summary.warnings} warning{summary.warnings === 1 ? '' : 's'}</Button>
-					{/if}
+		<!-- What the apply will do, where it cannot be missed -->
+		<div class="flex flex-wrap items-center gap-2 text-xs">
+			<Badge variant="ok">{summary.toPair.toLocaleString()} to pair</Badge>
+			{#if summary.toSkip > 0}<Badge variant="muted">{summary.toSkip.toLocaleString()} skipped</Badge>{/if}
+			<span class="text-brand-muted">will create</span>
+			{#if summary.newProjects > 0}<Badge>{summary.newProjects} project{summary.newProjects === 1 ? '' : 's'}</Badge>{/if}
+			{#if summary.newSites > 0}<Badge>{summary.newSites} site{summary.newSites === 1 ? '' : 's'}</Badge>{/if}
+			{#if summary.newParams > 0}<Badge>{summary.newParams} parameter{summary.newParams === 1 ? '' : 's'}</Badge>{/if}
+			{#if plan.summary.instruments_to_create > 0}
+				<Badge variant={plan.summary.instruments_unconfirmed > 0 ? 'warning' : 'default'}>
+					{plan.summary.instruments_to_create} instrument{plan.summary.instruments_to_create === 1 ? '' : 's'}
+				</Badge>
+			{/if}
+			{#if summary.newProjects + summary.newSites + summary.newParams + plan.summary.instruments_to_create === 0}
+				<span class="text-brand-muted">nothing new</span>
+			{/if}
+		</div>
+
+		<!-- ── ISSUES ── Everything needing a decision, in view rather than behind a tab. -->
+		{#if unresolvedInstruments.length > 0 || uniqueWarnings.length > 0}
+			<div class="rounded-md border border-severity-warning-border bg-severity-warning-soft overflow-hidden">
+				<div class="px-3 py-2 text-sm font-semibold text-severity-warning-text border-b border-severity-warning-border">
+					Needs a decision before applying
 				</div>
 
-				<!-- Bulk actions -->
-				<div class="rounded-md border border-brand-divider bg-brand-surface p-3 space-y-1.5">
-					<div class="text-xs text-brand-muted font-semibold uppercase tracking-wider mb-1">Bulk actions</div>
-					<button onclick={() => bulkAction('pair')} class="w-full text-left text-xs px-2 py-1 rounded bg-transparent border-none cursor-pointer hover:bg-brand-bg text-brand-text">Accept all</button>
-					<button onclick={() => bulkAction('skip')} class="w-full text-left text-xs px-2 py-1 rounded bg-transparent border-none cursor-pointer hover:bg-brand-bg text-brand-text">Skip all</button>
-					<button onclick={() => bulkAction('pair', 'exact')} class="w-full text-left text-xs px-2 py-1 rounded bg-transparent border-none cursor-pointer hover:bg-brand-bg text-brand-text">Accept exact matches</button>
-					<button onclick={() => bulkAction('skip', 'none')} class="w-full text-left text-xs px-2 py-1 rounded bg-transparent border-none cursor-pointer hover:bg-brand-bg text-brand-text">Skip unmatched</button>
-				</div>
+				{#each unresolvedInstruments as g (g.key)}
+					<div class="px-3 py-2 border-b border-severity-warning-border/50 last:border-b-0 text-sm text-severity-warning-text">
+						<div>
+							<span class="font-mono">{g.instrument.curve_column}</span>
+							names a standard curve on every reading of
+							{g.streamCount} stream{g.streamCount === 1 ? '' : 's'}
+							({g.parameters.join(', ')}), but matches no instrument this source has registered.
+						</div>
+						<p class="text-xs mt-1 opacity-90">
+							A curve is fitted on one instrument, so a reading naming a curve must name that
+							instrument too. Without one, those readings are dropped at ingest rather than stored.
+						</p>
+						<div class="flex flex-wrap items-center gap-2 mt-2">
+							<input
+								type="text"
+								value={g.instrument.name}
+								onchange={(e) => renameInstrument(g.anchorStreamId, (e.target as HTMLInputElement).value)}
+								class="px-2 py-1 rounded text-xs bg-brand-surface border border-brand-divider w-64"
+								aria-label="Instrument name"
+							/>
+							<Button
+								variant="primary"
+								size="sm"
+								disabled={instrumentSaving === g.key}
+								onclick={() => confirmInstrument(g)}
+							>{instrumentSaving === g.key ? 'Creating…' : 'Create instrument'}</Button>
+							<select
+								value=""
+								onchange={(e) => { repointInstrument(g.anchorStreamId, (e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = ''; }}
+								class="px-2 py-1 rounded text-xs bg-brand-surface border border-brand-divider"
+								aria-label="Use an existing instrument"
+							>
+								<option value="">or use an existing instrument…</option>
+								{#each labInstruments as s}
+									<option value={s.id}>{s.name ?? s.serial_number ?? s.id}</option>
+								{/each}
+							</select>
+						</div>
+					</div>
+				{/each}
 
-				<!-- Filters -->
-				<div class="space-y-1">
-					<div class="text-xs text-brand-muted font-semibold uppercase tracking-wider">Filter</div>
-					{#each [['all', 'All'], ['pair', 'Will pair'], ['skip', 'Skipped'], ['exact', 'Exact match'], ['none', 'Needs review'], ['warnings', 'Warnings']] as [val, label]}
-						<button
-							onclick={() => { reviewFilter = val as typeof reviewFilter; sitePage = 0; }}
-							class="block w-full text-left text-xs px-2 py-1 rounded cursor-pointer border-none {reviewFilter === val ? 'bg-brand-primary text-white' : 'bg-transparent text-brand-muted hover:text-brand-text hover:bg-brand-bg'}"
-						>{label} {val === 'all' ? `(${siteGroups.length})` : ''}</button>
-					{/each}
-				</div>
+				{#each uniqueWarnings as w (w.warning.message)}
+					<div class="px-3 py-2 border-b border-severity-warning-border/50 last:border-b-0 text-sm text-severity-warning-text">
+						<div>{w.warning.message}</div>
+						{#if w.warning.existing}
+							{@const ex = w.warning.existing}
+							<p class="text-xs mt-1 opacity-90">
+								The catalog entry is
+								<a href="{base}/parameters/{ex.id}" class="font-mono underline-offset-2 hover:underline">{ex.code}</a>
+								({ex.name}), used by {ex.site_parameter_count} site{ex.site_parameter_count === 1 ? '' : 's'}
+								and {ex.reading_count.toLocaleString()} reading{ex.reading_count === 1 ? '' : 's'}.
+								Affects {w.count.toLocaleString()} stream{w.count === 1 ? '' : 's'}.
+							</p>
+							<div class="flex flex-wrap items-center gap-2 mt-2">
+								<Button size="sm" onclick={() => adoptCatalogUnits(w)}>Keep catalog units ({ex.units})</Button>
+								<Button size="sm" onclick={() => adoptSourceUnits(w)}>Use source units ({w.warning.source_units})</Button>
+								<Button variant="ghost" size="sm" onclick={() => goToParam(w.paramName)}>Open in Parameters</Button>
+							</div>
+						{:else}
+							<p class="text-xs mt-1 opacity-90">Affects {w.count.toLocaleString()} stream{w.count === 1 ? '' : 's'}.</p>
+						{/if}
+					</div>
+				{/each}
 			</div>
+		{/if}
 
-			<!-- Main area -->
-			<div class="space-y-3">
-				<!-- View tabs -->
-				<div class="flex gap-1 border-b border-brand-divider pb-2">
-					{#each [['sites', `Sites (${siteGroups.length})`], ['parameters', `Parameters (${paramGroups.length})`], ['warnings', `Warnings (${uniqueWarnings.length})`]] as [tab, label]}
-						<button
-							onclick={() => reviewTab = tab as typeof reviewTab}
-							class="px-3 py-1 text-sm rounded-t cursor-pointer border-none {reviewTab === tab ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
-						>{label}</button>
-					{/each}
-				</div>
+		<!-- Curve columns the source declares but never fills: the plan states it rather than
+		     leaving the routing block to imply data that will not arrive. -->
+		{#each instrumentGroups.filter((g) => g.instrument.stamps_readings && g.instrument.curves.length === 0 && !g.instrument.create) as g (g.key)}
+			<p class="text-xs text-brand-muted">
+				<span class="font-mono">{g.instrument.curve_column}</span> resolves to
+				{g.instrument.name}, which has no curves registered, so no reading from these
+				{g.streamCount} stream{g.streamCount === 1 ? '' : 's'} will carry a curve reference.
+			</p>
+		{/each}
+
+		<div class="space-y-3">
+			<!-- View tabs -->
+			<div class="flex gap-1 border-b border-brand-divider pb-2">
+				{#each [['parameters', `Parameters (${paramGroups.length})`], ['sites', `Sites (${siteGroups.length})`]] as [t, label]}
+					<button
+						onclick={() => reviewTab = t as typeof reviewTab}
+						class="px-3 py-1 text-sm rounded-t cursor-pointer border-none {reviewTab === t ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
+					>{label}</button>
+				{/each}
+			</div>
 
 				<!-- ── SITES TAB ── -->
 				{#if reviewTab === 'sites'}
@@ -1147,7 +1313,17 @@
 						class="w-full px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
 					/>
 
-					<div class="text-xs text-brand-muted">{filteredGroups.length} site{filteredGroups.length === 1 ? '' : 's'} ({planEntries.filter((e) => e.action === 'pair').length} streams to pair)</div>
+					<div class="flex items-center justify-between gap-3">
+						<div class="text-xs text-brand-muted">{filteredGroups.length} site{filteredGroups.length === 1 ? '' : 's'} ({planEntries.filter((e) => e.action === 'pair').length} streams to pair)</div>
+						<div class="flex gap-1">
+							{#each [['all', 'All'], ['pair', 'Will pair'], ['skip', 'Skipped']] as [val, label]}
+								<button
+									onclick={() => { reviewFilter = val as typeof reviewFilter; sitePage = 0; }}
+									class="px-2 py-0.5 text-xs rounded cursor-pointer border-none {reviewFilter === val ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
+								>{label}</button>
+							{/each}
+						</div>
+					</div>
 
 					<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 						{#each pagedGroups as group}
@@ -1194,13 +1370,10 @@
 									{/if}
 									<span class="text-xs text-brand-muted ml-2">{group.entries.length} params</span>
 									{#if group.warningCount > 0}
-										<Button
-											variant="ghost"
-											size="sm"
-											onclick={(e) => { e.stopPropagation(); jumpToWarnings(group.entries.flatMap((en) => en.warnings)); }}
-											class="text-severity-warning ml-2 p-0"
-											title="View affected warnings"
-										>{group.warningCount} warn</Button>
+										<span
+											class="text-xs text-severity-warning ml-2"
+											title={group.entries.flatMap((en) => en.warnings.map((w) => w.message)).join(', ')}
+										>{group.warningCount} warn</span>
 									{/if}
 								</div>
 								<span class="text-xs text-brand-muted px-2">{group.project}</span>
@@ -1322,13 +1495,10 @@
 											{/if}
 										</div>
 										{#if entry.warnings.length > 0}
-											<Button
-												variant="ghost"
-												size="sm"
-												onclick={(e) => { e.stopPropagation(); jumpToWarnings(entry.warnings); }}
-												class="text-severity-warning shrink-0 p-0"
-												title={entry.warnings.join(', ')}
-											>warn</Button>
+											<span
+												class="text-xs text-severity-warning shrink-0"
+												title={entry.warnings.map((w) => w.message).join(', ')}
+											>warn</span>
 										{/if}
 										<button onclick={() => setEntryAction(entry, 'pair')} class="px-1.5 py-0.5 rounded cursor-pointer border-none shrink-0 {entry.action === 'pair' ? 'bg-severity-ok-soft text-severity-ok' : 'bg-brand-bg text-brand-muted opacity-50'}">Pair</button>
 										<button
@@ -1450,7 +1620,7 @@
 												<button
 													onclick={() => startEditLabel(pg)}
 													class="block bg-transparent border-0 border-b border-dashed border-brand-muted cursor-pointer text-xs text-brand-muted hover:text-brand-primary hover:border-brand-primary mt-0.5 text-left"
-													title="Display label for the created parameter; the code stays the portal column name"
+													title="Display label for the created parameter; the code stays the source column name"
 												>{pg.label ?? 'Add display label'}</button>
 											{/if}
 											{#if pg.replicates}
@@ -1465,6 +1635,9 @@
 											{/if}
 											{#if pg.warnings.length > 0}
 												<div class="text-xs text-severity-warning mt-0.5">{pg.warnings[0]}</div>
+											{/if}
+											{#if pg.instrument}
+												{@render instrumentCell(pg.instrument)}
 											{/if}
 										</td>
 										<td class="px-3 py-2 text-xs">
@@ -1515,42 +1688,9 @@
 						</table>
 					</div>
 
-				<!-- ── WARNINGS TAB ── -->
-				{:else if reviewTab === 'warnings'}
-					{#if uniqueWarnings.length === 0}
-						<p class="text-sm text-severity-ok">No warnings in this plan.</p>
-					{:else}
-						<p class="text-xs text-brand-muted mb-2">
-							Click a warning to jump to the parameter. Resolve by renaming it (creates a new parameter with the source's units) or keep the mapping if the difference is only notation.
-						</p>
-						<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
-							<table class="w-full text-sm">
-								<thead><tr class="bg-brand-bg border-b border-brand-divider">
-									<th class="text-left px-4 py-2 font-semibold">Warning</th>
-									<th class="text-left px-4 py-2 font-semibold">Parameter</th>
-									<th class="text-right px-4 py-2 font-semibold">Affected streams</th>
-								</tr></thead>
-								<tbody>
-									{#each uniqueWarnings as w}
-										<tr
-											data-warning={w.message}
-											class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 cursor-pointer"
-											onclick={() => jumpToParamRow(w.paramName)}
-											title="Jump to {w.paramName} in Parameters tab"
-										>
-											<td class="px-4 py-2 text-severity-warning text-xs">{w.message}</td>
-											<td class="px-4 py-2 font-medium text-brand-primary underline-offset-2 hover:underline">{w.paramName}</td>
-											<td class="px-4 py-2 text-right text-brand-muted">{w.count.toLocaleString()}</td>
-										</tr>
-									{/each}
-								</tbody>
-							</table>
-						</div>
-					{/if}
 				{/if}
 			</div>
 		</div>
-	</div>
 
 <!-- ════════════════════ CONFIRM ════════════════════ -->
 {:else if mode === 'confirm' && plan}
@@ -1568,6 +1708,7 @@
 				<div class="p-3 bg-brand-bg rounded"><span class="text-brand-muted block text-xs">Create projects</span><span class="text-lg font-semibold">{summary.newProjects}</span></div>
 				<div class="p-3 bg-brand-bg rounded"><span class="text-brand-muted block text-xs">Create sites</span><span class="text-lg font-semibold">{summary.newSites}</span></div>
 				<div class="p-3 bg-brand-bg rounded"><span class="text-brand-muted block text-xs">Create parameters</span><span class="text-lg font-semibold">{summary.newParams}</span></div>
+				<div class="p-3 bg-brand-bg rounded"><span class="text-brand-muted block text-xs">Create instruments</span><span class="text-lg font-semibold">{plan.summary.instruments_to_create}</span></div>
 				{#if summary.warnings > 0}
 					<div class="p-3 bg-severity-warning-soft rounded"><span class="text-severity-warning block text-xs">Warnings</span><span class="text-lg font-semibold text-severity-warning">{summary.warnings}</span></div>
 				{/if}
@@ -1577,7 +1718,7 @@
 				<p class="text-xs text-brand-muted">
 					{familySummary.streams} of these streams are replicate families ({familySummary.columns}
 					readings columns collapse into them). Replicates are stored per instant at indices
-					0..n-1; portal averages and standard deviations are audited, not stored.
+					0..n-1; the source's averages and standard deviations are audited, not stored.
 				</p>
 			{/if}
 			<p class="text-xs text-brand-muted">Readings will be backfilled with site and parameter IDs. Continuous aggregates will refresh in the background. This operation can be reverted.</p>
@@ -1602,6 +1743,7 @@
 				<div><span class="text-brand-muted block text-xs">Sites created</span><span class="text-lg font-semibold">{applyResult.sites_created}</span></div>
 				<div><span class="text-brand-muted block text-xs">Parameters created</span><span class="text-lg font-semibold">{applyResult.parameters_created}</span></div>
 				<div><span class="text-brand-muted block text-xs">Site-parameters created</span><span class="text-lg font-semibold">{applyResult.site_parameters_created}</span></div>
+				<div><span class="text-brand-muted block text-xs">Instruments created</span><span class="text-lg font-semibold">{applyResult.instruments_created}</span></div>
 				<div><span class="text-brand-muted block text-xs">Streams paired</span><span class="text-lg font-semibold text-severity-ok">{applyResult.streams_paired.toLocaleString()}</span></div>
 				<div><span class="text-brand-muted block text-xs">Readings backfilled</span><span class="text-lg font-semibold">{applyResult.readings_backfilled.toLocaleString()}</span></div>
 			</div>
