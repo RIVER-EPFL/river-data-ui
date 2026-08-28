@@ -316,6 +316,32 @@ export const pairStream = (streamId: string, siteParameterId: string) =>
 export const unpairStream = (streamId: string) =>
 	POST(`${SERVICE}/streams/${streamId}/unpair`);
 
+export interface PreviewReplicate {
+	replicate_index: number;
+	column: string | null;
+	value: number | null;
+	is_flagged: boolean;
+	withdrawn: boolean;
+}
+
+export interface PreviewInstant {
+	time: string;
+	replicates: PreviewReplicate[];
+	mean: number | null;
+	sd: number | null;
+	n: number;
+}
+
+export interface StreamPreview {
+	stream_id: string;
+	source_key: string;
+	instants: PreviewInstant[];
+}
+
+/** The stream's most recent instants as the replicate rows pairing will serve them as. */
+export const getStreamPreview = (streamId: string, limit = 3) =>
+	GET<StreamPreview>(`${ADMIN}/streams/${streamId}/preview?limit=${limit}`);
+
 export interface ImportStreamResponse {
 	sensor_id: string;
 	attributed: number;

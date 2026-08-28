@@ -7,9 +7,10 @@
 	import {
 		pairStream, unpairStream, importStream, getStreamStats, listStreamReceipts, retagStreams, createPairingPlan, updatePairingPlan,
 		applyPairingPlan, revertPairingPlan, pollJob, getUnpairedSummary, getPlanSiteMetadata,
-		replicateSpec, getPendingAuditCount, getReconciliationCandidates,
+		replicateSpec, getPendingAuditCount, getReconciliationCandidates, getStreamPreview,
 		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
 		type PlanReplicateSummary, type StreamReceipt, type PlanWarning, type PlanInstrumentRef,
+	type StreamPreview,
 	} from '$api/service';
 	import { listReplicateAudits } from '$api/service';
 	import { me } from '$auth/me.svelte';
@@ -65,11 +66,30 @@
 	let reconFamilyCount = $state(0);
 	// Expanded replicate-routing blocks in the plan review, keyed by stream id or `param:{name}`.
 	let expandedReplicates = $state<Set<string>>(new Set());
-	function toggleReplicateExpand(key: string) {
+	// The stream's own recent rows, fetched once per stream when a routing block is first opened.
+	// A mapping and an example of that mapping applied are different things, and the second is the
+	// one that tells an operator whether the pairing is right.
+	let previews = $state<Map<string, StreamPreview | 'loading' | 'failed'>>(new Map());
+
+	function toggleReplicateExpand(key: string, streamId?: string) {
 		const next = new Set(expandedReplicates);
 		if (next.has(key)) next.delete(key);
-		else next.add(key);
+		else {
+			next.add(key);
+			if (streamId) void loadPreview(streamId);
+		}
 		expandedReplicates = next;
+	}
+
+	async function loadPreview(streamId: string) {
+		if (previews.has(streamId)) return;
+		previews = new Map(previews).set(streamId, 'loading');
+		try {
+			const preview = await getStreamPreview(streamId, 3);
+			previews = new Map(previews).set(streamId, preview);
+		} catch {
+			previews = new Map(previews).set(streamId, 'failed');
+		}
 	}
 
 	async function loadReplicateSurfacing(sources: string[]) {
@@ -911,15 +931,16 @@
 	});
 </script>
 
-{#snippet replicateChip(key: string, rep: PlanReplicateSummary)}
+{#snippet replicateChip(key: string, rep: PlanReplicateSummary, streamId: string)}
 	<button
-		onclick={(e) => { e.stopPropagation(); toggleReplicateExpand(key); }}
+		onclick={(e) => { e.stopPropagation(); toggleReplicateExpand(key, streamId); }}
 		class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-brand-accent/10 text-brand-accent border border-brand-accent/30 cursor-pointer text-[10px] font-semibold whitespace-nowrap"
 		title="This stream records {rep.n} replicates per instant; expand to see how the source columns route"
 	>⧉ {rep.n} replicates {expandedReplicates.has(key) ? '▾' : '▸'}</button>
 {/snippet}
 
-{#snippet replicateRouting(rep: PlanReplicateSummary)}
+{#snippet replicateRouting(rep: PlanReplicateSummary, streamId: string)}
+	{@const preview = previews.get(streamId)}
 	<div class="space-y-0.5 text-[11px]">
 		{#each rep.member_columns as col, i}
 			<div class="font-mono">{col} → replicate {i}</div>
@@ -932,6 +953,43 @@
 			{rep.portal_mean_column ?? 'average'}{rep.portal_sd_column ? ` / ${rep.portal_sd_column}` : ''}
 			are checked against them, not stored.
 		</p>
+
+		<!-- The same routing with this stream's own values in it. -->
+		{#if preview === 'loading'}
+			<p class="text-brand-muted pt-1">Loading recent readings…</p>
+		{:else if preview === 'failed'}
+			<p class="text-brand-muted pt-1">Recent readings could not be loaded.</p>
+		{:else if preview && preview.instants.length === 0}
+			<p class="text-brand-muted pt-1">This stream holds no readings yet.</p>
+		{:else if preview}
+			<div class="pt-1.5">
+				<div class="text-brand-muted mb-0.5">Most recent {preview.instants.length === 1 ? 'reading' : `${preview.instants.length} readings`}, as they will be stored:</div>
+				<!-- Capped so a wide replicate family scrolls itself rather than squeezing the
+				     row's other columns out of the table. -->
+				<div class="overflow-x-auto max-w-[520px]">
+					<table class="text-[11px] tabular-nums">
+						<tbody>
+							{#each preview.instants as inst (inst.time)}
+								<tr>
+									<td class="pr-3 whitespace-nowrap text-brand-muted">{formatDateTime(inst.time)}</td>
+									{#each inst.replicates as r}
+										<td class="pr-3 whitespace-nowrap {r.is_flagged || r.withdrawn ? 'line-through opacity-60' : ''}">
+											<span class="text-brand-muted">{r.column ?? `rep ${r.replicate_index}`}</span>
+											{r.value ?? '--'}
+										</td>
+									{/each}
+									<td class="pl-2 whitespace-nowrap text-brand-text">
+										x̄ {inst.mean?.toFixed(2) ?? '--'}
+										{#if inst.sd !== null}· s {inst.sd.toFixed(2)}{/if}
+										· n {inst.n}
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			</div>
+		{/if}
 	</div>
 {/snippet}
 
@@ -1496,7 +1554,7 @@
 												>edit all</button>
 											{/if}
 											{#if entryReplicates}
-												{@render replicateChip(entry.stream_id, entryReplicates)}
+												{@render replicateChip(entry.stream_id, entryReplicates, entry.stream_id)}
 											{/if}
 										</div>
 										{#if entry.warnings.length > 0}
@@ -1512,7 +1570,7 @@
 									</div>
 									{#if entryReplicates && expandedReplicates.has(entry.stream_id)}
 										<div class="pl-12 pr-2 py-1.5 border-b border-brand-divider bg-brand-bg/30">
-											{@render replicateRouting(entryReplicates)}
+											{@render replicateRouting(entryReplicates, entry.stream_id)}
 										</div>
 									{/if}
 								{/each}
@@ -1542,7 +1600,7 @@
 								<th class="text-left px-3 py-2 font-semibold">Source name</th>
 								<th class="text-left px-3 py-2 font-semibold">Parameter name</th>
 								<th class="text-left px-3 py-2 font-semibold">Units</th>
-								<th class="text-left px-3 py-2 font-semibold">Map to</th>
+								<th class="text-left px-3 py-2 font-semibold w-[240px]">Map to</th>
 								<th class="text-left px-3 py-2 font-semibold">Status</th>
 								<th class="text-right px-3 py-2 font-semibold">Sites</th>
 								<th class="text-right px-3 py-2 font-semibold">Everywhere</th>
@@ -1631,11 +1689,11 @@
 											{/if}
 											{#if pg.replicates}
 												<div class="mt-1">
-													{@render replicateChip(`param:${pg.name}`, pg.replicates)}
+													{@render replicateChip(`param:${pg.name}`, pg.replicates, pg.streamIds[0])}
 												</div>
 												{#if expandedReplicates.has(`param:${pg.name}`)}
 													<div class="mt-1 pl-2 border-l-2 border-brand-divider">
-														{@render replicateRouting(pg.replicates)}
+														{@render replicateRouting(pg.replicates, pg.streamIds[0])}
 													</div>
 												{/if}
 											{/if}
