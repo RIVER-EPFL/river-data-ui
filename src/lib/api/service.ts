@@ -590,7 +590,8 @@ export interface ExportSummary {
 	annotated_points: number;
 	flagged_readings: number;
 	replicate_readings: number;
-	alarm_events: number;
+	// Readings breaching a warning or alarm bound over the range.
+	alarm_readings: number;
 	per_parameter: {
 		parameter_id: string;
 		code: string;
@@ -598,7 +599,7 @@ export interface ExportSummary {
 		annotated_points: number;
 		flagged_readings: number;
 		replicate_readings: number;
-		alarm_events: number;
+		alarm_readings: number;
 	}[];
 }
 

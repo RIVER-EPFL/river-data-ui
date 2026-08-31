@@ -704,7 +704,7 @@
 			annotated_points: sum((p) => p.annotated_points),
 			flagged_readings: sum((p) => p.flagged_readings),
 			replicate_readings: sum((p) => p.replicate_readings),
-			alarm_events: sum((p) => p.alarm_events),
+			alarm_readings: sum((p) => p.alarm_readings),
 		};
 	});
 
@@ -1077,7 +1077,7 @@
 		if (exportCounts.flagged_readings === 0) exportIncludeFlagged = false;
 		if (exportCounts.replicate_readings === 0) exportIncludeReplicates = false;
 		if (exportCounts.annotation_count === 0) exportIncludeAnnotations = false;
-		if (exportCounts.alarm_events === 0) exportIncludeAlarms = false;
+		if (exportCounts.alarm_readings === 0) exportIncludeAlarms = false;
 	});
 
 	// Export
@@ -1139,9 +1139,8 @@
 					`${name}_annotations.csv`
 				);
 			}
-			if (exportIncludeAlarms && (exportCounts?.alarm_events ?? 0) > 0) {
+			if (exportIncludeAlarms && (exportCounts?.alarm_readings ?? 0) > 0) {
 				const alarmParams = rangeParams();
-				alarmParams.delete('parameter_ids');
 				alarmParams.set('format', 'csv');
 				await download(
 					`/api/sites/${siteId}/alarms?${alarmParams.toString()}`,
@@ -2378,12 +2377,12 @@
 							{/if}
 						</span>
 					</label>
-					<label class="flex items-start gap-2 text-sm {exportCounts?.alarm_events === 0 ? 'opacity-50' : 'cursor-pointer'}">
-						<input type="checkbox" class="mt-0.5" bind:checked={exportIncludeAlarms} disabled={exportCounts?.alarm_events === 0} />
+					<label class="flex items-start gap-2 text-sm {exportCounts?.alarm_readings === 0 ? 'opacity-50' : 'cursor-pointer'}">
+						<input type="checkbox" class="mt-0.5" bind:checked={exportIncludeAlarms} disabled={exportCounts?.alarm_readings === 0} />
 						<span>
 							Also download alarms CSV
 							{#if exportCounts}
-								<span class="block text-xs text-brand-muted">{exportCounts.alarm_events} alarm episodes in this range</span>
+								<span class="block text-xs text-brand-muted">{exportCounts.alarm_readings} readings in warning or alarm; rows join on parameter and timestamp</span>
 							{/if}
 						</span>
 					</label>
