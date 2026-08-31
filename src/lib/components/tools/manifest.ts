@@ -116,6 +116,7 @@ export function fromManifest(raw: unknown): BuilderManifest {
 				units: optStr(o.units),
 				per_replicate: bool(o.per_replicate),
 				aggregate_of: optStr(o.aggregate_of),
+				aggregate: optStr(o.aggregate) as ToolOutput['aggregate'],
 				parameter_id: optStr(o.parameter_id),
 				suggested_parameter_code: optStr(o.suggested_parameter_code),
 				sd_estimator: optStr(o.sd_estimator) as ToolOutput['sd_estimator'],

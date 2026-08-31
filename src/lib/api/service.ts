@@ -1468,6 +1468,12 @@ export interface ToolOutput {
 	per_replicate: boolean;
 	/** Set on avg/sd rows computed from another output; display-only, never saved. */
 	aggregate_of: string | null;
+	/**
+	 * 'mean' or 'sd': the engine computes this output over the curve-applied values of the
+	 * replicates param `aggregate_of` names, honoring the declared divisor; the script never
+	 * computes it.
+	 */
+	aggregate?: 'mean' | 'sd' | null;
 	/** The catalog parameter this output saves to. Authoritative over the code when both are set. */
 	parameter_id: string | null;
 	/**
