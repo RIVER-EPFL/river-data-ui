@@ -444,6 +444,9 @@
 							<span class="w-2.5 h-2.5 rounded-full {health === 'ok' ? 'bg-severity-ok' : health === 'warning' ? 'bg-severity-warning' : health === 'alarm' ? 'bg-severity-alarm' : 'bg-severity-unknown'}"></span>
 							<span class="font-semibold text-sm">{svc.instance_id}</span>
 							<span class="text-xs text-brand-muted">{svc.service_type}</span>
+							{#if svc.paused}
+								<span class="text-xs px-1.5 py-0.5 rounded bg-severity-warning/15 text-severity-warning">Paused</span>
+							{/if}
 							<span class="text-xs text-brand-muted ml-auto">{svc.last_heartbeat ? formatRelativeTime(svc.last_heartbeat) : 'Never'}</span>
 						</button>
 
@@ -461,7 +464,17 @@
 									<ConfirmPopover message="Trigger a full sync (re-fetch all data)?" confirmLabel="Full Sync" confirmVariant="primary" onconfirm={() => sendCommand(svc.id, 'trigger_full_sync')}>
 										<Button size="sm">Full Sync</Button>
 									</ConfirmPopover>
+									{#if svc.paused}
+										<Button size="sm" onclick={() => sendCommand(svc.id, 'resume')}>Resume</Button>
+									{:else}
+										<ConfirmPopover message="Pause scheduled syncs? The service keeps its heartbeat and still runs syncs triggered from here." confirmLabel="Pause" confirmVariant="primary" onconfirm={() => sendCommand(svc.id, 'pause')}>
+											<Button size="sm">Pause</Button>
+										</ConfirmPopover>
+									{/if}
 								</div>
+								{#if svc.paused}
+									<p class="text-xs text-brand-muted">Scheduled syncs are paused; the Sync and Full Sync buttons still run a cycle. Pause persists across service restarts.</p>
+								{/if}
 
 								<div>
 									<div class="flex items-center justify-between mb-1">

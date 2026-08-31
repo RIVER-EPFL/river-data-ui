@@ -34,7 +34,19 @@
 	let {
 		onPendingChange,
 		initialView = 'review',
-	}: { onPendingChange?: (pending: number) => void; initialView?: View } = $props();
+		initialStreamIds,
+		initialClassification,
+		initialFocusLabel,
+	}: {
+		onPendingChange?: (pending: number) => void;
+		initialView?: View;
+		// A caller arriving from evidence it quoted elsewhere (the pairing review's divisor
+		// counts) hands over the exact set it counted, so the queue opens on those holds rather
+		// than on the whole backlog.
+		initialStreamIds?: string[];
+		initialClassification?: 'population_sd' | 'not_population_sd';
+		initialFocusLabel?: string;
+	} = $props();
 
 	// Deliberate initial-value capture: the view is user-navigable after mount.
 	// svelte-ignore state_referenced_locally
@@ -50,6 +62,19 @@
 	let sortByScale = $state<'relative_delta_desc' | 'relative_delta_asc' | null>(null);
 	// '' = all sources; a specific value both filters the list and targets the resync button.
 	let sourceFilter = $state('');
+	// The stream restriction a caller arrived with, cleared by the operator in one click. Only
+	// this one stays a chip: a set of stream ids has no honest dropdown.
+	// svelte-ignore state_referenced_locally
+	let focusStreamIds = $state<string[] | null>(initialStreamIds ?? null);
+	// The two remaining server-side filters, as controls rather than arrival-only restrictions.
+	// A caller arriving with a signature preselects the same dropdown the operator can drive.
+	// svelte-ignore state_referenced_locally
+	let focusClassification = $state<'population_sd' | 'not_population_sd' | ''>(
+		initialClassification ?? '',
+	);
+	// '' = both. 'false' is the set the acknowledgement gate blocks: their slot has declared no
+	// standard-deviation formula.
+	let estimatorFilter = $state<'' | 'true' | 'false'>('');
 
 	// Threshold bulk accept: one ceiling per statistic (percent of the mean magnitude), combined
 	// with AND, plus the live count of pending holds the pair would acknowledge. The sd ceiling is
@@ -150,6 +175,9 @@
 			status: VIEW_STATUS[view],
 			...(sourceFilter ? { source_system: sourceFilter } : {}),
 			...(sortByScale ? { sort: sortByScale } : {}),
+			...(focusStreamIds?.length ? { stream_ids: focusStreamIds.join(',') } : {}),
+			...(focusClassification ? { classification: focusClassification } : {}),
+			...(estimatorFilter ? { estimator_declared: estimatorFilter === 'true' } : {}),
 		});
 		onPendingChange?.(result.pending);
 		deferredCount = result.deferred;
@@ -301,6 +329,7 @@
 		brake_fired: 'brake fired',
 		missing_output: 'missing output',
 		stale_output: 'stale output',
+		curve_claim_stripped: 'curve stripped',
 	};
 	const KIND_STYLE: Record<HoldKind, string> = {
 		replicate_stats: 'bg-brand-bg text-brand-text',
@@ -308,6 +337,7 @@
 		brake_fired: 'bg-severity-alarm-soft text-severity-alarm',
 		missing_output: 'bg-severity-warning-soft text-severity-warning-text',
 		stale_output: 'bg-severity-warning-soft text-severity-warning-text',
+		curve_claim_stripped: 'bg-severity-warning-soft text-severity-warning-text',
 	};
 	const KIND_TIP: Record<HoldKind, string> = {
 		replicate_stats:
@@ -320,6 +350,8 @@
 			"The tool's declared inputs exist at this visit but its output was never saved.",
 		stale_output:
 			'The stored output disagrees with a recompute under the same pinned script version, typically after an upstream correction.',
+		curve_claim_stripped:
+			"The source named a standard curve this reading cannot carry (fitted on a different instrument, or not a spot measurement). The values were stored uncorrected; the claim is recorded here. Fix the curve's instrument or the stream's, then re-sync to apply the correction.",
 	};
 
 	function isStats(hold: ReplicateAuditHold): boolean {
@@ -626,6 +658,26 @@
 					<option value={s}>{s}</option>
 				{/each}
 			</select>
+			<select
+				bind:value={focusClassification}
+				onchange={() => reload()}
+				class="px-2 py-1 text-xs rounded-md border border-brand-divider bg-brand-surface"
+				title="Filter by disagreement signature. Only these two are filterable server-side, so a filtered page counts honestly."
+			>
+				<option value="">Any disagreement</option>
+				<option value="population_sd">Matching the population divisor (n)</option>
+				<option value="not_population_sd">Matching neither divisor</option>
+			</select>
+			<select
+				bind:value={estimatorFilter}
+				onchange={() => reload()}
+				class="px-2 py-1 text-xs rounded-md border border-brand-divider bg-brand-surface"
+				title="Whether the hold's slot has declared which standard-deviation formula it publishes"
+			>
+				<option value="">Any sd formula</option>
+				<option value="true">Formula declared</option>
+				<option value="false">Formula not declared</option>
+			</select>
 			{#if sourceFilter}
 				<span title={syncService ? `Issue a full sync to ${syncService.instance_id} so ${sourceFilter} re-sends its data without waiting for the cycle` : `No active sync service matches ${sourceFilter}`}>
 					<Button size="sm" disabled={!syncService || requestingSync} onclick={requestSyncNow}>
@@ -685,10 +737,23 @@
 			</ConfirmPopover>
 		</div>
 		<Button onclick={reload}>Refresh</Button>
+		{#if focusStreamIds}
+			<div class="w-full flex items-center gap-2 text-xs">
+				<span class="px-2 py-0.5 rounded-full bg-brand-bg text-brand-text">
+					{focusStreamIds.length} selected stream{focusStreamIds.length === 1 ? '' : 's'}{initialFocusLabel
+						? ` · ${initialFocusLabel}`
+						: ''}
+				</span>
+				<button
+					onclick={() => { focusStreamIds = null; reload(); }}
+					class="bg-transparent border-none p-0 cursor-pointer text-brand-primary underline-offset-2 hover:underline"
+				>Show every stream</button>
+			</div>
+		{/if}
 		{#if view === 'deferred'}
 			<p class="w-full text-xs text-brand-muted">
-				These streams are not paired to a site yet. The discrepancies become reviewable when the
-				stream is paired.
+				These streams are not paired to a site yet, so their disagreements are recorded but not yet
+				decidable. Pairing moves them into Needs review.
 			</p>
 		{/if}
 		{#if undeclared.length > 0}
@@ -726,24 +791,24 @@
 			</div>
 		{/if}
 		<details class="w-full text-xs text-brand-muted">
-			<summary class="cursor-pointer text-brand-primary">What happens if I leave these unreviewed?</summary>
+			<summary class="cursor-pointer text-brand-primary">What does ruling on a hold change?</summary>
 			<div class="mt-1.5 space-y-1.5 max-w-4xl">
 				<p>
-					Nothing is rejected or dropped. Every replicate the source sent is stored and served
-					either way; a hold only records that the aggregate cell the source stored alongside them
-					disagrees with the mean/sd recomputed here. Leaving one open changes no served value, no
-					alarm, no export and no rollup.
+					Every replicate the source sent is stored and served whether or not you rule. A hold only
+					records that the source's own avg/sd cell disagrees with the mean/sd computed here, so
+					leaving one open changes no served value, alarm, export or rollup. Each sync cycle
+					rewrites the same row rather than adding one; a hold closes itself only when the source
+					comes to agree (it then reads <em>Superseded</em>).
 				</p>
 				<p>
-					Holds do not pile up per sync cycle: each cycle rewrites the same row for that stream and
-					instant. One closes on its own only when the source comes to agree (it then reads
-					<em>Superseded</em>); otherwise it stays open until someone rules on it, with no expiry.
+					<strong>Accept</strong> changes no value. It records that the computed statistics stand
+					and writes an audit annotation at that instant, which is drawn on the parameter's chart
+					and included in the site's annotations CSV.
 				</p>
 				<p>
-					<strong>Accept</strong> records that the statistics computed here stand.
-					<strong>Flag replicates</strong> excludes the ones you name, so the mean and sd recompute
-					over the rest. Either way the decision holds against the same disagreement being detected
-					again; if the source's own numbers later move, a new hold opens beside the decided one.
+					<strong>Flag replicates</strong> does change data: the replicates you name are flagged, so
+					the mean and sd recompute over the rest and the served value, exports and rollups follow.
+					Reopening the hold unflags them again.
 				</p>
 			</div>
 		</details>
@@ -1015,6 +1080,16 @@
 				confirmVariant="primary"
 				above
 				onconfirm={() => handleAcknowledgeHold(hold, ctx, 'Reviewed')}
+			>
+				<Button variant="primary" disabled={acknowledging}>Acknowledge</Button>
+			</ConfirmPopover>
+		{:else if hold.status === 'pending' && hold.kind === 'curve_claim_stripped'}
+			<ConfirmPopover
+				message="Mark this reviewed? The readings stay served uncorrected. To apply the correction, re-home the curve or repoint the stream's instrument, then re-sync; the source re-asserts the claim every cycle."
+				confirmLabel="Acknowledge"
+				confirmVariant="primary"
+				above
+				onconfirm={() => handleAcknowledgeHold(hold, ctx, 'Reviewed: values stay uncorrected until the instrument mismatch is fixed')}
 			>
 				<Button variant="primary" disabled={acknowledging}>Acknowledge</Button>
 			</ConfirmPopover>

@@ -34,6 +34,8 @@ export const tokens = {
 		environmental: 'rgba(0,158,115,0.18)',
 		// Minted by an audit resolution, never chosen in the annotate dialog.
 		audit: 'rgba(90,100,114,0.18)',
+		// Registered by a sync service (e.g. a source-applied standard curve), never chosen in the dialog.
+		sync: 'rgba(204,121,167,0.18)',
 		other: 'rgba(160,160,160,0.18)',
 	},
 	slider: {

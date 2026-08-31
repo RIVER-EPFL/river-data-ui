@@ -51,6 +51,7 @@
 		brake_fired: 'Reconciliation brake',
 		missing_output: 'Missing tool output',
 		stale_output: 'Stale tool output',
+		curve_claim_stripped: 'Curve claim stripped',
 	};
 
 	function fmt(v: number): string {
