@@ -605,6 +605,68 @@ export interface ExportSummary {
 export const getSiteExportSummary = (siteId: string, start: string, end: string) =>
 	GET<ExportSummary>(`${SERVICE}/sites/${siteId}/export/summary`, { start, end });
 
+// Instruments overview: every instrument owning curves or feeding streams, with usage.
+export interface CurveOverview {
+	id: string;
+	name: string | null;
+	slope: number;
+	intercept: number;
+	r_squared: number | null;
+	source_system: string | null;
+	source_key: string | null;
+	created_at: string | null;
+	reading_count: number;
+	first_used: string | null;
+	last_used: string | null;
+}
+
+export interface InstrumentStreamRef {
+	id: string;
+	source_system: string;
+	source_key: string;
+	measurement_type: string | null;
+	site_name: string | null;
+	parameter_code: string | null;
+}
+
+export interface InstrumentOverview {
+	id: string;
+	name: string | null;
+	serial_number: string | null;
+	manufacturer: string | null;
+	model: string | null;
+	is_lab_instrument: boolean;
+	source_system: string | null;
+	source_key: string | null;
+	curves: CurveOverview[];
+	streams: InstrumentStreamRef[];
+}
+
+export const getInstrumentsOverview = () =>
+	GET<{ instruments: InstrumentOverview[] }>(`${SERVICE}/instruments/overview`);
+
+export interface CurveUsagePoint {
+	time: string;
+	replicate_index: number;
+	raw_value: number;
+	calibrated_value: number | null;
+	is_flagged: boolean;
+	site_name: string | null;
+	parameter_code: string | null;
+}
+
+export interface CurveUsageResponse {
+	curve_id: string;
+	sensor_id: string;
+	slope: number;
+	intercept: number;
+	reading_count: number;
+	points: CurveUsagePoint[];
+}
+
+export const getCurveUsage = (curveId: string) =>
+	GET<CurveUsageResponse>(`${SERVICE}/standard_curves/${curveId}/usage`);
+
 // Sync
 export interface SyncService {
 	id: string;
