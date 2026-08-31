@@ -5,7 +5,7 @@
 	import { goto } from '$app/navigation';
 	import { api, type Site, type Project, type SiteParameter, type Parameter, type Sensor, type SensorDeployment, type SensorCalibration, type Note, type AlarmThreshold, type DerivedParameter, type Sample, type Annotation, type Subproject } from '$api/crud';
 	import { GET, POST, PATCH } from '$api/client';
-	import { recomputeDerived, getThresholds, getActiveAlarms, listSiteVisits, getCollectionEventDetail, recomputeCollectionEvent, runEventAudit, pollJob, type ResolvedThreshold, type ActiveAlarm, type VisitRow, type VisitsResponse, type EventDetailResponse } from '$api/service';
+	import { recomputeDerived, getThresholds, getActiveAlarms, listSiteVisits, getCollectionEventDetail, recomputeCollectionEvent, runEventAudit, pollJob, getSiteExportSummary, type ResolvedThreshold, type ActiveAlarm, type VisitRow, type VisitsResponse, type EventDetailResponse, type ExportSummary } from '$api/service';
 	import { getSiteSensorIdentity, type SensorIdentityResponse } from '$api/sensors';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { siteNavigator } from '$lib/stores/sites.svelte';
@@ -685,6 +685,42 @@
 	let exportSelectedParamIds = $state<string[]>([]);
 	let exportIncludeFlagged = $state(true);
 	let exportIncludeReplicates = $state(false);
+	let exportIncludeAnnotations = $state(false);
+	let exportIncludeAlarms = $state(false);
+	let exportSummary = $state<ExportSummary | null>(null);
+
+	// What the export range can carry beyond the plain series, narrowed to the selected
+	// parameters. Drives which options are enabled and the counts shown beside them.
+	const exportCounts = $derived.by(() => {
+		if (!exportSummary) return null;
+		const rows =
+			exportSelectedParamIds.length === 0
+				? exportSummary.per_parameter
+				: exportSummary.per_parameter.filter((p) => exportSelectedParamIds.includes(p.parameter_id));
+		const sum = (f: (p: ExportSummary['per_parameter'][number]) => number) =>
+			rows.reduce((s, p) => s + f(p), 0);
+		return {
+			annotation_count: sum((p) => p.annotation_count),
+			annotated_points: sum((p) => p.annotated_points),
+			flagged_readings: sum((p) => p.flagged_readings),
+			replicate_readings: sum((p) => p.replicate_readings),
+			alarm_events: sum((p) => p.alarm_events),
+		};
+	});
+
+	$effect(() => {
+		if (!exportOpen || !exportStartMs || !exportEndMs) return;
+		const start = new Date(exportStartMs).toISOString();
+		const end = new Date(exportEndMs).toISOString();
+		const t = setTimeout(async () => {
+			try {
+				exportSummary = await getSiteExportSummary(siteId, start, end);
+			} catch {
+				exportSummary = null;
+			}
+		}, 400);
+		return () => clearTimeout(t);
+	});
 	let exportMeasurementType = $state<'all' | 'continuous' | 'spot' | 'derived'>('all');
 
 	const exportStartStr = $derived(exportStartMs ? toDatetimeLocal(exportStartMs, timezoneStore.zone) : '');
@@ -1027,19 +1063,58 @@
 		return parameters.find((p) => p.id === parameterId)?.name ?? parameterId;
 	}
 
+	// Export opens on the range the charts are showing; the slider still offers the site's
+	// whole data period.
+	function openExport() {
+		exportStartMs = chartStart;
+		exportEndMs = chartEnd;
+		exportOpen = true;
+	}
+
+	// An option whose range holds nothing is shown disabled, never silently exported.
+	$effect(() => {
+		if (!exportCounts) return;
+		if (exportCounts.flagged_readings === 0) exportIncludeFlagged = false;
+		if (exportCounts.replicate_readings === 0) exportIncludeReplicates = false;
+		if (exportCounts.annotation_count === 0) exportIncludeAnnotations = false;
+		if (exportCounts.alarm_events === 0) exportIncludeAlarms = false;
+	});
+
 	// Export
 	async function handleExport() {
 		if (!exportStartMs || !exportEndMs) return;
 		exportLoading = true;
 		try {
-			const params = new URLSearchParams({
-				start: new Date(exportStartMs).toISOString(),
-				end: new Date(exportEndMs).toISOString(),
-				format: exportFormat,
-			});
-			if (exportSelectedParamIds.length > 0) {
-				params.set('parameter_ids', exportSelectedParamIds.join(','));
-			}
+			const { auth } = await import('$auth/keycloak.svelte');
+			await auth.ensureToken();
+			const download = async (url: string, filename: string) => {
+				const response = await fetch(url, {
+					headers: auth.token ? { Authorization: `Bearer ${auth.token}` } : undefined,
+				});
+				if (!response.ok) {
+					const detail = await response.text().catch(() => response.statusText);
+					throw new Error(`${response.status}: ${detail.slice(0, 200)}`);
+				}
+				const blob = await response.blob();
+				const a = document.createElement('a');
+				a.href = URL.createObjectURL(blob);
+				a.download = filename;
+				a.click();
+				URL.revokeObjectURL(a.href);
+			};
+			const rangeParams = () => {
+				const params = new URLSearchParams({
+					start: new Date(exportStartMs).toISOString(),
+					end: new Date(exportEndMs).toISOString(),
+				});
+				if (exportSelectedParamIds.length > 0) {
+					params.set('parameter_ids', exportSelectedParamIds.join(','));
+				}
+				return params;
+			};
+
+			const params = rangeParams();
+			params.set('format', exportFormat);
 			if (exportResolution === 'raw') {
 				params.set('include_flagged', String(exportIncludeFlagged));
 				params.set('include_replicates', String(exportIncludeReplicates));
@@ -1050,23 +1125,29 @@
 			const path = exportResolution === 'raw'
 				? `/api/sites/${siteId}/readings`
 				: `/api/sites/${siteId}/aggregates/${exportResolution}`;
-			const url = `${path}?${params.toString()}`;
+			const name = site?.name ?? 'export';
+			await download(
+				`${path}?${params.toString()}`,
+				`${name}_${exportResolution}.${exportFormat === 'ndjson' ? 'ndjson' : exportFormat}`
+			);
 
-			const { auth } = await import('$auth/keycloak.svelte');
-			await auth.ensureToken();
-			const response = await fetch(url, {
-				headers: auth.token ? { Authorization: `Bearer ${auth.token}` } : undefined,
-			});
-			if (!response.ok) {
-				const detail = await response.text().catch(() => response.statusText);
-				throw new Error(`${response.status}: ${detail.slice(0, 200)}`);
+			if (exportIncludeAnnotations && (exportCounts?.annotation_count ?? 0) > 0) {
+				const annParams = rangeParams();
+				annParams.set('format', 'csv');
+				await download(
+					`/api/sites/${siteId}/annotations?${annParams.toString()}`,
+					`${name}_annotations.csv`
+				);
 			}
-			const blob = await response.blob();
-			const a = document.createElement('a');
-			a.href = URL.createObjectURL(blob);
-			a.download = `${site?.name ?? 'export'}_${exportResolution}.${exportFormat === 'ndjson' ? 'ndjson' : exportFormat}`;
-			a.click();
-			URL.revokeObjectURL(a.href);
+			if (exportIncludeAlarms && (exportCounts?.alarm_events ?? 0) > 0) {
+				const alarmParams = rangeParams();
+				alarmParams.delete('parameter_ids');
+				alarmParams.set('format', 'csv');
+				await download(
+					`/api/sites/${siteId}/alarms?${alarmParams.toString()}`,
+					`${name}_alarms.csv`
+				);
+			}
 			toastStore.success('Export downloaded');
 			exportOpen = false;
 		} catch (e) { toastStore.error(e instanceof Error ? `Export failed: ${e.message}` : 'Export failed'); }
@@ -1362,7 +1443,7 @@
 				</div>
 			</div>
 			<div class="flex gap-2">
-				<Button onclick={() => exportOpen = true}>Export</Button>
+				<Button onclick={openExport}>Export</Button>
 				<a href="{base}/sites/{site.id}/import" class="px-3 py-1.5 border border-brand-divider bg-brand-surface text-sm rounded-md no-underline text-brand-text hover:bg-brand-bg">Import CSV</a>
 				<a href="{base}/sites/{site.id}/edit" class="px-3 py-1.5 border border-brand-divider bg-brand-surface text-sm rounded-md no-underline text-brand-text hover:bg-brand-bg">Edit</a>
 			</div>
@@ -2266,15 +2347,47 @@
 							<option value="derived">Derived</option>
 						</select>
 					</div>
-					<div class="flex flex-col gap-1">
-						<label class="flex items-center gap-2 cursor-pointer text-sm">
-							<input type="checkbox" bind:checked={exportIncludeFlagged} /> Include flagged readings (with flag metadata)
-						</label>
-						<label class="flex items-center gap-2 cursor-pointer text-sm">
-							<input type="checkbox" bind:checked={exportIncludeReplicates} /> Include all replicates (multiple measurements per time point)
-						</label>
-					</div>
 				{/if}
+				<div class="flex flex-col gap-2">
+					{#if exportResolution === 'raw'}
+						<label class="flex items-start gap-2 text-sm {exportCounts?.flagged_readings === 0 ? 'opacity-50' : 'cursor-pointer'}">
+							<input type="checkbox" class="mt-0.5" bind:checked={exportIncludeFlagged} disabled={exportCounts?.flagged_readings === 0} />
+							<span>
+								Include flagged readings (with flag metadata)
+								{#if exportCounts}
+									<span class="block text-xs text-brand-muted">{exportCounts.flagged_readings} flagged readings in this range</span>
+								{/if}
+							</span>
+						</label>
+						<label class="flex items-start gap-2 text-sm {exportCounts?.replicate_readings === 0 ? 'opacity-50' : 'cursor-pointer'}">
+							<input type="checkbox" class="mt-0.5" bind:checked={exportIncludeReplicates} disabled={exportCounts?.replicate_readings === 0} />
+							<span>
+								Include all replicates (multiple measurements per time point)
+								{#if exportCounts}
+									<span class="block text-xs text-brand-muted">{exportCounts.replicate_readings} replicate readings in this range</span>
+								{/if}
+							</span>
+						</label>
+					{/if}
+					<label class="flex items-start gap-2 text-sm {exportCounts?.annotation_count === 0 ? 'opacity-50' : 'cursor-pointer'}">
+						<input type="checkbox" class="mt-0.5" bind:checked={exportIncludeAnnotations} disabled={exportCounts?.annotation_count === 0} />
+						<span>
+							Also download annotations CSV
+							{#if exportCounts}
+								<span class="block text-xs text-brand-muted">{exportCounts.annotation_count} annotations covering {exportCounts.annotated_points} data points; rows join on parameter code and timestamp</span>
+							{/if}
+						</span>
+					</label>
+					<label class="flex items-start gap-2 text-sm {exportCounts?.alarm_events === 0 ? 'opacity-50' : 'cursor-pointer'}">
+						<input type="checkbox" class="mt-0.5" bind:checked={exportIncludeAlarms} disabled={exportCounts?.alarm_events === 0} />
+						<span>
+							Also download alarms CSV
+							{#if exportCounts}
+								<span class="block text-xs text-brand-muted">{exportCounts.alarm_events} alarm episodes in this range</span>
+							{/if}
+						</span>
+					</label>
+				</div>
 				<div>
 					<label class="text-sm font-medium block mb-1">Format</label>
 					<div class="flex gap-3">

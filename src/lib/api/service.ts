@@ -584,6 +584,27 @@ export interface PreviewDerivedResponse {
 export const previewDerived = (params: PreviewDerivedRequest) =>
 	POST<PreviewDerivedResponse>(`${ADMIN}/actions/preview_derived`, params);
 
+// Export summary: what a site export of this range can carry beyond the plain series.
+export interface ExportSummary {
+	annotation_count: number;
+	annotated_points: number;
+	flagged_readings: number;
+	replicate_readings: number;
+	alarm_events: number;
+	per_parameter: {
+		parameter_id: string;
+		code: string;
+		annotation_count: number;
+		annotated_points: number;
+		flagged_readings: number;
+		replicate_readings: number;
+		alarm_events: number;
+	}[];
+}
+
+export const getSiteExportSummary = (siteId: string, start: string, end: string) =>
+	GET<ExportSummary>(`${SERVICE}/sites/${siteId}/export/summary`, { start, end });
+
 // Sync
 export interface SyncService {
 	id: string;
@@ -591,6 +612,7 @@ export interface SyncService {
 	instance_id: string;
 	status: string;
 	current_operation: string | null;
+	paused: boolean;
 	last_heartbeat: string | null;
 	last_sync_completed_at: string | null;
 	last_error: string | null;
@@ -893,7 +915,8 @@ export type HoldKind =
 	| 'source_modified'
 	| 'brake_fired'
 	| 'missing_output'
-	| 'stale_output';
+	| 'stale_output'
+	| 'curve_claim_stripped';
 
 export interface ReplicateAuditHold {
 	id: string;
@@ -975,9 +998,10 @@ export const listReplicateAudits = (
 		max_mean_relative_delta?: number;
 		max_sd_relative_delta?: number;
 		sort?: 'relative_delta_desc' | 'relative_delta_asc' | 'created_at_desc';
-		// Only 'population_sd' is filterable: it is the one signature with a SQL spelling, so it
-		// filters and pages without dropping rows out of an already-counted page.
-		classification?: 'population_sd';
+		// Only these two are filterable: 'population_sd' is the one signature with a SQL spelling
+		// and 'not_population_sd' is its exact complement, so both filter and page without
+		// dropping rows out of an already-counted page.
+		classification?: 'population_sd' | 'not_population_sd';
 		// Holds whose slot has (true) or has not (false) declared an sd estimator. `false` is the
 		// set the resolution gate blocks from plain acknowledgement.
 		estimator_declared?: boolean;
