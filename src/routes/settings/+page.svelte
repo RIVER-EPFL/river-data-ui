@@ -145,10 +145,15 @@
 	async function sendTest() {
 		testBusy = true;
 		try {
-			testResults = await testMyPush();
+			// An API older than per-device reporting answers 204 with no body.
+			const results = await testMyPush();
+			testResults = Array.isArray(results) ? results : [];
+			if (testResults.length === 0) {
+				toastStore.success('Test notification sent');
+				return;
+			}
 			const sent = testResults.filter((r) => r.status === 'sent').length;
-			const pruned = testResults.filter((r) => r.pruned).length;
-			if (pruned > 0) await refreshDevices();
+			if (testResults.some((r) => r.pruned)) await refreshDevices();
 			toastStore.success(
 				`Sent to ${sent} of ${testResults.length} device${testResults.length === 1 ? '' : 's'}`
 			);
