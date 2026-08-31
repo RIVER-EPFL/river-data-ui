@@ -242,6 +242,29 @@
 						</div>
 					</div>
 
+					{#if storage === 'replicates'}
+						<div class="w-44 shrink-0">
+							<label for={outputField(i, 'sd_estimator')} class="text-brand-muted">
+								Standard deviation
+							</label>
+							<select
+								id={outputField(i, 'sd_estimator')}
+								aria-label="Standard deviation formula for {o.key || 'this output'}"
+								value={o.sd_estimator ?? ''}
+								onchange={(e) =>
+									(outputs[i].sd_estimator =
+										(e.currentTarget.value || null) as ToolOutput['sd_estimator'])}
+								title="Which divisor the saved replicates' standard deviation uses. Leave it to the parameter unless this tool genuinely reports one convention."
+								class="{control} w-full"
+							>
+								<option value="">From the parameter</option>
+								<option value="sample">Sample (n-1)</option>
+								<option value="population">Population (n)</option>
+								<option value="selectable">Operator chooses</option>
+							</select>
+						</div>
+					{/if}
+
 					<div class="grow min-w-48">
 						<span class="text-brand-muted">Parameter</span>
 						{#if stored}

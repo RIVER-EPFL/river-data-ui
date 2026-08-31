@@ -7,6 +7,9 @@
 		acknowledgeReplicateAuditsBulk,
 		resolveReplicateAudit,
 		reopenReplicateAudit,
+		listUndeclaredSdEstimators,
+		type SdEstimator,
+		type UndeclaredEstimatorSlot,
 		issueSyncCommand,
 		getSyncCommand,
 		type ReplicateAuditHold,
@@ -38,6 +41,11 @@
 	let view = $state<View>(initialView);
 	let deferredCount = $state(0);
 	let acknowledging = $state(false);
+	// Slots serving statistics under no declared sd estimator. The audit is what surfaces the
+	// missing specification, so the banner and the per-hold actions both read this.
+	let undeclared = $state<UndeclaredEstimatorSlot[]>([]);
+	// Which divisor the operator is about to declare, per hold being viewed.
+	let declareChoice = $state<SdEstimator>('population');
 	// Server-side, so largest-first triage works across the whole backlog, not one page.
 	let sortByScale = $state<'relative_delta_desc' | 'relative_delta_asc' | null>(null);
 	// '' = all sources; a specific value both filters the list and targets the resync button.
@@ -45,7 +53,7 @@
 
 	// Threshold bulk accept: one ceiling per statistic (percent of the mean magnitude), combined
 	// with AND, plus the live count of pending holds the pair would acknowledge. The sd ceiling is
-	// looser by default because the systematic sd offsets (population-vs-sample, portal rounding)
+	// looser by default because the systematic sd offsets (population-vs-sample, source rounding)
 	// are larger than the mean ones. 25% is the meter's display cap: the systematic-offset classes
 	// sit comfortably inside it while genuinely stale aggregates render as a full bar.
 	const METER_CAP_PCT = 25;
@@ -149,6 +157,7 @@
 			...new Set(result.holds.map((h) => h.source_system).filter((s): s is string => s != null)),
 		].sort();
 		refreshThresholdCount();
+		void refreshUndeclared();
 		return { data: result.holds, total: result.total };
 	}
 
@@ -170,9 +179,9 @@
 		}, 250);
 	}
 
-	// The portals store aggregate cells to 2 decimals; values display at that precision (full
+	// Source systems store aggregate cells to 2 decimals; values display at that precision (full
 	// precision in the tooltip) and a delta at or below the storage quantum is not colourable.
-	const PORTAL_QUANTUM = 0.005;
+	const SOURCE_QUANTUM = 0.005;
 
 	function fmtStat(v: number | null | undefined): string {
 		if (v == null) return '–';
@@ -214,9 +223,9 @@
 		high: 'text-severity-alarm',
 	};
 
-	// A delta at or below the portal's storage quantum is display noise, never coloured.
+	// A delta at or below the source's storage quantum is display noise, never coloured.
 	function deltaClass(delta: number | null | undefined, rel: number): string {
-		if (delta == null || Math.abs(delta) <= PORTAL_QUANTUM) return 'text-brand-muted';
+		if (delta == null || Math.abs(delta) <= SOURCE_QUANTUM) return 'text-brand-muted';
 		return DELTA_TEXT[band(rel)];
 	}
 
@@ -236,14 +245,31 @@
 	};
 	const CLASS_TIP: Record<ReplicateAuditHold['classification'], string> = {
 		n_mismatch:
-			'The portal row has more non-null replicate cells than were stored here; a replicate was lost between the portal and our ingest.',
+			'The source row has more non-null replicate cells than were stored here; a replicate was lost between the source and our ingest.',
 		population_sd:
-			"The portal's sd matches the population formula (divisor n); ours uses the sample formula (divisor n-1), matching the portals' current calcSd.",
+			"The source's sd matches the population formula (divisor n); ours uses the sample formula (divisor n-1).",
 		stale_subset:
-			"The portal's stored avg/sd match a computation over a subset of the replicates; a replicate added later did not update the stored cells.",
-		quantization: "The disagreement is at the scale of the portal's 2-decimal storage.",
+			"The source's stored avg/sd match a computation over a subset of the replicates; a replicate added later did not update the stored cells.",
+		quantization: "The disagreement is at the scale of the source's 2-decimal storage.",
 		unexplained: 'The disagreement does not match a known signature.',
 	};
+
+	// The population form of our own sample sd: s * sqrt((n-1)/n). What the source would have got
+	// from the same replicates with divisor n.
+	function populationSd(hold: ReplicateAuditHold): number | null {
+		const { sd, n } = hold.computed;
+		if (sd == null || n < 2) return null;
+		return sd * Math.sqrt((n - 1) / n);
+	}
+
+	function causeText(hold: ReplicateAuditHold): string {
+		if (!isStats(hold)) return KIND_TIP[hold.kind];
+		const base = CLASS_TIP[hold.classification];
+		if (hold.classification !== 'population_sd') return base;
+		const pop = populationSd(hold);
+		if (pop == null) return base;
+		return `${base} Population sd of our replicates: ${fmtStat(pop)}; source ${fmtStat(hold.expected.sd)}.`;
+	}
 
 	function underThreshold(hold: ReplicateAuditHold): boolean {
 		return (
@@ -285,7 +311,7 @@
 	};
 	const KIND_TIP: Record<HoldKind, string> = {
 		replicate_stats:
-			"The group's recomputed statistics disagree with the portal's stored avg/sd.",
+			"The group's recomputed statistics disagree with the source's stored avg/sd.",
 		source_modified:
 			'The source changed or withdrew a reading that carries curation (a flag, a hand-picked curve, or a labelled sample). The value change applied; the curation and servedness did not move without this review.',
 		brake_fired:
@@ -334,10 +360,15 @@
 				max_mean_relative_delta: meanThresholdPct / 100,
 				max_sd_relative_delta: sdThresholdPct / 100,
 			});
+			const skipped = res.skipped_undeclared_estimator ?? 0;
 			toastStore.success(
-				`Accepted ${res.acknowledged} hold${res.acknowledged === 1 ? '' : 's'} under x̄ ≤ ${meanThresholdPct}% and s ≤ ${sdThresholdPct}%`,
+				`Accepted ${res.acknowledged} hold${res.acknowledged === 1 ? '' : 's'} under x̄ ≤ ${meanThresholdPct}% and s ≤ ${sdThresholdPct}%` +
+					(skipped > 0
+						? `; ${skipped} left pending, awaiting a standard-deviation formula for their parameter`
+						: ''),
 			);
 			await ctx.reload();
+			await refreshUndeclared();
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Failed to accept');
 		} finally {
@@ -354,6 +385,68 @@
 		if (next.has(idx)) next.delete(idx);
 		else next.add(idx);
 		selectedReplicates = next;
+	}
+
+	async function refreshUndeclared() {
+		try {
+			undeclared = (await listUndeclaredSdEstimators()).slots;
+		} catch {
+			// Listing may be denied; the per-hold actions still work from the hold itself.
+			undeclared = [];
+		}
+	}
+
+	// The slot this hold sits on, when it is one of the undeclared ones. Its counts are what the
+	// confirm quotes, so what the operator is told and what the declaration does come from the
+	// same numbers.
+	function undeclaredSlot(hold: ReplicateAuditHold): UndeclaredEstimatorSlot | null {
+		return (
+			undeclared.find(
+				(s) => s.site_name === hold.site_name && s.parameter_name === hold.parameter_name,
+			) ?? null
+		);
+	}
+
+	// A hold the resolution gate blocks: the divisor explains it and the parameter has not said
+	// which one it publishes, so accepting would file that decision without anyone making it.
+	function needsDeclaration(hold: ReplicateAuditHold): boolean {
+		return (
+			hold.kind === 'replicate_stats' &&
+			hold.classification === 'population_sd' &&
+			hold.status === 'pending' &&
+			undeclaredSlot(hold) !== null
+		);
+	}
+
+	function estimatorLabel(e: SdEstimator): string {
+		return e === 'population' ? 'population (divisor n)' : 'sample (divisor n-1)';
+	}
+
+	async function handleDeclare(
+		hold: ReplicateAuditHold,
+		scope: 'slot' | 'instant',
+		ctx: { close: () => void; reload: () => Promise<void> },
+	) {
+		acknowledging = true;
+		try {
+			const res = await resolveReplicateAudit(hold.id, {
+				mode: 'estimator',
+				estimator: declareChoice,
+				scope,
+			});
+			toastStore.success(
+				scope === 'slot'
+					? `${hold.site_name} / ${hold.parameter_name} now publishes the ${estimatorLabel(declareChoice)} standard deviation; ${res.samples_affected ?? 0} sample${res.samples_affected === 1 ? '' : 's'} recomputing`
+					: `This collection group now uses the ${estimatorLabel(declareChoice)} standard deviation`,
+			);
+			ctx.close();
+			await ctx.reload();
+			await refreshUndeclared();
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Failed to declare');
+		} finally {
+			acknowledging = false;
+		}
 	}
 
 	async function handleAccept(
@@ -441,7 +534,13 @@
 		acknowledging = true;
 		try {
 			const res = await acknowledgeReplicateAuditsBulk({ stream_id: hold.stream_id });
-			toastStore.success(`Accepted ${res.acknowledged} hold${res.acknowledged === 1 ? '' : 's'} for ${streamLabel(hold)}`);
+			const skipped = res.skipped_undeclared_estimator ?? 0;
+			toastStore.success(
+				`Accepted ${res.acknowledged} hold${res.acknowledged === 1 ? '' : 's'} for ${streamLabel(hold)}` +
+					(skipped > 0
+						? `; ${skipped} left pending, awaiting a standard-deviation formula for the parameter`
+						: ''),
+			);
 			ctx.close();
 			await ctx.reload();
 		} catch (e) {
@@ -470,23 +569,25 @@
 	}
 </script>
 
-{#snippet scaleBar(label: string, rel: number)}
-	<div class="flex items-center gap-1.5">
-		<span class="w-3 shrink-0 font-mono text-[10px] text-brand-muted">{label}</span>
-		<div class="w-16 h-1 rounded-sm bg-brand-bg border border-brand-divider overflow-hidden shrink-0">
-			<div
-				class="h-full {BAR_FILL[band(rel)]}"
-				style="width: {Math.min((rel * 100) / METER_CAP_PCT, 1) * 100}%"
-			></div>
+{#snippet deltaCell(delta: number | null | undefined, rel: number)}
+	<td class="px-3 py-2 text-right" title="Disagreement relative to the mean magnitude: {fmtPct(rel)} (bar capped at {METER_CAP_PCT}%)">
+		<div class="font-mono text-xs {deltaClass(delta, rel)}" title={fullValue(delta)}>{fmt(delta)}</div>
+		<div class="flex items-center justify-end gap-1 mt-0.5">
+			<div class="w-14 h-1 rounded-sm bg-brand-bg border border-brand-divider overflow-hidden shrink-0">
+				<div
+					class="h-full {BAR_FILL[band(rel)]}"
+					style="width: {Math.min((rel * 100) / METER_CAP_PCT, 1) * 100}%"
+				></div>
+			</div>
+			<span class="font-mono text-[10px] text-brand-muted w-9 text-right">{fmtPct(rel)}</span>
 		</div>
-		<span class="font-mono text-[10px] text-brand-muted">{fmtPct(rel)}</span>
-	</div>
+	</td>
 {/snippet}
 
 <EventPanel
 	{fetchPage}
 	perPage={PER_PAGE}
-	colCount={13}
+	colCount={12}
 	rowClass={(hold) => (underThreshold(hold) ? 'bg-severity-ok-soft' : '')}
 	emptyText={view === 'review' ? 'Nothing needs review' : view === 'resolved' ? 'No resolved holds' : 'No holds awaiting pairing'}
 	detailTitle="Replicate Audit Hold"
@@ -509,6 +610,11 @@
 			{/each}
 		</div>
 		<div class="flex items-center gap-2">
+			<button
+				onclick={() => { sortByScale = sortByScale === 'relative_delta_desc' ? 'relative_delta_asc' : 'relative_delta_desc'; reload(); }}
+				class="px-2 py-1 text-xs rounded-md border border-brand-divider bg-brand-surface cursor-pointer {sortByScale ? 'text-brand-primary' : 'text-brand-muted'}"
+				title="Sort by overall disagreement size (max of x̄ and s) across all pages"
+			>Δ size {sortByScale === 'relative_delta_desc' ? '▾' : sortByScale === 'relative_delta_asc' ? '▴' : '↕'}</button>
 			<select
 				bind:value={sourceFilter}
 				onchange={() => { issuedCommand = null; reload(); }}
@@ -568,7 +674,7 @@
 				</div>
 			</div>
 			<ConfirmPopover
-				message="Accept {thresholdCount ?? '…'} pending hold{thresholdCount === 1 ? '' : 's'} whose mean disagreement is at or below {meanThresholdPct}% and sd disagreement at or below {sdThresholdPct}%? The recomputed statistics stand for all of them."
+				message="Accept {thresholdCount ?? '…'} pending hold{thresholdCount === 1 ? '' : 's'} whose mean disagreement is at or below {meanThresholdPct}% and sd disagreement at or below {sdThresholdPct}%? The recomputed statistics stand for all of them, and each instant is marked on its parameter's charts with an audit annotation.{undeclared.length > 0 ? ` Holds explained by the standard-deviation divisor on the ${undeclared.length} parameter${undeclared.length === 1 ? '' : 's'} that have not declared one are not included: those need a decision first.` : ''}"
 				confirmLabel="Accept {thresholdCount ?? ''}"
 				confirmVariant="primary"
 				onconfirm={() => handleBulkThreshold({ reload })}
@@ -585,26 +691,75 @@
 				stream is paired.
 			</p>
 		{/if}
+		{#if undeclared.length > 0}
+			{@const gated = undeclared.reduce((n, s) => n + s.population_signature_holds, 0)}
+			<div class="w-full rounded-md border border-severity-warning-border bg-severity-warning-soft px-3 py-2 text-xs text-severity-warning-text space-y-1">
+				<p>
+					<strong>{undeclared.length} parameter{undeclared.length === 1 ? '' : 's'}</strong>
+					serve{undeclared.length === 1 ? 's' : ''} replicate statistics without a declared
+					standard-deviation formula.
+					{#if gated > 0}
+						{gated} hold{gated === 1 ? '' : 's'} here disagree only by that divisor and cannot be
+						accepted until the formula is chosen.
+					{/if}
+				</p>
+				<ul class="space-y-0.5">
+					{#each undeclared.slice(0, 6) as slot}
+						<li>
+							<span class="font-semibold">{slot.site_name} / {slot.parameter_name}</span>
+							<span class="text-brand-muted">
+								— {slot.undeclared_samples} sample{slot.undeclared_samples === 1 ? '' : 's'} on the
+								sample formula (n-1){slot.population_signature_holds > 0
+									? `, ${slot.population_signature_holds} hold${slot.population_signature_holds === 1 ? '' : 's'} matching the population divisor`
+									: ''}{slot.source_reports_sd ? ', source ships its own sd' : ''}
+							</span>
+						</li>
+					{/each}
+					{#if undeclared.length > 6}
+						<li class="text-brand-muted">and {undeclared.length - 6} more</li>
+					{/if}
+				</ul>
+				<p class="text-brand-muted">
+					Open a hold below to read the evidence and declare the formula, for the parameter or
+					for one instant.
+				</p>
+			</div>
+		{/if}
+		<details class="w-full text-xs text-brand-muted">
+			<summary class="cursor-pointer text-brand-primary">What happens if I leave these unreviewed?</summary>
+			<div class="mt-1.5 space-y-1.5 max-w-4xl">
+				<p>
+					Nothing is rejected or dropped. Every replicate the source sent is stored and served
+					either way; a hold only records that the aggregate cell the source stored alongside them
+					disagrees with the mean/sd recomputed here. Leaving one open changes no served value, no
+					alarm, no export and no rollup.
+				</p>
+				<p>
+					Holds do not pile up per sync cycle: each cycle rewrites the same row for that stream and
+					instant. One closes on its own only when the source comes to agree (it then reads
+					<em>Superseded</em>); otherwise it stays open until someone rules on it, with no expiry.
+				</p>
+				<p>
+					<strong>Accept</strong> records that the statistics computed here stand.
+					<strong>Flag replicates</strong> excludes the ones you name, so the mean and sd recompute
+					over the rest. Either way the decision holds against the same disagreement being detected
+					again; if the source's own numbers later move, a new hold opens beside the decided one.
+				</p>
+			</div>
+		</details>
 	{/snippet}
 
-	{#snippet head({ reload })}
+	{#snippet head()}
 		<th class="text-left px-4 py-2 font-semibold">Stream</th>
 		<th class="text-left px-4 py-2 font-semibold">Instant</th>
-		<th class="text-right px-4 py-2 font-semibold" title="Replicate count: portal (non-null cells) / ours (unflagged stored replicates)">n</th>
-		<th class="text-right px-3 py-2 font-semibold">Mean portal</th>
+		<th class="text-right px-4 py-2 font-semibold" title="Replicate count: source (non-null cells) / ours (unflagged stored replicates)">n</th>
+		<th class="text-right px-3 py-2 font-semibold">Mean source</th>
 		<th class="text-right px-3 py-2 font-semibold" title="AVG(COALESCE(calibrated_value, raw_value)) over the unflagged replicates">Mean ours</th>
 		<th class="text-right px-3 py-2 font-semibold">Δ mean</th>
-		<th class="text-right px-3 py-2 font-semibold">SD portal</th>
-		<th class="text-right px-3 py-2 font-semibold" title="STDDEV_SAMP: sqrt(Σ(x - x̄)² / (n - 1)), matching the portals' sd()">SD ours</th>
+		<th class="text-right px-3 py-2 font-semibold">SD source</th>
+		<th class="text-right px-3 py-2 font-semibold" title="STDDEV_SAMP: sqrt(Σ(x - x̄)² / (n - 1)), matching sd() at source">SD ours</th>
 		<th class="text-right px-3 py-2 font-semibold">Δ sd</th>
-		<th class="text-left px-3 py-2 font-semibold">
-			<button
-				onclick={(e) => { e.stopPropagation(); sortByScale = sortByScale === 'relative_delta_desc' ? 'relative_delta_asc' : 'relative_delta_desc'; reload(); }}
-				class="bg-transparent border-none cursor-pointer font-semibold text-inherit p-0"
-				title="Sort by overall disagreement size (max of x̄ and s) across all pages"
-			>Δ scale {sortByScale === 'relative_delta_desc' ? '▾' : sortByScale === 'relative_delta_asc' ? '▴' : '↕'}</button>
-		</th>
-		<th class="text-left px-3 py-2 font-semibold">Cause</th>
+		<th class="text-left px-3 py-2 font-semibold">Possible cause</th>
 		<th class="text-left px-4 py-2 font-semibold">Status</th>
 		<th class="text-left px-4 py-2 font-semibold">Age</th>
 	{/snippet}
@@ -617,7 +772,7 @@
 			</div>
 		</td>
 		<td class="px-4 py-2 text-xs">{formatDateTime(hold.group_time)}</td>
-		<td class="px-4 py-2 text-right font-mono text-xs" title="Replicate count: portal / ours">
+		<td class="px-4 py-2 text-right font-mono text-xs" title="Replicate count: source / ours">
 			{#if nMismatch(hold)}
 				<span class="px-1 py-0.5 rounded bg-severity-alarm-soft text-severity-alarm" title={CLASS_TIP.n_mismatch}>{hold.expected.n} / {hold.computed.n}</span>
 			{:else}
@@ -626,19 +781,13 @@
 		</td>
 		<td class="px-3 py-2 text-right font-mono text-xs" title={fullValue(hold.expected.mean)}>{fmtStat(hold.expected.mean)}</td>
 		<td class="px-3 py-2 text-right font-mono text-xs" title={fullValue(hold.computed.mean)}>{fmtStat(hold.computed.mean)}</td>
-		<td class="px-3 py-2 text-right font-mono text-xs {deltaClass(hold.delta.mean, hold.mean_relative_delta)}" title={fullValue(hold.delta.mean)}>{fmt(hold.delta.mean)}</td>
+		{@render deltaCell(hold.delta.mean, hold.mean_relative_delta)}
 		<td class="px-3 py-2 text-right font-mono text-xs" title={fullValue(hold.expected.sd)}>{fmtStat(hold.expected.sd)}</td>
 		<td class="px-3 py-2 text-right font-mono text-xs" title={fullValue(hold.computed.sd)}>{fmtStat(hold.computed.sd)}</td>
-		<td class="px-3 py-2 text-right font-mono text-xs {deltaClass(hold.delta.sd, hold.sd_relative_delta)}" title={fullValue(hold.delta.sd)}>{fmt(hold.delta.sd)}</td>
-		<td class="px-3 py-2">
-			<div class="space-y-0.5" title="Per-statistic disagreement relative to the mean magnitude (bars capped at {METER_CAP_PCT}%)">
-				{@render scaleBar('x̄', hold.mean_relative_delta)}
-				{@render scaleBar('s', hold.sd_relative_delta)}
-			</div>
-		</td>
+		{@render deltaCell(hold.delta.sd, hold.sd_relative_delta)}
 		<td class="px-3 py-2">
 			{#if isStats(hold)}
-				<span class="px-1.5 py-0.5 rounded text-[10px] whitespace-nowrap {CLASS_STYLE[hold.classification]}" title={CLASS_TIP[hold.classification]}>
+				<span class="px-1.5 py-0.5 rounded text-[10px] whitespace-nowrap {CLASS_STYLE[hold.classification]}" title={causeText(hold)}>
 					{CLASS_LABEL[hold.classification]}
 				</span>
 			{:else}
@@ -680,8 +829,8 @@
 					<p><Badge variant={statusVariant(hold.status)}>{STATUS_LABEL[hold.status]}</Badge></p>
 				</div>
 				<div>
-					<span class="text-brand-muted text-xs">Cause</span>
-					<p class="text-xs">{isStats(hold) ? CLASS_TIP[hold.classification] : KIND_TIP[hold.kind]}</p>
+					<span class="text-brand-muted text-xs">Possible cause</span>
+					<p class="text-xs">{causeText(hold)}</p>
 				</div>
 				{#if hold.acknowledged_at}
 					<div>
@@ -690,6 +839,37 @@
 					</div>
 				{/if}
 			</div>
+
+			{#if needsDeclaration(hold)}
+				{@const pop = populationSd(hold)}
+				<div class="rounded-md border border-severity-warning-border bg-severity-warning-soft p-3 text-xs text-severity-warning-text space-y-2">
+					<p>
+						<strong>This can't be accepted yet.</strong>
+						The source's sd ({fmtStat(hold.expected.sd)}) is this group's sd under the
+						population formula (divisor n){pop != null ? ` — ${fmtStat(pop)}` : ''}; ours
+						({fmtStat(hold.computed.sd)}) uses the sample formula (divisor n-1).
+						<strong>{hold.site_name} / {hold.parameter_name}</strong> has not declared which one
+						it publishes, so accepting would leave that unrecorded.
+					</p>
+					<p>
+						The sources used both formulas over the years, so this cannot be inferred from the
+						data. Choose the formula this parameter publishes, or flag a replicate if the real
+						fault is a value rather than the divisor.
+					</p>
+					<div class="flex items-center gap-3">
+						<span class="font-semibold">Publish the standard deviation as</span>
+						{#each [
+							{ value: 'population' as SdEstimator, label: 'Population (n)' },
+							{ value: 'sample' as SdEstimator, label: 'Sample (n-1)' },
+						] as choice}
+							<label class="flex items-center gap-1.5 cursor-pointer">
+								<input type="radio" value={choice.value} bind:group={declareChoice} />
+								{choice.label}
+							</label>
+						{/each}
+					</div>
+				</div>
+			{/if}
 
 			{#if !isStats(hold)}
 				<div class="rounded-md border border-brand-divider bg-brand-bg p-3 text-xs space-y-2">
@@ -723,7 +903,7 @@
 					<thead>
 						<tr class="bg-brand-bg border-b border-brand-divider">
 							<th class="text-left px-3 py-1.5 font-semibold"></th>
-							<th class="text-right px-3 py-1.5 font-semibold">Portal (expected)</th>
+							<th class="text-right px-3 py-1.5 font-semibold">Source (expected)</th>
 							<th class="text-right px-3 py-1.5 font-semibold">Computed</th>
 							<th class="text-right px-3 py-1.5 font-semibold">Δ</th>
 						</tr>
@@ -736,7 +916,7 @@
 							<td class="px-3 py-1.5 text-right font-mono {deltaClass(hold.delta.mean, hold.mean_relative_delta) === 'text-brand-muted' ? 'text-brand-muted' : 'text-severity-warning-text bg-severity-warning-soft'}" title={fullValue(hold.delta.mean)}>{fmt(hold.delta.mean)}</td>
 						</tr>
 						<tr class="border-b border-brand-divider">
-							<td class="px-3 py-1.5 text-brand-muted" title="STDDEV_SAMP: sqrt(Σ(x - x̄)² / (n - 1)), matching the portals' sd()">SD</td>
+							<td class="px-3 py-1.5 text-brand-muted" title="STDDEV_SAMP: sqrt(Σ(x - x̄)² / (n - 1)), matching sd() at source">SD</td>
 							<td class="px-3 py-1.5 text-right font-mono" title={fullValue(hold.expected.sd)}>{fmtStat(hold.expected.sd)}</td>
 							<td class="px-3 py-1.5 text-right font-mono" title={fullValue(hold.computed.sd)}>{fmtStat(hold.computed.sd)}</td>
 							<td class="px-3 py-1.5 text-right font-mono {deltaClass(hold.delta.sd, hold.sd_relative_delta) === 'text-brand-muted' ? 'text-brand-muted' : 'text-severity-warning-text bg-severity-warning-soft'}" title={fullValue(hold.delta.sd)}>{fmt(hold.delta.sd)}</td>
@@ -854,9 +1034,47 @@
 			>
 				<Button disabled={acknowledging}>Acknowledge finding</Button>
 			</ConfirmPopover>
+		{:else if hold.status === 'pending' && needsDeclaration(hold)}
+			{@const slot = undeclaredSlot(hold)}
+			{@const others = (slot?.population_signature_holds ?? 1) - 1}
+			{@const remaining = (slot?.open_holds ?? 1) - (slot?.population_signature_holds ?? 1)}
+			<ConfirmPopover
+				message="Declare that {hold.site_name} / {hold.parameter_name} publishes its standard deviation with the {estimatorLabel(declareChoice)} formula? This recomputes {slot?.undeclared_samples ?? 0} existing sample{(slot?.undeclared_samples ?? 0) === 1 ? '' : 's'} at this parameter, marks this instant on its charts with an audit annotation, and resolves this hold{others > 0 ? ` — the ${others} other hold${others === 1 ? '' : 's'} this explains close on the next sync cycle` : ''}{remaining > 0 ? `, while ${remaining} hold${remaining === 1 ? '' : 's'} disagreeing for other reasons will remain` : ''}. Reversible with Reopen."
+				confirmLabel="Declare for the parameter"
+				confirmVariant="primary"
+				above
+				onconfirm={() => handleDeclare(hold, 'slot', ctx)}
+			>
+				<Button variant="primary" disabled={acknowledging}>
+					{acknowledging ? 'Declaring…' : `Use ${declareChoice} sd for this parameter`}
+				</Button>
+			</ConfirmPopover>
+			<ConfirmPopover
+				message="Use the {estimatorLabel(declareChoice)} formula for this collection group only? {hold.site_name} / {hold.parameter_name} stays undeclared, so its other holds stay blocked. This instant keeps its own setting through later parameter-level changes, and is marked on the charts with an audit annotation. Reversible with Reopen."
+				confirmLabel="Declare for this instant"
+				confirmVariant="primary"
+				above
+				onconfirm={() => handleDeclare(hold, 'instant', ctx)}
+			>
+				<Button disabled={acknowledging}>…for this instant only</Button>
+			</ConfirmPopover>
+			{#if isFlaggable(hold)}
+				<ConfirmPopover
+					message="Flag replicate{selectedReplicates.size === 1 ? '' : 's'} {[...selectedReplicates].sort((a, b) => a - b).join(', ')} for this instant? Flagged replicates are excluded from the mean and sd, which recompute immediately from the remaining {hold.computed.n - selectedReplicates.size}. This instant is marked on the charts with an audit annotation. Reopen restores the flags and removes it."
+					confirmLabel="Flag"
+					confirmVariant="primary"
+					above
+					onconfirm={() => handleFlag(hold, ctx)}
+				>
+					<Button
+						disabled={acknowledging || selectedReplicates.size === 0 || selectedReplicates.size >= hold.computed.n}
+						title={selectedReplicates.size >= hold.computed.n && hold.computed.n > 0 ? 'At least one replicate must remain unflagged' : undefined}
+					>Flag selected replicates</Button>
+				</ConfirmPopover>
+			{/if}
 		{:else if hold.status === 'pending'}
 			<ConfirmPopover
-				message="Accept every pending hold on {streamLabel(hold)}? The recomputed statistics stand for all of them."
+				message="Accept every pending hold on {streamLabel(hold)}? The recomputed statistics stand for all of them, and each instant is marked on its parameter's charts with an audit annotation. Holds needing a standard-deviation formula for their parameter are not included."
 				confirmLabel="Accept all"
 				confirmVariant="primary"
 				above
@@ -866,7 +1084,7 @@
 			</ConfirmPopover>
 			{#if isFlaggable(hold)}
 				<ConfirmPopover
-					message="Flag replicate{selectedReplicates.size === 1 ? '' : 's'} {[...selectedReplicates].sort((a, b) => a - b).join(', ')} for this instant? Flagged replicates are excluded from the mean and sd, which recompute immediately from the remaining {hold.computed.n - selectedReplicates.size}."
+					message="Flag replicate{selectedReplicates.size === 1 ? '' : 's'} {[...selectedReplicates].sort((a, b) => a - b).join(', ')} for this instant? Flagged replicates are excluded from the mean and sd, which recompute immediately from the remaining {hold.computed.n - selectedReplicates.size}. This instant is marked on the charts with an audit annotation. Reopen restores the flags and removes it."
 					confirmLabel="Flag"
 					confirmVariant="primary"
 					above
@@ -879,7 +1097,7 @@
 				</ConfirmPopover>
 			{/if}
 			<ConfirmPopover
-				message="Accept our statistics for this instant? The portal's stored avg/sd for it stays recorded on this hold only."
+				message="Accept our statistics for this instant? No stored value changes; the source's avg/sd stays recorded on this hold only. This instant is marked on its parameter's charts with an audit annotation naming both numbers. Reversible with Reopen."
 				confirmLabel="Accept"
 				confirmVariant="primary"
 				above
@@ -889,7 +1107,7 @@
 			</ConfirmPopover>
 		{:else if hold.status === 'remediated'}
 			<ConfirmPopover
-				message="Unflag the replicates this resolution flagged and return the hold to review? The statistics recompute from all replicates again."
+				message="Return this hold to review? {hold.resolution?.action === 'declare_estimator' ? `${hold.resolution.scope === 'slot' ? `${hold.site_name} / ${hold.parameter_name} goes back to ${hold.resolution.previous_estimator ? estimatorLabel(hold.resolution.previous_estimator) : 'no declared standard-deviation formula'}, and its samples recompute` : 'This collection group goes back to its parameter\'s setting'}` : 'The replicates this resolution flagged are unflagged and the statistics recompute from all of them again'}. The audit annotation this decision added is removed."
 				confirmLabel="Reopen"
 				confirmVariant="primary"
 				above

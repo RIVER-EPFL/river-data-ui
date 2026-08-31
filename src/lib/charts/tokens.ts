@@ -32,6 +32,8 @@ export const tokens = {
 		maintenance: 'rgba(0,114,178,0.18)',
 		quality_issue: 'rgba(213,94,0,0.18)',
 		environmental: 'rgba(0,158,115,0.18)',
+		// Minted by an audit resolution, never chosen in the annotate dialog.
+		audit: 'rgba(90,100,114,0.18)',
 		other: 'rgba(160,160,160,0.18)',
 	},
 	slider: {

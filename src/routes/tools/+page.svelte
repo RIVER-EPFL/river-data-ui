@@ -332,6 +332,7 @@
 	toolTitle={activeTool?.label ?? ''}
 	results={result?.results ?? null}
 	outputs={activeTool?.outputs ?? []}
+	toolParams={activeTool?.params ?? []}
 	toolVersion={result?.tool_version ?? null}
 	calcInputs={resultInputs}
 	curvesUsed={resultCurves}

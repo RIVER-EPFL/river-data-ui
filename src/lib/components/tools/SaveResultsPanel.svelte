@@ -23,6 +23,8 @@
 		type GrabSampleReading,
 		type ToolCurveSnapshot,
 		type ToolOutput,
+		type ToolParam,
+		type SdEstimator,
 		type ToolVersionRef,
 	} from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
@@ -48,6 +50,7 @@
 		toolTitle = '',
 		results = null,
 		outputs = [],
+		toolParams = [],
 		toolVersion = null,
 		calcInputs = null,
 		curvesUsed = [],
@@ -67,6 +70,8 @@
 		results?: Record<string, unknown> | null;
 		/** The tool's manifest outputs; drives replicate grouping and default parameter mapping. */
 		outputs?: ToolOutput[];
+		/** The tool's manifest params; a `replicates` param's entered values are saved as readings. */
+		toolParams?: ToolParam[];
 		toolVersion?: ToolVersionRef | null;
 		/** The exact calculate request body these results came from. */
 		calcInputs?: Record<string, unknown> | null;
@@ -109,6 +114,10 @@
 		resolvedParameterId: string | null;
 		suggestedCode: string | null;
 		defaultInclude: boolean;
+		/** Set on a row of entered replicates: the `replicates` input they were typed into. */
+		input?: string;
+		/** The curve the run corrected those replicates with, recorded on each stored reading. */
+		curveId?: string | null;
 	}
 
 	const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -137,11 +146,17 @@
 		return usable ? letters : suffixes.map((_, i) => i);
 	}
 
+	// An output whose manifest says the operator chooses which divisor the saved replicates'
+	// standard deviation uses. A manifest that fixes one is applied server-side from the run, so
+	// nothing here repeats it.
+	const estimatorSelectable = $derived(outputs.some((o) => o.sd_estimator === 'selectable'));
+	let sdEstimator = $state<SdEstimator>('sample');
+
 	// Rows follow the manifest: per_replicate outputs group their suffixed result keys
 	// ({base}_{rep}). An output that names no catalog parameter has nowhere to be written and is
 	// display-only, whether it summarises another output or nothing at all. Result keys no output
 	// covers fall back to plain single-value rows, mapped by hand.
-	const rows = $derived.by((): ResultRow[] => {
+	const outputRows = $derived.by((): ResultRow[] => {
 		const numeric = Object.entries(results ?? {}).filter(
 			([, v]) => typeof v === 'number' && Number.isFinite(v as number),
 		) as [string, number][];
@@ -215,7 +230,6 @@
 		return out;
 	});
 
-	const saveableRows = $derived(rows.filter((r) => !r.displayOnly));
 
 	let sites = $state<Site[]>([]);
 	let params = $state<Parameter[]>([]);
@@ -271,6 +285,40 @@
 			: curvesUsed,
 	);
 
+	// The replicates the operator typed are the measurement: stored raw at their own index, with
+	// the curve the run corrected them by recorded on each reading for the database to apply.
+	const inputRows = $derived.by((): ResultRow[] => {
+		const out: ResultRow[] = [];
+		for (const p of toolParams) {
+			if (p.kind !== 'replicates') continue;
+			const cells = calcInputs?.[p.name];
+			if (!Array.isArray(cells)) continue;
+			const values = cells.flatMap((v, index) =>
+				typeof v === 'number' && Number.isFinite(v) ? [{ key: p.name, value: v, index }] : [],
+			);
+			if (values.length === 0) continue;
+			const curve = p.curve ? resolvedCurves.find((c) => c.name === p.curve) : undefined;
+			out.push({
+				id: `input:${p.name}`,
+				displayKey: p.name,
+				label: p.label,
+				units: p.units,
+				values,
+				replicateGroup: values.length > 1,
+				displayOnly: false,
+				resolvedParameterId: p.parameter?.id ?? null,
+				suggestedCode: p.parameter?.code ?? p.parameter_code ?? null,
+				defaultInclude: true,
+				input: p.name,
+				curveId: curve?.standard_curve_id ?? null,
+			});
+		}
+		return out;
+	});
+
+	const rows = $derived([...inputRows, ...outputRows]);
+	const saveableRows = $derived(rows.filter((r) => !r.displayOnly));
+
 	// Stored curves consumed by the calculation, noted into the sample notes by default.
 	const curveNote = $derived(
 		resolvedCurves
@@ -317,7 +365,23 @@
 		paramChoices = pc;
 		void loadSites();
 		if (contextSiteId) void loadSiteParameters(contextSiteId);
+		void preselectInputCurve();
 	});
+
+	// The curve the run corrected the replicates with is the one recorded on them, so the picker
+	// opens on it and on its instrument rather than asking the operator to find it again.
+	async function preselectInputCurve() {
+		const curveId = inputRows.find((r) => r.curveId)?.curveId;
+		if (!curveId) return;
+		try {
+			const curve = await api.standardCurves.get(curveId);
+			selectedSensorId = curve.sensor_id;
+			await loadCurves(curve.sensor_id);
+			selectedCurveId = curveId;
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Failed to load the standard curve');
+		}
+	}
 
 	// The staged visit can change while a result is on screen, so the save follows it rather than
 	// the site the dialog was first opened with.
@@ -550,9 +614,11 @@
 				time,
 				value: v.value,
 				replicate_index: v.index,
-				output: v.key,
+				...(r.input ? { input: r.input } : { output: v.key }),
 				...(selectedSensorId ? { sensor_id: selectedSensorId } : {}),
-				...(sentCurveId ? { standard_curve_id: sentCurveId } : {}),
+				...((r.input ? selectedCurveId : sentCurveId)
+					? { standard_curve_id: r.input ? selectedCurveId : sentCurveId }
+					: {}),
 			})),
 		);
 	}
@@ -614,6 +680,7 @@
 				...(replace ? { mode: 'replace' as const } : {}),
 				...(runId ? { tool_run_id: runId } : {}),
 				...(checkSatisfied && check ? { check_id: check.id } : {}),
+				...(estimatorSelectable ? { sd_estimator: sdEstimator } : {}),
 				readings: buildReadings(),
 			});
 			toastStore.success(
@@ -699,7 +766,12 @@
 					<span class="text-sm font-medium">
 						Standard curve <span class="text-brand-muted font-normal">(optional)</span>
 					</span>
-					{#if appliedCurveLabel}
+					{#if inputRows.length > 0}
+						<p class="text-xs text-brand-muted">
+							Recorded on each replicate; the database applies it and derives the mean and sd.
+						</p>
+					{/if}
+					{#if appliedCurveLabel && inputRows.length === 0}
 						<p class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-bg text-sm text-brand-muted">
 							{appliedCurveLabel}
 						</p>
@@ -738,7 +810,7 @@
 					<thead>
 						<tr class="text-left text-xs text-brand-muted">
 							<th class="px-1 py-1"></th>
-							<th class="px-1 py-1">Output</th>
+							<th class="px-1 py-1">Measurement</th>
 							<th class="px-1 py-1">Value</th>
 							<th class="px-1 py-1">Save as parameter</th>
 						</tr>
@@ -910,6 +982,27 @@
 				</div>
 			{/if}
 
+			{#if estimatorSelectable}
+				<div class="flex flex-col gap-1">
+					<span class="text-sm font-medium">Standard deviation formula</span>
+					<div class="flex items-center gap-4 text-sm">
+						{#each [
+							{ value: 'sample' as SdEstimator, label: 'Sample (n-1)' },
+							{ value: 'population' as SdEstimator, label: 'Population (n)' },
+						] as choice}
+							<label class="flex items-center gap-1.5 cursor-pointer">
+								<input type="radio" value={choice.value} bind:group={sdEstimator} />
+								{choice.label}
+							</label>
+						{/each}
+					</div>
+					<p class="text-xs text-brand-muted">
+						This tool reports both conventions, so the divisor is recorded per save. It applies
+						to the samples this save creates and overrides the parameter's own setting.
+					</p>
+				</div>
+			{/if}
+
 			<div class="grid grid-cols-2 gap-3">
 				<div class="flex flex-col gap-1">
 					<label for="srp-label" class="text-sm font-medium">Label <span class="text-brand-muted font-normal">(optional)</span></label>
@@ -922,10 +1015,10 @@
 			</div>
 
 			<p class="text-xs text-brand-muted">
-				Saves the ticked outputs as grab-sample readings at the selected site. Replicate outputs
-				share a timestamp with replicate indices so a sample (mean, sd, n) forms; the label,
-				notes and the run's provenance (tool version and runner, inputs, constants, curves,
-				outputs) are stored on
+				Saves the ticked rows as grab-sample readings at the selected site. Replicates are
+				stored one reading per vial at its own index, so a sample (mean, sd, n) forms and the
+				summaries above are derived from it rather than saved; the label, notes and the run's
+				provenance (tool version and runner, inputs, constants, curves, outputs) are stored on
 				those samples. With an instrument set, its calibration for that timestamp is applied,
 				then the standard curve if one is chosen; with neither, the reading keeps its raw value
 				and no corrected value.

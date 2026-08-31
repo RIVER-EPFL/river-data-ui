@@ -681,6 +681,9 @@ export interface PairingPlanEntry {
 	// instrument, so a reading naming a curve must name that instrument too; a stream that will
 	// carry curve references and resolves to none has those readings dropped at ingest.
 	instrument: PlanInstrumentRef | null;
+	// The divisor this slot will publish its replicate standard deviation with, chosen here.
+	// Left unset the slot stays undeclared and its audit disagreements are held for a decision.
+	sd_estimator?: SdEstimator | null;
 }
 
 // A catalog parameter an entry collides with, and what already depends on it. "Exists" alone does
@@ -696,7 +699,7 @@ export interface ExistingParamRef {
 }
 
 export interface PlanWarning {
-	kind: 'units_mismatch' | 'empty_name' | string;
+	kind: 'units_mismatch' | 'empty_name' | 'sd_estimator_undeclared' | string;
 	message: string;
 	parameter: string | null;
 	existing: ExistingParamRef | null;
@@ -786,6 +789,9 @@ export interface PlanEntryUpdate {
 	instrument_id?: string;
 	instrument_name?: string;
 	instrument_confirmed?: boolean;
+	// Which divisor this slot publishes its replicate standard deviation with. An empty string
+	// clears the choice and leaves the slot undeclared.
+	sd_estimator?: SdEstimator | '';
 }
 
 export const createPairingPlan = (sourceSystem: string) =>
@@ -924,8 +930,16 @@ export interface ReplicateAuditHold {
 		| 'superseded';
 	// Detected disagreement signature.
 	classification: 'n_mismatch' | 'population_sd' | 'stale_subset' | 'quantization' | 'unexplained';
-	// What a remediation did: which replicate indexes were flagged, and why.
-	resolution: { action?: string; replicate_indexes?: number[]; reason?: string | null } | null;
+	// What a remediation did: which replicate indexes were flagged, or which estimator was
+	// declared and what it replaced.
+	resolution: {
+		action?: string;
+		replicate_indexes?: number[];
+		reason?: string | null;
+		estimator?: SdEstimator;
+		scope?: 'slot' | 'instant';
+		previous_estimator?: SdEstimator | null;
+	} | null;
 	created_at: string;
 	acknowledged_by: string | null;
 	acknowledged_at: string | null;
@@ -957,13 +971,27 @@ export const listReplicateAudits = (
 		max_mean_relative_delta?: number;
 		max_sd_relative_delta?: number;
 		sort?: 'relative_delta_desc' | 'relative_delta_asc' | 'created_at_desc';
+		// Only 'population_sd' is filterable: it is the one signature with a SQL spelling, so it
+		// filters and pages without dropping rows out of an already-counted page.
+		classification?: 'population_sd';
+		// Holds whose slot has (true) or has not (false) declared an sd estimator. `false` is the
+		// set the resolution gate blocks from plain acknowledgement.
+		estimator_declared?: boolean;
 		page?: number;
 		page_size?: number;
 	} = {},
 ) => GET<ReplicateAuditListResponse>(`${ADMIN}/sync/replicate_audit_holds`, { ...filter });
 
+// `skipped_undeclared_estimator` counts holds deliberately left pending: their disagreement is
+// the population-divisor signature on a parameter that has not declared which formula it
+// publishes, so accepting would record that decision without anyone having made it.
+export interface AcknowledgeResult {
+	acknowledged: number;
+	skipped_undeclared_estimator?: number;
+}
+
 export const acknowledgeReplicateAudit = (id: string) =>
-	POST<{ acknowledged: number }>(`${ADMIN}/sync/replicate_audit_holds/${id}/acknowledge`, {});
+	POST<AcknowledgeResult>(`${ADMIN}/sync/replicate_audit_holds/${id}/acknowledge`, {});
 
 export const acknowledgeReplicateAuditsBulk = (req: {
 	stream_id?: string;
@@ -973,16 +1001,57 @@ export const acknowledgeReplicateAuditsBulk = (req: {
 	// Only acknowledge holds whose disagreements are at or below both ceilings (AND).
 	max_mean_relative_delta?: number;
 	max_sd_relative_delta?: number;
-}) =>
-	POST<{ acknowledged: number }>(`${ADMIN}/sync/replicate_audit_holds/acknowledge_bulk`, req);
+}) => POST<AcknowledgeResult>(`${ADMIN}/sync/replicate_audit_holds/acknowledge_bulk`, req);
+
+// Which divisor a replicate group's standard deviation uses: 'sample' is n-1, 'population' is n.
+export type SdEstimator = 'sample' | 'population';
+
+export interface ResolveHoldResult {
+	status: string;
+	// 'estimator' mode, slot scope: the tracked sd_estimator_retag recomputing the slot's samples.
+	job_id?: string | null;
+	samples_affected?: number | null;
+}
 
 // Resolve a pending hold. 'ours' records that the recomputed statistics stand. 'flag' flags the
-// named replicate indexes; the sample's mean/sd/n recompute immediately from the rest. Statistics
-// are never entered directly: only input data can be flagged.
+// named replicate indexes; the sample's mean/sd/n recompute immediately from the rest.
+// 'estimator' declares which divisor the parameter (scope 'slot') or this one collection group
+// (scope 'instant') publishes. Statistics are never entered directly: a resolution changes the
+// input set or the specification, and the trigger recomputes.
 export const resolveReplicateAudit = (
 	id: string,
-	body: { mode: 'ours' } | { mode: 'flag'; replicate_indexes: number[]; reason?: string },
-) => POST<{ status: string }>(`${ADMIN}/sync/replicate_audit_holds/${id}/resolve`, body);
+	body:
+		| { mode: 'ours' }
+		| { mode: 'flag'; replicate_indexes: number[]; reason?: string }
+		| { mode: 'estimator'; estimator: SdEstimator; scope: 'slot' | 'instant' },
+) => POST<ResolveHoldResult>(`${ADMIN}/sync/replicate_audit_holds/${id}/resolve`, body);
+
+// One slot serving replicate statistics under no declared sd estimator. `population_signature_holds`
+// is the evidence the operator rules on: holds whose disagreement is exactly the divisor.
+export interface UndeclaredEstimatorSlot {
+	site_id: string;
+	parameter_id: string;
+	site_name: string;
+	parameter_name: string;
+	parameter_code: string;
+	site_parameter_id: string;
+	undeclared_samples: number;
+	// Whether a stream feeding the slot ships a precomputed sd column.
+	source_reports_sd: boolean;
+	streams: Array<{ stream_id: string; source_system: string | null; source_key: string | null }>;
+	open_holds: number;
+	population_signature_holds: number;
+}
+
+export interface UndeclaredEstimatorsResponse {
+	total_slots: number;
+	total_undeclared_samples: number;
+	total_population_signature_holds: number;
+	slots: UndeclaredEstimatorSlot[];
+}
+
+export const listUndeclaredSdEstimators = () =>
+	GET<UndeclaredEstimatorsResponse>(`${ADMIN}/actions/undeclared_sd_estimators`);
 
 // Unflag a remediated hold's replicates and return it to review.
 export const reopenReplicateAudit = (id: string) =>
@@ -1063,6 +1132,10 @@ export interface ProvenanceRecord {
 		created_by?: string;
 		provenance?: Record<string, unknown>;
 		run_source?: 'interactive' | 'csv_import' | 'chain' | string;
+		// Which divisor this group's served standard deviation uses, and what chose it. A source
+		// of 'default' means nothing declared one.
+		sd_estimator: SdEstimator;
+		sd_estimator_source: 'default' | 'slot' | 'sample' | 'stream' | 'tool';
 	};
 	holds: { id: string; kind: HoldKind; status: string; created_at: string }[];
 }
@@ -1333,6 +1406,18 @@ export interface ToolParam {
 	when: ToolParamWhen | null;
 	/** Absent on a scalar param, and on a structured one whose columns nothing declares. */
 	structure?: ToolStructure | null;
+	/** Help text shown beside the field. */
+	description?: string | null;
+	/** Key of the manifest section the field renders under. */
+	section?: string | null;
+	/** `replicates` only: the catalog parameter the entered replicates are readings of. */
+	parameter_code?: string | null;
+	/** `replicates` only: rows the form opens with; never a limit. */
+	suggested?: number | null;
+	/** `replicates` only: the curve slot whose chosen curve corrects the stored replicates. */
+	curve?: string | null;
+	/** The catalog parameter `parameter_code` resolves to, served by `GET /tools`. */
+	parameter?: ResolvedParameter | null;
 }
 
 /** Which half of an output's declaration the server found the catalog row by. */
@@ -1370,6 +1455,13 @@ export interface ToolOutput {
 	 * manifests carry only this and the server stamps it whenever an output names an id alone.
 	 */
 	suggested_parameter_code: string | null;
+	/**
+	 * Which divisor the samples saved from this output use for their standard deviation.
+	 * 'sample' or 'population' fix it and the operator never sees it; 'selectable' offers the
+	 * choice on the tool page; null takes the parameter's own declaration, which is the usual
+	 * case.
+	 */
+	sd_estimator?: SdEstimator | 'selectable' | null;
 	/** Served by `GET /tools`, absent from a manifest an author is editing. */
 	parameter?: ResolvedParameter | null;
 }
@@ -1378,6 +1470,7 @@ export interface ToolCurveSlot {
 	name: string;
 	label: string;
 	required: boolean;
+	description?: string | null;
 }
 
 /**
@@ -1392,7 +1485,18 @@ export interface ToolManifest {
 	/** Bare constant names; the server resolves their values from the constants table. */
 	constants?: string[];
 	curves?: ToolCurveSlot[];
+	sections?: ToolSection[];
+	station_inputs?: ToolStationInput[];
+	event_inputs?: ToolEventInput[];
+	qc?: Record<string, unknown> | null;
 	match_keywords?: string[];
+}
+
+/** A titled group of fields on the entry form. */
+export interface ToolSection {
+	key: string;
+	label: string;
+	description?: string | null;
 }
 
 /**
@@ -1431,6 +1535,7 @@ export interface ToolDescriptor {
 	event_inputs?: ToolEventInput[];
 	/** QC declarations (replicate pooling, check exclusions), as authored. */
 	qc?: Record<string, unknown>;
+	sections?: ToolSection[];
 	match_keywords: string[];
 	script_version_id: string;
 	version_no: number;
@@ -1751,6 +1856,12 @@ export interface GrabSampleReading {
 	 */
 	output?: string;
 	/**
+	 * The named `replicates` input of the referenced tool run this reading stores, raw, at
+	 * `replicate_index`. A curve the run applied is recorded here as `standard_curve_id` and
+	 * applied by the database, never a second time.
+	 */
+	input?: string;
+	/**
 	 * A `standard_curves` row on the same instrument as `sensor_id`, applied on top of the base
 	 * calibration the API resolves from that instrument's windows at `time`. Sending a curve from
 	 * another instrument, or one without `sensor_id`, is refused. Omit it when the value has
@@ -1777,6 +1888,10 @@ export interface GrabSampleRequest {
 	// A seasonal check (from seasonalCheck) covering exactly these (parameter, value) pairs. The
 	// server refuses a save whose values the named check did not screen.
 	check_id?: string;
+	// The divisor the samples this save creates compute their standard deviation with, sent only
+	// when the operator chose one for a `selectable` output. A manifest that fixes an estimator is
+	// read server-side from the run, never repeated here.
+	sd_estimator?: SdEstimator;
 	readings: GrabSampleReading[];
 }
 

@@ -161,6 +161,35 @@
 				</div>
 				<Button variant="ghost" size="sm" class="text-brand-primary mt-1" onclick={() => addArrayRow(p.name)}>+ Add value</Button>
 			</div>
+		{:else if item.type === 'replicates'}
+			{@const p = item.param}
+			{@const rows = form.arrays[p.name] ?? []}
+			{@const filled = rows.filter((v) => v !== '').length}
+			<div>
+				{@render paramHeading(p.label, p.units, paramRequired(p, inputsForConditions), advisoryNote(p))}
+				{#if p.description}<p class="text-xs text-brand-muted">{p.description}</p>{/if}
+				<div class="mt-1 space-y-1">
+					{#each rows as _, idx}
+						<div class="flex items-center gap-1.5">
+							<span class="text-xs text-brand-muted font-medium w-20 text-right">Replicate {idx + 1}</span>
+							<input
+								type="number"
+								step="any"
+								bind:value={form.arrays[p.name][idx]}
+								aria-label="{p.label} replicate {idx + 1}"
+								class="w-40 px-2 py-1 border border-brand-divider rounded bg-brand-surface text-xs"
+							/>
+							{#if rows.length > 1}
+								<button type="button" onclick={() => removeArrayRow(p.name, idx)} aria-label="Remove replicate" class="px-1.5 text-severity-alarm bg-transparent border border-brand-divider rounded cursor-pointer text-xs">&times;</button>
+							{/if}
+						</div>
+					{/each}
+				</div>
+				<div class="flex items-center gap-3 mt-1">
+					<Button variant="ghost" size="sm" class="text-brand-primary" onclick={() => addArrayRow(p.name)}>+ Add replicate</Button>
+					<span class="text-xs text-brand-muted">{filled} of {rows.length} entered</span>
+				</div>
+			</div>
 		{:else if item.type === 'struct'}
 			{@const p = item.param}
 			{@const shape = item.shape}

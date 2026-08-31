@@ -8,7 +8,7 @@
 		pairStream, unpairStream, importStream, getStreamStats, listStreamReceipts, retagStreams, createPairingPlan, updatePairingPlan,
 		applyPairingPlan, revertPairingPlan, pollJob, getUnpairedSummary, getPlanSiteMetadata,
 		replicateSpec, getPendingAuditCount, getReconciliationCandidates, getStreamPreview,
-		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
+		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type SdEstimator, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
 		type PlanReplicateSummary, type StreamReceipt, type PlanWarning, type PlanInstrumentRef,
 	type StreamPreview,
 	} from '$api/service';
@@ -579,6 +579,26 @@
 	function toggleEntryAction(entry: PairingPlanEntry) {
 		const newAction = entry.action === 'pair' ? 'skip' : 'pair';
 		setEntryAction(entry, newAction);
+	}
+
+	// The divisor a replicate family publishes. Asked here because pairing is the first moment it
+	// can be, and left unset deliberately: the audit gate asks again rather than this guessing.
+	// Entries that will pair, whose source reports an sd, and which nobody has declared a divisor
+	// for. Quoted on the apply screen so leaving it unset is a stated choice rather than an
+	// oversight.
+	const undeclaredEstimatorEntries = $derived(
+		planEntries.filter(
+			(e) =>
+				e.action === 'pair' &&
+				e.replicates?.portal_sd_column &&
+				!(e as { sd_estimator?: SdEstimator | null }).sd_estimator,
+		).length,
+	);
+
+	function setEntryEstimator(entry: PairingPlanEntry, value: SdEstimator | '') {
+		(entry as { sd_estimator?: SdEstimator | null }).sd_estimator = value || null;
+		planEntries = [...planEntries];
+		queueUpdate([{ stream_id: entry.stream_id, sd_estimator: value }]);
 	}
 
 	function setEntryAction(entry: PairingPlanEntry, action: 'pair' | 'skip') {
@@ -1557,6 +1577,20 @@
 												{@render replicateChip(entry.stream_id, entryReplicates, entry.stream_id)}
 											{/if}
 										</div>
+										{#if entryReplicates?.portal_sd_column}
+											{@const declared = (entry as { sd_estimator?: SdEstimator | null }).sd_estimator ?? ''}
+											<select
+												value={declared}
+												onchange={(e) => setEntryEstimator(entry, e.currentTarget.value as SdEstimator | '')}
+												aria-label="Standard deviation formula for {entry.parameter.name}"
+												title="This source reports its own {entryReplicates.portal_sd_column}. Declaring the divisor here means our statistics match it; left undeclared, the sample formula (n-1) is used and disagreements are held in the audit queue for a decision."
+												class="px-1.5 py-0.5 rounded border text-[10px] shrink-0 cursor-pointer bg-brand-surface {declared ? 'border-brand-divider text-brand-text' : 'border-severity-warning-border text-severity-warning-text'}"
+											>
+												<option value="">sd: not declared</option>
+												<option value="sample">sd: sample (n-1)</option>
+												<option value="population">sd: population (n)</option>
+											</select>
+										{/if}
 										{#if entry.warnings.length > 0}
 											<span
 												class="text-xs text-severity-warning shrink-0"
@@ -1793,6 +1827,15 @@
 					{familySummary.streams} of these streams are replicate families ({familySummary.columns}
 					readings columns collapse into them). Replicates are stored per instant at indices
 					0..n-1; the source's averages and standard deviations are audited, not stored.
+				</p>
+			{/if}
+			{#if undeclaredEstimatorEntries > 0}
+				<p class="px-3 py-2 rounded-md bg-severity-warning-soft border border-severity-warning-border text-xs text-severity-warning-text">
+					{undeclaredEstimatorEntries} replicate famil{undeclaredEstimatorEntries === 1 ? 'y' : 'ies'}
+					will be paired without a declared standard-deviation formula, though the source reports
+					its own. Their statistics use the sample formula (n-1) and are marked undeclared;
+					disagreements with the source are held in the audit queue until you declare one. Go back
+					to Review to set it now, or leave it and decide there.
 				</p>
 			{/if}
 			<p class="text-xs text-brand-muted">Readings will be backfilled with site and parameter IDs. Continuous aggregates will refresh in the background. This operation can be reverted.</p>

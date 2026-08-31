@@ -28,6 +28,18 @@
 		{ key: 'sensor_type', label: 'Sensor Type', helperText: 'Measurement type label' },
 		{ key: 'is_active', label: 'Active', type: 'boolean', helperText: 'Inactive site-parameters are hidden from data views' },
 		{ key: 'is_public', label: 'Public', type: 'boolean', helperText: 'Expose this parameter in the public read-only API' },
+		{
+			key: 'sd_estimator',
+			label: 'Standard deviation formula',
+			type: 'select',
+			options: [
+				{ value: '', label: 'Not declared' },
+				{ value: 'sample', label: 'Sample (n-1)' },
+				{ value: 'population', label: 'Population (n)' },
+			],
+			helperText:
+				'Which divisor this parameter publishes its replicate standard deviation with. Undeclared uses the sample formula (n-1) and holds audit disagreements matching the population divisor for a decision. Changing it recomputes the existing samples.',
+		},
 	]);
 </script>
 

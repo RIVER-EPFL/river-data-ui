@@ -64,6 +64,7 @@ export type FormItem =
 	| { type: 'scalar'; param: ToolParam }
 	| { type: 'boolean'; param: ToolParam }
 	| { type: 'array'; param: ToolParam }
+	| { type: 'replicates'; param: ToolParam }
 	| { type: 'struct'; param: ToolParam; shape: StructShape }
 	| { type: 'series'; group: SeriesGroup; params: ToolParam[] }
 	| { type: 'matrix'; group: MatrixGroup };
@@ -172,7 +173,8 @@ export function buildPlan(tool: ToolFormSpec, state: FormState): FormItem[] {
 			items.push({ type: 'matrix', group: matrix });
 			continue;
 		}
-		if (p.kind === 'boolean') items.push({ type: 'boolean', param: p });
+		if (p.kind === 'replicates') items.push({ type: 'replicates', param: p });
+		else if (p.kind === 'boolean') items.push({ type: 'boolean', param: p });
 		else if (p.kind === 'array') items.push({ type: 'array', param: p });
 		else if (p.kind === 'object' || p.kind === 'replicate_grid') {
 			const shape = state.shapes[p.name];
@@ -262,6 +264,13 @@ export function initFormState(
 		if (p.kind === 'array') {
 			const pre = Array.isArray(prefill?.[p.name]) ? (prefill[p.name] as unknown[]) : null;
 			state.arrays[p.name] = pre ? pre.map(asText) : Array.from({ length: 3 }, () => '');
+			continue;
+		}
+		if (p.kind === 'replicates') {
+			// Rows are positions: a prefilled gap stays a blank row at its own index.
+			const pre = Array.isArray(prefill?.[p.name]) ? (prefill[p.name] as unknown[]) : null;
+			const rows = Math.max(pre?.length ?? 0, p.suggested ?? 3);
+			state.arrays[p.name] = Array.from({ length: rows }, (_, i) => asText(pre?.[i]));
 			continue;
 		}
 		if (p.kind === 'object' || p.kind === 'replicate_grid') {
@@ -372,6 +381,15 @@ export function buildPayload(tool: ToolFormSpec, state: FormState): BuiltPayload
 		}
 		if (p.kind === 'boolean') {
 			payload[p.name] = state.bools[p.name] ?? false;
+			continue;
+		}
+		if (p.kind === 'replicates') {
+			// Position is the replicate index, so a blank row is a null rather than a dropped cell;
+			// only the trailing blanks are nothing.
+			const cells = (state.arrays[p.name] ?? []).map(num);
+			while (cells.length > 0 && cells[cells.length - 1] === null) cells.pop();
+			if (cells.length > 0) payload[p.name] = cells;
+			else if (paramRequired(p, inputs)) return { error: `${p.label} needs at least one value` };
 			continue;
 		}
 		if (p.kind === 'array') {

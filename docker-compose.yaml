@@ -393,6 +393,8 @@ services:
       - DATABASE_URL=postgresql://postgres:psql@river-db-test-db:5432/river_test
       - RUST_LOG=${LOG_LEVEL:-warn}
       - TOOLS_RUNNER_URL=http://river-tools-r/ocpu
+      # The runner is on the tools network, so a skipped runner test is a failure, not a pass.
+      - REQUIRE_TOOLS_RUNNER=1
       # Keycloak-gated tests (tests/common/keycloak.rs) run against the dev Keycloak; they
       # self-skip when it is unreachable.
       - TEST_KEYCLOAK_URL=http://river-db-keycloak:8080/

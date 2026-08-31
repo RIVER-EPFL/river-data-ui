@@ -3,9 +3,12 @@
 // converts back at the edges (load, inspect, save).
 import type {
 	ToolCurveSlot,
+	ToolEventInput,
 	ToolManifest,
 	ToolOutput,
 	ToolParam,
+	ToolSection,
+	ToolStationInput,
 	ToolTestCases,
 } from '$api/service';
 import type { Parameter } from '$api/crud';
@@ -19,6 +22,7 @@ export const PARAM_KINDS = [
 	'array',
 	'object',
 	'replicate_grid',
+	'replicates',
 ] as const;
 
 export const ENUM_PREFIX = 'enum:';
@@ -35,6 +39,12 @@ export interface BuilderManifest {
 	constants: string[];
 	curves: ToolCurveSlot[];
 	match_keywords: string[];
+	// Carried through untouched: the editor has no fields for these yet, and re-saving a
+	// version must not be what drops a declaration made in Raw JSON.
+	sections: ToolSection[];
+	station_inputs: ToolStationInput[];
+	event_inputs: ToolEventInput[];
+	qc: Record<string, unknown> | null;
 }
 
 function str(value: unknown, fallback = ''): string {
@@ -62,6 +72,10 @@ export function emptyManifest(label = ''): BuilderManifest {
 		constants: [],
 		curves: [],
 		match_keywords: [],
+		sections: [],
+		station_inputs: [],
+		event_inputs: [],
+		qc: null,
 	};
 }
 
@@ -87,6 +101,11 @@ export function fromManifest(raw: unknown): BuilderManifest {
 				// Carried through untouched: the editor has no field for it, and re-saving a
 				// version must not be what drops a structured param's columns.
 				structure: (o.structure ?? null) as ToolParam['structure'],
+				description: optStr(o.description),
+				section: optStr(o.section),
+				parameter_code: optStr(o.parameter_code),
+				suggested: typeof o.suggested === 'number' ? o.suggested : null,
+				curve: optStr(o.curve),
 			};
 		}),
 		outputs: arr(m.outputs).map((p) => {
@@ -99,14 +118,24 @@ export function fromManifest(raw: unknown): BuilderManifest {
 				aggregate_of: optStr(o.aggregate_of),
 				parameter_id: optStr(o.parameter_id),
 				suggested_parameter_code: optStr(o.suggested_parameter_code),
+				sd_estimator: optStr(o.sd_estimator) as ToolOutput['sd_estimator'],
 			};
 		}),
 		constants: arr(m.constants).filter((c): c is string => typeof c === 'string'),
 		curves: arr(m.curves).map((p) => {
 			const o = (p ?? {}) as Record<string, unknown>;
-			return { name: str(o.name), label: str(o.label), required: bool(o.required) };
+			return {
+				name: str(o.name),
+				label: str(o.label),
+				required: bool(o.required),
+				description: optStr(o.description),
+			};
 		}),
 		match_keywords: arr(m.match_keywords).filter((k): k is string => typeof k === 'string'),
+		sections: arr(m.sections) as ToolSection[],
+		station_inputs: arr(m.station_inputs) as ToolStationInput[],
+		event_inputs: arr(m.event_inputs) as ToolEventInput[],
+		qc: typeof m.qc === 'object' && m.qc !== null ? (m.qc as Record<string, unknown>) : null,
 	};
 }
 
@@ -119,6 +148,10 @@ export function toWireManifest(m: BuilderManifest): ToolManifest {
 		constants: m.constants,
 		curves: m.curves,
 		match_keywords: m.match_keywords,
+		...(m.sections.length > 0 ? { sections: m.sections } : {}),
+		...(m.station_inputs.length > 0 ? { station_inputs: m.station_inputs } : {}),
+		...(m.event_inputs.length > 0 ? { event_inputs: m.event_inputs } : {}),
+		...(m.qc ? { qc: m.qc } : {}),
 	};
 }
 
@@ -253,6 +286,7 @@ export function blankOutput(key = '', per_replicate = false): ToolOutput {
 		aggregate_of: null,
 		parameter_id: null,
 		suggested_parameter_code: null,
+		sd_estimator: null,
 	};
 }
 

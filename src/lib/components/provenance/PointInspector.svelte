@@ -224,6 +224,27 @@
 					</div>
 				{/if}
 
+				{#if rec.computation}
+					{@const est = rec.computation.sd_estimator}
+					{@const src = rec.computation.sd_estimator_source}
+					<p class="mt-2 text-xs text-brand-muted">
+						Standard deviation: <span class="text-brand-text">{est === 'population' ? 'population (n)' : 'sample (n-1)'}</span>
+						{#if src === 'default'}
+							<span class="text-severity-warning-text">
+								— not declared for this parameter, so the sample formula applies by default
+							</span>
+						{:else if src === 'sample'}
+							— chosen for this collection group
+						{:else if src === 'slot'}
+							— declared for this parameter
+						{:else if src === 'stream'}
+							— declared by the source
+						{:else}
+							— fixed by the tool
+						{/if}
+					</p>
+				{/if}
+
 				<div class="mt-3 flex items-center gap-2">
 					{#if rec.computation?.provenance}
 						<Button variant="ghost" size="sm" onclick={() => toggleToolRun(i)}>

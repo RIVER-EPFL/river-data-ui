@@ -310,6 +310,8 @@ export interface Annotation {
 	text: string;
 	category: string;
 	created_by: string | null;
+	// The audit hold whose resolution minted this note; null for a hand-written one.
+	audit_hold_id: string | null;
 	created_at: string | null;
 }
 
