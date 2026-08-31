@@ -8,13 +8,18 @@
 		updateMyNotifications,
 		setMySubscriptions,
 		registerPushSubscription,
+		getMyPushSubscriptions,
+		deletePushSubscription,
 		testMyPush,
 		scheduleMyPing,
 		type NotificationsConfig,
 		type MyNotifications,
+		type PushSubscriptionRow,
+		type PushAttempt,
 	} from '$api/service';
 	import { api, type Project, type Site } from '$api/crud';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
+	import { formatDateTime } from '$lib/utils';
 	import {
 		isWebPushSupported,
 		isIOSSafari,
@@ -38,6 +43,8 @@
 
 	let pushSupported = $state(false);
 	let pushSubscribed = $state(false);
+	let devices = $state<PushSubscriptionRow[]>([]);
+	let testResults = $state<PushAttempt[] | null>(null);
 	let iosNeedsInstall = $state(false);
 	let pingSeconds = $state(10);
 	let testBusy = $state(false);
@@ -89,6 +96,11 @@
 			if (pushSupported) {
 				const sub = await getSubscription();
 				pushSubscribed = !!sub;
+				try {
+					devices = await getMyPushSubscriptions();
+				} catch {
+					devices = [];
+				}
 			}
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load notification settings';
@@ -121,6 +133,7 @@
 			const sub = await subscribe(caps.webPush.vapidPublicKey);
 			await registerPushSubscription(subscriptionToPayload(sub));
 			pushSubscribed = true;
+			await refreshDevices();
 			toastStore.success('Push notifications active on this device');
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Failed to enable push notifications');
@@ -132,8 +145,13 @@
 	async function sendTest() {
 		testBusy = true;
 		try {
-			await testMyPush();
-			toastStore.success('Test notification sent');
+			testResults = await testMyPush();
+			const sent = testResults.filter((r) => r.status === 'sent').length;
+			const pruned = testResults.filter((r) => r.pruned).length;
+			if (pruned > 0) await refreshDevices();
+			toastStore.success(
+				`Sent to ${sent} of ${testResults.length} device${testResults.length === 1 ? '' : 's'}`
+			);
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Test failed');
 		} finally {
@@ -156,14 +174,72 @@
 	async function disablePush() {
 		busy = true;
 		try {
+			// Read the endpoint before unsubscribing: afterwards the browser no longer
+			// reports it, and it is the only key the server row can be found by.
+			const sub = await getSubscription();
+			const endpoint = sub?.endpoint;
 			await unsubscribe();
 			pushSubscribed = false;
+			if (endpoint) await deletePushSubscription(endpoint);
+			await refreshDevices();
 			toastStore.success('Push notifications disabled on this device');
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Failed to disable push');
 		} finally {
 			busy = false;
 		}
+	}
+
+	async function removeDevice(row: PushSubscriptionRow) {
+		busy = true;
+		try {
+			await deletePushSubscription(row.endpoint);
+			const current = await getSubscription();
+			if (current?.endpoint === row.endpoint) {
+				await unsubscribe();
+				pushSubscribed = false;
+			}
+			await refreshDevices();
+			toastStore.success('Device removed');
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Failed to remove device');
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function refreshDevices() {
+		try {
+			devices = await getMyPushSubscriptions();
+			me = await getMyNotifications();
+		} catch {
+			devices = [];
+		}
+	}
+
+	function deviceLabel(ua: string | undefined): string {
+		if (!ua) return 'Unknown device';
+		const platform = /Android/i.test(ua)
+			? 'Android'
+			: /iPhone|iPad|iPod/i.test(ua)
+				? 'iOS'
+				: /Windows/i.test(ua)
+					? 'Windows'
+					: /Macintosh|Mac OS/i.test(ua)
+						? 'macOS'
+						: /Linux/i.test(ua)
+							? 'Linux'
+							: 'Unknown';
+		const browser = /Firefox|FxiOS/i.test(ua)
+			? 'Firefox'
+			: /Edg\//i.test(ua)
+				? 'Edge'
+				: /Chrome|CriOS/i.test(ua)
+					? 'Chrome'
+					: /Safari/i.test(ua)
+						? 'Safari'
+						: 'Browser';
+		return `${browser} on ${platform}`;
 	}
 
 	function toggleSite(siteId: string, on: boolean) {
@@ -293,6 +369,56 @@
 							</span>
 						{/if}
 					</div>
+
+					{#if devices.length > 0}
+						<div class="mt-3 pt-3 border-t border-brand-divider">
+							<div class="text-sm font-medium text-brand-text mb-2">
+								Registered devices ({devices.length})
+							</div>
+							<div class="space-y-1">
+								{#each devices as row (row.id)}
+									{@const result = testResults?.find((r) => r.id === row.id)}
+									<div class="flex items-center justify-between gap-3 text-sm py-1">
+										<div class="min-w-0">
+											<div class="text-brand-text truncate">
+												{deviceLabel(row.user_agent)}
+												<span class="text-brand-text-muted font-mono text-xs">
+													…{row.endpoint.slice(-12)}
+												</span>
+											</div>
+											<div class="text-xs text-brand-text-muted">
+												Added {formatDateTime(row.created_at)} · Last delivered
+												{row.last_success_at
+													? formatDateTime(row.last_success_at)
+													: 'never'}
+											</div>
+										</div>
+										<div class="flex items-center gap-2 shrink-0">
+											{#if result}
+												<Badge variant={result.status === 'sent' ? 'ok' : 'alarm'}>
+													{result.status === 'sent' ? 'Sent' : (result.error ?? 'Failed')}
+												</Badge>
+											{/if}
+											<Button
+												size="sm"
+												variant="secondary"
+												disabled={busy}
+												onclick={() => removeDevice(row)}
+											>
+												Remove
+											</Button>
+										</div>
+									</div>
+								{/each}
+							</div>
+							{#if testResults?.some((r) => r.pruned)}
+								<div class="text-xs text-brand-text-muted mt-2">
+									A device the push service reported as gone was removed. Re-enable push on it to
+									receive notifications again.
+								</div>
+							{/if}
+						</div>
+					{/if}
 
 					{#if pushSubscribed}
 						<div class="mt-3 pt-3 border-t border-brand-divider flex flex-wrap items-center gap-3">

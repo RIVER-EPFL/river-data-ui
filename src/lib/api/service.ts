@@ -89,8 +89,17 @@ export const getMyPushSubscriptions = () =>
 export const deletePushSubscription = (endpoint: string) =>
 	DELETE<void>(`${SERVICE}/notifications/me/push`, { endpoint });
 
+export interface PushAttempt {
+	id: string;
+	endpointTail: string;
+	userAgent?: string;
+	status: 'sent' | 'failed';
+	error?: string;
+	pruned: boolean;
+}
+
 export const testMyPush = () =>
-	POST<void>(`${SERVICE}/notifications/me/push/test`, {});
+	POST<PushAttempt[]>(`${SERVICE}/notifications/me/push/test`, {});
 
 export const scheduleMyPing = (seconds: number = 10) =>
 	POST<{ seconds: number }>(`${SERVICE}/notifications/me/push/ping`, { seconds });

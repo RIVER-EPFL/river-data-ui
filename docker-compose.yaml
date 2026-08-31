@@ -82,7 +82,7 @@ services:
 
   # ── R tool runner (OpenCPU; executes DB-stored tool scripts; needs no DB or outbound network) ──
   river-tools-r:
-    build: ../river-data-tools-r
+    build: ../river-data-api/tools-runner
     # No healthcheck override: the image's own check calls riverdata.tools::runtime_info, so it
     # reports healthy only once a script can actually run. Probing /ocpu/info instead would pass
     # while the package is unloadable.

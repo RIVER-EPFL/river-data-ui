@@ -56,8 +56,11 @@ export function PUT<T>(path: string, body?: unknown): Promise<T> {
 	});
 }
 
-export function DELETE<T>(path: string): Promise<T> {
-	return request<T>(path, { method: 'DELETE' });
+export function DELETE<T>(path: string, body?: unknown): Promise<T> {
+	return request<T>(path, {
+		method: 'DELETE',
+		body: body != null ? JSON.stringify(body) : undefined,
+	});
 }
 
 export interface Paginated<T> {
