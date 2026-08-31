@@ -63,7 +63,7 @@
 	);
 </script>
 
-<svelte:head><title>{param?.name ?? 'Parameter'} | River Data</title></svelte:head>
+<svelte:head><title>{param?.name ?? 'Parameter'} | RIVER Data</title></svelte:head>
 
 {#if loading}
 	<p class="text-brand-muted">Loading…</p>

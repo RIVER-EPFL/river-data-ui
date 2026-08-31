@@ -67,7 +67,7 @@
 	}
 </script>
 
-<svelte:head><title>{def?.name ?? 'Derived'} | River Data</title></svelte:head>
+<svelte:head><title>{def?.name ?? 'Derived'} | RIVER Data</title></svelte:head>
 
 {#if loading}
 	<p class="text-brand-muted">Loading…</p>

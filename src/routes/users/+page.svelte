@@ -83,7 +83,7 @@
 	}
 </script>
 
-<svelte:head><title>Users & Tokens | River Data</title></svelte:head>
+<svelte:head><title>Users & Tokens | RIVER Data</title></svelte:head>
 
 <div class="space-y-4">
 	<div class="flex items-center justify-between">

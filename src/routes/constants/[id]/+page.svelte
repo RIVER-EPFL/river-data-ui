@@ -5,7 +5,7 @@
 	import { api } from '$api/crud';
 </script>
 
-<svelte:head><title>Edit Constant | River Data</title></svelte:head>
+<svelte:head><title>Edit Constant | RIVER Data</title></svelte:head>
 
 <CrudForm
 	client={api.constants}

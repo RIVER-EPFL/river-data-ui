@@ -4,7 +4,7 @@
 	import { api } from '$api/crud';
 </script>
 
-<svelte:head><title>New Parameter | River Data</title></svelte:head>
+<svelte:head><title>New Parameter | RIVER Data</title></svelte:head>
 
 <CrudForm
 	client={api.parameters}

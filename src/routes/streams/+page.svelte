@@ -1278,7 +1278,7 @@
 	</select>
 {/snippet}
 
-<svelte:head><title>Streams | River Data</title></svelte:head>
+<svelte:head><title>Streams | RIVER Data</title></svelte:head>
 
 <!-- ════════════════════ STREAM LIST MODE ════════════════════ -->
 {#if mode === 'list'}

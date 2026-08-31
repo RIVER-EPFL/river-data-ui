@@ -9,6 +9,6 @@
 	});
 </script>
 
-<svelte:head><title>Derived Parameters | River Data</title></svelte:head>
+<svelte:head><title>Derived Parameters | RIVER Data</title></svelte:head>
 
 <p class="text-brand-muted">Redirecting…</p>

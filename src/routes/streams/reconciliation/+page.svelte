@@ -233,7 +233,7 @@
 	onMount(loadCandidates);
 </script>
 
-<svelte:head><title>Replicate Reconciliation | River Data</title></svelte:head>
+<svelte:head><title>Replicate Reconciliation | RIVER Data</title></svelte:head>
 
 <div class="space-y-4">
 	<div class="flex items-center gap-3">

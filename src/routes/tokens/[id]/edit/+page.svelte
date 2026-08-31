@@ -116,7 +116,7 @@
 	}
 </script>
 
-<svelte:head><title>Edit API Token | River Data</title></svelte:head>
+<svelte:head><title>Edit API Token | RIVER Data</title></svelte:head>
 
 <div class="space-y-4 max-w-2xl">
 	<a href="{base}/tokens" class="text-sm text-brand-muted hover:text-brand-primary no-underline">&larr; Back</a>

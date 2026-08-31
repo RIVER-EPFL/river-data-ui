@@ -155,7 +155,7 @@
 	});
 </script>
 
-<svelte:head><title>Alarms | River Data</title></svelte:head>
+<svelte:head><title>Alarms | RIVER Data</title></svelte:head>
 
 <div class="space-y-4">
 	<div class="flex items-start justify-between">

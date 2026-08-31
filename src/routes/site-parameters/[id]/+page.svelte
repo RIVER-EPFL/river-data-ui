@@ -59,7 +59,7 @@
 	]);
 </script>
 
-<svelte:head><title>Edit Site Parameter | River Data</title></svelte:head>
+<svelte:head><title>Edit Site Parameter | RIVER Data</title></svelte:head>
 
 <CrudForm client={api.siteParameters} entityId={page.params.id} title="Edit Site Parameter" backHref="{base}/site-parameters" {fields} />
 

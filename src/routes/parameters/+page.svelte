@@ -16,7 +16,7 @@
 	const tab = createUrlTab({ keys: ['catalog', 'constants'], aliases: { derived: 'catalog' } });
 </script>
 
-<svelte:head><title>Parameters | River Data</title></svelte:head>
+<svelte:head><title>Parameters | RIVER Data</title></svelte:head>
 
 <div class="space-y-4">
 	<div class="flex items-center justify-between gap-3">

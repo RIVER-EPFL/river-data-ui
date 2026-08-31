@@ -97,7 +97,7 @@
 
 	async function revokeAccess() {
 		if (!user) return;
-		if (!confirm(`Remove all River Data access for ${user.username}? Their account stays in the directory (it is not deleted), but they will no longer appear in this Users list until access is granted again.`)) return;
+		if (!confirm(`Remove all RIVER Data access for ${user.username}? Their account stays in the directory (it is not deleted), but they will no longer appear in this Users list until access is granted again.`)) return;
 		revoking = true;
 		try {
 			await assignUserRoles(userId, (user.roles ?? []).filter((r) => !r.startsWith('riverdata-')));
@@ -111,7 +111,7 @@
 	}
 </script>
 
-<svelte:head><title>{user?.username ?? 'User'} | River Data</title></svelte:head>
+<svelte:head><title>{user?.username ?? 'User'} | RIVER Data</title></svelte:head>
 
 {#if loading}
 	<p class="text-brand-muted">Loading…</p>
@@ -201,7 +201,7 @@
 			<div class="flex items-center justify-between gap-4 p-4">
 				<div>
 					<p class="text-sm font-medium">Revoke access</p>
-					<p class="text-sm text-brand-muted">Removes River Data access. The account stays in the directory.</p>
+					<p class="text-sm text-brand-muted">Removes RIVER Data access. The account stays in the directory.</p>
 				</div>
 				<Button variant="danger" loading={revoking} onclick={revokeAccess}>Revoke</Button>
 			</div>

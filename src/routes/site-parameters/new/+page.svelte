@@ -42,6 +42,6 @@
 	]);
 </script>
 
-<svelte:head><title>New Site Parameter | River Data</title></svelte:head>
+<svelte:head><title>New Site Parameter | RIVER Data</title></svelte:head>
 
 <CrudForm client={api.siteParameters} title="New Site Parameter" backHref="{base}/site-parameters" {fields} />

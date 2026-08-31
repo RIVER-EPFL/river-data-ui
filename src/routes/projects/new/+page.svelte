@@ -5,7 +5,7 @@
 	import { siteNavigator } from '$lib/stores/sites.svelte';
 </script>
 
-<svelte:head><title>New Project | River Data</title></svelte:head>
+<svelte:head><title>New Project | RIVER Data</title></svelte:head>
 
 <CrudForm
 	client={api.projects}

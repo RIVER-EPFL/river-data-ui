@@ -41,6 +41,6 @@
 	]);
 </script>
 
-<svelte:head><title>Edit Site | River Data</title></svelte:head>
+<svelte:head><title>Edit Site | RIVER Data</title></svelte:head>
 
 <CrudForm client={api.sites} entityId={page.params.id} title="Edit Site" backHref="{base}/sites/{page.params.id}" {fields} onSaved={() => void siteNavigator.refresh()} />

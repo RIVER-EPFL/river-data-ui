@@ -564,7 +564,7 @@
 	}
 </script>
 
-<svelte:head><title>Manage Tools | River Data</title></svelte:head>
+<svelte:head><title>Manage Tools | RIVER Data</title></svelte:head>
 
 {#snippet countChips(c: SectionCount)}
 	{#if c.blocking > 0}

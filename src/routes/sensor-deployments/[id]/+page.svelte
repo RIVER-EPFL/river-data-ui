@@ -27,6 +27,6 @@
 	]);
 </script>
 
-<svelte:head><title>Edit Deployment | River Data</title></svelte:head>
+<svelte:head><title>Edit Deployment | RIVER Data</title></svelte:head>
 
 <CrudForm client={api.sensorDeployments} entityId={page.params.id} title="Edit Sensor Deployment" backHref="{base}/sensor-deployments" {fields} />

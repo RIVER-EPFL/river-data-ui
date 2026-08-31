@@ -12,6 +12,6 @@
 	});
 </script>
 
-<svelte:head><title>System | River Data</title></svelte:head>
+<svelte:head><title>System | RIVER Data</title></svelte:head>
 
 <p class="text-brand-muted">Redirecting…</p>

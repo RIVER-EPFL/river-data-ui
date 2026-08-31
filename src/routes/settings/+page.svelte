@@ -201,7 +201,7 @@
 
 <div class="max-w-3xl mx-auto">
 	<h1 class="text-xl font-semibold text-brand-text mb-1">Settings</h1>
-	<p class="text-sm text-brand-text-muted mb-6">Manage how times are shown and how you receive alerts from River Data.</p>
+	<p class="text-sm text-brand-text-muted mb-6">Manage how times are shown and how you receive alerts from RIVER Data.</p>
 
 	<section class="mb-8">
 		<h2 class="text-lg font-medium text-brand-text mb-3">Display</h2>

@@ -413,7 +413,7 @@
 	}
 </script>
 
-<svelte:head><title>System | River Data</title></svelte:head>
+<svelte:head><title>System | RIVER Data</title></svelte:head>
 
 <div class="space-y-4">
 	<h2 class="text-xl font-semibold">System</h2>

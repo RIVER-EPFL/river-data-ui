@@ -239,7 +239,7 @@
 	});
 </script>
 
-<svelte:head><title>Sensors & Instruments | River Data</title></svelte:head>
+<svelte:head><title>Sensors & Instruments | RIVER Data</title></svelte:head>
 
 <div class="space-y-4">
 	<div class="flex items-center justify-between">

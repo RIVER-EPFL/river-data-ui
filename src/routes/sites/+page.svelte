@@ -124,7 +124,7 @@
 </script>
 
 <svelte:head>
-	<title>Sites | River Data</title>
+	<title>Sites | RIVER Data</title>
 </svelte:head>
 
 <div class="space-y-4">

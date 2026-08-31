@@ -9,7 +9,7 @@ self.addEventListener('push', (event) => {
 		tag: data.tag ?? 'river-data',
 		data: { url: data.url },
 	};
-	event.waitUntil(self.registration.showNotification(data.title ?? 'River Data', options));
+	event.waitUntil(self.registration.showNotification(data.title ?? 'RIVER Data', options));
 });
 
 self.addEventListener('notificationclick', (event) => {

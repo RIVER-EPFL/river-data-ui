@@ -9,6 +9,6 @@
 	});
 </script>
 
-<svelte:head><title>Time Series | River Data</title></svelte:head>
+<svelte:head><title>Time Series | RIVER Data</title></svelte:head>
 
 <p class="text-brand-muted">Redirecting…</p>

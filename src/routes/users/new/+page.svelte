@@ -53,7 +53,7 @@
 		addingId = user.id;
 		try {
 			await assignUserRoles(user.id, [...user.roles, grantRole]);
-			toastStore.success(`${user.username} can now access River Data as ${roleLabel(grantRole)}`);
+			toastStore.success(`${user.username} can now access RIVER Data as ${roleLabel(grantRole)}`);
 			goto(`${base}/users/${user.id}`);
 		} catch (e) {
 			toastStore.error(`Failed to grant access: ${e instanceof Error ? e.message : e}`);
@@ -63,7 +63,7 @@
 	}
 </script>
 
-<svelte:head><title>Add User | River Data</title></svelte:head>
+<svelte:head><title>Add User | RIVER Data</title></svelte:head>
 
 <div class="space-y-4 max-w-3xl">
 	<a href="{base}/users" class="text-sm text-brand-muted hover:text-brand-primary no-underline">&larr; Users</a>

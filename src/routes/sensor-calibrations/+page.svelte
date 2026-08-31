@@ -13,7 +13,7 @@
 	});
 </script>
 
-<svelte:head><title>Sensor Calibrations | River Data</title></svelte:head>
+<svelte:head><title>Sensor Calibrations | RIVER Data</title></svelte:head>
 
 <CrudList
 	client={api.sensorCalibrations}

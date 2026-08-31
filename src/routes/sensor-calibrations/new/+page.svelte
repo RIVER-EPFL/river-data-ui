@@ -34,6 +34,6 @@
 	]);
 </script>
 
-<svelte:head><title>New Calibration | River Data</title></svelte:head>
+<svelte:head><title>New Calibration | RIVER Data</title></svelte:head>
 
 <CrudForm client={api.sensorCalibrations} title="New Sensor Calibration" backHref="{base}/sensor-calibrations" {fields} />

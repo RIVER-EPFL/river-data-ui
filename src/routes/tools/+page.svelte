@@ -182,7 +182,7 @@
 	}
 </script>
 
-<svelte:head><title>Tools | River Data</title></svelte:head>
+<svelte:head><title>Tools | RIVER Data</title></svelte:head>
 
 <div class="space-y-4">
 	<StagedVisitBar bind:this={visitBar} />

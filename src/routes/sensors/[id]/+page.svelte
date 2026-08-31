@@ -320,7 +320,7 @@
 	}
 </script>
 
-<svelte:head><title>{sensor?.name ?? sensor?.serial_number ?? 'Sensor'} | River Data</title></svelte:head>
+<svelte:head><title>{sensor?.name ?? sensor?.serial_number ?? 'Sensor'} | RIVER Data</title></svelte:head>
 
 {#if loading}
 	<p class="text-brand-muted">Loading…</p>

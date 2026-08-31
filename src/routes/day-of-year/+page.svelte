@@ -9,6 +9,6 @@
 	});
 </script>
 
-<svelte:head><title>Day of Year | River Data</title></svelte:head>
+<svelte:head><title>Day of Year | RIVER Data</title></svelte:head>
 
 <p class="text-brand-muted">Redirecting…</p>

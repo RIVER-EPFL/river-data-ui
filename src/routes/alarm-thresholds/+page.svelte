@@ -8,6 +8,6 @@
 	});
 </script>
 
-<svelte:head><title>Alarm Thresholds | River Data</title></svelte:head>
+<svelte:head><title>Alarm Thresholds | RIVER Data</title></svelte:head>
 
 <p class="text-brand-muted">Redirecting…</p>

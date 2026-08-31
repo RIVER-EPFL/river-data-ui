@@ -26,6 +26,6 @@
 	]);
 </script>
 
-<svelte:head><title>New Deployment | River Data</title></svelte:head>
+<svelte:head><title>New Deployment | RIVER Data</title></svelte:head>
 
 <CrudForm client={api.sensorDeployments} title="New Sensor Deployment" backHref="{base}/sensor-deployments" {fields} />

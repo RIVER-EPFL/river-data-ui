@@ -303,7 +303,7 @@
 		'px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm text-brand-text';
 </script>
 
-<svelte:head><title>Notifications | River Data</title></svelte:head>
+<svelte:head><title>Notifications | RIVER Data</title></svelte:head>
 
 
 <div class="space-y-4">

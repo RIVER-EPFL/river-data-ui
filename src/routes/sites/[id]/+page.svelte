@@ -1389,7 +1389,7 @@
 	);
 </script>
 
-<svelte:head><title>{site?.name ?? 'Site'} | River Data</title></svelte:head>
+<svelte:head><title>{site?.name ?? 'Site'} | RIVER Data</title></svelte:head>
 
 {#if loading}
 	<p class="text-brand-muted">Loading site…</p>

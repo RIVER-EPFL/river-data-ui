@@ -130,7 +130,7 @@
 	}
 </script>
 
-<svelte:head><title>Edit {def?.name ?? 'Derived Parameter'} | River Data</title></svelte:head>
+<svelte:head><title>Edit {def?.name ?? 'Derived Parameter'} | RIVER Data</title></svelte:head>
 
 <div class="space-y-4">
 	<div>

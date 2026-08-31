@@ -4,7 +4,7 @@
 	import { api } from '$api/crud';
 </script>
 
-<svelte:head><title>New Sensor | River Data</title></svelte:head>
+<svelte:head><title>New Sensor | RIVER Data</title></svelte:head>
 
 <!--
 	Sensors are parameter-free: a single physical instrument (identified by serial number) that can

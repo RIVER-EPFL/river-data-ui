@@ -9,6 +9,6 @@
 	});
 </script>
 
-<svelte:head><title>Scatter | River Data</title></svelte:head>
+<svelte:head><title>Scatter | RIVER Data</title></svelte:head>
 
 <p class="text-brand-muted">Redirecting…</p>

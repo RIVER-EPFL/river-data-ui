@@ -9,6 +9,6 @@
 	});
 </script>
 
-<svelte:head><title>Jobs | River Data</title></svelte:head>
+<svelte:head><title>Jobs | RIVER Data</title></svelte:head>
 
 <p class="text-brand-muted">Redirecting…</p>

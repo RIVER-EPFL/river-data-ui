@@ -17,7 +17,7 @@
 	});
 </script>
 
-<svelte:head><title>Edit Parameter | River Data</title></svelte:head>
+<svelte:head><title>Edit Parameter | RIVER Data</title></svelte:head>
 
 {#if paramData?.needs_review}
 	<div class="mb-4 max-w-2xl rounded-md border border-severity-warning-border bg-severity-warning-soft p-3 flex items-start justify-between gap-3">

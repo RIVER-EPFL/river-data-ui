@@ -17,7 +17,7 @@
 	});
 </script>
 
-<svelte:head><title>Site Parameters | River Data</title></svelte:head>
+<svelte:head><title>Site Parameters | RIVER Data</title></svelte:head>
 
 <CrudList
 	client={api.siteParameters}

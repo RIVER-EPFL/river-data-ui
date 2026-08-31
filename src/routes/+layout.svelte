@@ -110,7 +110,7 @@
 
 {#if auth.state.status === 'loading'}
 	<div class="flex h-screen items-center justify-center flex-col text-brand-muted">
-		<p class="text-lg">Loading River Data Admin…</p>
+		<p class="text-lg">Loading RIVER Data Admin…</p>
 		<p class="text-sm mt-2">Initializing…</p>
 	</div>
 {:else if auth.state.status === 'error'}
@@ -150,7 +150,7 @@
 			<div class="flex items-center h-12 px-4 border-b border-brand-divider shrink-0">
 				{#if !sidebarCollapsed}
 					<a href={base} class="font-semibold text-brand-primary no-underline text-[0.95rem]">
-						River Data
+						RIVER Data
 					</a>
 				{/if}
 				<button
@@ -232,7 +232,7 @@
 						<rect y="15" width="20" height="2" rx="1" />
 					</svg>
 				</button>
-				<h1 class="text-[0.95rem] font-semibold">River Data: Admin</h1>
+				<h1 class="text-[0.95rem] font-semibold">RIVER Data: Admin</h1>
 				<div class="flex-1"></div>
 				<SearchBar />
 				<OperationsIndicator />

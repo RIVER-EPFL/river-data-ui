@@ -79,7 +79,7 @@
 </script>
 
 <svelte:head>
-	<title>Dashboard | River Data</title>
+	<title>Dashboard | RIVER Data</title>
 </svelte:head>
 
 <div class="space-y-4">

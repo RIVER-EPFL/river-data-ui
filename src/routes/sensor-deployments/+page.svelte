@@ -18,7 +18,7 @@
 	});
 </script>
 
-<svelte:head><title>Sensor Deployments | River Data</title></svelte:head>
+<svelte:head><title>Sensor Deployments | RIVER Data</title></svelte:head>
 
 <CrudList
 	client={api.sensorDeployments}

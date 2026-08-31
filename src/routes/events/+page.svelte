@@ -49,7 +49,7 @@
 	}
 </script>
 
-<svelte:head><title>Visits · River Data</title></svelte:head>
+<svelte:head><title>Visits · RIVER Data</title></svelte:head>
 
 <div class="space-y-4">
 	<Breadcrumbs items={[{ label: 'Visits' }]} />

@@ -329,7 +329,7 @@
 	}
 </script>
 
-<svelte:head><title>{project?.name ?? 'Project'} | River Data</title></svelte:head>
+<svelte:head><title>{project?.name ?? 'Project'} | RIVER Data</title></svelte:head>
 
 {#if loading}
 	<p class="text-brand-muted">Loading…</p>

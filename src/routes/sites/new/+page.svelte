@@ -40,6 +40,6 @@
 	]);
 </script>
 
-<svelte:head><title>New Site | River Data</title></svelte:head>
+<svelte:head><title>New Site | RIVER Data</title></svelte:head>
 
 <CrudForm client={api.sites} title="New Site" backHref="{base}/sites" {fields} onSaved={() => void siteNavigator.refresh()} />

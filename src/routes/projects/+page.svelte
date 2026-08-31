@@ -20,7 +20,7 @@
 </script>
 
 <svelte:head>
-	<title>Projects | River Data</title>
+	<title>Projects | RIVER Data</title>
 </svelte:head>
 
 <div class="space-y-4">

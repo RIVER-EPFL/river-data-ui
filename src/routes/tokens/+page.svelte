@@ -12,6 +12,6 @@
 	});
 </script>
 
-<svelte:head><title>API Tokens | River Data</title></svelte:head>
+<svelte:head><title>API Tokens | RIVER Data</title></svelte:head>
 
 <p class="text-brand-muted">Redirecting…</p>
