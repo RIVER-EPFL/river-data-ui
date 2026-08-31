@@ -941,9 +941,23 @@ export interface PlanUnassignedParameter {
 	suggested_name: string;
 }
 
+// A standard curve the source replicated, and the instrument it is currently fitted on.
+export interface PlanCurveAssignment {
+	id: string;
+	name: string | null;
+	slope: number;
+	intercept: number;
+	r_squared: number | null;
+	source_key: string | null;
+	sensor_id: string;
+	instrument_name: string;
+	reading_count: number;
+}
+
 export interface PlanInstruments {
 	groups: PlanInstrumentGroup[];
 	unassigned: PlanUnassignedParameter[];
+	curves: PlanCurveAssignment[];
 }
 
 export const getPlanInstruments = (planId: string) =>

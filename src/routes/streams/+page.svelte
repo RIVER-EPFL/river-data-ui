@@ -171,7 +171,7 @@
 	const sitesPerPage = 50;
 	// Parameters first: it is the cross-site editor, and every decision in the plan (naming, units,
 	// instruments) is made once there rather than 31 times in Sites.
-	let reviewTab = $state<'parameters' | 'sites' | 'instruments'>('parameters');
+	let reviewTab = $state<'parameters' | 'sites' | 'curves'>('parameters');
 	// The plan's instrument picture, including instruments the source registered that this plan
 	// binds to nothing. Refetched after every instrument edit, since an attach moves a whole scope.
 	let planInstruments = $state<PlanInstruments | null>(null);
@@ -464,6 +464,37 @@
 	}
 
 	const boundInstruments = $derived(planInstruments?.groups.length ?? 0);
+
+	// The instrument decision for one source parameter, whichever half of the response carries it.
+	// A curve column and a bare parameter are the same decision to an operator, so the Parameters
+	// tab renders both through one lookup.
+	type ParamInstrument = {
+		scope: string;
+		anchorStreamId: string;
+		suggestion: string;
+		group: PlanInstrumentGroup | null;
+	};
+	const instrumentByParameter = $derived.by(() => {
+		const map = new Map<string, ParamInstrument>();
+		for (const g of planInstruments?.groups ?? []) {
+			if (!g.anchor_stream_id) continue;
+			for (const p of g.parameters) {
+				map.set(p, { scope: g.scope ?? p, anchorStreamId: g.anchor_stream_id, suggestion: g.name, group: g });
+			}
+		}
+		for (const u of planInstruments?.unassigned ?? []) {
+			map.set(u.parameter, { scope: u.scope, anchorStreamId: u.anchor_stream_id, suggestion: u.suggested_name, group: null });
+		}
+		return map;
+	});
+
+	async function rehomeCurve(curveId: string, sensorId: string) {
+		if (!sensorId) return;
+		try {
+			await api.standardCurves.update(curveId, { sensor_id: sensorId });
+			await loadPlanInstruments();
+		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Could not move the curve'); }
+	}
 
 	// Inline edits in the Instruments tab, keyed the same way the parameter cells are: one open
 	// editor at a time, Enter commits, Escape abandons.
@@ -1247,33 +1278,6 @@
 	</select>
 {/snippet}
 
-{#snippet instrumentCell(inst: PlanInstrumentRef)}
-	{@const tone = inst.create && !inst.confirmed ? 'warning' : 'ok'}
-	<div class="mt-1 text-[11px] text-brand-muted">
-		<span class="text-severity-{tone}">⚗</span>
-		{#if inst.curve_column}
-			<span class="font-mono">{inst.curve_column}</span> →
-		{/if}
-		<span class="text-brand-text">{inst.name}</span>
-		<span class="opacity-70">
-			({inst.resolved_by === 'stream' ? 'from the stream'
-				: inst.resolved_by === 'curve_label' ? 'matched on the curve label'
-				: inst.resolved_by === 'manual' ? 'chosen here'
-				: 'to be created'})
-		</span>
-		<div class="pl-3">
-			{#if inst.stamps_readings}
-				Each reading stores the curve it was corrected with.
-			{:else}
-				Corrected upstream: the instrument is recorded, the curve is not re-applied.
-			{/if}
-		</div>
-		{#each inst.curves as c}
-			<div class="pl-3 font-mono">{c.name ?? c.id} · slope {formatSignificant(c.slope)} · intercept {formatSignificant(c.intercept)}</div>
-		{/each}
-	</div>
-{/snippet}
-
 <svelte:head><title>Streams | River Data</title></svelte:head>
 
 <!-- ════════════════════ STREAM LIST MODE ════════════════════ -->
@@ -1549,7 +1553,7 @@
 			     here read as "this source has no curves", which is a different thing. -->
 			{#if boundInstruments > 0}
 				<button
-					onclick={() => { reviewTab = 'instruments'; }}
+					onclick={() => { reviewTab = 'parameters'; }}
 					class="bg-transparent border-none p-0 cursor-pointer text-brand-muted underline-offset-2 hover:underline"
 				>using {boundInstruments} instrument{boundInstruments === 1 ? '' : 's'}</button>
 			{/if}
@@ -1657,7 +1661,7 @@
 		<div class="space-y-3">
 			<!-- View tabs -->
 			<div class="flex gap-1 border-b border-brand-divider pb-2">
-				{#each [['parameters', `Parameters (${paramGroups.length})`], ['sites', `Sites (${siteGroups.length})`], ['instruments', `Instruments (${planInstruments?.groups.length ?? 0})`]] as [t, label]}
+				{#each [['parameters', `Parameters (${paramGroups.length})`], ['sites', `Sites (${siteGroups.length})`], ['curves', `Standard curves (${planInstruments?.curves.length ?? 0})`]] as [t, label]}
 					<button
 						onclick={() => reviewTab = t as typeof reviewTab}
 						class="px-3 py-1 text-sm rounded-t cursor-pointer border-none {reviewTab === t ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
@@ -1665,135 +1669,80 @@
 				{/each}
 			</div>
 
-				<!-- ── INSTRUMENTS TAB ── -->
-				{#if reviewTab === 'instruments'}
+				<!-- ── STANDARD CURVES TAB ── -->
+				{#if reviewTab === 'curves'}
 					<p class="text-sm text-brand-muted">
-						The lab instruments this source's standard curves belong to. A curve is fitted on one
-						instrument, so a reading naming a curve must name that instrument too. One decision
-						covers every station: a curve column is one instrument across the source, and a
-						parameter with no curve column is settled the same way.
+						The standard curves this source has replicated, and the instrument each is fitted on.
+						A curve belongs to one instrument, so moving a curve here is what puts two columns of
+						one probe (acid and no-acid, say) onto the same instrument. The instrument each
+						parameter uses is chosen in Parameters.
 					</p>
 					{#if planInstruments == null}
-						<p class="text-sm text-brand-muted">Loading instruments…</p>
-					{:else if planInstruments.groups.length === 0 && planInstruments.unassigned.length === 0}
-						<p class="text-sm text-brand-muted">This source has registered no standard curves.</p>
+						<p class="text-sm text-brand-muted">Loading curves…</p>
+					{:else if planInstruments.curves.length === 0}
+						<p class="text-sm text-brand-muted">This source has replicated no standard curves.</p>
 					{:else}
-						<div class="space-y-2">
-							{#each planInstruments.groups as g (g.scope ?? g.instrument_id)}
-								<div class="rounded-md border {g.create && !g.confirmed ? 'border-severity-warning-border bg-severity-warning-soft' : 'border-brand-divider bg-brand-surface'} p-3">
-									<div class="flex flex-wrap items-baseline gap-2">
-										{@render instrumentNameField(g.scope ?? '', g.anchor_stream_id ?? '', g.name, g)}
-										{#if g.create}
-											<Badge variant={g.confirmed ? 'default' : 'warning'}>{g.confirmed ? 'will be created' : 'needs confirming'}</Badge>
-										{:else}
-											<Badge variant="ok">existing</Badge>
-										{/if}
-										{#if g.source_key}<span class="font-mono text-[11px] text-brand-muted">{g.source_key}</span>{/if}
-									</div>
-
-									<div class="text-xs text-brand-muted mt-1">
-										{#if g.curve_column}
-											<span class="font-mono">{g.curve_column}</span> names a curve on every reading of
-										{:else}
-											Attached to
-										{/if}
-										{g.stream_count} stream{g.stream_count === 1 ? '' : 's'}
-										across {g.site_count} site{g.site_count === 1 ? '' : 's'}
-										({g.parameters.join(', ')}).
-										{#if g.stamps_readings}
-											Each reading will store the curve it was corrected with.
-										{:else}
-											Corrected upstream: the instrument is recorded, the curve is not re-applied.
-										{/if}
-									</div>
-
-									{#if g.curves.length > 0}
-										<table class="w-full text-xs mt-2">
-											<thead class="text-brand-muted">
-												<tr><th class="text-left font-normal py-0.5">Curve</th><th class="text-left font-normal">Equation</th></tr>
-											</thead>
-											<tbody>
-												{#each g.curves as c}
-													<tr class="border-t border-brand-divider/50">
-														<td class="py-0.5 pr-3">
-															{#if editingCurve === c.id}
-																<input
-																	type="text"
-																	bind:value={curveEditValue}
-																	onkeydown={(e) => { if (e.key === 'Enter') commitCurveName(c.id, c.name); if (e.key === 'Escape') editingCurve = null; }}
-																	onblur={() => commitCurveName(c.id, c.name)}
-																	class="px-1 py-0.5 border border-brand-primary rounded text-xs bg-brand-surface w-56"
-																	use:focusOnMount
-																/>
-															{:else}
-																<button
-																	onclick={() => { editingCurve = c.id; curveEditValue = c.name ?? ''; }}
-																	class="bg-transparent border-0 border-b border-dashed border-brand-muted cursor-pointer text-xs text-brand-text hover:text-brand-primary hover:border-brand-primary text-left"
-																	title="Rename this standard curve"
-																>{c.name ?? c.id}</button>
-															{/if}
-														</td>
-														<td class="font-mono">y = {formatSignificant(c.slope)}x {c.intercept < 0 ? '−' : '+'} {formatSignificant(Math.abs(c.intercept))}</td>
-													</tr>
-												{/each}
-											</tbody>
-										</table>
-									{:else}
-										<p class="text-xs text-severity-warning-text mt-1">
-											No curves registered, so no reading here will carry a curve reference.
-										</p>
-									{/if}
-
-									{#if g.anchor_stream_id}
-										<div class="flex flex-wrap items-center gap-2 mt-2">
-											{@render instrumentMapTo(g.anchor_stream_id, g.name, g)}
-											{#if g.create && !g.confirmed}
-												<Button
-													variant="primary"
-													size="sm"
-													disabled={instrumentSaving === g.scope}
-													onclick={() => confirmInstrument({ key: g.scope ?? '', anchorStreamId: g.anchor_stream_id! })}
-												>{instrumentSaving === g.scope ? 'Creating…' : 'Create instrument'}</Button>
-											{/if}
-										</div>
-									{/if}
-								</div>
-							{/each}
-
-							{#if planInstruments.unassigned.length > 0}
-								<div class="rounded-md border border-brand-divider bg-brand-surface p-3">
-									<div class="flex items-baseline gap-2">
-										<div class="text-sm font-medium">
-											Parameters with no instrument
-											<span class="text-brand-muted font-normal">({planInstruments.unassigned.length})</span>
-										</div>
-										<Button
-											size="sm"
-											class="ml-auto"
-											disabled={acceptingSuggestions}
-											onclick={acceptAllSuggestions}
-										>{acceptingSuggestions ? 'Creating…' : `Create all ${planInstruments.unassigned.length} suggested`}</Button>
-									</div>
-									<p class="text-xs text-brand-muted mt-0.5 mb-2">
-										These pair without one. Each carries a suggested name: edit it, accept it, or map
-										the parameter to an instrument that already exists. Two columns of one probe
-										(acid and no-acid, say) reach one instrument by mapping both to it.
-									</p>
-									<div class="max-h-[32rem] overflow-y-auto space-y-1 border-t border-brand-divider">
-										{#each planInstruments.unassigned as u (u.scope)}
-											<div class="flex flex-wrap items-center gap-2 text-xs py-1 border-t border-brand-divider/50 first:border-t-0">
-												<span class="font-mono">{u.parameter}</span>
-												<span class="text-brand-muted">{u.stream_count} stream{u.stream_count === 1 ? '' : 's'}, {u.site_count} site{u.site_count === 1 ? '' : 's'}</span>
-												<span class="ml-auto flex items-center gap-2">
-													{@render instrumentNameField(u.scope, u.anchor_stream_id, u.suggested_name, null)}
-													{@render instrumentMapTo(u.anchor_stream_id, u.suggested_name, null)}
-												</span>
-											</div>
-										{/each}
-									</div>
-								</div>
-							{/if}
+						<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
+							<table class="w-full text-sm">
+								<thead><tr class="bg-brand-bg border-b border-brand-divider">
+									<th class="text-left px-3 py-2 font-semibold">Curve</th>
+									<th class="text-left px-3 py-2 font-semibold">Equation</th>
+									<th class="text-left px-3 py-2 font-semibold">Source key</th>
+									<th class="text-right px-3 py-2 font-semibold">Readings corrected</th>
+									<th class="text-left px-3 py-2 font-semibold w-[260px]">Instrument</th>
+								</tr></thead>
+								<tbody>
+									{#each planInstruments.curves as c (c.id)}
+										<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50">
+											<td class="px-3 py-2">
+												{#if editingCurve === c.id}
+													<input
+														type="text"
+														bind:value={curveEditValue}
+														onkeydown={(e) => { if (e.key === 'Enter') commitCurveName(c.id, c.name); if (e.key === 'Escape') editingCurve = null; }}
+														onblur={() => commitCurveName(c.id, c.name)}
+														class="px-1 py-0.5 border border-brand-primary rounded text-sm bg-brand-surface w-56"
+														use:focusOnMount
+													/>
+												{:else}
+													<button
+														onclick={() => { editingCurve = c.id; curveEditValue = c.name ?? ''; }}
+														class="bg-transparent border-0 border-b border-dashed border-brand-muted cursor-pointer text-brand-text hover:text-brand-primary hover:border-brand-primary text-left"
+														title="Rename this standard curve"
+													>{c.name ?? c.id}</button>
+												{/if}
+											</td>
+											<td class="px-3 py-2 font-mono text-xs">
+												y = {formatSignificant(c.slope)}x {c.intercept < 0 ? '−' : '+'} {formatSignificant(Math.abs(c.intercept))}
+												{#if c.r_squared != null}<span class="text-brand-muted ml-1">R² {formatSignificant(c.r_squared)}</span>{/if}
+											</td>
+											<td class="px-3 py-2 font-mono text-xs text-brand-muted">{c.source_key ?? '--'}</td>
+											<td class="px-3 py-2 text-right text-xs {c.reading_count > 0 ? 'text-brand-text' : 'text-brand-muted'}">{c.reading_count.toLocaleString()}</td>
+											<td class="px-3 py-2">
+												<select
+													value={c.sensor_id}
+													onchange={(e) => rehomeCurve(c.id, (e.target as HTMLSelectElement).value)}
+													class="px-2 py-1 rounded text-xs bg-brand-surface border border-brand-divider max-w-[240px]"
+													aria-label="Instrument for {c.name ?? c.id}"
+													title={c.reading_count > 0 ? `Moving this curve changes which instrument ${c.reading_count.toLocaleString()} corrected readings name` : 'Move this curve to another instrument'}
+												>
+													{#if !labInstruments.some((s) => s.id === c.sensor_id)}
+														<option value={c.sensor_id}>{c.instrument_name}</option>
+													{/if}
+													{#each labInstruments as s}
+														<option value={s.id}>{s.name ?? s.serial_number ?? s.id}</option>
+													{/each}
+												</select>
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
 						</div>
+						<p class="text-xs text-brand-muted">
+							Only instruments that already exist can hold a curve. One this plan will create becomes
+							available after the plan is applied.
+						</p>
 					{/if}
 
 				<!-- ── SITES TAB ── -->
@@ -2042,7 +1991,19 @@
 
 				<!-- ── PARAMETERS TAB ── -->
 				{:else if reviewTab === 'parameters'}
-					<p class="text-xs text-brand-muted">Map source parameters to existing DB parameters, rename, or change units. Changes apply across all {siteGroups.length} sites.</p>
+					<div class="flex flex-wrap items-baseline gap-2">
+						<p class="text-xs text-brand-muted">Map source parameters to existing DB parameters, rename, or change units. Changes apply across all {siteGroups.length} sites.</p>
+						{#if (planInstruments?.unassigned.length ?? 0) > 0}
+							<span class="ml-auto text-xs text-brand-muted">
+								{planInstruments!.unassigned.length} parameter{planInstruments!.unassigned.length === 1 ? '' : 's'} have no instrument
+							</span>
+							<Button
+								size="sm"
+								disabled={acceptingSuggestions}
+								onclick={acceptAllSuggestions}
+							>{acceptingSuggestions ? 'Creating…' : 'Create all suggested'}</Button>
+						{/if}
+					</div>
 					<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 						<table class="w-full text-sm">
 							<thead><tr class="bg-brand-bg border-b border-brand-divider">
@@ -2050,6 +2011,7 @@
 								<th class="text-left px-3 py-2 font-semibold">Parameter name</th>
 								<th class="text-left px-3 py-2 font-semibold">Units</th>
 								<th class="text-left px-3 py-2 font-semibold w-[240px]">Map to</th>
+								<th class="text-left px-3 py-2 font-semibold w-[260px]">Instrument</th>
 								<th class="text-left px-3 py-2 font-semibold">Status</th>
 								<th class="text-right px-3 py-2 font-semibold">Sites</th>
 								<th class="text-right px-3 py-2 font-semibold">Everywhere</th>
@@ -2187,9 +2149,6 @@
 											{#if rowWarnings(pg).length > 0}
 												<div class="text-xs text-severity-warning mt-0.5">{rowWarnings(pg)[0]}</div>
 											{/if}
-											{#if pg.instrument}
-												{@render instrumentCell(pg.instrument)}
-											{/if}
 										</td>
 										<td class="px-3 py-2 text-xs">
 											{#if matched}
@@ -2228,6 +2187,24 @@
 													{/each}
 												</optgroup>
 											</select>
+										</td>
+										<td class="px-4 py-2">
+											{#if instrumentByParameter.get(pg.name)}
+												{@const inst = instrumentByParameter.get(pg.name)!}
+												<div class="flex flex-col gap-1 items-start">
+													{@render instrumentNameField(inst.scope, inst.anchorStreamId, inst.suggestion, inst.group)}
+													{@render instrumentMapTo(inst.anchorStreamId, inst.suggestion, inst.group)}
+													{#if inst.group?.curve_column}
+														<span class="text-[11px] text-brand-muted">
+															<span class="font-mono">{inst.group.curve_column}</span> names a curve per reading
+														</span>
+													{:else if inst.group}
+														<span class="text-[11px] text-brand-muted">Corrected upstream; the curve is not re-applied</span>
+													{/if}
+												</div>
+											{:else}
+												<span class="text-xs text-brand-muted">--</span>
+											{/if}
 										</td>
 										<td class="px-4 py-2">
 											<span class="text-xs px-1.5 py-0.5 rounded {matched ? 'bg-severity-ok-soft text-severity-ok' : 'bg-severity-warning-soft text-severity-warning'}">{matched ? 'existing' : 'new'}</span>
