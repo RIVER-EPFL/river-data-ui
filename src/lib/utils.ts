@@ -153,3 +153,13 @@ export function triggerLabel(triggerType: string): string {
 		default: return triggerType;
 	}
 }
+
+// A stored double as a reader can compare it: significant digits, trailing zeros dropped,
+// exponential outside the range where a fixed form stays short.
+export function formatSignificant(value: number, digits = 6): string {
+	if (!Number.isFinite(value)) return '--';
+	if (Number.isInteger(value) && Math.abs(value) < 1e6) return String(value);
+	const abs = Math.abs(value);
+	if (abs !== 0 && (abs < 1e-4 || abs >= 1e6)) return value.toExponential(3);
+	return String(Number(value.toPrecision(digits)));
+}

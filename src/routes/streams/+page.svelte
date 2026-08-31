@@ -17,14 +17,16 @@
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatRelativeTime } from '$lib/utils';
 	import { createUrlTab } from '$lib/urlTab.svelte';
+	import PairSkipToggle from '$components/ui/PairSkipToggle.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import Badge from '$components/ui/Badge.svelte';
-	import { formatDateTime } from '$lib/utils';
+	import { formatDateTime, formatSignificant } from '$lib/utils';
 	import Button from '$components/ui/Button.svelte';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import ReplicateFamilyBadge from '$components/streams/ReplicateFamilyBadge.svelte';
 	import ReplicateAuditsPanel from '$components/logs/ReplicateAuditsPanel.svelte';
+	import InstrumentCurvesPanel from '$components/streams/InstrumentCurvesPanel.svelte';
 
 	// ── Stream list state ──
 	let streams = $state<DataStream[]>([]);
@@ -57,10 +59,10 @@
 	// The list mode is a two-tab hub: the streams table and the replicate-audit holds.
 	// The audit surface is manager-only; below that level the page is the streams table alone.
 	const canAudit = $derived(me.can('manageSensors'));
-	const tab = createUrlTab({ keys: ['streams', 'audits'] });
+	const tab = createUrlTab({ keys: ['streams', 'audits', 'instruments'] });
 	const tabLabels = $derived(
 		canAudit
-			? ['Streams', pendingAudits > 0 ? `Audits (${pendingAudits})` : 'Audits']
+			? ['Streams', pendingAudits > 0 ? `Audits (${pendingAudits})` : 'Audits', 'Instruments']
 			: ['Streams'],
 	);
 	let reconFamilyCount = $state(0);
@@ -330,9 +332,22 @@
 		return groups.sort((a, b) => a.name.localeCompare(b.name) || a.units.localeCompare(b.units));
 	});
 
+	// The divisor question is asked by the row's own control, so its warning text is not repeated
+	// as prose next to it.
+	const sdWarningMessages = $derived(
+		new Set(
+			planEntries.flatMap((e) =>
+				e.warnings.filter((w) => w.kind === 'sd_estimator_undeclared').map((w) => w.message),
+			),
+		),
+	);
+	function rowWarnings(pg: ParamGroup): string[] {
+		return pg.warnings.filter((w) => !sdWarningMessages.has(w));
+	}
+
 	// One row per distinct warning, carrying the structured warning so the block can offer the
-	// resolutions rather than only naming the problem. The sd-estimator kind is excluded: those
-	// collapse into one decision card with a control per parameter, below.
+	// resolutions rather than only naming the problem. The sd-estimator kind is excluded: it is
+	// asked on the parameter's own row in the Parameters tab, which is also where it is coloured.
 	const uniqueWarnings = $derived.by((): Array<{ warning: PlanWarning; paramName: string; count: number; anchorStreamId: string }> => {
 		const map = new Map<string, { warning: PlanWarning; paramName: string; count: number; anchorStreamId: string }>();
 		for (const e of planEntries) {
@@ -369,7 +384,40 @@
 		}
 		return [...map.values()].sort((a, b) => a.paramName.localeCompare(b.paramName));
 	});
-	const sdUndeclared = $derived(sdDecisions.filter((g) => !g.declared).length);
+	// Only the families the audit actually disputes are put to the operator: sample (n-1) is the
+	// presumption and a family nothing disagrees with is declared with it at plan creation. What is
+	// left is a disagreement the population divisor explains, or one neither divisor does.
+	const sdDisputed = $derived(sdDecisions.filter((g) => g.holds > 0 || !g.declared));
+	const sdDisputedByParam = $derived(new Map(sdDisputed.map((g) => [g.paramName, g])));
+	const sdOpen = $derived(sdDisputed.filter((g) => !g.declared).length);
+
+	function auditClassParam(v: string | null): 'population_sd' | 'not_population_sd' | undefined {
+		return v === 'population_sd' || v === 'not_population_sd' ? v : undefined;
+	}
+
+	// The counts quoted next to a divisor decision are the audit queue's own, so they open it on
+	// exactly the holds they counted. The holds are on unpaired streams until the plan applies,
+	// which is the queue's `deferred` view.
+	function showDivisorHolds(
+		group: { paramName: string; entries: PairingPlanEntry[] },
+		classification: 'population_sd' | 'not_population_sd',
+	) {
+		const ids = group.entries.map((e) => e.stream_id).join(',');
+		void flushUpdates();
+		tab.go(
+			'audits',
+			(url) => {
+				url.searchParams.delete('step');
+				url.searchParams.set('view', 'deferred');
+				url.searchParams.set('holds_streams', ids);
+				url.searchParams.set('holds_class', classification);
+				url.searchParams.set('holds_label', group.paramName);
+			},
+			// Pushed, not replaced: back returns to the review, which keeps the plan it was
+			// editing, rather than dropping out of the wizard entirely.
+			{ push: true },
+		);
+	}
 
 	function setParamEstimator(group: { entries: PairingPlanEntry[] }, value: SdEstimator | '') {
 		const updates: PlanEntryUpdate[] = group.entries.map((e) => {
@@ -607,8 +655,8 @@
 	// The divisor a replicate family publishes. Asked here because pairing is the first moment it
 	// can be, and left unset deliberately: the audit gate asks again rather than this guessing.
 	// Entries that will pair, whose source reports an sd, and which nobody has declared a divisor
-	// for. Quoted on the apply screen so leaving it unset is a stated choice rather than an
-	// oversight.
+	// for — since sample is the default, that is the set the audit disputes. Quoted on the apply
+	// screen so leaving it unset is a stated choice rather than an oversight.
 	const undeclaredEstimatorEntries = $derived(
 		planEntries.filter(
 			(e) =>
@@ -1042,7 +1090,7 @@
 									{#each inst.replicates as r}
 										<td class="pr-3 whitespace-nowrap {r.is_flagged || r.withdrawn ? 'line-through opacity-60' : ''}">
 											<span class="text-brand-muted">{r.column ?? `rep ${r.replicate_index}`}</span>
-											{r.value ?? '--'}
+											{r.value === null || r.value === undefined ? '--' : formatSignificant(r.value)}
 										</td>
 									{/each}
 									<td class="pl-2 whitespace-nowrap text-brand-text">
@@ -1082,7 +1130,7 @@
 			{/if}
 		</div>
 		{#each inst.curves as c}
-			<div class="pl-3 font-mono">{c.name ?? c.id} · slope {c.slope} · intercept {c.intercept}</div>
+			<div class="pl-3 font-mono">{c.name ?? c.id} · slope {formatSignificant(c.slope)} · intercept {formatSignificant(c.intercept)}</div>
 		{/each}
 	</div>
 {/snippet}
@@ -1116,15 +1164,24 @@
 		</p>
 		<ReplicateAuditsPanel
 			initialView={page.url.searchParams.get('view') === 'deferred' ? 'deferred' : 'review'}
+			initialStreamIds={page.url.searchParams.get('holds_streams')?.split(',') ?? undefined}
+			initialClassification={auditClassParam(page.url.searchParams.get('holds_class'))}
+			initialFocusLabel={page.url.searchParams.get('holds_label') ?? undefined}
 			onPendingChange={(n) => (pendingAudits = n)}
 		/>
+		{:else if tab.key === 'instruments' && canAudit}
+		<p class="text-sm text-brand-muted">
+			The instruments the sync and the inventory know, the standard curves each one owns, and
+			the incoming values those curves corrected.
+		</p>
+		<InstrumentCurvesPanel />
 		{:else}
 
 		{#if pendingAudits > 0 && canAudit}
 			<div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md bg-severity-warning-soft border border-severity-warning-border text-sm text-severity-warning-text">
 				<span>{pendingAudits} replicate group{pendingAudits === 1 ? '' : 's'} need{pendingAudits === 1 ? 's' : ''} audit review</span>
 				<button
-					onclick={() => tab.go('audits')}
+					onclick={() => tab.go('audits', undefined, { push: true })}
 					class="font-semibold text-severity-warning-text bg-transparent border-none p-0 cursor-pointer underline-offset-2 hover:underline"
 				>Review</button>
 			</div>
@@ -1329,7 +1386,7 @@
 				<button
 					onclick={() => {
 						void flushUpdates();
-						tab.go('audits', (url) => { url.searchParams.delete('step'); url.searchParams.set('view', 'deferred'); });
+						tab.go('audits', (url) => { url.searchParams.delete('step'); url.searchParams.set('view', 'deferred'); }, { push: true });
 					}}
 					class="font-semibold text-severity-warning-text bg-transparent border-none p-0 cursor-pointer underline-offset-2 hover:underline"
 				>View audits</button>
@@ -1355,7 +1412,7 @@
 		</div>
 
 		<!-- ── ISSUES ── Everything needing a decision, in view rather than behind a tab. -->
-		{#if unresolvedInstruments.length > 0 || uniqueWarnings.length > 0 || sdUndeclared > 0}
+		{#if unresolvedInstruments.length > 0 || uniqueWarnings.length > 0 || sdOpen > 0}
 			<div class="rounded-md border border-severity-warning-border bg-severity-warning-soft overflow-hidden">
 				<div class="px-3 py-2 text-sm font-semibold text-severity-warning-text border-b border-severity-warning-border">
 					{unresolvedInstruments.length > 0
@@ -1404,46 +1461,14 @@
 					</div>
 				{/each}
 
-				{#if sdUndeclared > 0}
+				{#if sdOpen > 0}
 					<div class="px-3 py-2 border-b border-severity-warning-border/50 last:border-b-0 text-sm text-severity-warning-text">
-						<div>
-							{sdUndeclared} replicate parameter{sdUndeclared === 1 ? '' : 's'}: which divisor does
-							the incoming standard deviation use?
-						</div>
-						<p class="text-xs mt-1 opacity-90">
-							These sync as replicate groups; avg and sd are computed here from the stored
-							replicates. Optional: left undeclared, sample (n-1) applies and incoming values that
-							disagree wait in the
-							<button
-								onclick={() => { void flushUpdates(); tab.go('audits', (url) => url.searchParams.delete('step')); }}
-								class="bg-transparent border-none p-0 cursor-pointer font-semibold text-severity-warning-text underline-offset-2 hover:underline"
-							>audit queue</button>.
-						</p>
-						<div class="mt-2 grid gap-x-3 gap-y-1 items-center" style="grid-template-columns: max-content max-content max-content max-content;">
-							{#each sdDecisions as g (g.paramName)}
-								<span class="font-mono text-xs">{g.paramName}</span>
-								<span class="text-xs text-severity-warning-text/70">{g.entries.length} stream{g.entries.length === 1 ? '' : 's'}</span>
-								<span class="text-xs {g.holds > 0 && g.population === g.holds ? 'font-semibold' : 'text-severity-warning-text/70'}">
-									{#if g.holds === 0}
-										no disagreements under sample (n-1)
-									{:else if g.holds === 1}
-										{g.population}/1 disagreement matches population (n)
-									{:else}
-										{g.population}/{g.holds} disagreements match population (n)
-									{/if}
-								</span>
-								<select
-									value={g.declared}
-									onchange={(e) => setParamEstimator(g, e.currentTarget.value as SdEstimator | '')}
-									aria-label="Standard deviation formula for {g.paramName}"
-									class="px-1.5 py-0.5 rounded border text-xs cursor-pointer bg-brand-surface {g.declared ? 'border-brand-divider text-brand-text' : 'border-severity-warning-border text-severity-warning-text'}"
-								>
-									<option value="">not declared</option>
-									<option value="sample">sample (n-1)</option>
-									<option value="population">population (n)</option>
-								</select>
-							{/each}
-						</div>
+						{sdOpen} replicate parameter{sdOpen === 1 ? '' : 's'} need{sdOpen === 1 ? 's' : ''} a
+						standard-deviation divisor, highlighted in
+						<button
+							onclick={() => { reviewTab = 'parameters'; }}
+							class="bg-transparent border-none p-0 cursor-pointer font-semibold text-severity-warning-text underline-offset-2 hover:underline"
+						>Parameters</button>.
 					</div>
 				{/if}
 
@@ -1567,10 +1592,11 @@
 									{/if}
 								</div>
 								<span class="text-xs text-brand-muted px-2">{group.project}</span>
-								<button onclick={() => setSiteAction(group, 'pair')} class="px-2 py-0.5 text-xs rounded cursor-pointer border-none {allPair ? 'bg-severity-ok-soft text-severity-ok' : 'bg-brand-bg text-brand-muted opacity-50'}">Pair</button>
-								<button
-									onclick={() => setSiteAction(group, 'skip')}
-									class="px-2 py-0.5 text-xs rounded cursor-pointer border-none {allSkip ? 'bg-severity-alarm-soft text-severity-alarm' : 'bg-brand-bg text-brand-muted opacity-50'}">Skip</button>
+								<PairSkipToggle
+									value={allPair ? 'pair' : allSkip ? 'skip' : 'mixed'}
+									onchange={(a) => setSiteAction(group, a)}
+									title="Pair or skip every parameter at {group.siteName}"
+								/>
 							</div>
 							{#if isExpanded}
 								{@const meta = siteMetadataMap.get(group.siteName)}
@@ -1684,13 +1710,15 @@
 												{@render replicateChip(entry.stream_id, entryReplicates, entry.stream_id)}
 											{/if}
 										</div>
-										{#if entryReplicates?.portal_sd_column}
+										<!-- Only where the divisor is still in question: a family nothing disputes
+										     carries the sample declaration silently. -->
+										{#if entryReplicates?.portal_sd_column && sdDisputedByParam.has(entry.parameter.name)}
 											{@const declared = (entry as { sd_estimator?: SdEstimator | null }).sd_estimator ?? ''}
 											<select
 												value={declared}
 												onchange={(e) => setEntryEstimator(entry, e.currentTarget.value as SdEstimator | '')}
 												aria-label="Standard deviation formula for {entry.parameter.name}"
-												title="This source reports its own {entryReplicates.portal_sd_column}. Declaring the divisor here means our statistics match it; left undeclared, the sample formula (n-1) is used and disagreements are held in the audit queue for a decision."
+												title="Divisor for the sd computed from this family's replicates. The source ships its own {entryReplicates.portal_sd_column}; declare the one it used, or leave it undeclared and decide from the audit queue."
 												class="px-1.5 py-0.5 rounded border text-[10px] shrink-0 cursor-pointer bg-brand-surface {declared ? 'border-brand-divider text-brand-text' : 'border-severity-warning-border text-severity-warning-text'}"
 											>
 												<option value="">sd: not declared</option>
@@ -1704,10 +1732,12 @@
 												title={entry.warnings.map((w) => w.message).join(', ')}
 											>warn</span>
 										{/if}
-										<button onclick={() => setEntryAction(entry, 'pair')} class="px-1.5 py-0.5 rounded cursor-pointer border-none shrink-0 {entry.action === 'pair' ? 'bg-severity-ok-soft text-severity-ok' : 'bg-brand-bg text-brand-muted opacity-50'}">Pair</button>
-										<button
-											onclick={() => setEntryAction(entry, 'skip')}
-											class="px-1.5 py-0.5 rounded cursor-pointer border-none shrink-0 {entry.action === 'skip' ? 'bg-severity-alarm-soft text-severity-alarm' : 'bg-brand-bg text-brand-muted opacity-50'}">Skip</button>
+										<PairSkipToggle
+											size="sm"
+											value={entry.action === 'pair' ? 'pair' : 'skip'}
+											onchange={(a) => setEntryAction(entry, a)}
+											title="Pair or skip this stream"
+										/>
 									</div>
 									{#if entryReplicates && expandedReplicates.has(entry.stream_id)}
 										<div class="pl-12 pr-2 py-1.5 border-b border-brand-divider bg-brand-bg/30">
@@ -1749,7 +1779,11 @@
 							<tbody>
 								{#each paramGroups as pg}
 									{@const matched = matchParam(pg.name)}
-									<tr id="param-row-{pg.name}" class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 transition-shadow">
+									{@const sd = sdDisputedByParam.get(pg.name)}
+									<tr
+										id="param-row-{pg.name}"
+										class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 transition-shadow {sd ? (sd.declared ? 'bg-severity-ok-soft' : 'bg-severity-warning-soft') : ''}"
+									>
 										<td class="px-3 py-2 text-xs text-brand-muted font-mono max-w-[250px]">
 										{#if pg.originalNames.length > 1}
 											<button
@@ -1838,8 +1872,42 @@
 													</div>
 												{/if}
 											{/if}
-											{#if pg.warnings.length > 0}
-												<div class="text-xs text-severity-warning mt-0.5">{pg.warnings[0]}</div>
+											{#if sd}
+												{@const unexplained = sd.holds - sd.population}
+												<div class="mt-1 flex items-center gap-2 text-[11px]">
+													<select
+														value={sd.declared}
+														onchange={(e) => setParamEstimator(sd, e.currentTarget.value as SdEstimator | '')}
+														aria-label="Standard deviation divisor for {pg.name}"
+														title="The divisor the sd computed from this family's replicates uses. The source ships its own; declare the one it used."
+														class="px-1 py-0.5 rounded border text-[11px] cursor-pointer bg-brand-surface {sd.declared ? 'border-brand-divider text-brand-text' : 'border-severity-warning-border text-severity-warning-text'}"
+													>
+														<option value="">sd: not declared</option>
+														<option value="sample">sd: sample (n-1)</option>
+														<option value="population">sd: population (n)</option>
+													</select>
+													<span class="text-brand-muted">
+														{#if sd.population > 0}
+															<button
+																onclick={() => showDivisorHolds(sd, 'population_sd')}
+																class="bg-transparent border-none p-0 cursor-pointer text-brand-primary underline-offset-2 hover:underline"
+																title="Open these holds in the audit queue"
+															>{sd.population} incoming sd match population (n)</button>
+														{/if}
+														{#if unexplained > 0}
+															{sd.population > 0 ? ', ' : ''}
+															<button
+																onclick={() => showDivisorHolds(sd, 'not_population_sd')}
+																class="bg-transparent border-none p-0 cursor-pointer text-brand-primary underline-offset-2 hover:underline"
+																title="Open these holds in the audit queue"
+															>{unexplained} match neither</button>
+														{/if}
+														{#if sd.holds === 0}divisor differs between this parameter's streams{/if}
+													</span>
+												</div>
+											{/if}
+											{#if rowWarnings(pg).length > 0}
+												<div class="text-xs text-severity-warning mt-0.5">{rowWarnings(pg)[0]}</div>
 											{/if}
 											{#if pg.instrument}
 												{@render instrumentCell(pg.instrument)}
@@ -1888,14 +1956,17 @@
 										</td>
 										<td class="px-4 py-2 text-right text-brand-muted">{pg.siteCount}</td>
 										<td class="px-4 py-2 text-right whitespace-nowrap">
-											<button
-												onclick={() => setParamGroupAction(pg, 'pair')}
-												class="px-2 py-0.5 text-xs rounded cursor-pointer border-none {pg.pairCount === pg.streamIds.length ? 'bg-severity-ok-soft text-severity-ok' : 'bg-brand-bg text-brand-muted opacity-60'}"
-											>Pair</button>
-											<button
-												onclick={() => setParamGroupAction(pg, 'skip')}
-												class="px-2 py-0.5 text-xs rounded cursor-pointer border-none ml-1 {pg.pairCount === 0 ? 'bg-severity-alarm-soft text-severity-alarm' : 'bg-brand-bg text-brand-muted opacity-60'}"
-											>Skip</button>
+											<div class="inline-flex justify-end w-full">
+												<PairSkipToggle
+													value={pg.pairCount === pg.streamIds.length
+														? 'pair'
+														: pg.pairCount === 0
+															? 'skip'
+															: 'mixed'}
+													onchange={(a) => setParamGroupAction(pg, a)}
+													title="Pair or skip {pg.name} at every station"
+												/>
+											</div>
 										</td>
 									</tr>
 								{/each}
@@ -1939,10 +2010,10 @@
 			{#if undeclaredEstimatorEntries > 0}
 				<p class="px-3 py-2 rounded-md bg-severity-warning-soft border border-severity-warning-border text-xs text-severity-warning-text">
 					{undeclaredEstimatorEntries} replicate famil{undeclaredEstimatorEntries === 1 ? 'y' : 'ies'}
-					will be paired without a declared standard-deviation formula, though the source reports
-					its own. Their statistics use the sample formula (n-1) and are marked undeclared;
-					disagreements with the source are held in the audit queue until you declare one. Go back
-					to Review to set it now, or leave it and decide there.
+					will be paired undeclared: the source's own standard deviations disagree with ours and the
+					population divisor (n) explains it. Their statistics use sample (n-1) meanwhile, and the
+					disagreements are held in the audit queue until you declare one. Go back to Review to set
+					it now, or leave it and decide there.
 				</p>
 			{/if}
 			<p class="text-xs text-brand-muted">Readings will be backfilled with site and parameter IDs. Continuous aggregates will refresh in the background. This operation can be reverted.</p>
