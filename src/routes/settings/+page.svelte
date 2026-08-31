@@ -28,6 +28,7 @@
 		getSubscription,
 		unsubscribe,
 		subscriptionToPayload,
+		showLocalTestNotification,
 	} from '$lib/push';
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
@@ -159,6 +160,25 @@
 			);
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Test failed');
+		} finally {
+			testBusy = false;
+		}
+	}
+
+	async function testLocally() {
+		testBusy = true;
+		try {
+			if (Notification.permission !== 'granted') {
+				const permission = await Notification.requestPermission();
+				if (permission !== 'granted') {
+					toastStore.error('Notification permission was denied on this device');
+					return;
+				}
+			}
+			await showLocalTestNotification();
+			toastStore.success('Shown. If nothing appeared, the device is blocking notifications.');
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Could not show a notification');
 		} finally {
 			testBusy = false;
 		}
@@ -430,6 +450,9 @@
 							<Button size="sm" variant="secondary" disabled={testBusy} onclick={sendTest}>
 								Send test
 							</Button>
+							<Button size="sm" variant="secondary" disabled={testBusy} onclick={testLocally}>
+								Test on this device
+							</Button>
 							<div class="flex items-center gap-2">
 								<Button size="sm" variant="secondary" disabled={testBusy} onclick={sendPing}>
 									Ping me in
@@ -443,6 +466,11 @@
 								/>
 								<span class="text-sm text-brand-text-muted">sec</span>
 							</div>
+						</div>
+						<div class="text-xs text-brand-text-muted mt-2">
+							"Send test" goes through the push service and reaches every registered device.
+							"Test on this device" draws a notification locally: if that one does not appear,
+							this device is blocking notifications and no push can get through.
 						</div>
 					{/if}
 				{/if}

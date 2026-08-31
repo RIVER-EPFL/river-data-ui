@@ -39,6 +39,16 @@ export async function unsubscribe(): Promise<void> {
 	if (sub) await sub.unsubscribe();
 }
 
+/// Display a notification straight from the service worker, with no push service involved.
+/// Separates "the device refuses to show notifications" from "the push never arrived".
+export async function showLocalTestNotification(): Promise<void> {
+	const reg = await navigator.serviceWorker.ready;
+	await reg.showNotification('RIVER Data', {
+		body: 'Local test. This device can display notifications.',
+		tag: 'river-data-local-test',
+	});
+}
+
 function toUrlSafeBase64(buffer: ArrayBuffer): string {
 	return btoa(String.fromCharCode(...new Uint8Array(buffer)))
 		.replace(/\+/g, '-')
