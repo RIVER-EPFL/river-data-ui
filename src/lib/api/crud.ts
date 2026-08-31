@@ -144,6 +144,8 @@ export interface SiteParameter {
 	derived_definition_id: string | null;
 	is_active: boolean | null;
 	is_public: boolean;
+	/** 'sample' | 'population' | null (undeclared). Changed only through the declare endpoint. */
+	sd_estimator: string | null;
 	created_at: string;
 }
 

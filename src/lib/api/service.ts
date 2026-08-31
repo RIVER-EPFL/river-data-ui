@@ -684,6 +684,10 @@ export interface PairingPlanEntry {
 	// The divisor this slot will publish its replicate standard deviation with, chosen here.
 	// Left unset the slot stays undeclared and its audit disagreements are held for a decision.
 	sd_estimator?: SdEstimator | null;
+	// Evidence for that choice: open replicate-statistics holds on this stream, and how many of
+	// them match the population signature.
+	sd_holds?: number;
+	sd_population_holds?: number;
 }
 
 // A catalog parameter an entry collides with, and what already depends on it. "Exists" alone does
@@ -1052,6 +1056,22 @@ export interface UndeclaredEstimatorsResponse {
 
 export const listUndeclaredSdEstimators = () =>
 	GET<UndeclaredEstimatorsResponse>(`${ADMIN}/actions/undeclared_sd_estimators`);
+
+export interface DeclareSdEstimatorResponse {
+	site_parameter_id: string;
+	estimator: SdEstimator | null;
+	previous: SdEstimator | null;
+	samples_affected: number;
+	job_id?: string;
+}
+
+// The one path for changing a slot's declaration: writes the column and enqueues the tracked
+// retag recomputing the slot's stored samples. The CRUD update excludes the field.
+export const declareSdEstimator = (siteParameterId: string, estimator: SdEstimator | null) =>
+	POST<DeclareSdEstimatorResponse>(
+		`${ADMIN}/site_parameters/${siteParameterId}/declare_sd_estimator`,
+		{ estimator },
+	);
 
 // Unflag a remediated hold's replicates and return it to review.
 export const reopenReplicateAudit = (id: string) =>
