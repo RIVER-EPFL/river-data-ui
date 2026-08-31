@@ -206,7 +206,7 @@
 							>
 								{formatDateTime(rec.event.collected_at)}
 							</a>
-							· {rec.event.source === 'portal_sync' ? 'portal sync' : 'manual'}
+							· {rec.event.source === 'portal_sync' ? 'sync' : 'manual'}
 							{#if rec.event.created_by}· {rec.event.created_by}{/if}
 						</span>
 					{/if}

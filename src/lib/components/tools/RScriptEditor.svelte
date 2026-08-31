@@ -94,8 +94,8 @@
 			bar.className = 'cm-preludeBar';
 			const scope = this.guarded ? ', read only' : '';
 			bar.textContent = this.open
-				? `Shared portal functions, lines 1 to ${this.lines}${scope}. Hide`
-				: `Shared portal functions, ${this.lines} lines${scope}. Show`;
+				? `Shared calculation functions, lines 1 to ${this.lines}${scope}. Hide`
+				: `Shared calculation functions, ${this.lines} lines${scope}. Show`;
 			bar.onclick = () => widgetView.dispatch({ effects: setPreludeOpen.of(!this.open) });
 			return bar;
 		}

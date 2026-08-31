@@ -143,7 +143,7 @@
 			{/if}
 		</div>
 		{#if resolved.needs_review}
-			<Badge variant="muted">from the previous portal</Badge>
+			<Badge variant="muted">from the legacy catalog</Badge>
 		{/if}
 		{#if dangling}
 			<Button
@@ -172,7 +172,7 @@
 						<!-- The seeded portal analytes and anything a sync discovered. Grouped so an
 						     existing analyte is picked instead of a near-duplicate being minted. -->
 						<p class="px-2 pt-1.5 pb-0.5 text-brand-muted font-medium border-t border-brand-divider">
-							From the previous portal
+							From the legacy catalog
 						</p>
 					{/if}
 					<button

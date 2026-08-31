@@ -216,7 +216,7 @@
 									class="w-full text-left px-2 py-1.5 text-xs hover:bg-brand-bg cursor-pointer flex items-center justify-between gap-2"
 								>
 									<span>{formatDateTime(e.collected_at)}</span>
-									<Badge variant={e.source === 'portal_sync' ? 'accent' : 'muted'}>{e.source}</Badge>
+									<Badge variant={e.source === 'portal_sync' ? 'accent' : 'muted'}>{e.source === 'portal_sync' ? 'sync' : e.source}</Badge>
 								</button>
 							{/each}
 						</div>
