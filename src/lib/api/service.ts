@@ -878,6 +878,9 @@ export interface PlanEntryUpdate {
 	instrument_id?: string;
 	instrument_name?: string;
 	instrument_confirmed?: boolean;
+	// Detach the instrument from every entry this one groups with; an absent instrument_id means
+	// unchanged, not none.
+	instrument_clear?: boolean;
 	// Which divisor this slot publishes its replicate standard deviation with. An empty string
 	// clears the choice and leaves the slot undeclared.
 	sd_estimator?: SdEstimator | '';
@@ -907,6 +910,44 @@ export interface SiteMetadata {
 
 export const getPlanSiteMetadata = (planId: string) =>
 	GET<SiteMetadata[]>(`${ADMIN}/sync/pairing-plans/${planId}/site-metadata`);
+
+// One instrument decision in a plan: what it covers and the curves it owns. Only instruments the
+// plan binds are listed; the rest of the inventory is reachable through the picker.
+export interface PlanInstrumentGroup {
+	scope: string | null;
+	instrument_id: string | null;
+	name: string;
+	source_key: string;
+	resolved_by: 'stream' | 'curve_label' | 'manual' | 'placeholder' | string;
+	create: boolean;
+	confirmed: boolean;
+	stamps_readings: boolean;
+	curve_column: string | null;
+	stream_count: number;
+	parameters: string[];
+	site_count: number;
+	anchor_stream_id: string | null;
+	curves: PlanCurveRef[];
+}
+
+export interface PlanUnassignedParameter {
+	scope: string;
+	parameter: string;
+	stream_count: number;
+	site_count: number;
+	anchor_stream_id: string;
+	// The name an instrument for this parameter would get. Accepting it creates the instrument;
+	// nothing is minted from a suggestion alone.
+	suggested_name: string;
+}
+
+export interface PlanInstruments {
+	groups: PlanInstrumentGroup[];
+	unassigned: PlanUnassignedParameter[];
+}
+
+export const getPlanInstruments = (planId: string) =>
+	GET<PlanInstruments>(`${ADMIN}/sync/pairing-plans/${planId}/instruments`);
 
 export const updatePairingPlan = (id: string, updates: PlanEntryUpdate[]) =>
 	PATCH<PairingPlan>(`${ADMIN}/sync/pairing-plans/${id}`, { updates });

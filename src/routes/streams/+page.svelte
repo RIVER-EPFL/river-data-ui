@@ -8,8 +8,10 @@
 		pairStream, unpairStream, importStream, getStreamStats, listStreamReceipts, retagStreams, createPairingPlan, updatePairingPlan,
 		applyPairingPlan, revertPairingPlan, pollJob, getUnpairedSummary, getPlanSiteMetadata,
 		replicateSpec, getPendingAuditCount, getReconciliationCandidates, getStreamPreview, declareSdEstimator,
+		getPlanInstruments,
 		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type SdEstimator, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
 		type PlanReplicateSummary, type StreamReceipt, type PlanWarning, type PlanInstrumentRef,
+		type PlanInstruments, type PlanInstrumentGroup,
 	type StreamPreview,
 	} from '$api/service';
 	import { listReplicateAudits } from '$api/service';
@@ -169,7 +171,10 @@
 	const sitesPerPage = 50;
 	// Parameters first: it is the cross-site editor, and every decision in the plan (naming, units,
 	// instruments) is made once there rather than 31 times in Sites.
-	let reviewTab = $state<'parameters' | 'sites'>('parameters');
+	let reviewTab = $state<'parameters' | 'sites' | 'instruments'>('parameters');
+	// The plan's instrument picture, including instruments the source registered that this plan
+	// binds to nothing. Refetched after every instrument edit, since an attach moves a whole scope.
+	let planInstruments = $state<PlanInstruments | null>(null);
 	let instrumentSaving = $state<string | null>(null);
 
 	// ── Derived: group entries by site ──
@@ -441,12 +446,106 @@
 		queueUpdate([{ stream_id: group.anchorStreamId, instrument_confirmed: true }]);
 		try { await flushUpdates(); } catch { /* the toast from the failed flush is the signal */ }
 		finally { instrumentSaving = null; }
+		await loadPlanInstruments();
 	}
 
 	async function repointInstrument(streamId: string, sensorId: string) {
 		if (!sensorId) return;
 		queueUpdate([{ stream_id: streamId, instrument_id: sensorId }]);
 		try { await flushUpdates(); } catch { /* as above */ }
+		await loadPlanInstruments();
+	}
+
+	// Detach, the inverse of an attach: the streams keep pairing, they just carry no instrument.
+	async function detachInstrument(streamId: string) {
+		queueUpdate([{ stream_id: streamId, instrument_clear: true }]);
+		try { await flushUpdates(); } catch { /* as above */ }
+		await loadPlanInstruments();
+	}
+
+	const boundInstruments = $derived(planInstruments?.groups.length ?? 0);
+
+	// Inline edits in the Instruments tab, keyed the same way the parameter cells are: one open
+	// editor at a time, Enter commits, Escape abandons.
+	let editingInstrument = $state<string | null>(null);
+	let editingCurve = $state<string | null>(null);
+	let instrumentEditValue = $state('');
+	let curveEditValue = $state('');
+	let acceptingSuggestions = $state(false);
+
+	// Naming an instrument is what creates it: the plan carries the proposal, the apply mints it,
+	// and every stream in the scope moves with it.
+	async function proposeInstrument(anchorStreamId: string, name: string) {
+		if (!name.trim()) return;
+		queueUpdate([{ stream_id: anchorStreamId, instrument_name: name.trim(), instrument_confirmed: true }]);
+		try { await flushUpdates(); } catch { /* the toast from the failed flush is the signal */ }
+		await loadPlanInstruments();
+	}
+
+	// The suggestions as a set: one click rather than one per parameter, the same decision either
+	// way since each carries its own suggested name.
+	async function acceptAllSuggestions() {
+		const rows = planInstruments?.unassigned ?? [];
+		if (rows.length === 0) return;
+		acceptingSuggestions = true;
+		try {
+			queueUpdate(rows.map((u) => ({
+				stream_id: u.anchor_stream_id,
+				instrument_name: u.suggested_name,
+				instrument_confirmed: true,
+			})));
+			await flushUpdates();
+			await loadPlanInstruments();
+		} catch { /* as above */ }
+		finally { acceptingSuggestions = false; }
+	}
+
+	async function refreshLabInstruments() {
+		try {
+			const result = await api.sensors.list({ perPage: 500, filter: { is_lab_instrument: true } });
+			labInstruments = result.data.map((s) => ({
+				id: s.id,
+				name: s.name ?? null,
+				serial_number: s.serial_number ?? null,
+			}));
+		} catch { /* the picker keeps the list it has */ }
+	}
+
+	// A name the plan proposes lives in the plan; a name on an instrument that already exists is
+	// the inventory's, so it is renamed there and re-read.
+	async function commitInstrumentName(
+		scope: string,
+		anchorStreamId: string,
+		group: PlanInstrumentGroup | null,
+	) {
+		const name = instrumentEditValue.trim();
+		editingInstrument = null;
+		if (!name || name === group?.name) return;
+		try {
+			if (group && !group.create && group.instrument_id) {
+				await api.sensors.update(group.instrument_id, { name });
+				await refreshLabInstruments();
+				await loadPlanInstruments();
+			} else {
+				await proposeInstrument(anchorStreamId, name);
+			}
+		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Rename failed'); }
+	}
+
+	async function commitCurveName(curveId: string, current: string | null) {
+		const name = curveEditValue.trim();
+		editingCurve = null;
+		if (!name || name === current) return;
+		try {
+			await api.standardCurves.update(curveId, { name });
+			await loadPlanInstruments();
+		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Rename failed'); }
+	}
+
+	async function loadPlanInstruments() {
+		if (!plan) return;
+		try { planInstruments = await getPlanInstruments(plan.id); }
+		catch { planInstruments = null; }
 	}
 
 	// ── Units-conflict resolutions ──
@@ -972,6 +1071,7 @@
 			applyResult = null;
 			void loadPlanDeferred(sourceSystem);
 			setMode('review');
+			void loadPlanInstruments();
 			getPlanSiteMetadata(plan.id).then((meta) => {
 				const map = new Map<string, SiteMetadata>();
 				for (const m of meta) map.set(m.site_name, m);
@@ -1106,6 +1206,45 @@
 			</div>
 		{/if}
 	</div>
+{/snippet}
+
+{#snippet instrumentNameField(scope: string, anchorStreamId: string, suggestion: string, group: PlanInstrumentGroup | null)}
+	{#if editingInstrument === scope}
+		<input
+			type="text"
+			bind:value={instrumentEditValue}
+			onkeydown={(e) => { if (e.key === 'Enter') commitInstrumentName(scope, anchorStreamId, group); if (e.key === 'Escape') editingInstrument = null; }}
+			onblur={() => commitInstrumentName(scope, anchorStreamId, group)}
+			class="px-1 py-0.5 border border-brand-primary rounded text-sm bg-brand-surface w-72"
+			use:focusOnMount
+		/>
+	{:else}
+		<button
+			onclick={() => { editingInstrument = scope; instrumentEditValue = group?.name ?? suggestion; }}
+			class="bg-transparent border-0 border-b border-dashed cursor-pointer text-left hover:text-brand-primary hover:border-brand-primary {group ? 'font-medium text-brand-text border-brand-muted' : 'text-brand-muted border-brand-muted/60 italic'}"
+			title={group ? 'Rename this instrument' : 'Suggested name; click to edit, then create it'}
+		>{group?.name ?? suggestion}</button>
+	{/if}
+{/snippet}
+
+{#snippet instrumentMapTo(anchorStreamId: string, suggestion: string, group: PlanInstrumentGroup | null)}
+	<select
+		value={group?.instrument_id ? `db:${group.instrument_id}` : group ? 'new:' : ''}
+		onchange={(e) => {
+			const v = (e.target as HTMLSelectElement).value;
+			if (v.startsWith('db:')) repointInstrument(anchorStreamId, v.slice(3));
+			else if (v === '') detachInstrument(anchorStreamId);
+			else proposeInstrument(anchorStreamId, group?.name ?? suggestion);
+		}}
+		class="px-2 py-1 rounded text-xs bg-brand-surface border border-brand-divider max-w-[220px]"
+		aria-label="Map to an instrument"
+	>
+		<option value="">no instrument</option>
+		<option value="new:">create "{group?.name ?? suggestion}"</option>
+		{#each labInstruments as s}
+			<option value="db:{s.id}">{s.name ?? s.serial_number ?? s.id}</option>
+		{/each}
+	</select>
 {/snippet}
 
 {#snippet instrumentCell(inst: PlanInstrumentRef)}
@@ -1406,6 +1545,14 @@
 					{plan.summary.instruments_to_create} instrument{plan.summary.instruments_to_create === 1 ? '' : 's'}
 				</Badge>
 			{/if}
+			<!-- Instruments the plan resolves without creating any are still worth stating: silence
+			     here read as "this source has no curves", which is a different thing. -->
+			{#if boundInstruments > 0}
+				<button
+					onclick={() => { reviewTab = 'instruments'; }}
+					class="bg-transparent border-none p-0 cursor-pointer text-brand-muted underline-offset-2 hover:underline"
+				>using {boundInstruments} instrument{boundInstruments === 1 ? '' : 's'}</button>
+			{/if}
 			{#if summary.newProjects + summary.newSites + summary.newParams + plan.summary.instruments_to_create === 0}
 				<span class="text-brand-muted">nothing new</span>
 			{/if}
@@ -1510,7 +1657,7 @@
 		<div class="space-y-3">
 			<!-- View tabs -->
 			<div class="flex gap-1 border-b border-brand-divider pb-2">
-				{#each [['parameters', `Parameters (${paramGroups.length})`], ['sites', `Sites (${siteGroups.length})`]] as [t, label]}
+				{#each [['parameters', `Parameters (${paramGroups.length})`], ['sites', `Sites (${siteGroups.length})`], ['instruments', `Instruments (${planInstruments?.groups.length ?? 0})`]] as [t, label]}
 					<button
 						onclick={() => reviewTab = t as typeof reviewTab}
 						class="px-3 py-1 text-sm rounded-t cursor-pointer border-none {reviewTab === t ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
@@ -1518,8 +1665,139 @@
 				{/each}
 			</div>
 
+				<!-- ── INSTRUMENTS TAB ── -->
+				{#if reviewTab === 'instruments'}
+					<p class="text-sm text-brand-muted">
+						The lab instruments this source's standard curves belong to. A curve is fitted on one
+						instrument, so a reading naming a curve must name that instrument too. One decision
+						covers every station: a curve column is one instrument across the source, and a
+						parameter with no curve column is settled the same way.
+					</p>
+					{#if planInstruments == null}
+						<p class="text-sm text-brand-muted">Loading instruments…</p>
+					{:else if planInstruments.groups.length === 0 && planInstruments.unassigned.length === 0}
+						<p class="text-sm text-brand-muted">This source has registered no standard curves.</p>
+					{:else}
+						<div class="space-y-2">
+							{#each planInstruments.groups as g (g.scope ?? g.instrument_id)}
+								<div class="rounded-md border {g.create && !g.confirmed ? 'border-severity-warning-border bg-severity-warning-soft' : 'border-brand-divider bg-brand-surface'} p-3">
+									<div class="flex flex-wrap items-baseline gap-2">
+										{@render instrumentNameField(g.scope ?? '', g.anchor_stream_id ?? '', g.name, g)}
+										{#if g.create}
+											<Badge variant={g.confirmed ? 'default' : 'warning'}>{g.confirmed ? 'will be created' : 'needs confirming'}</Badge>
+										{:else}
+											<Badge variant="ok">existing</Badge>
+										{/if}
+										{#if g.source_key}<span class="font-mono text-[11px] text-brand-muted">{g.source_key}</span>{/if}
+									</div>
+
+									<div class="text-xs text-brand-muted mt-1">
+										{#if g.curve_column}
+											<span class="font-mono">{g.curve_column}</span> names a curve on every reading of
+										{:else}
+											Attached to
+										{/if}
+										{g.stream_count} stream{g.stream_count === 1 ? '' : 's'}
+										across {g.site_count} site{g.site_count === 1 ? '' : 's'}
+										({g.parameters.join(', ')}).
+										{#if g.stamps_readings}
+											Each reading will store the curve it was corrected with.
+										{:else}
+											Corrected upstream: the instrument is recorded, the curve is not re-applied.
+										{/if}
+									</div>
+
+									{#if g.curves.length > 0}
+										<table class="w-full text-xs mt-2">
+											<thead class="text-brand-muted">
+												<tr><th class="text-left font-normal py-0.5">Curve</th><th class="text-left font-normal">Equation</th></tr>
+											</thead>
+											<tbody>
+												{#each g.curves as c}
+													<tr class="border-t border-brand-divider/50">
+														<td class="py-0.5 pr-3">
+															{#if editingCurve === c.id}
+																<input
+																	type="text"
+																	bind:value={curveEditValue}
+																	onkeydown={(e) => { if (e.key === 'Enter') commitCurveName(c.id, c.name); if (e.key === 'Escape') editingCurve = null; }}
+																	onblur={() => commitCurveName(c.id, c.name)}
+																	class="px-1 py-0.5 border border-brand-primary rounded text-xs bg-brand-surface w-56"
+																	use:focusOnMount
+																/>
+															{:else}
+																<button
+																	onclick={() => { editingCurve = c.id; curveEditValue = c.name ?? ''; }}
+																	class="bg-transparent border-0 border-b border-dashed border-brand-muted cursor-pointer text-xs text-brand-text hover:text-brand-primary hover:border-brand-primary text-left"
+																	title="Rename this standard curve"
+																>{c.name ?? c.id}</button>
+															{/if}
+														</td>
+														<td class="font-mono">y = {formatSignificant(c.slope)}x {c.intercept < 0 ? '−' : '+'} {formatSignificant(Math.abs(c.intercept))}</td>
+													</tr>
+												{/each}
+											</tbody>
+										</table>
+									{:else}
+										<p class="text-xs text-severity-warning-text mt-1">
+											No curves registered, so no reading here will carry a curve reference.
+										</p>
+									{/if}
+
+									{#if g.anchor_stream_id}
+										<div class="flex flex-wrap items-center gap-2 mt-2">
+											{@render instrumentMapTo(g.anchor_stream_id, g.name, g)}
+											{#if g.create && !g.confirmed}
+												<Button
+													variant="primary"
+													size="sm"
+													disabled={instrumentSaving === g.scope}
+													onclick={() => confirmInstrument({ key: g.scope ?? '', anchorStreamId: g.anchor_stream_id! })}
+												>{instrumentSaving === g.scope ? 'Creating…' : 'Create instrument'}</Button>
+											{/if}
+										</div>
+									{/if}
+								</div>
+							{/each}
+
+							{#if planInstruments.unassigned.length > 0}
+								<div class="rounded-md border border-brand-divider bg-brand-surface p-3">
+									<div class="flex items-baseline gap-2">
+										<div class="text-sm font-medium">
+											Parameters with no instrument
+											<span class="text-brand-muted font-normal">({planInstruments.unassigned.length})</span>
+										</div>
+										<Button
+											size="sm"
+											class="ml-auto"
+											disabled={acceptingSuggestions}
+											onclick={acceptAllSuggestions}
+										>{acceptingSuggestions ? 'Creating…' : `Create all ${planInstruments.unassigned.length} suggested`}</Button>
+									</div>
+									<p class="text-xs text-brand-muted mt-0.5 mb-2">
+										These pair without one. Each carries a suggested name: edit it, accept it, or map
+										the parameter to an instrument that already exists. Two columns of one probe
+										(acid and no-acid, say) reach one instrument by mapping both to it.
+									</p>
+									<div class="max-h-[32rem] overflow-y-auto space-y-1 border-t border-brand-divider">
+										{#each planInstruments.unassigned as u (u.scope)}
+											<div class="flex flex-wrap items-center gap-2 text-xs py-1 border-t border-brand-divider/50 first:border-t-0">
+												<span class="font-mono">{u.parameter}</span>
+												<span class="text-brand-muted">{u.stream_count} stream{u.stream_count === 1 ? '' : 's'}, {u.site_count} site{u.site_count === 1 ? '' : 's'}</span>
+												<span class="ml-auto flex items-center gap-2">
+													{@render instrumentNameField(u.scope, u.anchor_stream_id, u.suggested_name, null)}
+													{@render instrumentMapTo(u.anchor_stream_id, u.suggested_name, null)}
+												</span>
+											</div>
+										{/each}
+									</div>
+								</div>
+							{/if}
+						</div>
+					{/if}
+
 				<!-- ── SITES TAB ── -->
-				{#if reviewTab === 'sites'}
+				{:else if reviewTab === 'sites'}
 					<input
 						type="text"
 						placeholder="Search sites…"
