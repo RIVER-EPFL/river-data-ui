@@ -412,6 +412,29 @@
 
 	let paramExtents = $state<Map<string, SiteDetailParameter>>(new Map());
 
+	// Which cadences the site actually holds, over its whole record. Drives the Frequency chips so
+	// a cadence with nothing behind it can't be selected into an empty set of charts.
+	const frequencyAvailable = $derived.by(() => {
+		const rows = [...paramExtents.values()];
+		const avail = {
+			high: rows.some((p) => p.has_continuous),
+			low: rows.some((p) => p.has_spot),
+		};
+		// A site with no readings at all reports neither; leave every chip live rather than
+		// locking the control over a site that simply has nothing yet.
+		return avail.high || avail.low ? avail : { high: true, low: true };
+	});
+
+	// A chart empty because the Frequency filter excludes the only cadence this parameter holds
+	// says so, rather than reading as a gap in the record.
+	function emptyMessageFor(siteParameterId: string): string {
+		const ext = paramExtents.get(siteParameterId);
+		if (!ext) return 'No data for selected range';
+		if (frequency === 'low' && !ext.has_spot) return 'No low-frequency (grab/spot) data for this parameter';
+		if (frequency === 'high' && !ext.has_continuous) return 'No continuous (sensor) data for this parameter';
+		return 'No data for selected range';
+	}
+
 	let sliderRef: TimeRangeSlider | undefined = $state();
 
 	const chartResolution = $derived<'raw' | 'hourly' | 'daily'>(
@@ -827,11 +850,12 @@
 				const detailRes = await GET<SiteDetailResponse>(`/api/sites/${id}/detail`);
 				if (detailRes.data_start) sliderMin = new Date(detailRes.data_start).getTime();
 				if (detailRes.data_end) sliderMax = new Date(detailRes.data_end).getTime();
-				// A spot-only site opens on Low; everything else keeps the All default.
+				// A single-cadence site opens on that cadence; a mixed one keeps the All default.
 				{
 					const withData = detailRes.parameters.filter((p) => (p.reading_count ?? 0) > 0);
-					if (withData.length > 0 && withData.every((p) => p.frequency === 'low')) {
-						frequency = 'low';
+					if (withData.length > 0) {
+						if (withData.every((p) => p.frequency === 'low')) frequency = 'low';
+						else if (withData.every((p) => p.frequency === 'high')) frequency = 'high';
 					}
 				}
 				if (deepLink) {
@@ -1474,7 +1498,7 @@
 						<div class="w-px h-5 bg-brand-divider mx-1"></div>
 
 						<span class="text-xs text-brand-muted font-semibold uppercase tracking-wider" title="High = continuous field-sensor line · Low = grab/spot samples · All = both">Frequency</span>
-						<FrequencyChips bind:value={frequency} />
+						<FrequencyChips bind:value={frequency} available={frequencyAvailable} />
 
 						{#if diagnosticParams.length > 0}
 							<div class="w-px h-5 bg-brand-divider mx-1"></div>
@@ -1607,6 +1631,7 @@
 							activeBreach={activeBreachByParam.get(sp.parameter_id) ?? null}
 							nowMs={now}
 							originLabel={originLabels.get(sp.id) ?? ''}
+							emptyMessage={emptyMessageFor(sp.id)}
 							onpointclick={(p) => pinInspector(sp, param.name, p)}
 						/>
 						{#if inspector?.siteParameterId === sp.id}
@@ -1663,6 +1688,7 @@
 										activeBreach={activeBreachByParam.get(sp.parameter_id) ?? null}
 										nowMs={now}
 										originLabel={originLabels.get(sp.id) ?? ''}
+										emptyMessage={emptyMessageFor(sp.id)}
 										onpointclick={(p) => pinInspector(sp, param.name, p)}
 									/>
 									{#if inspector?.siteParameterId === sp.id}

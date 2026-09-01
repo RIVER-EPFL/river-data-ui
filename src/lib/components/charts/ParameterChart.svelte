@@ -60,6 +60,7 @@
 		activeBreach = null,
 		nowMs = 0,
 		originLabel = '',
+		emptyMessage = 'No data for selected range',
 		onpointclick,
 	}: {
 		siteId: string;
@@ -80,6 +81,8 @@
 		spotStats?: Map<number, SpotPointStats> | null;
 		gapThreshold?: number;
 		loading?: boolean;
+		/** Shown in place of the plot when there is nothing to draw. */
+		emptyMessage?: string;
 		onZoomSelect?: (startMs: number, endMs: number) => void;
 		onResetZoom?: () => void;
 		onSaved?: () => void;
@@ -735,6 +738,23 @@
 				originLabel,
 			});
 			tick().then(() => renderChart());
+		} else {
+			// Nothing to draw: tear the plot down rather than leaving the previous window's series
+			// on screen underneath the "No data" overlay.
+			if (chart) { chart.destroy(); chart = null; }
+			if (teardownCustomSelection) { teardownCustomSelection(); teardownCustomSelection = null; }
+			syncGroup?.update(chartId, {
+				times: [],
+				values: [],
+				threshold,
+				flags: null,
+				flagReasons: null,
+				annotations,
+				sensorBands: [],
+				calibrationMarkers: [],
+				spotStats: null,
+				originLabel,
+			});
 		}
 	});
 
@@ -859,7 +879,7 @@
 	<div class="px-1 py-1 relative {selectionMode !== 'zoom' ? 'cursor-crosshair' : ''}">
 		<div bind:this={el} class="w-full" style="min-height:220px"></div>
 		{#if !hasData && !externalLoading}
-			<div class="absolute inset-0 flex items-center justify-center text-sm text-brand-muted pointer-events-none">No data for selected range</div>
+			<div class="absolute inset-0 flex items-center justify-center text-sm text-brand-muted pointer-events-none">{emptyMessage}</div>
 		{/if}
 		{#if externalLoading}
 			<div class="absolute inset-0 flex items-center justify-center text-xs text-brand-muted bg-brand-surface/40 pointer-events-none">Loading…</div>
