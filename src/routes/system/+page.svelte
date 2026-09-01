@@ -7,6 +7,7 @@
 	import { me } from '$auth/me.svelte';
 	import {
 		issueSyncCommand,
+		setSyncInterval,
 		createServiceCredential,
 		revokeSyncService,
 		listSchedules,
@@ -129,6 +130,36 @@
 		if (age < 90_000) return 'ok';
 		if (age < 300_000) return 'warning';
 		return 'alarm';
+	}
+
+	// The cadence editor holds a per-service draft so a half-typed number never reaches the API.
+	let intervalDraft = $state<Record<string, string>>({});
+	let intervalSaving = $state<Record<string, boolean>>({});
+
+	function intervalValue(svc: SyncService): string {
+		return intervalDraft[svc.id] ?? (svc.sync_interval_secs === null ? '' : String(svc.sync_interval_secs));
+	}
+
+	async function saveInterval(svc: SyncService) {
+		const raw = intervalValue(svc).trim();
+		const seconds = raw === '' ? null : Number(raw);
+		if (seconds !== null && (!Number.isFinite(seconds) || seconds < 30)) {
+			toastStore.error('Cadence must be at least 30 seconds, or blank for the service default');
+			return;
+		}
+		intervalSaving[svc.id] = true;
+		try {
+			await setSyncInterval(svc.id, seconds);
+			delete intervalDraft[svc.id];
+			toastStore.success(
+				seconds === null ? 'Cadence reset to the service default' : `Cadence set to ${formatInterval(seconds)}`,
+			);
+			loadStatus();
+		} catch {
+			toastStore.error('Failed to set the sync cadence');
+		} finally {
+			intervalSaving[svc.id] = false;
+		}
 	}
 
 	async function sendCommand(serviceId: string, command: string) {
@@ -436,19 +467,30 @@
 					{@const svcEvents = eventsForService(svc.id)}
 					{@const open = expanded[svc.id] ?? false}
 					<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
-						<button
-							onclick={() => (expanded[svc.id] = !open)}
-							class="w-full flex items-center gap-2 px-4 py-3 cursor-pointer bg-transparent border-none text-left"
-						>
-							<span class="text-brand-muted text-xs w-3">{open ? '▾' : '▸'}</span>
-							<span class="w-2.5 h-2.5 rounded-full {health === 'ok' ? 'bg-severity-ok' : health === 'warning' ? 'bg-severity-warning' : health === 'alarm' ? 'bg-severity-alarm' : 'bg-severity-unknown'}"></span>
-							<span class="font-semibold text-sm">{svc.instance_id}</span>
-							<span class="text-xs text-brand-muted">{svc.service_type}</span>
+						<div class="flex items-center gap-2 pr-4">
+							<button
+								onclick={() => (expanded[svc.id] = !open)}
+								class="flex-1 min-w-0 flex items-center gap-2 px-4 py-3 cursor-pointer bg-transparent border-none text-left"
+							>
+								<span class="text-brand-muted text-xs w-3">{open ? '▾' : '▸'}</span>
+								<span class="w-2.5 h-2.5 rounded-full {health === 'ok' ? 'bg-severity-ok' : health === 'warning' ? 'bg-severity-warning' : health === 'alarm' ? 'bg-severity-alarm' : 'bg-severity-unknown'}"></span>
+								<span class="font-semibold text-sm">{svc.instance_id}</span>
+								<span class="text-xs text-brand-muted">{svc.service_type}</span>
+								{#if svc.paused}
+									<span class="text-xs px-1.5 py-0.5 rounded bg-severity-warning/15 text-severity-warning">Paused</span>
+								{/if}
+								<span class="text-xs text-brand-muted">{svc.sync_interval_secs ? formatInterval(svc.sync_interval_secs) : 'service default'}</span>
+								<span class="text-xs text-brand-muted ml-auto pl-2">{svc.last_heartbeat ? formatRelativeTime(svc.last_heartbeat) : 'Never'}</span>
+							</button>
+							<!-- Outside the expander: pausing a runaway sync should not need a click to find. -->
 							{#if svc.paused}
-								<span class="text-xs px-1.5 py-0.5 rounded bg-severity-warning/15 text-severity-warning">Paused</span>
+								<Button size="sm" onclick={() => sendCommand(svc.id, 'resume')}>Resume</Button>
+							{:else}
+								<ConfirmPopover message="Pause scheduled syncs? The service keeps its heartbeat and still runs syncs triggered from here." confirmLabel="Pause" confirmVariant="primary" onconfirm={() => sendCommand(svc.id, 'pause')}>
+									<Button size="sm">Pause</Button>
+								</ConfirmPopover>
 							{/if}
-							<span class="text-xs text-brand-muted ml-auto">{svc.last_heartbeat ? formatRelativeTime(svc.last_heartbeat) : 'Never'}</span>
-						</button>
+						</div>
 
 						{#if open}
 							<div class="px-4 pb-4 space-y-4 border-t border-brand-divider pt-3">
@@ -464,13 +506,27 @@
 									<ConfirmPopover message="Trigger a full sync (re-fetch all data)?" confirmLabel="Full Sync" confirmVariant="primary" onconfirm={() => sendCommand(svc.id, 'trigger_full_sync')}>
 										<Button size="sm">Full Sync</Button>
 									</ConfirmPopover>
-									{#if svc.paused}
-										<Button size="sm" onclick={() => sendCommand(svc.id, 'resume')}>Resume</Button>
-									{:else}
-										<ConfirmPopover message="Pause scheduled syncs? The service keeps its heartbeat and still runs syncs triggered from here." confirmLabel="Pause" confirmVariant="primary" onconfirm={() => sendCommand(svc.id, 'pause')}>
-											<Button size="sm">Pause</Button>
-										</ConfirmPopover>
-									{/if}
+								</div>
+								<div class="flex items-center gap-2 flex-wrap">
+									<label class="text-xs text-brand-muted" for="cadence-{svc.id}">Sync every</label>
+									<input
+										id="cadence-{svc.id}"
+										type="number"
+										min="30"
+										step="30"
+										placeholder="service default"
+										value={intervalValue(svc)}
+										oninput={(e) => (intervalDraft[svc.id] = e.currentTarget.value)}
+										class="w-36 px-2 py-1 text-xs rounded border border-brand-divider bg-brand-bg"
+									/>
+									<span class="text-xs text-brand-muted">seconds</span>
+									<Button size="sm" disabled={intervalSaving[svc.id]} onclick={() => saveInterval(svc)}>Save</Button>
+									<span class="text-xs text-brand-muted">
+										{svc.sync_interval_secs === null
+											? 'Running on its own SYNC_INTERVAL_SECONDS; leave blank to keep it there.'
+											: `Set to ${formatInterval(svc.sync_interval_secs)}; clear the field to return to the service default.`}
+										Adopted on the next heartbeat, no restart.
+									</span>
 								</div>
 								{#if svc.paused}
 									<p class="text-xs text-brand-muted">Scheduled syncs are paused; the Sync and Full Sync buttons still run a cycle. Pause persists across service restarts.</p>

@@ -685,6 +685,8 @@ export interface SyncService {
 	status: string;
 	current_operation: string | null;
 	paused: boolean;
+	// Operator-set cadence in seconds; null means the service’s own SYNC_INTERVAL_SECONDS.
+	sync_interval_secs: number | null;
 	last_heartbeat: string | null;
 	last_sync_completed_at: string | null;
 	last_error: string | null;
@@ -732,6 +734,11 @@ export interface SyncServiceCredential {
 
 export const issueSyncCommand = (serviceId: string, command: string, payload?: object) =>
 	POST<SyncCommand>(`${ADMIN}/sync/services/${serviceId}/commands`, { command, payload });
+
+// Null clears the override, returning the service to its own configured cadence. The service
+// adopts the change on its next heartbeat.
+export const setSyncInterval = (serviceId: string, seconds: number | null) =>
+	PATCH<SyncService>(`${ADMIN}/sync/services/${serviceId}`, { sync_interval_secs: seconds });
 
 export const createServiceCredential = (serviceType: string) =>
 	POST<{ client_id: string; client_secret: string }>(`${ADMIN}/sync/credentials`, {
