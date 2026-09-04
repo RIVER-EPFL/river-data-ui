@@ -11,7 +11,7 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  # Nothing is published unless svelte-check passes on the commit being built.
+  # Nothing is published unless svelte-check and the vitest suite pass on the commit being built.
   check:
     runs-on: ubuntu-latest
     steps:
@@ -22,6 +22,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      - run: npm test
 
   build:
     needs: check
