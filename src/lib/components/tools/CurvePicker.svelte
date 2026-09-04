@@ -19,6 +19,7 @@
 	import LastUsedCurveNote from './LastUsedCurveNote.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { curveEquation, curveLabel, formatEquation } from '$lib/standardCurves';
+	import { kindLabel, measuringInstruments } from '$lib/instruments/kind';
 
 	// Stored-curve dropdown (instrument -> its standard_curves) with a
 	// manual slope/intercept fallback. Writes the resolved selection to `value`.
@@ -56,7 +57,7 @@
 
 	function instrumentLabel(instrument: Sensor): string {
 		const name = instrument.name ?? instrument.serial_number ?? instrument.id;
-		return `${name} (${instrument.is_lab_instrument ? 'Lab' : 'Field'})`;
+		return `${name} (${kindLabel(instrument)})`;
 	}
 
 	function curveOptionLabel(c: StandardCurve): string {
@@ -98,7 +99,7 @@
 				filter: { is_active: true },
 				sort: ['name', 'ASC'],
 			});
-			instruments = res.data;
+			instruments = measuringInstruments(res.data);
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Failed to load instruments');
 		}

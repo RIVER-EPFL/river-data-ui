@@ -12,6 +12,7 @@
 	import { me } from '$auth/me.svelte';
 	import { formatDate, formatRelativeTime } from '$lib/utils';
 	import { formatEquation } from '$lib/standardCurves';
+	import { isBookkeeping, kindLabel } from '$lib/instruments/kind';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
@@ -21,7 +22,7 @@
 	import PaginationControls from '$components/ui/PaginationControls.svelte';
 	import { formatCount } from '$lib/format';
 
-	type FilterMode = 'all' | 'field' | 'lab';
+	type FilterMode = 'all' | 'field' | 'lab' | 'source_parameter' | 'entry_channel';
 
 	let sensors = $state<Sensor[]>([]);
 	let deployments = $state<SensorDeployment[]>([]);
@@ -68,8 +69,9 @@
 			const filter: Record<string, unknown> = {};
 			if (searchQuery) filter.q = searchQuery;
 			if (filterActive) filter.is_active = filterActive === 'true';
-			if (filterMode === 'lab') filter.is_lab_instrument = true;
-			else if (filterMode === 'field') filter.is_lab_instrument = false;
+			if (filterMode === 'field') filter.kind = 'device';
+			else if (filterMode === 'lab') filter.kind = 'lab';
+			else if (filterMode !== 'all') filter.kind = filterMode;
 
 			const [result, depResult] = await Promise.all([
 				api.sensors.list({ page: currentPage, perPage, sort: [sortField, sortOrder], filter }),
@@ -222,10 +224,14 @@
 	const canManage = $derived(me.can('manageSensors'));
 	const columnCount = $derived(canManage ? 11 : 10);
 
+	// The four kinds a row can be: two instruments something was measured on, two bookkeeping rows
+	// minted so a reading can name what it came through.
 	const filterChips: { mode: FilterMode; label: string }[] = [
 		{ mode: 'all', label: 'All' },
 		{ mode: 'field', label: 'Field' },
 		{ mode: 'lab', label: 'Lab' },
+		{ mode: 'source_parameter', label: 'Source parameter' },
+		{ mode: 'entry_channel', label: 'Entry channel' },
 	];
 
 	onMount(async () => {
@@ -385,7 +391,7 @@
 							</td>
 							<td class="px-4 py-2">{sensor.name ?? 'None'}</td>
 							<td class="px-4 py-2">
-								<Badge variant={isLab ? 'accent' : 'default'}>{isLab ? 'Lab' : 'Field'}</Badge>
+								<Badge variant={isBookkeeping(sensor) ? 'default' : isLab ? 'accent' : 'default'}>{kindLabel(sensor)}</Badge>
 							</td>
 							<td class="px-4 py-2">
 								<Badge variant={isLow ? 'accent' : 'muted'}>{isLow ? 'Low' : 'High'}</Badge>

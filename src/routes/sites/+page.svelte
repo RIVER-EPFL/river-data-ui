@@ -3,7 +3,14 @@
 	import { base } from '$app/paths';
 	import { api, type Site, type Project, type Subproject } from '$api/crud';
 	import { formatRelativeTime } from '$lib/utils';
-	import { getBackfillCandidates, backfillAttribution, type BackfillSiteSummary } from '$api/service';
+	import {
+		getBackfillCandidates,
+		backfillAttribution,
+		reprocessAll,
+		reconcileAlarms,
+		type BackfillSiteSummary,
+	} from '$api/service';
+	import { me } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
@@ -66,6 +73,28 @@
 			toastStore.error(e instanceof Error ? e.message : 'Backfill failed');
 		} finally {
 			backfilling = null;
+		}
+	}
+
+	let operating = $state<string | null>(null);
+
+	// The two installation-wide operations: re-derive every slot from the deployment and
+	// calibration timelines, and reconcile the persisted alarm events against what the readings
+	// now imply. Both run as tracked jobs, so the toast names the job rather than the effect.
+	async function runOperation(key: 'backdate' | 'alarms') {
+		operating = key;
+		try {
+			if (key === 'backdate') {
+				const res = await reprocessAll();
+				toastStore.success(`Backdating ${formatCount(res.slots)} slot(s), job ${res.job_id.slice(0, 8)}`);
+			} else {
+				const res = await reconcileAlarms();
+				toastStore.success(`Reconciling alarm events, job ${res.job_id.slice(0, 8)}`);
+			}
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'The operation was refused');
+		} finally {
+			operating = null;
 		}
 	}
 
@@ -142,6 +171,24 @@
 					<Button
 						disabled={backfilling !== null}
 					>{backfilling === 'all' ? 'Backfilling…' : `Backfill all (${formatCount(totalClaimable)})`}</Button>
+				</ConfirmPopover>
+			{/if}
+			{#if me.can('writeData')}
+				<ConfirmPopover
+					message="Re-derive instrument, deployment and calibration attribution for every (site, parameter) slot? One backdate runs at a time; a second request joins the one already queued."
+					confirmLabel="Backdate"
+					confirmVariant="primary"
+					onconfirm={() => runOperation('backdate')}
+				>
+					<Button disabled={operating !== null}>{operating === 'backdate' ? 'Backdating…' : 'Backdate attribution'}</Button>
+				</ConfirmPopover>
+				<ConfirmPopover
+					message="Reconcile the persisted alarm events against the breaches the readings currently imply? Events that no longer breach are resolved and new ones opened."
+					confirmLabel="Reconcile"
+					confirmVariant="primary"
+					onconfirm={() => runOperation('alarms')}
+				>
+					<Button disabled={operating !== null}>{operating === 'alarms' ? 'Reconciling…' : 'Reconcile alarms'}</Button>
 				</ConfirmPopover>
 			{/if}
 			<a

@@ -16,7 +16,7 @@
 	title="New Sensor"
 	backHref="{base}/sensors"
 	fields={[
-		{ key: 'serial_number', label: 'Serial Number', helperText: 'Device serial - the physical-instrument identity' },
+		{ key: 'serial_number', label: 'Serial Number', helperText: "The instrument's own serial, where it is known. Optional: an instrument registered from a source feed is identified by that feed, not by a serial" },
 		{ key: 'name', label: 'Name' },
 		{ key: 'manufacturer', label: 'Manufacturer' },
 		{ key: 'model', label: 'Model' },

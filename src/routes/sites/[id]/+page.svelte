@@ -17,6 +17,7 @@
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import PaginationControls from '$components/ui/PaginationControls.svelte';
 	import { cellRecord, visitCellMarker, visitCounts } from '$lib/visits/cell';
+	import SensorVsGrabPanel from '$components/sites/SensorVsGrabPanel.svelte';
 	import { buildReadingsExportParams, exportColumns } from '$lib/sites/exportParams';
 	import { readPointParams, writePointParams, type PointRef } from '$lib/provenance/pointLink';
 	import Badge from '$components/ui/Badge.svelte';
@@ -47,6 +48,15 @@
 	let site = $state<Site | null>(null);
 	let project = $state<Project | null>(null);
 	let siteParameters = $state<SiteParameter[]>([]);
+	// The comparison needs a global parameter the site configures; the label is the slot's own.
+	const comparisonParameters = $derived(
+		siteParameters
+			.map((sp) => ({
+				id: sp.parameter_id,
+				label: sp.name ?? parameters.find((p) => p.id === sp.parameter_id)?.name ?? sp.parameter_id,
+			}))
+			.sort((a, b) => a.label.localeCompare(b.label)),
+	);
 	let parameters = $state<Parameter[]>([]);
 	let sensors = $state<Sensor[]>([]);
 	let deployments = $state<SensorDeployment[]>([]);
@@ -71,6 +81,7 @@
 		{ key: 'sensors', label: 'Sensors' },
 		{ key: 'samples', label: 'Samples' },
 		{ key: 'visits', label: 'Visits' },
+		{ key: 'comparison', label: 'Sensor vs grab' },
 		...(me.can('admin') ? [{ key: 'status', label: 'Status' }] : []),
 		{ key: 'notes', label: 'Notes' },
 	]);
@@ -2344,6 +2355,13 @@
 					/>
 				{/if}
 			</div>
+
+		<!-- Sensor vs grab: each grab value against the continuous average just after it -->
+		{:else if activeKey === 'comparison'}
+			<SensorVsGrabPanel
+				siteId={site?.id ?? ''}
+				parameters={comparisonParameters}
+			/>
 
 		<!-- Visits tab: the portal's wide data row, one per field date -->
 		{:else if activeKey === 'visits'}

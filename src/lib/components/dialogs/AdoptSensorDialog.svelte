@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { api, type Sensor, type Site, type SiteParameter, type SensorDeployment, type Parameter } from '$api/crud';
-	import { pollJob } from '$api/service';
+	import { adoptSensor, swapSensors, getAdoptSuggestions, pollJob } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { toDatetimeLocal, fromDatetimeLocal, formatDateTime } from '$lib/utils';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
@@ -28,6 +28,17 @@
 	let selectedSiteParamId = $state('');
 	let deployedFrom = $state(toDatetimeLocal(Date.now(), timezoneStore.zone));
 	let working = $state(false);
+
+	// The server's suggested deploy dates, so the operator picks one rather than typing an instant.
+	let suggestions = $state<{ now: string; end_of_last_deployment: string | null; first_reading: string | null } | null>(null);
+	$effect(() => {
+		const id = sensor.id;
+		let current = true;
+		getAdoptSuggestions(id)
+			.then((s) => { if (current) suggestions = s; })
+			.catch(() => { if (current) suggestions = null; });
+		return () => { current = false; };
+	});
 
 	let siteParams = $state<SiteParameter[]>([]);
 	let openDeployments = $state<SensorDeployment[]>([]); // active deployments at chosen site
@@ -73,16 +84,9 @@
 
 	// The swap's reprocess is tracked, so what it re-attributed is reported once it lands rather
 	// than described as happening somewhere in the background.
-	async function reportReprocess() {
+	async function reportReprocess(jobId: string) {
 		try {
-			const jobs = await api.reprocessingJobs.list({
-				perPage: 1,
-				filter: { sensor_id: sensor.id },
-				sort: ['created_at', 'DESC'],
-			});
-			const started = jobs.data[0];
-			if (!started) return;
-			const job = await pollJob(started.id, { timeoutMs: 120_000 });
+			const job = await pollJob(jobId, { timeoutMs: 120_000 });
 			if (job.status !== 'completed') return;
 			const n = job.readings_updated ?? 0;
 			toastStore.info(`${formatCount(n)} reading${n === 1 ? '' : 's'} re-attributed`);
@@ -100,23 +104,37 @@
 		siteParams.find((s) => s.id === selectedSiteParamId)?.parameter_id ?? '',
 	);
 
+	// A slot another instrument holds is a swap, which ends that deployment and starts this one at
+	// the same instant; an empty slot is an adopt. Both mint the site_parameter row when it is
+	// missing and return the tracked reprocess job.
 	async function adopt() {
 		if (!selectedSiteId || !selectedParameterId || !deployedFrom) return;
 		working = true;
+		const at = fromDatetimeLocal(deployedFrom, timezoneStore.zone);
 		try {
-			await api.sensorDeployments.create({
-				sensor_id: sensor.id,
-				site_id: selectedSiteId,
-				parameter_id: selectedParameterId,
-				deployed_from: fromDatetimeLocal(deployedFrom, timezoneStore.zone),
-				deployment_type: 'permanent',
-			});
+			const jobId = incumbent
+				? (
+						await swapSensors({
+							outgoing_sensor_id: incumbent.sensor_id,
+							incoming_sensor_id: sensor.id,
+							site_id: selectedSiteId,
+							parameter_id: selectedParameterId,
+							at,
+						})
+					).incoming_job_id
+				: (
+						await adoptSensor(sensor.id, {
+							site_id: selectedSiteId,
+							parameter_id: selectedParameterId,
+							deployed_from: at,
+						})
+					).job_id;
 			toastStore.success(incumbent
 				? `Site parameter adopted, ${incumbentLabel ?? 'the incumbent instrument'}'s deployment closed`
 				: 'Sensor deployed');
 			open = false;
 			onsuccess?.();
-			void reportReprocess();
+			void reportReprocess(jobId);
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Adopt failed');
 		} finally { working = false; }
@@ -167,6 +185,17 @@
 					<div class="flex flex-col gap-1">
 						<label for="ad-from" class="text-sm font-medium">Deployed from</label>
 						<input id="ad-from" type="datetime-local" bind:value={deployedFrom} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" />
+						{#if suggestions}
+							<div class="flex gap-2 flex-wrap text-xs">
+								<button type="button" class="underline text-brand-primary cursor-pointer" onclick={() => (deployedFrom = toDatetimeLocal(suggestions?.now ?? Date.now(), timezoneStore.zone))}>Now</button>
+								{#if suggestions.end_of_last_deployment}
+									<button type="button" class="underline text-brand-primary cursor-pointer" onclick={() => (deployedFrom = toDatetimeLocal(suggestions?.end_of_last_deployment ?? '', timezoneStore.zone))}>End of its last deployment ({formatDateTime(suggestions.end_of_last_deployment)})</button>
+								{/if}
+								{#if suggestions.first_reading}
+									<button type="button" class="underline text-brand-primary cursor-pointer" onclick={() => (deployedFrom = toDatetimeLocal(suggestions?.first_reading ?? '', timezoneStore.zone))}>Its first reading ({formatDateTime(suggestions.first_reading)})</button>
+								{/if}
+							</div>
+						{/if}
 					</div>
 				{/if}
 			</div>
@@ -175,7 +204,7 @@
 	{#snippet actions()}
 		{#if mode === 'adopt'}
 			<Button onclick={() => mode = 'choose'}>Back</Button>
-			<Button variant="primary" onclick={adopt} disabled={working || !selectedSiteId || !selectedParameterId}>{working ? 'Adopting…' : incumbent ? 'Swap & adopt' : 'Adopt'}</Button>
+			<Button variant="primary" onclick={adopt} disabled={working || !selectedSiteId || !selectedSiteParamId || !selectedParameterId || !deployedFrom}>{working ? 'Adopting…' : incumbent ? 'Swap & adopt' : 'Adopt'}</Button>
 		{:else}
 			<Button onclick={() => open = false}>Close</Button>
 		{/if}

@@ -3,6 +3,7 @@
 	import { api, type Sensor, type StandardCurve } from '$api/crud';
 	import { me } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import { kindLabel, measuringInstruments } from '$lib/instruments/kind';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
@@ -39,13 +40,13 @@
 
 	function sensorDisplay(s: Sensor): string {
 		const label = s.name ?? s.serial_number ?? s.id;
-		return `${label} (${s.is_lab_instrument ? 'Lab' : 'Field'})`;
+		return `${label} (${kindLabel(s)})`;
 	}
 
 	onMount(async () => {
 		try {
 			const res = await api.sensors.list({ perPage: 1000, filter: { is_active: true }, sort: ['name', 'ASC'] });
-			sensors = res.data.filter((s) => s.id !== targetSensorId);
+			sensors = measuringInstruments(res.data).filter((s) => s.id !== targetSensorId);
 		} catch (e) {
 			error = apiMessage(e);
 		}

@@ -114,7 +114,9 @@
 		const s = rec.chain.sensor;
 		if (!s) return NO_VALUE;
 		const make = [s.manufacturer, s.model].filter(Boolean).join(' ');
-		const label = `${s.serial_number ?? s.name ?? s.id}${make ? ` (${make})` : ''}`;
+		// Named first: a source-registered instrument carries no serial, and its name says which
+		// site and parameter it serves.
+		const label = `${s.name ?? s.serial_number ?? s.id}${make ? ` (${make})` : ''}`;
 		const d = rec.chain.deployment;
 		if (!d) return label;
 		const until = d.deployed_until ? formatDateTime(d.deployed_until) : 'open';

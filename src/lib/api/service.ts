@@ -494,6 +494,110 @@ export async function mergeSiteParameters(
 export const reprocessSensor = (sensorId: string) =>
 	POST<{ job_id: string; status: string }>(`${SERVICE}/actions/reprocess`, { sensor_id: sensorId });
 
+// Backdate: re-derive every (site, parameter) slot from the deployment and calibration timelines.
+export const reprocessAll = () =>
+	POST<{ job_id: string; status: string; slots: number }>(`${SERVICE}/actions/reprocess_all`, {});
+
+// Reconcile persisted alarm events against the breach set the readings currently imply.
+export const reconcileAlarms = () =>
+	POST<{ job_id: string; status: string }>(`${SERVICE}/actions/reconcile_alarms`, {});
+
+export interface AdoptSuggestion {
+	now: string;
+	end_of_last_deployment: string | null;
+	first_reading: string | null;
+}
+
+// Suggested deploy dates for a sensor: now, the end of its last deployment, and its first reading.
+export const getAdoptSuggestions = (sensorId: string) =>
+	GET<AdoptSuggestion>(`${SERVICE}/sensors/${sensorId}/adopt_suggestions`);
+
+export interface AdoptResponse {
+	deployment_id: string;
+	sensor_id: string;
+	site_id: string;
+	parameter_id: string;
+	site_parameter_id: string;
+	site_parameter_created: boolean;
+	deployed_from: string;
+	deployed_until: string | null;
+	job_id: string;
+}
+
+/**
+ * Deploy a sensor onto a site slot. Does in one transaction what a bare `sensor_deployments`
+ * create cannot: mints the missing `site_parameters` row, resolves the parameter from the sensor's
+ * own history when it is unambiguous, lifts the decompression cap for the readings backfill, and
+ * returns the tracked reprocess job.
+ */
+export const adoptSensor = (
+	sensorId: string,
+	body: {
+		site_id: string;
+		parameter_id?: string;
+		deployed_from?: string;
+		create_site_parameter?: boolean;
+	},
+) => POST<AdoptResponse>(`${SERVICE}/sensors/${sensorId}/adopt`, body);
+
+export interface SwapResponse {
+	ended_deployment_id: string | null;
+	started_deployment_id: string;
+	site_id: string;
+	parameter_id: string;
+	at: string;
+	outgoing_job_id: string | null;
+	incoming_job_id: string;
+}
+
+// End the outgoing instrument's deployment and start the incoming one's at the same instant.
+export interface SensorVsGrabRow {
+	time: string;
+	grab_value: number | null;
+	grab_sd: number | null;
+	grab_n: number;
+	sensor_avg: number | null;
+	sensor_sd: number | null;
+	sensor_n: number;
+	difference: number | null;
+}
+
+export interface SensorVsGrabResponse {
+	site: { id: string; name: string };
+	parameter_id: string;
+	window_start_hours: number;
+	window_end_hours: number;
+	rows: SensorVsGrabRow[];
+}
+
+// Each grab value against the continuous average over a window after it, the portals' comparison.
+export const getSensorVsGrab = (
+	siteId: string,
+	q: {
+		parameter_id: string;
+		start?: string;
+		end?: string;
+		window_start_hours?: number;
+		window_end_hours?: number;
+	},
+) => {
+	const params = new URLSearchParams({ parameter_id: q.parameter_id });
+	if (q.start) params.set('start', q.start);
+	if (q.end) params.set('end', q.end);
+	if (q.window_start_hours != null) params.set('window_start_hours', String(q.window_start_hours));
+	if (q.window_end_hours != null) params.set('window_end_hours', String(q.window_end_hours));
+	return GET<SensorVsGrabResponse>(`${SERVICE}/sites/${siteId}/export/sensor-vs-grab?${params}`);
+};
+
+export const swapSensors = (body: {
+	outgoing_sensor_id: string;
+	incoming_sensor_id: string;
+	site_id: string;
+	parameter_id?: string;
+	at?: string;
+	create_site_parameter?: boolean;
+}) => POST<SwapResponse>(`${SERVICE}/actions/swap`, body);
+
 // Bulk data-frequency reclassification: 'low' = lab/campaign (spot readings), 'high' = field
 // stream (continuous). With retagExisting the server runs a tracked measurement_retag job that
 // rewrites existing readings and refreshes aggregates.

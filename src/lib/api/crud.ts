@@ -159,6 +159,8 @@ export interface Sensor {
 	model: string | null;
 	is_active: boolean | null;
 	is_lab_instrument: boolean | null;
+	/** What the row is: 'device', 'lab', 'source_parameter' or 'entry_channel'. */
+	kind: string;
 	/** 'high' (field stream -> continuous readings) or 'low' (lab/campaign -> spot readings). */
 	data_frequency: string;
 	notes: string | null;

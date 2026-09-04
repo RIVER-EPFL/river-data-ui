@@ -6,7 +6,7 @@
 	import { ApiError } from '$api/client';
 	import { api, type DataStream, type SiteParameter, type Site, type Parameter } from '$api/crud';
 	import {
-		pairStream, unpairStream, importStream, getStreamStats, listStreamReceipts, retagStreams, createPairingPlan, updatePairingPlan,
+		pairStream, unpairStream, getStreamStats, listStreamReceipts, retagStreams, createPairingPlan, updatePairingPlan,
 		applyPairingPlan, revertPairingPlan, pollJob, getUnpairedSummary, getPlanSiteMetadata,
 		replicateSpec, getPendingAuditSummary, getReconciliationCandidates, getStreamPreview, declareSdEstimator,
 		getPlanInstruments, listPairingPlans, supersedePairingPlan, getPairingPlan, bulkUpdatePairingPlan,
@@ -26,6 +26,7 @@
 	import PairSkipToggle from '$components/ui/PairSkipToggle.svelte';
 	import MappingSelect, { type MappingGroup } from '$components/ui/MappingSelect.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
+	import ImportSensorDialog from '$components/streams/ImportSensorDialog.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import { formatDateTime, formatSignificant } from '$lib/utils';
@@ -135,7 +136,6 @@
 	// ── Import dialog (register the stream's device into inventory, no site) ──
 	let importDialogOpen = $state(false);
 	let importStream_ = $state<DataStream | null>(null);
-	let importing = $state(false);
 
 	// ── Stats dialog ──
 	let statsDialogOpen = $state(false);
@@ -1314,18 +1314,6 @@
 	}
 
 	function openImportDialog(stream: DataStream) { importStream_ = stream; importDialogOpen = true; }
-
-	async function handleImport() {
-		if (!importStream_) return;
-		importing = true;
-		try {
-			const res = await importStream(importStream_.id);
-			toastStore.success(`Sensor imported · ${res.attributed} reading${res.attributed === 1 ? '' : 's'} attributed`);
-			importDialogOpen = false;
-			load();
-		} catch (e) { toastStore.error(`Import failed: ${e instanceof Error ? e.message : e}`); }
-		finally { importing = false; }
-	}
 
 	async function handleUnpair(streamId: string) {
 		try {
@@ -2976,20 +2964,7 @@
 	{/snippet}
 </Dialog>
 
-<Dialog bind:open={importDialogOpen} title="Import Sensor" maxWidth="sm">
-	{#snippet children()}
-		{#if importStream_}
-			<div class="space-y-3">
-				<div class="text-sm"><span class="text-brand-muted">Stream:</span> <span class="font-mono">{importStream_.source_key}</span></div>
-				<p class="text-xs text-brand-muted">Registers this stream's device into the sensor inventory (creates the sensor and stamps its existing readings) without assigning it to a site. No calibration is created - the readings resolve whatever curves the sensor already has. The sensor carries no parameter of its own: one is bound when it is deployed or when a grab names it. Pair the stream separately to attribute its data to a site.</p>
-			</div>
-		{/if}
-	{/snippet}
-	{#snippet actions()}
-		<Button onclick={() => importDialogOpen = false}>Cancel</Button>
-		<Button variant="primary" onclick={handleImport} disabled={importing}>{importing ? 'Importing…' : 'Import'}</Button>
-	{/snippet}
-</Dialog>
+<ImportSensorDialog bind:open={importDialogOpen} stream={importStream_} onimported={load} />
 
 <Dialog bind:open={statsDialogOpen} title="Stream Stats" maxWidth={receipts?.length ? 'sm' : 'xs'}>
 	{#snippet children()}

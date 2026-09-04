@@ -34,6 +34,7 @@
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { toDatetimeLocal, fromDatetimeLocal, formatDateTime } from '$lib/utils';
 	import { curveEquation, curveLabel } from '$lib/standardCurves';
+	import { kindLabel, measuringInstruments } from '$lib/instruments/kind';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import LastUsedCurveNote from './LastUsedCurveNote.svelte';
@@ -454,7 +455,7 @@
 			]);
 			sites = s;
 			params = p;
-			instruments = i;
+			instruments = measuringInstruments(i);
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Failed to load sites');
 		}
@@ -462,7 +463,7 @@
 
 	function instrumentLabel(instrument: Sensor): string {
 		const name = instrument.name ?? instrument.serial_number ?? instrument.id;
-		return `${name} (${instrument.is_lab_instrument ? 'Lab' : 'Field'})`;
+		return `${name} (${kindLabel(instrument)})`;
 	}
 
 	function curveOptionLabel(curve: StandardCurve): string {
@@ -809,9 +810,7 @@
 
 			<div class="grid grid-cols-2 gap-3">
 				<div class="flex flex-col gap-1">
-					<label for="srp-instrument" class="text-sm font-medium">
-						Measured on instrument <span class="text-brand-muted font-normal">(optional)</span>
-					</label>
+					<label for="srp-instrument" class="text-sm font-medium">Measured on instrument</label>
 					<LastUsedCurveNote last={lastUsed} />
 					<select
 						id="srp-instrument"
@@ -819,7 +818,7 @@
 						onchange={() => loadCurves(selectedSensorId)}
 						class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
 					>
-						<option value=""> - No instrument recorded - </option>
+						<option value=""> - This site's grab entry instrument - </option>
 						{#each instruments as i}
 							<option value={i.id}>{instrumentLabel(i)}</option>
 						{/each}
@@ -844,7 +843,7 @@
 						</p>
 					{:else if !selectedSensorId}
 						<p class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-bg text-sm text-brand-muted">
-							Select an instrument first
+							Name the instrument these values were measured on to pick one of its curves.
 						</p>
 					{:else if loadingCurves}
 						<p class="text-sm text-brand-muted">Loading…</p>
