@@ -18,6 +18,14 @@ export interface SampleStat {
 	stdev?: number | null;
 	min?: number | null;
 	max?: number | null;
+	median?: number | null;
+	/** Both divisors, so the one the slot did not declare stays readable. */
+	stdev_sample?: number | null;
+	stdev_population?: number | null;
+	/** The divisor this group's `stdev` was computed with, and what chose it. A per-instant audit
+	 *  decision overrides the slot, so the group's own value is the one to print. */
+	sd_estimator?: 'sample' | 'population' | null;
+	sd_estimator_source?: string | null;
 	replicates: SampleReplicate[];
 }
 
@@ -35,6 +43,11 @@ export interface ReadingsParameter {
 	flag_reasons?: (string | null)[] | null;
 	// Per-point sample stats with replicates; present when include_sample_stats=true
 	samples?: (SampleStat | null)[] | null;
+	/** Per-point retraction state; present when include_withdrawn=true, which is also what makes a
+	 *  fully retracted instant served at all. */
+	withdrawn?: (boolean | null)[] | null;
+	/** Spot instants in the window the source has taken back in full, served or not. */
+	withdrawn_count?: number | null;
 	// Per-point curve references, present when include_curves=true. A null entry means no curve of
 	// that kind was applied, which is why the two are reported separately rather than collapsed.
 	calibration_ids?: (string | null)[] | null;
@@ -64,6 +77,8 @@ export interface AggregatesParameter {
 	count: number[];
 	max_severity?: (number | null)[] | null;
 	flagged_count?: number[];
+	/** The instrument this series belongs to under `split_by_sensor`; null on the merged read. */
+	sensor_id?: string | null;
 }
 
 export interface AggregatesResponse {

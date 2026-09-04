@@ -24,6 +24,38 @@ export function visitCellMarker(cell: VisitCell): CellMarker | null {
 	};
 }
 
+/**
+ * The statistics line a grid cell carries on hover: how many vials, how far apart they were, and
+ * under which divisor. An sd whose formula is not named is one two readers can compare and reach
+ * opposite conclusions about, which is why the estimator travels with every number that has one.
+ */
+export function visitCellStatistics(
+	cell: VisitCell,
+	decimals?: number | null,
+	units?: string | null
+): string | null {
+	if (cell.n == null || cell.n < 1) return null;
+	const fmt = (v: number | null | undefined) =>
+		v == null ? null : typeof decimals === 'number' ? v.toFixed(decimals) : String(v);
+	const unit = units ? ` ${units}` : '';
+	const parts = [`n = ${cell.n}`];
+	const sd = fmt(cell.stdev);
+	if (sd != null) parts.push(`SD ${sd}${unit} (${estimatorWord(cell.sd_estimator)})`);
+	const median = fmt(cell.median);
+	if (median != null) parts.push(`median ${median}${unit}`);
+	const min = fmt(cell.min);
+	const max = fmt(cell.max);
+	if (min != null && max != null) parts.push(`range ${min} to ${max}${unit}`);
+	if (cell.sd_estimator_source === 'default')
+		parts.push('divisor not declared for this parameter');
+	return parts.join(' · ');
+}
+
+/** Two words for a divisor, for a line that is already long. */
+export function estimatorWord(estimator: string | null | undefined): string {
+	return estimator === 'population' ? 'population, n' : 'sample, n-1';
+}
+
 export interface VisitCounts {
 	parameters: number;
 	replicates: number;

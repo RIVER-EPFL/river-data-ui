@@ -19,9 +19,13 @@
 	} from '$lib/charts/overlay-plugins';
 	import type { SensorIdentityBand, CalibrationMarker } from '$api/sensors';
 	import { spotMarkersPlugin, spotWhiskerExtent, type SpotPointStats } from '$lib/charts/spotMarkers';
+	import { spotDispersion } from '$lib/charts/spotSummary';
+	import type { SdEstimator } from '$lib/sdEstimator';
+	import type { ChartKeyPresence } from '$lib/charts/chartKey';
+	import ChartKey from './ChartKey.svelte';
 	import { cursorPoints, stepCursor, type CursorPoint } from '$lib/charts/keyboardCursor';
 	import { formatMeasurement } from '$lib/format';
-	import { spotMarkerColors } from '$lib/charts/legend';
+	import { spotMarkerColors, seriesColor } from '$lib/charts/legend';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { formatDateTime } from '$lib/utils';
@@ -51,6 +55,8 @@
 		spotData = null,
 		spotStats = null,
 		showReplicates = false,
+		sdEstimator = null,
+		withdrawnCount = 0,
 		gapThreshold = 0,
 		loading: externalLoading = false,
 		onZoomSelect,
@@ -65,6 +71,8 @@
 		activeBreach = null,
 		nowMs = 0,
 		originLabel = '',
+		extraSeries = [],
+		primarySeriesLabel = null,
 		emptyMessage = 'No data for selected range',
 		exactTimes = true,
 		onpointclick,
@@ -89,6 +97,10 @@
 		spotStats?: Map<number, SpotPointStats> | null;
 		/** Plot each stored replicate as its own dot beside the group's mean. */
 		showReplicates?: boolean;
+		/** The divisor `site_parameters.sd_estimator` declares, named beside the sd bar in the key. */
+		sdEstimator?: SdEstimator | null;
+		/** Spot instants in the window the source has taken back in full, served or not. */
+		withdrawnCount?: number;
 		/** Whether `chartData.times` are the stored instants rather than aggregate bucket starts.
 		 *  A bucket start resolves no reading, so the continuous click affordance is withdrawn. */
 		exactTimes?: boolean;
@@ -111,6 +123,11 @@
 		nowMs?: number;
 		/** One-line ingestion origin for the series, shown in the shared tooltip. */
 		originLabel?: string;
+		/** Further lines sharing this chart's x values, one per instrument when the slot is split
+		 *  by sensor. Drawn after the primary series, each in its own palette colour. */
+		extraSeries?: Array<{ label: string; values: (number | null)[] }>;
+		/** What to call the primary line when it is one instrument's rather than the slot's. */
+		primarySeriesLabel?: string | null;
 		/** Pin a point's provenance record: called on click for continuous points and (instead of
 		 *  the replicate dialog) for spot points. */
 		onpointclick?: (p: {
@@ -178,6 +195,30 @@
 	const hasContinuous = $derived(chartData != null && chartData.times.length > 0);
 	const hasSpot = $derived(spotData != null && spotData.times.length > 0);
 	const hasData = $derived(hasContinuous || hasSpot);
+
+	// The key names only what this render drew, so a mark absent from the plot is absent from it.
+	const keyPresence = $derived.by<ChartKeyPresence>(() => {
+		const stats = [...(spotStats?.values() ?? [])];
+		const dispersions = new Set(stats.map((s) => spotDispersion(s)));
+		const categories = [...new Set((annotations ?? []).map((a) => a.category))];
+		return {
+			line: hasContinuous,
+			minMaxBand: !!chartData?.mins && !!chartData?.maxs,
+			spot: hasSpot,
+			spotAgreed: dispersions.has('agreed'),
+			spotSingle: hasSpot && dispersions.has('single'),
+			sdBar: dispersions.has('spread'),
+			replicateDots: showReplicates && stats.some((s) => (s.replicates?.length ?? 0) > 1),
+			flagged: (chartData?.flags ?? []).some((f) => f === true) || (publishedSpotFlags()?.size ?? 0) > 0,
+			withdrawn: stats.some((s) => s.withdrawn === true),
+			sensorBands: showSensorVectors && sensorBands.length > 0,
+			calibrationMarkers: showCalibrationMarkers && calibrationMarkers.length > 0,
+			alarmBands: showAlarmBands && alarmSeverityBands.length > 0,
+			annotationCategories: categories,
+			sdEstimator,
+			units,
+		};
+	});
 	const dataPoints = $derived((chartData?.times.length ?? 0) + (spotData?.times.length ?? 0));
 
 	// The keyboard route to a point: arrows walk the plotted points with the crosshair following,
@@ -515,7 +556,10 @@
 		let spotSeriesIdx = -1;
 
 		if (cont) {
-			seriesDefs.push({ ...makeSeries(seriesIndex, parameterName, units, decimals), gaps });
+			seriesDefs.push({
+				...makeSeries(seriesIndex, primarySeriesLabel ?? parameterName, units, decimals),
+				gaps,
+			});
 			(data as any[]).push(contValues);
 			if (hasMinMax) {
 				seriesDefs.push(
@@ -533,6 +577,16 @@
 			spotSeriesIdx = 1;
 			seriesDefs.push({ label: parameterName, stroke: 'transparent', width: 0, points: { show: false } });
 			(data as any[]).push(spotValues);
+		}
+
+		// Extra lines come last: the plugins address series 1 and the min/max band references
+		// [3, 2], so anything appended here cannot disturb them.
+		for (const [i, extra] of extraSeries.entries()) {
+			seriesDefs.push({
+				...makeSeries(seriesIndex + i + 1, extra.label, units, decimals),
+				gaps,
+			});
+			(data as any[]).push(extra.values.map((v) => (v == null ? null : v)));
 		}
 
 		const stripPad = (showSensorVectors ? BAND_STRIP_CSS : 0) + (showCalibrationMarkers ? CALIBRATION_STRIP_CSS : 0);
@@ -869,6 +923,8 @@
 		void timezoneStore.zone;
 		// Dot mode widens the y-range to the replicate extremes, which is a rebuild, not a redraw.
 		void showReplicates;
+		// Splitting the slot by instrument adds or removes lines, so it is a rebuild too.
+		void extraSeries.length;
 		// The shared crosshair reads the continuous series when present, else the spot samples.
 		const primary = hasContinuous ? chartData : spotData;
 		if (hasData && primary) {
@@ -884,6 +940,7 @@
 				spotStats,
 				spotFlags: publishedSpotFlags(),
 				originLabel,
+				sdEstimator,
 			});
 			tick().then(() => renderChart());
 		} else {
@@ -949,6 +1006,12 @@
 			{#if isDerived}<span class="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-brand-accent/15 text-brand-accent-dark align-middle">derived</span>{/if}
 			{#if parameterCode}<span class="text-xs text-brand-muted font-normal font-mono ml-1.5">{parameterCode}</span>{/if}
 			{#if hasData}<span class="text-xs text-brand-muted font-normal ml-2">{dataPoints} pts</span>{/if}
+			{#if withdrawnCount > 0}
+				<span
+					class="text-xs text-brand-muted font-normal ml-2"
+					title="Instants the source has taken back. Turn on Retracted to draw them; the retraction is reversible."
+				>· {withdrawnCount} retracted</span>
+			{/if}
 		</span>
 		<div class="flex items-center gap-1.5">
 			{#if showAlarmBands && activeBreach}
@@ -1037,6 +1100,9 @@
 		onkeydown={onPlotKeydown}
 	>
 		<div bind:this={el} class="w-full" style="min-height:220px"></div>
+		{#if hasData}
+			<ChartKey presence={keyPresence} seriesColor={seriesColor(seriesIndex)} />
+		{/if}
 		<div class="px-2 text-xs text-brand-muted" aria-live="polite">
 			{#if cursorIndex != null && keyPoints[cursorIndex]}
 				Point {cursorIndex + 1} of {keyPoints.length}: {cursorLabel(keyPoints[cursorIndex])}

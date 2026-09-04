@@ -1,6 +1,9 @@
 <script lang="ts">
 	import type uPlot from 'uplot';
 	import { seriesColor, seriesDash, spotMarkerColors, swatchStyle } from '$lib/charts/legend';
+	import { spotDispersion } from '$lib/charts/spotSummary';
+	import type { ChartKeyPresence } from '$lib/charts/chartKey';
+	import ChartKey from '$components/charts/ChartKey.svelte';
 	import { axisLabel } from './multiSiteAxis';
 	import UPlotChart from '$components/charts/UPlotChart.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
@@ -287,6 +290,21 @@
 		return merged;
 	});
 
+	// One key for the plot: the marks are the same across the sites drawn on it. The sd divisor is
+	// a per-slot declaration and this plot spans slots, so it is named only when they agree.
+	const keyPresence = $derived.by<ChartKeyPresence>(() => {
+		const stats = loaded.flatMap((s) => [...s.spotStats.values()]);
+		const dispersions = new Set(stats.map((st) => spotDispersion(st)));
+		return {
+			line: loaded.some((s) => s.times.length > 0),
+			spot: loaded.some((s) => s.spot.times.length > 0),
+			spotAgreed: dispersions.has('agreed'),
+			spotSingle: dispersions.has('single'),
+			sdBar: dispersions.has('spread'),
+			units: mixedUnits ? null : units,
+		};
+	});
+
 	const chartOptions = $derived.by((): uPlot.Options => {
 		const yLabel = axisLabel(parameterName, units, mixedUnits);
 		const gaps = makeGaps(GAP_THRESHOLDS[resolution] ?? 0);
@@ -414,6 +432,7 @@
 								{/each}
 							</div>
 							<UPlotChart options={chartOptions} data={chartData} class="h-[350px]" />
+							<ChartKey presence={keyPresence} />
 							{#if failedSites.length > 0}
 								<p class="text-xs text-severity-warning">Failed to load: {failedSites.join(', ')}</p>
 							{/if}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { SdEstimator } from '$lib/sdEstimator';
 	import { onMount, onDestroy, untrack } from 'svelte';
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
@@ -7,6 +8,8 @@
 	import { GET, POST, PATCH } from '$api/client';
 	import { recomputeDerived, getThresholds, getActiveAlarms, listSiteVisits, getCollectionEventDetail, recomputeCollectionEvent, runEventAudit, runEventRecompute, pollJob, getSiteExportSummary, type ResolvedThreshold, type ActiveAlarm, type VisitRow, type VisitsResponse, type EventDetailResponse, type ExportSummary } from '$api/service';
 	import { getSiteSensorIdentity, type SensorIdentityResponse } from '$api/sensors';
+	import { groupBySlot } from '$lib/charts/sensorSplit';
+	import type { AggregatesParameter } from '$lib/api/types';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { siteNavigator } from '$lib/stores/sites.svelte';
 	import { formatRelativeTime, formatDateTime, formatDate, toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
@@ -16,7 +19,7 @@
 	import Dialog from '$components/ui/Dialog.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import PaginationControls from '$components/ui/PaginationControls.svelte';
-	import { cellRecord, visitCellMarker, visitCounts } from '$lib/visits/cell';
+	import { cellRecord, estimatorWord, visitCellMarker, visitCellStatistics, visitCounts } from '$lib/visits/cell';
 	import SensorVsGrabPanel from '$components/sites/SensorVsGrabPanel.svelte';
 	import { buildReadingsExportParams, exportColumns } from '$lib/sites/exportParams';
 	import { readPointParams, writePointParams, type PointRef } from '$lib/provenance/pointLink';
@@ -624,6 +627,10 @@
 	let frequency = $state<Frequency>('all');
 	// Plot every replicate behind a spot mean, not just the mean and its sd bar.
 	let showReplicates = $state(false);
+	// A retraction is reversible and by decision not a delete, so it is drawn on request rather
+	// than left as an absence. The count below is served either way.
+	let showWithdrawn = $state(false);
+	let withdrawnCounts = $state<Map<string, number>>(new Map());
 
 	let sliderMax = $state(Date.now());
 	let sliderMin = $state(Date.now() - 90 * 86400000);
@@ -707,11 +714,13 @@
 			calibration_ids?: (string | null)[] | null;
 			standard_curve_ids?: (string | null)[] | null;
 			origins?: { stream_id: string; source_system: string; source_key: string }[];
+			withdrawn?: (boolean | null)[] | null;
+			withdrawn_count?: number | null;
 		}>;
 	}
 	interface AggregatesResponse {
 		times: string[];
-		parameters: Array<{ id: string; name: string; units: string | null; avg: (number | null)[]; min: (number | null)[]; max: (number | null)[]; count: number[]; flagged_count?: number[] }>;
+		parameters: Array<{ id: string; name: string; units: string | null; avg: (number | null)[]; min: (number | null)[]; max: (number | null)[]; count: number[]; flagged_count?: number[]; sensor_id?: string | null }>;
 	}
 
 	let chartLoading = $state(false);
@@ -738,6 +747,24 @@
 	let annotationsByParam = $state<Map<string, Annotation[]>>(new Map());
 	let showSensorVectors = $state(false);
 	let showCalibrationMarkers = $state(false);
+	// One aggregate line per instrument rather than the count-weighted merge, so a step at a
+	// sensor swap can be attributed. Aggregates only: the raw arm has no sensor dimension.
+	let splitBySensor = $state(false);
+	// Per-slot extra lines when split is on, keyed by site_parameter id, plus the label of the
+	// series the chart draws as its own.
+	let sensorSplitMap = $state<Map<string, Array<{ label: string; values: (number | null)[] }>>>(new Map());
+	let firstSensorLabels = $state<Map<string, string>>(new Map());
+
+	/// An instrument's name for the legend: its serial or name where the identity fetch knows it,
+	/// else the short id, else "unattributed" for the rows no instrument owns.
+	function sensorSeriesLabel(sensorId: string | null | undefined): string {
+		if (!sensorId) return 'unattributed';
+		for (const bands of Object.values(sensorIdentity?.bands ?? {})) {
+			const band = bands.find((b) => b.sensor_id === sensorId);
+			if (band) return band.sensor_serial ?? band.sensor_name ?? sensorId.slice(0, 8);
+		}
+		return sensorId.slice(0, 8);
+	}
 	let showAlarmBands = $state(true);
 	let sensorIdentity = $state<SensorIdentityResponse | null>(null);
 	let fetchGeneration = 0;
@@ -757,7 +784,7 @@
 
 	$effect(() => {
 		// Touch toggles so flipping them triggers a refetch (identity is window-scoped).
-		void showSensorVectors; void showCalibrationMarkers; void frequency;
+		void showSensorVectors; void showCalibrationMarkers; void frequency; void showWithdrawn;
 		if (site) scheduleFetch();
 	});
 
@@ -782,12 +809,12 @@
 					// RAW readings must be filtered to continuous only; the spot samples come from the
 					// separate spot fetch. (Aggregates are already continuous-only by design.)
 					? GET<ReadingsResponse>(`/api/sites/${siteId}/readings`, { start: startDate, end: endDate, measurement_type: 'continuous', include_origin: 'true' })
-					: GET<AggregatesResponse>(`/api/sites/${siteId}/aggregates/${res}`, { start: startDate, end: endDate });
+					: GET<AggregatesResponse>(`/api/sites/${siteId}/aggregates/${res}`, { start: startDate, end: endDate, ...(splitBySensor ? { split_by_sensor: 'true' } : {}) });
 			// Spot values arrive as sample means with per-point stats and replicates inline. Only spot
 			// rows can carry a standard curve, so include_curves rides on this fetch alone and the
 			// continuous payload is left as it was.
 			const spotPromise = wantSpot
-				? GET<ReadingsResponse>(`/api/sites/${siteId}/readings`, { start: startDate, end: endDate, measurement_type: 'spot', include_sample_stats: 'true', include_curves: 'true', include_origin: 'true' }).catch(() => null)
+				? GET<ReadingsResponse>(`/api/sites/${siteId}/readings`, { start: startDate, end: endDate, measurement_type: 'spot', include_sample_stats: 'true', include_curves: 'true', include_origin: 'true', ...(showWithdrawn ? { include_withdrawn: 'true' } : {}) }).catch(() => null)
 				: Promise.resolve(null);
 			const annotationsPromise = GET<Annotation[]>(`/api/sites/${siteId}/annotations`, { start: startDate, end: endDate })
 				.catch(() => [] as Annotation[]);
@@ -806,10 +833,25 @@
 						map.set(p.id, { times: parsedTimes, values: p.values, flags: p.flagged ?? null, flagReasons: p.flag_reasons ?? null });
 					}
 				} else {
-					for (const p of (result as AggregatesResponse).parameters ?? []) {
+					// Split by instrument returns one entry per (slot, instrument), all sharing the
+					// slot's id: the first is the chart's own line and the rest ride beside it.
+					const splits = new Map<string, Array<{ label: string; values: (number | null)[] }>>();
+					const firsts = new Map<string, string>();
+					const slots = groupBySlot(
+						((result as AggregatesResponse).parameters ?? []) as AggregatesParameter[],
+						sensorSeriesLabel,
+					);
+					for (const [id, slot] of slots) {
+						const p = slot.primary;
 						const flags = p.flagged_count ? p.flagged_count.map((n) => n > 0) : null;
-						map.set(p.id, { times: parsedTimes, values: p.avg, mins: p.min, maxs: p.max, flags });
+						map.set(id, { times: parsedTimes, values: p.avg, mins: p.min, maxs: p.max, flags });
+						if (splitBySensor) {
+							splits.set(id, slot.extras);
+							firsts.set(id, slot.primaryLabel);
+						}
 					}
+					sensorSplitMap = splits;
+					firstSensorLabels = firsts;
 				}
 			}
 			chartDataMap = map;
@@ -846,11 +888,14 @@
 						calibrationIds.push(calibrationId);
 						standardCurveIds.push(standardCurveId);
 						inner.set(ms, {
+							withdrawn: p.withdrawn?.[i] === true,
 							mean,
 							stdev: s?.stdev ?? null,
 							n: s?.n ?? 1,
 							min: s?.min ?? null,
 							max: s?.max ?? null,
+							sdEstimator: s?.sd_estimator ?? null,
+							sdEstimatorSource: s?.sd_estimator_source ?? null,
 							replicates: s?.replicates,
 							sampleId: s?.sample_id,
 							calibrationId,
@@ -868,6 +913,11 @@
 				}
 			}
 			spotStatsMap = statsMap;
+			withdrawnCounts = new Map(
+				(spotResult?.parameters ?? [])
+					.filter((p) => p.parameter_id && (p.withdrawn_count ?? 0) > 0)
+					.map((p) => [p.parameter_id!, p.withdrawn_count ?? 0]),
+			);
 			sampleCurves = curveBySample;
 			curveRefs.ensureCalibrations(calibrationIds);
 			curveRefs.ensureStandardCurves(standardCurveIds);
@@ -1238,6 +1288,14 @@
 	function unitsForParameter(paramId: string): string | null {
 		const sp = siteParameters.find((s) => s.parameter_id === paramId);
 		return sp?.display_units ?? parameters.find((p) => p.id === paramId)?.default_units ?? null;
+	}
+
+	const withdrawnTotal = $derived([...withdrawnCounts.values()].reduce((a, b) => a + b, 0));
+
+	/** The divisor the slot declares; null is undeclared, which the key names as such. */
+	function sdEstimatorFor(paramId: string): SdEstimator | null {
+		const declared = siteParameters.find((s) => s.parameter_id === paramId)?.sd_estimator;
+		return declared === 'population' || declared === 'sample' ? declared : null;
 	}
 
 	/** The precision the slot declares (`site_parameters.decimal_places`), null when it declares none. */
@@ -1795,6 +1853,13 @@
 						<label class="flex items-center gap-1.5 cursor-pointer text-xs text-brand-muted" title="Plot each replicate behind a grab mean as its own dot">
 							<input type="checkbox" bind:checked={showReplicates} /> Replicates
 						</label>
+						<label
+							class="flex items-center gap-1.5 cursor-pointer text-xs text-brand-muted"
+							title="Draw instants the source has taken back. They are not served and the retraction is reversible."
+						>
+							<input type="checkbox" bind:checked={showWithdrawn} />
+							Retracted{withdrawnTotal > 0 ? ` (${withdrawnTotal})` : ''}
+						</label>
 						<label class="flex items-center gap-1.5 cursor-pointer text-xs text-brand-muted" title="Shade the periods a reading was in warning or alarm">
 							<input type="checkbox" bind:checked={showAlarmBands} /> Alarm bands
 						</label>
@@ -1803,6 +1868,19 @@
 						</label>
 						<label class="flex items-center gap-1.5 cursor-pointer text-xs text-brand-muted" title="Mark calibration changes">
 							<input type="checkbox" bind:checked={showCalibrationMarkers} /> Calibration markers
+						</label>
+						<label
+							class="flex items-center gap-1.5 text-xs {chartResolution === 'raw' ? 'text-brand-muted/50 cursor-not-allowed' : 'text-brand-muted cursor-pointer'}"
+							title={chartResolution === 'raw'
+								? 'Raw readings carry no sensor dimension; choose an aggregate resolution'
+								: 'One line per instrument instead of the count-weighted merge'}
+						>
+							<input
+								type="checkbox"
+								bind:checked={splitBySensor}
+								disabled={chartResolution === 'raw'}
+								onchange={scheduleFetch}
+							/> Split by instrument
 						</label>
 
 						<div class="w-px h-5 bg-brand-divider mx-1"></div>
@@ -1906,6 +1984,8 @@
 							spotData={spotDataMap.get(sp.id) ?? null}
 							spotStats={spotStatsMap.get(sp.parameter_id) ?? null}
 							{showReplicates}
+							sdEstimator={sdEstimatorFor(sp.parameter_id)}
+							withdrawnCount={withdrawnCounts.get(sp.parameter_id) ?? 0}
 							{gapThreshold}
 							loading={chartLoading}
 							onZoomSelect={onChartZoomSelect}
@@ -1919,6 +1999,8 @@
 							activeBreach={activeBreachByParam.get(sp.parameter_id) ?? null}
 							nowMs={now}
 							originLabel={originLabels.get(sp.id) ?? ''}
+							extraSeries={sensorSplitMap.get(sp.id) ?? []}
+							primarySeriesLabel={firstSensorLabels.get(sp.id) ?? null}
 							emptyMessage={emptyMessageFor(sp.id)}
 							exactTimes={chartResolution === 'raw'}
 							onpointclick={(p) => pinInspector(sp, param.name, p)}
@@ -1970,6 +2052,8 @@
 										spotData={spotDataMap.get(sp.id) ?? null}
 										spotStats={spotStatsMap.get(sp.parameter_id) ?? null}
 										{showReplicates}
+										sdEstimator={sdEstimatorFor(sp.parameter_id)}
+										withdrawnCount={withdrawnCounts.get(sp.parameter_id) ?? 0}
 										{gapThreshold}
 										loading={chartLoading}
 										onZoomSelect={onChartZoomSelect}
@@ -1983,6 +2067,8 @@
 										activeBreach={activeBreachByParam.get(sp.parameter_id) ?? null}
 										nowMs={now}
 										originLabel={originLabels.get(sp.id) ?? ''}
+							extraSeries={sensorSplitMap.get(sp.id) ?? []}
+							primarySeriesLabel={firstSensorLabels.get(sp.id) ?? null}
 										emptyMessage={emptyMessageFor(sp.id)}
 										exactTimes={chartResolution === 'raw'}
 										onpointclick={(p) => pinInspector(sp, param.name, p)}
@@ -2483,7 +2569,7 @@
 														type="button"
 														class="cursor-pointer border-none bg-transparent p-0 text-inherit hover:underline"
 														aria-pressed={expandedVisit === v.id && visitCell?.parameterId === col.parameter_id}
-														title="Open the record of {col.name} at this visit"
+														title={[visitCellStatistics(cell, col.decimal_places, col.units), `Open the record of ${col.name} at this visit`].filter(Boolean).join('\n')}
 														onclick={() => openVisitCell(v.id, col.parameter_id)}
 													>
 														{#if cell.finding === 'missing_output' && cell.value == null}
@@ -2491,6 +2577,9 @@
 														{:else if cell.value != null}
 															{@const marker = visitCellMarker(cell)}
 															{Number(cell.value.toPrecision(6))}
+															{#if (cell.n ?? 0) > 1}
+																<span class="text-[10px] text-brand-muted align-super">n{cell.n}</span>
+															{/if}
 															{#if marker}
 																<span class="text-severity-warning" title={marker.title}>{marker.text}</span>
 															{/if}
@@ -2584,7 +2673,27 @@
 																	<td class="py-1 pr-3 tabular-nums">
 																		{cell.served_value != null ? Number(cell.served_value.toPrecision(6)) : '-'}
 																		{#if cell.sample && cell.sample.n >= 2 && cell.sample.stdev != null}
-																			<span class="text-brand-muted">±{Number(cell.sample.stdev.toPrecision(3))} (n={cell.sample.n})</span>
+																			<span
+																				class="text-brand-muted"
+																				title={[
+																					`SD ${cell.sample.stdev} (${estimatorWord(cell.sample.sd_estimator)})`,
+																					cell.sample.sd_estimator_source === 'default'
+																						? 'divisor not declared for this parameter'
+																						: null,
+																					cell.sample.stdev_sample != null
+																						? `sample, n-1: ${cell.sample.stdev_sample}`
+																						: null,
+																					cell.sample.stdev_population != null
+																						? `population, n: ${cell.sample.stdev_population}`
+																						: null,
+																					cell.sample.median != null ? `median ${cell.sample.median}` : null,
+																					cell.sample.min != null && cell.sample.max != null
+																						? `range ${cell.sample.min} to ${cell.sample.max}`
+																						: null,
+																				]
+																					.filter(Boolean)
+																					.join('\n')}
+																			>±{Number(cell.sample.stdev.toPrecision(3))} ({estimatorWord(cell.sample.sd_estimator)}, n={cell.sample.n})</span>
 																		{/if}
 																	</td>
 																	<td class="py-1 pr-3 tabular-nums text-brand-muted">

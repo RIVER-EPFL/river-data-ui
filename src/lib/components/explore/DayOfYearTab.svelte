@@ -4,6 +4,17 @@
 	import type uPlot from 'uplot';
 	import type { Parameter, Site, SiteParameter } from '$api/crud';
 	import { fetchSiteSeries, type Frequency } from '$lib/charts/multiSiteSeries';
+	import {
+		spotMarkersPlugin,
+		spotSeriesConfig,
+		spotWhiskerExtent,
+		type SpotPointStats,
+		type SpotSeriesSpec,
+	} from '$lib/charts/spotMarkers';
+	import { spotDispersion } from '$lib/charts/spotSummary';
+	import { spotMarkerColors } from '$lib/charts/legend';
+	import ChartKey from '$components/charts/ChartKey.svelte';
+	import type { ChartKeyPresence } from '$lib/charts/chartKey';
 	import FrequencyChips from '$components/charts/FrequencyChips.svelte';
 	import { uPlotTheme, makeSeries, makeAxis } from '$lib/charts/uPlotTheme';
 	import { tokens } from '$lib/charts/tokens';
@@ -108,6 +119,8 @@
 		doy: number[];
 		values: (number | null)[];
 		spot?: boolean;
+		/** Replicate statistics keyed by day of the annual frame, the x value they are drawn at. */
+		stats?: Map<number, SpotPointStats>;
 	}
 	let loaded = $state<OverlaySeries[]>([]);
 	let failed = $state<string[]>([]);
@@ -180,13 +193,23 @@
 								...common,
 								resolution: 'raw',
 								measurementType: 'spot',
+								includeSampleStats: true,
 							}).catch(() => null);
 							if (spot && spot.times.length > 0) {
+								const doy = spot.times.map(dayOfYearInFrame);
+								// The plugin keys statistics by the x value it draws at, which on this
+								// axis is the day of the annual frame, not the instant.
+								const stats = new Map<number, SpotPointStats>();
+								spot.times.forEach((ms, i) => {
+									const stat = spot.stats?.get(ms);
+									if (stat) stats.set(doy[i], stat);
+								});
 								series.push({
 									label: `${label} (grabs)`,
-									doy: spot.times.map(dayOfYearInFrame),
+									doy,
 									values: spot.values,
 									spot: true,
+									stats,
 								});
 							}
 						}
@@ -226,12 +249,47 @@
 		return [xs, ...ys] as uPlot.AlignedData;
 	});
 
+	// The sd bars are drawn from the means, which is all uPlot ranges y from, so they clip without this.
+	function yRange(_u: uPlot, dataMin: number | null, dataMax: number | null): [number, number] {
+		const fallback = [dataMin ?? 0, dataMax ?? 1] as [number, number];
+		const extent = spotWhiskerExtent(loaded.flatMap((s) => [...(s.stats?.values() ?? [])]));
+		if (!extent) return fallback;
+		const lo = Math.min(fallback[0], extent[0]);
+		const hi = Math.max(fallback[1], extent[1]);
+		const pad = (hi - lo) * 0.05 || 1;
+		return [lo - pad, hi + pad];
+	}
+
+	const spotSpecs = $derived.by((): SpotSeriesSpec[] =>
+		loaded
+			.map((s, i) => ({ s, i }))
+			.filter(({ s }) => s.spot)
+			.map(({ s, i }) => ({
+				seriesIdx: i + 1,
+				...spotMarkerColors(i),
+				stats: s.stats,
+			})),
+	);
+
+	const keyPresence = $derived.by<ChartKeyPresence>(() => {
+		const stats = loaded.flatMap((s) => [...(s.stats?.values() ?? [])]);
+		const dispersions = new Set(stats.map((st) => spotDispersion(st)));
+		return {
+			line: loaded.some((s) => !s.spot),
+			spot: loaded.some((s) => s.spot),
+			spotAgreed: dispersions.has('agreed'),
+			spotSingle: dispersions.has('single'),
+			sdBar: dispersions.has('spread'),
+			units,
+		};
+	});
+
 	const chartOptions = $derived.by((): uPlot.Options => {
 		const yLabel = `${selectedParam?.name ?? 'Value'}${units ? ' (' + units + ')' : ''}`;
 		return {
 			width: 800,
 			height: 350,
-			scales: { x: { time: false, range: [1, DAYS_IN_FRAME] }, y: { auto: true } },
+			scales: { x: { time: false, range: [1, DAYS_IN_FRAME] }, y: { auto: true, range: yRange } },
 			axes: [
 				makeAxis({
 					label: 'Day of year',
@@ -244,15 +302,10 @@
 			series: [
 				{ label: 'Day of year' },
 				...loaded.map((s, i) =>
-					s.spot
-						? {
-								...makeSeries(i, s.label, units),
-								paths: () => null,
-								points: { show: true, size: 7 },
-							}
-						: makeSeries(i, s.label, units),
+					s.spot ? spotSeriesConfig(s.label) : makeSeries(i, s.label, units),
 				),
 			],
+			plugins: [spotMarkersPlugin(() => spotSpecs)],
 			legend: { show: uPlotTheme.legendShow },
 			cursor: { drag: { x: false, y: false } },
 		};
@@ -357,6 +410,7 @@
 								{/each}
 							</div>
 							<UPlotChart options={chartOptions} data={chartData} class="h-[350px]" />
+							<ChartKey presence={keyPresence} />
 							{#if failed.length > 0}
 								<p class="text-xs text-severity-warning">Failed to load: {failed.join(', ')}</p>
 							{/if}

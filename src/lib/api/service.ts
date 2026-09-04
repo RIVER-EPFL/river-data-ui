@@ -1687,6 +1687,15 @@ export interface VisitCell {
 	n_total: number;
 	n_flagged: number;
 	n_withdrawn: number;
+	/** The group's statistics. `n` counts what the mean stands on: `n_total` less the exclusions. */
+	n?: number;
+	stdev?: number;
+	median?: number;
+	min?: number;
+	max?: number;
+	/** Which divisor produced `stdev`, and what chose it ('default' is the fallback having applied). */
+	sd_estimator?: SdEstimator;
+	sd_estimator_source?: string;
 	finding?: 'missing_output' | 'stale_output' | string;
 	/** Open findings on this cell, when more than one. */
 	finding_count?: number;
@@ -1711,7 +1720,13 @@ export interface VisitsResponse {
 	page: number;
 	page_size: number;
 	// The grid's column set: parameters with spot readings at the site, ordered by code.
-	expected_parameters: { parameter_id: string; code: string; name: string }[];
+	expected_parameters: {
+		parameter_id: string;
+		code: string;
+		name: string;
+		units?: string | null;
+		decimal_places?: number | null;
+	}[];
 	visits: VisitRow[];
 }
 
@@ -1761,7 +1776,11 @@ export interface EventCellReplicate {
 	raw_value: number;
 	calibrated_value?: number;
 	flagged: boolean;
+	flag_reason?: string;
 	withdrawn: boolean;
+	withdrawn_at?: string;
+	calibration_id?: string;
+	standard_curve_id?: string;
 }
 
 export interface EventCell {
@@ -1776,8 +1795,16 @@ export interface EventCell {
 	sample?: {
 		sample_id: string;
 		mean?: number;
+		/** The sd under the declared divisor; both are served so the other stays readable. */
 		stdev?: number;
+		stdev_sample?: number;
+		stdev_population?: number;
+		median?: number;
+		min?: number;
+		max?: number;
 		n: number;
+		sd_estimator?: SdEstimator;
+		sd_estimator_source?: string;
 	};
 	/** How the readings reached the store: manual, csv, api or sync. */
 	origin: string;
@@ -2699,3 +2726,43 @@ export const runScheduleNow = (jobName: string) =>
 
 export const getScheduleAudit = (jobName: string) =>
 	GET<ScheduleAuditEntry[]>(`${ADMIN}/schedules/${encodeURIComponent(jobName)}/audit`);
+
+/** One parameter's period statistics over a range: the portal's `getStats` rows, server-computed. */
+export interface ParameterStatistics {
+	parameter_id: string;
+	code: string;
+	name: string;
+	units?: string | null;
+	decimal_places?: number | null;
+	/** Instants in the range, whether or not each carries a value. */
+	time_points: number;
+	/** Instants carrying a value: what every statistic below is computed over. */
+	n: number;
+	/** `time_points` less `n`, the portal's NA's row. */
+	nulls: number;
+	median?: number | null;
+	mean?: number | null;
+	/** Both divisors travel: a period sd belongs to no slot's declaration, so neither is the answer. */
+	stdev_sample?: number | null;
+	stdev_population?: number | null;
+	min?: number | null;
+	max?: number | null;
+}
+
+export interface SiteStatisticsResponse {
+	site: { id: string; name: string };
+	start: string;
+	end?: string | null;
+	measurement_type: 'continuous' | 'spot';
+	parameters: ParameterStatistics[];
+}
+
+export const getSiteStatistics = (
+	siteId: string,
+	params: {
+		start?: string;
+		end?: string;
+		parameter_ids?: string;
+		measurement_type?: 'continuous' | 'spot';
+	}
+) => GET<SiteStatisticsResponse>(`${ADMIN}/sites/${siteId}/statistics`, params);

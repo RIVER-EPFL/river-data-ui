@@ -48,7 +48,7 @@ describe('spotSampleLine', () => {
 			stat({ n: 2, mean: 4.5, stdev: 0.5, replicates: [replicate(4), replicate(5)] }),
 			1
 		);
-		expect(line).toBe('mean of 2 ±0.5: 4.0, 5.0');
+		expect(line).toBe('mean of 2 ±0.5 SD, sample (divisor n-1): 4.0, 5.0');
 	});
 
 	it('names the replicates the mean excludes', () => {
@@ -77,11 +77,46 @@ describe('spotRangeLabel', () => {
 		expect(spotRangeLabel(stat({ n: 3, min: null, max: null }), 1)).toBeNull();
 	});
 
+	it('names the divisor and units beside the sd it prints', () => {
+		const line = spotSampleLine(
+			stat({ n: 2, mean: 4.5, stdev: 0.5, replicates: [replicate(4), replicate(5)] }),
+			1,
+			{ sdEstimator: 'population', units: 'ppb' }
+		);
+		expect(line).toContain('±0.5 ppb SD, population (divisor n)');
+	});
+
 	it('rides the sample line so the sd bar is never read as the range', () => {
 		const line = spotSampleLine(
 			stat({ n: 3, mean: 48.2, stdev: 11.6, min: 41.2, max: 62 }),
 			1
 		);
 		expect(line).toContain('range 41.2 to 62.0');
+	});
+});
+
+describe('the divisor a printed sd names', () => {
+	it("prefers the group's own decision over the slot's declaration", () => {
+		const line = spotSampleLine(
+			stat({
+				n: 2,
+				mean: 4.5,
+				stdev: 0.5,
+				sdEstimator: 'population',
+				replicates: [replicate(4), replicate(5)],
+			}),
+			1,
+			{ sdEstimator: 'sample' }
+		);
+		expect(line).toContain('population (divisor n)');
+	});
+
+	it('falls back to the slot when the group carries no decision of its own', () => {
+		const line = spotSampleLine(
+			stat({ n: 2, mean: 4.5, stdev: 0.5, replicates: [replicate(4), replicate(5)] }),
+			1,
+			{ sdEstimator: 'population' }
+		);
+		expect(line).toContain('population (divisor n)');
 	});
 });

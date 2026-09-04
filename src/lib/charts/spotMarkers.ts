@@ -19,6 +19,13 @@ export interface SpotPointStats {
 	// reported as numbers rather than as a second mark.
 	min?: number | null;
 	max?: number | null;
+	// The whole group is retracted at source: served only when asked for, and drawn as a state
+	// rather than an absence, because a retraction is reversible.
+	withdrawn?: boolean;
+	// The divisor this group's sd was computed with. A per-instant audit decision overrides the
+	// slot's declaration, so the group's own value wins over the slot's wherever the sd is printed.
+	sdEstimator?: 'sample' | 'population' | null;
+	sdEstimatorSource?: string | null;
 	// Individual replicate values behind the mean, each carrying its own curve references.
 	replicates?: SampleReplicate[];
 	// The `samples` row behind the point. Carried so a chart click can reach the sample's tool-run
@@ -88,6 +95,18 @@ export function drawAgreedTick(
 	ctx.beginPath();
 	ctx.moveTo(x - size * 1.6, y);
 	ctx.lineTo(x + size * 1.6, y);
+	ctx.stroke();
+}
+
+/** A hollow ring, the glyph for an instant the source has taken back. */
+export function drawWithdrawnRing(
+	ctx: CanvasRenderingContext2D,
+	x: number,
+	y: number,
+	size: number,
+): void {
+	ctx.beginPath();
+	ctx.arc(x, y, size, 0, Math.PI * 2);
 	ctx.stroke();
 }
 
@@ -243,6 +262,17 @@ export function spotMarkersPlugin(specs: () => SpotSeriesSpec[]): uPlot.Plugin {
 							// A group some of whose replicates were curated away is drawn in the
 							// flagged colour: the value is still served, but it no longer stands on
 							// everything that was measured, and the whisker alone cannot say that.
+							// A retracted instant is drawn faintly with a ring: still there, no longer
+							// served, and one action from being back.
+							if (stat?.withdrawn) {
+								ctx.save();
+								ctx.globalAlpha = 0.45;
+								ctx.setLineDash([3 * ratio, 2 * ratio]);
+								drawWithdrawnRing(ctx, x, y, size);
+								drawDiamond(ctx, x, y, size * 0.6, false);
+								ctx.restore();
+								continue;
+							}
 							const flagged = spec.flagged?.(i) ?? false;
 							const partial = !flagged && partiallyCurated(stat);
 							if (flagged || partial) ctx.strokeStyle = uPlotTheme.flaggedColor;

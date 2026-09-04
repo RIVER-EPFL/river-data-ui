@@ -8,9 +8,25 @@
 	import TimeRangeControls from '$components/charts/TimeRangeControls.svelte';
 	import { uPlotTheme, makeSeries, makeAxis } from '$lib/charts/uPlotTheme';
 	import { fetchSiteSeries, mergeSeries } from '$lib/charts/multiSiteSeries';
+	import {
+		spotMarkersPlugin,
+		spotSeriesConfig,
+		spotWhiskerExtent,
+		type SpotPointStats,
+		type SpotSeriesSpec,
+	} from '$lib/charts/spotMarkers';
+	import { spotDispersion } from '$lib/charts/spotSummary';
+	import { spotMarkerColors } from '$lib/charts/legend';
+	import ChartKey from '$components/charts/ChartKey.svelte';
+	import type { ChartKeyPresence } from '$lib/charts/chartKey';
 	import FrequencyChips from '$components/charts/FrequencyChips.svelte';
 	import { formatMeasurement, NO_VALUE } from '$lib/format';
+	import { getSiteStatistics, type ParameterStatistics } from '$api/service';
 	import ChartCard from './ChartCard.svelte';
+	import SharedChartTooltip from '$components/charts/SharedChartTooltip.svelte';
+	import { getChartSyncGroup, cursorSyncPlugin } from '$lib/charts/chart-sync.svelte';
+	import { base } from '$app/paths';
+	import { goto } from '$app/navigation';
 
 	let {
 		sites,
@@ -30,7 +46,7 @@
 		onremove: () => void;
 	} = $props();
 
-	let chartData = $state<Array<{ site: string; units: string | null; times: number[]; values: (number | null)[]; spot?: boolean }>>([]);
+	let chartData = $state<Array<{ site: string; siteId: string; siteParameterId?: string; units: string | null; times: number[]; values: (number | null)[]; spot?: boolean; stats?: Map<number, SpotPointStats> }>>([]);
 	let loadingData = $state(false);
 	let chartError = $state<string | null>(null);
 	let statsOpen = $state(true);
@@ -88,7 +104,12 @@
 							: Promise.resolve(null),
 						// Grab/spot samples are sparse and never aggregated, always fetched raw.
 						wantSpot
-							? fetchSiteSeries({ ...common, resolution: 'raw', measurementType: 'spot' }).catch(() => null)
+							? fetchSiteSeries({
+									...common,
+									resolution: 'raw',
+									measurementType: 'spot',
+									includeSampleStats: true,
+								}).catch(() => null)
 							: Promise.resolve(null),
 					]);
 					const name = site?.name ?? siteId;
@@ -97,9 +118,26 @@
 					const seriesUnits =
 						sp?.display_units ?? params.find((p) => p.id === paramId)?.default_units ?? null;
 					const series: typeof chartData = [];
-					if (cont) series.push({ site: name, units: seriesUnits, times: cont.times, values: cont.values });
+					if (cont)
+						series.push({
+							site: name,
+							siteId,
+							siteParameterId: sp?.id,
+							units: seriesUnits,
+							times: cont.times,
+							values: cont.values,
+						});
 					if (spot && spot.times.length > 0) {
-						series.push({ site: `${name} (grabs)`, units: seriesUnits, times: spot.times, values: spot.values, spot: true });
+						series.push({
+							site: `${name} (grabs)`,
+							siteId,
+							siteParameterId: sp?.id,
+							units: seriesUnits,
+							times: spot.times,
+							values: spot.values,
+							spot: true,
+							stats: spot.stats,
+						});
 					}
 					return series;
 				}),
@@ -129,36 +167,89 @@
 		clearTimeout(debounceTimer);
 		debounceTimer = setTimeout(() => {
 			void loadChartData();
+			void loadPeriodStats();
 		}, 100);
 		return () => clearTimeout(debounceTimer);
 	});
 
-	interface ParamStats {
+	/**
+	 * The period statistics, computed server-side over the values the API serves. The browser used
+	 * to compute them here with a divisor it neither chose nor named, which is how the same range
+	 * could read differently in the portal and in Explore.
+	 */
+	interface PeriodStatsRow {
 		site: string;
+		siteId: string;
 		units: string | null;
-		n: number;
-		mean: number;
-		min: number;
-		max: number;
-		stddev: number;
+		stats: ParameterStatistics | null;
+	}
+	let periodStats = $state<PeriodStatsRow[]>([]);
+
+	async function loadPeriodStats() {
+		const { siteIds, paramId, start, end, frequency } = spec;
+		if (!ready) {
+			periodStats = [];
+			return;
+		}
+		const measurementType = frequency === 'low' ? 'spot' : 'continuous';
+		const rows = await Promise.all(
+			siteIds.map(async (siteId) => {
+				const site = sites.find((s) => s.id === siteId);
+				const label = site?.name ?? siteId;
+				try {
+					const result = await getSiteStatistics(siteId, {
+						start: new Date(start).toISOString(),
+						end: new Date(end).toISOString(),
+						parameter_ids: paramId,
+						measurement_type: measurementType,
+					});
+					const stats = result.parameters[0] ?? null;
+					return { site: label, siteId, units: stats?.units ?? null, stats };
+				} catch {
+					return { site: label, siteId, units: null, stats: null };
+				}
+			})
+		);
+		periodStats = rows;
 	}
 
-	const compareStats = $derived.by((): ParamStats[] => {
-		return chartData.map((series) => {
-			const vals = series.values.filter((v): v is number => v != null && isFinite(v));
-			const n = vals.length;
-			if (n === 0) return { site: series.site, units: series.units, n: 0, mean: 0, min: 0, max: 0, stddev: 0 };
-			const sum = vals.reduce((a, b) => a + b, 0);
-			const mean = sum / n;
-			const min = Math.min(...vals);
-			const max = Math.max(...vals);
-			const variance = vals.reduce((a, v) => a + (v - mean) ** 2, 0) / n;
-			const stddev = Math.sqrt(variance);
-			return { site: series.site, units: series.units, n, mean, min, max, stddev };
-		});
-	});
-
 	const chartUPlotData = $derived.by((): uPlot.AlignedData => mergeSeries(chartData));
+
+	// uPlot ranges y from the plotted means, so an sd bar wider than their spread is clipped.
+	function yRange(u: uPlot, dataMin: number | null, dataMax: number | null): [number, number] {
+		const fallback = [dataMin ?? 0, dataMax ?? 1] as [number, number];
+		const extent = spotWhiskerExtent(chartData.flatMap((s) => [...(s.stats?.values() ?? [])]));
+		if (!extent) return fallback;
+		const lo = Math.min(fallback[0], extent[0]);
+		const hi = Math.max(fallback[1], extent[1]);
+		const pad = (hi - lo) * 0.05 || 1;
+		return [lo - pad, hi + pad];
+	}
+
+	const spotSpecs = $derived.by((): SpotSeriesSpec[] =>
+		chartData
+			.map((s, i) => ({ s, i }))
+			.filter(({ s }) => s.spot)
+			.map(({ s, i }) => ({
+				seriesIdx: i + 1,
+				...spotMarkerColors(i),
+				stats: new Map([...(s.stats?.entries() ?? [])].map(([ms, stat]) => [ms / 1000, stat])),
+			})),
+	);
+
+	const keyPresence = $derived.by<ChartKeyPresence>(() => {
+		const stats = chartData.flatMap((s) => [...(s.stats?.values() ?? [])]);
+		const dispersions = new Set(stats.map((st) => spotDispersion(st)));
+		const unitSet = new Set(chartData.map((s) => s.units ?? ''));
+		return {
+			line: chartData.some((s) => !s.spot),
+			spot: chartData.some((s) => s.spot),
+			spotAgreed: dispersions.has('agreed'),
+			spotSingle: dispersions.has('single'),
+			sdBar: dispersions.has('spread'),
+			units: unitSet.size === 1 ? ([...unitSet][0] || null) : null,
+		};
+	});
 
 	const chartUPlotOptions = $derived.by((): uPlot.Options => {
 		const param = params.find((p) => p.id === spec.paramId);
@@ -167,26 +258,64 @@
 		return {
 			width: 800,
 			height: 350,
-			scales: { x: { time: true }, y: { auto: true } },
+			scales: { x: { time: true }, y: { auto: true, range: yRange } },
 			axes: [makeAxis({}), makeAxis({ size: 60, label: yLabel })],
 			series: [
 				{ label: 'Time' },
+				// One spot path across the app: the transparent series ranges the y-scale and the
+				// shared plugin paints the marks, so a grab reads the same here as on the site page.
 				...chartData.map((s, i) =>
-					s.spot
-						? {
-								...makeSeries(i, s.site, units),
-								paths: () => null,
-								points: { show: true, size: 7 },
-							}
-						: makeSeries(i, s.site, units),
+					s.spot ? spotSeriesConfig(s.site) : makeSeries(i, s.site, units),
 				),
 			],
+			plugins: [spotMarkersPlugin(() => spotSpecs), cursorSyncPlugin(syncGroup, syncKey)],
 			legend: { show: uPlotTheme.legendShow },
 			cursor: { drag: { x: true, y: false } },
 		};
 	});
 
 	const id = $derived(`ts-${index}`);
+	const syncKey = $derived(`explore-ts-${index}`);
+	const syncGroup = $derived(getChartSyncGroup(syncKey));
+
+	// The tooltip reads whatever is registered, so each site's series registers itself against the
+	// merged x-axis the plot draws on. Without this the Explore charts hover blank.
+	$effect(() => {
+		const xs = (chartUPlotData[0] ?? []) as number[];
+		const values = chartUPlotData.slice(1) as (number | null)[][];
+		syncGroup.clear();
+		chartData.forEach((series, i) => {
+			syncGroup.register({
+				id: `${syncKey}-${i}`,
+				parameterName: series.site,
+				units: series.units ?? '',
+				paletteIndex: i,
+				times: xs,
+				values: values[i] ?? [],
+				spotStats: series.stats ?? null,
+			});
+		});
+		return () => syncGroup.clear();
+	});
+
+	/** A spot point's full record lives on its own site page, which already renders it. */
+	function openSpotRecord(): void {
+		const c = syncGroup.cursor;
+		if (!c) return;
+		const xs = (chartUPlotData[0] ?? []) as number[];
+		const ts = xs[c.idx];
+		if (ts == null) return;
+		const series = chartData.find(
+			(s) => s.spot && s.siteParameterId && s.stats?.has(ts * 1000),
+		);
+		if (!series?.siteParameterId) return;
+		const params = new URLSearchParams({
+			point: series.siteParameterId,
+			t: new Date(ts * 1000).toISOString(),
+			mt: 'spot',
+		});
+		void goto(`${base}/sites/${series.siteId}?${params.toString()}`);
+	}
 </script>
 
 <ChartCard {title} {removable} {onremove}>
@@ -247,7 +376,13 @@
 						</div>
 					{/each}
 				</div>
-				<UPlotChart options={chartUPlotOptions} data={chartUPlotData} class="h-[350px]" />
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<div onclick={openSpotRecord}>
+					<UPlotChart options={chartUPlotOptions} data={chartUPlotData} class="h-[350px]" />
+				</div>
+				<ChartKey presence={keyPresence} />
+				<SharedChartTooltip {syncKey} />
 			</div>
 		{/if}
 	{/snippet}
@@ -267,25 +402,35 @@
 							<thead>
 								<tr class="border-b border-brand-divider">
 									<th class="text-left py-1.5 font-semibold">Site</th>
+									<th class="text-right py-1.5 font-semibold">Time points</th>
 									<th class="text-right py-1.5 font-semibold">n</th>
+									<th class="text-right py-1.5 font-semibold">NA's</th>
+									<th class="text-right py-1.5 font-semibold">Median</th>
 									<th class="text-right py-1.5 font-semibold">Mean</th>
+									<th class="text-right py-1.5 font-semibold" title="Divides by n-1, matching R's sd()">SD (sample, n-1)</th>
+									<th class="text-right py-1.5 font-semibold" title="Divides by n">SD (population, n)</th>
 									<th class="text-right py-1.5 font-semibold">Min</th>
 									<th class="text-right py-1.5 font-semibold">Max</th>
-									<th class="text-right py-1.5 font-semibold">Std Dev</th>
 								</tr>
 							</thead>
 							<tbody>
-								{#each compareStats as stat}
+								{#each periodStats as row}
+									{@const s = row.stats}
+									{@const d = s?.decimal_places ?? null}
 									<tr class="border-b border-brand-divider last:border-b-0">
 										<td class="py-1.5 font-medium">
-											{stat.site}
-											{#if stat.units}<span class="font-normal text-brand-muted">({stat.units})</span>{/if}
+											{row.site}
+											{#if row.units}<span class="font-normal text-brand-muted">({row.units})</span>{/if}
 										</td>
-										<td class="py-1.5 text-right font-mono text-xs">{stat.n}</td>
-										<td class="py-1.5 text-right font-mono text-xs">{stat.n > 0 ? formatMeasurement(stat.mean) : NO_VALUE}</td>
-										<td class="py-1.5 text-right font-mono text-xs">{stat.n > 0 ? formatMeasurement(stat.min) : NO_VALUE}</td>
-										<td class="py-1.5 text-right font-mono text-xs">{stat.n > 0 ? formatMeasurement(stat.max) : NO_VALUE}</td>
-										<td class="py-1.5 text-right font-mono text-xs">{stat.n > 0 ? formatMeasurement(stat.stddev) : NO_VALUE}</td>
+										<td class="py-1.5 text-right font-mono text-xs">{s?.time_points ?? 0}</td>
+										<td class="py-1.5 text-right font-mono text-xs">{s?.n ?? 0}</td>
+										<td class="py-1.5 text-right font-mono text-xs">{s?.nulls ?? 0}</td>
+										<td class="py-1.5 text-right font-mono text-xs">{s?.n ? formatMeasurement(s.median, d) : NO_VALUE}</td>
+										<td class="py-1.5 text-right font-mono text-xs">{s?.n ? formatMeasurement(s.mean, d) : NO_VALUE}</td>
+										<td class="py-1.5 text-right font-mono text-xs">{s?.n ? formatMeasurement(s.stdev_sample, d) : NO_VALUE}</td>
+										<td class="py-1.5 text-right font-mono text-xs">{s?.n ? formatMeasurement(s.stdev_population, d) : NO_VALUE}</td>
+										<td class="py-1.5 text-right font-mono text-xs">{s?.n ? formatMeasurement(s.min, d) : NO_VALUE}</td>
+										<td class="py-1.5 text-right font-mono text-xs">{s?.n ? formatMeasurement(s.max, d) : NO_VALUE}</td>
 									</tr>
 								{/each}
 							</tbody>

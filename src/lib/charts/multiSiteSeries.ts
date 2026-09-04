@@ -47,7 +47,12 @@ export async function fetchSiteSeries(opts: {
 	} = opts;
 	const query: Record<string, string> = { start, end, parameter_ids: parameterId };
 	if (resolution === 'raw' && measurementType) query.measurement_type = measurementType;
-	if (resolution === 'raw' && includeSampleStats) query.include_sample_stats = 'true';
+	if (resolution === 'raw' && includeSampleStats) {
+		query.include_sample_stats = 'true';
+		// The curve references ride the same request: the tooltip reports which correction produced
+		// a value, and a second fetch for them would page independently of the window on screen.
+		query.include_curves = 'true';
+	}
 	let times: number[] = [];
 	let values: (number | null)[] = [];
 	let stats: Map<number, SpotPointStats> | undefined;
@@ -71,8 +76,12 @@ export async function fetchSiteSeries(opts: {
 						n: s.n,
 						min: s.min ?? null,
 						max: s.max ?? null,
+						sdEstimator: s.sd_estimator ?? null,
+						sdEstimatorSource: s.sd_estimator_source ?? null,
 						replicates: s.replicates,
 						sampleId: s.sample_id,
+						calibrationId: series.calibration_ids?.[i] ?? null,
+						standardCurveId: series.standard_curve_ids?.[i] ?? null,
 					});
 				});
 			}

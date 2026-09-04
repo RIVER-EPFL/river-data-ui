@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cellRecord, visitCellMarker, visitCounts } from './cell';
+import { cellRecord, visitCellMarker, visitCellStatistics, visitCounts } from './cell';
 import type { EventCell, EventCellReplicate, EventDetailResponse, VisitCell } from '$api/service';
 
 function cell(over: Partial<VisitCell>): VisitCell {
@@ -131,5 +131,29 @@ describe('cellRecord', () => {
 	it('yields no records for a finding-only cell, which has no readings', () => {
 		const detail = detailWith([eventCell('p1', '00000000-0000-0000-0000-000000000000', undefined)]);
 		expect(cellRecord(detail, 'p1').records).toEqual([]);
+	});
+});
+
+describe('visitCellStatistics', () => {
+	it('says nothing for a cell with no group behind it', () => {
+		expect(visitCellStatistics(cell({ n: undefined }))).toBeNull();
+	});
+
+	it('names the divisor beside the sd it printed', () => {
+		const line = visitCellStatistics(
+			cell({ n: 3, stdev: 0.5, median: 2, min: 1, max: 3, sd_estimator: 'population' }),
+			1,
+			'ppb'
+		);
+		expect(line).toContain('SD 0.5 ppb (population, n)');
+		expect(line).toContain('median 2.0 ppb');
+		expect(line).toContain('range 1.0 to 3.0 ppb');
+	});
+
+	it('says so when no divisor was declared, rather than passing the fallback off as a choice', () => {
+		const line = visitCellStatistics(
+			cell({ n: 2, stdev: 1, sd_estimator: 'sample', sd_estimator_source: 'default' })
+		);
+		expect(line).toContain('divisor not declared');
 	});
 });

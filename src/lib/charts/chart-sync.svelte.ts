@@ -1,6 +1,8 @@
+import type uPlot from 'uplot';
 import type { AlarmThreshold, Annotation } from '$api/crud';
 import type { SensorIdentityBand, CalibrationMarker } from '$api/sensors';
 import type { SpotPointStats } from './spotMarkers';
+import type { SdEstimator } from '$lib/sdEstimator';
 
 export interface ChartRegistration {
 	id: string;
@@ -24,6 +26,8 @@ export interface ChartRegistration {
 	spotFlags?: Map<number, boolean> | null;
 	// One-line ingestion origin for the series, e.g. "via cnet portal sync".
 	originLabel?: string;
+	/** The divisor the slot declares, which is what any printed sd was computed under. */
+	sdEstimator?: SdEstimator | null;
 }
 
 export interface CursorState {
@@ -74,4 +78,39 @@ export function getChartSyncGroup(key: string): ChartSyncGroup {
 		groups.set(key, group);
 	}
 	return group;
+}
+
+/**
+ * Publish a plot's cursor to its sync group, which is what feeds the shared tooltip. The hide is
+ * deferred by a frame so moving between two plots in one group does not blink the tooltip out.
+ */
+export function cursorSyncPlugin(group: ChartSyncGroup, chartId: string): uPlot.Plugin {
+	let hideRaf: number | null = null;
+	return {
+		hooks: {
+			setCursor: [
+				(u: uPlot) => {
+					const idx = u.cursor.idx;
+					if (idx != null && idx >= 0 && idx < (u.data[0]?.length ?? 0)) {
+						if (hideRaf != null) {
+							cancelAnimationFrame(hideRaf);
+							hideRaf = null;
+						}
+						const bbox = u.root.getBoundingClientRect();
+						group.setCursor({
+							idx,
+							mouseX: (u.cursor.left ?? 0) + bbox.left,
+							mouseY: (u.cursor.top ?? 0) + bbox.top,
+							sourceId: chartId,
+						});
+					} else {
+						hideRaf = requestAnimationFrame(() => {
+							group.setCursor(null);
+							hideRaf = null;
+						});
+					}
+				},
+			],
+		},
+	};
 }

@@ -140,7 +140,10 @@
 						calibrated: rep?.calibrated_value ?? null,
 					};
 				}
-				sampleLine = spotSampleLine(stat, reg.decimals);
+				sampleLine = spotSampleLine(stat, reg.decimals, {
+					sdEstimator: reg.sdEstimator,
+					units: reg.units,
+				});
 			}
 
 			result.push({
