@@ -282,6 +282,18 @@
 						</select>
 					</label>
 				{/if}
+				{#if showRangeNote}
+					<span class="flex items-center gap-1.5">
+						<span class="text-brand-muted">Default range</span>
+						<span class="font-mono">{rangeLabel}</span>
+					</span>
+					{#if fullExtentLabel}
+						<span class="flex items-center gap-1.5">
+							<span class="text-brand-muted">Stored range</span>
+							<span class="font-mono">{fullExtentLabel}</span>
+						</span>
+					{/if}
+				{/if}
 			</div>
 		{/if}
 
@@ -296,12 +308,8 @@
 
 		{#if showRangeNote}
 			<p class="text-xs text-brand-muted">
-				Dates default to the latest 30 days of data ({rangeLabel}).{#if fullExtentLabel}
-					Full stored range for this site: <span class="font-mono">{fullExtentLabel}</span>.{/if}
-				There is no range limit - widen the window, or drop <code class="bg-brand-bg px-1 rounded">start</code> /
-				<code class="bg-brand-bg px-1 rounded">end</code> entirely to fetch the whole series. Timestamps are
-				ISO 8601 UTC; a non-existent calendar date (e.g. <code class="bg-brand-bg px-1 rounded">2026-04-31</code>)
-				is rejected as out of range.
+				No range limit: omit <code class="bg-brand-bg px-1 rounded">start</code> /
+				<code class="bg-brand-bg px-1 rounded">end</code> for the whole series. Timestamps are ISO 8601 UTC.
 			</p>
 		{/if}
 
@@ -313,15 +321,9 @@
 					<code class="bg-brand-bg px-1 rounded">&lt;parameter-id&gt;</code> with ids from the list-sites
 					response.{/if}
 			</p>
-		{:else if allowPaste}
+		{:else if !allowPaste}
 			<p class="text-xs text-brand-muted">
-				Your pasted key is embedded in the snippet above.{#if hasRealSite}
-					Switch the site or parameter above to change the ids.{/if}
-			</p>
-		{:else}
-			<p class="text-xs text-brand-muted">
-				Your key is embedded above for copy-paste - this is the only time it is shown.{#if hasRealSite}
-					The example is filled with real ids; switch the site or parameter above to change them.{/if}
+				Your key is embedded above; this is the only time it is shown.
 			</p>
 		{/if}
 	{/if}

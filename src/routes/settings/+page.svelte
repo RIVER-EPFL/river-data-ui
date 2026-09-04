@@ -49,6 +49,7 @@
 	let iosNeedsInstall = $state(false);
 	let pingSeconds = $state(10);
 	let testBusy = $state(false);
+	let testOutcome = $state<string | null>(null);
 
 	let mutedSites = $state<Set<string>>(new Set());
 
@@ -150,16 +151,14 @@
 			const results = await testMyPush();
 			testResults = Array.isArray(results) ? results : [];
 			if (testResults.length === 0) {
-				toastStore.success('Test notification sent');
+				testOutcome = 'Test notification sent';
 				return;
 			}
 			const sent = testResults.filter((r) => r.status === 'sent').length;
 			if (testResults.some((r) => r.pruned)) await refreshDevices();
-			toastStore.success(
-				`Sent to ${sent} of ${testResults.length} device${testResults.length === 1 ? '' : 's'}`
-			);
+			testOutcome = `Sent to ${sent} of ${testResults.length} device${testResults.length === 1 ? '' : 's'}`;
 		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Test failed');
+			testOutcome = e instanceof Error ? e.message : 'Test failed';
 		} finally {
 			testBusy = false;
 		}
@@ -171,14 +170,14 @@
 			if (Notification.permission !== 'granted') {
 				const permission = await Notification.requestPermission();
 				if (permission !== 'granted') {
-					toastStore.error('Notification permission was denied on this device');
+					testOutcome = 'Permission denied on this device: no push can reach it';
 					return;
 				}
 			}
 			await showLocalTestNotification();
-			toastStore.success('Shown. If nothing appeared, the device is blocking notifications.');
+			testOutcome = 'Shown on this device without the push service; if nothing appeared, this device blocks notifications';
 		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Could not show a notification');
+			testOutcome = e instanceof Error ? e.message : 'Could not show a notification';
 		} finally {
 			testBusy = false;
 		}
@@ -188,7 +187,7 @@
 		testBusy = true;
 		try {
 			const res = await scheduleMyPing(pingSeconds);
-			toastStore.success(`Ping scheduled in ${res.seconds} second${res.seconds === 1 ? '' : 's'}`);
+			testOutcome = `Ping scheduled in ${res.seconds} second${res.seconds === 1 ? '' : 's'}`;
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Scheduling failed');
 		} finally {
@@ -467,11 +466,9 @@
 								<span class="text-sm text-brand-text-muted">sec</span>
 							</div>
 						</div>
-						<div class="text-xs text-brand-text-muted mt-2">
-							"Send test" goes through the push service and reaches every registered device.
-							"Test on this device" draws a notification locally: if that one does not appear,
-							this device is blocking notifications and no push can get through.
-						</div>
+						{#if testOutcome}
+							<div class="text-xs text-brand-text-muted mt-2" role="status">{testOutcome}</div>
+						{/if}
 					{/if}
 				{/if}
 			</div>

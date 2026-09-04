@@ -10,6 +10,8 @@
 	import Button from '$components/ui/Button.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import { formatCount } from '$lib/format';
+	import { base } from '$app/paths';
+	import { goto } from '$app/navigation';
 
 	// --- Entity data ---
 	let sites = $state<Site[]>([]);
@@ -564,12 +566,20 @@
 	</div>
 
 	{#if step === 'file'}
-		<p class="text-sm text-brand-muted">
-			For a wide CSV export with one column per parameter (logger downloads, site
-			exports), use the site importer instead: open the site and choose Import. It
-			previews column mapping and detects overlaps with existing data before writing.
-			This page suits long-format files (one value per row) across sites and parameters.
-		</p>
+		<div class="flex flex-wrap items-center gap-2 text-sm">
+			<span class="text-brand-muted">File shape</span>
+			<span class="px-3 py-1 rounded-md bg-brand-primary text-white">One value per row (this page)</span>
+			<label class="flex items-center gap-1.5">
+				<span class="px-3 py-1 rounded-md bg-brand-bg text-brand-muted">One column per parameter</span>
+				<select
+					class="rounded border border-brand-divider px-2 py-1 text-sm"
+					onchange={(e) => { const id = (e.currentTarget as HTMLSelectElement).value; if (id) goto(`${base}/sites/${id}/import`); }}
+				>
+					<option value="">open the importer for a site…</option>
+					{#each sites as s (s.id)}<option value={s.id}>{s.name}</option>{/each}
+				</select>
+			</label>
+		</div>
 		<div class="rounded border border-brand-divider bg-brand-surface p-3 space-y-3">
 			<p class="text-sm font-medium text-brand-text">Template</p>
 			<p class="text-xs text-brand-muted">

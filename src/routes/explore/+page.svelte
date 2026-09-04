@@ -1,8 +1,18 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api, type Site, type Parameter, type SiteParameter } from '$api/crud';
+	import { page } from '$app/state';
 	import type { Frequency } from '$lib/charts/multiSiteSeries';
 	import { createUrlTab } from '$lib/urlTab.svelte';
+	import {
+		decodeScatterSpecs,
+		decodeTimeSeriesSpecs,
+		encodeScatterSpecs,
+		encodeTimeSeriesSpecs,
+		type ScatterSpec,
+		type TimeSeriesSpec,
+	} from '$lib/explore/chartSpecs';
+	import { syncUrlSpecs } from '$lib/explore/urlSpecs.svelte';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import TimeSeriesTab from '$components/explore/TimeSeriesTab.svelte';
@@ -45,21 +55,15 @@
 		return allParams.filter((p) => measured.has(p.id)).sort((a, b) => a.name.localeCompare(b.name));
 	});
 
-	// Selection state lives here so it survives tab switches.
-	// Shared across tabs:
+	// Selection state lives here so it survives tab switches. The Time Series and Scatter layouts
+	// are also mirrored onto `?ts=` and `?scatter=` so a set of charts can be shared as a link.
+	let tsSpecs = $state<TimeSeriesSpec[]>(decodeTimeSeriesSpecs(page.url.searchParams.get('ts')));
+	let scatterSpecs = $state<ScatterSpec[]>(decodeScatterSpecs(page.url.searchParams.get('scatter')));
+	syncUrlSpecs({ param: 'ts', get: () => tsSpecs, encode: encodeTimeSeriesSpecs });
+	syncUrlSpecs({ param: 'scatter', get: () => scatterSpecs, encode: encodeScatterSpecs });
+	// Day of Year:
 	let selectedSiteIds = $state<string[]>([]);
 	let selectedParamId = $state('');
-	let start = $state(0);
-	let end = $state(0);
-	// Time Series:
-	let resolution = $state<'raw' | 'hourly' | 'daily'>('hourly');
-	let tsFrequency = $state<Frequency>('high');
-	let statsOpen = $state(true);
-	// Scatter:
-	let scatterSiteId = $state('');
-	let xParamId = $state('');
-	let yParamId = $state('');
-	// Day of Year:
 	const currentYear = new Date().getUTCFullYear();
 	let selectedYears = $state<number[]>([currentYear, currentYear - 1, currentYear - 2]);
 	let doyFrequency = $state<Frequency>('high');
@@ -86,29 +90,14 @@
 	{:else if pageError}
 		<ErrorNotice message={pageError} />
 	{:else if tab.key === 'timeseries'}
-		<TimeSeriesTab
-			{sites}
-			params={measurementParams}
-			siteParams={allSiteParams}
-			bind:selectedSiteIds
-			bind:selectedParamId
-			bind:resolution
-			bind:frequency={tsFrequency}
-			bind:start
-			bind:end
-			bind:statsOpen
-		/>
+		<TimeSeriesTab {sites} params={measurementParams} siteParams={allSiteParams} bind:specs={tsSpecs} />
 	{:else if tab.key === 'scatter'}
 		<ScatterTab
 			{sites}
 			params={measurementParams}
 			siteParams={allSiteParams}
-			bind:siteId={scatterSiteId}
-			bind:xParamId
-			bind:yParamId
-			bind:start
-			bind:end
-			defaultSiteId={selectedSiteIds[0] ?? ''}
+			bind:specs={scatterSpecs}
+			defaultSiteId={tsSpecs[0]?.siteIds[0] ?? ''}
 		/>
 	{:else if tab.key === 'doy'}
 		<DayOfYearTab

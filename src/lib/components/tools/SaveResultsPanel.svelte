@@ -572,6 +572,16 @@
 		visitLocked && contextTime ? contextTime : fromDatetimeLocal(collectedAt, collectedZone),
 	);
 
+	// The write in one line: readings and indices from the ticked rows, curves from the preview.
+	const writeSummary = $derived.by(() => {
+		const readings = includedRows.reduce((n, r) => n + r.values.length, 0);
+		const indices = new Set(includedRows.flatMap((r) => r.values.map((v) => v.index))).size;
+		const curve = appliedCurveLabel || curves.find((c) => c.id === selectedCurveId)?.name || 'none';
+		const calibration = preview.find((r) => r.base_calibration)?.base_calibration?.equation ?? 'none';
+		const when = saveTime ? formatDateTime(saveTime) : 'no time';
+		return `${readings} reading${readings === 1 ? '' : 's'} at ${indices} ${indices === 1 ? 'index' : 'indices'} to ${selectedSiteName ?? 'no site'} ${when}, curve ${curve}, calibration ${calibration}`;
+	});
+
 	const CLASS_LABELS: Record<string, string> = {
 		no_history: 'no history',
 		below_min: 'below recorded minimum',
@@ -1035,15 +1045,7 @@
 				</div>
 			</div>
 
-			<p class="text-xs text-brand-muted">
-				Saves the ticked rows as grab-sample readings at the selected site. Replicates are
-				stored one reading per vial at its own index, so a sample (mean, sd, n) forms and the
-				summaries above are derived from it rather than saved; the label, notes and the run's
-				provenance (tool version and runner, inputs, constants, curves, outputs) are stored on
-				those samples. With an instrument set, its calibration for that timestamp is applied,
-				then the standard curve if one is chosen; with neither, the reading keeps its raw value
-				and no corrected value.
-			</p>
+			<p class="text-xs text-brand-muted font-mono" data-testid="write-summary">{writeSummary}</p>
 		</div>
 	{/snippet}
 	{#snippet actions()}

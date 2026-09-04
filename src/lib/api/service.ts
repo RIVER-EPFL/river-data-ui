@@ -1488,6 +1488,42 @@ export const listSiteVisits = (
 	opts: { start?: string; end?: string; page?: number; page_size?: number } = {},
 ) => GET<VisitsResponse>(`${SERVICE}/sites/${siteId}/visits`, { ...opts });
 
+// The cross-site visits list: the counts without the cells, sortable server-side.
+
+export interface VisitListRow {
+	id: string;
+	site_id: string;
+	site_name: string;
+	collected_at: string;
+	source: 'manual' | 'portal_sync' | string;
+	created_by: string | null;
+	notes: string | null;
+	parameters_filled: number;
+	findings_open: number;
+	recompute: 'current' | 'queued' | 'running' | 'failed' | 'stale' | string;
+}
+
+export interface VisitListResponse {
+	total: number;
+	page: number;
+	page_size: number;
+	visits: VisitListRow[];
+}
+
+export type VisitListSort = 'collected_at' | 'parameters_filled' | 'findings_open' | 'site_name';
+
+export const listVisits = (
+	opts: {
+		site_id?: string;
+		start?: string;
+		end?: string;
+		page?: number;
+		page_size?: number;
+		sort?: VisitListSort;
+		order?: 'asc' | 'desc';
+	} = {},
+) => GET<VisitListResponse>(`${SERVICE}/visits`, { ...opts });
+
 export interface EventCellReplicate {
 	replicate_index: number;
 	raw_value: number;

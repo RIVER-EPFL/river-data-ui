@@ -1747,10 +1747,6 @@
 							{g.streamCount} stream{g.streamCount === 1 ? '' : 's'}
 							({g.parameters.join(', ')}), but matches no instrument this source has registered.
 						</div>
-						<p class="text-xs mt-1 opacity-90">
-							A curve is fitted on one instrument, so a reading naming a curve must name that
-							instrument too. Without one, those readings are dropped at ingest rather than stored.
-						</p>
 						<!-- The fast path only. Naming it, attaching an existing one and seeing what
 						     it covers all live on the Instruments tab, so there is one editor for the
 						     decision rather than two that can disagree. -->
@@ -1830,19 +1826,29 @@
 				<!-- The one place an instrument is chosen. Parameters and Sites mirror what is
 				     decided here rather than offering a second editor over the same decision. -->
 				{#if reviewTab === 'instruments'}
-					<p class="text-sm text-brand-muted">
-						Every measurement is produced by an instrument, and this is where each of this
-						source's feeds gets one. A name is a label: identity is the source key, so renaming
-						an instrument later breaks nothing.
-					</p>
+					<details class="text-xs text-brand-muted">
+						<summary class="cursor-pointer text-brand-primary">What an instrument, a serial and a curve are here</summary>
+						<div class="mt-1.5 space-y-1.5 max-w-4xl">
+							<p>
+								Every measurement is produced by an instrument, and this is where each of this
+								source's feeds gets one. A name is a label: identity is the source key, so renaming
+								an instrument later breaks nothing.
+							</p>
+							<p>
+								A device the source identifies by serial is not a decision: the serial is the
+								identity. Pairing attaches the device to its feeds and opens its deployment at the
+								site, one per parameter it serves.
+							</p>
+							<p>
+								A curve is fitted on one instrument, so a reading naming a curve must name that
+								instrument too. Without one, those readings are dropped at ingest rather than stored.
+							</p>
+						</div>
+					</details>
 
 					{#if planDevices.length > 0}
 						<div class="space-y-1">
 							<h3 class="text-sm font-semibold">Devices the source identifies by serial</h3>
-							<p class="text-xs text-brand-muted">
-								Not decisions: the serial is the identity. Pairing attaches the device to its
-								feeds and opens its deployment at the site, one per parameter it serves.
-							</p>
 							<div class="rounded-md border border-brand-divider bg-brand-surface overflow-x-auto">
 								<table class="w-full text-sm">
 									<thead><tr class="bg-brand-bg border-b border-brand-divider">
@@ -1976,12 +1982,14 @@
 
 				<!-- ── STANDARD CURVES TAB ── -->
 				{:else if reviewTab === 'curves'}
-					<p class="text-sm text-brand-muted">
-						The standard curves this source has replicated, and the instrument each is fitted on.
-						A curve belongs to one instrument, so moving a curve here is what puts two columns of
-						one probe (acid and no-acid, say) onto the same instrument. The instrument each
-						parameter uses is chosen in Parameters.
-					</p>
+					<details class="text-xs text-brand-muted">
+						<summary class="cursor-pointer text-brand-primary">What moving a curve does</summary>
+						<p class="mt-1.5 max-w-4xl">
+							A curve belongs to one instrument, so moving a curve here is what puts two columns of
+							one probe (acid and no-acid, say) onto the same instrument. The instrument each
+							parameter uses is chosen in Parameters.
+						</p>
+					</details>
 					{#if planInstruments == null}
 						<p class="text-sm text-brand-muted">Loading curves…</p>
 					{:else if planInstruments.curves.length === 0}
@@ -2563,11 +2571,7 @@
 				<div class="font-semibold">
 					{openInstrumentQuestions} instrument{openInstrumentQuestions === 1 ? '' : 's'} still to decide
 				</div>
-				<p class="text-xs opacity-90">
-					A feed with no instrument pairs and stores its readings, but nothing says what measured
-					them, and a feed whose source names a curve per reading has those readings dropped at
-					ingest. Apply refuses a plan holding a proposal nobody agreed to.
-				</p>
+				<p class="text-xs opacity-90">Apply refuses a plan holding a proposal nobody agreed to.</p>
 				<Button size="sm" onclick={() => { setMode('review'); reviewTab = 'instruments'; }}>
 					Open Instruments
 				</Button>

@@ -16,7 +16,7 @@
 	import Dialog from '$components/ui/Dialog.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import PaginationControls from '$components/ui/PaginationControls.svelte';
-	import { visitCellMarker } from '$lib/visits/cell';
+	import { visitCellMarker, visitCounts } from '$lib/visits/cell';
 	import Badge from '$components/ui/Badge.svelte';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
 	import ThresholdDialog from '$components/dialogs/ThresholdDialog.svelte';
@@ -153,10 +153,7 @@
 	}
 
 	// --- Visits: the portal's wide data row, one per (site, date) ---
-	const VISITS_PER_PAGE = 50;
 	let visits = $state<VisitRow[]>([]);
-	let visitsTotal = $state(0);
-	let visitsPage = $state(1);
 	let visitColumns = $state<VisitsResponse['expected_parameters']>([]);
 	let visitsLoading = $state(false);
 	let visitsLoadedKey = '';
@@ -166,26 +163,62 @@
 	let visitBusy = $state<string | null>(null);
 	let visitCell = $state<{ parameterId: string; parameterName: string } | null>(null);
 
-	// A deep link can name a visit older than one page of results. The list is newest first, so
-	// asking for everything up to that instant puts it at the top of page 1 with its neighbours
-	// around it, rather than the link landing on the most recent 50 and expanding nothing.
+	// The date range filter. Unset lists every visit at the site, which is the default: a
+	// station holds tens of visits, and the page devoted to them lists them all.
+	let visitsStart = $state<string | null>(null);
 	let visitsEnd = $state<string | null>(null);
+	let visitsDownloading = $state(false);
+
+	function visitsRange(): { start?: string; end?: string } {
+		return {
+			...(visitsStart ? { start: visitsStart } : {}),
+			...(visitsEnd ? { end: visitsEnd } : {}),
+		};
+	}
 
 	async function loadVisits() {
 		visitsLoading = true;
 		try {
-			const r = await listSiteVisits(siteId, {
-				page: visitsPage,
-				page_size: VISITS_PER_PAGE,
-				...(visitsEnd ? { end: visitsEnd } : {}),
-			});
+			const r = await listSiteVisits(siteId, visitsRange());
 			visits = r.visits;
-			visitsTotal = r.total;
 			visitColumns = r.expected_parameters;
 		} catch (e) {
 			toastStore.error(e instanceof Error ? `Failed to load visits: ${e.message}` : 'Failed to load visits');
 		} finally {
 			visitsLoading = false;
+		}
+	}
+
+	// The grid as displayed, one row per visit and one column per parameter code, named by site
+	// and date range the way the server names it. The Export dialog is the other file: readings
+	// in long format, one row per reading.
+	async function downloadVisitsCsv() {
+		if (visits.length === 0) return;
+		visitsDownloading = true;
+		try {
+			const { auth } = await import('$auth/keycloak.svelte');
+			await auth.ensureToken();
+			const params = new URLSearchParams({ format: 'csv', ...visitsRange() });
+			const response = await fetch(`/api/sites/${siteId}/visits?${params}`, {
+				headers: auth.token ? { Authorization: `Bearer ${auth.token}` } : undefined,
+			});
+			if (!response.ok) {
+				const detail = await response.text().catch(() => response.statusText);
+				throw new Error(`${response.status}: ${detail.slice(0, 200)}`);
+			}
+			const day = (iso: string) => iso.slice(0, 10);
+			const first = visitsStart ? day(visitsStart) : day(visits[visits.length - 1].collected_at);
+			const last = visitsEnd ? day(visitsEnd) : day(visits[0].collected_at);
+			const slug = (site?.name ?? 'site').replace(/[^A-Za-z0-9]/g, '_');
+			const a = document.createElement('a');
+			a.href = URL.createObjectURL(await response.blob());
+			a.download = `${slug}_visits_${first}_${last}.csv`;
+			a.click();
+			URL.revokeObjectURL(a.href);
+		} catch (e) {
+			toastStore.error(e instanceof Error ? `Download failed: ${e.message}` : 'Download failed');
+		} finally {
+			visitsDownloading = false;
 		}
 	}
 
@@ -202,9 +235,10 @@
 		visitDetailLoading = true;
 		try {
 			visitDetail = await getCollectionEventDetail(id);
+			// A deep link can name a visit outside the current range; the range yields to it.
 			if (visitDetail && !visits.some((v) => v.id === id)) {
-				visitsEnd = visitDetail.collected_at;
-				visitsPage = 1;
+				visitsStart = null;
+				visitsEnd = null;
 				visitsLoadedKey = '';
 				await loadVisits();
 			}
@@ -318,7 +352,7 @@
 
 	$effect(() => {
 		if (activeKey !== 'visits' || !siteId) return;
-		const key = `${siteId}|${visitsPage}|${visitsEnd ?? ''}`;
+		const key = `${siteId}|${visitsStart ?? ''}|${visitsEnd ?? ''}`;
 		if (key === visitsLoadedKey) return;
 		visitsLoadedKey = key;
 		untrack(() => void loadVisits());
@@ -858,7 +892,11 @@
 	let statusLoaded = $state(false);
 	let statusOffset = $state(0);
 	let statusTotal = $state(0);
+	let statusLifetimeTotal = $state<number | null>(null);
 	const statusPage = $derived(Math.floor(statusOffset / STATUS_PAGE_SIZE) + 1);
+	const statusRangeStart = $derived(
+		Date.now() - (statusTimeRange === '24h' ? 24 : statusTimeRange === '7d' ? 168 : 720) * 3600000,
+	);
 
 	$effect(() => {
 		if (activeKey === 'status' && site && !statusLoaded) {
@@ -1165,6 +1203,10 @@
 			);
 			statusEvents = result.events ?? [];
 			statusTotal = result.total ?? 0;
+			if (statusLifetimeTotal === null) {
+				const all = await GET<StatusEventsResponse>(`/api/sites/${siteId}/status_events`, { limit: 1 });
+				statusLifetimeTotal = all.total ?? 0;
+			}
 		} catch (e) {
 			statusEvents = [];
 			statusTotal = 0;
@@ -2163,23 +2205,50 @@
 		<!-- Visits tab: the portal's wide data row, one per field date -->
 		{:else if activeKey === 'visits'}
 			<div class="space-y-3">
-				{#if visitsEnd}
-					<p class="text-sm text-brand-muted">
-						Showing visits up to {formatDateTime(visitsEnd)}.
-						<button
-							class="text-brand-primary bg-transparent border-none cursor-pointer p-0 hover:underline"
-							onclick={() => {
-								visitsEnd = null;
-								visitsPage = 1;
-								visitsLoadedKey = '';
-								void loadVisits();
-							}}>Back to the latest</button>
-					</p>
-				{/if}
+				<div class="flex flex-wrap items-end gap-3">
+					<div>
+						<label for="visits-start" class="text-xs text-brand-muted block mb-1">From</label>
+						<input
+							id="visits-start"
+							type="datetime-local"
+							value={visitsStart ? toDatetimeLocal(visitsStart) : ''}
+							onchange={(e) => { const v = e.currentTarget.value; visitsStart = v ? fromDatetimeLocal(v) : null; }}
+							class="px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm"
+						/>
+					</div>
+					<div>
+						<label for="visits-end" class="text-xs text-brand-muted block mb-1">To</label>
+						<input
+							id="visits-end"
+							type="datetime-local"
+							value={visitsEnd ? toDatetimeLocal(visitsEnd) : ''}
+							onchange={(e) => { const v = e.currentTarget.value; visitsEnd = v ? fromDatetimeLocal(v) : null; }}
+							class="px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm"
+						/>
+					</div>
+					{#if visitsStart || visitsEnd}
+						<Button size="sm" onclick={() => { visitsStart = null; visitsEnd = null; }}>All dates</Button>
+					{/if}
+					<span class="text-sm text-brand-muted">{visits.length} visit{visits.length === 1 ? '' : 's'}{visitsStart || visitsEnd ? ' in range' : ''}</span>
+					<span class="ml-auto flex items-center gap-1">
+						<Button
+							size="sm"
+							variant="secondary"
+							disabled={visitsDownloading || visits.length === 0}
+							onclick={downloadVisitsCsv}
+						>
+							{visitsDownloading ? 'Downloading…' : 'Download grid CSV'}
+						</Button>
+						<span
+							class="text-brand-muted cursor-help text-xs"
+							title="This grid as displayed: one row per visit, one column per parameter code, the served value in each cell. For the readings themselves in long format (one row per reading, replicates and flags included) use Export."
+						>(i)</span>
+					</span>
+				</div>
 				{#if visitsLoading && visits.length === 0}
 					<p class="text-sm text-brand-muted">Loading…</p>
 				{:else if visits.length === 0}
-					<p class="text-sm text-brand-muted">No visits recorded for this site.</p>
+					<p class="text-sm text-brand-muted">{visitsStart || visitsEnd ? 'No visits in this range.' : 'No visits recorded for this site.'}</p>
 				{:else}
 					{#if me.can('writeData')}
 						<div class="flex items-center gap-2">
@@ -2190,7 +2259,7 @@
 								title="Recompute every visit at this site with an open missing- or stale-output finding, in one tracked job. Unchanged calculations are skipped; the findings a run repairs close with it."
 								onclick={applyToStaleVisits}
 							>
-								{staleApplyBusy ? 'Recomputing…' : `Recompute stale visits${staleVisitCount > 0 ? ` (${staleVisitCount} on this page)` : ''}`}
+								{staleApplyBusy ? 'Recomputing…' : `Recompute stale visits${staleVisitCount > 0 ? ` (${staleVisitCount} listed)` : ''}`}
 							</Button>
 						</div>
 					{/if}
@@ -2270,8 +2339,13 @@
 												{#if visitDetailLoading}
 													<p class="text-xs text-brand-muted">Loading…</p>
 												{:else if visitDetail}
+													{@const counts = visitCounts(visitDetail.cells)}
 													<div class="mb-2 flex items-center justify-between gap-2">
 														<div class="text-xs text-brand-muted">
+															<span class="font-mono text-brand-text">
+																{counts.parameters} parameter{counts.parameters === 1 ? '' : 's'} · {counts.replicates} replicate{counts.replicates === 1 ? '' : 's'} · {counts.flagged} flagged · {counts.withdrawn} withdrawn · {counts.findings} finding{counts.findings === 1 ? '' : 's'}
+															</span>
+															·
 															{visitDetail.source === 'portal_sync'
 																? 'Synced from the portal'
 																: `Entered manually${visitDetail.created_by ? ` by ${visitDetail.created_by}` : ''}`}
@@ -2372,12 +2446,6 @@
 					{#if visits.some((v) => v.cells.some((c) => visitCellMarker(c)))}
 						<p class="text-[11px] text-brand-muted">* flagged · † withdrawn at source</p>
 					{/if}
-					<PaginationControls
-						total={visitsTotal}
-						page={visitsPage}
-						perPage={VISITS_PER_PAGE}
-						onPageChange={(p) => { visitsPage = p; }}
-					/>
 				{/if}
 			</div>
 
@@ -2396,8 +2464,8 @@
 					<p class="text-sm text-brand-muted">Loading events…</p>
 				{:else if statusEvents.length === 0}
 					<div class="rounded-md border border-brand-divider bg-brand-surface p-4 text-sm text-brand-muted space-y-1">
-						<p class="font-medium text-brand-text">No status events in this range.</p>
-						<p>Status events are non-numeric device messages recorded over time - firmware and connection status, sensor health strings, and error codes. They are separate from the numeric readings shown in the charts.</p>
+						<p class="font-medium text-brand-text">No status events since {formatDateTime(new Date(statusRangeStart))}.</p>
+						<p>{statusLifetimeTotal ?? '…'} stored for this site in total.</p>
 					</div>
 				{:else}
 					<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
@@ -2467,6 +2535,10 @@
 	<Dialog bind:open={exportOpen} title="Export Data" maxWidth="sm">
 		{#snippet children()}
 			<div class="space-y-3">
+				<p class="text-xs text-brand-muted">
+					Readings in long format, one row per reading
+					<span class="cursor-help" title="Every reading in the range as its own row, with replicates, flags and sample statistics. For the one-row-per-visit grid with a column per parameter, use Download grid CSV on the Visits tab.">(i)</span>
+				</p>
 				<div class="rounded-md border border-brand-divider bg-brand-bg px-3 py-3 overflow-hidden">
 					<TimeRangeSlider
 						min={sliderMin}

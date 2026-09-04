@@ -16,6 +16,7 @@
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
+	import CountList from '$components/ui/CountList.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import PaginationControls from '$components/ui/PaginationControls.svelte';
 	import { formatCount } from '$lib/format';
@@ -248,11 +249,14 @@
 		<div class="flex items-center gap-2">
 			{#if totalUncalibrated > 0}
 				<ConfirmPopover
-					message="Reprocess every sensor carrying readings a calibration window covers but never stamped? {formatCount(totalUncalibrated)} reading{totalUncalibrated === 1 ? '' : 's'} resolve against the curves that already exist; no curve is created."
+					message="Reprocess every sensor with readings a calibration window covers but never stamped? Existing curves apply; no curve is created."
 					confirmLabel="Reprocess all"
 					confirmVariant="primary"
 					onconfirm={() => runCalBackfill({ all: true }, 'all')}
 				>
+					{#snippet detail()}
+						<CountList rows={[{ label: 'Readings resolved', value: formatCount(totalUncalibrated) }]} />
+					{/snippet}
 					<Button
 						disabled={backfilling !== null}
 					>{backfilling === 'all' ? 'Reprocessing…' : `Reprocess all (${formatCount(totalUncalibrated)})`}</Button>

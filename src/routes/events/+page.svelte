@@ -2,49 +2,64 @@
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
-	import { getList } from '$api/client';
 	import { api } from '$api/crud';
+	import { listVisits, type VisitListRow, type VisitListSort } from '$api/service';
 	import EventPanel from '$components/logs/EventPanel.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
 	import { formatDateTime } from '$lib/utils';
 
-	// One row per collection event (field visit) across sites; the site's Visits tab holds the
-	// full grid, this list is the way in.
-	interface CollectionEventRow {
-		id: string;
-		site_id: string;
-		collected_at: string;
-		source: 'manual' | 'portal_sync' | string;
-		created_by: string | null;
-		notes: string | null;
-	}
-
-	let siteNames = $state<Map<string, string>>(new Map());
+	// One row per collection event (field visit) across sites, with the fill and open-finding
+	// counts the site's Visits tab computes; a row opens that tab on the visit.
+	let sites = $state<{ id: string; name: string }[]>([]);
 	let siteFilter = $state('');
+	let sort = $state<VisitListSort>('collected_at');
+	let order = $state<'asc' | 'desc'>('desc');
 	let panel = $state<{ reload: () => Promise<void> } | null>(null);
 
 	onMount(async () => {
 		try {
-			const sites = await api.sites.list({ perPage: 500, sort: ['name', 'ASC'] });
-			siteNames = new Map(sites.data.map((s) => [s.id, s.name]));
+			const result = await api.sites.list({ perPage: 500, sort: ['name', 'ASC'] });
+			sites = result.data.map((s) => ({ id: s.id, name: s.name }));
 		} catch {
-			// The list still renders with raw ids.
+			// The list still renders with the names the rows carry.
 		}
 	});
 
 	async function fetchPage({ page, perPage }: { page: number; perPage: number }) {
-		const filter: Record<string, unknown> = {};
-		if (siteFilter) filter.site_id = siteFilter;
-		return getList<CollectionEventRow>('/api/collection_events', {
+		const r = await listVisits({
 			page,
-			perPage,
-			sort: ['collected_at', 'DESC'],
-			filter,
+			page_size: perPage,
+			sort,
+			order,
+			...(siteFilter ? { site_id: siteFilter } : {}),
 		});
+		return { data: r.visits, total: r.total };
 	}
 
-	function open(item: CollectionEventRow) {
+	function toggleSort(column: VisitListSort, reload: () => Promise<void>) {
+		if (sort === column) {
+			order = order === 'desc' ? 'asc' : 'desc';
+		} else {
+			sort = column;
+			order = column === 'site_name' ? 'asc' : 'desc';
+		}
+		void reload();
+	}
+
+	function sortMark(column: VisitListSort): string {
+		if (sort !== column) return '';
+		return order === 'desc' ? ' ↓' : ' ↑';
+	}
+
+	const recomputeBadge: Record<string, { label: string; variant: 'muted' | 'accent' | 'alarm' | 'warning' }> = {
+		queued: { label: 'queued', variant: 'muted' },
+		running: { label: 'recomputing', variant: 'accent' },
+		failed: { label: 'recompute failed', variant: 'alarm' },
+		stale: { label: 'stale', variant: 'warning' },
+	};
+
+	function open(item: VisitListRow) {
 		goto(`${base}/sites/${item.site_id}?tab=visits&event=${item.id}`);
 	}
 </script>
@@ -53,12 +68,8 @@
 
 <div class="space-y-4">
 	<Breadcrumbs items={[{ label: 'Visits' }]} />
-	<p class="text-sm text-brand-muted">
-		Every field visit (collection event) across sites. A row opens the site's Visits tab, the
-		full grid of what that date recorded.
-	</p>
 
-	<EventPanel bind:this={panel} {fetchPage} perPage={100} colCount={5} onRowClick={open}>
+	<EventPanel bind:this={panel} {fetchPage} perPage={100} colCount={7} onRowClick={open} emptyText="No visits">
 		{#snippet filterBar({ reload })}
 			<div class="flex items-center gap-2">
 				<select
@@ -67,27 +78,50 @@
 					class="px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm"
 				>
 					<option value="">All sites</option>
-					{#each [...siteNames.entries()] as [id, name] (id)}
-						<option value={id}>{name}</option>
+					{#each sites as s (s.id)}
+						<option value={s.id}>{s.name}</option>
 					{/each}
 				</select>
 			</div>
 		{/snippet}
-		{#snippet head()}
-			<th class="text-left px-4 py-2 font-semibold">Date</th>
-			<th class="text-left px-4 py-2 font-semibold">Site</th>
+		{#snippet head({ reload })}
+			<th class="text-left px-4 py-2 font-semibold">
+				<button class="bg-transparent border-none p-0 font-semibold cursor-pointer hover:underline" onclick={() => toggleSort('collected_at', reload)}>Date{sortMark('collected_at')}</button>
+			</th>
+			<th class="text-left px-4 py-2 font-semibold">
+				<button class="bg-transparent border-none p-0 font-semibold cursor-pointer hover:underline" onclick={() => toggleSort('site_name', reload)}>Site{sortMark('site_name')}</button>
+			</th>
 			<th class="text-left px-4 py-2 font-semibold">Source</th>
+			<th class="text-right px-4 py-2 font-semibold">
+				<button class="bg-transparent border-none p-0 font-semibold cursor-pointer hover:underline" title="Parameters with a served value at the visit" onclick={() => toggleSort('parameters_filled', reload)}>Filled{sortMark('parameters_filled')}</button>
+			</th>
+			<th class="text-right px-4 py-2 font-semibold">
+				<button class="bg-transparent border-none p-0 font-semibold cursor-pointer hover:underline" title="Open findings at the visit: missing or stale outputs, statistics disagreements, holds" onclick={() => toggleSort('findings_open', reload)}>Findings{sortMark('findings_open')}</button>
+			</th>
 			<th class="text-left px-4 py-2 font-semibold">By</th>
 			<th class="text-left px-4 py-2 font-semibold">Notes</th>
 		{/snippet}
 		{#snippet row(item)}
-			<td class="px-4 py-2 text-xs whitespace-nowrap">{formatDateTime(item.collected_at)}</td>
-			<td class="px-4 py-2 text-xs">{siteNames.get(item.site_id) ?? item.site_id}</td>
+			<td class="px-4 py-2 text-xs whitespace-nowrap">
+				{formatDateTime(item.collected_at)}
+				{#if recomputeBadge[item.recompute]}
+					<Badge variant={recomputeBadge[item.recompute].variant}>{recomputeBadge[item.recompute].label}</Badge>
+				{/if}
+			</td>
+			<td class="px-4 py-2 text-xs">{item.site_name}</td>
 			<td class="px-4 py-2">
 				{#if item.source === 'portal_sync'}
 					<Badge variant="accent">portal</Badge>
 				{:else}
 					<Badge variant="muted">manual</Badge>
+				{/if}
+			</td>
+			<td class="px-4 py-2 text-xs text-right tabular-nums {item.parameters_filled === 0 ? 'text-brand-muted' : ''}">{item.parameters_filled}</td>
+			<td class="px-4 py-2 text-xs text-right tabular-nums">
+				{#if item.findings_open > 0}
+					<Badge variant="warning">{item.findings_open}</Badge>
+				{:else}
+					<span class="text-brand-muted">0</span>
 				{/if}
 			</td>
 			<td class="px-4 py-2 text-xs text-brand-muted">{item.created_by ?? '-'}</td>

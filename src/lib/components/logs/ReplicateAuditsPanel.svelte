@@ -26,6 +26,7 @@
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
+	import CountList from '$components/ui/CountList.svelte';
 	import EventPanel from '$components/logs/EventPanel.svelte';
 
 	const PER_PAGE = 100;
@@ -621,6 +622,26 @@
 		return hold.resolution?.replicate_indexes ?? [];
 	}
 
+	// What Reopen undoes, as labelled facts: the declaration it reverts or the flags it lifts.
+	function reopenRows(hold: ReplicateAuditHold): { label: string; value: string | number }[] {
+		const r = hold.resolution;
+		if (r?.action === 'declare_estimator') {
+			if (r.scope === 'slot') {
+				return [
+					{ label: 'Parameter', value: `${hold.site_name} / ${hold.parameter_name}` },
+					{ label: 'Sd formula reverts to', value: r.previous_estimator ? estimatorLabel(r.previous_estimator) : 'not declared' },
+					{ label: 'Samples recomputed', value: 'all at the parameter' },
+				];
+			}
+			return [{ label: 'This group reverts to', value: "the parameter's setting" }];
+		}
+		const indexes = resolutionIndexes(hold);
+		return [
+			{ label: 'Replicates unflagged', value: indexes.join(', ') || 'none' },
+			{ label: 'Statistics recompute from', value: `${hold.computed.n} replicates` },
+		];
+	}
+
 	// The group's values with the replicate index each is stored at. A hold recorded before the
 	// index travelled with the value holds bare numbers, and no position in that array names an
 	// index, so it reads as null.
@@ -761,11 +782,21 @@
 				</div>
 			</div>
 			<ConfirmPopover
-				message="Accept {thresholdCount ?? '…'} pending hold{thresholdCount === 1 ? '' : 's'} whose mean disagreement is at or below {meanThresholdPct}% and sd disagreement at or below {sdThresholdPct}%? The recomputed statistics stand for all of them, and each instant is marked on its parameter's charts with an audit annotation.{undeclared.length > 0 ? ` Holds explained by the standard-deviation divisor on the ${undeclared.length} parameter${undeclared.length === 1 ? '' : 's'} that have not declared one are not included: those need a decision first.` : ''}"
+				message="Accept every pending hold under the threshold? The recomputed statistics stand and each instant gets an audit annotation."
 				confirmLabel="Accept {thresholdCount ?? ''}"
 				confirmVariant="primary"
 				onconfirm={() => handleBulkThreshold({ reload })}
 			>
+				{#snippet detail()}
+					<CountList
+						rows={[
+							{ label: 'Holds accepted', value: thresholdCount ?? '…' },
+							{ label: 'Mean disagreement at most', value: `${meanThresholdPct}%` },
+							{ label: 'Sd disagreement at most', value: `${sdThresholdPct}%` },
+							{ label: 'Parameters without an sd formula, holds skipped', value: undeclared.length },
+						]}
+					/>
+				{/snippet}
 				<Button disabled={acknowledging || !thresholdCount}>
 					Accept {thresholdCount ?? '…'} under threshold
 				</Button>
@@ -844,6 +875,12 @@
 					<strong>Flag replicates</strong> does change data: the replicates you name are flagged, so
 					the mean and sd recompute over the rest and the served value, exports and rollups follow.
 					Reopening the hold unflags them again.
+				</p>
+				<p>
+					<strong>Declaring the sd formula</strong> is asked for when the source's sd matches the
+					population divisor and the parameter has not declared one. The sources used both formulas
+					over the years, so it cannot be inferred from the data; flag a replicate instead if the
+					real fault is a value rather than the divisor.
 				</p>
 			</div>
 		</details>
@@ -950,11 +987,6 @@
 						({fmtStat(hold.computed.sd)}) uses the sample formula (divisor n-1).
 						<strong>{hold.site_name} / {hold.parameter_name}</strong> has not declared which one
 						it publishes, so accepting would leave that unrecorded.
-					</p>
-					<p>
-						The sources used both formulas over the years, so this cannot be inferred from the
-						data. Choose the formula this parameter publishes, or flag a replicate if the real
-						fault is a value rather than the divisor.
 					</p>
 					<div class="flex items-center gap-3">
 						<span class="font-semibold">Publish the standard deviation as</span>
@@ -1160,12 +1192,22 @@
 			{@const others = (slot?.population_signature_holds ?? 1) - 1}
 			{@const remaining = (slot?.open_holds ?? 1) - (slot?.population_signature_holds ?? 1)}
 			<ConfirmPopover
-				message="Declare that {hold.site_name} / {hold.parameter_name} publishes its standard deviation with the {estimatorLabel(declareChoice)} formula? This recomputes {slot?.undeclared_samples ?? 0} existing sample{(slot?.undeclared_samples ?? 0) === 1 ? '' : 's'} at this parameter, marks this instant on its charts with an audit annotation, and resolves this hold{others > 0 ? `, the ${others} other hold${others === 1 ? '' : 's'} this explains close on the next sync cycle` : ''}{remaining > 0 ? `, while ${remaining} hold${remaining === 1 ? '' : 's'} disagreeing for other reasons will remain` : ''}. Reversible with Reopen."
+				message="Declare the {estimatorLabel(declareChoice)} sd formula for {hold.site_name} / {hold.parameter_name}? This instant gets an audit annotation. Reversible with Reopen."
 				confirmLabel="Declare for the parameter"
 				confirmVariant="primary"
 				above
 				onconfirm={() => handleDeclare(hold, 'slot', ctx)}
 			>
+				{#snippet detail()}
+					<CountList
+						rows={[
+							{ label: 'Samples recomputed', value: slot?.undeclared_samples ?? 0 },
+							{ label: 'Holds resolved now', value: 1 },
+							{ label: 'Holds closed on the next sync cycle', value: others },
+							{ label: 'Holds remaining, other causes', value: remaining },
+						]}
+					/>
+				{/snippet}
 				<Button variant="primary" disabled={acknowledging}>
 					{acknowledging ? 'Declaring…' : `Use ${declareChoice} sd for this parameter`}
 				</Button>
@@ -1181,12 +1223,20 @@
 			</ConfirmPopover>
 			{#if isFlaggable(hold)}
 				<ConfirmPopover
-					message="Flag replicate{selectedReplicates.size === 1 ? '' : 's'} {[...selectedReplicates].sort((a, b) => a - b).join(', ')} for this instant? Flagged replicates are excluded from the mean and sd, which recompute immediately from the remaining {hold.computed.n - selectedReplicates.size}. This instant is marked on the charts with an audit annotation. Reopen restores the flags and removes it."
+					message="Flag the selected replicates for this instant? The mean and sd recompute from the rest and the instant gets an audit annotation. Reopen restores the flags."
 					confirmLabel="Flag"
 					confirmVariant="primary"
 					above
 					onconfirm={() => handleFlag(hold, ctx)}
 				>
+					{#snippet detail()}
+						<CountList
+							rows={[
+								{ label: 'Replicates flagged', value: [...selectedReplicates].sort((a, b) => a - b).join(', ') },
+								{ label: 'Replicates remaining', value: hold.computed.n - selectedReplicates.size },
+							]}
+						/>
+					{/snippet}
 					<Button
 						disabled={acknowledging || selectedReplicates.size === 0 || selectedReplicates.size >= hold.computed.n}
 						title={selectedReplicates.size >= hold.computed.n && hold.computed.n > 0 ? 'At least one replicate must remain unflagged' : undefined}
@@ -1205,12 +1255,20 @@
 			</ConfirmPopover>
 			{#if isFlaggable(hold)}
 				<ConfirmPopover
-					message="Flag replicate{selectedReplicates.size === 1 ? '' : 's'} {[...selectedReplicates].sort((a, b) => a - b).join(', ')} for this instant? Flagged replicates are excluded from the mean and sd, which recompute immediately from the remaining {hold.computed.n - selectedReplicates.size}. This instant is marked on the charts with an audit annotation. Reopen restores the flags and removes it."
+					message="Flag the selected replicates for this instant? The mean and sd recompute from the rest and the instant gets an audit annotation. Reopen restores the flags."
 					confirmLabel="Flag"
 					confirmVariant="primary"
 					above
 					onconfirm={() => handleFlag(hold, ctx)}
 				>
+					{#snippet detail()}
+						<CountList
+							rows={[
+								{ label: 'Replicates flagged', value: [...selectedReplicates].sort((a, b) => a - b).join(', ') },
+								{ label: 'Replicates remaining', value: hold.computed.n - selectedReplicates.size },
+							]}
+						/>
+					{/snippet}
 					<Button
 						disabled={acknowledging || selectedReplicates.size === 0 || selectedReplicates.size >= hold.computed.n}
 						title={selectedReplicates.size >= hold.computed.n && hold.computed.n > 0 ? 'At least one replicate must remain unflagged' : undefined}
@@ -1228,12 +1286,15 @@
 			</ConfirmPopover>
 		{:else if hold.status === 'remediated'}
 			<ConfirmPopover
-				message="Return this hold to review? {hold.resolution?.action === 'declare_estimator' ? `${hold.resolution.scope === 'slot' ? `${hold.site_name} / ${hold.parameter_name} goes back to ${hold.resolution.previous_estimator ? estimatorLabel(hold.resolution.previous_estimator) : 'no declared standard-deviation formula'}, and its samples recompute` : 'This collection group goes back to its parameter\'s setting'}` : 'The replicates this resolution flagged are unflagged and the statistics recompute from all of them again'}. The audit annotation this decision added is removed."
+				message="Return this hold to review? The audit annotation this decision added is removed."
 				confirmLabel="Reopen"
 				confirmVariant="primary"
 				above
 				onconfirm={() => handleReopen(hold, ctx)}
 			>
+				{#snippet detail()}
+					<CountList rows={reopenRows(hold)} />
+				{/snippet}
 				<Button disabled={acknowledging}>Reopen</Button>
 			</ConfirmPopover>
 		{/if}

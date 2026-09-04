@@ -1,4 +1,4 @@
-import type { VisitCell } from '$api/service';
+import type { EventCell, VisitCell } from '$api/service';
 
 export interface CellMarker {
 	text: string;
@@ -22,4 +22,26 @@ export function visitCellMarker(cell: VisitCell): CellMarker | null {
 		text: `${flagged ? '*' : ''}${withdrawn ? '†' : ''}`,
 		title: `${parts.join(', ')}: ${excluded}`,
 	};
+}
+
+export interface VisitCounts {
+	parameters: number;
+	replicates: number;
+	flagged: number;
+	withdrawn: number;
+	findings: number;
+}
+
+/** The expanded visit's header line, counted from the grid it sits above. */
+export function visitCounts(cells: EventCell[]): VisitCounts {
+	const counts: VisitCounts = { parameters: cells.length, replicates: 0, flagged: 0, withdrawn: 0, findings: 0 };
+	for (const cell of cells) {
+		counts.replicates += cell.replicates.length;
+		for (const r of cell.replicates) {
+			if (r.flagged) counts.flagged += 1;
+			if (r.withdrawn) counts.withdrawn += 1;
+		}
+		if (cell.finding) counts.findings += 1;
+	}
+	return counts;
 }

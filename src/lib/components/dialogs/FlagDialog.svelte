@@ -27,9 +27,34 @@
 
 	let reason = $state('');
 	let saving = $state(false);
+	let count = $state<number | null>(null);
+
+	function rangeBody(): Record<string, unknown> {
+		return {
+			site_id: siteId,
+			parameter_id: parameterId,
+			start_time: new Date(startMs).toISOString(),
+			end_time: new Date(endMs).toISOString(),
+		};
+	}
+
+	// The count the write will report, from the same endpoint with dry_run, so the dialog and
+	// the toast cannot disagree.
+	async function loadCount() {
+		count = null;
+		try {
+			const res = await PATCH<{ updated: number }>(`/api/readings/${mode}_range`, { ...rangeBody(), dry_run: true });
+			count = res.updated;
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Failed to count readings in range');
+		}
+	}
 
 	$effect(() => {
-		if (open) reason = '';
+		if (open) {
+			reason = '';
+			void loadCount();
+		}
 	});
 
 	const startLabel = $derived(formatDateTime(new Date(startMs)));
@@ -44,12 +69,7 @@
 		}
 		saving = true;
 		try {
-			const body: Record<string, unknown> = {
-				site_id: siteId,
-				parameter_id: parameterId,
-				start_time: new Date(startMs).toISOString(),
-				end_time: new Date(endMs).toISOString(),
-			};
+			const body = rangeBody();
 			if (mode === 'flag') body.reason = reason.trim();
 			const res = await PATCH<{ updated: number }>(`/api/readings/${mode}_range`, body);
 			if (res.updated === 0) {
@@ -68,14 +88,15 @@
 <Dialog bind:open {title} maxWidth="sm">
 	{#snippet children()}
 		<div class="space-y-3">
-			<div class="text-xs text-brand-muted font-mono">
-				{startLabel} → {endLabel}
-			</div>
-			<p class="text-sm text-brand-text">
+			<p class="text-sm text-brand-text" data-testid="flag-count">
+				<span class="font-mono font-semibold">{count ?? '…'}</span>
+				{mode === 'flag' ? 'reading' : 'flagged reading'}{count === 1 ? '' : 's'}, {startLabel} to {endLabel}
+			</p>
+			<p class="text-xs text-brand-muted">
 				{#if mode === 'flag'}
-					All raw readings for <span class="font-semibold">{parameterName}</span> in this range will be marked as outliers.
+					Flagged readings leave the continuous aggregates and stay in raw exports.
 				{:else}
-					All flagged readings for <span class="font-semibold">{parameterName}</span> in this range will be restored.
+					Unflagged readings return to the continuous aggregates.
 				{/if}
 			</p>
 			{#if mode === 'flag'}
@@ -88,10 +109,7 @@
 						placeholder="e.g. sensor out of water, calibration drift, sensor failure"
 						class="w-full px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
 					/>
-					<p class="text-xs text-brand-muted mt-1">Flagged readings are excluded from continuous aggregates but preserved in raw exports.</p>
 				</div>
-			{:else}
-				<p class="text-xs text-brand-muted">Only previously-flagged readings will be affected. Aggregates refresh automatically.</p>
 			{/if}
 		</div>
 	{/snippet}
@@ -99,7 +117,7 @@
 		<Button onclick={() => open = false}>Cancel</Button>
 		<button
 			onclick={handleSave}
-			disabled={saving || (mode === 'flag' && !reason.trim())}
+			disabled={saving || count === 0 || (mode === 'flag' && !reason.trim())}
 			class="px-3 py-1.5 rounded-md text-sm cursor-pointer border-none text-white disabled:opacity-50 {mode === 'flag' ? 'bg-severity-alarm' : 'bg-brand-primary'}"
 		>{saving ? `${verb}ging…` : verb}</button>
 	{/snippet}

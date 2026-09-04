@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { visitCellMarker } from './cell';
-import type { VisitCell } from '$api/service';
+import { visitCellMarker, visitCounts } from './cell';
+import type { EventCell, EventCellReplicate, VisitCell } from '$api/service';
 
 function cell(over: Partial<VisitCell>): VisitCell {
 	return {
@@ -44,5 +44,35 @@ describe('visitCellMarker', () => {
 
 	it('says how many of how many, so the mark is readable without expanding the row', () => {
 		expect(visitCellMarker(cell({ n_flagged: 1, n_total: 3 }))?.title).toContain('1 of 3');
+	});
+});
+
+describe('visitCounts', () => {
+	function eventCell(over: Partial<EventCell>): EventCell {
+		return {
+			parameter_id: 'p',
+			parameter_code: 'DOC',
+			parameter_name: 'DOC',
+			stream_id: 's',
+			origin: 'manual',
+			has_provenance: false,
+			replicates: [],
+			...over,
+		};
+	}
+	function rep(flagged = false, withdrawn = false): EventCellReplicate {
+		return { replicate_index: 0, raw_value: 1, flagged, withdrawn };
+	}
+
+	it('counts parameters, replicates, flagged, withdrawn and findings over the grid', () => {
+		const counts = visitCounts([
+			eventCell({ replicates: [rep(), rep(true), rep(false, true)] }),
+			eventCell({ parameter_id: 'q', replicates: [rep()], finding: { id: 'f', kind: 'missing_output', status: 'pending' } }),
+		]);
+		expect(counts).toEqual({ parameters: 2, replicates: 4, flagged: 1, withdrawn: 1, findings: 1 });
+	});
+
+	it('is all zeros for an empty grid', () => {
+		expect(visitCounts([])).toEqual({ parameters: 0, replicates: 0, flagged: 0, withdrawn: 0, findings: 0 });
 	});
 });

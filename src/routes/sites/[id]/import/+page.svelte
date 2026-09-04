@@ -5,8 +5,13 @@
 	import Papa from 'papaparse';
 	import { api, type Site, type SiteParameter, type Parameter, type ReprocessingJob } from '$api/crud';
 	import { GET, POST } from '$api/client';
+	import { listTools, type ToolDescriptor } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
+	import CurvePicker, {
+		emptyCurveSelection,
+		type CurveSelection,
+	} from '$components/tools/CurvePicker.svelte';
 
 	interface RowError {
 		row: number;
@@ -18,6 +23,15 @@
 		parameter_id: string;
 		existing: number;
 		incoming: number;
+	}
+
+	interface ImportCurve {
+		slot: string;
+		label: string;
+		required: boolean;
+		column: string | null;
+		standard_curve_id: string | null;
+		name: string | null;
 	}
 
 	interface ImportPlan {
@@ -43,6 +57,8 @@
 		overwritten: number;
 		errors: RowError[];
 		error_count: number;
+		tool_runs_created: number;
+		curves: ImportCurve[];
 	}
 
 	const siteId = $derived(page.params.id!);
@@ -73,6 +89,12 @@
 	// Whether the file holds raw instrument output (the covering calibration is stamped and
 	// applied) or already-processed values (stored as served, no calibration claimed).
 	let valueState = $state<'raw' | 'corrected'>('corrected');
+	// Tool entry: the file's columns are the tool's inputs, one run per row, outputs saved with
+	// the run's provenance. Empty imports the columns as catalog parameters.
+	let tools = $state<ToolDescriptor[]>([]);
+	let toolName = $state('');
+	// The stored standard curve each of the tool's curve slots takes for every row.
+	let curveSelections = $state<Record<string, CurveSelection>>({});
 
 	let stagingSessionId = $state<string | null>(null);
 
@@ -83,6 +105,31 @@
 
 	const dataColumns = $derived(previewHeaders.filter((h) => !isDateTimeColumn(h)));
 	const paramNameById = $derived(new Map(siteParamOptions.map((o) => [o.id, o.label])));
+	const selectedTool = $derived(tools.find((t) => t.name === toolName) ?? null);
+	// A manual slope/intercept has no stored row for the readings to reference, so the import
+	// cannot record it.
+	const manualCurveSlots = $derived(
+		Object.entries(curveSelections)
+			.filter(([, c]) => c.slope !== null && !c.standardCurveId)
+			.map(([slot]) => slot),
+	);
+	const curveSlotById = $derived(new Map((plan?.curves ?? []).map((c) => [c.column, c.slot])));
+
+	function requestCurves(): Record<string, string> | undefined {
+		const m: Record<string, string> = {};
+		for (const [slot, c] of Object.entries(curveSelections)) {
+			if (c.standardCurveId) m[slot] = c.standardCurveId;
+		}
+		return Object.keys(m).length > 0 ? m : undefined;
+	}
+
+	function selectTool(name: string) {
+		toolName = name;
+		curveSelections = Object.fromEntries(
+			(tools.find((t) => t.name === name)?.curves ?? []).map((c) => [c.name, emptyCurveSelection()]),
+		);
+		if (step === 'review') preview();
+	}
 
 	function isDateTimeColumn(h: string): boolean {
 		const l = h.toLowerCase();
@@ -91,12 +138,14 @@
 
 	onMount(async () => {
 		try {
-			const [s, sp, params] = await Promise.all([
+			const [s, sp, params, t] = await Promise.all([
 				api.sites.get(siteId),
 				api.siteParameters.list({ perPage: 200, filter: { site_id: siteId } }),
 				api.parameters.list({ perPage: 500 }),
+				listTools().catch(() => [] as ToolDescriptor[]),
 			]);
 			site = s;
+			tools = t;
 			const unitsById = new Map(params.data.map((p: Parameter) => [p.id, p.default_units]));
 			siteParamOptions = sp.data
 				.filter((p: SiteParameter) => !p.is_derived)
@@ -186,9 +235,9 @@
 		try {
 			const body: Record<string, unknown> = {
 				site: siteId,
-				mapping: buildMapping(),
 				dry_run: true,
 				tz_offset_hours: tzOffsetHours || undefined,
+				...(toolName ? { tool: toolName, curves: requestCurves() } : { mapping: buildMapping() }),
 			};
 			if (stagingSessionId) {
 				body.session_id = stagingSessionId;
@@ -217,11 +266,11 @@
 		try {
 			const body: Record<string, unknown> = {
 				site: siteId,
-				mapping: buildMapping(),
 				conflict: conflictMode,
 				tz_offset_hours: tzOffsetHours || undefined,
-				measurement_type: measurementType,
-				values: valueState,
+				...(toolName
+					? { tool: toolName, curves: requestCurves() }
+					: { mapping: buildMapping(), measurement_type: measurementType, values: valueState }),
 			};
 			if (stagingSessionId) {
 				body.session_id = stagingSessionId;
@@ -264,6 +313,7 @@
 	function resolvedLabel(col: string): string {
 		if (!plan) return '';
 		if (plan.mapped_columns[col]) return `→ ${plan.mapped_columns[col]}`;
+		if (curveSlotById.has(col)) return `→ curve slot ${curveSlotById.get(col)}`;
 		if (plan.skipped_columns.includes(col)) return 'skipped';
 		if (plan.unmapped_columns.includes(col)) return 'unmapped';
 		return '';
@@ -282,6 +332,8 @@
 		conflictMode = 'skip';
 		measurementType = 'continuous';
 		valueState = 'corrected';
+		toolName = '';
+		curveSelections = {};
 		stagingSessionId = null;
 		tzOffsetHours = 0;
 		tzAutoDetected = false;
@@ -296,7 +348,9 @@
 			<h1 class="text-xl font-semibold">Import CSV{site ? ` - ${site.name}` : ''}</h1>
 			<p class="text-sm text-brand-muted">
 				Upload a wide CSV (a <code>DateTime</code> column plus one column per parameter). Columns are
-				aligned to this site's parameters; derived parameters are recomputed, not imported.
+				aligned to this site's parameters; derived parameters are recomputed, not imported. Or import
+				it as tool entry: the columns are a tool's inputs, the tool runs on every row, and the results
+				are saved with the run's provenance.
 			</p>
 		</div>
 	</div>
@@ -343,6 +397,7 @@
 							Detected from file header: <span class="font-medium">{tzAutoLabel}</span>
 						</div>
 					{/if}
+					{@render toolSelect('tool-select')}
 				</div>
 
 				<p class="mt-3 text-sm text-brand-muted">{fileName} - {previewHeaders.length} columns</p>
@@ -400,7 +455,40 @@
 				{/if}
 			</div>
 
-			<div class="mb-3 flex items-center gap-3">
+			<div class="mb-3">
+				{@render toolSelect('tool-select-review')}
+			</div>
+
+			{#if selectedTool}
+				<div class="mb-3 rounded-md border border-brand-primary/30 bg-brand-primary/5 px-3 py-2 text-sm">
+					Rows run through <strong>{selectedTool.label}</strong>. Replicate columns are stored raw
+					with the curve below and corrected by it; outputs are stored as the run computed them.
+					Every reading records the run as a CSV import.
+				</div>
+				{#each plan.curves as slot (slot.slot)}
+					<div class="mb-3 rounded-md border border-brand-divider px-3 py-2">
+						<CurvePicker
+							title={`${slot.label} (${slot.slot})`}
+							required={slot.required}
+							bind:value={curveSelections[slot.slot]}
+						/>
+						{#if slot.column}
+							<p class="mt-1 text-xs text-brand-muted">
+								Column <code>{slot.column}</code> names a curve id per row; a blank cell takes the
+								curve chosen here.
+							</p>
+						{/if}
+					</div>
+				{/each}
+				{#if manualCurveSlots.length > 0}
+					<p class="mb-3 rounded-md bg-severity-alarm-soft px-3 py-2 text-sm text-severity-alarm">
+						{manualCurveSlots.join(', ')}: a slope and intercept typed here is not a stored curve, so the
+						imported readings could not record it. Pick a stored curve or leave the slot empty.
+					</p>
+				{/if}
+			{/if}
+
+			<div class="mb-3 flex items-center gap-3" class:hidden={selectedTool !== null}>
 				<span class="text-sm font-medium whitespace-nowrap">Measurement type</span>
 				<label class="flex items-center gap-1.5 text-sm">
 					<input type="radio" name="measurement-type" value="continuous" bind:group={measurementType} />
@@ -412,16 +500,25 @@
 				</label>
 			</div>
 
-			<div class="mb-3 flex items-center gap-3">
-				<span class="text-sm font-medium whitespace-nowrap">Values are</span>
-				<label class="flex items-center gap-1.5 text-sm">
-					<input type="radio" name="value-state" value="corrected" bind:group={valueState} />
-					Processed (stored as-is, no calibration applied)
-				</label>
-				<label class="flex items-center gap-1.5 text-sm">
-					<input type="radio" name="value-state" value="raw" bind:group={valueState} />
-					Raw instrument output (apply the covering calibration)
-				</label>
+			<div class="mb-3" class:hidden={selectedTool !== null}>
+				<div class="flex items-center gap-3">
+					<span class="text-sm font-medium whitespace-nowrap">Values are</span>
+					<label class="flex items-center gap-1.5 text-sm">
+						<input type="radio" name="value-state" value="corrected" bind:group={valueState} />
+						Processed (stored as-is, no calibration applied)
+					</label>
+					<label class="flex items-center gap-1.5 text-sm">
+						<input type="radio" name="value-state" value="raw" bind:group={valueState} />
+						Raw instrument output (apply the covering calibration)
+					</label>
+				</div>
+				{#if valueState === 'corrected' && !selectedTool}
+					<p class="mt-1 text-xs text-brand-muted">
+						Processed values are recorded as a CSV import with no tool run: the provenance of each
+						reading shows the import, not the calculation that produced the number. To carry the
+						calculation, import the raw inputs as tool entry.
+					</p>
+				{/if}
 			</div>
 
 			<p class="mb-2 text-sm font-medium">Column alignment</p>
@@ -431,7 +528,7 @@
 						<tr>
 							<th class="px-3 py-2 font-medium">CSV column</th>
 							<th class="px-3 py-2 font-medium">Resolved</th>
-							<th class="px-3 py-2 font-medium">Map to (override)</th>
+							{#if !selectedTool}<th class="px-3 py-2 font-medium">Map to (override)</th>{/if}
 						</tr>
 					</thead>
 					<tbody>
@@ -439,7 +536,7 @@
 							<tr class="border-t border-brand-divider">
 								<td class="px-3 py-2 font-mono text-xs">{col}</td>
 								<td class="px-3 py-2">
-									{#if plan.mapped_columns[col]}
+									{#if plan.mapped_columns[col] || curveSlotById.has(col)}
 										<span class="text-severity-ok">{resolvedLabel(col)}</span>
 									{:else if plan.skipped_columns.includes(col)}
 										<span class="text-brand-muted">skipped</span>
@@ -447,6 +544,7 @@
 										<span class="text-severity-alarm">unmapped</span>
 									{/if}
 								</td>
+								{#if !selectedTool}
 								<td class="px-3 py-2">
 									<select
 										bind:value={overrides[col]}
@@ -460,6 +558,7 @@
 										{/each}
 									</select>
 								</td>
+								{/if}
 							</tr>
 						{/each}
 					</tbody>
@@ -549,7 +648,11 @@
 
 			{#if Object.keys(plan.mapped_columns).length === 0}
 				<p class="mt-3 rounded-md bg-severity-alarm-soft px-3 py-2 text-sm text-severity-alarm">
-					No columns resolve to a parameter - map at least one column before importing.
+					{#if selectedTool}
+						No columns match an input of {selectedTool.label} - head them with its input names.
+					{:else}
+						No columns resolve to a parameter - map at least one column before importing.
+					{/if}
 				</p>
 			{/if}
 
@@ -557,7 +660,7 @@
 				<Button onclick={reset}>Cancel</Button>
 				<Button
 					variant="primary"
-					disabled={busy || Object.keys(plan.mapped_columns).length === 0}
+					disabled={busy || Object.keys(plan.mapped_columns).length === 0 || manualCurveSlots.length > 0}
 					onclick={runImport}
 				>
 					{busy ? 'Importing…' : `Import ${plan.row_count} rows`}
@@ -566,7 +669,12 @@
 		</div>
 	{:else if step === 'done' && result}
 		<div class="rounded-md border border-brand-divider bg-white p-4">
-			{#if result.derived_job_id}
+			{#if selectedTool}
+				<div class="rounded-md bg-severity-ok-soft px-3 py-2 text-sm text-severity-ok">
+					<strong>{result.tool_runs_created}</strong> {selectedTool.label} run{result.tool_runs_created === 1 ? '' : 's'},
+					<strong>{result.inserted_total}</strong> reading{result.inserted_total === 1 ? '' : 's'} saved with their provenance.
+				</div>
+			{:else if result.derived_job_id}
 				<div class="text-sm">
 					{#if job && job.status === 'completed'}
 						<div class="rounded-md bg-severity-ok-soft px-3 py-2 text-severity-ok">
@@ -619,3 +727,20 @@
 		</div>
 	{/if}
 </div>
+
+{#snippet toolSelect(id: string)}
+	<div class="flex items-center gap-3">
+		<label for={id} class="text-sm font-medium whitespace-nowrap">Import as</label>
+		<select
+			{id}
+			value={toolName}
+			onchange={(e) => selectTool((e.target as HTMLSelectElement).value)}
+			class="rounded-md border border-brand-divider px-2 py-1 text-sm"
+		>
+			<option value="">Catalog parameters (one column per parameter)</option>
+			{#each tools as t (t.name)}
+				<option value={t.name}>Tool entry: {t.label}</option>
+			{/each}
+		</select>
+	</div>
+{/snippet}
