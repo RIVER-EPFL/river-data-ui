@@ -131,6 +131,7 @@
 			<div>
 				<label for="dp-code" class="text-sm text-brand-muted block mb-1">Code <span class="text-severity-alarm">*</span></label>
 				<input id="dp-code" bind:value={code} placeholder="e.g. DOmgL" class="w-full px-3 py-2 text-sm border border-brand-divider rounded bg-brand-surface" />
+				<p class="text-xs text-brand-muted mt-1">Every CSV and NDJSON export writes this as the column name, so carry the units in it the way the portal columns did (DOC_avg_ppb, WTW_Temp_degC_1).</p>
 			</div>
 			<div>
 				<label for="dp-name" class="text-sm text-brand-muted block mb-1">Name</label>

@@ -35,7 +35,7 @@
 	title="Edit Parameter"
 	backHref="{base}/parameters/{page.params.id}"
 	fields={[
-		{ key: 'code', label: 'Code', required: true, helperText: 'Short machine code for formulas and API queries, e.g. DOmgL' },
+		{ key: 'code', label: 'Code', required: true, helperText: 'Short machine code for formulas and API queries, e.g. DOmgL. Every CSV and NDJSON export writes this as the column name, and a CSV import matches on it.' },
 		{ key: 'name', label: 'Name', required: true, helperText: 'Human label shown in the UI, e.g. Dissolved Oxygen' },
 		{ key: 'default_units', label: 'Default Units', required: true, helperText: 'Measurement unit, e.g. uM, mg/L, NTU' },
 		{ key: 'category', label: 'Category', type: 'select', helperText: 'Groups parameters in the UI and public API', options: [

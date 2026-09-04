@@ -17,6 +17,7 @@
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import PaginationControls from '$components/ui/PaginationControls.svelte';
 	import { cellRecord, visitCellMarker, visitCounts } from '$lib/visits/cell';
+	import { buildReadingsExportParams, exportColumns } from '$lib/sites/exportParams';
 	import { readPointParams, writePointParams, type PointRef } from '$lib/provenance/pointLink';
 	import Badge from '$components/ui/Badge.svelte';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
@@ -1340,6 +1341,24 @@
 		exportOpen = true;
 	}
 
+	// The header the file will carry, so the options are read as columns rather than as promises.
+	const exportColumnNames = $derived.by(() => {
+		const selected =
+			exportSelectedParamIds.length > 0
+				? exportSelectedParamIds
+				: siteParameters.filter((sp) => !sp.is_derived).map((sp) => sp.parameter_id);
+		const codes = selected.map((id) => paramCode(id)).filter((c) => c !== '');
+		return exportColumns(codes, {
+			startMs: exportStartMs,
+			endMs: exportEndMs,
+			parameterIds: exportSelectedParamIds,
+			format: exportFormat,
+			resolution: exportResolution,
+			includeFlagged: exportIncludeFlagged,
+			measurementType: exportMeasurementType,
+		});
+	});
+
 	// An option whose range holds nothing is shown disabled, never silently exported.
 	$effect(() => {
 		if (!exportCounts) return;
@@ -1382,21 +1401,15 @@
 				return params;
 			};
 
-			const params = rangeParams();
-			params.set('format', exportFormat);
-			if (exportResolution === 'raw') {
-				params.set('include_flagged', String(exportIncludeFlagged));
-				// `include_flagged` decides whether flagged rows are in the file at all;
-				// `include_flags` is what adds the columns saying which ones they are. The
-				// checkbox promises the metadata, so it has to ask for both.
-				if (exportIncludeFlagged && exportFormat !== 'json') {
-					params.set('include_flags', 'true');
-				}
-				params.set('include_replicates', String(exportIncludeReplicates));
-				if (exportMeasurementType !== 'all') {
-					params.set('measurement_type', exportMeasurementType);
-				}
-			}
+			const params = buildReadingsExportParams({
+				startMs: exportStartMs,
+				endMs: exportEndMs,
+				parameterIds: exportSelectedParamIds,
+				format: exportFormat,
+				resolution: exportResolution,
+				includeFlagged: exportIncludeFlagged,
+				measurementType: exportMeasurementType,
+			});
 			const path = exportResolution === 'raw'
 				? `/api/sites/${siteId}/readings`
 				: `/api/sites/${siteId}/aggregates/${exportResolution}`;
@@ -1406,6 +1419,14 @@
 				`${name}_${exportResolution}.${exportFormat === 'ndjson' ? 'ndjson' : exportFormat}`
 			);
 
+			if (exportIncludeReplicates && (exportCounts?.replicate_readings ?? 0) > 0) {
+				const repParams = rangeParams();
+				repParams.set('format', 'csv');
+				await download(
+					`/api/sites/${siteId}/export/replicates?${repParams.toString()}`,
+					`${name}_replicates.csv`
+				);
+			}
 			if (exportIncludeAnnotations && (exportCounts?.annotation_count ?? 0) > 0) {
 				const annParams = rangeParams();
 				annParams.set('format', 'csv');
@@ -2754,16 +2775,16 @@
 								{/if}
 							</span>
 						</label>
-						<label class="flex items-start gap-2 text-sm {exportCounts?.replicate_readings === 0 ? 'opacity-50' : 'cursor-pointer'}">
-							<input type="checkbox" class="mt-0.5" bind:checked={exportIncludeReplicates} disabled={exportCounts?.replicate_readings === 0} />
-							<span>
-								Include all replicates (multiple measurements per time point)
-								{#if exportCounts}
-									<span class="block text-xs text-brand-muted">{exportCounts.replicate_readings} replicate readings in this range</span>
-								{/if}
-							</span>
-						</label>
 					{/if}
+					<label class="flex items-start gap-2 text-sm {exportCounts?.replicate_readings === 0 ? 'opacity-50' : 'cursor-pointer'}">
+						<input type="checkbox" class="mt-0.5" bind:checked={exportIncludeReplicates} disabled={exportCounts?.replicate_readings === 0} />
+						<span>
+							Also download replicates CSV
+							{#if exportCounts}
+								<span class="block text-xs text-brand-muted">{exportCounts.replicate_readings} replicate readings in this range; rows join on sample_id, or on parameter code and timestamp</span>
+							{/if}
+						</span>
+					</label>
 					<label class="flex items-start gap-2 text-sm {exportCounts?.annotation_count === 0 ? 'opacity-50' : 'cursor-pointer'}">
 						<input type="checkbox" class="mt-0.5" bind:checked={exportIncludeAnnotations} disabled={exportCounts?.annotation_count === 0} />
 						<span>
@@ -2793,6 +2814,13 @@
 						{/each}
 					</div>
 				</div>
+				{#if exportFormat !== 'json'}
+					<div>
+						<span class="text-sm font-medium block mb-1">Columns</span>
+						<p class="text-xs text-brand-muted break-all">{exportColumnNames.join(', ')}</p>
+						<p class="text-xs text-brand-muted mt-1">Value columns are the parameter code. A column is written only where the range holds the data it names.</p>
+					</div>
+				{/if}
 			</div>
 		{/snippet}
 		{#snippet actions()}
