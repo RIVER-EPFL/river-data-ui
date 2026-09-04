@@ -473,7 +473,6 @@ const RERUNNABLE_TRIGGERS = new Set([
 	'deployment_create',
 	'deployment_update',
 	'deployment_delete',
-	'deployment_edit',
 	'manual_adopt',
 	'sensor_swap',
 	'refresh_aggregates',
@@ -493,7 +492,7 @@ const CANCELLABLE_TRIGGERS = new Set([
 	'batch_derived',
 	'derived_recompute',
 	'csv_import',
-	'janitor_run',
+	'janitor_service',
 ]);
 
 export const isCancellable = (triggerType: string): boolean =>
@@ -789,6 +788,11 @@ export interface PairingPlanEntry {
 	// them match the population signature.
 	sd_holds?: number;
 	sd_population_holds?: number;
+	// The device serial the source names for this feed. A feed with one is field-shaped: its
+	// instrument is that device, attached when the stream is paired, and no lab instrument is
+	// proposed for it.
+	device_serial?: string | null;
+	device_model?: string | null;
 }
 
 // A catalog parameter an entry collides with, and what already depends on it. "Exists" alone does
@@ -834,6 +838,9 @@ export interface PlanInstrumentRef {
 	// upstream and only the instrument is attributed, where stamping would correct twice.
 	stamps_readings: boolean;
 	curves: PlanCurveRef[];
+	// The name this decision proposes creating, kept whatever else the entry resolves to, so an
+	// instrument attached by mistake can be returned to the plan's own proposal.
+	proposed_name?: string | null;
 }
 
 // Replicate-family summary on a plan entry: how the portal's columns route into one stream.
@@ -919,7 +926,9 @@ export interface SiteMetadata {
 	catchment: string | null;
 	full_name: string | null;
 	elevation: number | null;
-	device_serial: string | null;
+	// Every device the site's feeds name. A site instrumented with two loggers has two, and
+	// reporting one of them would name channels that belong to the other.
+	devices: { serial: string; model: string | null; streams: number }[];
 	channel_id: string | null;
 	sample_interval_sec: number | null;
 }
@@ -944,6 +953,8 @@ export interface PlanInstrumentGroup {
 	site_count: number;
 	anchor_stream_id: string | null;
 	curves: PlanCurveRef[];
+	// What this decision proposed creating, kept through an attach so the picker can offer it back.
+	proposed_name?: string | null;
 }
 
 export interface PlanUnassignedParameter {
@@ -970,9 +981,24 @@ export interface PlanCurveAssignment {
 	reading_count: number;
 }
 
+// One physical device the plan's feeds name, and the channels it serves at one site. Not a
+// decision: the serial is the identity, and pairing attaches it and opens the site slot's
+// deployment.
+export interface PlanDeviceGroup {
+	site: string;
+	serial: string;
+	model: string | null;
+	instrument_id: string | null;
+	instrument_name: string | null;
+	parameters: string[];
+	stream_count: number;
+	anchor_stream_id: string;
+}
+
 export interface PlanInstruments {
 	groups: PlanInstrumentGroup[];
 	unassigned: PlanUnassignedParameter[];
+	devices: PlanDeviceGroup[];
 	curves: PlanCurveAssignment[];
 }
 

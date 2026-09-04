@@ -51,13 +51,20 @@
 	// Sensors are parameter-free, so any of the site's parameter slots can be adopted.
 	const compatibleSiteParams = $derived(siteParams);
 
+	// The slot the operator picked is the deployment's parameter: a deployment binds a sensor to
+	// one parameter at a site, so it cannot be created without one.
+	const selectedParameterId = $derived(
+		siteParams.find((s) => s.id === selectedSiteParamId)?.parameter_id ?? '',
+	);
+
 	async function adopt() {
-		if (!selectedSiteId || !deployedFrom) return;
+		if (!selectedSiteId || !selectedParameterId || !deployedFrom) return;
 		working = true;
 		try {
 			await api.sensorDeployments.create({
 				sensor_id: sensor.id,
 				site_id: selectedSiteId,
+				parameter_id: selectedParameterId,
 				deployed_from: fromDatetimeLocal(deployedFrom, timezoneStore.zone),
 				deployment_type: 'permanent',
 			});
@@ -121,7 +128,7 @@
 	{#snippet actions()}
 		{#if mode === 'adopt'}
 			<Button onclick={() => mode = 'choose'}>Back</Button>
-			<Button variant="primary" onclick={adopt} disabled={working || !selectedSiteId}>{working ? 'Adopting…' : incumbent ? 'Swap & adopt' : 'Adopt'}</Button>
+			<Button variant="primary" onclick={adopt} disabled={working || !selectedSiteId || !selectedParameterId}>{working ? 'Adopting…' : incumbent ? 'Swap & adopt' : 'Adopt'}</Button>
 		{:else}
 			<Button onclick={() => open = false}>Close</Button>
 		{/if}

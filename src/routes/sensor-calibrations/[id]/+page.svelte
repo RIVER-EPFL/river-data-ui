@@ -23,7 +23,7 @@
 		{ key: 'name', label: 'Name', helperText: 'Optional label for this curve' },
 		{ key: 'parameter_id', label: 'Parameter', type: 'select', options: parameterOptions, helperText: 'For windowed field-channel curves; leave blank for lab instruments' },
 		{ key: 'valid_from', label: 'Valid From', type: 'datetime', required: true, helperText: 'Start of calibration validity period' },
-		{ key: 'valid_until', label: 'Valid Until', type: 'datetime', helperText: 'End of validity, auto-set when a new calibration is created' },
+		{ key: 'valid_until', label: 'Valid Until', type: 'datetime', helperText: 'End of validity. Derived from the next curve on the channel unless set here' },
 		{ key: 'slope', label: 'Slope (m)', type: 'number', required: true, step: 'any', helperText: 'calibrated = slope * raw + intercept' },
 		{ key: 'intercept', label: 'Intercept (b)', type: 'number', required: true, step: 'any', helperText: 'Linear calibration intercept' },
 		{ key: 'r_squared', label: 'R²', type: 'number', step: 'any', helperText: 'Optional goodness-of-fit for the curve' },

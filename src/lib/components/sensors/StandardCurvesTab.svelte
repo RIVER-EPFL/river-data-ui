@@ -274,6 +274,7 @@
 			<table class="w-full text-sm">
 				<thead><tr class="bg-brand-bg border-b border-brand-divider">
 					<th class="text-left px-4 py-2 font-semibold">Name</th>
+					<th class="text-left px-4 py-2 font-semibold">Source</th>
 					<th class="text-left px-4 py-2 font-semibold">Equation</th>
 					<th class="text-left px-4 py-2 font-semibold">R²</th>
 					<th class="text-left px-4 py-2 font-semibold">Created</th>
@@ -285,6 +286,7 @@
 					{#each curves as curve (curve.id)}
 						<tr class="border-b border-brand-divider last:border-b-0 {curve.id === focusCurveId ? 'bg-brand-primary/5' : ''}">
 							<td class="px-4 py-2">{curveLabel(curve)}</td>
+							<td class="px-4 py-2 text-xs text-brand-muted">{curve.source_key ?? curve.source_system ?? 'manual'}</td>
 							<td class="px-4 py-2 font-mono text-xs">{curveEquation(curve)}</td>
 							<td class="px-4 py-2 font-mono text-xs">{curve.r_squared ?? 'None'}</td>
 							<td class="px-4 py-2 text-xs text-brand-muted">{formatDateTime(curve.created_at)}</td>
@@ -294,7 +296,7 @@
 								<td class="px-4 py-2">
 									<div class="flex gap-3">
 										<Button variant="ghost" size="sm" class="text-brand-primary" onclick={() => openDuplicate(curve)}>Duplicate</Button>
-										<Button variant="ghost" size="sm" class="text-brand-primary" onclick={() => (editingId === curve.id ? (editingId = null) : startEdit(curve))}>{editingId === curve.id ? 'Close' : 'Edit'}</Button>
+										<Button variant="ghost" size="sm" class="text-brand-primary" disabled={!!curve.source_system} title={curve.source_system ? `Replicated from ${curve.source_system}; the next sync cycle re-asserts its coefficients, so an edit here would not survive. Correct it in the portal.` : undefined} onclick={() => (editingId === curve.id ? (editingId = null) : startEdit(curve))}>{editingId === curve.id ? 'Close' : 'Edit'}</Button>
 										<ConfirmPopover
 											message="Delete this standard curve? Refused if any reading was corrected with it."
 											confirmLabel="Delete"
@@ -308,7 +310,7 @@
 						</tr>
 						{#if editingId === curve.id}
 							<tr class="border-b border-brand-divider bg-brand-bg/40">
-								<td colspan={canWrite ? 7 : 6} class="px-4 py-3 space-y-3">
+								<td colspan={canWrite ? 8 : 7} class="px-4 py-3 space-y-3">
 									<div class="grid grid-cols-4 gap-3">
 										<label class="flex flex-col gap-1 text-xs text-brand-muted col-span-2">Name<input type="text" bind:value={editForm.name} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm" /></label>
 										<label class="flex flex-col gap-1 text-xs text-brand-muted">Slope<input type="number" step="any" bind:value={editForm.slope} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm font-mono" /></label>
@@ -326,7 +328,7 @@
 						{/if}
 						{#if rowError?.id === curve.id}
 							<tr class="border-b border-brand-divider bg-brand-bg/40">
-								<td colspan={canWrite ? 7 : 6} class="px-4 py-3">
+								<td colspan={canWrite ? 8 : 7} class="px-4 py-3">
 									<ErrorNotice>
 										<div class="space-y-2">
 											<p>{rowError.message}</p>

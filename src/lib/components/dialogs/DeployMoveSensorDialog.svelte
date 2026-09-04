@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { api, type Sensor, type Site, type SensorDeployment } from '$api/crud';
+	import { api, type Sensor, type Site, type SensorDeployment, type SiteParameter } from '$api/crud';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
@@ -39,6 +39,8 @@
 	let selectedSensorId = $state('');
 	let selectedSiteId = $state('');
 	let deploymentType = $state('permanent');
+	let selectedParameterId = $state('');
+	let siteParams = $state<SiteParameter[]>([]);
 	let deployedFrom = $state(toDatetimeLocal(Date.now(), timezoneStore.zone));
 	let working = $state(false);
 
@@ -99,6 +101,18 @@
 		return siteNameMap.get(dep.site_id) ?? 'another site';
 	}
 
+	// A deployment binds the sensor to one parameter at the site, so the destination site's slots
+	// are loaded as soon as it is known and one of them has to be chosen.
+	const destinationSiteId = $derived(mode === 'site' ? siteId : selectedSiteId);
+	$effect(() => {
+		const site = destinationSiteId;
+		if (!site) { siteParams = []; selectedParameterId = ''; return; }
+		api.siteParameters.list({ perPage: 200, filter: { site_id: site } }).then((res) => {
+			siteParams = res.data;
+			if (!siteParams.some((sp) => sp.parameter_id === selectedParameterId)) selectedParameterId = '';
+		});
+	});
+
 	const selectedDep = $derived(selectedSensorId ? activeDepBySensor.get(selectedSensorId) ?? null : null);
 	const isMove = $derived(!!selectedDep && selectedDep.site_id !== siteId);
 	const sourceSiteName = $derived(selectedDep ? (siteNameMap.get(selectedDep.site_id) ?? 'another site') : '');
@@ -122,12 +136,13 @@
 	async function handleSubmit() {
 		const sensor_id = mode === 'site' ? selectedSensorId : sensorId;
 		const site_id = mode === 'site' ? siteId : selectedSiteId;
-		if (!sensor_id || !site_id || !deployedFrom) return;
+		if (!sensor_id || !site_id || !selectedParameterId || !deployedFrom) return;
 		working = true;
 		try {
 			await api.sensorDeployments.create({
 				sensor_id,
 				site_id,
+				parameter_id: selectedParameterId,
 				deployed_from: fromDatetimeLocal(deployedFrom, timezoneStore.zone),
 				deployment_type: deploymentType,
 			});
@@ -207,6 +222,19 @@
 				</div>
 			{/if}
 
+			{#if destinationSiteId}
+				<div class="flex flex-col gap-1">
+					<label for="dm-param" class="text-sm font-medium">Parameter</label>
+					<select id="dm-param" bind:value={selectedParameterId} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
+						<option value=""> - Select a parameter - </option>
+						{#each siteParams as sp}<option value={sp.parameter_id}>{sp.name ?? sp.parameter_id}</option>{/each}
+					</select>
+					{#if siteParams.length === 0}
+						<p class="text-xs text-severity-warning">No parameters configured at this site.</p>
+					{/if}
+				</div>
+			{/if}
+
 			<div class="grid grid-cols-2 gap-3">
 				<div class="flex flex-col gap-1">
 					<label for="dm-from" class="text-sm font-medium">Deployed from</label>
@@ -235,7 +263,7 @@
 		<Button
 			variant="primary"
 			onclick={handleSubmit}
-			disabled={working || (mode === 'site' ? !selectedSensorId : !selectedSiteId)}
+			disabled={working || !selectedParameterId || (mode === 'site' ? !selectedSensorId : !selectedSiteId)}
 		>{working ? 'Saving…' : movingFrom ? 'Move' : 'Deploy'}</Button>
 	{/snippet}
 </Dialog>

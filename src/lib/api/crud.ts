@@ -209,13 +209,18 @@ export interface StandardCurve {
 	notes: string | null;
 	created_at: string;
 	created_by: string | null;
+	/** The portal that replicated this curve, null for one entered here. A replicated curve is
+	 *  re-asserted every sync cycle, so a coefficient edit to one no reading has used yet is
+	 *  overwritten on the next pass. */
+	source_system: string | null;
+	source_key: string | null;
 }
 
 export interface SensorDeployment {
 	id: string;
 	sensor_id: string;
 	site_id: string;
-	/** Denormalized from the sensor's parameter (DB trigger set_deployment_parameter_id). Read-only. */
+	/** The parameter this deployment binds the sensor to at the site. Required on create, immutable afterwards. */
 	parameter_id: string;
 	deployed_from: string;
 	deployed_until: string | null;

@@ -3,6 +3,7 @@
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { ApiError } from '$api/client';
 	import { api, type DataStream, type SiteParameter, type Site, type Parameter } from '$api/crud';
 	import {
 		pairStream, unpairStream, importStream, getStreamStats, listStreamReceipts, retagStreams, createPairingPlan, updatePairingPlan,
@@ -11,7 +12,7 @@
 		getPlanInstruments,
 		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type SdEstimator, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
 		type PlanReplicateSummary, type StreamReceipt, type PlanWarning, type PlanInstrumentRef,
-		type PlanInstruments, type PlanInstrumentGroup,
+		type PlanInstruments, type PlanInstrumentGroup, type PlanDeviceGroup,
 	type StreamPreview,
 	} from '$api/service';
 	import { listReplicateAudits } from '$api/service';
@@ -20,6 +21,7 @@
 	import { formatRelativeTime } from '$lib/utils';
 	import { createUrlTab } from '$lib/urlTab.svelte';
 	import PairSkipToggle from '$components/ui/PairSkipToggle.svelte';
+	import MappingSelect, { type MappingGroup } from '$components/ui/MappingSelect.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import Badge from '$components/ui/Badge.svelte';
@@ -171,7 +173,7 @@
 	const sitesPerPage = 50;
 	// Parameters first: it is the cross-site editor, and every decision in the plan (naming, units,
 	// instruments) is made once there rather than 31 times in Sites.
-	let reviewTab = $state<'parameters' | 'sites' | 'curves'>('parameters');
+	let reviewTab = $state<'parameters' | 'sites' | 'instruments' | 'curves'>('parameters');
 	// The plan's instrument picture, including instruments the source registered that this plan
 	// binds to nothing. Refetched after every instrument edit, since an attach moves a whole scope.
 	let planInstruments = $state<PlanInstruments | null>(null);
@@ -280,6 +282,145 @@
 	const unresolvedInstruments = $derived(
 		instrumentGroups.filter((g) => g.instrument.create && !g.instrument.confirmed),
 	);
+
+	// ── Instrument decisions ──
+	// One list, questions first: an instrument the plan has bound and a source parameter still
+	// without one are the same decision at two stages, so they are edited in one place and only
+	// mirrored elsewhere. Which way the list is grouped comes from the server: a portal source
+	// groups by parameter or curve column, a source that identifies its hardware by serial reports
+	// devices instead, and those are not questions at all.
+	interface InstrumentDecision {
+		key: string;
+		scope: string;
+		name: string;
+		proposedName: string;
+		group: PlanInstrumentGroup | null;
+		parameters: string[];
+		siteCount: number;
+		streamCount: number;
+		anchorStreamId: string;
+	}
+
+	const instrumentDecisions = $derived.by((): InstrumentDecision[] => {
+		const rows: InstrumentDecision[] = [];
+		for (const u of planInstruments?.unassigned ?? []) {
+			rows.push({
+				key: u.scope,
+				scope: u.scope,
+				name: u.suggested_name,
+				proposedName: u.suggested_name,
+				group: null,
+				parameters: [u.parameter],
+				siteCount: u.site_count,
+				streamCount: u.stream_count,
+				anchorStreamId: u.anchor_stream_id,
+			});
+		}
+		for (const g of planInstruments?.groups ?? []) {
+			if (!g.anchor_stream_id) continue;
+			rows.push({
+				key: g.scope ?? g.source_key ?? g.name,
+				scope: g.scope ?? g.parameters[0] ?? g.name,
+				name: g.name,
+				proposedName: g.proposed_name ?? g.name,
+				group: g,
+				parameters: g.parameters,
+				siteCount: g.site_count,
+				streamCount: g.stream_count,
+				anchorStreamId: g.anchor_stream_id,
+			});
+		}
+		// Anything still asking comes first; the rest by breadth.
+		return rows.sort((a, b) => {
+			const askA = a.group === null || (a.group.create && !a.group.confirmed) ? 0 : 1;
+			const askB = b.group === null || (b.group.create && !b.group.confirmed) ? 0 : 1;
+			return askA - askB || b.streamCount - a.streamCount || a.name.localeCompare(b.name);
+		});
+	});
+
+	const planDevices = $derived<PlanDeviceGroup[]>(planInstruments?.devices ?? []);
+	const deviceParameters = $derived(new Set(planDevices.flatMap((d) => d.parameters)));
+	function deviceSiteCount(parameter: string): number {
+		return new Set(
+			planDevices.filter((d) => d.parameters.includes(parameter)).map((d) => d.site),
+		).size;
+	}
+	const openInstrumentQuestions = $derived(
+		instrumentDecisions.filter((d) => d.group === null || (d.group.create && !d.group.confirmed))
+			.length,
+	);
+
+	// Every creation this plan proposes, offered on every row, so two parameters can converge on
+	// one new instrument instead of minting one each.
+	const proposedInstrumentNames = $derived.by(() => {
+		const names = new Set<string>();
+		for (const d of instrumentDecisions) {
+			if (d.group === null || d.group.create) names.add(d.group?.name ?? d.proposedName);
+			if (d.proposedName) names.add(d.proposedName);
+		}
+		return [...names].sort();
+	});
+
+	function instrumentOptions(d: InstrumentDecision): MappingGroup[] {
+		const created = new Set(proposedInstrumentNames);
+		created.add(d.proposedName);
+		return [
+			{
+				label: 'Will be created',
+				options: [...created]
+					.filter(Boolean)
+					.map((n) => ({ value: `new:${n}`, label: `+ ${n}` })),
+			},
+			{
+				label: 'Existing instruments',
+				options: labInstruments.map((s) => ({
+					value: `db:${s.id}`,
+					label: s.name ?? s.serial_number ?? s.id,
+				})),
+			},
+		];
+	}
+
+	function instrumentValue(d: InstrumentDecision): string {
+		if (d.group?.instrument_id) return `db:${d.group.instrument_id}`;
+		if (d.group) return `new:${d.group.name}`;
+		return '';
+	}
+
+	function instrumentStatus(d: InstrumentDecision): 'existing' | 'new' | 'unset' {
+		if (d.group?.instrument_id) return 'existing';
+		return d.group ? 'new' : 'unset';
+	}
+
+	// Every option is a transition: attach an existing instrument, propose a creation (which is
+	// also how an attach is undone, since naming one proposes it), or attach nothing.
+	function chooseInstrument(d: InstrumentDecision, value: string) {
+		if (value === '__custom__') {
+			editingInstrument = d.scope;
+			instrumentEditValue = d.group?.name ?? d.proposedName;
+			return;
+		}
+		if (value === '') {
+			void detachInstrument(d.anchorStreamId);
+			return;
+		}
+		if (value.startsWith('db:')) {
+			void repointInstrument(d.anchorStreamId, value.slice(3));
+			return;
+		}
+		if (value.startsWith('new:')) void proposeInstrument(d.anchorStreamId, value.slice(4));
+	}
+
+	function goToInstrument(scope: string) {
+		reviewTab = 'instruments';
+		setTimeout(() => {
+			const row = document.getElementById(`instrument-row-${scope}`);
+			if (!row) return;
+			row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+			row.classList.add('flash-highlight');
+			setTimeout(() => row.classList.remove('flash-highlight'), 1600);
+		}, 0);
+	}
 
 	// Replicate families among the entries that will pair: stream count and how many portal
 	// readings columns collapse into them.
@@ -436,11 +577,6 @@
 	// ── Instrument decisions ──
 	// All three write through the same debounced PATCH the rest of the review uses; the server
 	// applies them to every entry sharing the curve column, so one click settles the whole group.
-	function renameInstrument(streamId: string, name: string) {
-		if (!name.trim()) return;
-		queueUpdate([{ stream_id: streamId, instrument_name: name.trim() }]);
-	}
-
 	async function confirmInstrument(group: { key: string; anchorStreamId: string }) {
 		instrumentSaving = group.key;
 		queueUpdate([{ stream_id: group.anchorStreamId, instrument_confirmed: true }]);
@@ -542,25 +678,14 @@
 		} catch { /* the picker keeps the list it has */ }
 	}
 
-	// A name the plan proposes lives in the plan; a name on an instrument that already exists is
-	// the inventory's, so it is renamed there and re-read.
-	async function commitInstrumentName(
-		scope: string,
-		anchorStreamId: string,
-		group: PlanInstrumentGroup | null,
-	) {
+	// A name the plan carries is a proposal, and naming one is what proposes it. An instrument that
+	// already exists is the inventory's: it is renamed on its own page, where what else depends on
+	// the name is visible, never as a side effect of editing a plan.
+	async function commitInstrumentName(anchorStreamId: string, group: PlanInstrumentGroup | null) {
 		const name = instrumentEditValue.trim();
 		editingInstrument = null;
 		if (!name || name === group?.name) return;
-		try {
-			if (group && !group.create && group.instrument_id) {
-				await api.sensors.update(group.instrument_id, { name });
-				await refreshLabInstruments();
-				await loadPlanInstruments();
-			} else {
-				await proposeInstrument(anchorStreamId, name);
-			}
-		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Rename failed'); }
+		await proposeInstrument(anchorStreamId, name);
 	}
 
 	async function commitCurveName(curveId: string, current: string | null) {
@@ -774,9 +899,16 @@
 				planEntries = [...updated.entries];
 			}
 		} catch (e) {
-			// Keep the batch queued so the next flush retries it.
-			pendingUpdates = [...batch, ...pendingUpdates];
-			toastStore.error(`Failed to save changes: ${e instanceof Error ? e.message : e}`);
+			// A refusal is a refusal: re-queuing an edit the server rejected would fail again on
+			// every later flush and take the edits made since down with it. Only a failure that
+			// could still succeed is kept.
+			const refused = e instanceof ApiError && e.status >= 400 && e.status < 500;
+			if (!refused) pendingUpdates = [...batch, ...pendingUpdates];
+			toastStore.error(
+				refused
+					? `Change not applied: ${e instanceof Error ? e.message : e}`
+					: `Failed to save changes, will retry: ${e instanceof Error ? e.message : e}`,
+			);
 			throw e;
 		} finally { saving = false; }
 	}
@@ -1240,12 +1372,19 @@
 {/snippet}
 
 {#snippet instrumentNameField(scope: string, anchorStreamId: string, suggestion: string, group: PlanInstrumentGroup | null)}
-	{#if editingInstrument === scope}
+	{#if group && !group.create && group.instrument_id}
+		<!-- An instrument in the inventory: the name belongs to the row, not to this plan. -->
+		<a
+			href="{base}/sensors/{group.instrument_id}"
+			class="font-medium text-brand-text no-underline hover:underline"
+			title="This instrument already exists. Its name is edited on its own page, where what else uses it is visible."
+		>{group.name}</a>
+	{:else if editingInstrument === scope}
 		<input
 			type="text"
 			bind:value={instrumentEditValue}
-			onkeydown={(e) => { if (e.key === 'Enter') commitInstrumentName(scope, anchorStreamId, group); if (e.key === 'Escape') editingInstrument = null; }}
-			onblur={() => commitInstrumentName(scope, anchorStreamId, group)}
+			onkeydown={(e) => { if (e.key === 'Enter') commitInstrumentName(anchorStreamId, group); if (e.key === 'Escape') editingInstrument = null; }}
+			onblur={() => commitInstrumentName(anchorStreamId, group)}
 			class="px-1 py-0.5 border border-brand-primary rounded text-sm bg-brand-surface w-72"
 			use:focusOnMount
 		/>
@@ -1253,29 +1392,9 @@
 		<button
 			onclick={() => { editingInstrument = scope; instrumentEditValue = group?.name ?? suggestion; }}
 			class="bg-transparent border-0 border-b border-dashed cursor-pointer text-left hover:text-brand-primary hover:border-brand-primary {group ? 'font-medium text-brand-text border-brand-muted' : 'text-brand-muted border-brand-muted/60 italic'}"
-			title={group ? 'Rename this instrument' : 'Suggested name; click to edit, then create it'}
+			title={group ? 'Rename what this plan will create' : 'Proposed name; click to edit, then create it'}
 		>{group?.name ?? suggestion}</button>
 	{/if}
-{/snippet}
-
-{#snippet instrumentMapTo(anchorStreamId: string, suggestion: string, group: PlanInstrumentGroup | null)}
-	<select
-		value={group?.instrument_id ? `db:${group.instrument_id}` : group ? 'new:' : ''}
-		onchange={(e) => {
-			const v = (e.target as HTMLSelectElement).value;
-			if (v.startsWith('db:')) repointInstrument(anchorStreamId, v.slice(3));
-			else if (v === '') detachInstrument(anchorStreamId);
-			else proposeInstrument(anchorStreamId, group?.name ?? suggestion);
-		}}
-		class="px-2 py-1 rounded text-xs bg-brand-surface border border-brand-divider max-w-[220px]"
-		aria-label="Map to an instrument"
-	>
-		<option value="">no instrument</option>
-		<option value="new:">create "{group?.name ?? suggestion}"</option>
-		{#each labInstruments as s}
-			<option value="db:{s.id}">{s.name ?? s.serial_number ?? s.id}</option>
-		{/each}
-	</select>
 {/snippet}
 
 <svelte:head><title>Streams | RIVER Data</title></svelte:head>
@@ -1553,7 +1672,7 @@
 			     here read as "this source has no curves", which is a different thing. -->
 			{#if boundInstruments > 0}
 				<button
-					onclick={() => { reviewTab = 'parameters'; }}
+					onclick={() => { reviewTab = 'instruments'; }}
 					class="bg-transparent border-none p-0 cursor-pointer text-brand-muted underline-offset-2 hover:underline"
 				>using {boundInstruments} instrument{boundInstruments === 1 ? '' : 's'}</button>
 			{/if}
@@ -1583,31 +1702,20 @@
 							A curve is fitted on one instrument, so a reading naming a curve must name that
 							instrument too. Without one, those readings are dropped at ingest rather than stored.
 						</p>
+						<!-- The fast path only. Naming it, attaching an existing one and seeing what
+						     it covers all live on the Instruments tab, so there is one editor for the
+						     decision rather than two that can disagree. -->
 						<div class="flex flex-wrap items-center gap-2 mt-2">
-							<input
-								type="text"
-								value={g.instrument.name}
-								onchange={(e) => renameInstrument(g.anchorStreamId, (e.target as HTMLInputElement).value)}
-								class="px-2 py-1 rounded text-xs bg-brand-surface border border-brand-divider w-64"
-								aria-label="Instrument name"
-							/>
+							<span class="text-xs">Proposed: <span class="font-medium">{g.instrument.name}</span></span>
 							<Button
 								variant="primary"
 								size="sm"
 								disabled={instrumentSaving === g.key}
 								onclick={() => confirmInstrument(g)}
 							>{instrumentSaving === g.key ? 'Creating…' : 'Create instrument'}</Button>
-							<select
-								value=""
-								onchange={(e) => { repointInstrument(g.anchorStreamId, (e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = ''; }}
-								class="px-2 py-1 rounded text-xs bg-brand-surface border border-brand-divider"
-								aria-label="Use an existing instrument"
-							>
-								<option value="">or use an existing instrument…</option>
-								{#each labInstruments as s}
-									<option value={s.id}>{s.name ?? s.serial_number ?? s.id}</option>
-								{/each}
-							</select>
+							<Button size="sm" onclick={() => goToInstrument(g.instrument.curve_column ? `column:${g.instrument.curve_column}` : g.key)}>
+								Open in Instruments
+							</Button>
 						</div>
 					</div>
 				{/each}
@@ -1661,7 +1769,7 @@
 		<div class="space-y-3">
 			<!-- View tabs -->
 			<div class="flex gap-1 border-b border-brand-divider pb-2">
-				{#each [['parameters', `Parameters (${paramGroups.length})`], ['sites', `Sites (${siteGroups.length})`], ['curves', `Standard curves (${planInstruments?.curves.length ?? 0})`]] as [t, label]}
+				{#each [['parameters', `Parameters (${paramGroups.length})`], ['sites', `Sites (${siteGroups.length})`], ['instruments', `Instruments (${instrumentDecisions.length + planDevices.length})`], ['curves', `Standard curves (${planInstruments?.curves.length ?? 0})`]] as [t, label]}
 					<button
 						onclick={() => reviewTab = t as typeof reviewTab}
 						class="px-3 py-1 text-sm rounded-t cursor-pointer border-none {reviewTab === t ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
@@ -1669,8 +1777,156 @@
 				{/each}
 			</div>
 
+				<!-- ── INSTRUMENTS TAB ── -->
+				<!-- The one place an instrument is chosen. Parameters and Sites mirror what is
+				     decided here rather than offering a second editor over the same decision. -->
+				{#if reviewTab === 'instruments'}
+					<p class="text-sm text-brand-muted">
+						Every measurement is produced by an instrument, and this is where each of this
+						source's feeds gets one. A name is a label: identity is the source key, so renaming
+						an instrument later breaks nothing.
+					</p>
+
+					{#if planDevices.length > 0}
+						<div class="space-y-1">
+							<h3 class="text-sm font-semibold">Devices the source identifies by serial</h3>
+							<p class="text-xs text-brand-muted">
+								Not decisions: the serial is the identity. Pairing attaches the device to its
+								feeds and opens its deployment at the site, one per parameter it serves.
+							</p>
+							<div class="rounded-md border border-brand-divider bg-brand-surface overflow-x-auto">
+								<table class="w-full text-sm">
+									<thead><tr class="bg-brand-bg border-b border-brand-divider">
+										<th class="text-left px-3 py-2 font-semibold">Site</th>
+										<th class="text-left px-3 py-2 font-semibold">Device</th>
+										<th class="text-left px-3 py-2 font-semibold">Channels</th>
+										<th class="text-left px-3 py-2 font-semibold">In the inventory</th>
+									</tr></thead>
+									<tbody>
+										{#each planDevices as d (`${d.site}:${d.serial}`)}
+											<tr class="border-b border-brand-divider last:border-b-0">
+												<td class="px-3 py-2">{d.site}</td>
+												<td class="px-3 py-2">
+													<span class="font-mono text-xs">{d.serial}</span>
+													{#if d.model}<span class="text-brand-muted text-xs ml-1">{d.model}</span>{/if}
+												</td>
+												<td class="px-3 py-2 text-xs text-brand-muted">
+													{d.parameters.join(', ')}
+													<span class="ml-1">({d.stream_count} stream{d.stream_count === 1 ? '' : 's'})</span>
+												</td>
+												<td class="px-3 py-2 text-xs">
+													{#if d.instrument_id}
+														<a href="{base}/sensors/{d.instrument_id}" class="text-brand-primary no-underline hover:underline">{d.instrument_name ?? d.serial}</a>
+													{:else}
+														<span class="text-brand-muted">created when the plan is applied</span>
+													{/if}
+												</td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							</div>
+						</div>
+					{/if}
+
+					{#if planInstruments == null}
+						<p class="text-sm text-brand-muted">Loading instruments…</p>
+					{:else if instrumentDecisions.length === 0}
+						<p class="text-sm text-brand-muted">
+							No feed in this plan needs a lab instrument chosen{planDevices.length > 0
+								? ': every one of them names a device.'
+								: '.'}
+						</p>
+					{:else}
+						<div class="flex flex-wrap items-baseline gap-2">
+							<h3 class="text-sm font-semibold">Lab instruments</h3>
+							{#if openInstrumentQuestions > 0}
+								<span class="text-xs text-severity-warning">
+									{openInstrumentQuestions} still to decide
+								</span>
+								<Button size="sm" disabled={acceptingSuggestions} onclick={acceptAllSuggestions} class="ml-auto">
+									{acceptingSuggestions ? 'Creating…' : 'Create all suggested'}
+								</Button>
+							{/if}
+						</div>
+						<div class="rounded-md border border-brand-divider bg-brand-surface overflow-x-auto">
+							<table class="w-full text-sm">
+								<thead><tr class="bg-brand-bg border-b border-brand-divider">
+									<th class="text-left px-3 py-2 font-semibold">Instrument</th>
+									<th class="text-left px-3 py-2 font-semibold w-[240px]">Map to</th>
+									<th class="text-left px-3 py-2 font-semibold">Covers</th>
+									<th class="text-left px-3 py-2 font-semibold">Curves</th>
+									<th class="text-left px-3 py-2 font-semibold">Status</th>
+								</tr></thead>
+								<tbody>
+									{#each instrumentDecisions as d (d.key)}
+										{@const asking = d.group === null || (d.group.create && !d.group.confirmed)}
+										<tr id="instrument-row-{d.scope}" class="border-b border-brand-divider last:border-b-0 align-top {asking ? 'bg-severity-warning-soft' : ''}">
+											<td class="px-3 py-2">
+												{@render instrumentNameField(d.scope, d.anchorStreamId, d.proposedName, d.group)}
+												{#if d.group?.curve_column}
+													<div class="text-[11px] text-brand-muted mt-0.5">
+														<span class="font-mono">{d.group.curve_column}</span> names a curve per reading
+													</div>
+												{:else if d.group}
+													<div class="text-[11px] text-brand-muted mt-0.5">Corrected upstream; the curve is not re-applied</div>
+												{/if}
+											</td>
+											<td class="px-3 py-2">
+												<MappingSelect
+													value={instrumentValue(d)}
+													groups={instrumentOptions(d)}
+													noneLabel="no instrument"
+													customLabel="Custom name…"
+													status={instrumentStatus(d)}
+													ariaLabel="Instrument for {d.parameters.join(', ')}"
+													title="Attach an existing instrument, or create the one this plan proposes. Naming one always proposes it, so a choice here is reversible."
+													onchange={(v) => chooseInstrument(d, v)}
+												/>
+											</td>
+											<td class="px-3 py-2 text-xs text-brand-muted">
+												{d.parameters.join(', ')}
+												<div>
+													{d.streamCount} stream{d.streamCount === 1 ? '' : 's'} at
+													{d.siteCount} site{d.siteCount === 1 ? '' : 's'}
+												</div>
+											</td>
+											<td class="px-3 py-2 text-xs">
+												{#if d.group && d.group.curves.length > 0}
+													<ul class="list-none p-0 m-0 space-y-0.5">
+														{#each d.group.curves as c (c.id)}
+															<li class="font-mono text-[11px]">
+																{c.name ?? c.id}
+																<span class="text-brand-muted">y = {formatSignificant(c.slope)}x {c.intercept < 0 ? '−' : '+'} {formatSignificant(Math.abs(c.intercept))}</span>
+															</li>
+														{/each}
+													</ul>
+												{:else if d.group?.stamps_readings}
+													<span class="text-severity-warning">no curves registered</span>
+												{:else}
+													<span class="text-brand-muted">--</span>
+												{/if}
+											</td>
+											<td class="px-3 py-2 text-xs">
+												{#if d.group === null}
+													<Badge variant="warning">not chosen</Badge>
+												{:else if d.group.create && !d.group.confirmed}
+													<Badge variant="warning">proposed</Badge>
+												{:else if d.group.create}
+													<Badge>will be created</Badge>
+												{:else}
+													<Badge variant="ok">existing</Badge>
+												{/if}
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{/if}
+
 				<!-- ── STANDARD CURVES TAB ── -->
-				{#if reviewTab === 'curves'}
+				{:else if reviewTab === 'curves'}
 					<p class="text-sm text-brand-muted">
 						The standard curves this source has replicated, and the instrument each is fitted on.
 						A curve belongs to one instrument, so moving a curve here is what puts two columns of
@@ -1827,7 +2083,8 @@
 							</div>
 							{#if isExpanded}
 								{@const meta = siteMetadataMap.get(group.siteName)}
-								{#if meta && (meta.full_name || meta.catchment || meta.glacier_name || meta.latitude || meta.elevation || meta.device_serial)}
+								{@const siteDevices = meta?.devices ?? []}
+								{#if meta && (meta.full_name || meta.catchment || meta.glacier_name || meta.latitude || meta.elevation || siteDevices.length > 0)}
 									<div class="pl-10 pr-2 py-2 border-b border-brand-divider bg-brand-primary/5 text-xs flex flex-wrap gap-x-5 gap-y-1 text-brand-muted">
 										{#if meta.full_name}<span><span class="font-medium text-brand-text">{meta.full_name}</span></span>{/if}
 										{#if meta.catchment}<span>Catchment: {meta.catchment}</span>{/if}
@@ -1835,7 +2092,12 @@
 										{#if meta.location_type}<span>Location: {meta.location_type}</span>{/if}
 										{#if meta.latitude && meta.longitude}<span class="font-mono">{meta.latitude.toFixed(4)}, {meta.longitude.toFixed(4)}</span>{/if}
 										{#if meta.altitude_m ?? meta.elevation}<span>Elevation: {meta.altitude_m ?? meta.elevation}m</span>{/if}
-										{#if meta.device_serial}<span>Device: {meta.device_serial}</span>{/if}
+										{#each siteDevices as dev (dev.serial)}
+											<span>
+												Device: <span class="font-mono">{dev.serial}</span>{dev.model ? ` ${dev.model}` : ''}
+												({dev.streams} channel{dev.streams === 1 ? '' : 's'})
+											</span>
+										{/each}
 										{#if meta.sample_interval_sec}<span>Interval: {meta.sample_interval_sec}s</span>{/if}
 									</div>
 								{/if}
@@ -1993,15 +2255,11 @@
 				{:else if reviewTab === 'parameters'}
 					<div class="flex flex-wrap items-baseline gap-2">
 						<p class="text-xs text-brand-muted">Map source parameters to existing DB parameters, rename, or change units. Changes apply across all {siteGroups.length} sites.</p>
-						{#if (planInstruments?.unassigned.length ?? 0) > 0}
-							<span class="ml-auto text-xs text-brand-muted">
-								{planInstruments!.unassigned.length} parameter{planInstruments!.unassigned.length === 1 ? '' : 's'} have no instrument
-							</span>
-							<Button
-								size="sm"
-								disabled={acceptingSuggestions}
-								onclick={acceptAllSuggestions}
-							>{acceptingSuggestions ? 'Creating…' : 'Create all suggested'}</Button>
+						{#if openInstrumentQuestions > 0}
+							<button
+								onclick={() => { reviewTab = 'instruments'; }}
+								class="ml-auto text-xs text-severity-warning bg-transparent border-none p-0 cursor-pointer underline-offset-2 hover:underline"
+							>{openInstrumentQuestions} instrument{openInstrumentQuestions === 1 ? '' : 's'} still to decide</button>
 						{/if}
 					</div>
 					<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
@@ -2188,20 +2446,30 @@
 												</optgroup>
 											</select>
 										</td>
+										<!-- A mirror of the decision, not a second editor: one instrument
+										     decision covers every site a parameter arrives at, and two
+										     controls over it are how they come to disagree. -->
 										<td class="px-4 py-2">
 											{#if instrumentByParameter.get(pg.name)}
 												{@const inst = instrumentByParameter.get(pg.name)!}
-												<div class="flex flex-col gap-1 items-start">
-													{@render instrumentNameField(inst.scope, inst.anchorStreamId, inst.suggestion, inst.group)}
-													{@render instrumentMapTo(inst.anchorStreamId, inst.suggestion, inst.group)}
-													{#if inst.group?.curve_column}
-														<span class="text-[11px] text-brand-muted">
-															<span class="font-mono">{inst.group.curve_column}</span> names a curve per reading
-														</span>
-													{:else if inst.group}
-														<span class="text-[11px] text-brand-muted">Corrected upstream; the curve is not re-applied</span>
-													{/if}
+												<button
+													onclick={() => goToInstrument(inst.scope)}
+													class="text-left bg-transparent border-0 border-b border-dashed border-brand-muted cursor-pointer hover:text-brand-primary hover:border-brand-primary {inst.group ? 'text-brand-text' : 'text-severity-warning italic'}"
+													title="Choose the instrument for this parameter"
+												>{inst.group?.name ?? inst.suggestion}</button>
+												<div class="text-[11px] text-brand-muted mt-0.5">
+													{#if !inst.group}not chosen yet
+													{:else if inst.group.create}will be created
+													{:else}existing instrument{/if}
 												</div>
+											{:else if deviceParameters.has(pg.name)}
+												{@const n = deviceSiteCount(pg.name)}
+												<button
+													onclick={() => { reviewTab = 'instruments'; }}
+													class="text-left bg-transparent border-0 border-b border-dashed border-brand-muted cursor-pointer text-brand-text hover:text-brand-primary hover:border-brand-primary"
+													title="This parameter's instrument is the device at each site"
+												>a device at {n} site{n === 1 ? '' : 's'}</button>
+												<div class="text-[11px] text-brand-muted mt-0.5">attached from its serial</div>
 											{:else}
 												<span class="text-xs text-brand-muted">--</span>
 											{/if}
@@ -2241,6 +2509,22 @@
 			<h2 class="text-xl font-semibold">Confirm Plan</h2>
 		</div>
 
+		{#if openInstrumentQuestions > 0}
+			<div class="rounded-md border border-severity-warning-border bg-severity-warning-soft p-3 text-sm text-severity-warning-text space-y-2">
+				<div class="font-semibold">
+					{openInstrumentQuestions} instrument{openInstrumentQuestions === 1 ? '' : 's'} still to decide
+				</div>
+				<p class="text-xs opacity-90">
+					A feed with no instrument pairs and stores its readings, but nothing says what measured
+					them, and a feed whose source names a curve per reading has those readings dropped at
+					ingest. Apply refuses a plan holding a proposal nobody agreed to.
+				</p>
+				<Button size="sm" onclick={() => { setMode('review'); reviewTab = 'instruments'; }}>
+					Open Instruments
+				</Button>
+			</div>
+		{/if}
+
 		<div class="rounded-md border border-brand-divider bg-brand-surface p-6 space-y-4">
 			<p class="text-sm">Applying this plan will:</p>
 			<div class="grid grid-cols-2 gap-3 text-sm">
@@ -2250,6 +2534,12 @@
 				<div class="p-3 bg-brand-bg rounded"><span class="text-brand-muted block text-xs">Create sites</span><span class="text-lg font-semibold">{summary.newSites}</span></div>
 				<div class="p-3 bg-brand-bg rounded"><span class="text-brand-muted block text-xs">Create parameters</span><span class="text-lg font-semibold">{summary.newParams}</span></div>
 				<div class="p-3 bg-brand-bg rounded"><span class="text-brand-muted block text-xs">Create instruments</span><span class="text-lg font-semibold">{plan.summary.instruments_to_create}</span></div>
+				{#if planDevices.length > 0}
+					<div class="p-3 bg-brand-bg rounded" title="Each device is attached to its feeds and deployed at its site, one deployment per parameter it serves">
+						<span class="text-brand-muted block text-xs">Attach devices</span>
+						<span class="text-lg font-semibold">{planDevices.length}</span>
+					</div>
+				{/if}
 				{#if summary.warnings > 0}
 					<div class="p-3 bg-severity-warning-soft rounded"><span class="text-severity-warning block text-xs">Warnings</span><span class="text-lg font-semibold text-severity-warning">{summary.warnings}</span></div>
 				{/if}

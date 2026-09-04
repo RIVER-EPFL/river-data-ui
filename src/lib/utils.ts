@@ -133,7 +133,7 @@ export function formatInterval(seconds: number): string {
 
 export function triggerLabel(triggerType: string): string {
 	switch (triggerType) {
-		case 'janitor_run': return 'Janitor sweep';
+		case 'janitor_service': return 'Janitor sweep';
 		case 'derived_recompute': return 'Derived recompute';
 		case 'derived_assignment': return 'Derived assignment';
 		case 'calibration_create': return 'Calibration added';

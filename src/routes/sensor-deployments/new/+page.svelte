@@ -7,19 +7,23 @@
 
 	let sensorOptions = $state<Array<{ value: string; label: string }>>([]);
 	let siteOptions = $state<Array<{ value: string; label: string }>>([]);
+	let parameterOptions = $state<Array<{ value: string; label: string }>>([]);
 
 	onMount(async () => {
-		const [sensors, sites] = await Promise.all([
+		const [sensors, sites, parameters] = await Promise.all([
 			api.sensors.list({ perPage: 500 }),
 			api.sites.list({ perPage: 200 }),
+			api.parameters.list({ perPage: 500 }),
 		]);
 		sensorOptions = sensors.data.map((s) => ({ value: s.id, label: s.name ?? s.serial_number ?? s.id }));
 		siteOptions = sites.data.map((s) => ({ value: s.id, label: s.name }));
+		parameterOptions = parameters.data.map((p) => ({ value: p.id, label: p.name ?? p.code }));
 	});
 
 	const fields: Field[] = $derived([
 		{ key: 'sensor_id', label: 'Sensor', type: 'select', required: true, options: sensorOptions },
 		{ key: 'site_id', label: 'Site', type: 'select', required: true, options: siteOptions },
+		{ key: 'parameter_id', label: 'Parameter', type: 'select', required: true, options: parameterOptions, helperText: 'The parameter this deployment binds the sensor to at the site' },
 		{ key: 'deployed_from', label: 'Deployed From', type: 'datetime', required: true, helperText: 'When the sensor was installed at this site' },
 		{ key: 'deployed_until', label: 'Deployed Until', type: 'datetime', helperText: 'When removed, auto-set on next deployment' },
 		{ key: 'notes', label: 'Notes', type: 'textarea' },
