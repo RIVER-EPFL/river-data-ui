@@ -10,7 +10,7 @@
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 
-	// Staging a field visit before running a tool: the station and instant are chosen once, and
+	// Staging a field visit before running a tool: the site and instant are chosen once, and
 	// every tool run and save on this page attaches to that visit. An existing visit at the chosen
 	// instant is adopted rather than duplicated, so a second tool lands on the same row.
 
@@ -51,11 +51,11 @@
 		try {
 			sites = await listAll(api.sites, { perPage: 200, sort: ['name', 'ASC'] });
 		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Failed to load stations');
+			toastStore.error(e instanceof Error ? e.message : 'Failed to load sites');
 		}
 	}
 
-	// The station's recent visits, so a return trip to an already-staged date is a click.
+	// The site's recent visits, so a return trip to an already-staged date is a click.
 	async function loadRecent() {
 		recent = [];
 		if (!siteId) return;
@@ -92,7 +92,7 @@
 	// rather than colliding with the unique key.
 	async function stage() {
 		if (!siteId || !when) {
-			toastStore.error('Choose a station and a collection time');
+			toastStore.error('Choose a site and a collection time');
 			return;
 		}
 		staging = true;
@@ -151,7 +151,7 @@
 			<div>
 				<p class="text-sm font-semibold">No field visit staged</p>
 				<p class="text-xs text-brand-muted">
-					Stage a station and collection time, then every tool you run writes its parameters
+					Stage a site and collection time, then every tool you run writes its parameters
 					into that visit.
 				</p>
 			</div>
@@ -167,14 +167,14 @@
 		<div class="space-y-3">
 			<div class="grid grid-cols-2 gap-3">
 				<div class="flex flex-col gap-1">
-					<label for="svb-site" class="text-sm font-medium">Station <span class="text-severity-alarm">*</span></label>
+					<label for="svb-site" class="text-sm font-medium">Site <span class="text-severity-alarm">*</span></label>
 					<select
 						id="svb-site"
 						bind:value={siteId}
 						onchange={loadRecent}
 						class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
 					>
-						<option value=""> - Select station - </option>
+						<option value=""> - Select site - </option>
 						{#each sites as s (s.id)}<option value={s.id}>{s.name}</option>{/each}
 					</select>
 				</div>
@@ -202,7 +202,7 @@
 
 			{#if siteId}
 				<div class="space-y-1">
-					<p class="text-xs font-semibold">Recent visits at this station</p>
+					<p class="text-xs font-semibold">Recent visits at this site</p>
 					{#if recentLoading}
 						<p class="text-xs text-brand-muted">Loading…</p>
 					{:else if recent.length === 0}

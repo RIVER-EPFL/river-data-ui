@@ -8,7 +8,7 @@ import type {
 	ToolOutput,
 	ToolParam,
 	ToolSection,
-	ToolStationInput,
+	ToolSiteInput,
 	ToolTestCases,
 } from '$api/service';
 import type { Parameter } from '$api/crud';
@@ -42,7 +42,7 @@ export interface BuilderManifest {
 	// Carried through untouched: the editor has no fields for these yet, and re-saving a
 	// version must not be what drops a declaration made in Raw JSON.
 	sections: ToolSection[];
-	station_inputs: ToolStationInput[];
+	site_inputs: ToolSiteInput[];
 	event_inputs: ToolEventInput[];
 	qc: Record<string, unknown> | null;
 }
@@ -73,7 +73,7 @@ export function emptyManifest(label = ''): BuilderManifest {
 		curves: [],
 		match_keywords: [],
 		sections: [],
-		station_inputs: [],
+		site_inputs: [],
 		event_inputs: [],
 		qc: null,
 	};
@@ -134,7 +134,7 @@ export function fromManifest(raw: unknown): BuilderManifest {
 		}),
 		match_keywords: arr(m.match_keywords).filter((k): k is string => typeof k === 'string'),
 		sections: arr(m.sections) as ToolSection[],
-		station_inputs: arr(m.station_inputs) as ToolStationInput[],
+		site_inputs: arr(m.site_inputs) as ToolSiteInput[],
 		event_inputs: arr(m.event_inputs) as ToolEventInput[],
 		qc: typeof m.qc === 'object' && m.qc !== null ? (m.qc as Record<string, unknown>) : null,
 	};
@@ -150,7 +150,7 @@ export function toWireManifest(m: BuilderManifest): ToolManifest {
 		curves: m.curves,
 		match_keywords: m.match_keywords,
 		...(m.sections.length > 0 ? { sections: m.sections } : {}),
-		...(m.station_inputs.length > 0 ? { station_inputs: m.station_inputs } : {}),
+		...(m.site_inputs.length > 0 ? { site_inputs: m.site_inputs } : {}),
 		...(m.event_inputs.length > 0 ? { event_inputs: m.event_inputs } : {}),
 		...(m.qc ? { qc: m.qc } : {}),
 	};

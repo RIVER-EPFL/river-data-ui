@@ -47,16 +47,16 @@
 	let calculating = $state(false);
 	let showSaveDialog = $state(false);
 
-	// Calculation context: the staged field visit. Every tool run carries the visit's station and
-	// instant, so a tool that declares station or event inputs resolves them from the same row the
+	// Calculation context: the staged field visit. Every tool run carries the visit's site and
+	// instant, so a tool that declares site or event inputs resolves them from the same row the
 	// save writes into. Fill-if-missing (a typed value always wins), so the context is offered,
-	// never required, except where the manifest requires a station property.
+	// never required, except where the manifest requires a site property.
 	let visitBar = $state<{ begin: () => void } | null>(null);
 	const contextSiteId = $derived(stagedVisit.current?.siteId ?? '');
 	const contextIso = $derived(stagedVisit.current?.collectedAt ?? '');
 	const needsContext = $derived(
 		!!activeTool &&
-			((activeTool.station_inputs?.length ?? 0) > 0 || (activeTool.event_inputs?.length ?? 0) > 0),
+			((activeTool.site_inputs?.length ?? 0) > 0 || (activeTool.event_inputs?.length ?? 0) > 0),
 	);
 
 	// Every tool the API serves is listed, so a tool added in the portal appears without a UI
@@ -287,7 +287,7 @@
 								<p class="text-xs text-brand-muted">
 									This tool reads
 									{[
-										...(activeTool.station_inputs ?? []).map((si) => `the station's ${si.property}`),
+										...(activeTool.site_inputs ?? []).map((si) => `the site's ${si.property}`),
 										...(activeTool.event_inputs ?? []).map((ei) => `${ei.parameter_code} from the same visit`),
 									].join(', ')}. Values you type below always win; the rest resolve from the
 									staged visit.
@@ -295,7 +295,7 @@
 								{#if !contextSiteId}
 									<div class="flex items-center gap-2">
 										<p class="text-xs text-severity-warning-text">
-											No visit is staged, so nothing resolves from the station or the visit.
+											No visit is staged, so nothing resolves from the site or the visit.
 										</p>
 										<Button variant="secondary" size="sm" onclick={() => visitBar?.begin()}>
 											Stage a field visit
@@ -324,10 +324,10 @@
 								onclick={() => (showSaveDialog = true)}
 							>Save to Site</Button>
 						</div>
-						{#if (result.station_inputs?.length ?? 0) > 0 || (result.event_inputs?.length ?? 0) > 0}
+						{#if (result.site_inputs?.length ?? 0) > 0 || (result.event_inputs?.length ?? 0) > 0}
 							<div class="text-xs text-brand-muted bg-brand-bg border border-brand-divider rounded-md px-2 py-1 mb-2 space-y-0.5">
-								{#each result.station_inputs ?? [] as si}
-									<p>Resolved {si.param} = {si.value} from the station's {si.property}.</p>
+								{#each result.site_inputs ?? [] as si}
+									<p>Resolved {si.param} = {si.value} from the site's {si.property}.</p>
 								{/each}
 								{#each result.event_inputs ?? [] as ei}
 									<p>Resolved {ei.param} = {ei.value} from {ei.parameter_code} at this visit.</p>

@@ -97,7 +97,7 @@
 		/** RFC 3339 collection instant the run was calculated against. */
 		contextTime?: string | null;
 		/**
-		 * The context came from a staged field visit, so the station and instant are the visit's
+		 * The context came from a staged field visit, so the site and instant are the visit's
 		 * and are shown rather than chosen: an edit here would write into a different visit.
 		 */
 		visitLocked?: boolean;

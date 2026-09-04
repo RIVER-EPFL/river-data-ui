@@ -1710,7 +1710,7 @@ export interface StagedEvent {
 	created: boolean;
 }
 
-/** Stage a field visit, or adopt the one already standing at that (station, instant). */
+/** Stage a field visit, or adopt the one already standing at that (site, instant). */
 export const stageCollectionEvent = (req: { site_id: string; collected_at: string; notes?: string }) =>
 	POST<StagedEvent>(`${SERVICE}/collection_events/stage`, req);
 
@@ -1989,7 +1989,7 @@ export interface ToolManifest {
 	constants?: string[];
 	curves?: ToolCurveSlot[];
 	sections?: ToolSection[];
-	station_inputs?: ToolStationInput[];
+	site_inputs?: ToolSiteInput[];
 	event_inputs?: ToolEventInput[];
 	qc?: Record<string, unknown> | null;
 	match_keywords?: string[];
@@ -2032,8 +2032,8 @@ export interface ToolDescriptor {
 	outputs: ToolOutput[];
 	constants: string[];
 	curves: ToolCurveSlot[];
-	/** Station properties resolved from the site at calculate time (fill-if-missing). */
-	station_inputs?: ToolStationInput[];
+	/** Site properties resolved from the site row at calculate time (fill-if-missing). */
+	site_inputs?: ToolSiteInput[];
 	/** Same-event parameter reads resolved at (site_id, collected_at) (fill-if-missing). */
 	event_inputs?: ToolEventInput[];
 	/** QC declarations (replicate pooling, check exclusions), as authored. */
@@ -2044,7 +2044,7 @@ export interface ToolDescriptor {
 	version_no: number;
 }
 
-export interface ToolStationInput {
+export interface ToolSiteInput {
 	property: string;
 	param?: string | null;
 	required: boolean;
@@ -2089,8 +2089,8 @@ export interface ToolCalculateResponse {
 	/** Empty when no curve slot was filled. */
 	curves: ToolCurveSnapshot[];
 	tool_version: ToolVersionRef;
-	/** Station properties resolved from the site, as {property, param, value}. */
-	station_inputs?: { property: string; param: string; value: number }[];
+	/** Site properties resolved from the site row, as {property, param, value}. */
+	site_inputs?: { property: string; param: string; value: number }[];
 	/** Same-event values resolved at (site_id, collected_at). */
 	event_inputs?: { param: string; parameter_code: string; parameter_id: string; value: number }[];
 	/** The stored tool_runs row for this calculation; pass as `tool_run_id` when saving. */
