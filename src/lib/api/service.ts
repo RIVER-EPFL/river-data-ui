@@ -937,6 +937,8 @@ export interface PairingPlan {
 	id: string;
 	source_system: string;
 	status: string;
+	// Bumped by every edit; a write names the version it read.
+	version: number;
 	created_by: string | null;
 	summary: PairingPlanSummary;
 	entries: PairingPlanEntry[];
@@ -1084,12 +1086,37 @@ export interface PlanInstruments {
 export const getPlanInstruments = (planId: string) =>
 	GET<PlanInstruments>(`${ADMIN}/sync/pairing-plans/${planId}/instruments`);
 
-export const updatePairingPlan = (id: string, updates: PlanEntryUpdate[], curves: PlanCurveUpdate[] = []) =>
-	PATCH<PairingPlan>(`${ADMIN}/sync/pairing-plans/${id}`, { updates, curves });
+// Every write names the version it read: a second reviewer on the same draft is refused with a
+// 409 rather than carrying this client's entries back over theirs.
+export const updatePairingPlan = (
+	id: string,
+	expectedVersion: number,
+	updates: PlanEntryUpdate[],
+	curves: PlanCurveUpdate[] = [],
+) =>
+	PATCH<PairingPlan>(`${ADMIN}/sync/pairing-plans/${id}`, {
+		expected_version: expectedVersion,
+		updates,
+		curves,
+	});
+
+// A plan-wide decision: the server selects on the predicate and applies the action, so the round
+// trip is one predicate rather than one line per entry.
+export const bulkUpdatePairingPlan = (
+	id: string,
+	expectedVersion: number,
+	bulk: { where: { confidence?: string; has_warnings?: boolean }; action: 'pair' | 'skip' },
+) =>
+	PATCH<PairingPlan>(`${ADMIN}/sync/pairing-plans/${id}`, {
+		expected_version: expectedVersion,
+		bulk,
+	});
 
 // Apply/revert now run as tracked background jobs; both return a job id to poll.
-export const applyPairingPlan = (id: string) =>
-	POST<{ job_id: string; status: string }>(`${ADMIN}/sync/pairing-plans/${id}/apply`);
+export const applyPairingPlan = (id: string, expectedVersion: number) =>
+	POST<{ job_id: string; status: string }>(`${ADMIN}/sync/pairing-plans/${id}/apply`, {
+		expected_version: expectedVersion,
+	});
 
 export const revertPairingPlan = (id: string) =>
 	POST<{ job_id: string; status: string }>(`${ADMIN}/sync/pairing-plans/${id}/revert`);
@@ -1111,7 +1138,20 @@ export async function pollJob(
 	}
 }
 
-export const listPairingPlans = () => GET<PairingPlan[]>(`${ADMIN}/sync/pairing-plans`);
+// A plan without its entries. A CNET draft carries 1891 entries and a NOMIS one 29,400, so the
+// listing that answers "is there a draft to go back to" never asks for them.
+export type PairingPlanListing = Omit<PairingPlan, 'entries' | 'apply_result'>;
+
+export const listPairingPlans = (params: { source_system?: string; status?: string } = {}) => {
+	const q = new URLSearchParams();
+	if (params.source_system) q.set('source_system', params.source_system);
+	if (params.status) q.set('status', params.status);
+	const query = q.toString();
+	return GET<PairingPlanListing[]>(`${ADMIN}/sync/pairing-plans${query ? `?${query}` : ''}`);
+};
+
+export const supersedePairingPlan = (id: string) =>
+	POST<{ id: string; status: string }>(`${ADMIN}/sync/pairing-plans/${id}/supersede`, {});
 
 export const getUnpairedSummary = () =>
 	GET<{ source_system: string; unpaired: number; paired: number }[]>(

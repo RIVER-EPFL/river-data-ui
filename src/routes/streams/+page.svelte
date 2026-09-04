@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy, untrack } from 'svelte';
 	import { base } from '$app/paths';
-	import { goto } from '$app/navigation';
+	import { beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { ApiError } from '$api/client';
 	import { api, type DataStream, type SiteParameter, type Site, type Parameter } from '$api/crud';
@@ -9,10 +9,11 @@
 		pairStream, unpairStream, importStream, getStreamStats, listStreamReceipts, retagStreams, createPairingPlan, updatePairingPlan,
 		applyPairingPlan, revertPairingPlan, pollJob, getUnpairedSummary, getPlanSiteMetadata,
 		replicateSpec, getPendingAuditSummary, getReconciliationCandidates, getStreamPreview, declareSdEstimator,
-		getPlanInstruments,
+		getPlanInstruments, listPairingPlans, supersedePairingPlan, getPairingPlan, bulkUpdatePairingPlan,
 		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type SdEstimator, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
 		type PlanReplicateSummary, type StreamReceipt, type PlanWarning, type PlanInstrumentRef,
 		type PlanInstruments, type PlanInstrumentGroup, type PlanDeviceGroup, type PlanCurveAssignment,
+		type PairingPlanListing,
 	type StreamPreview,
 	} from '$api/service';
 	import { listReplicateAudits } from '$api/service';
@@ -20,6 +21,8 @@
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatRelativeTime, holdKindBreakdown } from '$lib/utils';
 	import { createUrlTab } from '$lib/urlTab.svelte';
+	import { createDraftQueue } from '$lib/pairing/draftQueue';
+	import { entryStatus, matchesFilter, statusLabel, type EntryFilter } from '$lib/pairing/entryStatus';
 	import PairSkipToggle from '$components/ui/PairSkipToggle.svelte';
 	import MappingSelect, { type MappingGroup } from '$components/ui/MappingSelect.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
@@ -152,6 +155,12 @@
 		} else {
 			url.searchParams.set('step', newMode);
 		}
+		// The review's position belongs to the review; carrying it onto the streams list would
+		// collide with that list's own paging.
+		if (newMode !== 'review') {
+			for (const name of ['review_tab', 'filter', 'q', 'page']) url.searchParams.delete(name);
+		}
+		if (newMode === 'list') url.searchParams.delete('plan');
 		goto(url.toString(), { replaceState: false, noScroll: true });
 	}
 	let unpairedSummary = $state<Array<{ source_system: string; unpaired: number; paired: number }>>([]);
@@ -164,8 +173,11 @@
 	let saving = $state(false);
 
 	// ── Plan review controls ──
-	let siteSearch = $state('');
-	let reviewFilter = $state<'all' | 'pair' | 'skip'>('all');
+	// The review's own position is in the URL, so a reload lands on the same tab, page and filter
+	// rather than at the top of a 1891-entry plan.
+	const reviewParam = (name: string) => page.url.searchParams.get(name);
+	let siteSearch = $state(reviewParam('q') ?? '');
+	let reviewFilter = $state<EntryFilter>((reviewParam('filter') as EntryFilter) ?? 'all');
 	let expandedSites = $state<Set<string>>(new Set());
 	let editingSite = $state<string | null>(null);
 	let editingParam = $state<{ site: string; streamId: string } | null>(null);
@@ -175,15 +187,44 @@
 	let expandedParamGroups = $state<Set<string>>(new Set());
 	let splitParamInput = $state<{ groupName: string; sourceName: string } | null>(null);
 	let splitParamValue = $state('');
-	let sitePage = $state(0);
+	let sitePage = $state(Math.max(0, Number(reviewParam('page') ?? '1') - 1) || 0);
 	const sitesPerPage = 50;
 	// Parameters first: it is the cross-site editor, and every decision in the plan (naming, units,
 	// instruments) is made once there rather than 31 times in Sites.
-	let reviewTab = $state<'parameters' | 'sites' | 'instruments' | 'curves'>('parameters');
+	let reviewTab = $state<'parameters' | 'sites' | 'instruments' | 'curves'>(
+		(reviewParam('review_tab') as 'parameters' | 'sites' | 'instruments' | 'curves') ??
+			'parameters',
+	);
 	// The plan's instrument picture, including instruments the source registered that this plan
 	// binds to nothing. Refetched after every instrument edit, since an attach moves a whole scope.
 	let planInstruments = $state<PlanInstruments | null>(null);
 	let instrumentSaving = $state<string | null>(null);
+
+	// The review's position follows the controls into the URL. Only while the review is open: on
+	// every other step these params are noise.
+	$effect(() => {
+		const tab = reviewTab;
+		const filter = reviewFilter;
+		const search = siteSearch;
+		const pageNo = sitePage;
+		const planId = plan?.id;
+		untrack(() => {
+			if (mode !== 'review') return;
+			const url = new URL(page.url);
+			const set = (name: string, value: string, fallback: string) => {
+				if (value === fallback) url.searchParams.delete(name);
+				else url.searchParams.set(name, value);
+			};
+			if (planId) url.searchParams.set('plan', planId);
+			set('review_tab', tab, 'parameters');
+			set('filter', filter, 'all');
+			set('q', search.trim(), '');
+			set('page', String(pageNo + 1), '1');
+			if (url.toString() !== page.url.toString()) {
+				goto(url, { replaceState: true, noScroll: true });
+			}
+		});
+	});
 
 	// ── Derived: group entries by site ──
 	interface SiteGroup {
@@ -224,6 +265,11 @@
 		}
 		if (reviewFilter === 'pair') groups = groups.filter((g) => g.pairCount > 0);
 		else if (reviewFilter === 'skip') groups = groups.filter((g) => g.skipCount === g.entries.length);
+		else if (reviewFilter !== 'all') {
+			// Unmatched and with-warnings read the entry's own status, the same predicate the row
+			// renders its legend from, so a filtered list and the badges on it cannot disagree.
+			groups = groups.filter((g) => g.entries.some((e) => matchesFilter(e, reviewFilter)));
+		}
 		return groups;
 	});
 
@@ -454,6 +500,18 @@
 		pairCount: number;
 	}
 
+	// One parameter row's status, read from the entries under it by the predicate the site rows
+	// and the filters use, so a row's summary cannot disagree with what expanding it shows.
+	function groupStatus(pg: ParamGroup) {
+		const ids = new Set(pg.streamIds);
+		const entries = planEntries.filter((e) => ids.has(e.stream_id));
+		return {
+			total: entries.length,
+			unmatched: entries.filter((e) => matchesFilter(e, 'unmatched')).length,
+			warnings: entries.filter((e) => matchesFilter(e, 'warnings')).length,
+		};
+	}
+
 	const paramGroups = $derived.by((): ParamGroup[] => {
 		// Keyed on name AND units so same-name parameters with different units get separate rows.
 		const map = new Map<string, { name: string; label: string | null; originalName: string; originalNames: Set<string>; groupKey: string | null; units: string; create: boolean; siteNames: Set<string>; streamIds: string[]; warnings: Set<string>; replicates: PlanReplicateSummary | null; instrument: PlanInstrumentRef | null }>();
@@ -634,10 +692,10 @@
 		if (!target || !plan) return;
 		try {
 			if (target.startsWith(PLAN_INSTRUMENT_PREFIX)) {
-				await updatePairingPlan(plan.id, [], [{ curve_id: curve.id, instrument_source_key: target.slice(PLAN_INSTRUMENT_PREFIX.length) }]);
+				plan = await updatePairingPlan(plan.id, plan.version, [], [{ curve_id: curve.id, instrument_source_key: target.slice(PLAN_INSTRUMENT_PREFIX.length) }]);
 			} else {
 				if (curve.pending_source_key) {
-					await updatePairingPlan(plan.id, [], [{ curve_id: curve.id, instrument_source_key: null }]);
+					plan = await updatePairingPlan(plan.id, plan.version, [], [{ curve_id: curve.id, instrument_source_key: null }]);
 				}
 				if (target !== curve.sensor_id) {
 					await api.standardCurves.update(curve.id, { sensor_id: target });
@@ -887,54 +945,137 @@
 		queueUpdate(updates);
 	}
 
-	// ── PATCH debouncing ──
-	// Flushes are serialized on a promise chain; a generation counter drops server snapshots
-	// that would overwrite local edits made while the PATCH was in flight.
-	let patchTimer: ReturnType<typeof setTimeout> | null = null;
-	let pendingUpdates: PlanEntryUpdate[] = [];
-	let editGeneration = 0;
-	let flushChain: Promise<void> = Promise.resolve();
+	// ── Plan-wide decisions ──
+	// A predicate the server applies, not a client-built list the size of the plan: a CNET plan is
+	// 1891 entries and a NOMIS one 29,400.
+	interface BulkActionOption {
+		key: string;
+		label: string;
+		title: string;
+		where: { confidence?: string; has_warnings?: boolean };
+		action: 'pair' | 'skip';
+		count: number;
+	}
 
-	function queueUpdate(updates: PlanEntryUpdate[]) {
-		pendingUpdates.push(...updates);
+	let bulkRunning = $state<string | null>(null);
+
+	const bulkActions = $derived.by((): BulkActionOption[] => {
+		const pairable = (e: PairingPlanEntry) =>
+			e.site.name.trim() !== '' && e.parameter.name.trim() !== '';
+		const matched = planEntries.filter((e) => e.confidence === 'exact');
+		const unmatched = planEntries.filter((e) => e.confidence !== 'exact');
+		const warned = planEntries.filter((e) => e.warnings.length > 0);
+		return [
+			{
+				key: 'pair-matched',
+				label: 'Pair all matched',
+				title: 'Every entry whose project, site and parameter all resolve to existing entities',
+				where: { confidence: 'exact' },
+				action: 'pair',
+				count: matched.filter((e) => e.action !== 'pair' && pairable(e)).length,
+			},
+			{
+				key: 'skip-unmatched',
+				label: 'Skip all unmatched',
+				title: 'Every entry this plan would create a project, site or parameter for',
+				where: { confidence: 'none' },
+				action: 'skip',
+				count: unmatched.filter((e) => e.action !== 'skip').length,
+			},
+			{
+				key: 'skip-warnings',
+				label: 'Skip all with warnings',
+				title: 'Every entry the plan raised a warning on',
+				where: { has_warnings: true },
+				action: 'skip',
+				count: warned.filter((e) => e.action !== 'skip').length,
+			},
+		];
+	});
+
+	async function runBulkAction(option: BulkActionOption) {
+		if (!plan || option.count === 0) return;
+		bulkRunning = option.key;
+		try {
+			// Pending edits first: the bulk arm runs before the per-entry updates on the server,
+			// so flushing keeps the order the operator made the decisions in.
+			await flushUpdates();
+			const updated = await bulkUpdatePairingPlan(plan.id, plan.version, {
+				where: option.where,
+				action: option.action,
+			});
+			plan = updated;
+			planEntries = [...updated.entries];
+			editGeneration++;
+			toastStore.success(`${option.label}: ${formatCount(option.count)} entries`);
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'The bulk action was not applied');
+		} finally { bulkRunning = null; }
+	}
+
+	// ── Unsaved decisions ──
+	// A generation counter drops server snapshots that would overwrite local edits made while the
+	// PATCH was in flight; the queue itself lives in draftQueue.ts, where it is tested.
+	let editGeneration = 0;
+	let unsavedCount = $state(0);
+
+	const draftQueue = createDraftQueue<PlanEntryUpdate>({
+		send: async (batch) => {
+			if (!plan) return;
+			const generation = editGeneration;
+			saving = true;
+			try {
+				const updated = await updatePairingPlan(plan.id, plan.version, batch);
+				if (editGeneration === generation) {
+					plan = updated;
+					planEntries = [...updated.entries];
+				} else {
+					// The snapshot is stale, but its version is what the next write must name.
+					plan = { ...plan, version: updated.version };
+				}
+			} catch (e) {
+				// Someone else edited the draft: reload it so the retry writes against what is
+				// there now, rather than losing this batch or theirs.
+				if (e instanceof ApiError && e.status === 409) {
+					try {
+						const reloaded = await getPairingPlan(plan.id);
+						plan = reloaded;
+						planEntries = [...reloaded.entries];
+						toastStore.error('Someone else edited this plan; it was reloaded and your change will be reapplied.');
+						throw new ApiError(503, 'Plan reloaded, reapplying');
+					} catch (reload) {
+						if (reload instanceof ApiError && reload.status === 503) throw reload;
+						toastStore.error('Someone else edited this plan and it could not be reloaded.');
+						throw e;
+					}
+				}
+				throw e;
+			} finally { saving = false; }
+		},
+		statusOf: (e) => (e instanceof ApiError ? e.status : undefined),
+		onPendingChange: (n) => { unsavedCount = n; },
+		onRefused: (e) => toastStore.error(`Change not applied: ${e instanceof Error ? e.message : e}`),
+		onRetryScheduled: (attempt, delay) =>
+			toastStore.error(`Could not save; retrying in ${Math.round(delay / 1000)}s (attempt ${attempt})`),
+	});
+
+	// A decision must not be lost to a sidebar link, a browser back or a closed tab inside the
+	// debounce window: both exits flush what is queued.
+	const flushPending = () => { if (draftQueue.pending() > 0) void draftQueue.flush().catch(() => {}); };
+	beforeNavigate(flushPending);
+	if (typeof window !== 'undefined') {
+		window.addEventListener('pagehide', flushPending);
+		onDestroy(() => window.removeEventListener('pagehide', flushPending));
+	}
+
+	// A decision is one PATCH: only text edits wait for the debounce.
+	function queueUpdate(updates: PlanEntryUpdate[], opts?: { immediate?: boolean }) {
 		editGeneration++;
-		if (patchTimer) clearTimeout(patchTimer);
-		patchTimer = setTimeout(() => { void flushUpdates().catch(() => {}); }, 300);
+		draftQueue.enqueue(updates, opts);
 	}
 
 	function flushUpdates(): Promise<void> {
-		if (patchTimer) { clearTimeout(patchTimer); patchTimer = null; }
-		const pending = flushChain.then(sendBatch);
-		// The stored chain absorbs the rejection so later flushes still run; callers see it.
-		flushChain = pending.catch(() => {});
-		return pending;
-	}
-
-	async function sendBatch() {
-		if (!plan || pendingUpdates.length === 0) return;
-		const batch = pendingUpdates;
-		pendingUpdates = [];
-		const generation = editGeneration;
-		saving = true;
-		try {
-			const updated = await updatePairingPlan(plan.id, batch);
-			if (editGeneration === generation) {
-				plan = updated;
-				planEntries = [...updated.entries];
-			}
-		} catch (e) {
-			// A refusal is a refusal: re-queuing an edit the server rejected would fail again on
-			// every later flush and take the edits made since down with it. Only a failure that
-			// could still succeed is kept.
-			const refused = e instanceof ApiError && e.status >= 400 && e.status < 500;
-			if (!refused) pendingUpdates = [...batch, ...pendingUpdates];
-			toastStore.error(
-				refused
-					? `Change not applied: ${e instanceof Error ? e.message : e}`
-					: `Failed to save changes, will retry: ${e instanceof Error ? e.message : e}`,
-			);
-			throw e;
-		} finally { saving = false; }
+		return draftQueue.flush();
 	}
 
 	// ── Actions ──
@@ -979,7 +1120,7 @@
 		if (entry.action === action) return;
 		(entry as any).action = action;
 		planEntries = [...planEntries];
-		queueUpdate([{ stream_id: entry.stream_id, action }]);
+		queueUpdate([{ stream_id: entry.stream_id, action }], { immediate: true });
 	}
 
 	function setSiteAction(group: SiteGroup, action: 'pair' | 'skip') {
@@ -990,7 +1131,7 @@
 				updates.push({ stream_id: e.stream_id, action });
 			}
 		}
-		if (updates.length > 0) { planEntries = [...planEntries]; queueUpdate(updates); }
+		if (updates.length > 0) { planEntries = [...planEntries]; queueUpdate(updates, { immediate: true }); }
 	}
 
 	// Pair or skip a parameter everywhere it appears. This is the bulk action the review actually
@@ -1008,7 +1149,7 @@
 		}
 		if (updates.length > 0) {
 			planEntries = [...planEntries];
-			queueUpdate(updates);
+			queueUpdate(updates, { immediate: true });
 		}
 	}
 
@@ -1216,10 +1357,22 @@
 	}
 
 	// ── Wizard navigation ──
+	// Drafts still open per source: the way back into a review someone left half done.
+	let openDrafts = $state<PairingPlanListing[]>([]);
+	const draftFor = (sourceSystem: string) =>
+		openDrafts.find((d) => d.source_system === sourceSystem);
+
 	async function enterSourceSelect() {
 		setMode('source-select');
 		planLoading = true;
-		try { unpairedSummary = await getUnpairedSummary(); }
+		try {
+			const [summary, drafts] = await Promise.all([
+				getUnpairedSummary(),
+				listPairingPlans({ status: 'draft' }).catch(() => [] as PairingPlanListing[]),
+			]);
+			unpairedSummary = summary;
+			openDrafts = drafts;
+		}
 		catch (e) { toastStore.error(`Failed to load unpaired summary: ${e instanceof Error ? e.message : e}`); setMode('list'); }
 		finally { planLoading = false; }
 	}
@@ -1255,12 +1408,13 @@
 		} catch { planDeferredCount = 0; }
 	}
 
-	async function createPlan(sourceSystem: string) {
+	// Open a plan in the review: the catalogs the dropdowns and matched-badges read are refetched
+	// with it, since a plan created yesterday is reviewed against today's entities.
+	async function openPlan(loadPlan: () => Promise<PairingPlan>, resuming: boolean) {
 		planLoading = true;
 		try {
-			// Always refetch the full catalogs so dropdowns and matched-badges see every entity.
-			const [newPlan, paramResult, siteResult, instrumentResult] = await Promise.all([
-				createPairingPlan(sourceSystem),
+			const [loaded, paramResult, siteResult, instrumentResult] = await Promise.all([
+				loadPlan(),
 				api.parameters.list({ perPage: 1000 }),
 				api.sites.list({ perPage: 1000 }),
 				api.sensors.list({ perPage: 500, filter: { is_lab_instrument: true } }),
@@ -1270,28 +1424,60 @@
 				name: s.name ?? null,
 				serial_number: s.serial_number ?? null,
 			}));
-			plan = newPlan;
-			planEntries = [...plan.entries];
+			plan = loaded;
+			planEntries = [...loaded.entries];
 			params = paramResult.data;
 			sites = siteResult.data;
 			existingParams = params;
 			existingSites = sites;
 			expandedSites = new Set();
 			expandedReplicates = new Set();
-			siteSearch = '';
-			reviewFilter = 'all';
-			sitePage = 0;
+			// A resumed review keeps the position the URL carries; a new plan starts at the top.
+			if (!resuming) {
+				siteSearch = '';
+				reviewFilter = 'all';
+				sitePage = 0;
+			}
 			applyResult = null;
-			void loadPlanDeferred(sourceSystem);
+			void loadPlanDeferred(loaded.source_system);
 			setMode('review');
 			void loadPlanInstruments();
-			getPlanSiteMetadata(plan.id).then((meta) => {
+			getPlanSiteMetadata(loaded.id).then((meta) => {
 				const map = new Map<string, SiteMetadata>();
 				for (const m of meta) map.set(m.site_name, m);
 				siteMetadataMap = map;
 			}).catch(() => {});
-		} catch (e) { toastStore.error(`Failed to create plan: ${e instanceof Error ? e.message : e}`); }
-		finally { planLoading = false; }
+		} catch (e) {
+			toastStore.error(
+				`Failed to ${resuming ? 'open' : 'create'} plan: ${e instanceof Error ? e.message : e}`,
+			);
+			if (resuming) setMode('list');
+			throw e;
+		} finally { planLoading = false; }
+	}
+
+	async function createPlan(sourceSystem: string) {
+		await openPlan(() => createPairingPlan(sourceSystem), false).catch(() => {});
+	}
+
+	async function resumePlan(planId: string) {
+		await openPlan(() => getPairingPlan(planId), true).catch(() => {});
+	}
+
+	// Start over leaves the decisions on the draft it replaces rather than deleting them: the old
+	// draft becomes superseded, which apply refuses the way it refuses an applied plan.
+	async function startOverPlan(draft: PairingPlanListing) {
+		planLoading = true;
+		try {
+			await supersedePairingPlan(draft.id);
+			openDrafts = openDrafts.filter((d) => d.id !== draft.id);
+		} catch (e) {
+			toastStore.error(`Failed to supersede the old draft: ${e instanceof Error ? e.message : e}`);
+			planLoading = false;
+			return;
+		}
+		planLoading = false;
+		await createPlan(draft.source_system);
 	}
 
 	async function applyPlan() {
@@ -1304,7 +1490,7 @@
 		}
 		applying = true;
 		try {
-			const { job_id } = await applyPairingPlan(plan.id);
+			const { job_id } = await applyPairingPlan(plan.id, plan.version);
 			const job = await pollJob(job_id);
 			if (job.status !== 'completed') {
 				throw new Error(job.error_message ?? 'Apply job did not complete');
@@ -1363,6 +1549,11 @@
 		}
 		await load();
 		void loadReplicateSurfacing(sourceSummary.map((s) => s.source_system));
+		// A reload or a bookmark on ?step=review&plan=<id> reopens that review; the draft on the
+		// server is the record, so the page rebuilds from it rather than rendering nothing.
+		const resumeId = page.url.searchParams.get('plan');
+		if (mode === 'review' && resumeId && !plan) await resumePlan(resumeId);
+		else if (mode === 'review' && !resumeId) setMode('list');
 	});
 </script>
 
@@ -1674,10 +1865,35 @@
 					<table class="w-full text-sm">
 						<tbody>
 							{#each withUnpaired as s}
-								<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 cursor-pointer" onclick={() => createPlan(s.source_system)}>
-									<td class="px-4 py-3 font-semibold">{s.source_system}</td>
+								{@const draft = draftFor(s.source_system)}
+								<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 {draft ? '' : 'cursor-pointer'}" onclick={() => { if (!draft) createPlan(s.source_system); }}>
+									<td class="px-4 py-3 font-semibold">
+										{s.source_system}
+										{#if draft}
+											<div class="text-xs font-normal text-brand-muted pt-0.5">
+												Draft started {formatRelativeTime(draft.created_at)}:
+												{formatCount(draft.summary.will_pair)} to pair,
+												{formatCount(draft.summary.will_skip)} to skip
+											</div>
+										{/if}
+									</td>
 									<td class="px-4 py-3 text-right"><span class="text-severity-warning font-semibold">{formatCount(s.unpaired)}</span> <span class="text-brand-muted">unpaired</span></td>
 									<td class="px-4 py-3 text-right text-brand-muted">{formatCount(s.paired)} paired</td>
+									<td class="px-4 py-3 text-right whitespace-nowrap">
+										{#if draft}
+											<Button size="sm" onclick={(e) => { e.stopPropagation(); resumePlan(draft.id); }}>Resume</Button>
+											<ConfirmPopover
+												message="Start a new plan? The open draft keeps its decisions but can no longer be applied."
+												confirmLabel="Start over"
+												confirmVariant="primary"
+												onconfirm={() => startOverPlan(draft)}
+											>
+												<Button size="sm" variant="ghost">Start over</Button>
+											</ConfirmPopover>
+										{:else}
+											<Button size="sm" onclick={(e) => { e.stopPropagation(); createPlan(s.source_system); }}>Discover</Button>
+										{/if}
+									</td>
 								</tr>
 							{/each}
 						</tbody>
@@ -1703,7 +1919,12 @@
 			<div class="flex items-center gap-3">
 				<Button variant="ghost" size="sm" onclick={exitWizard} class="text-brand-primary">&larr; Discard</Button>
 				<h2 class="text-xl font-semibold">Review Plan: {plan.source_system}</h2>
-				{#if saving}<span class="text-xs text-brand-muted">Saving…</span>{/if}
+				{#if saving}<span class="text-xs text-brand-muted">Saving…</span>
+				{:else if unsavedCount > 0}
+					<span class="text-xs text-severity-warning" title="Decisions taken but not yet saved to the draft">
+						{formatCount(unsavedCount)} unsaved
+					</span>
+				{/if}
 			</div>
 			<Button variant="primary" onclick={() => setMode('confirm')} disabled={summary.toPair === 0} class="px-4 font-semibold">
 				Apply {formatCount(summary.toPair)} pairings &rarr;
@@ -2100,7 +2321,7 @@
 					<div class="flex items-center justify-between gap-3">
 						<div class="text-xs text-brand-muted">{filteredGroups.length} site{filteredGroups.length === 1 ? '' : 's'} ({planEntries.filter((e) => e.action === 'pair').length} streams to pair)</div>
 						<div class="flex gap-1">
-							{#each [['all', 'All'], ['pair', 'Will pair'], ['skip', 'Skipped']] as [val, label]}
+							{#each [['all', 'All'], ['pair', 'Will pair'], ['skip', 'Skipped'], ['unmatched', 'Unmatched'], ['warnings', 'With warnings']] as [val, label]}
 								<button
 									onclick={() => { reviewFilter = val as typeof reviewFilter; sitePage = 0; }}
 									class="px-2 py-0.5 text-xs rounded cursor-pointer border-none {reviewFilter === val ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
@@ -2188,6 +2409,7 @@
 								{/if}
 								{#each group.entries as entry}
 								{@const entryMatched = matchParam(entry.parameter.name)}
+								{@const status = entryStatus(entry)}
 								{@const entryEditing = editingParam?.streamId === entry.stream_id}
 								{@const entryReplicates = entry.replicates}
 									<div class="flex items-center gap-2 pl-10 pr-2 py-1.5 border-b border-brand-divider bg-brand-bg/30 text-xs {entry.action === 'skip' ? 'opacity-50' : ''}">
@@ -2300,11 +2522,17 @@
 												<option value="population">sd: population (n)</option>
 											</select>
 										{/if}
-										{#if entry.warnings.length > 0}
+										<span
+											class="px-1.5 py-0.5 rounded text-[10px] shrink-0 {status.matched ? 'bg-severity-ok-soft text-severity-ok' : 'bg-brand-bg text-brand-muted'}"
+											title={status.matched
+												? 'The catalog already holds this project, site and parameter'
+												: `This plan creates: ${status.creates.join(', ') || 'nothing; the entry resolves to no slot'}`}
+										>{status.matched ? '✓ matched' : statusLabel(status)}</span>
+										{#if status.warnings > 0}
 											<span
 												class="text-xs text-severity-warning shrink-0"
 												title={entry.warnings.map((w) => w.message).join(', ')}
-											>warn</span>
+											>{status.warnings} warn ({status.warningKinds.join(', ')})</span>
 										{/if}
 										<PairSkipToggle
 											size="sm"
@@ -2347,6 +2575,19 @@
 							>{openInstrumentQuestions} instrument{openInstrumentQuestions === 1 ? '' : 's'} still to decide</button>
 						{/if}
 					</div>
+					<!-- One predicate per button, counted from the same predicate before it runs, and
+					     undone by its opposite. -->
+					<div class="flex flex-wrap items-center gap-2">
+						{#each bulkActions as b}
+							<Button
+								size="sm"
+								variant="secondary"
+								disabled={b.count === 0 || bulkRunning !== null}
+								onclick={() => runBulkAction(b)}
+								title={b.title}
+							>{bulkRunning === b.key ? 'Working…' : `${b.label} (${formatCount(b.count)})`}</Button>
+						{/each}
+					</div>
 					<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 						<table class="w-full text-sm">
 							<thead><tr class="bg-brand-bg border-b border-brand-divider">
@@ -2363,6 +2604,7 @@
 								{#each paramGroups as pg}
 									{@const matched = matchParam(pg.name)}
 									{@const sd = sdDisputedByParam.get(pg.name)}
+									{@const status = groupStatus(pg)}
 									<tr
 										id="param-row-{pg.name}"
 										class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 transition-shadow {sd ? (sd.declared ? 'bg-severity-ok-soft' : 'bg-severity-warning-soft') : ''}"
@@ -2559,8 +2801,20 @@
 												<span class="text-xs text-brand-muted">--</span>
 											{/if}
 										</td>
+										<!-- Whether the parameter itself is known, and what the entries under
+										     it still create. The same status the site rows carry, summed. -->
 										<td class="px-4 py-2">
 											<span class="text-xs px-1.5 py-0.5 rounded {matched ? 'bg-severity-ok-soft text-severity-ok' : 'bg-severity-warning-soft text-severity-warning'}">{matched ? 'existing' : 'new'}</span>
+											{#if status.unmatched > 0}
+												<div class="text-[11px] text-brand-muted mt-0.5" title="Entries under this parameter whose project, site or parameter this plan would create">
+													{status.unmatched} of {status.total} unmatched
+												</div>
+											{:else}
+												<div class="text-[11px] text-severity-ok mt-0.5">all {status.total} matched</div>
+											{/if}
+											{#if status.warnings > 0}
+												<div class="text-[11px] text-severity-warning mt-0.5">{status.warnings} with warnings</div>
+											{/if}
 										</td>
 										<td class="px-4 py-2 text-right text-brand-muted">{pg.siteCount}</td>
 										<td class="px-4 py-2 text-right whitespace-nowrap">
