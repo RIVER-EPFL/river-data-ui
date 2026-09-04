@@ -2630,6 +2630,11 @@
 														</div>
 														{#if me.can('writeData')}
 															<div class="flex gap-2">
+																<a
+																	class="rounded bg-brand-primary px-2 py-1 text-xs font-medium text-white hover:opacity-90"
+																	href="{base}/visits/{v.id}"
+																	onclick={(e) => e.stopPropagation()}>Open the grid</a
+																>
 																<Button
 																	size="sm"
 																	variant="secondary"

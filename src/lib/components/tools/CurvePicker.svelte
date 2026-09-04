@@ -2,6 +2,8 @@
 	export interface CurveSelection {
 		// Set when the slope/intercept came from a stored standard_curves row.
 		standardCurveId: string | null;
+		// The instrument the stored curve belongs to; a write naming a curve names it too.
+		sensorId?: string | null;
 		slope: number | null;
 		intercept: number | null;
 		// Provenance shown at the save step.
@@ -69,6 +71,7 @@
 		if (mode === 'stored' && selectedCurve) {
 			value = {
 				standardCurveId: selectedCurve.id,
+				sensorId: selectedCurve.sensor_id,
 				slope: selectedCurve.slope,
 				intercept: selectedCurve.intercept,
 				label: curveLabel(selectedCurve),

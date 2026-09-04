@@ -5,6 +5,7 @@
 	import {
 		listTools,
 		calculateTool,
+		reloadToolRun,
 		type ToolDescriptor,
 		type ToolOutput,
 		type ToolCalculateResponse,
@@ -16,6 +17,7 @@
 	import SaveResultsPanel, { type UsedCurve } from '$components/tools/SaveResultsPanel.svelte';
 	import StagedVisitBar from '$components/tools/StagedVisitBar.svelte';
 	import { stagedVisit } from '$lib/stores/visit.svelte';
+	import { prefillFromVisit } from '$lib/tools/visitPrefill';
 	import ToolForm from '$components/tools/ToolForm.svelte';
 	import {
 		buildRequestBody,
@@ -72,13 +74,18 @@
 		return tools.filter(matches).sort((a, b) => a.label.localeCompare(b.label));
 	});
 
+	// A tool opens on what the staged visit already holds (M4): the stored replicates in the
+	// source's own column order with their curve preselected, and the scalars the tool reads from
+	// the visit. An explicit reload wins over it, because that names a run rather than a visit.
 	function selectTool(tool: ToolDescriptor, prefill?: Record<string, unknown>) {
 		activeTool = tool;
 		result = null;
 		resultInputs = null;
 		resultCurves = [];
-		form = initFormState(tool, prefill);
-		curveSelections = curveSelectionsFrom(tool, prefill);
+		const cells = stagedVisit.detail?.cells ?? [];
+		const opening = { ...prefillFromVisit(tool, cells), ...(prefill ?? {}) };
+		form = initFormState(tool, opening);
+		curveSelections = curveSelectionsFrom(tool, opening);
 	}
 
 	// Every curve consumed by the current inputs, for the provenance blob and the save-step note.
@@ -198,6 +205,28 @@
 		const tool = loaded.find((t) => t.name === wanted);
 		if (!tool) return;
 		let inputs: Record<string, unknown> | undefined;
+		const runId = page.url.searchParams.get('reload');
+		if (runId) {
+			// The edit dialog stashes the run it read, so reopening does not fetch it twice.
+			try {
+				const raw = sessionStorage.getItem('tool-reload');
+				if (raw) {
+					const run = JSON.parse(raw) as { tool?: string; body?: Record<string, unknown> };
+					if (run.tool === wanted && run.body && typeof run.body === 'object') inputs = run.body;
+				}
+			} catch {
+				inputs = undefined;
+			}
+			sessionStorage.removeItem('tool-reload');
+			if (!inputs) {
+				reloadToolRun(runId)
+					.then((run) => selectTool(tool, run.body))
+					.catch((e: unknown) => {
+						loadError = e instanceof Error ? e.message : String(e);
+					});
+				return;
+			}
+		}
 		if (page.url.searchParams.get('prefill') === 'session') {
 			try {
 				const raw = sessionStorage.getItem('tool-prefill');

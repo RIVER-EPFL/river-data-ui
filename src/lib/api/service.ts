@@ -2845,6 +2845,7 @@ export interface InspectedRow {
 /** A stream, a slot and window, or explicit keys. Naming nothing is refused. */
 export interface EditSelection {
 	stream_id?: string;
+	collection_event_id?: string;
 	site_id?: string;
 	parameter_id?: string;
 	from?: string;
@@ -2885,6 +2886,8 @@ export interface EditPreviewResponse {
 export interface EditCommitResponse {
 	rows_decided: number;
 	decision_ids: string[];
+	/** The set the decisions were recorded under, which is what undoes them as one act. */
+	set_id: string;
 }
 
 export const inspectEdits = (selection: EditSelection) =>
@@ -2901,6 +2904,12 @@ export const commitEdit = (
 
 export const rollbackEdit = (decisionId: string) =>
 	POST<{ rollback_id: string }>(`${SERVICE}/readings/edits/${decisionId}/rollback`, {});
+
+export const rollbackEditSet = (setId: string) =>
+	POST<{ set_id: string; rolled_back: number }>(
+		`${SERVICE}/readings/edits/sets/${setId}/rollback`,
+		{},
+	);
 
 export interface ToolRunReload {
 	tool: string;

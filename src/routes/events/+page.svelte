@@ -82,6 +82,9 @@
 						<option value={s.id}>{s.name}</option>
 					{/each}
 				</select>
+				<a class="text-sm text-brand-primary hover:underline" href="{base}/visits/new">
+					Enter a field day
+				</a>
 			</div>
 		{/snippet}
 		{#snippet head({ reload })}
@@ -100,6 +103,7 @@
 			</th>
 			<th class="text-left px-4 py-2 font-semibold">By</th>
 			<th class="text-left px-4 py-2 font-semibold">Notes</th>
+			<th class="text-left px-4 py-2 font-semibold"><span class="sr-only">Entry</span></th>
 		{/snippet}
 		{#snippet row(item)}
 			<td class="px-4 py-2 text-xs whitespace-nowrap">
@@ -126,6 +130,13 @@
 			</td>
 			<td class="px-4 py-2 text-xs text-brand-muted">{item.created_by ?? '-'}</td>
 			<td class="px-4 py-2 text-xs text-brand-muted truncate max-w-64">{item.notes ?? ''}</td>
+			<td class="px-4 py-2 text-xs whitespace-nowrap">
+				<a
+					class="text-brand-primary hover:underline"
+					href="{base}/visits/{item.id}"
+					onclick={(e) => e.stopPropagation()}>Open the grid</a
+				>
+			</td>
 		{/snippet}
 	</EventPanel>
 </div>
