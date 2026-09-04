@@ -68,7 +68,6 @@ services:
       start_period: 120s
     volumes:
       - ../river-data-api/src:/app/src
-      - ../river-data-api/assets:/app/assets
       - ../river-data-api/migration:/app/migration
       - ../river-data-api/Cargo.toml:/app/Cargo.toml
       - ../river-data-api/Cargo.lock:/app/Cargo.lock
@@ -214,6 +213,9 @@ services:
       MYSQL_DATABASE: cnet_db
       MYSQL_USER: sync_reader
       MYSQL_PASSWORD: sync_reader
+    # Published so river-data-rshiny's portal-fixture tests can reach the real portal schema.
+    ports:
+      - "3316:3306"
     volumes:
       - /home/ejthomas/projects/RIVER/dumps/cnet_db_prod.sql:/docker-entrypoint-initdb.d/01-data.sql:ro
       - portal-cnet-data:/var/lib/mysql
@@ -334,6 +336,10 @@ services:
       portal-db-nomis:
         condition: service_healthy
 
+  # The realm file is imported as a Keycloak RealmRepresentation, which refuses any field it does
+  # not know, so it carries no comments of its own. What would be one: brute-force protection is
+  # off deliberately, because every role-bearing e2e test logs its user in and a full run plus a
+  # concurrent one trips the lockout, failing the suite on credentials rather than on code.
   river-db-keycloak:
     image: quay.io/keycloak/keycloak:26.0
     command: start-dev --import-realm
@@ -404,7 +410,6 @@ services:
     entrypoint: ["bacon", "--headless", "test-integration"]
     volumes:
       - ../river-data-api/src:/app/src
-      - ../river-data-api/assets:/app/assets
       - ../river-data-api/tests:/app/tests
       - ../river-data-api/migration:/app/migration
       - ../river-data-api/Cargo.toml:/app/Cargo.toml

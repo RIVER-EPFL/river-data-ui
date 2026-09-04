@@ -7,7 +7,7 @@
   "duplicateEmailsAllowed": false,
   "resetPasswordAllowed": false,
   "verifyEmail": false,
-  "bruteForceProtected": true,
+  "bruteForceProtected": false,
   "accessTokenLifespan": 3600,
   "ssoSessionIdleTimeout": 1800,
   "ssoSessionMaxLifespan": 36000,
