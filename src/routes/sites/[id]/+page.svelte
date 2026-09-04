@@ -1632,6 +1632,7 @@
 							nowMs={now}
 							originLabel={originLabels.get(sp.id) ?? ''}
 							emptyMessage={emptyMessageFor(sp.id)}
+							exactTimes={chartResolution === 'raw'}
 							onpointclick={(p) => pinInspector(sp, param.name, p)}
 						/>
 						{#if inspector?.siteParameterId === sp.id}
@@ -1689,6 +1690,7 @@
 										nowMs={now}
 										originLabel={originLabels.get(sp.id) ?? ''}
 										emptyMessage={emptyMessageFor(sp.id)}
+										exactTimes={chartResolution === 'raw'}
 										onpointclick={(p) => pinInspector(sp, param.name, p)}
 									/>
 									{#if inspector?.siteParameterId === sp.id}

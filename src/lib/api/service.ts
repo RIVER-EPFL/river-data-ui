@@ -115,6 +115,11 @@ export interface ChannelHealth {
 
 export interface NotificationHealth {
 	channels: ChannelHealth[];
+	/** No channel resolves from config, so every notification is stamped undeliverable. */
+	noChannelConfigured: boolean;
+	/** Deliveries in the last 24 hours that reached nobody. */
+	undeliverable24h: number;
+	failed24h: number;
 }
 
 export const getNotificationsHealth = () =>

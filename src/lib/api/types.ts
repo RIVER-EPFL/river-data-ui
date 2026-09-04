@@ -7,6 +7,8 @@ export interface SampleReplicate {
 	/** Standard curve applied on top of the base calibration; null when none was. */
 	standard_curve_id?: string | null;
 	flagged: boolean;
+	/** The source's claimed window no longer contains this replicate; it is outside `n`. */
+	withdrawn?: boolean;
 }
 
 export interface SampleStat {

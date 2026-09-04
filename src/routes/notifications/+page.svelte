@@ -39,6 +39,9 @@
 	// ── Status tab ──
 	let caps = $state<NotificationsConfig | null>(null);
 	let channels = $state<ChannelHealth[]>([]);
+	let deliveryGap = $state<{ noChannel: boolean; undeliverable: number; failed: number } | null>(
+		null
+	);
 	let healthError = $state<string | null>(null);
 	let refreshing = $state(false);
 	let pollInterval: ReturnType<typeof setInterval> | undefined;
@@ -49,7 +52,13 @@
 
 	async function loadHealth() {
 		try {
-			channels = (await getNotificationsHealth()).channels;
+			const health = await getNotificationsHealth();
+			channels = health.channels;
+			deliveryGap = {
+				noChannel: health.noChannelConfigured,
+				undeliverable: health.undeliverable24h,
+				failed: health.failed24h,
+			};
 			healthError = null;
 		} catch (e) {
 			healthError = e instanceof Error ? e.message : 'Failed to load channel health';
@@ -59,7 +68,13 @@
 	async function doRefreshHealth() {
 		refreshing = true;
 		try {
-			channels = (await refreshNotificationsHealth()).channels;
+			const health = await refreshNotificationsHealth();
+			channels = health.channels;
+			deliveryGap = {
+				noChannel: health.noChannelConfigured,
+				undeliverable: health.undeliverable24h,
+				failed: health.failed24h,
+			};
 			healthError = null;
 			toastStore.success('Health refreshed');
 		} catch (e) {
@@ -333,6 +348,22 @@
 
 			{#if healthError}
 				<ErrorNotice message={healthError} />
+			{/if}
+
+			{#if deliveryGap?.noChannel}
+				<ErrorNotice
+					message="No notification channel is configured, so every alarm is recorded as
+						undeliverable and nobody is told. The API is unaffected: notifications never block
+						ingestion."
+				/>
+			{:else if deliveryGap && deliveryGap.undeliverable + deliveryGap.failed > 0}
+				<ErrorNotice
+					message="{deliveryGap.undeliverable + deliveryGap.failed} notification{deliveryGap.undeliverable +
+						deliveryGap.failed ===
+					1
+						? ''
+						: 's'} reached nobody in the last 24 hours."
+				/>
 			{/if}
 
 			<div class="space-y-4 max-w-xl">

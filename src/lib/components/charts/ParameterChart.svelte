@@ -18,7 +18,7 @@
 		type OverlayVisibility,
 	} from '$lib/charts/overlay-plugins';
 	import type { SensorIdentityBand, CalibrationMarker } from '$api/sensors';
-	import { spotMarkersPlugin, type SpotPointStats } from '$lib/charts/spotMarkers';
+	import { spotMarkersPlugin, spotWhiskerExtent, type SpotPointStats } from '$lib/charts/spotMarkers';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { formatDateTime } from '$lib/utils';
@@ -61,6 +61,7 @@
 		nowMs = 0,
 		originLabel = '',
 		emptyMessage = 'No data for selected range',
+		exactTimes = true,
 		onpointclick,
 	}: {
 		siteId: string;
@@ -79,6 +80,9 @@
 		spotData?: ChartData | null;
 		/** Replicate mean±sd whisker stats for spot points, keyed by epoch ms. */
 		spotStats?: Map<number, SpotPointStats> | null;
+		/** Whether `chartData.times` are the stored instants rather than aggregate bucket starts.
+		 *  A bucket start resolves no reading, so the continuous click affordance is withdrawn. */
+		exactTimes?: boolean;
 		gapThreshold?: number;
 		loading?: boolean;
 		/** Shown in place of the plot when there is nothing to draw. */
@@ -311,12 +315,49 @@
 
 	// Spot/grab diamonds (and mean±sd whiskers when replicate stats are provided) are painted by
 	// the shared spotMarkers module; the plugin reads the transparent spot series' data.
-	function spotDiamondPlugin(seriesIdx: number): uPlot.Plugin {
+	/// The y range, widened so an error bar is never clipped at the plot edge. uPlot ranges from the
+	/// series values, which are the means, so a whisker wider than the spread of the means would
+	/// otherwise render as a full-height line with both caps off-screen and no indication it was
+	/// cut. The default padding is kept for the case where nothing carries a whisker.
+	const Y_RANGE_BUFFER = 0.05;
+
+	/// The spot arm's flags keyed by instant, for the tooltip. The published `flags` channel is the
+	/// continuous arm's whenever a continuous arm exists, so without this a flagged grab on a mixed
+	/// chart is reported as unflagged.
+	function publishedSpotFlags(): Map<number, boolean> | null {
+		const f = spotData?.flags;
+		if (!f || !spotData) return null;
+		const out = new Map<number, boolean>();
+		for (let i = 0; i < spotData.times.length; i++) {
+			if (f[i] === true) out.set(spotData.times[i], true);
+		}
+		return out.size > 0 ? out : null;
+	}
+
+	function yRange(u: uPlot, dataMin: number | null, dataMax: number | null): [number, number] {
+		const fallback = uPlot.rangeNum(dataMin ?? 0, dataMax ?? 1, 0.1, true) as [number, number];
+		const extent = spotWhiskerExtent(spotStats?.values());
+		if (!extent) return fallback;
+		let lo = Math.min(fallback[0], extent[0]);
+		let hi = Math.max(fallback[1], extent[1]);
+		const span = hi - lo;
+		const pad = span > 0 ? span * Y_RANGE_BUFFER : Math.abs(hi) * Y_RANGE_BUFFER || 1;
+		lo -= pad;
+		hi += pad;
+		return [lo, hi];
+	}
+
+	function spotDiamondPlugin(
+		seriesIdx: number,
+		flagged: (boolean | null)[] | null,
+	): uPlot.Plugin {
 		if (seriesIdx < 0) return { hooks: {} };
 		const stats = spotStats
 			? new Map([...spotStats.entries()].map(([ms, s]) => [ms / 1000, s]))
 			: undefined;
-		return spotMarkersPlugin(() => [{ seriesIdx, stats }]);
+		return spotMarkersPlugin(() => [
+			{ seriesIdx, stats, flagged: flagged ? (i: number) => flagged[i] === true : undefined },
+		]);
 	}
 
 	let dragOverlayEl: HTMLDivElement | null = null;
@@ -398,6 +439,7 @@
 		let contMins: (number | undefined)[] | null = null;
 		let contMaxs: (number | undefined)[] | null = null;
 		let flags: (boolean | null)[] | null = null;
+		let spotFlags: (boolean | null)[] | null = null;
 		let spotValues: (number | undefined)[] = [];
 
 		if (cont && spot) {
@@ -421,6 +463,11 @@
 				flags = fout;
 			}
 			spotValues = alignNum(spot.times, spot.values);
+			if (spot.flags) {
+				const fout = new Array<boolean | null>(union.length).fill(null);
+				for (let i = 0; i < spot.times.length; i++) { const j = idx.get(spot.times[i]); if (j != null) fout[j] = spot.flags[i] ?? null; }
+				spotFlags = fout;
+			}
 		} else if (cont) {
 			times = cont.times;
 			contValues = toU(cont.values);
@@ -429,6 +476,8 @@
 		} else {
 			times = spot!.times;
 			spotValues = toU(spot!.values);
+			// With no continuous arm the flagged-point plugin reads the spot series itself, so its
+			// flags travel as `flags`; a marker is never drawn twice.
 			flags = spot!.flags ?? null;
 		}
 
@@ -474,7 +523,7 @@
 				thresholdLinePlugin(),
 				calibrationMarkerPlugin(calMarkersRef, overlayVisRef),
 				flaggedPointPlugin(flags),
-				spotDiamondPlugin(spotSeriesIdx),
+				spotDiamondPlugin(spotSeriesIdx, spotFlags),
 				cursorSyncPlugin(),
 			],
 			cursor: {
@@ -483,7 +532,7 @@
 				...(syncKey ? { sync: { key: syncKey } } : {}),
 			},
 			legend: { show: false },
-			scales: { x: { time: true }, y: {} },
+			scales: { x: { time: true }, y: { range: yRange } },
 			axes: [
 				{ ...makeAxis(), size: 40 },
 				{
@@ -528,29 +577,40 @@
 	/// cannot host an action.
 	const SPOT_CLICK_TOLERANCE_PX = 8;
 
-	function spotPointAt(u: uPlot, xCss: number): { timeMs: number; stats: SpotPointStats } | null {
+	function spotPointAt(
+		u: uPlot,
+		xCss: number,
+		yCss: number,
+	): { timeMs: number; stats: SpotPointStats; distance: number } | null {
 		const stats = spotStats;
 		if (!stats || stats.size === 0) return null;
 		// Without an inspector wired, only replicate-carrying points are actionable (the dialog
 		// is a flagging surface); with one, every spot point has a record to show.
 		const requireReplicates = !onpointclick;
-		let best: { timeMs: number; stats: SpotPointStats } | null = null;
-		let bestDistance = Number.POSITIVE_INFINITY;
+		let best: { timeMs: number; stats: SpotPointStats; distance: number } | null = null;
 		for (const [timeMs, stat] of stats) {
 			if (requireReplicates && (!stat.replicates || stat.replicates.length === 0)) continue;
-			const distance = Math.abs(u.valToPos(timeMs / 1000, 'x') - xCss);
-			if (distance < bestDistance) {
-				bestDistance = distance;
-				best = { timeMs, stats: stat };
-			}
+			const dx = Math.abs(u.valToPos(timeMs / 1000, 'x') - xCss);
+			if (dx > SPOT_CLICK_TOLERANCE_PX) continue;
+			const dy = Math.abs(u.valToPos(stat.mean, 'y') - yCss);
+			if (dy > SPOT_CLICK_TOLERANCE_PX) continue;
+			const distance = Math.hypot(dx, dy);
+			if (!best || distance < best.distance) best = { timeMs, stats: stat, distance };
 		}
-		return bestDistance <= SPOT_CLICK_TOLERANCE_PX ? best : null;
+		return best;
 	}
 
 	/// The continuous data point under the click: nearest in x, and vertically close to the line.
 	const CONTINUOUS_CLICK_TOLERANCE_PX = 12;
 
-	function continuousPointAt(u: uPlot, xCss: number, yCss: number): { timeMs: number } | null {
+	function continuousPointAt(
+		u: uPlot,
+		xCss: number,
+		yCss: number,
+	): { timeMs: number; distance: number } | null {
+		// An aggregate bucket start is not an instant any reading sits at, so there is nothing to
+		// resolve and the affordance is withdrawn rather than offered and answered with a 404.
+		if (!exactTimes) return null;
 		if (!onpointclick || !chartData || chartData.times.length === 0) return null;
 		const targetSec = u.posToVal(xCss, 'x');
 		const times = chartData.times;
@@ -561,17 +621,15 @@
 			if (times[mid] / 1000 < targetSec) lo = mid + 1;
 			else hi = mid;
 		}
-		let best: { timeMs: number } | null = null;
-		let bestDistance = Number.POSITIVE_INFINITY;
+		let best: { timeMs: number; distance: number } | null = null;
 		for (let i = Math.max(0, lo - 2); i <= Math.min(times.length - 1, lo + 2); i++) {
 			const value = chartData.values[i];
 			if (value == null) continue;
 			const dx = Math.abs(u.valToPos(times[i] / 1000, 'x') - xCss);
 			const dy = Math.abs(u.valToPos(value, 'y') - yCss);
 			const distance = Math.hypot(dx, dy);
-			if (dx <= SPOT_CLICK_TOLERANCE_PX && dy <= CONTINUOUS_CLICK_TOLERANCE_PX && distance < bestDistance) {
-				bestDistance = distance;
-				best = { timeMs: times[i] };
+			if (dx <= SPOT_CLICK_TOLERANCE_PX && dy <= CONTINUOUS_CLICK_TOLERANCE_PX) {
+				if (!best || distance < best.distance) best = { timeMs: times[i], distance };
 			}
 		}
 		return best;
@@ -602,7 +660,7 @@
 			const actionable =
 				bandStripAt(u, xCss, yCss) ||
 				calStripAt(u, xCss, yCss) ||
-				spotPointAt(u, xCss) ||
+				spotPointAt(u, xCss, yCss) ||
 				continuousPointAt(u, xCss, yCss);
 			over.style.cursor = actionable ? 'pointer' : '';
 		};
@@ -618,8 +676,11 @@
 			if (band) { goto(`${base}/sensors/${band.sensor_id}`); return; }
 			const cal = calStripAt(u, xCss, yCss);
 			if (cal) { goto(`${base}/sensors/${cal.sensorId}?tab=calibrations&cal=${cal.calId}`); return; }
-			const spot = spotPointAt(u, xCss);
-			if (spot) {
+			// Two series can pass within a few pixels of each other at the same instant, so the
+			// nearer candidate wins rather than whichever is tested first.
+			const spot = spotPointAt(u, xCss, yCss);
+			const point = continuousPointAt(u, xCss, yCss);
+			if (spot && (!point || spot.distance <= point.distance)) {
 				if (onpointclick) {
 					onpointclick({
 						timeMs: spot.timeMs,
@@ -627,12 +688,11 @@
 						sampleId: spot.stats.sampleId ?? null,
 					});
 				} else {
-					replicateTarget = spot;
+					replicateTarget = { timeMs: spot.timeMs, stats: spot.stats };
 					replicateOpen = true;
 				}
 				return;
 			}
-			const point = continuousPointAt(u, xCss, yCss);
 			if (point) onpointclick?.({ timeMs: point.timeMs, measurementType: 'continuous' });
 		};
 		over.addEventListener('mousedown', onDown);
@@ -735,6 +795,7 @@
 				sensorBands: showSensorVectors ? sensorBands : [],
 				calibrationMarkers: showCalibrationMarkers ? calibrationMarkers : [],
 				spotStats,
+				spotFlags: publishedSpotFlags(),
 				originLabel,
 			});
 			tick().then(() => renderChart());

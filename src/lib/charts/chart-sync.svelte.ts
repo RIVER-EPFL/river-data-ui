@@ -17,6 +17,9 @@ export interface ChartRegistration {
 	calibrationMarkers?: CalibrationMarker[];
 	// Sample stats keyed by time (ms) for spot points.
 	spotStats?: Map<number, SpotPointStats> | null;
+	/** Flagged state of the spot arm keyed by epoch ms. On a chart carrying both cadences the
+	 *  published `flags` are the continuous arm's, so a flagged grab is only visible here. */
+	spotFlags?: Map<number, boolean> | null;
 	// One-line ingestion origin for the series, e.g. "via cnet portal sync".
 	originLabel?: string;
 }

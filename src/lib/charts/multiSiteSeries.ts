@@ -1,6 +1,7 @@
 import type uPlot from 'uplot';
 import { GET } from '$api/client';
 import type { ReadingsResponse, AggregatesResponse } from '$lib/api/types';
+import type { SpotPointStats } from './spotMarkers';
 
 export type SeriesResolution = 'raw' | 'hourly' | 'daily';
 
@@ -12,6 +13,8 @@ export type Frequency = 'high' | 'low' | 'all';
 export interface SitePointSeries {
 	times: number[]; // epoch ms
 	values: (number | null)[];
+	/** Replicate statistics per instant, present when the fetch asked for them. */
+	stats?: Map<number, SpotPointStats>;
 }
 
 /**
@@ -28,12 +31,26 @@ export async function fetchSiteSeries(opts: {
 	resolution: SeriesResolution;
 	/** Only meaningful on the raw path, aggregates are continuous-only by design. */
 	measurementType?: 'continuous' | 'spot';
+	/** Ask for the replicate statistics behind each spot point, in the same request that draws
+	 *  them. A separate `samples` listing is capped and paginates independently of the window. */
+	includeSampleStats?: boolean;
 }): Promise<SitePointSeries> {
-	const { siteId, parameterId, siteParameterId, start, end, resolution, measurementType } = opts;
+	const {
+		siteId,
+		parameterId,
+		siteParameterId,
+		start,
+		end,
+		resolution,
+		measurementType,
+		includeSampleStats,
+	} = opts;
 	const query: Record<string, string> = { start, end, parameter_ids: parameterId };
 	if (resolution === 'raw' && measurementType) query.measurement_type = measurementType;
+	if (resolution === 'raw' && includeSampleStats) query.include_sample_stats = 'true';
 	let times: number[] = [];
 	let values: (number | null)[] = [];
+	let stats: Map<number, SpotPointStats> | undefined;
 	if (resolution === 'raw') {
 		const result = await GET<ReadingsResponse>(`/api/sites/${siteId}/readings`, query);
 		const series = result.parameters?.find(
@@ -42,6 +59,21 @@ export async function fetchSiteSeries(opts: {
 		if (series && result.times?.length) {
 			times = result.times.map((t) => new Date(t).getTime());
 			values = series.values;
+			// `samples` is aligned to `times`, one entry per point, null where the point has no
+			// replicate group.
+			if (series.samples?.length) {
+				stats = new Map();
+				series.samples.forEach((s, i) => {
+					if (!s || s.mean == null || times[i] == null) return;
+					stats!.set(times[i], {
+						mean: s.mean,
+						stdev: s.stdev ?? null,
+						n: s.n,
+						replicates: s.replicates,
+						sampleId: s.sample_id,
+					});
+				});
+			}
 		}
 	} else {
 		const result = await GET<AggregatesResponse>(
@@ -56,7 +88,7 @@ export async function fetchSiteSeries(opts: {
 			values = series.avg;
 		}
 	}
-	return { times, values };
+	return { times, values, stats };
 }
 
 /** Union all timestamps across series and align each onto the shared x-axis (seconds). */

@@ -18,6 +18,7 @@
 	import {
 		spotMarkersPlugin,
 		spotSeriesConfig,
+		spotWhiskerExtent,
 		type SpotPointStats,
 		type SpotSeriesSpec,
 	} from '$lib/charts/spotMarkers';
@@ -191,7 +192,7 @@
 						spotStats: new Map(),
 					};
 					try {
-						const [continuous, spot, stats] = await Promise.all([
+						const [continuous, spot] = await Promise.all([
 							wantContinuous
 								? fetchSiteSeries({
 										siteId,
@@ -214,11 +215,21 @@
 										end: endIso,
 										resolution: 'raw',
 										measurementType: 'spot',
+										includeSampleStats: true,
 									}).catch(() => ({ times: [], values: [] }) as SitePointSeries)
 								: Promise.resolve<SitePointSeries>({ times: [], values: [] }),
-							wantSpot ? fetchSpotStats(siteId, startIso, endIso) : Promise.resolve(new Map<number, SpotPointStats>()),
 						]);
-						return { ...empty, times: continuous.times, values: continuous.values, spot, spotStats: stats };
+						return {
+							...empty,
+							times: continuous.times,
+							values: continuous.values,
+							spot,
+							// The statistics ride the fetch that draws the points, so they cover
+							// exactly the window on screen. A separate `samples` listing pages
+							// independently of it and silently loses every whisker on a slot with
+							// more history than one page.
+							spotStats: spot.stats ?? new Map<number, SpotPointStats>(),
+						};
 					} catch {
 						failed.push(siteName);
 						return empty;
@@ -239,31 +250,23 @@
 		}
 	}
 
-	// Replicate statistics for whiskers: one samples fetch per site, filtered to the window
-	// client-side (grab campaigns are small). Keyed by epoch ms of collected_at.
-	async function fetchSpotStats(
-		siteId: string,
-		startIso: string,
-		endIso: string,
-	): Promise<Map<number, SpotPointStats>> {
-		try {
-			const res = await api.samples.list({
-				perPage: 1000,
-				filter: { site_id: siteId, parameter_id: parameterId },
-				sort: ['collected_at', 'ASC'],
-			});
-			const startMs = new Date(startIso).getTime();
-			const endMs = new Date(endIso).getTime();
-			const map = new Map<number, SpotPointStats>();
-			for (const s of res.data) {
-				const t = new Date(s.collected_at).getTime();
-				if (t < startMs || t > endMs || s.mean == null) continue;
-				map.set(t, { mean: s.mean, stdev: s.stdev, n: s.n, sampleId: s.id });
-			}
-			return map;
-		} catch {
-			return new Map();
+	/// The y range, widened so no error bar is clipped at the plot edge. uPlot ranges from the
+	/// series values, which are the means, so a bar wider than the spread of the means renders as a
+	/// full-height line with both caps off-screen and nothing saying it was cut.
+	const Y_RANGE_BUFFER = 0.1;
+
+	function yRange(_u: uPlot, dataMin: number | null, dataMax: number | null): [number, number] {
+		let lo = dataMin ?? 0;
+		let hi = dataMax ?? 1;
+		for (const series of loaded) {
+			const extent = spotWhiskerExtent(series.spotStats.values());
+			if (!extent) continue;
+			lo = Math.min(lo, extent[0]);
+			hi = Math.max(hi, extent[1]);
 		}
+		const span = hi - lo;
+		const pad = span > 0 ? span * Y_RANGE_BUFFER : Math.abs(hi) * Y_RANGE_BUFFER || 1;
+		return [lo - pad, hi + pad];
 	}
 
 	const pointCount = $derived(
@@ -298,7 +301,7 @@
 			width: 800,
 			height: 350,
 			...tzDateOption(),
-			scales: { x: { time: true }, y: { auto: true } },
+			scales: { x: { time: true }, y: { auto: true, range: yRange } },
 			axes: [makeAxis({}), makeAxis({ size: 60, label: yLabel })],
 			series: [
 				{ label: 'Time' },

@@ -158,14 +158,21 @@
 							<td class="py-1.5 text-xs {rep.standard_curve_id ? '' : 'text-brand-muted'}">
 								{curveRefs.standardCurveLabel(rep.standard_curve_id)}
 							</td>
-							<td class="py-1.5 text-right {rep.flagged ? 'text-severity-alarm' : 'text-brand-muted'}">
-								{rep.flagged ? 'Flagged' : 'Included'}
+							<td
+								class="py-1.5 text-right {rep.flagged || rep.withdrawn
+									? 'text-severity-alarm'
+									: 'text-brand-muted'}"
+								title={rep.withdrawn
+									? 'The source no longer claims this value; it is already out of the mean'
+									: undefined}
+							>
+								{rep.withdrawn ? 'Withdrawn' : rep.flagged ? 'Flagged' : 'Included'}
 							</td>
 							<td class="py-1.5 text-right">
 								<Button
 									size="sm"
 									variant={rep.flagged ? 'secondary' : 'danger'}
-									disabled={busyIndex != null}
+									disabled={busyIndex != null || rep.withdrawn}
 									onclick={() => toggle(rep)}
 								>
 									{busyIndex === rep.replicate_index ? 'Saving…' : rep.flagged ? 'Restore' : 'Flag'}

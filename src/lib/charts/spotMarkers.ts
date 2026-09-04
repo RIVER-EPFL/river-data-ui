@@ -32,6 +32,8 @@ export interface SpotSeriesSpec {
 	stroke?: string;
 	/** mean±sd whiskers keyed by x value (seconds). Only drawn for entries with n ≥ 2 and a stdev. */
 	stats?: Map<number, SpotPointStats>;
+	/** Whether the point at this data index is flagged. Drawn with the flagged glyph. */
+	flagged?: (i: number) => boolean;
 }
 
 /** Transparent uPlot series carrying spot values: ranges the y-scale, draws nothing itself. */
@@ -67,6 +69,21 @@ export function drawDiamond(
 	ctx.stroke();
 }
 
+/** A cross through a point, the glyph for a flagged value. */
+export function drawFlagCross(
+	ctx: CanvasRenderingContext2D,
+	x: number,
+	y: number,
+	size: number,
+): void {
+	ctx.beginPath();
+	ctx.moveTo(x - size, y - size);
+	ctx.lineTo(x + size, y + size);
+	ctx.moveTo(x + size, y - size);
+	ctx.lineTo(x - size, y + size);
+	ctx.stroke();
+}
+
 function drawWhisker(
 	ctx: CanvasRenderingContext2D,
 	u: uPlot,
@@ -89,6 +106,33 @@ function drawWhisker(
 }
 
 /**
+ * The `[min, max]` a set of spot points occupies once their whiskers are drawn, or `null` when
+ * nothing has one. uPlot ranges y from the series values, which are the means, so a bar wider than
+ * the spread of the means is clipped at the plot edge and reads as a full-height line with no caps.
+ */
+export function spotWhiskerExtent(
+	stats: Iterable<SpotPointStats> | undefined,
+): [number, number] | null {
+	let lo = Number.POSITIVE_INFINITY;
+	let hi = Number.NEGATIVE_INFINITY;
+	for (const s of stats ?? []) {
+		const sd = s.stdev != null && s.n >= 2 && s.stdev > 0 ? s.stdev : 0;
+		if (!Number.isFinite(s.mean)) continue;
+		lo = Math.min(lo, s.mean - sd);
+		hi = Math.max(hi, s.mean + sd);
+	}
+	return Number.isFinite(lo) && Number.isFinite(hi) ? [lo, hi] : null;
+}
+
+/** Whether some, but not all, of a group's replicates are excluded from its mean. */
+export function partiallyCurated(stat: SpotPointStats | undefined): boolean {
+	const reps = stat?.replicates ?? [];
+	if (reps.length < 2) return false;
+	const excluded = reps.filter((r) => r.flagged || r.withdrawn).length;
+	return excluded > 0 && excluded < reps.length;
+}
+
+/**
  * Paint diamond markers (and whiskers where stats exist) for each spot series. `specs` is a
  * callback so callers can rebuild the series list reactively without recreating the plugin.
  */
@@ -106,14 +150,21 @@ export function spotMarkersPlugin(specs: () => SpotSeriesSpec[]): uPlot.Plugin {
 						const vData = u.data[spec.seriesIdx] as (number | null | undefined)[];
 						if (!vData) return;
 						const pointCount = vData.reduce<number>((acc, v) => acc + (v == null ? 0 : 1), 0);
-						const size = spotMarkerSize(pointCount);
+						// Positions come back in canvas pixels, so the sizes drawn against them are
+						// canvas pixels too: without this a 6 px diamond is 3 CSS px on a 2x display
+						// and the caps that make an error bar readable all but vanish.
+						const ratio =
+							(u as unknown as { pxRatio?: number }).pxRatio ??
+							(typeof window !== 'undefined' ? window.devicePixelRatio : 1) ??
+							1;
+						const size = spotMarkerSize(pointCount) * ratio;
 						ctx.save();
 						ctx.beginPath();
 						ctx.rect(left, top, width, height);
 						ctx.clip();
 						ctx.fillStyle = spec.fill ?? uPlotTheme.grabSampleFill;
 						ctx.strokeStyle = spec.stroke ?? uPlotTheme.grabSampleStroke;
-						ctx.lineWidth = 1.5;
+						ctx.lineWidth = 1.5 * ratio;
 						for (let i = 0; i < xData.length; i++) {
 							const val = vData[i];
 							if (val == null) continue;
@@ -123,7 +174,17 @@ export function spotMarkersPlugin(specs: () => SpotSeriesSpec[]): uPlot.Plugin {
 							if (stat && stat.n >= 2 && stat.stdev != null && stat.stdev > 0) {
 								drawWhisker(ctx, u, x, stat.mean, stat.stdev, size);
 							}
+							// A group some of whose replicates were curated away is drawn in the
+							// flagged colour: the value is still served, but it no longer stands on
+							// everything that was measured, and the whisker alone cannot say that.
+							const flagged = spec.flagged?.(i) ?? false;
+							const partial = !flagged && partiallyCurated(stat);
+							if (flagged || partial) ctx.strokeStyle = uPlotTheme.flaggedColor;
 							drawDiamond(ctx, x, y, size);
+							// A fully flagged group takes the cross; a partially curated one keeps
+							// the outline alone, so the two states stay distinguishable.
+							if (flagged) drawFlagCross(ctx, x, y, size);
+							if (flagged || partial) ctx.strokeStyle = spec.stroke ?? uPlotTheme.grabSampleStroke;
 						}
 						ctx.restore();
 					}

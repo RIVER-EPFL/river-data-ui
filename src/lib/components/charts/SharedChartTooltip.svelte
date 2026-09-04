@@ -76,7 +76,10 @@
 			const severity: 'alarm' | 'warning' | null =
 				sevLevel === 2 ? 'alarm' : sevLevel === 1 ? 'warning' : null;
 
-			const flagged = reg.flags?.[c.idx] === true;
+			// The published `flags` are the continuous arm's; on a chart carrying both cadences a
+			// flagged grab is reported only by the spot channel, keyed by instant.
+			const spotFlagged = tMs != null && reg.spotFlags?.get(tMs) === true;
+			const flagged = reg.flags?.[c.idx] === true || spotFlagged;
 			const flagReason = flagged ? (reg.flagReasons?.[c.idx] ?? null) : null;
 
 			let sensorLabel: string | null = null;
@@ -121,14 +124,31 @@
 						calibrated: rep?.calibrated_value ?? null,
 					};
 				}
-				if (stat && stat.n >= 2) {
-					const reps = (stat.replicates ?? [])
-						.map((r) => (r.calibrated_value ?? r.raw_value).toFixed(2) + (r.flagged ? '*' : ''))
+				const all = stat?.replicates ?? [];
+				if (stat && (stat.n >= 2 || all.length > 1)) {
+					const reps = all
+						.map(
+							(r) =>
+								(r.calibrated_value ?? r.raw_value).toFixed(2) +
+								(r.withdrawn ? '\u2020' : r.flagged ? '*' : '')
+						)
 						.join(', ');
 					const sd = stat.stdev != null ? ` ±${stat.stdev.toFixed(2)}` : '';
+					// The listing shows every stored replicate, the mean counts only the ones that
+					// survive curation, so the excluded ones are named rather than left to an
+					// unexplained mark against a count that does not add up.
+					const flagged = all.filter((r) => r.flagged && !r.withdrawn).length;
+					const withdrawn = all.filter((r) => r.withdrawn).length;
+					const excluded = [
+						flagged ? `${flagged} of ${all.length} flagged*` : '',
+						withdrawn ? `${withdrawn} withdrawn\u2020` : '',
+					]
+						.filter(Boolean)
+						.join(', ');
 					sampleLine = reps
 						? `mean of ${stat.n}${sd}: ${reps}`
 						: `mean of ${stat.n} replicates${sd}`;
+					if (excluded) sampleLine += ` (${excluded})`;
 				}
 			}
 
