@@ -20,6 +20,7 @@
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import PaginationControls from '$components/ui/PaginationControls.svelte';
 	import { cellRecord, estimatorWord, visitCellMarker, visitCellStatistics, visitCounts } from '$lib/visits/cell';
+	import { cellRole } from '$lib/visits/role';
 	import SensorVsGrabPanel from '$components/sites/SensorVsGrabPanel.svelte';
 	import { buildReadingsExportParams, exportColumns } from '$lib/sites/exportParams';
 	import { readPointParams, writePointParams, type PointRef } from '$lib/provenance/pointLink';
@@ -2669,6 +2670,14 @@
 																			onclick={() => (visitCell = { parameterId: cell.parameter_id, parameterName: cell.parameter_name })}
 																		>{cell.parameter_name}</button>
 																		{#if unitsForParameter(cell.parameter_id)}<span class="text-brand-muted">({unitsForParameter(cell.parameter_id)})</span>{/if}
+																		{#if cellRole(cell).title}
+																			<span
+																				class="ml-1.5 rounded px-1 text-[10px] {cellRole(cell).role === 'output'
+																					? 'bg-brand-accent/15 text-brand-accent-dark'
+																					: 'bg-brand-primary/10 text-brand-primary'}"
+																				title={cellRole(cell).title}
+																			>{cellRole(cell).role === 'output' ? cell.written_by : `→ ${(cell.read_by ?? []).join(', ')}`}</span>
+																		{/if}
 																	</td>
 																	<td class="py-1 pr-3 tabular-nums">
 																		{cell.served_value != null ? Number(cell.served_value.toPrecision(6)) : '-'}

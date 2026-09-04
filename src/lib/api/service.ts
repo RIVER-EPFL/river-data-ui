@@ -1811,6 +1811,10 @@ export interface EventCell {
 	has_provenance: boolean;
 	tool?: string;
 	replicates: EventCellReplicate[];
+	/** Calculations that read this parameter: what this value feeds, by tool name. */
+	read_by?: string[];
+	/** The calculation that writes this parameter, when one does: the value is computed, not measured. */
+	written_by?: string;
 	/** The instant's assembled record for this stream, so the point record needs no second fetch. */
 	record?: ProvenanceRecord;
 	finding?: { id: string; kind: HoldKind; tool?: string; status: string };
@@ -2766,3 +2770,35 @@ export const getSiteStatistics = (
 		measurement_type?: 'continuous' | 'spot';
 	}
 ) => GET<SiteStatisticsResponse>(`${ADMIN}/sites/${siteId}/statistics`, params);
+
+/** One calculation a set of parameters feeds, and the outputs it rewrites. */
+export interface CalculationImpact {
+	tool: string;
+	label: string;
+	reads: { parameter_id: string; parameter_code: string }[];
+	outputs: { parameter_id: string; parameter_code: string }[];
+}
+
+/** Where one calculation slot's data lives, and where the stored values came from. */
+export interface SlotCoverage {
+	parameter_id: string;
+	parameter_code: string;
+	/** Zero is the state that matters: a calculation input no site has configured. */
+	sites_configured: number;
+	reading_count: number;
+	first_reading?: string;
+	last_reading?: string;
+	source_systems: string[];
+	run_sources: string[];
+}
+
+export interface ClosureResponse {
+	calculations: CalculationImpact[];
+	coverage?: SlotCoverage[];
+}
+
+export const getCalculationClosure = (params: {
+	parameter_ids?: string;
+	site_id?: string;
+	include_coverage?: boolean;
+}) => GET<ClosureResponse>(`${ADMIN}/calculations/closure`, params);

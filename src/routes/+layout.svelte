@@ -87,6 +87,7 @@
 			items: [
 				{ href: `${base}/sensors`, label: 'Sensors & Instruments', icon: 'cpu', also: [`${base}/instruments`, `${base}/sensor-calibrations`, `${base}/sensor-deployments`] },
 				{ href: `${base}/parameters`, label: 'Parameters', icon: 'sliders', minCap: 'writeCatalog', also: [`${base}/constants`, `${base}/derived`] },
+				{ href: `${base}/toolbox`, label: 'Toolbox', icon: 'wrench', minCap: 'writeCatalog' },
 			],
 		},
 		{
