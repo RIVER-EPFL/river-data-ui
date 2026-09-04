@@ -304,7 +304,7 @@
 								{/if}
 							</div>
 						{/if}
-						<ToolForm spec={activeTool} bind:form bind:curveSelections />
+						<ToolForm spec={activeTool} bind:form bind:curveSelections siteId={contextSiteId || null} />
 
 						<Button variant="primary" type="submit" disabled={calculating}>
 							{calculating ? 'Calculating…' : 'Calculate'}

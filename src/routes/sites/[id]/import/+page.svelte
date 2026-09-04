@@ -141,6 +141,10 @@
 	const dataColumns = $derived(previewHeaders.filter((h) => !isDateTimeColumn(h)));
 	const paramNameById = $derived(new Map(siteParamOptions.map((o) => [o.id, o.label])));
 	const selectedTool = $derived(tools.find((t) => t.name === toolName) ?? null);
+	/** The `replicates` param a curve slot corrects, which names the parameter its curves are for. */
+	function curveSlotParam(slot: string) {
+		return selectedTool?.params.find((p) => p.kind === 'replicates' && p.curve === slot) ?? null;
+	}
 	// A manual slope/intercept has no stored row for the readings to reference, so the import
 	// cannot record it.
 	const manualCurveSlots = $derived(
@@ -510,6 +514,9 @@
 							title={`${slot.label} (${slot.slot})`}
 							required={slot.required}
 							bind:value={curveSelections[slot.slot]}
+							{siteId}
+							parameterId={curveSlotParam(slot.slot)?.parameter?.id ?? null}
+							parameterCode={curveSlotParam(slot.slot)?.parameter_code ?? null}
 						/>
 						{#if slot.column}
 							<p class="mt-1 text-xs text-brand-muted">

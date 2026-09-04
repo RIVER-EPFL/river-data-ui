@@ -12,7 +12,7 @@
 		getPlanInstruments,
 		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type SdEstimator, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
 		type PlanReplicateSummary, type StreamReceipt, type PlanWarning, type PlanInstrumentRef,
-		type PlanInstruments, type PlanInstrumentGroup, type PlanDeviceGroup,
+		type PlanInstruments, type PlanInstrumentGroup, type PlanDeviceGroup, type PlanCurveAssignment,
 	type StreamPreview,
 	} from '$api/service';
 	import { listReplicateAudits } from '$api/service';
@@ -192,8 +192,6 @@
 		entries: PairingPlanEntry[];
 		pairCount: number;
 		skipCount: number;
-		exactCount: number;
-		noneCount: number;
 		warningCount: number;
 	}
 
@@ -212,8 +210,6 @@
 				entries,
 				pairCount: entries.filter((e) => e.action === 'pair').length,
 				skipCount: entries.filter((e) => e.action === 'skip').length,
-				exactCount: entries.filter((e) => e.confidence === 'exact').length,
-				noneCount: entries.filter((e) => e.confidence === 'none').length,
 				warningCount: entries.reduce((n, e) => n + e.warnings.length, 0),
 			});
 		}
@@ -450,7 +446,6 @@
 		groupKey: string | null;
 		units: string;
 		create: boolean;
-		confidence: 'exact' | 'none' | 'mixed';
 		siteCount: number;
 		streamIds: string[];
 		warnings: string[];
@@ -461,25 +456,23 @@
 
 	const paramGroups = $derived.by((): ParamGroup[] => {
 		// Keyed on name AND units so same-name parameters with different units get separate rows.
-		const map = new Map<string, { name: string; label: string | null; originalName: string; originalNames: Set<string>; groupKey: string | null; units: string; create: boolean; confs: Set<string>; siteNames: Set<string>; streamIds: string[]; warnings: Set<string>; replicates: PlanReplicateSummary | null; instrument: PlanInstrumentRef | null }>();
+		const map = new Map<string, { name: string; label: string | null; originalName: string; originalNames: Set<string>; groupKey: string | null; units: string; create: boolean; siteNames: Set<string>; streamIds: string[]; warnings: Set<string>; replicates: PlanReplicateSummary | null; instrument: PlanInstrumentRef | null }>();
 		for (const e of planEntries) {
 			const key = `${e.parameter.name}::${e.parameter.units}`;
 			let g = map.get(key);
-			if (!g) { g = { name: e.parameter.name, label: e.parameter.label ?? null, originalName: e.source_name ?? e.source_key, originalNames: new Set(), groupKey: e.parameter.group_key ?? null, units: e.parameter.units, create: e.parameter.create, confs: new Set(), siteNames: new Set(), streamIds: [], warnings: new Set(), replicates: e.replicates ?? null, instrument: e.instrument ?? null }; map.set(key, g); }
+			if (!g) { g = { name: e.parameter.name, label: e.parameter.label ?? null, originalName: e.source_name ?? e.source_key, originalNames: new Set(), groupKey: e.parameter.group_key ?? null, units: e.parameter.units, create: e.parameter.create, siteNames: new Set(), streamIds: [], warnings: new Set(), replicates: e.replicates ?? null, instrument: e.instrument ?? null }; map.set(key, g); }
 			if (!g.label && e.parameter.label) g.label = e.parameter.label;
 			if (!g.replicates && e.replicates) g.replicates = e.replicates;
 			if (!g.instrument && e.instrument) g.instrument = e.instrument;
 			if (e.original_parameter_name) g.originalNames.add(e.original_parameter_name);
-			g.confs.add(e.confidence);
 			g.siteNames.add(e.site.name);
 			g.streamIds.push(e.stream_id);
 			for (const w of e.warnings) g.warnings.add(w.message);
 		}
 		const groups: ParamGroup[] = [];
 		for (const g of map.values()) {
-			const confidence = g.confs.size === 1 ? (g.confs.has('exact') ? 'exact' : 'none') : 'mixed';
 			const pairCount = planEntries.filter((e) => g.streamIds.includes(e.stream_id) && e.action === 'pair').length;
-			groups.push({ name: g.name, label: g.label, originalName: g.originalName, originalNames: [...g.originalNames], groupKey: g.groupKey, units: g.units, create: g.create, confidence, siteCount: g.siteNames.size, streamIds: g.streamIds, warnings: [...g.warnings], replicates: g.replicates, instrument: g.instrument, pairCount });
+			groups.push({ name: g.name, label: g.label, originalName: g.originalName, originalNames: [...g.originalNames], groupKey: g.groupKey, units: g.units, create: g.create, siteCount: g.siteNames.size, streamIds: g.streamIds, warnings: [...g.warnings], replicates: g.replicates, instrument: g.instrument, pairCount });
 		}
 		return groups.sort((a, b) => a.name.localeCompare(b.name) || a.units.localeCompare(b.units));
 	});
@@ -536,15 +529,19 @@
 		}
 		return [...map.values()].sort((a, b) => a.paramName.localeCompare(b.paramName));
 	});
-	// Only the families the audit actually disputes are put to the operator: sample (n-1) is the
-	// presumption and a family nothing disagrees with is declared with it at plan creation. What is
-	// left is a disagreement the population divisor explains, or one neither divisor does.
+	// Every family that has no declaration is put to the operator, plus any the audit disputes: the
+	// divisor is never inferred, so a family nothing disagrees with still has to be declared, and a
+	// disagreement the population divisor explains is the evidence shown beside the choice.
 	const sdDisputed = $derived(sdDecisions.filter((g) => g.holds > 0 || !g.declared));
 	const sdDisputedByParam = $derived(new Map(sdDisputed.map((g) => [g.paramName, g])));
 	const sdOpen = $derived(sdDisputed.filter((g) => !g.declared).length);
 
 	function auditClassParam(v: string | null): 'population_sd' | 'not_population_sd' | undefined {
 		return v === 'population_sd' || v === 'not_population_sd' ? v : undefined;
+	}
+
+	function auditViewParam(v: string | null): 'review' | 'resolved' | 'deferred' {
+		return v === 'deferred' || v === 'resolved' ? v : 'review';
 	}
 
 	// The counts quoted next to a divisor decision are the audit queue's own, so they open it on
@@ -630,13 +627,34 @@
 		return map;
 	});
 
-	async function rehomeCurve(curveId: string, sensorId: string) {
-		if (!sensorId) return;
+	// An instrument that exists takes the curve now; one this plan will create takes it when the
+	// plan is applied, so the choice is carried on the plan until then.
+	const PLAN_INSTRUMENT_PREFIX = 'plan:';
+	async function rehomeCurve(curve: PlanCurveAssignment, target: string) {
+		if (!target || !plan) return;
 		try {
-			await api.standardCurves.update(curveId, { sensor_id: sensorId });
+			if (target.startsWith(PLAN_INSTRUMENT_PREFIX)) {
+				await updatePairingPlan(plan.id, [], [{ curve_id: curve.id, instrument_source_key: target.slice(PLAN_INSTRUMENT_PREFIX.length) }]);
+			} else {
+				if (curve.pending_source_key) {
+					await updatePairingPlan(plan.id, [], [{ curve_id: curve.id, instrument_source_key: null }]);
+				}
+				if (target !== curve.sensor_id) {
+					await api.standardCurves.update(curve.id, { sensor_id: target });
+				}
+			}
 			await loadPlanInstruments();
 		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Could not move the curve'); }
 	}
+
+	// The instruments this plan will create, one option each however many parameters share one.
+	const plannedInstruments = $derived.by(() => {
+		const seen = new Map<string, string>();
+		for (const g of planInstruments?.groups ?? []) {
+			if (g.create && !seen.has(g.source_key)) seen.set(g.source_key, g.name);
+		}
+		return [...seen.entries()].map(([sourceKey, name]) => ({ sourceKey, name }));
+	});
 
 	// Inline edits in the Instruments tab, keyed the same way the parameter cells are: one open
 	// editor at a time, Enter commits, Escape abandons.
@@ -1465,7 +1483,8 @@
 			and served either way; each item is queued here for a decision.
 		</p>
 		<ReplicateAuditsPanel
-			initialView={page.url.searchParams.get('view') === 'deferred' ? 'deferred' : 'review'}
+			initialView={auditViewParam(page.url.searchParams.get('view'))}
+			initialHoldId={page.url.searchParams.get('holds_id') ?? undefined}
 			initialStreamIds={page.url.searchParams.get('holds_streams')?.split(',') ?? undefined}
 			initialClassification={auditClassParam(page.url.searchParams.get('holds_class'))}
 			initialFocusLabel={page.url.searchParams.get('holds_label') ?? undefined}
@@ -2033,9 +2052,9 @@
 											<td class="px-3 py-2 text-right text-xs {c.reading_count > 0 ? 'text-brand-text' : 'text-brand-muted'}">{formatCount(c.reading_count)}</td>
 											<td class="px-3 py-2">
 												<select
-													value={c.sensor_id}
-													onchange={(e) => rehomeCurve(c.id, (e.target as HTMLSelectElement).value)}
-													class="px-2 py-1 rounded text-xs bg-brand-surface border border-brand-divider max-w-[240px]"
+													value={c.pending_source_key ? PLAN_INSTRUMENT_PREFIX + c.pending_source_key : c.sensor_id}
+													onchange={(e) => rehomeCurve(c, (e.target as HTMLSelectElement).value)}
+													class="px-2 py-1 rounded text-xs bg-brand-surface border max-w-[240px] {c.pending_source_key ? 'border-brand-primary' : 'border-brand-divider'}"
 													aria-label="Instrument for {c.name ?? c.id}"
 													title={c.reading_count > 0 ? `Moving this curve changes which instrument ${formatCount(c.reading_count)} corrected readings name` : 'Move this curve to another instrument'}
 												>
@@ -2045,7 +2064,17 @@
 													{#each labInstruments as s}
 														<option value={s.id}>{s.name ?? s.serial_number ?? s.id}</option>
 													{/each}
+													{#if plannedInstruments.length > 0}
+														<optgroup label="Created when this plan is applied">
+															{#each plannedInstruments as p (p.sourceKey)}
+																<option value={PLAN_INSTRUMENT_PREFIX + p.sourceKey}>{p.name}</option>
+															{/each}
+														</optgroup>
+													{/if}
 												</select>
+												{#if c.pending_source_key}
+													<div class="text-[11px] text-brand-muted mt-0.5">Moves on apply</div>
+												{/if}
 											</td>
 										</tr>
 									{/each}
@@ -2053,8 +2082,8 @@
 							</table>
 						</div>
 						<p class="text-xs text-brand-muted">
-							Only instruments that already exist can hold a curve. One this plan will create becomes
-							available after the plan is applied.
+							Moving a curve to an existing instrument happens now. Moving it to an instrument this
+							plan creates happens when the plan is applied, in the same step that creates it.
 						</p>
 					{/if}
 
@@ -2088,7 +2117,6 @@
 							{@const siteMatched = existingSites.find((s) => s.name.toLowerCase() === group.siteName.toLowerCase())}
 							<div class="flex items-center border-b border-brand-divider hover:bg-brand-bg/50 {allSkip ? 'opacity-50' : ''}">
 								<button onclick={() => toggleExpand(group.siteName)} aria-label={isExpanded ? 'Collapse site group' : 'Expand site group'} class="px-3 py-2 bg-transparent border-none cursor-pointer text-brand-muted text-xs w-6">{isExpanded ? '▼' : '▶'}</button>
-								<span class="w-2.5 h-2.5 rounded-full mr-2 flex-shrink-0 {group.exactCount === group.entries.length ? 'bg-severity-ok-fill' : group.noneCount === group.entries.length ? 'bg-severity-warning-fill' : 'bg-brand-accent'}"></span>
 								<div class="flex-1 py-2 min-w-0">
 									{#if editingSite === group.siteName}
 										<input type="text" bind:value={editValue} onkeydown={(e) => { if (e.key === 'Enter') commitEditSite(); if (e.key === 'Escape') editingSite = null; }} onblur={commitEditSite} class="px-1 py-0.5 border border-brand-primary rounded text-sm bg-brand-surface w-48" autofocus />

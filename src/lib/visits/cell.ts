@@ -1,4 +1,4 @@
-import type { EventCell, VisitCell } from '$api/service';
+import type { EventCell, EventDetailResponse, ProvenanceRecord, ProvenanceResponse, VisitCell } from '$api/service';
 
 export interface CellMarker {
 	text: string;
@@ -44,4 +44,23 @@ export function visitCounts(cells: EventCell[]): VisitCounts {
 		if (cell.finding) counts.findings += 1;
 	}
 	return counts;
+}
+
+/**
+ * One parameter of a visit as the response the point record renders: every stream serving it at
+ * the visit is a record, and two of them is a duplicate slot. A finding-only cell has no readings
+ * and so no record.
+ */
+export function cellRecord(detail: EventDetailResponse, parameterId: string): ProvenanceResponse {
+	const records = detail.cells
+		.filter((c) => c.parameter_id === parameterId)
+		.map((c) => c.record)
+		.filter((r): r is ProvenanceRecord => r != null);
+	return {
+		time: detail.collected_at,
+		site_id: detail.site_id,
+		parameter_id: parameterId,
+		duplicate_slot: records.length > 1,
+		records,
+	};
 }

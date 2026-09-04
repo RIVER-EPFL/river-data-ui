@@ -22,13 +22,21 @@
 		form = $bindable(),
 		curveSelections = $bindable(),
 		idPrefix = 'tp',
+		siteId = null,
 	}: {
 		spec: ToolFormSpec;
 		form: FormState;
 		curveSelections: Record<string, CurveSelection>;
 		/** Keeps input ids unique when two forms share a page. */
 		idPrefix?: string;
+		/** The staged visit's site; lets each curve picker open on what was last used there. */
+		siteId?: string | null;
 	} = $props();
+
+	/** The `replicates` param a curve slot corrects, which names the parameter its curves are for. */
+	function curveSlotParam(slot: string) {
+		return spec.params.find((p) => p.kind === 'replicates' && p.curve === slot) ?? null;
+	}
 
 	let newColumn = $state<Record<string, string>>({});
 
@@ -398,7 +406,14 @@
 	{/each}
 
 	{#each spec.curves as c (spec.name + c.name)}
-		<CurvePicker title={c.label} required={c.required} bind:value={curveSelections[c.name]} />
+		<CurvePicker
+			title={c.label}
+			required={c.required}
+			bind:value={curveSelections[c.name]}
+			{siteId}
+			parameterId={curveSlotParam(c.name)?.parameter?.id ?? null}
+			parameterCode={curveSlotParam(c.name)?.parameter_code ?? null}
+		/>
 	{/each}
 
 	{#if plan.length === 0 && spec.curves.length === 0}

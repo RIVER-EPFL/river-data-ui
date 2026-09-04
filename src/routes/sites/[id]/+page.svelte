@@ -16,7 +16,8 @@
 	import Dialog from '$components/ui/Dialog.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import PaginationControls from '$components/ui/PaginationControls.svelte';
-	import { visitCellMarker, visitCounts } from '$lib/visits/cell';
+	import { cellRecord, visitCellMarker, visitCounts } from '$lib/visits/cell';
+	import { readPointParams, writePointParams, type PointRef } from '$lib/provenance/pointLink';
 	import Badge from '$components/ui/Badge.svelte';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
 	import ThresholdDialog from '$components/dialogs/ThresholdDialog.svelte';
@@ -95,6 +96,7 @@
 		if (key === 'charts') url.searchParams.delete('tab');
 		else url.searchParams.set('tab', key);
 		if (key !== 'visits') url.searchParams.delete('event');
+		if (key !== 'charts') writePointParams(url.searchParams, null);
 		goto(url, { replaceState: true, noScroll: true, keepFocus: true });
 	});
 	let statsOpen = $state(false);
@@ -112,8 +114,70 @@
 	// Series-level origin labels by site_parameter id, kept across fetches (an aggregate-only
 	// fetch carries no origins and must not erase what a raw fetch learned).
 	let originLabels = $state<Map<string, string>>(new Map());
-	let inspectorFlagOpen = $state(false);
-	let inspectorFlagReplicates = $state<SampleReplicate[]>([]);
+	// The replicate flag dialog, opened from a point record under a chart or in a visit. The
+	// replicates come from the record itself; `onSaved` refreshes whichever surface opened it.
+	let flagTarget = $state<{
+		parameterId: string;
+		parameterName: string;
+		timeIso: string;
+		replicates: SampleReplicate[];
+		onSaved: () => void;
+	} | null>(null);
+	let flagOpen = $state(false);
+	// Bumped after a curation write so a fetched record re-reads itself.
+	let inspectorRevision = $state(0);
+
+	// The open chart record travels in the URL (?point=&t=&mt=), so it can be linked and survives a
+	// reload. The reader runs once the site's parameters are known and before the writer may run,
+	// or the writer would erase the link it was about to restore.
+	let pointRestored = $state(false);
+	$effect(() => {
+		if (pointRestored || siteParameters.length === 0) return;
+		const ref = readPointParams(page.url.searchParams);
+		const sp = ref ? siteParameters.find((s) => s.id === ref.siteParameterId) : null;
+		if (ref && sp) {
+			untrack(() => {
+				inspector = {
+					siteParameterId: sp.id,
+					parameterId: sp.parameter_id,
+					parameterName: paramName(sp.parameter_id),
+					timeIso: ref.timeIso,
+					measurementType: ref.measurementType,
+				};
+			});
+		}
+		pointRestored = true;
+	});
+	$effect(() => {
+		if (!pointRestored || activeKey !== 'charts') return;
+		const wanted: PointRef | null = inspector
+			? {
+					siteParameterId: inspector.siteParameterId,
+					timeIso: inspector.timeIso,
+					measurementType: inspector.measurementType,
+				}
+			: null;
+		const current = readPointParams(page.url.searchParams);
+		if (JSON.stringify(current) === JSON.stringify(wanted)) return;
+		const url = new URL(page.url.href);
+		writePointParams(url.searchParams, wanted);
+		goto(url, { replaceState: true, noScroll: true, keepFocus: true });
+	});
+
+	function chartPointLink(ref: PointRef): string {
+		const url = new URL(`${base}/sites/${siteId}`, page.url.origin);
+		writePointParams(url.searchParams, ref);
+		return url.toString();
+	}
+
+	function visitPointLink(eventId: string, parameterId: string): string {
+		const url = new URL(`${base}/sites/${siteId}`, page.url.origin);
+		url.searchParams.set('tab', 'visits');
+		url.searchParams.set('event', eventId);
+		const sp = siteParameters.find((s) => s.parameter_id === parameterId);
+		if (sp) url.searchParams.set('point', sp.id);
+		return url.toString();
+	}
 
 	function originLabelOf(origins: { source_system: string }[] | undefined): string {
 		if (!origins?.length) return '';
@@ -143,13 +207,32 @@
 		};
 	}
 
-	function openInspectorFlag() {
+	function openChartFlag(sp: SiteParameter, name: string, replicates: SampleReplicate[]) {
 		if (!inspector) return;
-		const stat = spotStatsMap
-			.get(inspector.parameterId)
-			?.get(new Date(inspector.timeIso).getTime());
-		inspectorFlagReplicates = stat?.replicates ?? [];
-		inspectorFlagOpen = true;
+		flagTarget = {
+			parameterId: sp.parameter_id,
+			parameterName: name,
+			timeIso: inspector.timeIso,
+			replicates,
+			onSaved: () => {
+				scheduleFetch();
+				inspectorRevision += 1;
+			},
+		};
+		flagOpen = true;
+	}
+
+	function openVisitFlag(visitId: string, replicates: SampleReplicate[]) {
+		if (!visitCell || !visitDetail) return;
+		const parameterId = visitCell.parameterId;
+		flagTarget = {
+			parameterId,
+			parameterName: visitCell.parameterName,
+			timeIso: visitDetail.collected_at,
+			replicates,
+			onSaved: () => void Promise.all([openVisit(visitId, true, parameterId), loadVisits()]),
+		};
+		flagOpen = true;
 	}
 
 	// --- Visits: the portal's wide data row, one per (site, date) ---
@@ -222,7 +305,7 @@
 		}
 	}
 
-	async function openVisit(id: string, forceOpen = false) {
+	async function openVisit(id: string, forceOpen = false, selectParameterId: string | null = null) {
 		if (expandedVisit === id && !forceOpen) {
 			expandedVisit = null;
 			visitDetail = null;
@@ -235,6 +318,10 @@
 		visitDetailLoading = true;
 		try {
 			visitDetail = await getCollectionEventDetail(id);
+			const selected = selectParameterId
+				? visitDetail.cells.find((c) => c.parameter_id === selectParameterId)
+				: null;
+			if (selected) visitCell = { parameterId: selected.parameter_id, parameterName: selected.parameter_name };
 			// A deep link can name a visit outside the current range; the range yields to it.
 			if (visitDetail && !visits.some((v) => v.id === id)) {
 				visitsStart = null;
@@ -247,6 +334,17 @@
 		} finally {
 			visitDetailLoading = false;
 		}
+	}
+
+	// A cell of the wide table is the click target: it expands the visit and selects the parameter,
+	// so the record opens on what was clicked.
+	function openVisitCell(id: string, parameterId: string) {
+		if (expandedVisit === id && visitDetail) {
+			const c = visitDetail.cells.find((c) => c.parameter_id === parameterId);
+			visitCell = c ? { parameterId: c.parameter_id, parameterName: c.parameter_name } : null;
+			return;
+		}
+		void openVisit(id, true, parameterId);
 	}
 
 	/// How a cell's readings reached the store. Absent a tool run they were not necessarily typed
@@ -341,7 +439,7 @@
 					toastStore.error(job.error_message ?? `The ${kind} job did not complete`);
 				}
 			}
-			await Promise.all([openVisit(id, true), loadVisits()]);
+			await Promise.all([openVisit(id, true, visitCell?.parameterId ?? null), loadVisits()]);
 			if (kind === 'recompute') scheduleFetch();
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : `Failed to ${kind} the visit`);
@@ -358,14 +456,17 @@
 		untrack(() => void loadVisits());
 	});
 
-	// A ?event= deep link expands its visit once the tab is active.
+	// A ?event= deep link expands its visit once the tab is active; with ?point= it opens that
+	// parameter's record too.
 	let consumedEventParam = '';
 	$effect(() => {
-		if (activeKey !== 'visits') return;
+		if (activeKey !== 'visits' || siteParameters.length === 0) return;
 		const ev = page.url.searchParams.get('event');
 		if (!ev || ev === consumedEventParam) return;
 		consumedEventParam = ev;
-		untrack(() => void openVisit(ev, true));
+		const point = page.url.searchParams.get('point');
+		const selectParam = siteParameters.find((s) => s.id === point)?.parameter_id ?? null;
+		untrack(() => void openVisit(ev, true, selectParam));
 	});
 
 	// Inline subproject move: the picker lists every subproject (Project - Subproject), so a site can
@@ -948,6 +1049,14 @@
 				chartEnd = de;
 				deepLink = true;
 			}
+		}
+		// A linked point record opens on a day around its instant unless the window was pinned too.
+		const pointRef = readPointParams(page.url.searchParams);
+		if (!deepLink && pointRef) {
+			const t = new Date(pointRef.timeIso).getTime();
+			chartStart = t - 43_200_000;
+			chartEnd = t + 43_200_000;
+			deepLink = true;
 		}
 		try {
 			const s = await api.sites.get(id);
@@ -1783,8 +1892,10 @@
 								decimals={sp.decimal_places}
 								timeIso={inspector.timeIso}
 								measurementType={inspector.measurementType}
+								revision={inspectorRevision}
+								link={chartPointLink(inspector)}
 								onclose={() => (inspector = null)}
-								onflag={openInspectorFlag}
+								onflag={(reps) => openChartFlag(sp, param.name, reps)}
 							/>
 						{/if}
 					{/if}
@@ -1843,8 +1954,10 @@
 											units={unitsForParameter(sp.parameter_id)}
 											timeIso={inspector.timeIso}
 											measurementType={inspector.measurementType}
+											revision={inspectorRevision}
+											link={chartPointLink(inspector)}
 											onclose={() => (inspector = null)}
-											onflag={openInspectorFlag}
+											onflag={(reps) => openChartFlag(sp, param.name, reps)}
 										/>
 									{/if}
 								{/if}
@@ -2283,12 +2396,15 @@
 									{@const extraCells = v.cells.filter(
 										(c) => !visitColumns.some((col) => col.parameter_id === c.parameter_id),
 									)}
-									<tr
-										class="border-t border-brand-divider cursor-pointer hover:bg-brand-bg/50 {expandedVisit === v.id ? 'bg-brand-bg/50' : ''}"
-										onclick={() => openVisit(v.id)}
-									>
+									<tr class="border-t border-brand-divider hover:bg-brand-bg/50 {expandedVisit === v.id ? 'bg-brand-bg/50' : ''}">
 										<td class="sticky left-0 z-10 bg-brand-surface px-4 py-2 whitespace-nowrap">
-											{formatDateTime(v.collected_at)}
+											<button
+												type="button"
+												class="cursor-pointer border-none bg-transparent p-0 text-left text-inherit hover:underline"
+												aria-expanded={expandedVisit === v.id}
+												title={expandedVisit === v.id ? 'Collapse this visit' : 'Expand this visit'}
+												onclick={() => openVisit(v.id)}
+											>{formatDateTime(v.collected_at)}</button>
 											{#if v.findings_open > 0}
 												<Badge variant="warning">{v.findings_open} finding{v.findings_open === 1 ? '' : 's'}</Badge>
 											{/if}
@@ -2314,22 +2430,42 @@
 											>
 												{#if !cell}
 													<span class="text-brand-muted">-</span>
-												{:else if cell.finding === 'missing_output' && cell.value == null}
-													<Badge variant="warning">missing</Badge>
-												{:else if cell.value != null}
-													{@const marker = visitCellMarker(cell)}
-													{Number(cell.value.toPrecision(6))}
-													{#if marker}
-														<span class="text-severity-warning" title={marker.title}>{marker.text}</span>
-													{/if}
 												{:else}
-													<span class="text-brand-muted">-</span>
+													<button
+														type="button"
+														class="cursor-pointer border-none bg-transparent p-0 text-inherit hover:underline"
+														aria-pressed={expandedVisit === v.id && visitCell?.parameterId === col.parameter_id}
+														title="Open the record of {col.name} at this visit"
+														onclick={() => openVisitCell(v.id, col.parameter_id)}
+													>
+														{#if cell.finding === 'missing_output' && cell.value == null}
+															<Badge variant="warning">missing</Badge>
+														{:else if cell.value != null}
+															{@const marker = visitCellMarker(cell)}
+															{Number(cell.value.toPrecision(6))}
+															{#if marker}
+																<span class="text-severity-warning" title={marker.title}>{marker.text}</span>
+															{/if}
+														{:else}
+															<span class="text-brand-muted">-</span>
+														{/if}
+													</button>
 												{/if}
 											</td>
 										{/each}
 										{#each extraCells as cell (cell.parameter_id)}
 											<td class="px-3 py-2 tabular-nums whitespace-nowrap text-brand-muted">
-												{cell.value != null ? Number(cell.value.toPrecision(6)) : '-'}
+												{#if cell.value != null}
+													<button
+														type="button"
+														class="cursor-pointer border-none bg-transparent p-0 text-inherit hover:underline"
+														aria-pressed={expandedVisit === v.id && visitCell?.parameterId === cell.parameter_id}
+														title="Open the record of {paramName(cell.parameter_id)} at this visit"
+														onclick={() => openVisitCell(v.id, cell.parameter_id)}
+													>{Number(cell.value.toPrecision(6))}</button>
+												{:else}
+													-
+												{/if}
 											</td>
 										{/each}
 									</tr>
@@ -2384,11 +2520,17 @@
 														<tbody>
 															{#each visitDetail.cells as cell (cell.parameter_id + cell.stream_id)}
 																<tr
-																	class="border-t border-brand-divider/60 cursor-pointer hover:bg-brand-bg/60"
+																	class="border-t border-brand-divider/60 cursor-pointer hover:bg-brand-bg/60 {visitCell?.parameterId === cell.parameter_id ? 'bg-brand-bg' : ''}"
+																	aria-selected={visitCell?.parameterId === cell.parameter_id}
 																	onclick={() => (visitCell = { parameterId: cell.parameter_id, parameterName: cell.parameter_name })}
 																>
 																	<td class="py-1 pr-3">
-																		{cell.parameter_name}
+																		<button
+																			type="button"
+																			class="cursor-pointer border-none bg-transparent p-0 text-left text-inherit hover:underline"
+																			aria-pressed={visitCell?.parameterId === cell.parameter_id}
+																			onclick={() => (visitCell = { parameterId: cell.parameter_id, parameterName: cell.parameter_name })}
+																		>{cell.parameter_name}</button>
 																		{#if unitsForParameter(cell.parameter_id)}<span class="text-brand-muted">({unitsForParameter(cell.parameter_id)})</span>{/if}
 																	</td>
 																	<td class="py-1 pr-3 tabular-nums">
@@ -2432,7 +2574,10 @@
 															decimals={decimalsForParameter(visitCell.parameterId)}
 															timeIso={visitDetail.collected_at}
 															measurementType="spot"
+															preloaded={cellRecord(visitDetail, visitCell.parameterId)}
+															link={visitPointLink(v.id, visitCell.parameterId)}
 															onclose={() => (visitCell = null)}
+															onflag={(reps) => openVisitFlag(v.id, reps)}
 														/>
 													{/if}
 												{/if}
@@ -2687,17 +2832,17 @@
 			/>
 		{/if}
 
-		{#if inspectorFlagOpen && inspector}
+		{#if flagOpen && flagTarget}
 			<ReplicateFlagDialog
-				bind:open={inspectorFlagOpen}
+				bind:open={flagOpen}
 				siteId={site.id}
-				parameterId={inspector.parameterId}
-				parameterName={inspector.parameterName}
-				units={unitsForParameter(inspector.parameterId)}
-				decimals={decimalsForParameter(inspector.parameterId)}
-				timeIso={inspector.timeIso}
-				replicates={inspectorFlagReplicates}
-				onsuccess={scheduleFetch}
+				parameterId={flagTarget.parameterId}
+				parameterName={flagTarget.parameterName}
+				units={unitsForParameter(flagTarget.parameterId)}
+				decimals={decimalsForParameter(flagTarget.parameterId)}
+				timeIso={flagTarget.timeIso}
+				replicates={flagTarget.replicates}
+				onsuccess={flagTarget.onSaved}
 			/>
 		{/if}
 	{/if}

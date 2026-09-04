@@ -19,7 +19,7 @@
 		{ key: 'public_code', label: 'Public API Code', helperText: 'URL-safe identifier, e.g. breathe' },
 		{ key: 'public_api_title', label: 'API Title', helperText: 'Title shown in API documentation' },
 		{ key: 'public_api_description', label: 'API Description', type: 'textarea', helperText: 'Description shown in API documentation (supports markdown)' },
-		{ key: 'public_api_version', label: 'API Version', helperText: 'Version string for the public API docs' },
+		{ key: 'public_api_version', label: 'API Version', helperText: 'Version the public API docs advertise. Leave empty to follow the serving contract; a pin never changes what is served' },
 		{ key: 'public_contact_email', label: 'Contact Email', helperText: 'Contact email shown in API docs' },
 	]}
 />

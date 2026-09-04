@@ -19,6 +19,8 @@
 	} from '$lib/charts/overlay-plugins';
 	import type { SensorIdentityBand, CalibrationMarker } from '$api/sensors';
 	import { spotMarkersPlugin, spotWhiskerExtent, type SpotPointStats } from '$lib/charts/spotMarkers';
+	import { cursorPoints, stepCursor, type CursorPoint } from '$lib/charts/keyboardCursor';
+	import { formatMeasurement } from '$lib/format';
 	import { spotMarkerColors } from '$lib/charts/legend';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
@@ -174,6 +176,15 @@
 	const hasSpot = $derived(spotData != null && spotData.times.length > 0);
 	const hasData = $derived(hasContinuous || hasSpot);
 	const dataPoints = $derived((chartData?.times.length ?? 0) + (spotData?.times.length ?? 0));
+
+	// The keyboard route to a point: arrows walk the plotted points with the crosshair following,
+	// Enter opens what a click would. Reset whenever the plotted set changes.
+	const keyPoints = $derived(cursorPoints(chartData ?? null, spotData ?? null, spotStats ?? null, exactTimes));
+	let cursorIndex = $state<number | null>(null);
+	$effect(() => {
+		void keyPoints;
+		cursorIndex = null;
+	});
 
 	const syncGroup = syncKey ? getChartSyncGroup(syncKey) : null;
 	const chartId = siteParameterId;
@@ -763,6 +774,52 @@
 		}
 	}
 
+	function showCursor(p: CursorPoint) {
+		if (!chart) return;
+		chart.setCursor({ left: chart.valToPos(p.timeMs / 1000, 'x'), top: chart.valToPos(p.value, 'y') });
+	}
+
+	function openPoint(p: CursorPoint) {
+		if (p.measurementType === 'continuous') {
+			onpointclick?.({ timeMs: p.timeMs, measurementType: 'continuous' });
+			return;
+		}
+		if (onpointclick) {
+			onpointclick({ timeMs: p.timeMs, measurementType: 'spot', sampleId: p.sampleId });
+			return;
+		}
+		const stats = spotStats?.get(p.timeMs);
+		if (stats?.replicates?.length) {
+			replicateTarget = { timeMs: p.timeMs, stats };
+			replicateOpen = true;
+		}
+	}
+
+	function onPlotKeydown(e: KeyboardEvent) {
+		if (e.key === 'Enter' || e.key === ' ') {
+			if (cursorIndex == null) return;
+			e.preventDefault();
+			openPoint(keyPoints[cursorIndex]);
+			return;
+		}
+		if (e.key === 'Escape') {
+			if (cursorIndex == null) return;
+			e.preventDefault();
+			cursorIndex = null;
+			chart?.setCursor({ left: -10, top: -10 });
+			return;
+		}
+		const next = stepCursor(cursorIndex, e.key, keyPoints.length);
+		if (next == null) return;
+		e.preventDefault();
+		cursorIndex = next;
+		showCursor(keyPoints[next]);
+	}
+
+	function cursorLabel(p: CursorPoint): string {
+		return `${formatDateTime(new Date(p.timeMs))}, ${formatMeasurement(p.value, decimals)}${units ? ` ${units}` : ''}, ${p.measurementType}`;
+	}
+
 	function onDialogSuccess() {
 		pendingRange = null;
 		onSaved?.();
@@ -962,8 +1019,23 @@
 			{/if}
 		</div>
 	{/if}
-	<div class="px-1 py-1 relative {selectionMode !== 'zoom' ? 'cursor-crosshair' : ''}">
+	<!-- The plot carries its own keyboard model, which is what role="application" declares; svelte
+	     classes the role as non-interactive and so flags the tabindex and the handler. -->
+	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+	<div
+		class="px-1 py-1 relative outline-none focus-visible:ring-2 focus-visible:ring-brand-primary {selectionMode !== 'zoom' ? 'cursor-crosshair' : ''}"
+		role="application"
+		tabindex="0"
+		aria-label="{parameterName} chart. Arrow keys move between points, Enter opens the point record."
+		onkeydown={onPlotKeydown}
+	>
 		<div bind:this={el} class="w-full" style="min-height:220px"></div>
+		<div class="px-2 text-xs text-brand-muted" aria-live="polite">
+			{#if cursorIndex != null && keyPoints[cursorIndex]}
+				Point {cursorIndex + 1} of {keyPoints.length}: {cursorLabel(keyPoints[cursorIndex])}
+			{/if}
+		</div>
 		{#if !hasData && !externalLoading}
 			<div class="absolute inset-0 flex items-center justify-center text-sm text-brand-muted pointer-events-none">{emptyMessage}</div>
 		{/if}

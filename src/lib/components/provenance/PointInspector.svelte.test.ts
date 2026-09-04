@@ -1,6 +1,9 @@
 import { render, screen } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { ProvenanceResponse } from '$api/service';
+import { formatDateTime } from '$lib/utils';
+
 const getReadingProvenance = vi.fn();
 vi.mock('$api/service', () => ({ getReadingProvenance: (q: unknown) => getReadingProvenance(q) }));
 
@@ -110,5 +113,190 @@ describe('PointInspector', () => {
 		const { container } = open(resp);
 		await screen.findByText('8.005');
 		expect(container.querySelector('table')).not.toBeNull();
+	});
+
+	// A synced three-replicate group with one withdrawn replicate, a windowed calibration and a
+	// hand-picked standard curve, a covering reconciliation pass, a deployed instrument and a hold.
+	function syncedGroup() {
+		return response([
+			{
+				origin: {
+					stream_id: 'stream-7',
+					source_system: 'cnet',
+					source_key: 'FP15:DOC_avg_ppb:reps',
+					source_name: 'DOC replicates',
+					classification: 'sync',
+					paired_at: '2026-05-02T10:00:00Z',
+					ingested_at: '2026-07-15T04:00:00Z',
+					receipt: {
+						id: 'receipt-1',
+						at: '2026-07-15T04:00:00Z',
+						window_from: '2026-07-01T00:00:00Z',
+						window_to: '2026-07-31T00:00:00Z',
+						submitted: 42,
+						new_rows: 3,
+						changed: 1,
+						unchanged: 37,
+						withdrawn: 1,
+						rejected_total: 1,
+						braked: false,
+					},
+				},
+				readings: [
+					reading(0, 41.2, {
+						calibrated_value: 42.1,
+						ingested_at: '2026-07-10T04:00:00Z',
+						calibration: {
+							id: 'cal-1',
+							slope: 1.043,
+							intercept: -0.12,
+							valid_from: '2026-01-01T00:00:00Z',
+							valid_until: '2026-12-31T00:00:00Z',
+						},
+						standard_curve: { id: 'curve-9', sensor_id: 'lab-3', name: 'Plate 7', slope: 2, intercept: 1 },
+					}),
+					reading(1, 41.4, { ingested_at: '2026-07-10T04:00:00Z' }),
+					reading(2, 62, {
+						withdrawn_at: '2026-07-15T04:00:00Z',
+						withdrawn_reason: 'absent from source window',
+						ingested_at: '2026-07-10T04:00:00Z',
+					}),
+				],
+				chain: {
+					sensor: { id: 'sensor-1', serial_number: '25284027', manufacturer: 'Vaisala', model: 'HMP' },
+					deployment: {
+						id: 'dep-1',
+						site_id: 'site',
+						site_name: 'Martigny',
+						deployed_from: '2026-01-01T00:00:00Z',
+						deployed_until: '2026-08-01T00:00:00Z',
+					},
+				},
+				computation: { sd_estimator: 'sample', sd_estimator_source: 'slot', created_by: 'evan' },
+				holds: [{ id: 'hold-5', kind: 'replicate_stats', status: 'pending', created_at: '2026-07-15T05:00:00Z' }],
+			},
+		]);
+	}
+
+	describe('renders what the record serves', () => {
+		it('prints the withdrawal reason beside the withdrawn state', async () => {
+			open(syncedGroup());
+			await screen.findByText('41.2');
+			expect(screen.getByText(/absent from source window/)).toBeTruthy();
+		});
+
+		it('prints the calibration window and the curve name as visible text', async () => {
+			const { container } = open(syncedGroup());
+			await screen.findByText('41.2');
+			expect(screen.getByText('Plate 7')).toBeTruthy();
+			expect(container.textContent).toContain(`valid ${formatDateTime('2026-01-01T00:00:00Z')} to ${formatDateTime('2026-12-31T00:00:00Z')}`);
+		});
+
+		it('prints the receipt as its counters and window bounds', async () => {
+			const { container } = open(syncedGroup());
+			await screen.findByText('41.2');
+			const text = container.textContent ?? '';
+			for (const part of ['42 submitted', '3 new', '1 changed', '37 unchanged', '1 withdrawn', '1 rejected']) {
+				expect(text).toContain(part);
+			}
+			expect(text).toContain(formatDateTime('2026-07-01T00:00:00Z'));
+		});
+
+		it('tags the record with its cadence, source name, pairing date, instrument window and author', async () => {
+			const { container } = open(syncedGroup());
+			await screen.findByText('41.2');
+			const text = container.textContent ?? '';
+			expect(screen.getByText('spot')).toBeTruthy();
+			expect(text).toContain('DOC replicates');
+			expect(text).toContain(`paired ${formatDateTime('2026-05-02T10:00:00Z')}`);
+			expect(text).toMatch(/25284027/);
+			expect(text).toContain(formatDateTime('2026-08-01T00:00:00Z'));
+			expect(text).toContain('evan');
+		});
+	});
+
+	describe('links each curve to its record', () => {
+		it('wraps the calibration equation in a link to the calibration', async () => {
+			const { container } = open(syncedGroup());
+			await screen.findByText('41.2');
+			const cal = container.querySelector('a[href="/admin/sensors/sensor-1?tab=calibrations&cal=cal-1"]');
+			expect(cal).not.toBeNull();
+			expect(cal!.textContent).toContain('1.043');
+		});
+
+		it('links the standard curve to the instrument that owns it', async () => {
+			const { container } = open(syncedGroup());
+			await screen.findByText('41.2');
+			const curve = container.querySelector('a[href="/admin/sensors/lab-3?tab=curves&curve=curve-9"]');
+			expect(curve).not.toBeNull();
+			expect(curve!.textContent).toContain('Plate 7');
+		});
+	});
+
+	it('links a hold to the queue narrowed to that stream and hold', async () => {
+		const { container } = open(syncedGroup());
+		await screen.findByText('41.2');
+		const link = container.querySelector('a[href*="tab=audits"]')!;
+		expect(link.getAttribute('href')).toContain('holds_streams=stream-7');
+		expect(link.getAttribute('href')).toContain('holds_id=hold-5');
+	});
+
+	describe('opened from a visit', () => {
+		it('renders a preloaded record without fetching', async () => {
+			render(PointInspector, {
+				siteId: 'site',
+				parameterId: 'param',
+				parameterName: 'DOC',
+				timeIso: '2026-07-14T09:00:00Z',
+				measurementType: 'spot',
+				preloaded: syncedGroup() as unknown as ProvenanceResponse,
+			});
+			expect(await screen.findByText('41.2')).toBeTruthy();
+			expect(getReadingProvenance).not.toHaveBeenCalled();
+		});
+
+		it('offers the flag action and hands over the replicates the record holds', async () => {
+			const onflag = vi.fn();
+			render(PointInspector, {
+				siteId: 'site',
+				parameterId: 'param',
+				parameterName: 'DOC',
+				timeIso: '2026-07-14T09:00:00Z',
+				measurementType: 'spot',
+				preloaded: syncedGroup() as unknown as ProvenanceResponse,
+				onflag,
+			});
+			await screen.findByText('41.2');
+			(screen.getByText('Flag replicates') as HTMLButtonElement).click();
+			expect(onflag).toHaveBeenCalledTimes(1);
+			const reps = onflag.mock.calls[0][0];
+			expect(reps.map((r: { replicate_index: number }) => r.replicate_index)).toEqual([0, 1, 2]);
+			expect(reps[0].standard_curve_id).toBe('curve-9');
+			expect(reps[2].withdrawn).toBe(true);
+		});
+
+		it('says when the instant carries no readings rather than fetching', async () => {
+			render(PointInspector, {
+				siteId: 'site',
+				parameterId: 'param',
+				parameterName: 'DOC',
+				timeIso: '2026-07-14T09:00:00Z',
+				measurementType: 'spot',
+				preloaded: response([]) as unknown as ProvenanceResponse,
+			});
+			expect(await screen.findByText(/No readings at this instant/)).toBeTruthy();
+			expect(getReadingProvenance).not.toHaveBeenCalled();
+		});
+	});
+
+	it('copies the link it was given', async () => {
+		const writeText = vi.fn().mockResolvedValue(undefined);
+		Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+		open(handEntered(), { link: 'https://river.test/admin/sites/site?point=sp&t=2026-07-14T09:00:00.000Z&mt=spot' });
+		await screen.findByText('8.005');
+		(screen.getByText('Copy link') as HTMLButtonElement).click();
+		expect(writeText).toHaveBeenCalledWith(
+			'https://river.test/admin/sites/site?point=sp&t=2026-07-14T09:00:00.000Z&mt=spot',
+		);
 	});
 });

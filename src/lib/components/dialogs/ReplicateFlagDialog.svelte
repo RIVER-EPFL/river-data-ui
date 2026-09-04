@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { PATCH } from '$api/client';
-	import { getReadingProvenance } from '$api/service';
+	import { getReadingProvenance, previewSample, type SamplePreviewResponse } from '$api/service';
+	import { sdFormulaTitle, sdRowLabel } from '$lib/sdEstimator';
 	import type { SampleReplicate } from '$api/types';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { curveRefs } from '$lib/curveRefs.svelte';
@@ -41,6 +42,12 @@
 
 	let reason = $state('');
 	let busyIndex = $state<number | null>(null);
+	// The replicate chosen for a flag or restore, held until the preview has been read and the
+	// change confirmed; nothing is written before that.
+	let armed = $state<{ index: number; mode: 'flag' | 'unflag' } | null>(null);
+	let preview = $state<SamplePreviewResponse | null>(null);
+	let previewError = $state<string | null>(null);
+	let previewSeq = 0;
 	let openChain = $state<number | null>(null);
 	// Provenance lives on the reading, not on the points the chart drew, so it is fetched here.
 	let provenance = $state<Record<string, unknown> | null>(null);
@@ -51,6 +58,9 @@
 		if (!open) return;
 		reason = '';
 		openChain = null;
+		armed = null;
+		preview = null;
+		previewError = null;
 		curveRefs.ensureCalibrations(replicates.map((r) => r.calibration_id));
 		curveRefs.ensureStandardCurves(replicates.map((r) => r.standard_curve_id));
 	});
@@ -79,6 +89,34 @@
 
 	const ordered = $derived([...replicates].sort((a, b) => a.replicate_index - b.replicate_index));
 
+	function arm(rep: SampleReplicate) {
+		const mode = rep.flagged ? 'unflag' : 'flag';
+		armed = { index: rep.replicate_index, mode };
+		preview = null;
+		previewError = null;
+		const seq = ++previewSeq;
+		previewSample({
+			site_id: siteId,
+			parameter_id: parameterId,
+			time: timeIso,
+			...(mode === 'flag'
+				? { exclude_replicate_indexes: [rep.replicate_index] }
+				: { include_replicate_indexes: [rep.replicate_index] }),
+		})
+			.then((p) => {
+				if (seq === previewSeq) preview = p;
+			})
+			.catch((e) => {
+				if (seq === previewSeq) previewError = e instanceof Error ? e.message : 'Preview failed';
+			});
+	}
+
+	function disarm() {
+		armed = null;
+		preview = null;
+		previewError = null;
+	}
+
 	async function toggle(rep: SampleReplicate) {
 		const mode = rep.flagged ? 'unflag' : 'flag';
 		if (mode === 'flag' && !reason.trim()) {
@@ -105,6 +143,7 @@
 			} else {
 				toastStore.success(`${mode === 'flag' ? 'Flagged' : 'Unflagged'} replicate ${rep.replicate_index}`);
 			}
+			disarm();
 			onsuccess?.();
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : `Failed to ${mode} the replicate`);
@@ -112,6 +151,10 @@
 			busyIndex = null;
 		}
 	}
+
+	const armedReplicate = $derived(
+		armed ? (ordered.find((r) => r.replicate_index === armed!.index) ?? null) : null,
+	);
 </script>
 
 <Dialog bind:open title="Replicates: {parameterName}" maxWidth="sm">
@@ -177,10 +220,10 @@
 								<Button
 									size="sm"
 									variant={rep.flagged ? 'secondary' : 'danger'}
-									disabled={busyIndex != null || rep.withdrawn}
-									onclick={() => toggle(rep)}
+									disabled={busyIndex != null || rep.withdrawn || armed?.index === rep.replicate_index}
+									onclick={() => arm(rep)}
 								>
-									{busyIndex === rep.replicate_index ? 'Saving…' : rep.flagged ? 'Restore' : 'Flag'}
+									{busyIndex === rep.replicate_index ? 'Saving' : rep.flagged ? 'Restore' : 'Flag'}
 								</Button>
 							</td>
 						</tr>
@@ -226,6 +269,70 @@
 					{/each}
 				</tbody>
 			</table>
+			{#if armed && armedReplicate}
+				<div data-testid="sample-preview" class="rounded-md border border-brand-divider bg-brand-bg p-3 text-xs space-y-2">
+					<p class="font-semibold">
+						{armed.mode === 'flag' ? 'Flagging' : 'Restoring'} replicate {armed.index}
+					</p>
+					{#if previewError}
+						<p class="text-severity-alarm">{previewError}</p>
+					{:else if preview}
+						<table class="w-full">
+							<thead class="text-brand-muted">
+								<tr>
+									<th class="text-left font-medium py-0.5">Statistic</th>
+									<th class="text-right font-medium py-0.5">Now</th>
+									<th class="text-right font-medium py-0.5">After</th>
+									<th class="text-right font-medium py-0.5">Change</th>
+								</tr>
+							</thead>
+							<tbody class="font-mono tabular-nums">
+								<tr>
+									<td class="font-sans text-brand-muted py-0.5">Mean</td>
+									<td class="text-right">{formatMeasurement(preview.current.mean, decimals)}</td>
+									<td class="text-right">{formatMeasurement(preview.proposed.mean, decimals)}</td>
+									<td class="text-right">{formatMeasurement(preview.delta.mean, decimals)}</td>
+								</tr>
+								<tr>
+									<td class="font-sans text-brand-muted py-0.5" title={sdFormulaTitle(preview.proposed.sd_estimator)}>
+										{sdRowLabel(preview.proposed.sd_estimator)}
+									</td>
+									<td class="text-right">{formatMeasurement(preview.current.sd, decimals)}</td>
+									<td class="text-right">{formatMeasurement(preview.proposed.sd, decimals)}</td>
+									<td class="text-right">{formatMeasurement(preview.delta.sd, decimals)}</td>
+								</tr>
+								<tr>
+									<td class="font-sans text-brand-muted py-0.5">n</td>
+									<td class="text-right">{preview.current.n}</td>
+									<td class="text-right">{preview.proposed.n}</td>
+									<td class="text-right">{preview.delta.n}</td>
+								</tr>
+							</tbody>
+						</table>
+					{:else}
+						<p class="text-brand-muted">Computing the statistics without it</p>
+					{/if}
+					<p class="text-brand-muted">
+						{#if armed.mode === 'flag'}
+							The value stays on the row with the reason beside it, outside the mean and sd; the
+							decision is recorded on the reading and Restore reverses it.
+						{:else}
+							The value returns to the mean and sd; the decision is recorded on the reading.
+						{/if}
+					</p>
+					<div class="flex gap-2 justify-end">
+						<Button size="sm" variant="secondary" onclick={disarm}>Cancel</Button>
+						<Button
+							size="sm"
+							variant={armed.mode === 'flag' ? 'danger' : 'primary'}
+							disabled={busyIndex != null}
+							onclick={() => toggle(armedReplicate!)}
+						>
+							{armed.mode === 'flag' ? `Flag replicate ${armed.index}` : `Restore replicate ${armed.index}`}
+						</Button>
+					</div>
+				</div>
+			{/if}
 			<div class="flex items-end gap-3">
 				<div class="flex-1">
 					<label for="replicate-flag-reason" class="text-sm font-medium block mb-1">Reason</label>

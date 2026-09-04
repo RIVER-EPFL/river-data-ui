@@ -4,14 +4,24 @@
 	import { onMount } from 'svelte';
 	import CrudForm from '$components/crud/CrudForm.svelte';
 	import { api } from '$api/crud';
-	import { declareSdEstimator, type SdEstimator } from '$api/service';
+	import { declareSdEstimator, retagSdEstimator, type SdEstimator } from '$api/service';
+	import { estimatorLabel } from '$lib/sdEstimator';
+	import Button from '$components/ui/Button.svelte';
 	import type { Field } from '$components/crud/CrudForm.svelte';
 
 	let siteOptions = $state<Array<{ value: string; label: string }>>([]);
 	let paramOptions = $state<Array<{ value: string; label: string }>>([]);
 	let declared = $state<SdEstimator | ''>('');
+	// The divisor chosen in the select but not yet declared; the preview below reads it.
+	let chosen = $state<SdEstimator | ''>('');
 	let declareNote = $state<string | null>(null);
 	let declareBusy = $state(false);
+	// What declaring `chosen` would touch: samples recomputed, and samples a person chose an
+	// estimator for at one instant, which a declaration leaves alone unless told otherwise.
+	let previewCounts = $state<{ samples: number; instants: number } | null>(null);
+	let previewError = $state<string | null>(null);
+	let overrideInstants = $state(false);
+	let previewSeq = 0;
 
 	onMount(async () => {
 		const [sites, params, slot] = await Promise.all([
@@ -22,25 +32,91 @@
 		siteOptions = sites.data.map((s) => ({ value: s.id, label: s.name }));
 		paramOptions = params.data.map((p) => ({ value: p.id, label: p.name }));
 		declared = ((slot as { sd_estimator?: SdEstimator | null }).sd_estimator ?? '') as SdEstimator | '';
+		chosen = declared;
 	});
+
+	// The retag's dry run is the preview: the same count the declaration's job will act on,
+	// split by whether the sample's estimator was chosen for its instant.
+	$effect(() => {
+		const target = chosen;
+		previewCounts = null;
+		previewError = null;
+		if (target === '') return;
+		const seq = ++previewSeq;
+		retagSdEstimator({
+			estimator: target,
+			site_parameter_ids: [page.params.id!],
+			override_instants: true,
+			dry_run: true,
+		})
+			.then((r) => {
+				if (seq !== previewSeq) return;
+				previewCounts = {
+					samples: r.samples_affected - r.instant_decisions,
+					instants: r.instant_decisions,
+				};
+			})
+			.catch((e) => {
+				if (seq === previewSeq) previewError = e instanceof Error ? e.message : 'Preview failed';
+			});
+	});
+
+	const unchanged = $derived(chosen === declared);
 
 	// The declaration is not part of the CRUD form: changing it recomputes the slot's stored
 	// samples, so it goes through the declare endpoint, which enqueues the tracked retag and
-	// reports what it touched.
-	async function declare(value: SdEstimator | '') {
+	// reports what it touched. Instant decisions are retagged only on request, through the retag
+	// route with override_instants.
+	async function declare() {
+		const value = chosen;
 		declareBusy = true;
 		declareNote = null;
 		try {
 			const r = await declareSdEstimator(page.params.id!, value === '' ? null : value);
 			declared = (r.estimator ?? '') as SdEstimator | '';
-			declareNote =
+			chosen = declared;
+			let note =
 				r.samples_affected > 0
-					? `${r.samples_affected} stored sample${r.samples_affected === 1 ? '' : 's'} recomputing under the new divisor (tracked job).`
+					? `${r.samples_affected} stored sample${r.samples_affected === 1 ? '' : 's'} recomputing under the ${estimatorLabel(declared || 'sample')} divisor (tracked job).`
 					: value === ''
 						? 'Declaration cleared. Stored samples keep the divisor they were computed with.'
 						: 'Declared. No stored samples needed recomputing.';
+			if (value !== '' && overrideInstants && (previewCounts?.instants ?? 0) > 0) {
+				const retag = await retagSdEstimator({
+					estimator: value,
+					site_parameter_ids: [page.params.id!],
+					override_instants: true,
+				});
+				note += ` ${retag.instant_decisions} instant decision${retag.instant_decisions === 1 ? '' : 's'} retagged too.`;
+			}
+			declareNote = note;
+			overrideInstants = false;
+			previewSeq++;
+			previewCounts = null;
 		} catch (e) {
 			declareNote = e instanceof Error ? e.message : 'Declaration failed';
+		} finally {
+			declareBusy = false;
+		}
+	}
+
+	// The retag route on its own: bring the instant decisions into line with the declaration
+	// the slot already carries.
+	async function retagInstants() {
+		if (declared === '') return;
+		declareBusy = true;
+		declareNote = null;
+		try {
+			const r = await retagSdEstimator({
+				estimator: declared,
+				site_parameter_ids: [page.params.id!],
+				override_instants: true,
+			});
+			declareNote = `${r.samples_affected} sample${r.samples_affected === 1 ? '' : 's'} recomputing under the ${estimatorLabel(declared)} divisor, ${r.instant_decisions} of them instant decisions (tracked job).`;
+			previewSeq++;
+			previewCounts = null;
+		} catch (e) {
+			declareNote = e instanceof Error ? e.message : 'Retag failed';
 		} finally {
 			declareBusy = false;
 		}
@@ -68,17 +144,55 @@
 	<p class="text-xs text-brand-muted">
 		Which divisor this parameter publishes its replicate standard deviation with. Undeclared uses
 		sample (n-1) and holds audit disagreements matching the population divisor for a decision.
-		Changing it recomputes the stored samples.
+		Declaring recomputes the stored samples: only the sd moves (population sd = sample sd ×
+		sqrt((n-1)/n)); the mean and the stored replicates do not change.
 	</p>
-	<select
-		value={declared}
-		disabled={declareBusy}
-		onchange={(e) => declare(e.currentTarget.value as SdEstimator | '')}
-		class="px-2 py-1 rounded border text-sm bg-brand-surface {declared ? 'border-brand-divider' : 'border-severity-warning-border text-severity-warning-text'}"
-	>
-		<option value="">Not declared</option>
-		<option value="sample">Sample (n-1)</option>
-		<option value="population">Population (n)</option>
-	</select>
+	<div class="flex items-center gap-2">
+		<select
+			bind:value={chosen}
+			disabled={declareBusy}
+			class="px-2 py-1 rounded border text-sm bg-brand-surface {declared ? 'border-brand-divider' : 'border-severity-warning-border text-severity-warning-text'}"
+		>
+			<option value="">Not declared</option>
+			<option value="sample">Sample (n-1)</option>
+			<option value="population">Population (n)</option>
+		</select>
+		<Button size="sm" variant="primary" disabled={declareBusy || unchanged} onclick={declare}>
+			{chosen === '' ? 'Clear the declaration' : `Declare ${chosen}`}
+		</Button>
+	</div>
+	{#if !unchanged && chosen !== ''}
+		<div data-testid="declare-preview" class="rounded-md border border-brand-divider bg-brand-bg p-3 text-xs space-y-1">
+			{#if previewError}
+				<p class="text-severity-alarm">{previewError}</p>
+			{:else if previewCounts}
+				<p>
+					<strong>{previewCounts.samples}</strong> stored sample{previewCounts.samples === 1 ? '' : 's'} will
+					recompute under the {estimatorLabel(chosen)} divisor.
+				</p>
+				{#if previewCounts.instants > 0}
+					<label class="flex items-center gap-2 cursor-pointer">
+						<input type="checkbox" bind:checked={overrideInstants} class="accent-brand-primary" />
+						<span>
+							Also retag the <strong>{previewCounts.instants}</strong> sample{previewCounts.instants === 1 ? '' : 's'}
+							whose divisor was chosen for that instant in an audit resolution; unticked, they keep it.
+						</span>
+					</label>
+				{/if}
+			{:else}
+				<p class="text-brand-muted">Counting the samples this touches</p>
+			{/if}
+			<p class="text-brand-muted">Reversible: declare the other divisor, or clear the declaration to stop recomputing.</p>
+		</div>
+	{:else if unchanged && declared !== '' && previewCounts && previewCounts.instants > 0}
+		<div class="rounded-md border border-brand-divider bg-brand-bg p-3 text-xs space-y-1">
+			<p>
+				<strong>{previewCounts.instants}</strong> sample{previewCounts.instants === 1 ? '' : 's'} at this parameter
+				keep{previewCounts.instants === 1 ? 's' : ''} a divisor chosen for that instant in an audit resolution
+				rather than the declared {estimatorLabel(declared)}.
+			</p>
+			<Button size="sm" disabled={declareBusy} onclick={retagInstants}>Retag them to {declared}</Button>
+		</div>
+	{/if}
 	{#if declareNote}<p class="text-xs text-brand-muted">{declareNote}</p>{/if}
 </div>

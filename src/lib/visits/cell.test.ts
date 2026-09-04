@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { visitCellMarker, visitCounts } from './cell';
-import type { EventCell, EventCellReplicate, VisitCell } from '$api/service';
+import { cellRecord, visitCellMarker, visitCounts } from './cell';
+import type { EventCell, EventCellReplicate, EventDetailResponse, VisitCell } from '$api/service';
 
 function cell(over: Partial<VisitCell>): VisitCell {
 	return {
@@ -74,5 +74,62 @@ describe('visitCounts', () => {
 
 	it('is all zeros for an empty grid', () => {
 		expect(visitCounts([])).toEqual({ parameters: 0, replicates: 0, flagged: 0, withdrawn: 0, findings: 0 });
+	});
+});
+
+function detailWith(cells: EventDetailResponse['cells']): EventDetailResponse {
+	return {
+		id: 'ev',
+		site_id: 'site',
+		collected_at: '2026-07-14T09:00:00Z',
+		source: 'manual',
+		recompute: 'current',
+		cells,
+	};
+}
+
+function eventCell(parameterId: string, streamId: string, record: EventCell['record']): EventCell {
+	return {
+		parameter_id: parameterId,
+		parameter_code: 'DOC',
+		parameter_name: 'DOC',
+		stream_id: streamId,
+		origin: 'manual',
+		has_provenance: false,
+		replicates: [],
+		record,
+	};
+}
+
+function recordFor(streamId: string): NonNullable<EventCell['record']> {
+	return {
+		origin: { stream_id: streamId, source_system: 'grab_sample', source_key: 'k', classification: 'manual' },
+		readings: [{ replicate_index: 0, raw_value: 1, is_flagged: false }],
+		chain: {},
+		holds: [],
+	};
+}
+
+describe('cellRecord', () => {
+	it('shapes one parameter of the detail as the provenance response the point record renders', () => {
+		const detail = detailWith([eventCell('p1', 's1', recordFor('s1')), eventCell('p2', 's2', recordFor('s2'))]);
+		const resp = cellRecord(detail, 'p1');
+		expect(resp.time).toBe('2026-07-14T09:00:00Z');
+		expect(resp.site_id).toBe('site');
+		expect(resp.parameter_id).toBe('p1');
+		expect(resp.duplicate_slot).toBe(false);
+		expect(resp.records.map((r) => r.origin.stream_id)).toEqual(['s1']);
+	});
+
+	it('reports a duplicate slot when two streams serve the parameter at the visit', () => {
+		const detail = detailWith([eventCell('p1', 's1', recordFor('s1')), eventCell('p1', 's2', recordFor('s2'))]);
+		const resp = cellRecord(detail, 'p1');
+		expect(resp.duplicate_slot).toBe(true);
+		expect(resp.records).toHaveLength(2);
+	});
+
+	it('yields no records for a finding-only cell, which has no readings', () => {
+		const detail = detailWith([eventCell('p1', '00000000-0000-0000-0000-000000000000', undefined)]);
+		expect(cellRecord(detail, 'p1').records).toEqual([]);
 	});
 });

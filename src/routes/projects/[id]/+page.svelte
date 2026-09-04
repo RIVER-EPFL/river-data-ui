@@ -3,7 +3,7 @@
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
 	import { api, type Project, type Site, type SiteParameter, type Parameter, type Subproject } from '$api/crud';
-	import { invalidatePublicConfig } from '$api/service';
+	import { invalidatePublicConfig, getVersion } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { siteNavigator } from '$lib/stores/sites.svelte';
 	import { formatDateTime } from '$lib/utils';
@@ -18,6 +18,7 @@
 	let parameters = $state<Parameter[]>([]);
 	let subprojects = $state<Subproject[]>([]);
 	let allProjects = $state<Project[]>([]);
+	let servingContract = $state<string | null>(null);
 	let loading = $state(true);
 
 	// Inline editing state
@@ -34,6 +35,7 @@
 	const projectId = page.params.id!;
 
 	onMount(async () => {
+		getVersion().then((v) => (servingContract = v.public_api_contract)).catch(() => {});
 		try {
 			const [p, s, params, subs, projs] = await Promise.all([
 				api.projects.get(projectId),
@@ -681,7 +683,16 @@
 						</div>
 						<div>
 							<span class="text-xs text-brand-muted">Version</span>
-							<p class="mt-0.5 text-sm font-mono">{project.public_api_version ?? '---'}</p>
+							{#if project.public_api_version}
+								<p class="mt-0.5 text-sm font-mono">{project.public_api_version}</p>
+								<p class="text-xs text-brand-muted">
+									Pinned. The docs advertise this version; the API serves contract {servingContract ?? '…'}
+									{#if servingContract && servingContract !== project.public_api_version}(clear the pin, or raise it, for partners to see the current contract){/if}
+								</p>
+							{:else}
+								<p class="mt-0.5 text-sm font-mono">{servingContract ?? '…'}</p>
+								<p class="text-xs text-brand-muted">Serving contract, no pin</p>
+							{/if}
 						</div>
 						<div>
 							<span class="text-xs text-brand-muted">Contact Email</span>
@@ -691,6 +702,12 @@
 					<div class="max-w-2xl">
 						<span class="text-xs text-brand-muted">Description (markdown)</span>
 						<Markdown class="mt-0.5" source={project.public_api_description} />
+					</div>
+					<div class="max-w-2xl text-xs text-brand-muted">
+						<span class="font-medium text-brand-text">Replicate statistics:</span>
+						partners opt in with <code>include_sample_stats=true</code> on the readings endpoint (n, mean, sd, min, max per point).
+						The sd is published only for slots that declare an sd estimator; an undeclared slot publishes n and no sd.
+						Values are expressed at each slot's declared decimal places, unrounded where none is declared.
 					</div>
 				</div>
 			{:else}

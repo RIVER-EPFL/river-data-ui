@@ -28,6 +28,9 @@ export interface ApiVersion {
 	version: string;
 	commit: string;
 	built_at: string;
+	// The public serving contract this build implements; what a project's docs advertise when it
+	// pins no public_api_version of its own.
+	public_api_contract: string;
 }
 
 export const getVersion = () => GET<ApiVersion>(`${SERVICE}/version`);
@@ -737,6 +740,29 @@ export interface CurveUsageResponse {
 export const getCurveUsage = (curveId: string) =>
 	GET<CurveUsageResponse>(`${SERVICE}/standard_curves/${curveId}/usage`);
 
+// The instrument and standard curve the newest grab at a site and parameter recorded; every
+// field but `method` is null when no grab there names either.
+export interface LastUsedCurve {
+	site_id: string;
+	parameter_id: string;
+	sensor_id: string | null;
+	sensor_name: string | null;
+	standard_curve_id: string | null;
+	curve_name: string | null;
+	curve_created_at: string | null;
+	used_at: string | null;
+	method: string;
+}
+
+export const getLastUsedCurve = (
+	siteId: string,
+	by: { parameterId?: string | null; parameterCode?: string | null },
+) =>
+	GET<LastUsedCurve>(
+		`${SERVICE}/sites/${siteId}/last_curve`,
+		by.parameterId ? { parameter_id: by.parameterId } : { parameter_code: by.parameterCode ?? '' },
+	);
+
 // One instrument's curve usage, the figures the overview reports without reading every instrument.
 export interface SensorCurveUsage {
 	curve_id: string;
@@ -957,6 +983,7 @@ export interface PairingPlanApplyResult {
 	site_parameters_created: number;
 	streams_paired: number;
 	instruments_created: number;
+	curves_assigned?: number;
 	readings_backfilled: number;
 }
 
@@ -1051,6 +1078,17 @@ export interface PlanCurveAssignment {
 	sensor_id: string;
 	instrument_name: string;
 	reading_count: number;
+	// The instrument this plan will move the curve onto when applied, and its proposed name.
+	// Null when no assignment is pending.
+	pending_source_key: string | null;
+	pending_instrument_name: string | null;
+}
+
+// A curve assigned to an instrument the plan will create; the move happens on apply. A null
+// source key clears the assignment.
+export interface PlanCurveUpdate {
+	curve_id: string;
+	instrument_source_key: string | null;
 }
 
 // One physical device the plan's feeds name, and the channels it serves at one site. Not a
@@ -1077,8 +1115,8 @@ export interface PlanInstruments {
 export const getPlanInstruments = (planId: string) =>
 	GET<PlanInstruments>(`${ADMIN}/sync/pairing-plans/${planId}/instruments`);
 
-export const updatePairingPlan = (id: string, updates: PlanEntryUpdate[]) =>
-	PATCH<PairingPlan>(`${ADMIN}/sync/pairing-plans/${id}`, { updates });
+export const updatePairingPlan = (id: string, updates: PlanEntryUpdate[], curves: PlanCurveUpdate[] = []) =>
+	PATCH<PairingPlan>(`${ADMIN}/sync/pairing-plans/${id}`, { updates, curves });
 
 // Apply/revert now run as tracked background jobs; both return a job id to poll.
 export const applyPairingPlan = (id: string) =>
@@ -1176,6 +1214,8 @@ export interface ReplicateAuditHold {
 		values?: ReplicateAuditValue[] | number[];
 	};
 	delta: { mean: number | null; sd: number | null; n?: number | null };
+	// The divisor computed.sd was made with; null on holds that are not replicate statistics.
+	sd_estimator: SdEstimator | null;
 	// deferred holds sit on unpaired streams and become pending when the stream is paired;
 	// remediated means replicates were flagged. use_portal/use_manual/consumed are legacy
 	// statuses from the replaced-value model and occur only in history.
@@ -1224,6 +1264,8 @@ export interface ReplicateAuditListResponse {
 // (everything past review) and 'deferred' (unpaired streams).
 export const listReplicateAudits = (
 	filter: {
+		// One hold, for a link that names it.
+		id?: string;
 		stream_id?: string;
 		// Comma-separated stream UUIDs.
 		stream_ids?: string;
@@ -1332,6 +1374,75 @@ export const declareSdEstimator = (siteParameterId: string, estimator: SdEstimat
 		{ estimator },
 	);
 
+export interface RetagSdEstimatorResponse {
+	estimator: SdEstimator;
+	samples_affected: number;
+	// Samples carrying an estimator chosen for that one instant: inside samples_affected with
+	// override_instants, skipped without.
+	instant_decisions: number;
+	job_id?: string;
+}
+
+// The sd_estimator_retag job's own options: bring stored samples into line with a declaration
+// the slot already carries, optionally over a window, optionally overriding instant decisions.
+// dry_run counts without enqueueing and skips the declaration check, so it previews a change.
+export const retagSdEstimator = (body: {
+	estimator: SdEstimator;
+	site_parameter_ids?: string[];
+	stream_ids?: string[];
+	start?: string;
+	end?: string;
+	override_instants?: boolean;
+	dry_run?: boolean;
+}) => POST<RetagSdEstimatorResponse>(`${ADMIN}/actions/retag_sd_estimator`, body);
+
+export interface SamplePreviewStats {
+	n: number;
+	mean: number | null;
+	sd: number | null;
+	sd_estimator: SdEstimator;
+}
+
+export interface SamplePreviewResponse {
+	current: SamplePreviewStats;
+	proposed: SamplePreviewStats;
+	delta: { n: number; mean: number | null; sd: number | null };
+	replicates: Array<{
+		index: number;
+		value: number;
+		flagged: boolean;
+		withdrawn: boolean;
+		included_now: boolean;
+		included_after: boolean;
+	}>;
+	// Present when the request named a hold: whether the proposed statistics meet its recorded
+	// expectation under the audit tolerances.
+	hold?: {
+		hold_id: string;
+		expected_mean: number | null;
+		expected_sd: number | null;
+		expected_n: number | null;
+		meets_now: boolean;
+		meets_after: boolean;
+		mean_agrees: boolean;
+		sd_agrees: boolean;
+		n_agrees: boolean;
+	};
+}
+
+// What a replicate group's statistics become without the replicates about to be flagged, with
+// the ones about to be restored, or under the other divisor. Writes nothing.
+export const previewSample = (body: {
+	stream_id?: string;
+	site_id?: string;
+	parameter_id?: string;
+	time: string;
+	exclude_replicate_indexes?: number[];
+	include_replicate_indexes?: number[];
+	estimator?: SdEstimator;
+	hold_id?: string;
+}) => POST<SamplePreviewResponse>(`${ADMIN}/readings/sample_preview`, body);
+
 // Unflag a remediated hold's replicates and return it to review.
 export const reopenReplicateAudit = (id: string) =>
 	POST<{ status: string }>(`${ADMIN}/sync/replicate_audit_holds/${id}/reopen`, {});
@@ -1357,6 +1468,8 @@ export interface ProvenanceCalibrationRef {
 
 export interface ProvenanceCurveRef {
 	id: string;
+	// The lab instrument the curve belongs to, which is where its record lives.
+	sensor_id: string;
 	name?: string;
 	slope: number;
 	intercept: number;
@@ -1552,6 +1665,8 @@ export interface EventCell {
 	has_provenance: boolean;
 	tool?: string;
 	replicates: EventCellReplicate[];
+	/** The instant's assembled record for this stream, so the point record needs no second fetch. */
+	record?: ProvenanceRecord;
 	finding?: { id: string; kind: HoldKind; tool?: string; status: string };
 }
 

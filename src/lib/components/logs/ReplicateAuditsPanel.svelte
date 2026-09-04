@@ -8,6 +8,8 @@
 		resolveReplicateAudit,
 		reopenReplicateAudit,
 		listUndeclaredSdEstimators,
+		previewSample,
+		type SamplePreviewResponse,
 		type SdEstimator,
 		type UndeclaredEstimatorSlot,
 		issueSyncCommand,
@@ -23,6 +25,7 @@
 	import { getList } from '$api/client';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatRelativeTime, formatDateTime, holdKindLabel } from '$lib/utils';
+	import { estimatorLabel, sdFormulaTitle, sdRowLabel } from '$lib/sdEstimator';
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
@@ -41,6 +44,7 @@
 		initialStreamIds,
 		initialClassification,
 		initialFocusLabel,
+		initialHoldId,
 	}: {
 		onPendingChange?: (pending: number) => void;
 		initialView?: View;
@@ -50,6 +54,8 @@
 		initialStreamIds?: string[];
 		initialClassification?: 'population_sd' | 'not_population_sd';
 		initialFocusLabel?: string;
+		// One hold a point record linked to; the queue opens on it alone.
+		initialHoldId?: string;
 	} = $props();
 
 	// Deliberate initial-value capture: the view is user-navigable after mount.
@@ -70,6 +76,8 @@
 	// this one stays a chip: a set of stream ids has no honest dropdown.
 	// svelte-ignore state_referenced_locally
 	let focusStreamIds = $state<string[] | null>(initialStreamIds ?? null);
+	// svelte-ignore state_referenced_locally
+	let focusHoldId = $state<string | null>(initialHoldId ?? null);
 	// The two remaining server-side filters, as controls rather than arrival-only restrictions.
 	// A caller arriving with a signature preselects the same dropdown the operator can drive.
 	// svelte-ignore state_referenced_locally
@@ -179,6 +187,7 @@
 			status: VIEW_STATUS[view],
 			...(sourceFilter ? { source_system: sourceFilter } : {}),
 			...(sortByScale ? { sort: sortByScale } : {}),
+			...(focusHoldId ? { id: focusHoldId } : {}),
 			...(focusStreamIds?.length ? { stream_ids: focusStreamIds.join(',') } : {}),
 			...(focusClassification ? { classification: focusClassification } : {}),
 			...(estimatorFilter ? { estimator_declared: estimatorFilter === 'true' } : {}),
@@ -365,11 +374,11 @@
 	const STATUS_LABEL: Record<ReplicateAuditHold['status'], string> = {
 		pending: 'Needs review',
 		deferred: 'Awaiting pairing',
-		acknowledged: 'Accepted',
+		acknowledged: 'Reviewed',
 		remediated: 'Replicates flagged',
-		use_portal: 'Applied',
-		use_manual: 'Applied',
-		consumed: 'Applied',
+		use_portal: 'Legacy: source value applied',
+		use_manual: 'Legacy: source value applied',
+		consumed: 'Legacy: source value applied',
 		superseded: 'Cleared at source',
 	};
 
@@ -398,7 +407,7 @@
 			});
 			const skipped = res.skipped_undeclared_estimator ?? 0;
 			toastStore.success(
-				`Accepted ${res.acknowledged} hold${res.acknowledged === 1 ? '' : 's'} under x̄ ≤ ${meanThresholdPct}% and s ≤ ${sdThresholdPct}%` +
+				`Marked ${res.acknowledged} hold${res.acknowledged === 1 ? '' : 's'} reviewed under x̄ ≤ ${meanThresholdPct}% and s ≤ ${sdThresholdPct}%` +
 					(skipped > 0
 						? `; ${skipped} left pending, awaiting a standard-deviation formula for their parameter`
 						: ''),
@@ -406,7 +415,7 @@
 			await ctx.reload();
 			await refreshUndeclared();
 		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Failed to accept');
+			toastStore.error(e instanceof Error ? e.message : 'Failed to mark reviewed');
 		} finally {
 			acknowledging = false;
 		}
@@ -415,6 +424,63 @@
 	// Per-open resolution state: which replicate indexes to flag, and why.
 	let selectedReplicates = $state<Set<number>>(new Set());
 	let flagReason = $state('');
+	// The hold whose detail is open, so the preview below can follow the selection.
+	let openHold = $state<ReplicateAuditHold | null>(null);
+	// What the statistics become under the change being considered (the selected replicates
+	// flagged, or the chosen divisor declared), read before the write rather than after it.
+	let preview = $state<SamplePreviewResponse | null>(null);
+	let previewError = $state<string | null>(null);
+	let previewSeq = 0;
+
+	$effect(() => {
+		const hold = openHold;
+		const exclude = [...selectedReplicates].sort((a, b) => a - b);
+		const estimator = hold && needsDeclaration(hold) ? declareChoice : undefined;
+		preview = null;
+		previewError = null;
+		if (!hold?.stream_id || hold.status !== 'pending' || !isStats(hold)) return;
+		if (exclude.length === 0 && !estimator) return;
+		const seq = ++previewSeq;
+		previewSample({
+			stream_id: hold.stream_id,
+			time: hold.group_time,
+			hold_id: hold.id,
+			...(exclude.length ? { exclude_replicate_indexes: exclude } : {}),
+			...(estimator ? { estimator } : {}),
+		})
+			.then((p) => {
+				if (seq === previewSeq) preview = p;
+			})
+			.catch((e) => {
+				if (seq === previewSeq) previewError = e instanceof Error ? e.message : 'Preview failed';
+			});
+	});
+
+	function previewTitle(): string {
+		const exclude = [...selectedReplicates].sort((a, b) => a - b);
+		const parts: string[] = [];
+		if (exclude.length) parts.push(`after flagging replicate${exclude.length === 1 ? '' : 's'} ${exclude.join(', ')}`);
+		if (preview && preview.proposed.sd_estimator !== preview.current.sd_estimator) {
+			parts.push(`under the ${estimatorLabel(preview.proposed.sd_estimator)} formula`);
+		}
+		return parts.length ? `Statistics ${parts.join(' and ')}` : 'Statistics';
+	}
+
+	// The confirm's own rows for a flag: what the numbers become, from the same preview.
+	function flagPreviewRows(): { label: string; value: string | number }[] {
+		if (!preview) return [];
+		const rows = [
+			{ label: 'Mean after', value: `${fmtStat(preview.current.mean)} to ${fmtStat(preview.proposed.mean)}` },
+			{
+				label: `${sdRowLabel(preview.proposed.sd_estimator)} after`,
+				value: `${fmtStat(preview.current.sd)} to ${fmtStat(preview.proposed.sd)}`,
+			},
+		];
+		if (preview.hold) {
+			rows.push({ label: "Meets the source's cells", value: preview.hold.meets_after ? 'yes' : 'no' });
+		}
+		return rows;
+	}
 
 	function toggleReplicate(idx: number) {
 		const next = new Set(selectedReplicates);
@@ -454,10 +520,6 @@
 		);
 	}
 
-	function estimatorLabel(e: SdEstimator): string {
-		return e === 'population' ? 'population (divisor n)' : 'sample (divisor n-1)';
-	}
-
 	async function handleDeclare(
 		hold: ReplicateAuditHold,
 		scope: 'slot' | 'instant',
@@ -492,11 +554,11 @@
 		acknowledging = true;
 		try {
 			await resolveReplicateAudit(hold.id, { mode: 'ours' });
-			toastStore.success('Our statistics stand for this instant');
+			toastStore.success('Marked reviewed: the statistics computed here stand');
 			ctx.close();
 			await ctx.reload();
 		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Failed to accept');
+			toastStore.error(e instanceof Error ? e.message : 'Failed to mark reviewed');
 		} finally {
 			acknowledging = false;
 		}
@@ -604,7 +666,7 @@
 			const res = await acknowledgeReplicateAuditsBulk({ stream_id: hold.stream_id });
 			const skipped = res.skipped_undeclared_estimator ?? 0;
 			toastStore.success(
-				`Accepted ${res.acknowledged} hold${res.acknowledged === 1 ? '' : 's'} for ${streamLabel(hold)}` +
+				`Marked ${res.acknowledged} hold${res.acknowledged === 1 ? '' : 's'} reviewed for ${streamLabel(hold)}` +
 					(skipped > 0
 						? `; ${skipped} left pending, awaiting a standard-deviation formula for the parameter`
 						: ''),
@@ -612,7 +674,7 @@
 			ctx.close();
 			await ctx.reload();
 		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Failed to accept');
+			toastStore.error(e instanceof Error ? e.message : 'Failed to mark reviewed');
 		} finally {
 			acknowledging = false;
 		}
@@ -680,7 +742,7 @@
 	emptyText={view === 'review' ? 'Nothing needs review' : view === 'resolved' ? 'No resolved holds' : 'No holds awaiting pairing'}
 	detailTitle="Replicate Audit Hold"
 	detailMaxWidth="md"
-	onOpenDetail={() => { selectedReplicates = new Set(); flagReason = ''; }}
+	onOpenDetail={(hold) => { openHold = hold; selectedReplicates = new Set(); flagReason = ''; }}
 >
 	{#snippet filterBar({ reload })}
 		<div class="flex gap-1 flex-wrap">
@@ -782,15 +844,15 @@
 				</div>
 			</div>
 			<ConfirmPopover
-				message="Accept every pending hold under the threshold? The recomputed statistics stand and each instant gets an audit annotation."
-				confirmLabel="Accept {thresholdCount ?? ''}"
+				message="Mark every pending hold under the threshold reviewed? No value changes: the statistics computed here stand, and each instant gets an audit annotation naming both numbers."
+				confirmLabel="Mark {thresholdCount ?? ''} reviewed"
 				confirmVariant="primary"
 				onconfirm={() => handleBulkThreshold({ reload })}
 			>
 				{#snippet detail()}
 					<CountList
 						rows={[
-							{ label: 'Holds accepted', value: thresholdCount ?? '…' },
+							{ label: 'Holds marked reviewed', value: thresholdCount ?? '…' },
 							{ label: 'Mean disagreement at most', value: `${meanThresholdPct}%` },
 							{ label: 'Sd disagreement at most', value: `${sdThresholdPct}%` },
 							{ label: 'Parameters without an sd formula, holds skipped', value: undeclared.length },
@@ -798,11 +860,20 @@
 					/>
 				{/snippet}
 				<Button disabled={acknowledging || !thresholdCount}>
-					Accept {thresholdCount ?? '…'} under threshold
+					Mark {thresholdCount ?? '…'} reviewed under threshold
 				</Button>
 			</ConfirmPopover>
 		</div>
 		<Button onclick={reload}>Refresh</Button>
+		{#if focusHoldId}
+			<div class="w-full flex items-center gap-2 text-xs">
+				<span class="px-2 py-0.5 rounded-full bg-brand-bg text-brand-text">One hold, opened from its measurement</span>
+				<button
+					onclick={() => { focusHoldId = null; reload(); }}
+					class="bg-transparent border-none p-0 cursor-pointer text-brand-primary underline-offset-2 hover:underline"
+				>Show every hold</button>
+			</div>
+		{/if}
 		{#if focusStreamIds}
 			<div class="w-full flex items-center gap-2 text-xs">
 				<span class="px-2 py-0.5 rounded-full bg-brand-bg text-brand-text">
@@ -856,6 +927,11 @@
 				</p>
 			</div>
 		{/if}
+		<p class="w-full text-xs text-brand-muted">
+			The source's average and sd are never applied: what is served is always computed from the
+			stored replicates. A review decides only whether an input replicate is wrong (flag it) or the
+			standard-deviation divisor is different (declare it).
+		</p>
 		<details class="w-full text-xs text-brand-muted">
 			<summary class="cursor-pointer text-brand-primary">What does ruling on a hold change?</summary>
 			<div class="mt-1.5 space-y-1.5 max-w-4xl">
@@ -867,9 +943,9 @@
 					comes to agree (it then reads <em>Superseded</em>).
 				</p>
 				<p>
-					<strong>Accept</strong> changes no value. It records that the computed statistics stand
-					and writes an audit annotation at that instant, which is drawn on the parameter's chart
-					and included in the site's annotations CSV.
+					<strong>Mark reviewed</strong> changes no value. It records that the computed statistics
+					were looked at and stand, and writes an audit annotation at that instant, which is drawn
+					on the parameter's chart and included in the site's annotations CSV.
 				</p>
 				<p>
 					<strong>Flag replicates</strong> does change data: the replicates you name are flagged, so
@@ -894,7 +970,7 @@
 		<th class="text-right px-3 py-2 font-semibold" title="AVG(COALESCE(calibrated_value, raw_value)) over the unflagged replicates">Mean ours</th>
 		<th class="text-right px-3 py-2 font-semibold">Δ mean</th>
 		<th class="text-right px-3 py-2 font-semibold">SD source</th>
-		<th class="text-right px-3 py-2 font-semibold" title="STDDEV_SAMP: sqrt(Σ(x - x̄)² / (n - 1)), matching sd() at source">SD ours</th>
+		<th class="text-right px-3 py-2 font-semibold" title="The sd computed here under the divisor the parameter declares (sample, n-1, unless it declares population); each value's tooltip names its formula">SD ours</th>
 		<th class="text-right px-3 py-2 font-semibold">Δ sd</th>
 		<th class="text-left px-3 py-2 font-semibold">Possible cause</th>
 		<th class="text-left px-4 py-2 font-semibold">Status</th>
@@ -920,7 +996,7 @@
 		<td class="px-3 py-2 text-right font-mono text-xs" title={fullValue(hold.computed.mean)}>{fmtStat(hold.computed.mean)}</td>
 		{@render deltaCell(hold.delta.mean, hold.mean_relative_delta)}
 		<td class="px-3 py-2 text-right font-mono text-xs" title={fullValue(hold.expected.sd)}>{fmtStat(hold.expected.sd)}</td>
-		<td class="px-3 py-2 text-right font-mono text-xs" title={fullValue(hold.computed.sd)}>{fmtStat(hold.computed.sd)}</td>
+		<td class="px-3 py-2 text-right font-mono text-xs" title="{fullValue(hold.computed.sd)}. {sdFormulaTitle(hold.sd_estimator)}">{fmtStat(hold.computed.sd)}</td>
 		{@render deltaCell(hold.delta.sd, hold.sd_relative_delta)}
 		<td class="px-3 py-2">
 			{#if isStats(hold)}
@@ -1048,7 +1124,7 @@
 							<td class="px-3 py-1.5 text-right font-mono {deltaClass(hold.delta.mean, hold.mean_relative_delta) === 'text-brand-muted' ? 'text-brand-muted' : 'text-severity-warning-text bg-severity-warning-soft'}" title={fullValue(hold.delta.mean)}>{fmt(hold.delta.mean)}</td>
 						</tr>
 						<tr class="border-b border-brand-divider">
-							<td class="px-3 py-1.5 text-brand-muted" title="STDDEV_SAMP: sqrt(Σ(x - x̄)² / (n - 1)), matching sd() at source">SD</td>
+							<td class="px-3 py-1.5 text-brand-muted" title={sdFormulaTitle(hold.sd_estimator)}>{sdRowLabel(hold.sd_estimator)}</td>
 							<td class="px-3 py-1.5 text-right font-mono" title={fullValue(hold.expected.sd)}>{fmtStat(hold.expected.sd)}</td>
 							<td class="px-3 py-1.5 text-right font-mono" title={fullValue(hold.computed.sd)}>{fmtStat(hold.computed.sd)}</td>
 							<td class="px-3 py-1.5 text-right font-mono {deltaClass(hold.delta.sd, hold.sd_relative_delta) === 'text-brand-muted' ? 'text-brand-muted' : 'text-severity-warning-text bg-severity-warning-soft'}" title={fullValue(hold.delta.sd)}>{fmt(hold.delta.sd)}</td>
@@ -1108,9 +1184,64 @@
 						{#if hold.status === 'pending'}
 							<p class="mt-1 text-xs text-brand-muted">
 								This hold was recorded without replicate indexes, so a replicate cannot be flagged
-								from here. Accepting our statistics is still available.
+								from here. Marking it reviewed is still available.
 							</p>
 						{/if}
+					{/if}
+				</div>
+			{/if}
+
+			{#if preview || previewError}
+				<div data-testid="sample-preview" class="rounded-md border border-brand-divider bg-brand-bg p-3 text-xs space-y-2">
+					{#if previewError}
+						<p class="text-severity-alarm">{previewError}</p>
+					{:else if preview}
+						<p class="font-semibold">{previewTitle()}</p>
+						<table class="w-full">
+							<thead class="text-brand-muted">
+								<tr>
+									<th class="text-left font-medium py-0.5">Statistic</th>
+									<th class="text-right font-medium py-0.5">Now</th>
+									<th class="text-right font-medium py-0.5">After</th>
+									<th class="text-right font-medium py-0.5">Change</th>
+								</tr>
+							</thead>
+							<tbody class="font-mono">
+								<tr>
+									<td class="font-sans text-brand-muted py-0.5">Mean</td>
+									<td class="text-right" title={fullValue(preview.current.mean)}>{fmtStat(preview.current.mean)}</td>
+									<td class="text-right" title={fullValue(preview.proposed.mean)}>{fmtStat(preview.proposed.mean)}</td>
+									<td class="text-right" title={fullValue(preview.delta.mean)}>{fmt(preview.delta.mean)}</td>
+								</tr>
+								<tr>
+									<td class="font-sans text-brand-muted py-0.5" title={sdFormulaTitle(preview.proposed.sd_estimator)}>
+										{sdRowLabel(preview.current.sd_estimator)}{preview.proposed.sd_estimator !== preview.current.sd_estimator ? ` to ${sdRowLabel(preview.proposed.sd_estimator)}` : ''}
+									</td>
+									<td class="text-right" title={fullValue(preview.current.sd)}>{fmtStat(preview.current.sd)}</td>
+									<td class="text-right" title={fullValue(preview.proposed.sd)}>{fmtStat(preview.proposed.sd)}</td>
+									<td class="text-right" title={fullValue(preview.delta.sd)}>{fmt(preview.delta.sd)}</td>
+								</tr>
+								<tr>
+									<td class="font-sans text-brand-muted py-0.5">n</td>
+									<td class="text-right">{preview.current.n}</td>
+									<td class="text-right">{preview.proposed.n}</td>
+									<td class="text-right">{preview.delta.n}</td>
+								</tr>
+							</tbody>
+						</table>
+						{#if preview.hold}
+							<p class={preview.hold.meets_after ? 'text-severity-ok-text' : 'text-severity-warning-text'}>
+								{preview.hold.meets_after
+									? "Meets the source's cells within the audit tolerances"
+									: "Does not meet the source's cells"}
+								(mean {preview.hold.mean_agrees ? 'agrees' : 'differs'}, sd {preview.hold.sd_agrees ? 'agrees' : 'differs'}{preview.hold.expected_n != null ? `, n ${preview.hold.n_agrees ? 'agrees' : 'differs'}` : ''}).
+							</p>
+						{/if}
+						<p class="text-brand-muted">
+							Nothing is written by this preview. A flagged replicate keeps its value on the row
+							with the reason beside it; the resolution adds an audit annotation carrying the
+							numbers before and after.
+						</p>
 					{/if}
 				</div>
 			{/if}
@@ -1223,7 +1354,7 @@
 			</ConfirmPopover>
 			{#if isFlaggable(hold)}
 				<ConfirmPopover
-					message="Flag the selected replicates for this instant? The mean and sd recompute from the rest and the instant gets an audit annotation. Reopen restores the flags."
+					message="Flag the selected replicates for this instant? Their values stay on the rows with the reason; the mean and sd recompute from the rest and the instant gets an audit annotation carrying both numbers. Reopen restores the flags."
 					confirmLabel="Flag"
 					confirmVariant="primary"
 					above
@@ -1234,6 +1365,7 @@
 							rows={[
 								{ label: 'Replicates flagged', value: [...selectedReplicates].sort((a, b) => a - b).join(', ') },
 								{ label: 'Replicates remaining', value: hold.computed.n - selectedReplicates.size },
+								...flagPreviewRows(),
 							]}
 						/>
 					{/snippet}
@@ -1245,17 +1377,17 @@
 			{/if}
 		{:else if hold.status === 'pending'}
 			<ConfirmPopover
-				message="Accept every pending hold on {streamLabel(hold)}? The recomputed statistics stand for all of them, and each instant is marked on its parameter's charts with an audit annotation. Holds needing a standard-deviation formula for their parameter are not included."
-				confirmLabel="Accept all"
+				message="Mark every pending hold on {streamLabel(hold)} reviewed? No value changes: the statistics computed here stand for all of them, and each instant is marked on its parameter's charts with an audit annotation. Holds needing a standard-deviation formula for their parameter are not included."
+				confirmLabel="Mark all reviewed"
 				confirmVariant="primary"
 				above
 				onconfirm={() => handleAcknowledgeStream(hold, ctx)}
 			>
-				<Button disabled={acknowledging}>Accept all pending for this stream</Button>
+				<Button disabled={acknowledging}>Mark all pending reviewed for this stream</Button>
 			</ConfirmPopover>
 			{#if isFlaggable(hold)}
 				<ConfirmPopover
-					message="Flag the selected replicates for this instant? The mean and sd recompute from the rest and the instant gets an audit annotation. Reopen restores the flags."
+					message="Flag the selected replicates for this instant? Their values stay on the rows with the reason; the mean and sd recompute from the rest and the instant gets an audit annotation carrying both numbers. Reopen restores the flags."
 					confirmLabel="Flag"
 					confirmVariant="primary"
 					above
@@ -1266,6 +1398,7 @@
 							rows={[
 								{ label: 'Replicates flagged', value: [...selectedReplicates].sort((a, b) => a - b).join(', ') },
 								{ label: 'Replicates remaining', value: hold.computed.n - selectedReplicates.size },
+								...flagPreviewRows(),
 							]}
 						/>
 					{/snippet}
@@ -1276,13 +1409,13 @@
 				</ConfirmPopover>
 			{/if}
 			<ConfirmPopover
-				message="Accept our statistics for this instant? No stored value changes; the source's avg/sd stays recorded on this hold only. This instant is marked on its parameter's charts with an audit annotation naming both numbers. Reversible with Reopen."
-				confirmLabel="Accept"
+				message="Mark this hold reviewed? No stored value changes: the statistics computed here stand and the source's avg/sd stays recorded on this hold only. This instant is marked on its parameter's charts with an audit annotation naming both numbers. Reversible with Reopen."
+				confirmLabel="Mark reviewed"
 				confirmVariant="primary"
 				above
 				onconfirm={() => handleAccept(hold, ctx)}
 			>
-				<Button variant="primary" disabled={acknowledging}>{acknowledging ? 'Resolving…' : 'Accept our statistics'}</Button>
+				<Button variant="primary" disabled={acknowledging}>{acknowledging ? 'Saving' : 'Mark reviewed'}</Button>
 			</ConfirmPopover>
 		{:else if hold.status === 'remediated'}
 			<ConfirmPopover

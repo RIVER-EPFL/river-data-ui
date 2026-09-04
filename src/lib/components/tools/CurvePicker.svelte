@@ -15,19 +15,29 @@
 
 <script lang="ts">
 	import { api, type Sensor, type StandardCurve } from '$api/crud';
+	import { getLastUsedCurve, type LastUsedCurve } from '$api/service';
+	import LastUsedCurveNote from './LastUsedCurveNote.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { curveEquation, curveLabel, formatEquation } from '$lib/standardCurves';
 
 	// Stored-curve dropdown (instrument -> its standard_curves) with a
 	// manual slope/intercept fallback. Writes the resolved selection to `value`.
+	// Given a site and the parameter the curve corrects, it opens on the instrument and curve the
+	// last grab there recorded.
 	let {
 		title,
 		required = false,
 		value = $bindable(emptyCurveSelection()),
+		siteId = null,
+		parameterId = null,
+		parameterCode = null,
 	}: {
 		title: string;
 		required?: boolean;
 		value: CurveSelection;
+		siteId?: string | null;
+		parameterId?: string | null;
+		parameterCode?: string | null;
 	} = $props();
 
 	type Mode = 'stored' | 'manual';
@@ -118,6 +128,34 @@
 		void loadInstruments();
 	});
 
+	// What the last grab at (site, parameter) was measured on and corrected with. Applied only
+	// while the picker is still empty, so a choice already made is never overwritten by a lookup
+	// that resolves later.
+	let lastUsed = $state<LastUsedCurve | null>(null);
+	let lastUsedKey = '';
+	async function applyLastUsed(site: string, by: { parameterId: string | null; parameterCode: string | null }) {
+		try {
+			const res = await getLastUsedCurve(site, by);
+			lastUsed = res.sensor_id ? res : null;
+			if (!res.sensor_id || selectedInstrumentId || value.slope !== null) return;
+			selectedInstrumentId = res.sensor_id;
+			await loadCurves(res.sensor_id);
+			if (res.standard_curve_id && curves.some((c) => c.id === res.standard_curve_id)) {
+				selectedCurveId = res.standard_curve_id;
+				publish();
+			}
+		} catch {
+			lastUsed = null;
+		}
+	}
+	$effect(() => {
+		if (!siteId || (!parameterId && !parameterCode)) return;
+		const key = `${siteId}:${parameterId ?? ''}:${parameterCode ?? ''}`;
+		if (key === lastUsedKey) return;
+		lastUsedKey = key;
+		void applyLastUsed(siteId, { parameterId, parameterCode });
+	});
+
 	// A selection can arrive already made (a test case carrying literal coefficients, a form
 	// prefilled from an earlier run). Adopt it once, so the controls show what `value` holds
 	// instead of an empty picker sitting over a live selection.
@@ -153,6 +191,7 @@
 	</div>
 
 	{#if mode === 'stored'}
+		<LastUsedCurveNote last={lastUsed} />
 		<select
 			bind:value={selectedInstrumentId}
 			onchange={() => loadCurves(selectedInstrumentId)}

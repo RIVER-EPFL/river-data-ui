@@ -28,12 +28,15 @@
 		type ToolParam,
 		type SdEstimator,
 		type ToolVersionRef,
+		getLastUsedCurve,
+		type LastUsedCurve,
 	} from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { toDatetimeLocal, fromDatetimeLocal, formatDateTime } from '$lib/utils';
 	import { curveEquation, curveLabel } from '$lib/standardCurves';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
+	import LastUsedCurveNote from './LastUsedCurveNote.svelte';
 	import ParameterSelect from '$components/ParameterSelect.svelte';
 
 	const BROWSER_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -378,17 +381,49 @@
 	});
 
 	// The curve the run corrected the replicates with is the one recorded on them, so the picker
-	// opens on it and on its instrument rather than asking the operator to find it again.
+	// opens on it and on its instrument rather than asking the operator to find it again. With no
+	// run curve, it opens on what the last grab at this site and parameter recorded.
+	let lastUsed = $state<LastUsedCurve | null>(null);
 	async function preselectInputCurve() {
+		lastUsed = null;
 		const curveId = inputRows.find((r) => r.curveId)?.curveId;
-		if (!curveId) return;
+		if (curveId) {
+			try {
+				const curve = await api.standardCurves.get(curveId);
+				selectedSensorId = curve.sensor_id;
+				await loadCurves(curve.sensor_id);
+				selectedCurveId = curveId;
+			} catch (e) {
+				toastStore.error(e instanceof Error ? e.message : 'Failed to load the standard curve');
+			}
+			return;
+		}
+		if (appliedCurveLabel && inputRows.length === 0) return;
+		await preselectLastUsed();
+	}
+
+	async function preselectLastUsed() {
+		const site = selectedSiteId;
+		const row = inputRows[0] ?? saveableRows[0];
+		if (!site || !row) return;
+		const by = row.resolvedParameterId
+			? { parameterId: row.resolvedParameterId }
+			: row.suggestedCode
+				? { parameterCode: row.suggestedCode }
+				: null;
+		if (!by) return;
 		try {
-			const curve = await api.standardCurves.get(curveId);
-			selectedSensorId = curve.sensor_id;
-			await loadCurves(curve.sensor_id);
-			selectedCurveId = curveId;
-		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Failed to load the standard curve');
+			const res = await getLastUsedCurve(site, by);
+			if (!res.sensor_id) return;
+			lastUsed = res;
+			if (selectedSensorId) return;
+			selectedSensorId = res.sensor_id;
+			await loadCurves(res.sensor_id);
+			if (res.standard_curve_id && curves.some((c) => c.id === res.standard_curve_id)) {
+				selectedCurveId = res.standard_curve_id;
+			}
+		} catch {
+			lastUsed = null;
 		}
 	}
 
@@ -777,6 +812,7 @@
 					<label for="srp-instrument" class="text-sm font-medium">
 						Measured on instrument <span class="text-brand-muted font-normal">(optional)</span>
 					</label>
+					<LastUsedCurveNote last={lastUsed} />
 					<select
 						id="srp-instrument"
 						bind:value={selectedSensorId}
