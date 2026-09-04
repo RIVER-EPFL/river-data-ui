@@ -8,12 +8,17 @@
 import type uPlot from 'uplot';
 import type { SampleReplicate } from '$api/types';
 import { uPlotTheme } from './uPlotTheme';
+import { spotDispersion } from './spotSummary';
 
 /** Replicate statistics for a spot point (from the trigger-maintained `samples` table). */
 export interface SpotPointStats {
 	mean: number;
 	stdev: number | null;
 	n: number;
+	// The observed range of the group's replicates. The bar drawn is one sd, so the extremes are
+	// reported as numbers rather than as a second mark.
+	min?: number | null;
+	max?: number | null;
 	// Individual replicate values behind the mean, each carrying its own curve references.
 	replicates?: SampleReplicate[];
 	// The `samples` row behind the point. Carried so a chart click can reach the sample's tool-run
@@ -34,6 +39,8 @@ export interface SpotSeriesSpec {
 	stats?: Map<number, SpotPointStats>;
 	/** Whether the point at this data index is flagged. Drawn with the flagged glyph. */
 	flagged?: (i: number) => boolean;
+	/** Plot every stored replicate as its own dot alongside the group's mean. Opt-in. */
+	showReplicates?: boolean;
 }
 
 /** Transparent uPlot series carrying spot values: ranges the y-scale, draws nothing itself. */
@@ -53,11 +60,13 @@ export function spotMarkerSize(pointCount: number): number {
 	return 4;
 }
 
+/** `filled` false leaves the outline alone, the glyph for a single unreplicated measurement. */
 export function drawDiamond(
 	ctx: CanvasRenderingContext2D,
 	x: number,
 	y: number,
 	size: number,
+	filled = true,
 ): void {
 	ctx.beginPath();
 	ctx.moveTo(x, y - size);
@@ -65,7 +74,20 @@ export function drawDiamond(
 	ctx.lineTo(x, y + size);
 	ctx.lineTo(x - size, y);
 	ctx.closePath();
-	ctx.fill();
+	if (filled) ctx.fill();
+	ctx.stroke();
+}
+
+/** The mark for a replicated group whose replicates agree: the caps of a bar of zero length. */
+export function drawAgreedTick(
+	ctx: CanvasRenderingContext2D,
+	x: number,
+	y: number,
+	size: number,
+): void {
+	ctx.beginPath();
+	ctx.moveTo(x - size * 1.6, y);
+	ctx.lineTo(x + size * 1.6, y);
 	ctx.stroke();
 }
 
@@ -109,9 +131,11 @@ function drawWhisker(
  * The `[min, max]` a set of spot points occupies once their whiskers are drawn, or `null` when
  * nothing has one. uPlot ranges y from the series values, which are the means, so a bar wider than
  * the spread of the means is clipped at the plot edge and reads as a full-height line with no caps.
+ * `includeRange` widens it to the observed replicate extremes, which is what dot mode draws.
  */
 export function spotWhiskerExtent(
 	stats: Iterable<SpotPointStats> | undefined,
+	includeRange = false,
 ): [number, number] | null {
 	let lo = Number.POSITIVE_INFINITY;
 	let hi = Number.NEGATIVE_INFINITY;
@@ -120,6 +144,11 @@ export function spotWhiskerExtent(
 		if (!Number.isFinite(s.mean)) continue;
 		lo = Math.min(lo, s.mean - sd);
 		hi = Math.max(hi, s.mean + sd);
+		// A replicate outside mean±sd is drawn only in dot mode, and is clipped without this.
+		if (includeRange && s.min != null && s.max != null) {
+			lo = Math.min(lo, s.min);
+			hi = Math.max(hi, s.max);
+		}
 	}
 	return Number.isFinite(lo) && Number.isFinite(hi) ? [lo, hi] : null;
 }
@@ -130,6 +159,38 @@ export function partiallyCurated(stat: SpotPointStats | undefined): boolean {
 	if (reps.length < 2) return false;
 	const excluded = reps.filter((r) => r.flagged || r.withdrawn).length;
 	return excluded > 0 && excluded < reps.length;
+}
+
+/**
+ * Each replicate as its own dot, offset by a fixed number of pixels per index so identical values
+ * stay countable, and coloured by whether curation excluded it from the mean.
+ */
+function drawReplicateDots(
+	ctx: CanvasRenderingContext2D,
+	u: uPlot,
+	x: number,
+	stat: SpotPointStats,
+	size: number,
+	stroke: string,
+): void {
+	const reps = stat.replicates ?? [];
+	if (reps.length < 2) return;
+	const radius = Math.max(1.5, size * 0.35);
+	const spread = size * 1.1;
+	const first = (reps.length - 1) / 2;
+	reps.forEach((rep, i) => {
+		const value = rep.calibrated_value ?? rep.raw_value;
+		if (value == null || !Number.isFinite(value)) return;
+		const cx = x + (i - first) * spread;
+		const cy = u.valToPos(value, 'y', true);
+		ctx.save();
+		ctx.beginPath();
+		ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+		ctx.fillStyle = rep.flagged || rep.withdrawn ? uPlotTheme.flaggedColor : stroke;
+		ctx.globalAlpha = rep.withdrawn ? 0.4 : 0.85;
+		ctx.fill();
+		ctx.restore();
+	});
 }
 
 /**
@@ -171,8 +232,13 @@ export function spotMarkersPlugin(specs: () => SpotSeriesSpec[]): uPlot.Plugin {
 							const x = u.valToPos(xData[i], 'x', true);
 							const y = u.valToPos(val, 'y', true);
 							const stat = spec.stats?.get(xData[i]);
-							if (stat && stat.n >= 2 && stat.stdev != null && stat.stdev > 0) {
-								drawWhisker(ctx, u, x, stat.mean, stat.stdev, size);
+							// Three states, three marks: a bar for spread, a bare rule for a group
+							// whose replicates agree, an open diamond for a single measurement.
+							const dispersion = spotDispersion(stat);
+							if (dispersion === 'spread' && stat) {
+								drawWhisker(ctx, u, x, stat.mean, stat.stdev as number, size);
+							} else if (dispersion === 'agreed') {
+								drawAgreedTick(ctx, x, y, size);
 							}
 							// A group some of whose replicates were curated away is drawn in the
 							// flagged colour: the value is still served, but it no longer stands on
@@ -180,7 +246,17 @@ export function spotMarkersPlugin(specs: () => SpotSeriesSpec[]): uPlot.Plugin {
 							const flagged = spec.flagged?.(i) ?? false;
 							const partial = !flagged && partiallyCurated(stat);
 							if (flagged || partial) ctx.strokeStyle = uPlotTheme.flaggedColor;
-							drawDiamond(ctx, x, y, size);
+							drawDiamond(ctx, x, y, size, dispersion !== 'single');
+							if (spec.showReplicates && stat) {
+								drawReplicateDots(
+									ctx,
+									u,
+									x,
+									stat,
+									size,
+									spec.stroke ?? uPlotTheme.grabSampleStroke,
+								);
+							}
 							// A fully flagged group takes the cross; a partially curated one keeps
 							// the outline alone, so the two states stay distinguishable.
 							if (flagged) drawFlagCross(ctx, x, y, size);

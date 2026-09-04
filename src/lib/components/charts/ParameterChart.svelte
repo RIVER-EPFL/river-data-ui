@@ -50,6 +50,7 @@
 		chartData,
 		spotData = null,
 		spotStats = null,
+		showReplicates = false,
 		gapThreshold = 0,
 		loading: externalLoading = false,
 		onZoomSelect,
@@ -86,6 +87,8 @@
 		spotData?: ChartData | null;
 		/** Replicate mean±sd whisker stats for spot points, keyed by epoch ms. */
 		spotStats?: Map<number, SpotPointStats> | null;
+		/** Plot each stored replicate as its own dot beside the group's mean. */
+		showReplicates?: boolean;
 		/** Whether `chartData.times` are the stored instants rather than aggregate bucket starts.
 		 *  A bucket start resolves no reading, so the continuous click affordance is withdrawn. */
 		exactTimes?: boolean;
@@ -353,7 +356,7 @@
 
 	function yRange(u: uPlot, dataMin: number | null, dataMax: number | null): [number, number] {
 		const fallback = uPlot.rangeNum(dataMin ?? 0, dataMax ?? 1, 0.1, true) as [number, number];
-		const extent = spotWhiskerExtent(spotStats?.values());
+		const extent = spotWhiskerExtent(spotStats?.values(), showReplicates);
 		if (!extent) return fallback;
 		let lo = Math.min(fallback[0], extent[0]);
 		let hi = Math.max(fallback[1], extent[1]);
@@ -377,6 +380,7 @@
 				seriesIdx,
 				...spotMarkerColors(seriesIndex),
 				stats,
+				showReplicates,
 				flagged: flagged ? (i: number) => flagged[i] === true : undefined,
 			},
 		]);
@@ -863,6 +867,8 @@
 		// Read synchronously so a timezone-preference toggle re-runs this effect; renderChart()
 		// (a microtask below) then rebuilds the chart with the new tzDate via tzDateOption().
 		void timezoneStore.zone;
+		// Dot mode widens the y-range to the replicate extremes, which is a rebuild, not a redraw.
+		void showReplicates;
 		// The shared crosshair reads the continuous series when present, else the spot samples.
 		const primary = hasContinuous ? chartData : spotData;
 		if (hasData && primary) {

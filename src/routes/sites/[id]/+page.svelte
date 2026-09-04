@@ -610,6 +610,8 @@
 	// Frequency selects which readings drive the charts, by measurement_type:
 	//   high = continuous field-sensor line, low = discrete spot/grab markers, all = both (default).
 	let frequency = $state<Frequency>('all');
+	// Plot every replicate behind a spot mean, not just the mean and its sd bar.
+	let showReplicates = $state(false);
 
 	let sliderMax = $state(Date.now());
 	let sliderMin = $state(Date.now() - 90 * 86400000);
@@ -835,6 +837,8 @@
 							mean,
 							stdev: s?.stdev ?? null,
 							n: s?.n ?? 1,
+							min: s?.min ?? null,
+							max: s?.max ?? null,
 							replicates: s?.replicates,
 							sampleId: s?.sample_id,
 							calibrationId,
@@ -1756,6 +1760,9 @@
 						{/if}
 
 						<div class="w-px h-5 bg-brand-divider mx-1"></div>
+						<label class="flex items-center gap-1.5 cursor-pointer text-xs text-brand-muted" title="Plot each replicate behind a grab mean as its own dot">
+							<input type="checkbox" bind:checked={showReplicates} /> Replicates
+						</label>
 						<label class="flex items-center gap-1.5 cursor-pointer text-xs text-brand-muted" title="Shade the periods a reading was in warning or alarm">
 							<input type="checkbox" bind:checked={showAlarmBands} /> Alarm bands
 						</label>
@@ -1866,6 +1873,7 @@
 							chartData={chartDataMap.get(sp.id) ?? null}
 							spotData={spotDataMap.get(sp.id) ?? null}
 							spotStats={spotStatsMap.get(sp.parameter_id) ?? null}
+							{showReplicates}
 							{gapThreshold}
 							loading={chartLoading}
 							onZoomSelect={onChartZoomSelect}
@@ -1929,6 +1937,7 @@
 										chartData={chartDataMap.get(sp.id) ?? null}
 										spotData={spotDataMap.get(sp.id) ?? null}
 										spotStats={spotStatsMap.get(sp.parameter_id) ?? null}
+										{showReplicates}
 										{gapThreshold}
 										loading={chartLoading}
 										onZoomSelect={onChartZoomSelect}

@@ -9,6 +9,7 @@
 	import { formatEquation } from '$lib/standardCurves';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import { formatMeasurement } from '$lib/format';
+	import { spotSampleLine } from '$lib/charts/spotSummary';
 
 	let { syncKey }: { syncKey: string } = $props();
 
@@ -139,32 +140,7 @@
 						calibrated: rep?.calibrated_value ?? null,
 					};
 				}
-				const all = stat?.replicates ?? [];
-				if (stat && (stat.n >= 2 || all.length > 1)) {
-					const reps = all
-						.map(
-							(r) =>
-								formatMeasurement(r.calibrated_value ?? r.raw_value, reg.decimals) +
-								(r.withdrawn ? '\u2020' : r.flagged ? '*' : '')
-						)
-						.join(', ');
-					const sd = stat.stdev != null ? ` ±${formatMeasurement(stat.stdev, reg.decimals)}` : '';
-					// The listing shows every stored replicate, the mean counts only the ones that
-					// survive curation, so the excluded ones are named rather than left to an
-					// unexplained mark against a count that does not add up.
-					const flagged = all.filter((r) => r.flagged && !r.withdrawn).length;
-					const withdrawn = all.filter((r) => r.withdrawn).length;
-					const excluded = [
-						flagged ? `${flagged} of ${all.length} flagged*` : '',
-						withdrawn ? `${withdrawn} withdrawn\u2020` : '',
-					]
-						.filter(Boolean)
-						.join(', ');
-					sampleLine = reps
-						? `mean of ${stat.n}${sd}: ${reps}`
-						: `mean of ${stat.n} replicates${sd}`;
-					if (excluded) sampleLine += ` (${excluded})`;
-				}
+				sampleLine = spotSampleLine(stat, reg.decimals);
 			}
 
 			result.push({

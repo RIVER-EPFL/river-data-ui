@@ -69,6 +69,8 @@ export async function fetchSiteSeries(opts: {
 						mean: s.mean,
 						stdev: s.stdev ?? null,
 						n: s.n,
+						min: s.min ?? null,
+						max: s.max ?? null,
 						replicates: s.replicates,
 						sampleId: s.sample_id,
 					});
