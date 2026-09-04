@@ -22,6 +22,7 @@
 	import ThresholdDialog from '$components/dialogs/ThresholdDialog.svelte';
 	import DeployMoveSensorDialog from '$components/dialogs/DeployMoveSensorDialog.svelte';
 	import MergeSiteParameterDialog from '$components/dialogs/MergeSiteParameterDialog.svelte';
+	import ConfirmSiteParameterButton from '$components/parameters/ConfirmSiteParameterButton.svelte';
 	import PointInspector from '$components/provenance/PointInspector.svelte';
 	import ReplicateFlagDialog from '$components/dialogs/ReplicateFlagDialog.svelte';
 	import ParameterChart, { type ChartData } from '$components/charts/ParameterChart.svelte';
@@ -39,6 +40,7 @@
 	import { eventBus, INGEST_COALESCE_MS } from '$lib/stores/events.svelte';
 	import { formatThresholdRange } from '$lib/alarms';
 	import { me } from '$auth/me.svelte';
+	import { formatMeasurement , NO_VALUE} from '$lib/format';
 
 	let site = $state<Site | null>(null);
 	let project = $state<Project | null>(null);
@@ -1075,6 +1077,11 @@
 		return sp?.display_units ?? parameters.find((p) => p.id === paramId)?.default_units ?? null;
 	}
 
+	/** The precision the slot declares (`site_parameters.decimal_places`), null when it declares none. */
+	function decimalsForParameter(paramId: string): number | null {
+		return siteParameters.find((s) => s.parameter_id === paramId)?.decimal_places ?? null;
+	}
+
 	function paramCode(paramId: string): string { return parameters.find((p) => p.id === paramId)?.code ?? ''; }
 	function paramUnits(sp: SiteParameter): string {
 		const param = parameters.find((p) => p.id === sp.parameter_id);
@@ -1418,7 +1425,7 @@
 		return (vals.filter((v) => v == null).length / vals.length) * 100;
 	}
 	function fmt(val: number | null, decimals = 2): string {
-		return val != null ? val.toFixed(decimals) : 'None';
+		return formatMeasurement(val, decimals);
 	}
 
 	interface ParamStats {
@@ -1699,6 +1706,7 @@
 							parameterName={param.name}
 							parameterCode={param.code}
 							units={sp.display_units ?? param.default_units}
+							decimals={sp.decimal_places}
 							isDerived={sp.is_derived ?? false}
 							threshold={th}
 							annotations={annotationsByParam.get(sp.parameter_id) ?? []}
@@ -1730,6 +1738,7 @@
 								parameterId={sp.parameter_id}
 								parameterName={param.name}
 								units={unitsForParameter(sp.parameter_id)}
+								decimals={sp.decimal_places}
 								timeIso={inspector.timeIso}
 								measurementType={inspector.measurementType}
 								onclose={() => (inspector = null)}
@@ -1759,6 +1768,7 @@
 										parameterName={param.name}
 										parameterCode={param.code}
 										units={sp.display_units ?? param.default_units}
+										decimals={sp.decimal_places}
 										threshold={th}
 										annotations={annotationsByParam.get(sp.parameter_id) ?? []}
 										seriesIndex={measurementParams.length + i}
@@ -1809,7 +1819,14 @@
 		{:else if activeKey === 'parameters'}
 			<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 				<div class="flex items-center justify-between px-4 py-3 bg-brand-bg border-b border-brand-divider">
-					<span class="text-sm font-semibold">Parameters ({siteParameters.filter((sp) => !sp.is_derived).length})</span>
+					<span class="text-sm font-semibold">
+						Parameters ({siteParameters.filter((sp) => !sp.is_derived).length})
+						{#if siteParameters.some((sp) => sp.needs_review)}
+							<span class="ml-2 rounded bg-severity-warning-soft px-1.5 py-0.5 text-xs font-medium text-severity-warning-text" title="Added by a tool save, awaiting confirmation">
+								{siteParameters.filter((sp) => sp.needs_review).length} need review
+							</span>
+						{/if}
+					</span>
 					<Button
 						size="sm"
 						onclick={() => showAddParameter = !showAddParameter}
@@ -1854,7 +1871,12 @@
 							{@const alarm = th && !disabled ? formatThresholdRange(th.alarm_min, th.alarm_max, paramUnits(sp)) : null}
 							<tr class="border-b border-brand-divider last:border-b-0">
 								<td class="px-4 py-2 font-mono text-xs">{paramCode(sp.parameter_id)}</td>
-								<td class="px-4 py-2 font-semibold">{paramName(sp.parameter_id)}</td>
+								<td class="px-4 py-2 font-semibold">
+									{paramName(sp.parameter_id)}
+									{#if sp.needs_review}
+										<span class="ml-1 rounded bg-severity-warning-soft px-1.5 py-0.5 text-xs font-medium text-severity-warning-text" title="Added by a tool save, awaiting confirmation">Needs review</span>
+									{/if}
+								</td>
 								<td class="px-4 py-2 text-brand-muted">{paramUnits(sp)}</td>
 								<td class="px-4 py-2 text-brand-muted">{sp.sample_interval_sec ? `${sp.sample_interval_sec}s` : 'None'}</td>
 								{#if disabled}
@@ -1864,6 +1886,11 @@
 									<td class="px-4 py-2 text-xs text-severity-alarm">{#if alarm}{alarm}{:else}<span class="text-brand-muted">None</span>{/if}</td>
 								{/if}
 								<td class="px-4 py-2 text-right space-x-1">
+									<ConfirmSiteParameterButton
+										siteParameter={sp}
+										label={paramName(sp.parameter_id)}
+										onconfirmed={reloadSiteParameters}
+									/>
 									<Button
 										size="sm"
 										onclick={() => openThresholdDialog(sp.parameter_id, paramName(sp.parameter_id))}
@@ -2086,8 +2113,8 @@
 											{paramName(s.parameter_id)}
 											{#if unitsForParameter(s.parameter_id)}<span class="text-brand-muted">({unitsForParameter(s.parameter_id)})</span>{/if}
 										</td>
-										<td class="px-4 py-2 text-right font-mono">{s.mean != null ? s.mean.toFixed(3) : 'None'}</td>
-										<td class="px-4 py-2 text-right font-mono">{s.stdev != null ? s.stdev.toFixed(3) : 'None'}</td>
+										<td class="px-4 py-2 text-right font-mono">{formatMeasurement(s.mean, decimalsForParameter(s.parameter_id))}</td>
+										<td class="px-4 py-2 text-right font-mono">{formatMeasurement(s.stdev, decimalsForParameter(s.parameter_id))}</td>
 										<td class="px-4 py-2 text-right font-mono">{s.n}</td>
 										<td class="px-4 py-2 text-right font-mono">{s.min_value != null ? s.min_value.toFixed(3) : 'None'}</td>
 										<td class="px-4 py-2 text-right font-mono">{s.max_value != null ? s.max_value.toFixed(3) : 'None'}</td>
@@ -2217,7 +2244,7 @@
 													{cell?.flagged ? 'text-severity-warning' : ''}"
 											>
 												{#if !cell}
-													<span class="text-brand-muted">—</span>
+													<span class="text-brand-muted">-</span>
 												{:else if cell.finding === 'missing_output' && cell.value == null}
 													<Badge variant="warning">missing</Badge>
 												{:else if cell.value != null}
@@ -2227,13 +2254,13 @@
 														<span class="text-severity-warning" title={marker.title}>{marker.text}</span>
 													{/if}
 												{:else}
-													<span class="text-brand-muted">—</span>
+													<span class="text-brand-muted">-</span>
 												{/if}
 											</td>
 										{/each}
 										{#each extraCells as cell (cell.parameter_id)}
 											<td class="px-3 py-2 tabular-nums whitespace-nowrap text-brand-muted">
-												{cell.value != null ? Number(cell.value.toPrecision(6)) : '—'}
+												{cell.value != null ? Number(cell.value.toPrecision(6)) : '-'}
 											</td>
 										{/each}
 									</tr>
@@ -2291,7 +2318,7 @@
 																		{#if unitsForParameter(cell.parameter_id)}<span class="text-brand-muted">({unitsForParameter(cell.parameter_id)})</span>{/if}
 																	</td>
 																	<td class="py-1 pr-3 tabular-nums">
-																		{cell.served_value != null ? Number(cell.served_value.toPrecision(6)) : '—'}
+																		{cell.served_value != null ? Number(cell.served_value.toPrecision(6)) : '-'}
 																		{#if cell.sample && cell.sample.n >= 2 && cell.sample.stdev != null}
 																			<span class="text-brand-muted">±{Number(cell.sample.stdev.toPrecision(3))} (n={cell.sample.n})</span>
 																		{/if}
@@ -2312,7 +2339,7 @@
 																		{#if cell.finding}
 																			<Badge variant="warning">{cell.finding.kind === 'stale_output' ? 'stale' : 'missing'}</Badge>
 																		{:else}
-																			<span class="text-brand-muted">—</span>
+																			<span class="text-brand-muted">-</span>
 																		{/if}
 																	</td>
 																</tr>
@@ -2328,6 +2355,7 @@
 															parameterId={visitCell.parameterId}
 															parameterName={visitCell.parameterName}
 															units={unitsForParameter(visitCell.parameterId)}
+															decimals={decimalsForParameter(visitCell.parameterId)}
 															timeIso={visitDetail.collected_at}
 															measurementType="spot"
 															onclose={() => (visitCell = null)}
@@ -2594,6 +2622,7 @@
 				parameterId={inspector.parameterId}
 				parameterName={inspector.parameterName}
 				units={unitsForParameter(inspector.parameterId)}
+				decimals={decimalsForParameter(inspector.parameterId)}
 				timeIso={inspector.timeIso}
 				replicates={inspectorFlagReplicates}
 				onsuccess={scheduleFetch}

@@ -353,7 +353,7 @@
 						<div class="font-medium text-brand-text">Push notifications</div>
 						<div class="text-sm text-brand-text-muted">
 							{#if !caps.webPush.available}
-								Unavailable — the server has no VAPID key configured.
+								Unavailable, the server has no VAPID key configured.
 							{:else if !pushSupported}
 								Your browser does not support push notifications.
 							{:else if iosNeedsInstall}

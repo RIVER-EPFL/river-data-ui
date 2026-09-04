@@ -144,6 +144,8 @@ export interface SiteParameter {
 	derived_definition_id: string | null;
 	is_active: boolean | null;
 	is_public: boolean;
+	/** Slot minted by a verified tool save; a manager confirms it from the site's Parameters tab. */
+	needs_review: boolean;
 	/** 'sample' | 'population' | null (undeclared). Changed only through the declare endpoint. */
 	sd_estimator: string | null;
 	created_at: string;

@@ -8,6 +8,7 @@
 		type HoldKind,
 	} from '$api/service';
 	import { formatEquation } from '$lib/standardCurves';
+	import { NO_VALUE, formatMeasurement, numericCell } from '$lib/format';
 	import { formatDateTime } from '$lib/utils';
 	import Badge from '$components/ui/Badge.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
@@ -19,6 +20,7 @@
 		parameterId,
 		parameterName,
 		units = null,
+		decimals = null,
 		timeIso,
 		measurementType,
 		onclose,
@@ -29,6 +31,8 @@
 		parameterName: string;
 		/** The unit the slot serves. Printed on the value columns; the caller resolves it. */
 		units?: string | null;
+		/** `site_parameters.decimal_places`; null falls back to significant digits. */
+		decimals?: number | null;
 		timeIso: string;
 		measurementType?: string;
 		onclose?: () => void;
@@ -40,9 +44,6 @@
 	let error = $state('');
 	let resp = $state<ProvenanceResponse | null>(null);
 	let showToolRun = $state<Set<number>>(new Set());
-
-	// The placeholder for an absent value, everywhere in this panel.
-	const NONE = '-';
 
 	const ORIGIN_LABEL: Record<string, string> = {
 		sync: 'Synced',
@@ -68,21 +69,20 @@
 		tool: 'Fixed by the tool that computed it.',
 	};
 
-	function fmt(v: number): string {
-		if (!Number.isFinite(v)) return String(v);
-		return Number.isInteger(v) ? String(v) : String(Number(v.toPrecision(6)));
+	function fmt(v: number | null | undefined): string {
+		return formatMeasurement(v, decimals);
 	}
 
 	function correctionText(r: ProvenanceReading): string {
 		const parts: string[] = [];
 		if (r.calibration) parts.push(formatEquation(r.calibration.slope, r.calibration.intercept));
 		if (r.standard_curve) parts.push(formatEquation(r.standard_curve.slope, r.standard_curve.intercept));
-		return parts.length > 0 ? parts.join(' then ') : NONE;
+		return parts.length > 0 ? parts.join(' then ') : NO_VALUE;
 	}
 
 	function estimatorText(rec: ProvenanceRecord): string {
 		const est = rec.computation?.sd_estimator;
-		if (!est) return NONE;
+		if (!est) return NO_VALUE;
 		return est === 'population' ? 'population (n)' : 'sample (n-1)';
 	}
 
@@ -93,7 +93,7 @@
 	}
 
 	function computationText(rec: ProvenanceRecord): string {
-		if (!rec.computation?.provenance) return NONE;
+		if (!rec.computation?.provenance) return NO_VALUE;
 		const src = rec.computation.run_source;
 		if (src === 'chain') return 'recomputed by chain';
 		if (src && src !== 'interactive') return src;
@@ -206,19 +206,19 @@
 						{@render field(`Measured${units ? ` (${units})` : ''}`, fmt(r.raw_value), undefined, true)}
 						{@render field(
 							`Corrected${units ? ` (${units})` : ''}`,
-							r.calibrated_value != null ? fmt(r.calibrated_value) : NONE,
+							fmt(r.calibrated_value),
 							undefined,
 							true,
 						)}
 						{@render field(
 							'Calibration',
-							r.calibration ? formatEquation(r.calibration.slope, r.calibration.intercept) : NONE,
+							r.calibration ? formatEquation(r.calibration.slope, r.calibration.intercept) : NO_VALUE,
 							'The windowed calibration applied to the measurement.',
 							false,
 						)}
 						{@render field(
 							'Standard curve',
-							r.standard_curve ? formatEquation(r.standard_curve.slope, r.standard_curve.intercept) : NONE,
+							r.standard_curve ? formatEquation(r.standard_curve.slope, r.standard_curve.intercept) : NO_VALUE,
 							r.standard_curve?.name ?? 'The lab curve chosen for this measurement.',
 							false,
 						)}
@@ -228,7 +228,7 @@
 								? 'withdrawn'
 								: r.is_flagged
 									? `flagged${r.flag_reason ? `: ${r.flag_reason}` : ''}`
-									: NONE,
+									: NO_VALUE,
 							r.withdrawn_reason ?? undefined,
 							false,
 						)}
@@ -250,11 +250,11 @@
 							{#each rec.readings as r (r.replicate_index)}
 								<tr class="border-t border-brand-divider/60 {r.withdrawn_at ? 'opacity-60' : ''}">
 									<td class="py-0.5 pr-3 text-brand-muted">{r.replicate_index}</td>
-									<td class="py-0.5 pr-3 text-right font-mono tabular-nums {r.withdrawn_at ? 'line-through' : ''}"
+									<td class="py-0.5 pr-3 {numericCell} {r.withdrawn_at ? 'line-through' : ''}"
 										>{fmt(r.raw_value)}</td
 									>
-									<td class="py-0.5 pr-3 text-right font-mono tabular-nums {r.withdrawn_at ? 'line-through' : ''}">
-										{r.calibrated_value != null ? fmt(r.calibrated_value) : NONE}
+									<td class="py-0.5 pr-3 {numericCell} {r.withdrawn_at ? 'line-through' : ''}">
+										{fmt(r.calibrated_value)}
 									</td>
 									<td class="py-0.5 pr-3 text-brand-muted">{correctionText(r)}</td>
 									<td class="py-0.5">
@@ -263,7 +263,7 @@
 										{:else if r.is_flagged}
 											<Badge variant="warning">flagged{r.flag_reason ? `: ${r.flag_reason}` : ''}</Badge>
 										{:else}
-											<span class="text-brand-muted">{NONE}</span>
+											<span class="text-brand-muted">{NO_VALUE}</span>
 										{/if}
 									</td>
 								</tr>

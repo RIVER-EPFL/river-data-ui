@@ -31,6 +31,7 @@
 	import ReplicateFamilyBadge from '$components/streams/ReplicateFamilyBadge.svelte';
 	import ReplicateAuditsPanel from '$components/logs/ReplicateAuditsPanel.svelte';
 	import InstrumentCurvesPanel from '$components/streams/InstrumentCurvesPanel.svelte';
+	import { formatCount } from '$lib/format';
 
 	// ── Stream list state ──
 	let streams = $state<DataStream[]>([]);
@@ -922,7 +923,7 @@
 	// The divisor a replicate family publishes. Asked here because pairing is the first moment it
 	// can be, and left unset deliberately: the audit gate asks again rather than this guessing.
 	// Entries that will pair, whose source reports an sd, and which nobody has declared a divisor
-	// for — since sample is the default, that is the set the audit disputes. Quoted on the apply
+	// for, since sample is the default, that is the set the audit disputes. Quoted on the apply
 	// screen so leaving it unset is a stated choice rather than an oversight.
 	const undeclaredEstimatorEntries = $derived(
 		planEntries.filter(
@@ -1145,7 +1146,7 @@
 		pairing = true;
 		try {
 			const res = await pairStream(pairStream_.id, selectedSiteParam);
-			toastStore.success(`Stream paired · ${res.backfilled.toLocaleString()} reading${res.backfilled === 1 ? '' : 's'} attributed`);
+			toastStore.success(`Stream paired · ${formatCount(res.backfilled)} reading${res.backfilled === 1 ? '' : 's'} attributed`);
 			pairDialogOpen = false;
 			load();
 		}
@@ -1170,7 +1171,7 @@
 	async function handleUnpair(streamId: string) {
 		try {
 			const res = await unpairStream(streamId);
-			toastStore.success(`Stream unpaired · ${res.cleared.toLocaleString()} reading${res.cleared === 1 ? '' : 's'} un-attributed`);
+			toastStore.success(`Stream unpaired · ${formatCount(res.cleared)} reading${res.cleared === 1 ? '' : 's'} un-attributed`);
 			load();
 		}
 		catch (e) { toastStore.error(`Unpair failed: ${e instanceof Error ? e.message : e}`); }
@@ -1656,8 +1657,8 @@
 							{#each withUnpaired as s}
 								<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 cursor-pointer" onclick={() => createPlan(s.source_system)}>
 									<td class="px-4 py-3 font-semibold">{s.source_system}</td>
-									<td class="px-4 py-3 text-right"><span class="text-severity-warning font-semibold">{s.unpaired.toLocaleString()}</span> <span class="text-brand-muted">unpaired</span></td>
-									<td class="px-4 py-3 text-right text-brand-muted">{s.paired.toLocaleString()} paired</td>
+									<td class="px-4 py-3 text-right"><span class="text-severity-warning font-semibold">{formatCount(s.unpaired)}</span> <span class="text-brand-muted">unpaired</span></td>
+									<td class="px-4 py-3 text-right text-brand-muted">{formatCount(s.paired)} paired</td>
 								</tr>
 							{/each}
 						</tbody>
@@ -1670,7 +1671,7 @@
 				<p class="text-severity-ok">All streams are paired.</p>
 			{/if}
 			{#if fullyPaired.length > 0}
-				<p class="text-xs text-brand-muted">{fullyPaired.map((s) => s.source_system).join(', ')} -- fully paired ({fullyPaired.reduce((a, s) => a + s.paired, 0).toLocaleString()} streams)</p>
+				<p class="text-xs text-brand-muted">{fullyPaired.map((s) => s.source_system).join(', ')} -- fully paired ({formatCount(fullyPaired.reduce((a, s) => a + s.paired, 0))} streams)</p>
 			{/if}
 		{/if}
 	</div>
@@ -1686,7 +1687,7 @@
 				{#if saving}<span class="text-xs text-brand-muted">Saving…</span>{/if}
 			</div>
 			<Button variant="primary" onclick={() => setMode('confirm')} disabled={summary.toPair === 0} class="px-4 font-semibold">
-				Apply {summary.toPair.toLocaleString()} pairings &rarr;
+				Apply {formatCount(summary.toPair)} pairings &rarr;
 			</Button>
 		</div>
 
@@ -1705,8 +1706,8 @@
 
 		<!-- What the apply will do, where it cannot be missed -->
 		<div class="flex flex-wrap items-center gap-2 text-xs">
-			<Badge variant="ok">{summary.toPair.toLocaleString()} to pair</Badge>
-			{#if summary.toSkip > 0}<Badge variant="muted">{summary.toSkip.toLocaleString()} skipped</Badge>{/if}
+			<Badge variant="ok">{formatCount(summary.toPair)} to pair</Badge>
+			{#if summary.toSkip > 0}<Badge variant="muted">{formatCount(summary.toSkip)} skipped</Badge>{/if}
 			<span class="text-brand-muted">will create</span>
 			{#if summary.newProjects > 0}<Badge>{summary.newProjects} project{summary.newProjects === 1 ? '' : 's'}</Badge>{/if}
 			{#if summary.newSites > 0}<Badge>{summary.newSites} site{summary.newSites === 1 ? '' : 's'}</Badge>{/if}
@@ -1788,8 +1789,8 @@
 								The catalog entry is
 								<a href="{base}/parameters/{ex.id}" class="font-mono underline-offset-2 hover:underline">{ex.code}</a>
 								({ex.name}), used by {ex.site_parameter_count} site{ex.site_parameter_count === 1 ? '' : 's'}
-								and {ex.reading_count.toLocaleString()} reading{ex.reading_count === 1 ? '' : 's'}.
-								Affects {w.count.toLocaleString()} stream{w.count === 1 ? '' : 's'}.
+								and {formatCount(ex.reading_count)} reading{ex.reading_count === 1 ? '' : 's'}.
+								Affects {formatCount(w.count)} stream{w.count === 1 ? '' : 's'}.
 							</p>
 							<div class="flex flex-wrap items-center gap-2 mt-2">
 								<Button size="sm" onclick={() => adoptCatalogUnits(w)}>Keep catalog units ({ex.units})</Button>
@@ -1797,7 +1798,7 @@
 								<Button variant="ghost" size="sm" onclick={() => goToParam(w.paramName)}>Open in Parameters</Button>
 							</div>
 						{:else}
-							<p class="text-xs mt-1 opacity-90">Affects {w.count.toLocaleString()} stream{w.count === 1 ? '' : 's'}.</p>
+							<p class="text-xs mt-1 opacity-90">Affects {formatCount(w.count)} stream{w.count === 1 ? '' : 's'}.</p>
 						{/if}
 					</div>
 				{/each}
@@ -2021,14 +2022,14 @@
 												{#if c.r_squared != null}<span class="text-brand-muted ml-1">R² {formatSignificant(c.r_squared)}</span>{/if}
 											</td>
 											<td class="px-3 py-2 font-mono text-xs text-brand-muted">{c.source_key ?? '--'}</td>
-											<td class="px-3 py-2 text-right text-xs {c.reading_count > 0 ? 'text-brand-text' : 'text-brand-muted'}">{c.reading_count.toLocaleString()}</td>
+											<td class="px-3 py-2 text-right text-xs {c.reading_count > 0 ? 'text-brand-text' : 'text-brand-muted'}">{formatCount(c.reading_count)}</td>
 											<td class="px-3 py-2">
 												<select
 													value={c.sensor_id}
 													onchange={(e) => rehomeCurve(c.id, (e.target as HTMLSelectElement).value)}
 													class="px-2 py-1 rounded text-xs bg-brand-surface border border-brand-divider max-w-[240px]"
 													aria-label="Instrument for {c.name ?? c.id}"
-													title={c.reading_count > 0 ? `Moving this curve changes which instrument ${c.reading_count.toLocaleString()} corrected readings name` : 'Move this curve to another instrument'}
+													title={c.reading_count > 0 ? `Moving this curve changes which instrument ${formatCount(c.reading_count)} corrected readings name` : 'Move this curve to another instrument'}
 												>
 													{#if !labInstruments.some((s) => s.id === c.sensor_id)}
 														<option value={c.sensor_id}>{c.instrument_name}</option>
@@ -2576,8 +2577,8 @@
 		<div class="rounded-md border border-brand-divider bg-brand-surface p-6 space-y-4">
 			<p class="text-sm">Applying this plan will:</p>
 			<div class="grid grid-cols-2 gap-3 text-sm">
-				<div class="p-3 bg-brand-bg rounded"><span class="text-brand-muted block text-xs">Pair streams</span><span class="text-lg font-semibold text-severity-ok">{summary.toPair.toLocaleString()}</span></div>
-				<div class="p-3 bg-brand-bg rounded"><span class="text-brand-muted block text-xs">Skip streams</span><span class="text-lg font-semibold">{summary.toSkip.toLocaleString()}</span></div>
+				<div class="p-3 bg-brand-bg rounded"><span class="text-brand-muted block text-xs">Pair streams</span><span class="text-lg font-semibold text-severity-ok">{formatCount(summary.toPair)}</span></div>
+				<div class="p-3 bg-brand-bg rounded"><span class="text-brand-muted block text-xs">Skip streams</span><span class="text-lg font-semibold">{formatCount(summary.toSkip)}</span></div>
 				<div class="p-3 bg-brand-bg rounded"><span class="text-brand-muted block text-xs">Create projects</span><span class="text-lg font-semibold">{summary.newProjects}</span></div>
 				<div class="p-3 bg-brand-bg rounded"><span class="text-brand-muted block text-xs">Create sites</span><span class="text-lg font-semibold">{summary.newSites}</span></div>
 				<div class="p-3 bg-brand-bg rounded"><span class="text-brand-muted block text-xs">Create parameters</span><span class="text-lg font-semibold">{summary.newParams}</span></div>
@@ -2616,7 +2617,7 @@
 									class="bg-transparent border-none p-0 cursor-pointer font-semibold underline-offset-2 hover:underline text-severity-warning-text"
 								>{fam.paramName}</button>
 								<span class="text-brand-muted">
-									— source ships {fam.sdColumn}, {fam.sites} site{fam.sites === 1 ? '' : 's'}
+									(source ships {fam.sdColumn}, {fam.sites} site{fam.sites === 1 ? '' : 's'})
 								</span>
 							</li>
 						{/each}
@@ -2650,8 +2651,8 @@
 				<div><span class="text-brand-muted block text-xs">Parameters created</span><span class="text-lg font-semibold">{applyResult.parameters_created}</span></div>
 				<div><span class="text-brand-muted block text-xs">Site-parameters created</span><span class="text-lg font-semibold">{applyResult.site_parameters_created}</span></div>
 				<div><span class="text-brand-muted block text-xs">Instruments created</span><span class="text-lg font-semibold">{applyResult.instruments_created}</span></div>
-				<div><span class="text-brand-muted block text-xs">Streams paired</span><span class="text-lg font-semibold text-severity-ok">{applyResult.streams_paired.toLocaleString()}</span></div>
-				<div><span class="text-brand-muted block text-xs">Readings backfilled</span><span class="text-lg font-semibold">{applyResult.readings_backfilled.toLocaleString()}</span></div>
+				<div><span class="text-brand-muted block text-xs">Streams paired</span><span class="text-lg font-semibold text-severity-ok">{formatCount(applyResult.streams_paired)}</span></div>
+				<div><span class="text-brand-muted block text-xs">Readings backfilled</span><span class="text-lg font-semibold">{formatCount(applyResult.readings_backfilled)}</span></div>
 			</div>
 		</div>
 
@@ -2711,12 +2712,12 @@
 				<div><span class="text-brand-muted">Stream:</span> <span class="font-mono">{statsStream.source_key}</span></div>
 				{#if stats}
 					<div class="grid grid-cols-2 gap-2 mt-2">
-						<div><span class="text-brand-muted block">Readings</span>{stats.reading_count.toLocaleString()}</div>
+						<div><span class="text-brand-muted block">Readings</span>{formatCount(stats.reading_count)}</div>
 						<div><span class="text-brand-muted block">Latest Value</span>{stats.latest_value ?? '--'}</div>
 						<div><span class="text-brand-muted block">Min Time</span><span class="text-xs">{stats.min_time ?? '--'}</span></div>
 						<div><span class="text-brand-muted block">Max Time</span><span class="text-xs">{stats.max_time ?? '--'}</span></div>
 						{#if stats.withdrawn_count > 0}
-							<div><span class="text-brand-muted block">Withdrawn at source</span>{stats.withdrawn_count.toLocaleString()}</div>
+							<div><span class="text-brand-muted block">Withdrawn at source</span>{formatCount(stats.withdrawn_count)}</div>
 						{/if}
 					</div>
 				{:else}

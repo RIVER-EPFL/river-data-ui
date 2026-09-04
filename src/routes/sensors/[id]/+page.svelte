@@ -22,6 +22,7 @@
 	import { getSensorReadings, getSensorDeploymentBands, type SensorReadingsResponse, type SensorDeploymentBand } from '$api/sensors';
 	import type { SensorIdentityBand, CalibrationMarker } from '$api/sensors';
 	import { GAP_THRESHOLDS } from '$lib/charts/uPlotTheme';
+	import { formatCount } from '$lib/format';
 
 	let sensor = $state<Sensor | null>(null);
 	let calibrations = $state<SensorCalibration[]>([]);
@@ -528,7 +529,7 @@
 			{/if}
 			{#if uncalibratedCount > 0}
 				<div class="rounded-md bg-brand-bg border border-brand-divider px-3 py-2 mb-2 text-xs text-brand-muted">
-					{uncalibratedCount.toLocaleString()} reading{uncalibratedCount === 1 ? '' : 's'} sit inside one of these windows but were never stamped with it. Reprocess the sensor to resolve them.
+					{formatCount(uncalibratedCount)} reading{uncalibratedCount === 1 ? '' : 's'} sit inside one of these windows but were never stamped with it. Reprocess the sensor to resolve them.
 				</div>
 			{/if}
 			<div class="flex justify-end mb-2">

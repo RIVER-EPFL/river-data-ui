@@ -17,6 +17,8 @@
 	import Badge from '$components/ui/Badge.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import PaginationControls from '$components/ui/PaginationControls.svelte';
+	import DuplicateSlotsPanel from '$components/streams/DuplicateSlotsPanel.svelte';
+	import { formatCount } from '$lib/format';
 
 	// Migrates readings from legacy per-avg-column streams onto their replicate-family streams.
 	// Step 1 overview → step 2 migrate+verify (tracked job) → step 3 verification report →
@@ -254,6 +256,8 @@
 			the obsolete avg streams.
 		</p>
 
+		<DuplicateSlotsPanel />
+
 		{#if candidatesLoading}
 			<p class="text-sm text-brand-muted">Loading candidates…</p>
 		{:else if candidatesError}
@@ -270,7 +274,7 @@
 							{c.families.length} famil{c.families.length === 1 ? 'y' : 'ies'} ·
 							{readyCount} ready ·
 							{c.total_old_streams} old stream{c.total_old_streams === 1 ? '' : 's'} ·
-							{c.families.reduce((n, f) => n + f.old_readings, 0).toLocaleString()} old readings
+							{formatCount(c.families.reduce((n, f) => n + f.old_readings, 0))} old readings
 						</span>
 						<div class="flex-1"></div>
 						<Button
@@ -294,8 +298,8 @@
 									<tr class="border-b border-brand-divider last:border-b-0">
 										<td class="px-4 py-2 font-mono text-xs">{f.family_source_key}</td>
 										<td class="px-4 py-2 font-mono text-xs text-brand-muted">{f.old_source_key}</td>
-										<td class="px-4 py-2 text-right font-mono text-xs">{f.old_readings.toLocaleString()}</td>
-										<td class="px-4 py-2 text-right font-mono text-xs">{f.missing_instants.toLocaleString()}</td>
+										<td class="px-4 py-2 text-right font-mono text-xs">{formatCount(f.old_readings)}</td>
+										<td class="px-4 py-2 text-right font-mono text-xs">{formatCount(f.missing_instants)}</td>
 										<td class="px-4 py-2">
 											{#if f.ready}
 												<Badge variant="ok">Ready</Badge>
@@ -322,7 +326,7 @@
 				{#if c}
 					<p class="text-sm text-brand-muted">
 						{c.families.length} famil{c.families.length === 1 ? 'y' : 'ies'} will be migrated
-						({c.families.reduce((n, f) => n + f.old_readings, 0).toLocaleString()} readings on
+						({formatCount(c.families.reduce((n, f) => n + f.old_readings, 0))} readings on
 						{c.total_old_streams} old stream{c.total_old_streams === 1 ? '' : 's'}).
 					</p>
 				{/if}
@@ -360,7 +364,7 @@
 							{#each countEntries as [name, value]}
 								<div class="p-2 bg-brand-bg rounded">
 									<span class="block text-brand-muted">{countLabel(name)}</span>
-									<span class="font-mono">{value.toLocaleString()}</span>
+									<span class="font-mono">{formatCount(value)}</span>
 								</div>
 							{/each}
 						</div>
@@ -403,7 +407,7 @@
 						{#each countEntries as [name, value]}
 							<div class="p-3 bg-brand-bg rounded">
 								<span class="block text-xs text-brand-muted">{countLabel(name)}</span>
-								<span class="font-mono text-lg">{value.toLocaleString()}</span>
+								<span class="font-mono text-lg">{formatCount(value)}</span>
 							</div>
 						{/each}
 					</div>
@@ -505,7 +509,7 @@
 							{#each countEntries as [name, value]}
 								<div class="p-2 bg-brand-bg rounded">
 									<span class="block text-brand-muted">{countLabel(name)}</span>
-									<span class="font-mono">{value.toLocaleString()}</span>
+									<span class="font-mono">{formatCount(value)}</span>
 								</div>
 							{/each}
 						</div>

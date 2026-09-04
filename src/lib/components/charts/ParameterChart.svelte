@@ -40,6 +40,7 @@
 		parameterName,
 		parameterCode = '',
 		units = '',
+		decimals = null,
 		threshold,
 		annotations = [],
 		seriesIndex = 0,
@@ -71,6 +72,8 @@
 		parameterName: string;
 		parameterCode?: string;
 		units?: string;
+		/** `site_parameters.decimal_places` for the slot; null falls back to significant digits. */
+		decimals?: number | null;
 		threshold?: AlarmThreshold | null;
 		annotations?: Annotation[];
 		seriesIndex?: number;
@@ -124,6 +127,8 @@
 
 	let el: HTMLDivElement;
 	let chart: uPlot | null = null;
+
+	let yZoomed = $state(false);
 
 	type Mode = 'zoom' | 'annotate' | 'flag' | 'unflag';
 	let selectionMode = $state<Mode>('zoom');
@@ -495,7 +500,7 @@
 		let spotSeriesIdx = -1;
 
 		if (cont) {
-			seriesDefs.push({ ...makeSeries(seriesIndex, parameterName, units), gaps });
+			seriesDefs.push({ ...makeSeries(seriesIndex, parameterName, units, decimals), gaps });
 			(data as any[]).push(contValues);
 			if (hasMinMax) {
 				seriesDefs.push(
@@ -534,7 +539,7 @@
 			],
 			cursor: {
 				show: true,
-				drag: { x: true, y: false, setScale: false },
+				drag: { x: true, y: true, setScale: false },
 				...(syncKey ? { sync: { key: syncKey } } : {}),
 			},
 			legend: { show: false },
@@ -559,9 +564,16 @@
 						const inZoomMode = selectionModeRef.current === 'zoom';
 						const leftSec = u.posToVal(u.select.left, 'x');
 						const rightSec = u.posToVal(u.select.left + u.select.width, 'x');
+						const selHeight = u.select.height;
+						const topVal = u.posToVal(u.select.top, 'y');
+						const botVal = u.posToVal(u.select.top + selHeight, 'y');
 						u.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false);
 						if (inZoomMode) {
 							onZoomSelect?.(leftSec * 1000, rightSec * 1000);
+							if (selHeight > 10 && topVal !== botVal) {
+								u.setScale('y', { min: Math.min(topVal, botVal), max: Math.max(topVal, botVal) });
+								yZoomed = true;
+							}
 						}
 					},
 				],
@@ -574,7 +586,13 @@
 		teardownCustomSelection = () => { teardownSelect(); teardownClick(); };
 
 		if (onResetZoom) {
-			chart.root.addEventListener('dblclick', () => onResetZoom!());
+			chart.root.addEventListener('dblclick', () => {
+				onResetZoom!();
+				if (yZoomed && chart) {
+					chart.setScale('y', { min: undefined as any, max: undefined as any });
+					yZoomed = false;
+				}
+			});
 		}
 	}
 
@@ -830,6 +848,7 @@
 			id: chartId,
 			parameterName,
 			units,
+			decimals,
 			paletteIndex: seriesIndex,
 			times: [],
 			values: [],
@@ -983,6 +1002,7 @@
 		{parameterId}
 		{parameterName}
 		{units}
+		{decimals}
 		timeIso={new Date(replicateTarget.timeMs).toISOString()}
 		replicates={replicateTarget.stats.replicates ?? []}
 		onsuccess={onDialogSuccess}

@@ -5,6 +5,7 @@
 	import { tokens } from '$lib/charts/tokens';
 	import { makeAxis, uPlotTheme } from '$lib/charts/uPlotTheme';
 	import { linearRegression } from '$lib/charts/regression';
+	import { formatMeasurement , formatSignificant} from '$lib/format';
 
 	let {
 		xData,
@@ -98,7 +99,7 @@
 						const xVal = u.data[0][idx];
 						const yVal = u.data[1][idx];
 						tooltip.innerHTML =
-							`${xLabel}: ${xVal?.toFixed(3)} ${xUnits}<br/>${yLabel}: ${yVal?.toFixed(3)} ${yUnits}`;
+							`${xLabel}: ${formatMeasurement(xVal)} ${xUnits}<br/>${yLabel}: ${formatMeasurement(yVal)} ${yUnits}`;
 						tooltip.style.display = 'block';
 						const left = u.cursor.left ?? 0;
 						const top = u.cursor.top ?? 0;
@@ -222,9 +223,9 @@
 	{#if regression && showRegression}
 		<div class="flex items-center gap-4 px-3 py-2 rounded-md bg-brand-bg border border-brand-divider text-sm">
 			<span class="font-mono text-xs">
-				y = {regression.slope.toFixed(4)}x {regression.intercept >= 0 ? '+' : ''} {regression.intercept.toFixed(4)}
+				y = {formatSignificant(regression.slope)}x {regression.intercept >= 0 ? '+' : ''} {formatSignificant(regression.intercept)}
 			</span>
-			<span class="text-brand-muted">R² = <span class="font-semibold text-brand-text">{regression.rSquared.toFixed(4)}</span></span>
+			<span class="text-brand-muted">R² = <span class="font-semibold text-brand-text">{formatSignificant(regression.rSquared)}</span></span>
 			<span class="text-brand-muted">n = {pointCount()}</span>
 		</div>
 	{:else if pointCount() > 0}

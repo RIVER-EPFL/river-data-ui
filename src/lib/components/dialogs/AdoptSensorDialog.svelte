@@ -7,6 +7,7 @@
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import { base } from '$app/paths';
+	import { formatCount } from '$lib/format';
 
 	let {
 		open = $bindable(false),
@@ -65,7 +66,7 @@
 
 	const incumbentLabel = $derived(
 		incumbentSensor
-			? [incumbentSensor.serial_number, incumbentSensor.name].filter(Boolean).join(' — ') ||
+			? [incumbentSensor.serial_number, incumbentSensor.name].filter(Boolean).join(', ') ||
 					incumbentSensor.id.slice(0, 8)
 			: null,
 	);
@@ -84,7 +85,7 @@
 			const job = await pollJob(started.id, { timeoutMs: 120_000 });
 			if (job.status !== 'completed') return;
 			const n = job.readings_updated ?? 0;
-			toastStore.info(`${n.toLocaleString()} reading${n === 1 ? '' : 's'} re-attributed`);
+			toastStore.info(`${formatCount(n)} reading${n === 1 ? '' : 's'} re-attributed`);
 		} catch {
 			// The deployment is written either way; the count is reporting, not the operation.
 		}

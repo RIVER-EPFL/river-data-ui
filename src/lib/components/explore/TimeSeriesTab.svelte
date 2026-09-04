@@ -8,6 +8,7 @@
 	import { uPlotTheme, makeSeries, makeAxis } from '$lib/charts/uPlotTheme';
 	import { fetchSiteSeries, mergeSeries, type Frequency } from '$lib/charts/multiSiteSeries';
 	import FrequencyChips from '$components/charts/FrequencyChips.svelte';
+	import { formatMeasurement , NO_VALUE} from '$lib/format';
 
 	let {
 		sites,
@@ -285,10 +286,10 @@
 										{#if stat.units}<span class="font-normal text-brand-muted">({stat.units})</span>{/if}
 									</td>
 									<td class="py-1.5 text-right font-mono text-xs">{stat.n}</td>
-									<td class="py-1.5 text-right font-mono text-xs">{stat.n > 0 ? stat.mean.toFixed(3) : '--'}</td>
-									<td class="py-1.5 text-right font-mono text-xs">{stat.n > 0 ? stat.min.toFixed(3) : '--'}</td>
-									<td class="py-1.5 text-right font-mono text-xs">{stat.n > 0 ? stat.max.toFixed(3) : '--'}</td>
-									<td class="py-1.5 text-right font-mono text-xs">{stat.n > 0 ? stat.stddev.toFixed(3) : '--'}</td>
+									<td class="py-1.5 text-right font-mono text-xs">{stat.n > 0 ? formatMeasurement(stat.mean) : NO_VALUE}</td>
+									<td class="py-1.5 text-right font-mono text-xs">{stat.n > 0 ? formatMeasurement(stat.min) : NO_VALUE}</td>
+									<td class="py-1.5 text-right font-mono text-xs">{stat.n > 0 ? formatMeasurement(stat.max) : NO_VALUE}</td>
+									<td class="py-1.5 text-right font-mono text-xs">{stat.n > 0 ? formatMeasurement(stat.stddev) : NO_VALUE}</td>
 								</tr>
 							{/each}
 						</tbody>

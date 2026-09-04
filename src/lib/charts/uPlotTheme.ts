@@ -2,6 +2,7 @@ import uPlot from 'uplot';
 import { tokens } from './tokens';
 import { seriesColor, seriesDash } from './legend';
 import { timezoneStore } from '$lib/stores/timezone.svelte';
+import { NO_VALUE, formatMeasurement } from '$lib/format';
 
 /**
  * uPlot options fragment controlling the time-axis zone. In UTC mode it labels ticks in UTC; in
@@ -50,13 +51,15 @@ export function makeSeries(
   paletteIndex: number,
   label: string,
   units?: string | null,
+  decimals?: number | null,
 ): uPlot.Series {
   return {
     label,
     stroke: seriesColor(paletteIndex),
     dash: seriesDash(paletteIndex),
     width: uPlotTheme.lineWidth,
-    value: (_u, v) => (v == null ? '--' : v.toFixed(2) + (units ? ' ' + units : '')),
+    value: (_u, v) =>
+      v == null ? NO_VALUE : formatMeasurement(v, decimals) + (units ? ' ' + units : ''),
   };
 }
 

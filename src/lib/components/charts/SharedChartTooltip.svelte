@@ -8,6 +8,7 @@
 	import { curveRefs } from '$lib/curveRefs.svelte';
 	import { formatEquation } from '$lib/standardCurves';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
+	import { formatMeasurement } from '$lib/format';
 
 	let { syncKey }: { syncKey: string } = $props();
 
@@ -143,11 +144,11 @@
 					const reps = all
 						.map(
 							(r) =>
-								(r.calibrated_value ?? r.raw_value).toFixed(2) +
+								formatMeasurement(r.calibrated_value ?? r.raw_value, reg.decimals) +
 								(r.withdrawn ? '\u2020' : r.flagged ? '*' : '')
 						)
 						.join(', ');
-					const sd = stat.stdev != null ? ` ±${stat.stdev.toFixed(2)}` : '';
+					const sd = stat.stdev != null ? ` ±${formatMeasurement(stat.stdev, reg.decimals)}` : '';
 					// The listing shows every stored replicate, the mean counts only the ones that
 					// survive curation, so the excluded ones are named rather than left to an
 					// unexplained mark against a count that does not add up.
@@ -170,7 +171,7 @@
 				id: reg.id,
 				detailed: detailedId == null || reg.id === detailedId,
 				name: reg.parameterName,
-				value: val != null ? val.toFixed(2) : '--',
+				value: formatMeasurement(val, reg.decimals),
 				units: reg.units,
 				color,
 				dash,

@@ -7,6 +7,7 @@
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
+	import { formatCount } from '$lib/format';
 
 	let sites = $state<Site[]>([]);
 	let projects = $state<Project[]>([]);
@@ -133,14 +134,14 @@
 		<div class="flex items-center gap-2">
 			{#if totalClaimable > 0}
 				<ConfirmPopover
-					message="Backfill {totalClaimable.toLocaleString()} readings across all sites?"
+					message="Backfill {formatCount(totalClaimable)} readings across all sites?"
 					confirmLabel="Backfill all"
 					confirmVariant="primary"
 					onconfirm={() => runBackfill({ all: true }, 'all')}
 				>
 					<Button
 						disabled={backfilling !== null}
-					>{backfilling === 'all' ? 'Backfilling…' : `Backfill all (${totalClaimable.toLocaleString()})`}</Button>
+					>{backfilling === 'all' ? 'Backfilling…' : `Backfill all (${formatCount(totalClaimable)})`}</Button>
 				</ConfirmPopover>
 			{/if}
 			<a
@@ -215,9 +216,9 @@
 											<button
 												onclick={() => runBackfill({ site_id: site.id }, site.id)}
 												disabled={backfilling !== null}
-												title="Attribute {bf.claimable_count.toLocaleString()} unattributed readings across {bf.deployments} deployment(s)"
+												title="Attribute {formatCount(bf.claimable_count)} unattributed readings across {bf.deployments} deployment(s)"
 												class="px-2 py-0.5 text-xs rounded bg-severity-warning-soft text-severity-warning cursor-pointer border-none hover:opacity-80 disabled:opacity-50 whitespace-nowrap"
-											>{backfilling === site.id ? '…' : `Backfill (${bf.claimable_count.toLocaleString()})`}</button>
+											>{backfilling === site.id ? '…' : `Backfill (${formatCount(bf.claimable_count)})`}</button>
 										{/if}
 										{#if sensorCountBySite.get(site.id)}
 											<a href="{base}/sites/{site.id}" class="text-xs text-brand-muted no-underline hover:text-brand-primary hover:underline">

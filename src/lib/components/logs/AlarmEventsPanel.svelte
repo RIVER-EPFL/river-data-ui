@@ -14,6 +14,7 @@
 	import { alarmHref, severityLabel } from '$lib/alarms';
 	import PaginationControls from '$components/ui/PaginationControls.svelte';
 	import Button from '$components/ui/Button.svelte';
+	import { formatMeasurement } from '$lib/format';
 
 	let {
 		initialSiteId = '',
@@ -293,7 +294,7 @@
 								{/if}
 							</td>
 							<td class="px-4 py-2 text-right font-mono">
-								{#if event.last_value != null}{event.last_value.toFixed(2)}{:else}<span class="text-brand-muted">None</span>{/if}
+								{formatMeasurement(event.last_value)}
 							</td>
 							<td class="px-4 py-2 text-right">
 								{#if !event.resolved_at && !event.acknowledged_at}

@@ -90,7 +90,7 @@
 					<Badge variant="muted">manual</Badge>
 				{/if}
 			</td>
-			<td class="px-4 py-2 text-xs text-brand-muted">{item.created_by ?? '—'}</td>
+			<td class="px-4 py-2 text-xs text-brand-muted">{item.created_by ?? '-'}</td>
 			<td class="px-4 py-2 text-xs text-brand-muted truncate max-w-64">{item.notes ?? ''}</td>
 		{/snippet}
 	</EventPanel>

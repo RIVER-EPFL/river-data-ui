@@ -12,6 +12,7 @@
 		type OverlayVisibility, type CalibrationWindowBand,
 	} from '$lib/charts/overlay-plugins';
 	import type { SensorIdentityBand, CalibrationMarker } from '$api/sensors';
+	import { formatMeasurement } from '$lib/format';
 
 	let {
 		times,            // seconds
@@ -23,6 +24,7 @@
 		calMin = [],
 		calMax = [],
 		units = '',
+		decimals = null,
 		deploymentBands = [],
 		calibrationMarkers = [],
 		showSensorVectors = true,
@@ -43,6 +45,8 @@
 		calMin?: (number | null)[];
 		calMax?: (number | null)[];
 		units?: string;
+		/** `site_parameters.decimal_places` for the slot; null falls back to significant digits. */
+		decimals?: number | null;
 		deploymentBands?: SensorIdentityBand[];
 		calibrationMarkers?: CalibrationMarker[];
 		showSensorVectors?: boolean;
@@ -82,7 +86,7 @@
 
 	// Hover tooltip (self-contained - this chart isn't in a ChartSyncGroup).
 	let hover = $state<{ idx: number; x: number; y: number } | null>(null);
-	const fmtNum = (v: number | null | undefined) => (v == null ? 'None' : v.toFixed(2));
+	const fmtNum = (v: number | null | undefined) => formatMeasurement(v, decimals);
 	const hoverInfo = $derived.by(() => {
 		if (!hover || times[hover.idx] == null) return null;
 		const tsSec = times[hover.idx];
@@ -124,15 +128,15 @@
 		const gaps = gapThreshold > 0 ? makeGaps(gapThreshold) : undefined;
 		const series: uPlot.Series[] = [
 			{},
-			{ ...makeSeries(4, 'Raw', units), width: 1, dash: [3, 2], ...(gaps ? { gaps } : {}) },
+			{ ...makeSeries(4, 'Raw', units, decimals), width: 1, dash: [3, 2], ...(gaps ? { gaps } : {}) },
 		];
 		const data: uPlot.AlignedData = [times, toU(raw)] as uPlot.AlignedData;
 		if (hasCalibrated) {
-			series.push({ ...makeSeries(0, 'Calibrated', units), ...(gaps ? { gaps } : {}) });
+			series.push({ ...makeSeries(0, 'Calibrated', units, decimals), ...(gaps ? { gaps } : {}) });
 			(data as unknown[]).push(toU(calibrated));
 		}
 		if (hasPreview) {
-			series.push({ ...makeSeries(5, 'Preview', units), width: 2, dash: [6, 2], ...(gaps ? { gaps } : {}) });
+			series.push({ ...makeSeries(5, 'Preview', units, decimals), width: 2, dash: [6, 2], ...(gaps ? { gaps } : {}) });
 			(data as unknown[]).push(toU(preview!));
 		}
 		// The min/max envelopes ride on hidden series, so each pair's indices are taken from the

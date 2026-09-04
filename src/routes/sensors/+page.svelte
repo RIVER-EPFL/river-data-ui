@@ -18,6 +18,7 @@
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import PaginationControls from '$components/ui/PaginationControls.svelte';
+	import { formatCount } from '$lib/format';
 
 	type FilterMode = 'all' | 'field' | 'lab';
 
@@ -116,7 +117,7 @@
 		try {
 			const res = await backfillCalibrations(body);
 			toastStore.success(
-				`Reprocessing ${res.sensors_updated} sensor(s) - ~${res.estimated_readings.toLocaleString()} readings resolve against their existing curves`
+				`Reprocessing ${res.sensors_updated} sensor(s) - ~${formatCount(res.estimated_readings)} readings resolve against their existing curves`
 			);
 			await loadCalBackfill();
 		} catch (e) {
@@ -247,14 +248,14 @@
 		<div class="flex items-center gap-2">
 			{#if totalUncalibrated > 0}
 				<ConfirmPopover
-					message="Reprocess every sensor carrying readings a calibration window covers but never stamped? {totalUncalibrated.toLocaleString()} reading{totalUncalibrated === 1 ? '' : 's'} resolve against the curves that already exist; no curve is created."
+					message="Reprocess every sensor carrying readings a calibration window covers but never stamped? {formatCount(totalUncalibrated)} reading{totalUncalibrated === 1 ? '' : 's'} resolve against the curves that already exist; no curve is created."
 					confirmLabel="Reprocess all"
 					confirmVariant="primary"
 					onconfirm={() => runCalBackfill({ all: true }, 'all')}
 				>
 					<Button
 						disabled={backfilling !== null}
-					>{backfilling === 'all' ? 'Reprocessing…' : `Reprocess all (${totalUncalibrated.toLocaleString()})`}</Button>
+					>{backfilling === 'all' ? 'Reprocessing…' : `Reprocess all (${formatCount(totalUncalibrated)})`}</Button>
 				</ConfirmPopover>
 			{/if}
 			<a href="{base}/sensors/new" class="px-3 py-1.5 bg-brand-primary text-white rounded-md no-underline text-sm font-semibold hover:bg-brand-primary-dark">Create</a>
@@ -290,7 +291,7 @@
 
 	{#if totalOrphanedCorrections > 0}
 		<p class="text-xs text-brand-muted">
-			{totalOrphanedCorrections.toLocaleString()} reading{totalOrphanedCorrections === 1 ? '' : 's'} carry a corrected value that names no curve. Reported only - the stored number is a measurement and is left as it is.
+			{formatCount(totalOrphanedCorrections)} reading{totalOrphanedCorrections === 1 ? '' : 's'} carry a corrected value that names no curve. Reported only - the stored number is a measurement and is left as it is.
 		</p>
 	{/if}
 
@@ -399,8 +400,8 @@
 											class="text-brand-primary whitespace-nowrap"
 											onclick={() => runCalBackfill({ sensor_id: sensor.id }, sensor.id)}
 											disabled={backfilling !== null}
-											title="{cb.uncalibrated_count.toLocaleString()} reading(s) sit inside one of this sensor's calibration windows but were never stamped with it. Reprocessing resolves them; no curve is created."
-										>{backfilling === sensor.id ? '…' : `Reprocess (${cb.uncalibrated_count.toLocaleString()})`}</Button>
+											title="{formatCount(cb.uncalibrated_count)} reading(s) sit inside one of this sensor's calibration windows but were never stamped with it. Reprocessing resolves them; no curve is created."
+										>{backfilling === sensor.id ? '…' : `Reprocess (${formatCount(cb.uncalibrated_count)})`}</Button>
 									{/if}
 								</div>
 							</td>

@@ -808,7 +808,7 @@
 						<li>
 							<span class="font-semibold">{slot.site_name} / {slot.parameter_name}</span>
 							<span class="text-brand-muted">
-								— {slot.undeclared_samples} sample{slot.undeclared_samples === 1 ? '' : 's'} on the
+								({slot.undeclared_samples} sample{slot.undeclared_samples === 1 ? '' : 's'} on the
 								sample formula (n-1){slot.population_signature_holds > 0
 									? `, ${slot.population_signature_holds} hold${slot.population_signature_holds === 1 ? '' : 's'} matching the population divisor`
 									: ''}{slot.source_reports_sd ? ', source ships its own sd' : ''}
@@ -912,7 +912,7 @@
 				</div>
 				<div>
 					<span class="text-brand-muted text-xs">Source system</span>
-					<p>{hold.source_system ?? '—'}</p>
+					<p>{hold.source_system ?? '-'}</p>
 				</div>
 				{#if hold.tool}
 					<div>
@@ -946,7 +946,7 @@
 					<p>
 						<strong>This can't be accepted yet.</strong>
 						The source's sd ({fmtStat(hold.expected.sd)}) is this group's sd under the
-						population formula (divisor n){pop != null ? ` — ${fmtStat(pop)}` : ''}; ours
+						population formula (divisor n){pop != null ? `, ${fmtStat(pop)}` : ''}; ours
 						({fmtStat(hold.computed.sd)}) uses the sample formula (divisor n-1).
 						<strong>{hold.site_name} / {hold.parameter_name}</strong> has not declared which one
 						it publishes, so accepting would leave that unrecorded.
@@ -1160,7 +1160,7 @@
 			{@const others = (slot?.population_signature_holds ?? 1) - 1}
 			{@const remaining = (slot?.open_holds ?? 1) - (slot?.population_signature_holds ?? 1)}
 			<ConfirmPopover
-				message="Declare that {hold.site_name} / {hold.parameter_name} publishes its standard deviation with the {estimatorLabel(declareChoice)} formula? This recomputes {slot?.undeclared_samples ?? 0} existing sample{(slot?.undeclared_samples ?? 0) === 1 ? '' : 's'} at this parameter, marks this instant on its charts with an audit annotation, and resolves this hold{others > 0 ? ` — the ${others} other hold${others === 1 ? '' : 's'} this explains close on the next sync cycle` : ''}{remaining > 0 ? `, while ${remaining} hold${remaining === 1 ? '' : 's'} disagreeing for other reasons will remain` : ''}. Reversible with Reopen."
+				message="Declare that {hold.site_name} / {hold.parameter_name} publishes its standard deviation with the {estimatorLabel(declareChoice)} formula? This recomputes {slot?.undeclared_samples ?? 0} existing sample{(slot?.undeclared_samples ?? 0) === 1 ? '' : 's'} at this parameter, marks this instant on its charts with an audit annotation, and resolves this hold{others > 0 ? `, the ${others} other hold${others === 1 ? '' : 's'} this explains close on the next sync cycle` : ''}{remaining > 0 ? `, while ${remaining} hold${remaining === 1 ? '' : 's'} disagreeing for other reasons will remain` : ''}. Reversible with Reopen."
 				confirmLabel="Declare for the parameter"
 				confirmVariant="primary"
 				above

@@ -1594,6 +1594,29 @@ export const startReplicateReconciliation = (sourceSystem: string, dryRun = fals
 		...(dryRun ? { dry_run: true } : {}),
 	});
 
+export interface DuplicateSlotStream {
+	stream_id: string;
+	source_system: string;
+	source_key: string;
+	readings: number;
+	first_reading: string | null;
+	last_reading: string | null;
+}
+
+/** A (site, parameter) slot where two streams carry the same instant. */
+export interface DuplicateSlot {
+	site_id: string;
+	site_name: string;
+	parameter_id: string;
+	parameter_name: string;
+	site_parameter_id: string;
+	streams: DuplicateSlotStream[];
+	duplicated_instants: number;
+}
+
+export const getDuplicateSlots = () =>
+	GET<{ slots: DuplicateSlot[] }>(`${ADMIN}/sync/replicate_reconciliation/duplicate_slots`);
+
 export const startReconciliationDelete = (sourceSystem: string) =>
 	POST<{ job_id: string }>(`${ADMIN}/sync/replicate_reconciliation/delete`, {
 		source_system: sourceSystem,

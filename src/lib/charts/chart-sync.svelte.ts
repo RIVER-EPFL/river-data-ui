@@ -6,6 +6,8 @@ export interface ChartRegistration {
 	id: string;
 	parameterName: string;
 	units: string;
+	/** `site_parameters.decimal_places` for the slot, null when the slot declares none. */
+	decimals?: number | null;
 	paletteIndex: number;
 	times: number[];
 	values: (number | null)[];

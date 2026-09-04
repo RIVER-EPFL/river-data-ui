@@ -9,6 +9,7 @@
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import ProvenanceCard from '$components/samples/ProvenanceCard.svelte';
+	import { formatMeasurement } from '$lib/format';
 
 	let {
 		open = $bindable(false),
@@ -16,6 +17,7 @@
 		parameterId,
 		parameterName,
 		units = null,
+		decimals = null,
 		timeIso,
 		replicates,
 		onsuccess,
@@ -26,6 +28,8 @@
 		parameterName: string;
 		/** The unit the slot serves, printed on the value column. */
 		units?: string | null;
+		/** `site_parameters.decimal_places`; null falls back to significant digits. */
+		decimals?: number | null;
 		timeIso: string;
 		replicates: SampleReplicate[];
 		/** The `samples` row behind the point, the only place its tool-run provenance is stored. */
@@ -148,7 +152,7 @@
 										(openChain = openChain === rep.replicate_index ? null : rep.replicate_index)}
 									title="Show how this value was corrected"
 								>
-									{(rep.calibrated_value ?? rep.raw_value).toFixed(3)}
+									{formatMeasurement(rep.calibrated_value ?? rep.raw_value, decimals)}
 								</button>
 							</td>
 							<td class="py-1.5 pr-2 text-xs truncate {rep.calibration_id ? '' : 'text-brand-muted'}"

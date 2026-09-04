@@ -311,20 +311,29 @@
 			],
 			plugins: [spotMarkersPlugin(() => specs)],
 			legend: { show: uPlotTheme.legendShow },
-			cursor: { drag: { x: true, y: false, setScale: false } },
+			cursor: { drag: { x: true, y: true, setScale: false } },
 			hooks: {
 				setSelect: [
 					(u: uPlot) => {
 						if (u.select.width <= 0) return;
 						const leftSec = u.posToVal(u.select.left, 'x');
 						const rightSec = u.posToVal(u.select.left + u.select.width, 'x');
+						const selH = u.select.height;
+						const topVal = u.posToVal(u.select.top, 'y');
+						const botVal = u.posToVal(u.select.top + selH, 'y');
 						u.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false);
 						onZoomSelect(leftSec * 1000, rightSec * 1000);
+						if (selH > 10 && topVal !== botVal) {
+							u.setScale('y', { min: Math.min(topVal, botVal), max: Math.max(topVal, botVal) });
+						}
 					},
 				],
 				ready: [
 					(u: uPlot) => {
-						u.root.addEventListener('dblclick', onResetZoom);
+						u.root.addEventListener('dblclick', () => {
+							onResetZoom();
+							u.setScale('y', { min: undefined as any, max: undefined as any });
+						});
 					},
 				],
 			},

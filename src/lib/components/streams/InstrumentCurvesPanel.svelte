@@ -132,7 +132,7 @@
 												>
 													<td class="px-3 py-1.5">{curve.name ?? curve.id.slice(0, 8)}</td>
 													<td class="px-3 py-1.5 font-mono text-xs">{formatEquation(curve.slope, curve.intercept)}</td>
-													<td class="px-3 py-1.5 text-right font-mono text-xs">{curve.r_squared ?? '—'}</td>
+													<td class="px-3 py-1.5 text-right font-mono text-xs">{curve.r_squared ?? '-'}</td>
 													<td class="px-3 py-1.5 text-xs text-brand-muted">{curve.source_key ?? 'manual'}</td>
 													<td class="px-3 py-1.5 text-right">{curve.reading_count}</td>
 													<td class="px-3 py-1.5 text-xs text-brand-muted">
@@ -165,11 +165,11 @@
 																			{#each u.points as p (p.time + ':' + p.replicate_index)}
 																				<tr class={p.is_flagged ? 'text-severity-warning-text' : ''}>
 																					<td class="py-0.5">{formatDateTime(p.time)}</td>
-																					<td class="py-0.5">{p.site_name ?? '—'}</td>
-																					<td class="py-0.5">{p.parameter_code ?? '—'}</td>
+																					<td class="py-0.5">{p.site_name ?? '-'}</td>
+																					<td class="py-0.5">{p.parameter_code ?? '-'}</td>
 																					<td class="py-0.5 text-right font-mono">{p.replicate_index}</td>
 																					<td class="py-0.5 text-right font-mono">{p.raw_value}</td>
-																					<td class="py-0.5 text-right font-mono">{p.calibrated_value ?? '—'}</td>
+																					<td class="py-0.5 text-right font-mono">{p.calibrated_value ?? '-'}</td>
 																				</tr>
 																			{/each}
 																		</tbody>

@@ -1,12 +1,15 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import Papa from 'papaparse';
-	import { api, type Site, type Parameter } from '$api/crud';
+	import { api, type Site, type Parameter, type Subproject, type SiteParameter } from '$api/crud';
+	import { templateRows, templateCsv } from '$lib/upload/template';
+	import { buildXlsx } from '$lib/upload/xlsx';
 	import { POST } from '$api/client';
 	import { grabConflictGroups, type GrabExistingGroup } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
+	import { formatCount } from '$lib/format';
 
 	// --- Entity data ---
 	let sites = $state<Site[]>([]);
@@ -45,29 +48,65 @@
 	// Timezone: offset (hours) of source timestamps relative to UTC
 	let tzOffsetHours = $state(0);
 
-	function downloadTemplate() {
-		const example = sites[0]?.name ?? 'Site name';
-		const exampleParam = params[0]?.name ?? 'Parameter name';
-		const lines: Record<EntityType, string[]> = {
-			readings: [
-				'time,site,parameter,value,calibrated_value',
-				`2026-01-15 10:30:00,${example},${exampleParam},12.4,`,
-			],
-			grab_samples: [
-				'time,site,parameter,value',
-				`2026-01-15 10:30:00,${example},${exampleParam},12.4`,
-				`2026-01-15 10:30:00,${example},${exampleParam},12.6`,
-			],
-			status_events: [
-				'time,site,parameter,value',
-				`2026-01-15 10:30:00,${example},${exampleParam},OK`,
-			],
-		};
-		const blob = new Blob([lines[entityType].join('\n') + '\n'], { type: 'text/csv' });
+	// --- Template: built from a chosen site and the parameters configured there ---
+	let subprojects = $state<Subproject[]>([]);
+	let templateSubprojectId = $state('');
+	let templateSiteId = $state('');
+	let templateSiteParams = $state<SiteParameter[]>([]);
+	let templateParamIds = $state<Set<string>>(new Set());
+	let loadingTemplateParams = $state(false);
+
+	const templateSites = $derived(
+		templateSubprojectId ? sites.filter((s) => s.subproject_id === templateSubprojectId) : sites,
+	);
+	const templateSite = $derived(sites.find((s) => s.id === templateSiteId) ?? null);
+	const paramById = $derived(new Map(params.map((p) => [p.id, p])));
+	// The site's configured parameters, resolved to the catalog names the mapping step matches on.
+	const templateParamChoices = $derived(
+		templateSiteParams
+			.map((sp) => paramById.get(sp.parameter_id))
+			.filter((p): p is Parameter => p !== undefined)
+			.sort((a, b) => a.name.localeCompare(b.name)),
+	);
+	const templateParams = $derived(templateParamChoices.filter((p) => templateParamIds.has(p.id)));
+
+	$effect(() => {
+		const siteId = templateSiteId;
+		templateSiteParams = [];
+		templateParamIds = new Set();
+		if (!siteId) return;
+		loadingTemplateParams = true;
+		api.siteParameters
+			.list({ perPage: 500, filter: { site_id: siteId } })
+			.then((r) => {
+				if (templateSiteId !== siteId) return;
+				templateSiteParams = r.data;
+				templateParamIds = new Set(r.data.map((sp) => sp.parameter_id));
+			})
+			.catch(() => toastStore.error('Failed to load the site\'s parameters'))
+			.finally(() => (loadingTemplateParams = false));
+	});
+
+	function toggleTemplateParam(id: string) {
+		const next = new Set(templateParamIds);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		templateParamIds = next;
+	}
+
+	function downloadTemplate(format: 'csv' | 'xlsx') {
+		const t = templateRows(entityType, templateSite, templateParams);
+		const blob =
+			format === 'csv'
+				? new Blob([templateCsv(t)], { type: 'text/csv' })
+				: new Blob([buildXlsx(entityType, t.headers, t.rows)], {
+						type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+					});
+		const slug = templateSite ? `-${templateSite.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}` : '';
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');
 		a.href = url;
-		a.download = `river-data-${entityType}-template.csv`;
+		a.download = `river-data-${entityType}${slug}-template.${format}`;
 		a.click();
 		URL.revokeObjectURL(url);
 	}
@@ -120,12 +159,14 @@
 	// --- Load sites + parameters ---
 	onMount(async () => {
 		try {
-			const [s, p] = await Promise.all([
+			const [s, p, sp] = await Promise.all([
 				api.sites.list({ perPage: 200 }),
 				api.parameters.list({ perPage: 500 }),
+				api.subprojects.list({ perPage: 1000, sort: ['name', 'ASC'] }),
 			]);
 			sites = s.data;
 			params = p.data;
+			subprojects = sp.data;
 		} catch (e) {
 			toastStore.error('Failed to load sites/parameters');
 		} finally {
@@ -529,9 +570,68 @@
 			previews column mapping and detects overlaps with existing data before writing.
 			This page suits long-format files (one value per row) across sites and parameters.
 		</p>
-		<Button variant="secondary" size="sm" onclick={downloadTemplate}>
-			Download CSV template
-		</Button>
+		<div class="rounded border border-brand-divider bg-brand-surface p-3 space-y-3">
+			<p class="text-sm font-medium text-brand-text">Template</p>
+			<p class="text-xs text-brand-muted">
+				Pick a site to fill the example rows with the parameters configured there. The names
+				are the ones the mapping step accepts.
+			</p>
+			<div class="flex flex-wrap gap-3">
+				<label class="text-sm">
+					<span class="block text-xs text-brand-muted">Subproject</span>
+					<select
+						class="mt-1 rounded border border-brand-divider px-2 py-1 text-sm"
+						bind:value={templateSubprojectId}
+						onchange={() => (templateSiteId = '')}
+					>
+						<option value="">All</option>
+						{#each subprojects as sp (sp.id)}
+							<option value={sp.id}>{sp.name}</option>
+						{/each}
+					</select>
+				</label>
+				<label class="text-sm">
+					<span class="block text-xs text-brand-muted">Site</span>
+					<select
+						class="mt-1 rounded border border-brand-divider px-2 py-1 text-sm"
+						bind:value={templateSiteId}
+					>
+						<option value="">Any (generic example)</option>
+						{#each templateSites as s (s.id)}
+							<option value={s.id}>{s.name}</option>
+						{/each}
+					</select>
+				</label>
+			</div>
+			{#if templateSiteId}
+				{#if loadingTemplateParams}
+					<p class="text-xs text-brand-muted">Loading parameters…</p>
+				{:else if templateParamChoices.length === 0}
+					<p class="text-xs text-brand-muted">No parameters are configured at this site.</p>
+				{:else}
+					<div class="flex flex-wrap gap-x-4 gap-y-1">
+						{#each templateParamChoices as p (p.id)}
+							<label class="flex items-center gap-1 text-sm">
+								<input
+									type="checkbox"
+									checked={templateParamIds.has(p.id)}
+									onchange={() => toggleTemplateParam(p.id)}
+								/>
+								{p.name}
+							</label>
+						{/each}
+					</div>
+				{/if}
+			{/if}
+			<div class="flex gap-2">
+				<Button variant="secondary" size="sm" onclick={() => downloadTemplate('csv')}>
+					Download CSV template
+				</Button>
+				<Button variant="secondary" size="sm" onclick={() => downloadTemplate('xlsx')}>
+					Download Excel template
+				</Button>
+			</div>
+		</div>
 	{/if}
 
 	<!-- Step indicator -->
@@ -581,7 +681,7 @@
 
 				{#if csvHeaders.length > 0}
 					<div class="rounded-md border border-brand-divider bg-brand-surface p-4 space-y-2">
-						<p class="text-sm"><span class="font-medium">{fileName}</span> &mdash; {csvData.length.toLocaleString()} rows, {csvHeaders.length} columns</p>
+						<p class="text-sm"><span class="font-medium">{fileName}</span> , {formatCount(csvData.length)} rows, {csvHeaders.length} columns</p>
 						<div class="flex flex-wrap gap-1.5">
 							{#each csvHeaders as h}
 								<span class="px-2 py-0.5 rounded bg-brand-bg text-xs text-brand-muted border border-brand-divider">{h}</span>
@@ -747,7 +847,7 @@
 				<!-- Validation summary -->
 				{#if validationErrors.length > 0}
 					<div class="rounded-md border border-severity-alarm-border bg-severity-alarm-soft px-4 py-3 space-y-1">
-						<p class="text-sm font-medium text-severity-alarm">{validationErrors.length.toLocaleString()} validation error{validationErrors.length === 1 ? '' : 's'}</p>
+						<p class="text-sm font-medium text-severity-alarm">{formatCount(validationErrors.length)} validation error{validationErrors.length === 1 ? '' : 's'}</p>
 						{#each validationErrors.slice(0, 3) as err}
 							<p class="text-sm text-severity-alarm">Row {err.row}: {err.message}</p>
 						{/each}
@@ -757,7 +857,7 @@
 					</div>
 				{:else}
 					<div class="rounded-md border border-severity-ok-border bg-severity-ok-soft px-4 py-3">
-						<p class="text-sm text-severity-ok">All {csvData.length.toLocaleString()} rows passed validation</p>
+						<p class="text-sm text-severity-ok">All {formatCount(csvData.length)} rows passed validation</p>
 					</div>
 				{/if}
 
@@ -799,7 +899,7 @@
 					</table>
 				</div>
 				{#if csvData.length > 10}
-					<p class="text-xs text-brand-muted">Showing first 10 of {csvData.length.toLocaleString()} rows</p>
+					<p class="text-xs text-brand-muted">Showing first 10 of {formatCount(csvData.length)} rows</p>
 				{/if}
 
 				<div class="flex gap-3">
@@ -814,7 +914,7 @@
 						{#if uploading}
 							Uploading… {uploadProgress}%
 						{:else}
-							Upload {csvData.length.toLocaleString()} Rows
+							Upload {formatCount(csvData.length)} Rows
 						{/if}
 					</Button>
 				</div>
@@ -853,7 +953,7 @@
 						<p>{uploadError.message}</p>
 						{#if uploadError.insertedBefore > 0}
 							<p class="mt-1">
-								{uploadError.insertedBefore.toLocaleString()} record{uploadError.insertedBefore === 1 ? '' : 's'}
+								{formatCount(uploadError.insertedBefore)} record{uploadError.insertedBefore === 1 ? '' : 's'}
 								were inserted before the rejection. Correct the file and upload again; rows already
 								stored are skipped as duplicates.
 							</p>
@@ -867,9 +967,9 @@
 			<div class="space-y-4">
 				<div class="rounded-md border border-severity-ok-border bg-severity-ok-soft px-4 py-4 space-y-1">
 					<p class="text-sm font-medium text-severity-ok">Upload Complete</p>
-					<p class="text-sm">Inserted <span class="font-semibold">{uploadResult.inserted.toLocaleString()}</span> records.</p>
+					<p class="text-sm">Inserted <span class="font-semibold">{formatCount(uploadResult.inserted)}</span> records.</p>
 					{#if uploadResult.duplicates > 0}
-						<p class="text-sm text-brand-muted">{uploadResult.duplicates.toLocaleString()} duplicate{uploadResult.duplicates === 1 ? '' : 's'} skipped.</p>
+						<p class="text-sm text-brand-muted">{formatCount(uploadResult.duplicates)} duplicate{uploadResult.duplicates === 1 ? '' : 's'} skipped.</p>
 					{/if}
 				</div>
 

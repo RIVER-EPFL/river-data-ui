@@ -75,8 +75,7 @@
 		| { kind: 'variable'; name: string }
 		| { kind: 'constant'; name: string }
 		| { kind: 'function'; name: string }
-		| { kind: 'operator'; op: string }
-		| { kind: 'number' };
+		| { kind: 'operator'; op: string };
 
 	let dragPayload: DragPayload | null = null;
 
@@ -114,8 +113,6 @@
 			case 'operator':
 				if (existing && existing.type !== 'empty') return wrapWithOp(existing, payload.op);
 				return { type: 'binary', op: payload.op, left: { type: 'empty' }, right: { type: 'empty' } };
-			case 'number':
-				return { type: 'constant', value: 0 };
 		}
 	}
 
@@ -196,14 +193,12 @@
 			const node = payloadToNode(payload, existing);
 			root = replaceAtPath(root, selectedPath, node);
 			selectedPath = payload.kind === 'operator' ? `${selectedPath}.right` : null;
-			if (node.type === 'constant') editingConstantPath = selectedPath;
 			syncText();
 			return;
 		}
 
 		if (root.type === 'empty') {
 			root = payloadToNode(payload, null);
-			if (root.type === 'constant') editingConstantPath = 'root';
 			syncText();
 			return;
 		}
@@ -219,14 +214,12 @@
 		if (slot) {
 			const node = payloadToNode(payload, null);
 			root = replaceAtPath(root, slot, node);
-			if (node.type === 'constant') editingConstantPath = slot;
 			syncText();
 			return;
 		}
 
 		const node = payloadToNode(payload, null);
 		root = { type: 'binary', op: '*', left: root, right: node };
-		if (node.type === 'constant') editingConstantPath = 'root.right';
 		syncText();
 	}
 
