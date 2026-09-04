@@ -381,6 +381,7 @@ export interface ReprocessingJob {
 	site_id: string | null;
 	parent_job_id: string | null;
 	detail: Record<string, unknown>;
+	params: Record<string, unknown>;
 	created_at: string;
 	completed_at: string | null;
 	rerunnable: boolean;

@@ -62,7 +62,7 @@
 		rerunning = true;
 		try {
 			await rerunJob(job.id);
-			toastStore.success('Job rerun started');
+			toastStore.success(`Job rerun started${inputSummary(job)}`);
 			ctx.close();
 			await ctx.reload();
 		} catch (e) {
@@ -70,6 +70,16 @@
 		} finally {
 			rerunning = false;
 		}
+	}
+
+	/// What the replay will run with, so the operator confirms a rerun against its inputs.
+	function inputSummary(job: ReprocessingJob): string {
+		const entries = Object.entries(job.params ?? {});
+		if (entries.length === 0) return '';
+		const named = entries
+			.map(([key, value]) => `${countLabel(key)}: ${typeof value === 'object' ? JSON.stringify(value) : String(value)}`)
+			.join(', ');
+		return ` (${named})`;
 	}
 
 	let cancelling = $state(false);
@@ -268,6 +278,19 @@
 				<div>
 					<span class="text-brand-muted text-xs block mb-1">Error</span>
 					<pre class="bg-severity-alarm-soft p-2 rounded text-xs whitespace-pre-wrap text-severity-alarm">{job.error_message}</pre>
+				</div>
+			{/if}
+
+			{#if Object.keys(job.params ?? {}).length > 0}
+				{@const inputs = Object.entries(job.params)}
+				<div>
+					<span class="text-brand-muted text-xs block mb-1">Inputs</span>
+					<dl class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+						{#each inputs as [key, value] (key)}
+							<dt class="text-brand-muted">{countLabel(key)}</dt>
+							<dd class="font-mono break-all">{typeof value === 'object' ? JSON.stringify(value) : String(value)}</dd>
+						{/each}
+					</dl>
 				</div>
 			{/if}
 

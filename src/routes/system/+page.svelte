@@ -8,6 +8,7 @@
 	import {
 		issueSyncCommand,
 		setSyncInterval,
+		setFullReassert,
 		createServiceCredential,
 		revokeSyncService,
 		listSchedules,
@@ -26,7 +27,13 @@
 	} from '$api/service';
 	import { getList, ApiError } from '$api/client';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { formatRelativeTime, formatDateTime, formatInterval, statusBadgeClass } from '$lib/utils';
+	import {
+		formatRelativeTime,
+		formatDateTime,
+		formatInterval,
+		statusBadgeClass,
+		countLabel,
+	} from '$lib/utils';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
@@ -145,6 +152,25 @@
 		return intervalDraft[svc.id] ?? (svc.sync_interval_secs === null ? '' : String(svc.sync_interval_secs));
 	}
 
+	let reassertSaving = $state<Record<string, boolean>>({});
+
+	async function saveFullReassert(svc: SyncService, enabled: boolean) {
+		reassertSaving[svc.id] = true;
+		try {
+			await setFullReassert(svc.id, enabled);
+			toastStore.success(
+				enabled
+					? `${svc.instance_id} joins the weekly full re-assert`
+					: `${svc.instance_id} leaves the weekly full re-assert`,
+			);
+			loadStatus();
+		} catch {
+			toastStore.error('Failed to set the full re-assert');
+		} finally {
+			reassertSaving[svc.id] = false;
+		}
+	}
+
 	async function saveInterval(svc: SyncService) {
 		const raw = intervalValue(svc).trim();
 		const seconds = raw === '' ? null : Number(raw);
@@ -218,14 +244,14 @@
 	];
 
 	// An editable draft of one schedule. interval is split into amount + unit for the picker;
-	// tunables is held as text so the operator can edit JSON freely and we validate on save.
+	// tunables are one field per key the job declares.
 	interface Draft {
 		enabled: boolean;
 		intervalAmount: number;
 		intervalUnit: IntervalUnit;
 		overlap_policy: OverlapPolicy;
 		catchup_policy: CatchupPolicy;
-		tunablesText: string;
+		tunables: Record<string, unknown>;
 	}
 
 	// Pick the largest unit that divides the interval evenly so the picker shows a tidy value.
@@ -246,8 +272,12 @@
 			intervalUnit,
 			overlap_policy: s.overlap_policy,
 			catchup_policy: s.catchup_policy,
-			tunablesText: JSON.stringify(s.tunables ?? {}, null, 2),
+			tunables: { ...(s.tunables ?? {}) },
 		};
+	}
+
+	function setTunable(d: Draft, key: string, value: unknown) {
+		d.tunables = { ...d.tunables, [key]: value };
 	}
 
 	function draftSeconds(d: Draft): number {
@@ -310,21 +340,8 @@
 		if (draftSeconds(d) !== s.interval_seconds) return true;
 		if (d.overlap_policy !== s.overlap_policy) return true;
 		if (d.catchup_policy !== s.catchup_policy) return true;
-		if (normalizeJson(d.tunablesText) !== JSON.stringify(s.tunables ?? {})) return true;
+		if (JSON.stringify(d.tunables) !== JSON.stringify(s.tunables ?? {})) return true;
 		return false;
-	}
-
-	// Canonical JSON string for comparison, or null when the text doesn't parse to an object.
-	function normalizeJson(text: string): string | null {
-		const trimmed = text.trim();
-		if (trimmed === '') return JSON.stringify({});
-		try {
-			const parsed = JSON.parse(trimmed);
-			if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-			return JSON.stringify(parsed);
-		} catch {
-			return null;
-		}
 	}
 
 	function dirty(s: Schedule): boolean {
@@ -339,9 +356,8 @@
 		if (secs !== s.interval_seconds) body.interval_seconds = secs;
 		if (d.overlap_policy !== s.overlap_policy) body.overlap_policy = d.overlap_policy;
 		if (d.catchup_policy !== s.catchup_policy) body.catchup_policy = d.catchup_policy;
-		const norm = normalizeJson(d.tunablesText);
-		if (norm !== null && norm !== JSON.stringify(s.tunables ?? {})) {
-			body.tunables = JSON.parse(norm);
+		if (JSON.stringify(d.tunables) !== JSON.stringify(s.tunables ?? {})) {
+			body.tunables = d.tunables;
 		}
 		return body;
 	}
@@ -355,11 +371,6 @@
 			rowError = { ...rowError, [s.job_name]: 'Interval must be greater than zero.' };
 			return;
 		}
-		if (normalizeJson(d.tunablesText) === null) {
-			rowError = { ...rowError, [s.job_name]: 'Tunables must be a JSON object.' };
-			return;
-		}
-
 		const body = diffFor(s, d);
 		if (Object.keys(body).length === 0) return;
 
@@ -531,6 +542,20 @@
 											? 'Running on its own SYNC_INTERVAL_SECONDS; leave blank to keep it there.'
 											: `Set to ${formatInterval(svc.sync_interval_secs)}; clear the field to return to the service default.`}
 										Adopted on the next heartbeat, no restart.
+									</span>
+								</div>
+								<div class="flex items-center gap-2 flex-wrap">
+									<label class="text-xs text-brand-muted" for="reassert-{svc.id}">Weekly full re-assert</label>
+									<input
+										id="reassert-{svc.id}"
+										type="checkbox"
+										checked={svc.full_reassert_enabled}
+										disabled={reassertSaving[svc.id]}
+										onchange={(e) => saveFullReassert(svc, e.currentTarget.checked)}
+									/>
+									<span class="text-xs text-brand-muted">
+										The digest handshake stops a routine pass re-sending unchanged content, so the weekly
+										pass is what repairs drift the digests cannot see.
 									</span>
 								</div>
 								{#if svc.paused}
@@ -781,17 +806,52 @@
 									</select>
 								</div>
 
-								<div class="md:col-span-2 lg:col-span-4">
-									<label class="block text-xs font-medium text-brand-muted mb-1" for="tunables-{s.job_name}">Tunables (JSON)</label>
-									<textarea
-										id="tunables-{s.job_name}"
-										disabled={!isAdmin}
-										bind:value={d.tunablesText}
-										rows="4"
-										spellcheck="false"
-										class="w-full rounded-md border border-brand-divider bg-brand-bg px-2 py-1 font-mono text-xs disabled:opacity-60"
-									></textarea>
-								</div>
+								{#if s.tunables_schema.length === 0}
+									<div class="md:col-span-2 lg:col-span-4 text-xs text-brand-muted">
+										No tunables. This job reads nothing beyond its schedule.
+									</div>
+								{:else}
+									{#each s.tunables_schema as spec (spec.key)}
+										<div>
+											<label class="block text-xs font-medium text-brand-muted mb-1" for="tunable-{s.job_name}-{spec.key}">
+												{countLabel(spec.key)}
+											</label>
+											{#if spec.kind.type === 'boolean'}
+												<input
+													id="tunable-{s.job_name}-{spec.key}"
+													type="checkbox"
+													disabled={!isAdmin}
+													checked={Boolean(d.tunables[spec.key] ?? spec.default)}
+													onchange={(e) => setTunable(d, spec.key, e.currentTarget.checked)}
+												/>
+											{:else if spec.kind.type === 'enum'}
+												<select
+													id="tunable-{s.job_name}-{spec.key}"
+													disabled={!isAdmin}
+													value={String(d.tunables[spec.key] ?? spec.default)}
+													onchange={(e) => setTunable(d, spec.key, e.currentTarget.value)}
+													class="w-full rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-sm disabled:opacity-60"
+												>
+													{#each spec.kind.options ?? [] as option (option)}
+														<option value={option}>{option}</option>
+													{/each}
+												</select>
+											{:else}
+												<input
+													id="tunable-{s.job_name}-{spec.key}"
+													type="number"
+													disabled={!isAdmin}
+													min={spec.min ?? undefined}
+													max={spec.max ?? undefined}
+													value={Number(d.tunables[spec.key] ?? spec.default)}
+													onchange={(e) => setTunable(d, spec.key, Number(e.currentTarget.value))}
+													class="w-full rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-sm disabled:opacity-60"
+												/>
+											{/if}
+											<p class="mt-1 text-[11px] text-brand-muted">{spec.help}</p>
+										</div>
+									{/each}
+								{/if}
 							</div>
 
 							{#if rowError[s.job_name]}

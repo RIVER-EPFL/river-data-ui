@@ -753,6 +753,8 @@ export interface SyncService {
 	paused: boolean;
 	// Operator-set cadence in seconds; null means the service’s own SYNC_INTERVAL_SECONDS.
 	sync_interval_secs: number | null;
+	// Whether the weekly full re-assert queues a trigger_full_sync for this service.
+	full_reassert_enabled: boolean;
 	last_heartbeat: string | null;
 	last_sync_completed_at: string | null;
 	last_error: string | null;
@@ -805,6 +807,10 @@ export const issueSyncCommand = (serviceId: string, command: string, payload?: o
 // adopts the change on its next heartbeat.
 export const setSyncInterval = (serviceId: string, seconds: number | null) =>
 	PATCH<SyncService>(`${ADMIN}/sync/services/${serviceId}`, { sync_interval_secs: seconds });
+
+// Whether the weekly sync_full_reassert job queues a full sync for this service.
+export const setFullReassert = (serviceId: string, enabled: boolean) =>
+	PATCH<SyncService>(`${ADMIN}/sync/services/${serviceId}`, { full_reassert_enabled: enabled });
 
 export const createServiceCredential = (serviceType: string) =>
 	POST<{ client_id: string; client_secret: string }>(`${ADMIN}/sync/credentials`, {
@@ -2532,6 +2538,15 @@ export function grabConflictGroups(e: unknown): GrabExistingGroup[] | null {
 export type OverlapPolicy = 'skip_if_running' | 'allow_concurrent';
 export type CatchupPolicy = 'run_once' | 'skip';
 
+export interface TunableSpec {
+	key: string;
+	kind: { type: 'integer' | 'boolean' | 'duration' | 'enum'; options?: string[] };
+	min: number | null;
+	max: number | null;
+	default: unknown;
+	help: string;
+}
+
 export interface Schedule {
 	job_name: string;
 	enabled: boolean;
@@ -2541,6 +2556,7 @@ export interface Schedule {
 	overlap_policy: OverlapPolicy;
 	catchup_policy: CatchupPolicy;
 	tunables: Record<string, unknown>;
+	tunables_schema: TunableSpec[];
 	updated_by: string | null;
 	updated_at: string;
 	running: boolean;
