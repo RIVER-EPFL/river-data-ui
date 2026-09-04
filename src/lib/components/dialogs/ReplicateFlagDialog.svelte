@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { PATCH } from '$api/client';
-	import { api } from '$api/crud';
+	import { getReadingProvenance } from '$api/service';
 	import type { SampleReplicate } from '$api/types';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { curveRefs } from '$lib/curveRefs.svelte';
@@ -18,7 +18,6 @@
 		units = null,
 		timeIso,
 		replicates,
-		sampleId = null,
 		onsuccess,
 	}: {
 		open: boolean;
@@ -30,7 +29,6 @@
 		timeIso: string;
 		replicates: SampleReplicate[];
 		/** The `samples` row behind the point, the only place its tool-run provenance is stored. */
-		sampleId?: string | null;
 		onsuccess?: () => void;
 	} = $props();
 
@@ -40,7 +38,7 @@
 	let reason = $state('');
 	let busyIndex = $state<number | null>(null);
 	let openChain = $state<number | null>(null);
-	// Provenance lives on the sample row, not on the readings the chart drew, so it is fetched here.
+	// Provenance lives on the reading, not on the points the chart drew, so it is fetched here.
 	let provenance = $state<Record<string, unknown> | null>(null);
 	let provenanceLoading = $state(false);
 	let provenanceOpen = $state(false);
@@ -55,19 +53,19 @@
 
 	$effect(() => {
 		if (!open) return;
-		const id = sampleId;
+		const at = timeIso;
 		provenance = null;
 		provenanceOpen = false;
-		if (!id) return;
+		if (!siteId || !parameterId || !at) return;
 		provenanceLoading = true;
-		api.samples
-			.get(id)
-			.then((s) => {
-				if (sampleId !== id) return;
-				provenance = s.provenance;
+		getReadingProvenance({ site_id: siteId, parameter_id: parameterId, time: at, measurement_type: 'spot' })
+			.then((res) => {
+				if (timeIso !== at) return;
+				provenance =
+					res.records.find((r) => r.computation?.provenance)?.computation?.provenance ?? null;
 			})
 			.catch(() => {
-				// A sample the caller cannot read leaves the section out rather than reporting a
+				// A record the caller cannot read leaves the section out rather than reporting a
 				// failure: the flagging actions above are unaffected.
 			})
 			.finally(() => {
@@ -248,8 +246,8 @@
 						<ProvenanceCard {provenance} />
 					{/if}
 				</div>
-			{:else if sampleId}
-				<p class="text-xs text-brand-muted">Hand-entered sample, no tool run recorded.</p>
+			{:else}
+				<p class="text-xs text-brand-muted">Hand-entered measurement, no tool run recorded.</p>
 			{/if}
 		</div>
 	{/snippet}

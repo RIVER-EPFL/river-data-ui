@@ -5,6 +5,7 @@ import { base } from '$app/paths';
 type AuthState =
 	| { status: 'loading' }
 	| { status: 'no-auth' }
+	| { status: 'anonymous'; keycloak: Keycloak }
 	| { status: 'authenticated'; keycloak: Keycloak }
 	| { status: 'error'; message: string };
 
@@ -76,14 +77,19 @@ export const auth = {
 				clientId: config.clientId,
 			});
 
-			await keycloak.init({
-				onLoad: 'login-required',
+			// check-sso resolves an existing Keycloak session without forcing a login, so a visitor
+			// with none lands on the landing page instead of the realm's login form.
+			const authenticated = await keycloak.init({
+				onLoad: 'check-sso',
+				silentCheckSsoRedirectUri: `${window.location.origin}${base}/silent-check-sso.html`,
 				checkLoginIframe: false,
 				enableLogging: true,
 				pkceMethod: 'S256',
 			});
 
-			state = { status: 'authenticated', keycloak };
+			state = authenticated
+				? { status: 'authenticated', keycloak }
+				: { status: 'anonymous', keycloak };
 		} catch (error) {
 			console.error('Failed to initialize auth:', error);
 			state = {
@@ -103,7 +109,7 @@ export const auth = {
 	},
 
 	login() {
-		if (state.status !== 'authenticated') return;
+		if (state.status !== 'authenticated' && state.status !== 'anonymous') return;
 		const redirectUri = window.location.origin + base + '/';
 		state.keycloak.login({ redirectUri });
 	},

@@ -148,6 +148,52 @@ export interface NotificationSubscriber {
 export const getNotificationSubscribers = () =>
 	GET<NotificationSubscriber[]>(`${ADMIN}/notifications/subscribers`);
 
+/** One (channel, recipient) attempt of a message. */
+export interface DeliveryRecipient {
+	channel: string;
+	recipient: string;
+	status: string;
+	error: string | null;
+	createdAt: string;
+}
+
+export interface DeliveryMessage {
+	alarmEventId: string | null;
+	kind: string;
+	at: string;
+	siteName: string | null;
+	parameterName: string | null;
+	counts: {
+		total: number;
+		sent: number;
+		failed: number;
+		muted: number;
+		undeliverable: number;
+		skipped: number;
+	};
+	recipients: DeliveryRecipient[];
+}
+
+export interface DeliveryLogPage {
+	messages: DeliveryMessage[];
+	/** Messages matching the filter, not rows. */
+	total: number;
+}
+
+export const getNotificationDeliveries = (params: {
+	limit?: number;
+	offset?: number;
+	status?: string;
+	kind?: string;
+}) => {
+	const q = new URLSearchParams();
+	for (const [k, v] of Object.entries(params)) {
+		if (v !== undefined && v !== '') q.set(k, String(v));
+	}
+	const qs = q.toString();
+	return GET<DeliveryLogPage>(`${ADMIN}/notifications/deliveries${qs ? `?${qs}` : ''}`);
+};
+
 // Alarms
 export interface ActiveAlarm {
 	site_id: string;
@@ -1364,14 +1410,17 @@ export interface ProvenanceRecord {
 	chain: ProvenanceChain;
 	event?: { id: string; collected_at: string; source: string; created_by?: string };
 	computation?: {
-		sample_id: string;
+		// The statistics row, present when the instant carries two or more replicates.
+		sample_id?: string;
 		created_by?: string;
+		label?: string;
+		notes?: string;
 		provenance?: Record<string, unknown>;
 		run_source?: 'interactive' | 'csv_import' | 'chain' | string;
 		// Which divisor this group's served standard deviation uses, and what chose it. A source
-		// of 'default' means nothing declared one.
-		sd_estimator: SdEstimator;
-		sd_estimator_source: 'default' | 'slot' | 'sample' | 'stream' | 'tool';
+		// of 'default' means nothing declared one. Absent on a single measurement.
+		sd_estimator?: SdEstimator;
+		sd_estimator_source?: 'default' | 'slot' | 'sample' | 'stream' | 'tool';
 	};
 	holds: { id: string; kind: HoldKind; status: string; created_at: string }[];
 }
@@ -1461,11 +1510,11 @@ export interface EventCell {
 		mean?: number;
 		stdev?: number;
 		n: number;
-		/** How the readings reached the store: manual, csv, api or sync. */
-		origin?: string;
-		has_provenance: boolean;
-		tool?: string;
 	};
+	/** How the readings reached the store: manual, csv, api or sync. */
+	origin: string;
+	has_provenance: boolean;
+	tool?: string;
 	replicates: EventCellReplicate[];
 	finding?: { id: string; kind: HoldKind; tool?: string; status: string };
 }

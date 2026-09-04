@@ -11,6 +11,8 @@
 	import SiteNavigator from '$components/SiteNavigator.svelte';
 	import NavIcon from '$components/NavIcon.svelte';
 	import Unauthorized from '$components/Unauthorized.svelte';
+	import Landing from '$components/Landing.svelte';
+	import { shellBranch } from '$auth/shell';
 	import AlarmIndicator from '$components/AlarmIndicator.svelte';
 	import OperationsIndicator from '$components/OperationsIndicator.svelte';
 	import { getVersion, getNotificationsConfig, registerPushSubscription } from '$api/service';
@@ -27,8 +29,7 @@
 	let apiVersion = $state('');
 	let versionFetched = false;
 	$effect(() => {
-		const status = auth.state.status;
-		if (!versionFetched && status !== 'loading' && status !== 'error') {
+		if (!versionFetched && auth.authenticated) {
 			versionFetched = true;
 			getVersion()
 				.then((v) => (apiVersion = `${v.version} (${v.commit})`))
@@ -38,8 +39,7 @@
 
 	let pushSynced = false;
 	$effect(() => {
-		const status = auth.state.status;
-		if (!pushSynced && status !== 'loading' && status !== 'error' && isWebPushSupported()) {
+		if (!pushSynced && auth.authenticated && isWebPushSupported()) {
 			pushSynced = true;
 			getNotificationsConfig()
 				.then((cfg) => {
@@ -58,10 +58,12 @@
 
 	// Resolve the caller's level + grants from /api/me once auth is ready; drives capability-gated nav.
 	$effect(() => {
-		if (auth.state.status !== 'loading' && auth.state.status !== 'error') {
+		if (auth.authenticated) {
 			me.ensure();
 		}
 	});
+
+	const branch = $derived(shellBranch(auth.state.status, auth.role));
 
 	// A nav item is visible when the caller holds its minimum capability (or it names none).
 	// The client's IA: three groups gated by capability. A section renders only when at least one of
@@ -108,12 +110,12 @@
 	}
 </script>
 
-{#if auth.state.status === 'loading'}
+{#if branch === 'loading'}
 	<div class="flex h-screen items-center justify-center flex-col text-brand-muted">
 		<p class="text-lg">Loading RIVER Data Admin…</p>
 		<p class="text-sm mt-2">Initializing…</p>
 	</div>
-{:else if auth.state.status === 'error'}
+{:else if branch === 'error' && auth.state.status === 'error'}
 	<div class="flex h-screen items-center justify-center flex-col text-center px-5">
 		<p class="text-lg text-severity-alarm">Authentication Error</p>
 		<p class="text-sm mt-2 text-brand-muted max-w-[400px]">{auth.state.message}</p>
@@ -125,7 +127,9 @@
 			Retry
 		</Button>
 	</div>
-{:else if auth.role === false}
+{:else if branch === 'landing'}
+	<Landing />
+{:else if branch === 'unauthorized'}
 	<!-- Authenticated but no riverdata role: the API rejects every call with 403 no_river_role,
 	     so take over the whole shell instead of rendering an app that can't load anything. -->
 	<Unauthorized />

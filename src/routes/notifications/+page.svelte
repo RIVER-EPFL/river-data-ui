@@ -15,7 +15,7 @@
 		type ChannelHealth,
 		type NotificationSubscriber,
 	} from '$api/service';
-	import { api, type Site, type Parameter, type NotificationLog, type NotificationMute, type RealmUser } from '$api/crud';
+	import { api, type Site, type Parameter, type NotificationMute, type RealmUser } from '$api/crud';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
@@ -23,6 +23,7 @@
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import PaginationControls from '$components/ui/PaginationControls.svelte';
+	import DeliveryLogPanel from '$components/notifications/DeliveryLogPanel.svelte';
 
 	const ready = $derived(me.status !== 'loading');
 	const isAdmin = $derived(me.can('admin'));
@@ -210,60 +211,6 @@
 		}
 	}
 
-	// The `kind` values the API actually writes (messages.rs, triggers.rs, views.rs test-send).
-	// Listing a shortened "alarm" here, as this did, filters to zero rows forever.
-	const LOG_KINDS = [
-		'alarm_opened',
-		'alarm_resolved',
-		'stale_data',
-		'battery_forecast',
-		'sync_failure',
-		'test',
-	];
-
-
-	// ── Log tab ──
-	const logPerPage = 50;
-	let logs = $state<NotificationLog[]>([]);
-	let logTotal = $state(0);
-	let logPage = $state(1);
-	let logLoading = $state(false);
-	let logError = $state<string | null>(null);
-
-	let fKind = $state('');
-	let fStatus = $state('');
-	const hasLogFilters = $derived(Boolean(fKind || fStatus));
-
-	async function loadLogs() {
-		logLoading = true;
-		logError = null;
-		try {
-			const filter: Record<string, unknown> = {};
-			if (fKind) filter.kind = fKind;
-			filter.channel = 'web_push';
-			if (fStatus) filter.status = fStatus;
-			const r = await api.notificationLogs.list({
-				page: logPage,
-				perPage: logPerPage,
-				sort: ['created_at', 'DESC'],
-				filter,
-			});
-			logs = r.data;
-			logTotal = r.total;
-		} catch (e) {
-			logError = e instanceof Error ? e.message : 'Failed to load notification log';
-			logs = [];
-			logTotal = 0;
-		} finally {
-			logLoading = false;
-		}
-	}
-
-	function applyLogFilters() {
-		logPage = 1;
-		loadLogs();
-	}
-
 	// Load each tab's data lazily the first time it's shown (Status loads eagerly + polls). Gated on
 	// admin + a resolved `/api/me`, so a non-admin (or a still-loading session) never fires the
 	// admin-only list calls.
@@ -273,7 +220,6 @@
 		untrack(() => {
 			if (t === 'status' && !subscribersLoaded) loadSubscribers();
 			if (t === 'mutes' && !mutesLoaded) loadMutes();
-			if (t === 'log' && logs.length === 0 && !logLoading && logError === null) loadLogs();
 		});
 	});
 
@@ -465,75 +411,7 @@
 
 		<!-- ── LOG TAB ── -->
 		{:else if tab.key === 'log'}
-			<div class="flex flex-wrap items-end gap-3">
-				<label class="flex flex-col gap-1 text-xs text-brand-muted">
-					Kind
-					<select bind:value={fKind} onchange={applyLogFilters} class={selectCls}>
-						<option value="">Any</option>
-						{#each LOG_KINDS as k}
-							<option value={k}>{k}</option>
-						{/each}
-					</select>
-				</label>
-					<label class="flex flex-col gap-1 text-xs text-brand-muted">
-					Status
-					<select bind:value={fStatus} onchange={applyLogFilters} class={selectCls}>
-						<option value="">Any</option>
-						<option value="sent">sent</option>
-						<option value="failed">failed</option>
-					</select>
-				</label>
-			</div>
-
-			{#if logError}
-				<ErrorNotice message={logError} />
-			{/if}
-
-			<div class="rounded-md border border-brand-divider bg-brand-surface overflow-x-auto">
-				<table class="w-full text-sm">
-					<thead>
-						<tr class="bg-brand-bg border-b border-brand-divider">
-							<th class="text-left px-4 py-2 font-semibold">Time</th>
-							<th class="text-left px-4 py-2 font-semibold">Kind</th>
-							<th class="text-left px-4 py-2 font-semibold">Channel</th>
-							<th class="text-left px-4 py-2 font-semibold">Recipient</th>
-							<th class="text-left px-4 py-2 font-semibold">Status</th>
-							<th class="text-left px-4 py-2 font-semibold">Error</th>
-						</tr>
-					</thead>
-					<tbody>
-						{#if logLoading}
-							<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">Loading…</td></tr>
-						{:else if logs.length === 0}
-							<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">
-								{hasLogFilters
-									? 'No deliveries match those filters.'
-									: 'No notifications sent yet. Deliveries appear here once an alarm fires or you send a test.'}
-							</td></tr>
-						{:else}
-							{#each logs as l (l.id)}
-								<tr class="border-b border-brand-divider last:border-b-0">
-									<td class="whitespace-nowrap px-4 py-2 text-brand-muted">{formatDateTime(l.created_at)}</td>
-									<td class="px-4 py-2">{l.kind}</td>
-									<td class="px-4 py-2"><Badge variant="default">{l.channel}</Badge></td>
-									<td class="px-4 py-2 font-mono text-xs break-all">{l.recipient}</td>
-									<td class="px-4 py-2">
-										{#if l.status === 'sent'}<Badge variant="ok">sent</Badge>{:else}<Badge variant="alarm">{l.status}</Badge>{/if}
-									</td>
-									<td class="px-4 py-2 max-w-xs truncate text-brand-muted" title={l.error ?? ''}>{l.error ?? '-'}</td>
-								</tr>
-							{/each}
-						{/if}
-					</tbody>
-				</table>
-			</div>
-
-			<PaginationControls
-				total={logTotal}
-				page={logPage}
-				perPage={logPerPage}
-				onPageChange={(p) => { logPage = p; loadLogs(); }}
-			/>
+			<DeliveryLogPanel />
 		{/if}
 	{/if}
 </div>

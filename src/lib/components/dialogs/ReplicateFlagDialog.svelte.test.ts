@@ -4,10 +4,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('$api/client', () => ({ PATCH: vi.fn(), GET: vi.fn() }));
 vi.mock('$api/crud', () => ({
 	api: {
-		samples: { get: vi.fn(async () => ({ provenance: null })) },
 		sensorCalibrations: { get: vi.fn(async () => ({})) },
 		standardCurves: { get: vi.fn(async () => ({})) },
 	},
+}));
+// Provenance is a property of the reading, so the dialog asks the resolver, not the sample.
+vi.mock('$api/service', () => ({
+	getReadingProvenance: vi.fn(async () => ({ records: [] })),
 }));
 
 const ReplicateFlagDialog = (await import('./ReplicateFlagDialog.svelte')).default;
@@ -33,7 +36,6 @@ function open() {
 		units: 'permil',
 		timeIso: '2026-07-14T09:00:00Z',
 		replicates: [replicate(0, 8.005), replicate(1, 8.117)],
-		sampleId: null,
 	});
 }
 

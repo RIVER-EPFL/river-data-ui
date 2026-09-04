@@ -44,7 +44,7 @@
 	const perPage = 25;
 	const totalPages = $derived(Math.ceil(total / perPage));
 	let error = $state<string | null>(null);
-	let searchQuery = $state('');
+	let searchQuery = $state(page.url.searchParams.get('q') ?? '');
 	let sortField = $state('source_key');
 	let sortOrder = $state<'ASC' | 'DESC'>('ASC');
 

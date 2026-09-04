@@ -22,7 +22,6 @@
 	import ThresholdDialog from '$components/dialogs/ThresholdDialog.svelte';
 	import DeployMoveSensorDialog from '$components/dialogs/DeployMoveSensorDialog.svelte';
 	import MergeSiteParameterDialog from '$components/dialogs/MergeSiteParameterDialog.svelte';
-	import ProvenanceCard from '$components/samples/ProvenanceCard.svelte';
 	import PointInspector from '$components/provenance/PointInspector.svelte';
 	import ReplicateFlagDialog from '$components/dialogs/ReplicateFlagDialog.svelte';
 	import ParameterChart, { type ChartData } from '$components/charts/ParameterChart.svelte';
@@ -113,7 +112,6 @@
 	let originLabels = $state<Map<string, string>>(new Map());
 	let inspectorFlagOpen = $state(false);
 	let inspectorFlagReplicates = $state<SampleReplicate[]>([]);
-	let inspectorFlagSampleId = $state<string | null>(null);
 
 	function originLabelOf(origins: { source_system: string }[] | undefined): string {
 		if (!origins?.length) return '';
@@ -143,13 +141,12 @@
 		};
 	}
 
-	function openInspectorFlag(sampleId: string | null) {
+	function openInspectorFlag() {
 		if (!inspector) return;
 		const stat = spotStatsMap
 			.get(inspector.parameterId)
 			?.get(new Date(inspector.timeIso).getTime());
 		inspectorFlagReplicates = stat?.replicates ?? [];
-		inspectorFlagSampleId = sampleId ?? stat?.sampleId ?? null;
 		inspectorFlagOpen = true;
 	}
 
@@ -1015,13 +1012,6 @@
 		}
 	}
 
-	/** Provenance chip for a sample row: `sync:cnet` renders as a "cnet" badge. */
-	function sampleSource(createdBy: string | null): { label: string; synced: boolean } | null {
-		if (!createdBy) return null;
-		if (createdBy.startsWith('sync:')) return { label: createdBy.slice(5), synced: true };
-		return { label: createdBy, synced: false };
-	}
-
 	// (Re)load whenever the site id or deep-link window changes. SvelteKit reuses this component when
 	// navigating between two /sites/[id] pages, so onMount fires only once. Without this, clicking an
 	// alarm for a different site (e.g. from the notification bell) would change the URL but not the page.
@@ -1085,14 +1075,6 @@
 		return sp?.display_units ?? parameters.find((p) => p.id === paramId)?.default_units ?? null;
 	}
 
-	// Sample rows whose provenance card is expanded.
-	let expandedProvenance = $state<Set<string>>(new Set());
-	function toggleProvenance(sampleId: string) {
-		const next = new Set(expandedProvenance);
-		if (next.has(sampleId)) next.delete(sampleId);
-		else next.add(sampleId);
-		expandedProvenance = next;
-	}
 	function paramCode(paramId: string): string { return parameters.find((p) => p.id === paramId)?.code ?? ''; }
 	function paramUnits(sp: SiteParameter): string {
 		const param = parameters.find((p) => p.id === sp.parameter_id);
@@ -2079,52 +2061,36 @@
 				{#if samplesLoading}
 					<p class="text-sm text-brand-muted">Loading samples…</p>
 				{:else if samples.length === 0}
-					<p class="text-sm text-brand-muted">No grab samples recorded for this site.</p>
+					<p class="text-sm text-brand-muted">
+						No replicate groups recorded for this site. A measurement taken once is listed
+						under Visits, with the record of what produced it.
+					</p>
 				{:else}
-					{@const showSource = samples.some((s) => s.created_by)}
 					<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 						<table class="w-full text-sm">
 							<thead><tr class="bg-brand-bg border-b border-brand-divider">
 								<th class="text-left px-4 py-2 font-semibold">Time</th>
 								<th class="text-left px-4 py-2 font-semibold">Parameter</th>
-								<th class="text-left px-4 py-2 font-semibold">Label</th>
 								<th class="text-right px-4 py-2 font-semibold">Mean</th>
 								<th class="text-right px-4 py-2 font-semibold">Stdev</th>
 								<th class="text-right px-4 py-2 font-semibold">N</th>
 								<th class="text-right px-4 py-2 font-semibold">Min</th>
 								<th class="text-right px-4 py-2 font-semibold">Max</th>
-								{#if showSource}
-									<th class="text-left px-4 py-2 font-semibold">Source</th>
-								{/if}
 								<th class="text-left px-4 py-2 font-semibold">Standard curve</th>
-								<th class="text-left px-4 py-2 font-semibold">Provenance</th>
 							</tr></thead>
 							<tbody>
 								{#each samples as s}
-									{@const src = sampleSource(s.created_by)}
 									<tr class="border-b border-brand-divider last:border-b-0">
 										<td class="px-4 py-2 text-xs">{formatDateTime(s.collected_at)}</td>
 										<td class="px-4 py-2">
 											{paramName(s.parameter_id)}
 											{#if unitsForParameter(s.parameter_id)}<span class="text-brand-muted">({unitsForParameter(s.parameter_id)})</span>{/if}
 										</td>
-										<td class="px-4 py-2 text-brand-muted">{s.label ?? 'None'}</td>
 										<td class="px-4 py-2 text-right font-mono">{s.mean != null ? s.mean.toFixed(3) : 'None'}</td>
 										<td class="px-4 py-2 text-right font-mono">{s.stdev != null ? s.stdev.toFixed(3) : 'None'}</td>
 										<td class="px-4 py-2 text-right font-mono">{s.n}</td>
 										<td class="px-4 py-2 text-right font-mono">{s.min_value != null ? s.min_value.toFixed(3) : 'None'}</td>
 										<td class="px-4 py-2 text-right font-mono">{s.max_value != null ? s.max_value.toFixed(3) : 'None'}</td>
-										{#if showSource}
-											<td class="px-4 py-2 text-xs">
-												{#if !src}
-													<span class="text-brand-muted">None</span>
-												{:else if src.synced}
-													<Badge variant="accent">{src.label}</Badge>
-												{:else}
-													<span class="text-brand-muted">{src.label}</span>
-												{/if}
-											</td>
-										{/if}
 										<td class="px-4 py-2 text-xs">
 											{#if !sampleCurves.has(s.id)}
 												<span class="text-brand-muted" title="Curve references load with the charts; this sample falls outside the selected time range.">Not loaded</span>
@@ -2153,24 +2119,7 @@
 												<span class="text-brand-muted">None</span>
 											{/if}
 										</td>
-										<td class="px-4 py-2 text-xs">
-											{#if s.provenance}
-												<button
-													onclick={() => toggleProvenance(s.id)}
-													class="px-2 py-0.5 rounded-full bg-brand-accent/15 text-brand-accent-dark cursor-pointer border-none hover:underline"
-												>{expandedProvenance.has(s.id) ? 'Hide tool run' : 'Tool run'}</button>
-											{:else}
-												<span class="text-brand-muted">Hand-entered</span>
-											{/if}
-										</td>
 									</tr>
-									{#if s.provenance && expandedProvenance.has(s.id)}
-										<tr class="border-b border-brand-divider last:border-b-0">
-											<td colspan="10" class="px-4 py-2 bg-brand-bg/50">
-												<ProvenanceCard provenance={s.provenance} paramName={(id) => paramName(id)} />
-											</td>
-										</tr>
-									{/if}
 								{/each}
 							</tbody>
 						</table>
@@ -2353,10 +2302,10 @@
 																			.join(', ')}
 																	</td>
 																	<td class="py-1 pr-3">
-																		{#if cell.sample?.has_provenance}
-																			<Badge variant="ok">{cell.sample.tool ?? 'tool run'}</Badge>
+																		{#if cell.has_provenance}
+																			<Badge variant="ok">{cell.tool ?? 'tool run'}</Badge>
 																		{:else}
-																			<span class="text-brand-muted">{originLabel(cell.sample?.origin)}</span>
+																			<span class="text-brand-muted">{originLabel(cell.origin)}</span>
 																		{/if}
 																	</td>
 																	<td class="py-1">
@@ -2647,7 +2596,6 @@
 				units={unitsForParameter(inspector.parameterId)}
 				timeIso={inspector.timeIso}
 				replicates={inspectorFlagReplicates}
-				sampleId={inspectorFlagSampleId}
 				onsuccess={scheduleFetch}
 			/>
 		{/if}

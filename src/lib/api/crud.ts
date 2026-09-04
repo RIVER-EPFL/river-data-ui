@@ -251,22 +251,19 @@ export interface DerivedParameterSource {
 	created_at: string;
 }
 
+/** Statistics of two or more replicate readings sharing an instant. Label, notes, author and the
+ * tool-run provenance blob are properties of the measurement and live on the reading. */
 export interface Sample {
 	id: string;
 	site_id: string;
 	parameter_id: string;
 	collected_at: string;
-	label: string | null;
-	notes: string | null;
-	created_by: string | null;
 	created_at: string | null;
 	mean: number | null;
 	stdev: number | null;
 	n: number;
 	min_value: number | null;
 	max_value: number | null;
-	/** Tool-run provenance blob stamped by POST /grab_samples; null for hand-entered grabs. */
-	provenance: Record<string, unknown> | null;
 	updated_at: string | null;
 }
 

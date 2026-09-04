@@ -985,7 +985,6 @@
 		{units}
 		timeIso={new Date(replicateTarget.timeMs).toISOString()}
 		replicates={replicateTarget.stats.replicates ?? []}
-		sampleId={replicateTarget.stats.sampleId ?? null}
 		onsuccess={onDialogSuccess}
 	/>
 {/if}
