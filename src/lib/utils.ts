@@ -177,6 +177,27 @@ export function countLabel(key: string): string {
 		case 'commands_queued': return 'Commands queued';
 		case 'sync_events_pruned': return 'Sync events pruned';
 		case 'ingest_receipts_pruned': return 'Ingest receipts pruned';
+		case 'findings_closed': return 'Findings closed';
+		case 'events_recomputed': return 'Visits recomputed';
+		case 'events_in_scope': return 'Visits in scope';
+		case 'merged_readings': return 'Readings merged';
+		case 'merged_status_events': return 'Status events merged';
+		case 'streams_updated': return 'Streams updated';
+		case 'deployments_moved': return 'Deployments moved';
+		case 'sites_merged': return 'Sites merged';
+		case 'sites_reassigned': return 'Sites reassigned';
+		case 'readings_moved': return 'Readings moved';
+		case 'streams_paired': return 'Streams paired';
+		case 'readings_backfilled': return 'Readings backfilled';
+		case 'computed': return 'Values computed';
+		case 'opened': return 'Alarms opened';
+		case 'resolved': return 'Alarms resolved';
+		case 'sync_events_closed': return 'Stale sync events closed';
+		case 'channels_probed': return 'Channels probed';
+		case 'channels': return 'Channels configured';
+		case 'revoked': return 'Subscriptions revoked';
+		case 'deactivated': return 'Subscriptions deactivated';
+		case 'slots_failed': return 'Slots failed';
 		default: {
 			const words = key.replace(/_/g, ' ');
 			return words.charAt(0).toUpperCase() + words.slice(1);
@@ -237,4 +258,24 @@ export function holdKindBreakdown(byKind: Record<string, number>): string {
 		.sort((a, b) => b[1] - a[1])
 		.map(([kind, n]) => `${n} ${holdKindLabel(kind)}`)
 		.join(', ');
+}
+
+/**
+ * The one number to show for a run: `readings_updated` when the job reports it, otherwise the first
+ * count it does report, otherwise the row's own `readings_updated` column. The column name predates
+ * the jobs that count something other than readings, so it reads as "the number this run reports".
+ */
+export function headlineFor(job: {
+	readings_updated: number | null;
+	detail?: Record<string, unknown> | null;
+}): { label: string; value: number } | null {
+	const counts = (job.detail as { counts?: Record<string, unknown> } | null | undefined)?.counts;
+	if (counts && typeof counts === 'object') {
+		const entries = Object.entries(counts).filter(([, v]) => typeof v === 'number');
+		const preferred = entries.find(([k]) => k === 'readings_updated') ?? entries[0];
+		if (preferred) return { label: countLabel(preferred[0]), value: preferred[1] as number };
+	}
+	if (job.readings_updated != null)
+		return { label: countLabel('readings_updated'), value: job.readings_updated };
+	return null;
 }

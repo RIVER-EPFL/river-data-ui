@@ -523,44 +523,13 @@ export const retagStreams = (
 		},
 	);
 
-// Replay a finished tracked job (server reconstructs it from the ids on its row). Returns a new job.
+// Replay a finished tracked job from the params stored on its row. Returns a new job.
 export const rerunJob = (jobId: string) =>
 	POST<{ job_id: string; status: string }>(`${SERVICE}/reprocessing_jobs/${jobId}/rerun`, {});
-
-// Job types the server will replay (mirrors the backend registry `is_rerunnable`).
-const RERUNNABLE_TRIGGERS = new Set([
-	'manual_reprocess',
-	'calibration_create',
-	'calibration_update',
-	'calibration_delete',
-	'calibration_recalculate',
-	'deployment_create',
-	'deployment_update',
-	'deployment_delete',
-	'manual_adopt',
-	'sensor_swap',
-	'refresh_aggregates',
-	'refresh_aggregates_full',
-	'derived_recompute',
-]);
-
-export const isRerunnable = (triggerType: string): boolean => RERUNNABLE_TRIGGERS.has(triggerType);
 
 // Cooperatively cancel a running job. Takes effect at the job's next batch checkpoint.
 export const cancelJob = (jobId: string) =>
 	POST<{ status: string }>(`${SERVICE}/reprocessing_jobs/${jobId}/cancel`, {});
-
-// Job types the server can cooperatively cancel (mirrors the backend registry `is_cancellable`).
-const CANCELLABLE_TRIGGERS = new Set([
-	'ingest_derived',
-	'batch_derived',
-	'derived_recompute',
-	'csv_import',
-	'janitor_service',
-]);
-
-export const isCancellable = (triggerType: string): boolean =>
-	CANCELLABLE_TRIGGERS.has(triggerType);
 
 // Bulk historical attribution: list open deployments with claimable pre-deployment history.
 export interface BackfillCandidate {

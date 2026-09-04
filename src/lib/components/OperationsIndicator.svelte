@@ -6,7 +6,7 @@
 	import { me } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { eventBus } from '$lib/stores/events.svelte';
-	import { formatRelativeTime, triggerLabel, holdKindBreakdown } from '$lib/utils';
+	import { formatRelativeTime, triggerLabel, holdKindBreakdown, headlineFor } from '$lib/utils';
 
 	const POLL_MS = 10_000;
 	const RECENT_LINGER_MS = 5000;
@@ -218,6 +218,10 @@
 								<div class="flex items-center gap-2">
 									<span class="w-2 h-2 rounded-full shrink-0 {statusDotClass(job.status)}"></span>
 									<span class="text-sm">{triggerLabel(job.trigger_type)}</span>
+									{#if headlineFor(job)}
+										{@const headline = headlineFor(job)}
+										<span class="text-[10px] font-mono text-brand-muted whitespace-nowrap">{headline?.label}: {headline?.value}</span>
+									{/if}
 									<span class="ml-auto text-[10px] text-brand-muted">{job.completed_at ? formatRelativeTime(job.completed_at) : formatRelativeTime(job.created_at)}</span>
 								</div>
 								{#if job.status === 'failed' && job.error_message}

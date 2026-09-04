@@ -2,9 +2,16 @@
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
 	import { api, type Sensor, type ReprocessingJob, type JobLogLine } from '$api/crud';
-	import { getJobLogs, rerunJob, isRerunnable, cancelJob, isCancellable } from '$api/service';
+	import { getJobLogs, rerunJob, cancelJob } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { formatRelativeTime, formatDateTime, triggerLabel, statusBadgeClass } from '$lib/utils';
+	import {
+		formatRelativeTime,
+		formatDateTime,
+		triggerLabel,
+		statusBadgeClass,
+		countLabel,
+		headlineFor,
+	} from '$lib/utils';
 	import Button from '$components/ui/Button.svelte';
 	import EventPanel from '$components/logs/EventPanel.svelte';
 
@@ -115,6 +122,22 @@
 		}
 		return null;
 	}
+
+	function reportCounts(job: ReprocessingJob): Record<string, number> {
+		const counts = (job.detail as { counts?: unknown } | null)?.counts;
+		if (!counts || typeof counts !== 'object') return {};
+		return Object.fromEntries(
+			Object.entries(counts as Record<string, unknown>).filter(
+				(entry): entry is [string, number] => typeof entry[1] === 'number',
+			),
+		);
+	}
+
+	function reportScope(job: ReprocessingJob): Record<string, unknown> {
+		const scope = (job.detail as { scope?: unknown } | null)?.scope;
+		if (!scope || typeof scope !== 'object') return {};
+		return scope as Record<string, unknown>;
+	}
 </script>
 
 <EventPanel
@@ -152,7 +175,7 @@
 		<th class="text-left px-4 py-2 font-semibold">Trigger</th>
 		<th class="text-left px-4 py-2 font-semibold">Status</th>
 		<th class="text-left px-4 py-2 font-semibold">Progress</th>
-		<th class="text-right px-4 py-2 font-semibold">Readings</th>
+		<th class="text-right px-4 py-2 font-semibold">Reported</th>
 		<th class="text-left px-4 py-2 font-semibold">Created</th>
 		<th class="text-left px-4 py-2 font-semibold">Completed</th>
 		<th class="text-left px-4 py-2 font-semibold">Error</th>
@@ -184,7 +207,7 @@
 				<span class="text-brand-muted">-</span>
 			{/if}
 		</td>
-		<td class="px-4 py-2 text-right font-mono text-xs">{job.readings_updated ?? '-'}</td>
+		<td class="px-4 py-2 text-right font-mono text-xs" title={headlineFor(job)?.label ?? ''}>{headlineFor(job)?.value ?? '-'}</td>
 		<td class="px-4 py-2 text-xs text-brand-muted">{formatRelativeTime(job.created_at)}</td>
 		<td class="px-4 py-2 text-xs text-brand-muted">{job.completed_at ? formatDateTime(job.completed_at) : '-'}</td>
 		<td class="px-4 py-2 text-xs text-severity-alarm truncate max-w-xs" title={job.error_message ?? ''}>{job.error_message ?? ''}</td>
@@ -224,8 +247,8 @@
 					{/if}
 				</div>
 				<div>
-					<span class="text-brand-muted text-xs">Readings updated</span>
-					<p class="font-mono">{job.readings_updated ?? '-'}</p>
+					<span class="text-brand-muted text-xs">{headlineFor(job)?.label ?? 'Reported'}</span>
+					<p class="font-mono">{headlineFor(job)?.value ?? '-'}</p>
 				</div>
 				<div>
 					<span class="text-brand-muted text-xs">Retry count</span>
@@ -248,11 +271,37 @@
 				</div>
 			{/if}
 
-			{#if job.detail && Object.keys(job.detail).length > 0}
+			{#if Object.keys(reportCounts(job)).length > 0}
+				{@const counts = Object.entries(reportCounts(job))}
 				<div>
-					<span class="text-brand-muted text-xs block mb-1">Provenance</span>
-					<pre class="bg-brand-bg p-2 rounded text-xs whitespace-pre-wrap font-mono text-brand-text">{JSON.stringify(job.detail, null, 2)}</pre>
+					<span class="text-brand-muted text-xs block mb-1">Counts</span>
+					<dl class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+						{#each counts as [key, value] (key)}
+							<dt class="text-brand-muted">{countLabel(key)}</dt>
+							<dd class="font-mono text-right">{value}</dd>
+						{/each}
+					</dl>
 				</div>
+			{/if}
+
+			{#if Object.keys(reportScope(job)).length > 0}
+				{@const scope = Object.entries(reportScope(job))}
+				<div>
+					<span class="text-brand-muted text-xs block mb-1">Scope</span>
+					<dl class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+						{#each scope as [key, value] (key)}
+							<dt class="text-brand-muted">{countLabel(key)}</dt>
+							<dd class="font-mono break-all">{typeof value === 'object' ? JSON.stringify(value) : String(value)}</dd>
+						{/each}
+					</dl>
+				</div>
+			{/if}
+
+			{#if job.detail && Object.keys(job.detail).length > 0}
+				<details>
+					<summary class="text-brand-muted text-xs cursor-pointer">Raw report</summary>
+					<pre class="bg-brand-bg p-2 mt-1 rounded text-xs whitespace-pre-wrap font-mono text-brand-text">{JSON.stringify(job.detail, null, 2)}</pre>
+				</details>
 			{/if}
 
 			<div>
@@ -278,11 +327,11 @@
 
 	{#snippet detailActions(job, ctx)}
 		{@const target = jobTarget(job)}
-		{#if isRunning(job) && isCancellable(job.trigger_type)}
+		{#if isRunning(job) && job.cancellable}
 			<Button variant="danger" disabled={cancelling} onclick={() => handleCancel(job, ctx)}>
 				{cancelling ? 'Cancelling…' : 'Cancel'}
 			</Button>
-		{:else if isRerunnable(job.trigger_type)}
+		{:else if job.rerunnable}
 			<Button variant="primary" disabled={rerunning} onclick={() => handleRerun(job, ctx)}>
 				{rerunning ? 'Rerunning…' : 'Rerun'}
 			</Button>

@@ -98,9 +98,8 @@
 		delta: number | null;
 	}
 	interface ReconDetail {
-		scope?: Record<string, unknown>;
+		scope?: Record<string, unknown> & { mismatches?: ReconMismatch[] };
 		counts?: Record<string, number>;
-		mismatches?: ReconMismatch[];
 	}
 
 	const TERMINAL = new Set(['completed', 'failed', 'cancelled', 'interrupted']);
@@ -113,7 +112,7 @@
 		typeof jobDetail.scope?.source_system === 'string' ? (jobDetail.scope.source_system as string) : source,
 	);
 	const jobIsDryRun = $derived(jobDetail.scope?.dry_run === true);
-	const mismatches = $derived(jobDetail.mismatches ?? []);
+	const mismatches = $derived(jobDetail.scope?.mismatches ?? []);
 	const countEntries = $derived(Object.entries(jobDetail.counts ?? {}));
 
 	$effect(() => {

@@ -383,6 +383,8 @@ export interface ReprocessingJob {
 	detail: Record<string, unknown>;
 	created_at: string;
 	completed_at: string | null;
+	rerunnable: boolean;
+	cancellable: boolean;
 }
 
 export interface JobLogLine {
