@@ -11,7 +11,20 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  # Nothing is published unless svelte-check passes on the commit being built.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+
   build:
+    needs: check
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -79,7 +92,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Deploy application to dev
-        if: ${{ github.ref }} == "refs/heads/main"
+        if: github.ref == 'refs/heads/main'
         run: |
           curl -X POST \
           -H "Authorization: Bearer ${{ secrets.CD_TOKEN }}" \

@@ -103,8 +103,10 @@ export function statusBadgeClass(status: string): string {
 	switch (status) {
 		case 'completed': return 'bg-severity-ok-soft text-severity-ok';
 		case 'failed': return 'bg-severity-alarm-soft text-severity-alarm';
+		// `partial` is a cycle that finished with individual streams erroring, so it reads as a
+		// warning even though the cycle itself did not fail.
+		case 'partial': return 'bg-severity-warning-soft text-severity-warning font-semibold';
 		case 'running':
-		case 'partial':
 		case 'retrying': return 'bg-severity-warning-soft text-severity-warning';
 		case 'interrupted':
 		case 'cancelled': return 'bg-severity-alarm-soft text-severity-alarm';
@@ -162,4 +164,26 @@ export function formatSignificant(value: number, digits = 6): string {
 	const abs = Math.abs(value);
 	if (abs !== 0 && (abs < 1e-4 || abs >= 1e6)) return value.toExponential(3);
 	return String(Number(value.toPrecision(digits)));
+}
+
+/** Short label per review-queue hold kind. The queue carries six, not just the statistics one. */
+export function holdKindLabel(kind: string): string {
+	switch (kind) {
+		case 'replicate_stats': return 'statistics';
+		case 'source_modified': return 'source modified';
+		case 'brake_fired': return 'brake fired';
+		case 'missing_output': return 'missing output';
+		case 'stale_output': return 'stale output';
+		case 'curve_claim_stripped': return 'curve stripped';
+		default: return kind.replace(/_/g, ' ');
+	}
+}
+
+/** "3 statistics, 1 brake fired" for a per-kind pending count, most numerous first. */
+export function holdKindBreakdown(byKind: Record<string, number>): string {
+	return Object.entries(byKind)
+		.filter(([, n]) => n > 0)
+		.sort((a, b) => b[1] - a[1])
+		.map(([kind, n]) => `${n} ${holdKindLabel(kind)}`)
+		.join(', ');
 }

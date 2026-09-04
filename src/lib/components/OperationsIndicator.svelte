@@ -2,11 +2,11 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { base } from '$app/paths';
 	import { api, type ReprocessingJob } from '$api/crud';
-	import { getPendingAuditCount } from '$api/service';
+	import { getPendingAuditSummary } from '$api/service';
 	import { me } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { eventBus } from '$lib/stores/events.svelte';
-	import { formatRelativeTime, triggerLabel } from '$lib/utils';
+	import { formatRelativeTime, triggerLabel, holdKindBreakdown } from '$lib/utils';
 
 	const POLL_MS = 10_000;
 	const RECENT_LINGER_MS = 5000;
@@ -28,8 +28,10 @@
 	const completedJobs = $derived(
 		jobs.filter((j) => (j.status === 'completed' || j.status === 'failed') && !recentJobIds.has(j.id)).slice(0, 3),
 	);
-	// Replicate groups withheld behind an audit hold; surfaced alongside active jobs.
+	// Review items raised by ingest (six kinds, not only statistics); surfaced alongside jobs.
 	let pendingAudits = $state(0);
+	let pendingByKind = $state<Record<string, number>>({});
+	const auditBreakdown = $derived(holdKindBreakdown(pendingByKind));
 	const badgeCount = $derived(activeJobs.length + pendingAudits);
 
 	function progressPercent(job: ReprocessingJob): number | null {
@@ -83,12 +85,15 @@
 		}
 		if (me.can('manageSensors')) {
 			try {
-				pendingAudits = await getPendingAuditCount();
+				const summary = await getPendingAuditSummary();
+				pendingAudits = summary.pending;
+				pendingByKind = summary.byKind;
 			} catch {
 				// Audit count is best-effort; the jobs poll retries it.
 			}
 		} else {
 			pendingAudits = 0;
+			pendingByKind = {};
 		}
 	}
 
@@ -175,7 +180,7 @@
 					href="{base}/streams?tab=audits"
 					class="block px-3 py-2 text-xs bg-severity-warning-soft text-severity-warning-text border-b border-brand-divider no-underline hover:opacity-80"
 				>
-					{pendingAudits} replicate group{pendingAudits === 1 ? '' : 's'} held pending audit review
+					{pendingAudits} item{pendingAudits === 1 ? '' : 's'} pending audit review{auditBreakdown ? ` · ${auditBreakdown}` : ''}
 				</a>
 			{/if}
 			<div class="max-h-96 overflow-y-auto">

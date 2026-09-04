@@ -319,11 +319,21 @@ export const listStreamReceipts = (streamId: string, page = 1, pageSize = 50) =>
 		page_size: pageSize,
 	});
 
+/** Readings the pairing backfilled attribution onto. */
+export interface PairStreamResult {
+	backfilled: number;
+}
+
+/** Readings the unpairing stripped attribution from. */
+export interface UnpairStreamResult {
+	cleared: number;
+}
+
 export const pairStream = (streamId: string, siteParameterId: string) =>
-	POST(`${SERVICE}/streams/${streamId}/pair`, { site_parameter_id: siteParameterId });
+	POST<PairStreamResult>(`${SERVICE}/streams/${streamId}/pair`, { site_parameter_id: siteParameterId });
 
 export const unpairStream = (streamId: string) =>
-	POST(`${SERVICE}/streams/${streamId}/unpair`);
+	POST<UnpairStreamResult>(`${SERVICE}/streams/${streamId}/unpair`);
 
 export interface PreviewReplicate {
 	replicate_index: number;
@@ -359,8 +369,8 @@ export interface ImportStreamResponse {
 /** Import a stream's device into the sensor inventory (creates the sensor and stamps its existing
  *  readings) WITHOUT pairing it to a site. Separate from pairing/adopt. No curve is created: the
  *  readings resolve whatever calibration windows the sensor already has, which may be none. */
-export const importStream = (streamId: string, parameterId: string) =>
-	POST<ImportStreamResponse>(`${SERVICE}/streams/${streamId}/import`, { parameter_id: parameterId });
+export const importStream = (streamId: string) =>
+	POST<ImportStreamResponse>(`${SERVICE}/streams/${streamId}/import`, {});
 
 // Actions
 export const recalibrateCalibration = (id: string) =>
@@ -1142,6 +1152,8 @@ export interface ReplicateAuditListResponse {
 	total: number;
 	pending: number;
 	deferred: number;
+	/** Pending holds per kind, so an entry point can say what is waiting. */
+	pending_by_kind: Record<string, number>;
 }
 
 
@@ -1264,8 +1276,11 @@ export const reopenReplicateAudit = (id: string) =>
 export const getSyncCommand = (id: string) =>
 	GET<SyncCommand>(`${ADMIN}/sync/commands/${id}`);
 
-export const getPendingAuditCount = async (): Promise<number> =>
-	(await listReplicateAudits({ page_size: 1 })).pending;
+/** Pending review items and their per-kind breakdown, for the entry-point wording. */
+export const getPendingAuditSummary = async (): Promise<{ pending: number; byKind: Record<string, number> }> => {
+	const res = await listReplicateAudits({ page_size: 1 });
+	return { pending: res.pending, byKind: res.pending_by_kind ?? {} };
+};
 
 // Provenance: the assembled record of one measured instant.
 

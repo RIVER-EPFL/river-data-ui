@@ -119,7 +119,7 @@
 	class="relative"
 	role="group"
 	onmouseenter={openPanel}
-	onmouseleave={(e) => { if ((e as PointerEvent).pointerType !== 'touch') closePanel(); }}
+	onmouseleave={(e) => { if ((e as unknown as PointerEvent).pointerType !== 'touch') closePanel(); }}
 >
 	<button
 		type="button"

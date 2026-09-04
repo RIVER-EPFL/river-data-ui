@@ -19,7 +19,7 @@
 	} from '$api/service';
 	import { getList } from '$api/client';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { formatRelativeTime, formatDateTime } from '$lib/utils';
+	import { formatRelativeTime, formatDateTime, holdKindLabel } from '$lib/utils';
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
@@ -324,12 +324,12 @@
 	// Kinds beyond the replicate-statistics disagreement: reconciliation holds (stream-keyed) and
 	// event-audit findings (slot-keyed, stream_id null).
 	const KIND_LABEL: Record<HoldKind, string> = {
-		replicate_stats: 'statistics',
-		source_modified: 'source modified',
-		brake_fired: 'brake fired',
-		missing_output: 'missing output',
-		stale_output: 'stale output',
-		curve_claim_stripped: 'curve stripped',
+		replicate_stats: holdKindLabel('replicate_stats'),
+		source_modified: holdKindLabel('source_modified'),
+		brake_fired: holdKindLabel('brake_fired'),
+		missing_output: holdKindLabel('missing_output'),
+		stale_output: holdKindLabel('stale_output'),
+		curve_claim_stripped: holdKindLabel('curve_claim_stripped'),
 	};
 	const KIND_STYLE: Record<HoldKind, string> = {
 		replicate_stats: 'bg-brand-bg text-brand-text',

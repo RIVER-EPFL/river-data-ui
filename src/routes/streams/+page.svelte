@@ -8,7 +8,7 @@
 	import {
 		pairStream, unpairStream, importStream, getStreamStats, listStreamReceipts, retagStreams, createPairingPlan, updatePairingPlan,
 		applyPairingPlan, revertPairingPlan, pollJob, getUnpairedSummary, getPlanSiteMetadata,
-		replicateSpec, getPendingAuditCount, getReconciliationCandidates, getStreamPreview, declareSdEstimator,
+		replicateSpec, getPendingAuditSummary, getReconciliationCandidates, getStreamPreview, declareSdEstimator,
 		getPlanInstruments,
 		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type SdEstimator, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
 		type PlanReplicateSummary, type StreamReceipt, type PlanWarning, type PlanInstrumentRef,
@@ -18,7 +18,7 @@
 	import { listReplicateAudits } from '$api/service';
 	import { me } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { formatRelativeTime } from '$lib/utils';
+	import { formatRelativeTime, holdKindBreakdown } from '$lib/utils';
 	import { createUrlTab } from '$lib/urlTab.svelte';
 	import PairSkipToggle from '$components/ui/PairSkipToggle.svelte';
 	import MappingSelect, { type MappingGroup } from '$components/ui/MappingSelect.svelte';
@@ -60,6 +60,10 @@
 	// Replicate-sync surfacing: withheld audit groups banner + reconciliation entry point
 	// (shown when any source still has legacy per-avg-column streams to migrate).
 	let pendingAudits = $state(0);
+	// The queue carries six kinds; naming them keeps a fired brake from reading as a statistics
+	// disagreement without opening the tab.
+	let pendingByKind = $state<Record<string, number>>({});
+	const auditBreakdown = $derived(holdKindBreakdown(pendingByKind));
 	// The list mode is a two-tab hub: the streams table and the replicate-audit holds.
 	// The audit surface is manager-only; below that level the page is the streams table alone.
 	const canAudit = $derived(me.can('manageSensors'));
@@ -101,7 +105,9 @@
 	async function loadReplicateSurfacing(sources: string[]) {
 		if (canAudit) {
 			try {
-				pendingAudits = await getPendingAuditCount();
+				const summary = await getPendingAuditSummary();
+				pendingAudits = summary.pending;
+				pendingByKind = summary.byKind;
 			} catch { /* banner is best-effort */ }
 		}
 		if (canAudit) {
@@ -125,7 +131,6 @@
 	// ── Import dialog (register the stream's device into inventory, no site) ──
 	let importDialogOpen = $state(false);
 	let importStream_ = $state<DataStream | null>(null);
-	let importParamId = $state('');
 	let importing = $state(false);
 
 	// ── Stats dialog ──
@@ -1121,18 +1126,23 @@
 	async function handlePair() {
 		if (!pairStream_ || !selectedSiteParam) return;
 		pairing = true;
-		try { await pairStream(pairStream_.id, selectedSiteParam); toastStore.success('Stream paired'); pairDialogOpen = false; load(); }
+		try {
+			const res = await pairStream(pairStream_.id, selectedSiteParam);
+			toastStore.success(`Stream paired · ${res.backfilled.toLocaleString()} reading${res.backfilled === 1 ? '' : 's'} attributed`);
+			pairDialogOpen = false;
+			load();
+		}
 		catch (e) { toastStore.error(`Pairing failed: ${e instanceof Error ? e.message : e}`); }
 		finally { pairing = false; }
 	}
 
-	function openImportDialog(stream: DataStream) { importStream_ = stream; importParamId = ''; importDialogOpen = true; }
+	function openImportDialog(stream: DataStream) { importStream_ = stream; importDialogOpen = true; }
 
 	async function handleImport() {
-		if (!importStream_ || !importParamId) return;
+		if (!importStream_) return;
 		importing = true;
 		try {
-			const res = await importStream(importStream_.id, importParamId);
+			const res = await importStream(importStream_.id);
 			toastStore.success(`Sensor imported · ${res.attributed} reading${res.attributed === 1 ? '' : 's'} attributed`);
 			importDialogOpen = false;
 			load();
@@ -1141,7 +1151,11 @@
 	}
 
 	async function handleUnpair(streamId: string) {
-		try { await unpairStream(streamId); toastStore.success('Stream unpaired'); load(); }
+		try {
+			const res = await unpairStream(streamId);
+			toastStore.success(`Stream unpaired · ${res.cleared.toLocaleString()} reading${res.cleared === 1 ? '' : 's'} un-attributed`);
+			load();
+		}
 		catch (e) { toastStore.error(`Unpair failed: ${e instanceof Error ? e.message : e}`); }
 	}
 
@@ -1420,9 +1434,10 @@
 
 		{#if tab.key === 'audits' && canAudit}
 		<p class="text-sm text-brand-muted">
-			Replicate groups whose recomputed mean/sd disagrees with the avg/sd the source system
-			stores. The
-			replicates are stored and served either way; each disagreement is queued here for review.
+			Review items raised by ingest: replicate statistics that disagree with what the source
+			states, a braked reconciliation pass, a curated row the source changed, a stripped curve
+			claim, and missing or stale tool outputs. Nothing is withheld, every reading is stored
+			and served either way; each item is queued here for a decision.
 		</p>
 		<ReplicateAuditsPanel
 			initialView={page.url.searchParams.get('view') === 'deferred' ? 'deferred' : 'review'}
@@ -1441,7 +1456,7 @@
 
 		{#if pendingAudits > 0 && canAudit}
 			<div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md bg-severity-warning-soft border border-severity-warning-border text-sm text-severity-warning-text">
-				<span>{pendingAudits} replicate group{pendingAudits === 1 ? '' : 's'} need{pendingAudits === 1 ? 's' : ''} audit review</span>
+				<span>{pendingAudits} item{pendingAudits === 1 ? '' : 's'} need{pendingAudits === 1 ? 's' : ''} audit review{auditBreakdown ? ` · ${auditBreakdown}` : ''}</span>
 				<button
 					onclick={() => tab.go('audits', undefined, { push: true })}
 					class="font-semibold text-severity-warning-text bg-transparent border-none p-0 cursor-pointer underline-offset-2 hover:underline"
@@ -1557,7 +1572,7 @@
 										</ConfirmPopover>
 									{/if}
 									{#if stream.site_parameter_id}
-										<ConfirmPopover message="Unpair this stream?" confirmLabel="Unpair" onconfirm={() => handleUnpair(stream.id)}>
+										<ConfirmPopover message="Unpair this stream? Its readings lose their site and parameter, so they leave every chart, the continuous aggregates and the public API; samples left unreferenced are deleted; the sensor's open deployment at that site is closed; and open audit holds on the stream are deferred. Re-pairing restores the attribution." confirmLabel="Unpair" onconfirm={() => handleUnpair(stream.id)}>
 											<Button variant="ghost" size="sm" class="text-severity-alarm">Unpair</Button>
 										</ConfirmPopover>
 									{:else}
@@ -1568,7 +1583,13 @@
 							</tr>
 						{/each}
 						{#if streams.length === 0}
-							<tr><td colspan="6" class="px-4 py-6 text-center text-brand-muted">No streams</td></tr>
+							<tr><td colspan="6" class="px-4 py-6 text-center text-brand-muted">
+							{#if searchQuery.trim() || selectedSources.size !== allSourceSystems.length}
+								No streams match the current filters
+							{:else}
+								No streams registered yet. They appear after a sync service completes its first discovery cycle.
+							{/if}
+						</td></tr>
 						{/if}
 					{/if}
 				</tbody>
@@ -1618,6 +1639,9 @@
 						</tbody>
 					</table>
 				</div>
+			{:else if unpairedSummary.length === 0}
+				<p class="text-brand-muted">No source has registered any streams yet. Streams appear after a sync service completes its first discovery cycle.</p>
+				<p class="text-sm"><a class="text-brand-primary" href="{base}/system?tab=status">Check service status</a></p>
 			{:else}
 				<p class="text-severity-ok">All streams are paired.</p>
 			{/if}
@@ -2613,6 +2637,7 @@
 						{#each siteParams as sp}<option value={sp.id}>{siteParamLabel(sp.id)}</option>{/each}
 					</select>
 				</div>
+				<p class="text-xs text-brand-muted">Pairing attributes the stream's whole history to this site and parameter, so its readings enter the charts, the continuous aggregates and, if the slot is public, the public API. An aggregate rebuild runs in the background.</p>
 			</div>
 		{/if}
 	{/snippet}
@@ -2627,20 +2652,13 @@
 		{#if importStream_}
 			<div class="space-y-3">
 				<div class="text-sm"><span class="text-brand-muted">Stream:</span> <span class="font-mono">{importStream_.source_key}</span></div>
-				<p class="text-xs text-brand-muted">Registers this stream's device into the sensor inventory (creates the sensor and stamps its existing readings) without assigning it to a site. No calibration is created - the readings resolve whatever curves the sensor already has. Pair the stream separately to attribute its data to a site.</p>
-				<div class="flex flex-col gap-1">
-					<label for="import-param" class="text-sm font-medium">Parameter</label>
-					<select id="import-param" bind:value={importParamId} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
-						<option value="">-- Select --</option>
-						{#each params as p}<option value={p.id}>{p.name} ({p.code})</option>{/each}
-					</select>
-				</div>
+				<p class="text-xs text-brand-muted">Registers this stream's device into the sensor inventory (creates the sensor and stamps its existing readings) without assigning it to a site. No calibration is created - the readings resolve whatever curves the sensor already has. The sensor carries no parameter of its own: one is bound when it is deployed or when a grab names it. Pair the stream separately to attribute its data to a site.</p>
 			</div>
 		{/if}
 	{/snippet}
 	{#snippet actions()}
 		<Button onclick={() => importDialogOpen = false}>Cancel</Button>
-		<Button variant="primary" onclick={handleImport} disabled={!importParamId || importing}>{importing ? 'Importing…' : 'Import'}</Button>
+		<Button variant="primary" onclick={handleImport} disabled={importing}>{importing ? 'Importing…' : 'Import'}</Button>
 	{/snippet}
 </Dialog>
 

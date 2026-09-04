@@ -26,7 +26,7 @@
 	} from '$api/service';
 	import { getList, ApiError } from '$api/client';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { formatRelativeTime, formatDateTime, formatInterval } from '$lib/utils';
+	import { formatRelativeTime, formatDateTime, formatInterval, statusBadgeClass } from '$lib/utils';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
@@ -124,12 +124,17 @@
 		return events.filter((e) => e.service_id === serviceId).slice(0, 10);
 	}
 
+	// A service that heartbeats on time while every stream in its source errors is not healthy, so
+	// the dot reads the most recent cycle as well as the heartbeat age.
 	function serviceHealth(svc: SyncService): 'ok' | 'warning' | 'alarm' | 'unknown' {
 		if (!svc.last_heartbeat) return 'unknown';
 		const age = Date.now() - new Date(svc.last_heartbeat).getTime();
-		if (age < 90_000) return 'ok';
-		if (age < 300_000) return 'warning';
-		return 'alarm';
+		const byAge = age < 90_000 ? 'ok' : age < 300_000 ? 'warning' : 'alarm';
+		if (byAge === 'alarm') return 'alarm';
+		const latest = eventsForService(svc.id)[0];
+		if (latest?.status === 'failed') return 'alarm';
+		if (latest?.status === 'partial') return 'warning';
+		return byAge;
 	}
 
 	// The cadence editor holds a per-service draft so a half-typed number never reaches the API.
@@ -566,7 +571,7 @@
 												{#each svcCommands as cmd}
 													<tr class="border-b border-brand-divider last:border-b-0">
 														<td class="py-1 font-mono">{cmd.command}</td>
-														<td class="py-1"><span class="px-2 py-0.5 rounded-full {cmd.status === 'completed' ? 'bg-severity-ok-soft text-severity-ok' : cmd.status === 'failed' ? 'bg-severity-alarm-soft text-severity-alarm' : 'bg-brand-bg text-brand-muted'}">{cmd.status}</span></td>
+														<td class="py-1"><span class="px-2 py-0.5 rounded-full {statusBadgeClass(cmd.status)}">{cmd.status}</span></td>
 														<td class="py-1 text-brand-muted">{formatRelativeTime(cmd.created_at)}</td>
 													</tr>
 												{/each}
@@ -585,7 +590,7 @@
 												{#each svcEvents as evt}
 													<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 cursor-pointer" onclick={() => { selectedEvent = evt; eventDetailDialog = true; }}>
 														<td class="py-1">{evt.event_type}</td>
-														<td class="py-1"><span class="px-2 py-0.5 rounded-full {evt.status === 'completed' ? 'bg-severity-ok-soft text-severity-ok' : evt.status === 'failed' ? 'bg-severity-alarm-soft text-severity-alarm' : 'bg-brand-bg text-brand-muted'}">{evt.status}</span></td>
+														<td class="py-1"><span class="px-2 py-0.5 rounded-full {statusBadgeClass(evt.status)}">{evt.status}</span></td>
 														<td class="py-1">{evt.readings_synced} readings</td>
 														<td class="py-1">{evt.status_events_synced} status events</td>
 														<td class="py-1 text-brand-muted">{formatRelativeTime(evt.started_at)}</td>
