@@ -8,6 +8,9 @@
 		type ProvenanceCalibrationRef,
 		type StreamReceipt,
 		type HoldKind,
+		getReadingDecisions,
+		rollbackEdit,
+		type ReadingDecision,
 	} from '$api/service';
 	import type { SampleReplicate } from '$api/types';
 	import { replicatesOf } from '$lib/provenance/replicates';
@@ -18,6 +21,8 @@
 	import Badge from '$components/ui/Badge.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import ProvenanceCard from '$components/samples/ProvenanceCard.svelte';
+	import EditReadingDialog from '$components/dialogs/EditReadingDialog.svelte';
+	import { EDIT_METHODS } from '$lib/provenance/edits';
 
 	// The record of one measured instant, pinned in place under its chart or table row.
 	let {
@@ -58,6 +63,72 @@
 	let error = $state('');
 	let resp = $state<ProvenanceResponse | null>(null);
 	let showToolRun = $state<Set<number>>(new Set());
+	// The decision history of one record, fetched on demand: it is the audit trail, not part of
+	// the value, so it is not on the critical path of reading the record.
+	let showDecisions = $state<Set<number>>(new Set());
+	let decisions = $state<Record<number, ReadingDecision[]>>({});
+	let decisionsError = $state<Record<number, string>>({});
+	let rollingBack = $state<string | null>(null);
+	let editOpen = $state(false);
+	let editSelection = $state<{ keys: { stream_id: string; time: string }[] } | null>(null);
+
+	/** A decision that still stands, so rolling it back is a thing that can be done. */
+	function live(d: ReadingDecision): boolean {
+		return !d.rolled_back_by && d.kind !== 'rollback';
+	}
+
+	function decisionLabel(kind: string): string {
+		return (EDIT_METHODS as Record<string, { label: string }>)[kind]?.label ?? kind;
+	}
+
+	async function toggleDecisions(i: number, rec: ProvenanceRecord) {
+		const next = new Set(showDecisions);
+		if (next.has(i)) {
+			next.delete(i);
+			showDecisions = next;
+			return;
+		}
+		next.add(i);
+		showDecisions = next;
+		await loadDecisions(i, rec);
+	}
+
+	async function loadDecisions(i: number, rec: ProvenanceRecord) {
+		try {
+			decisions = {
+				...decisions,
+				[i]: await getReadingDecisions({ stream_id: rec.origin.stream_id, time: timeIso }),
+			};
+			decisionsError = { ...decisionsError, [i]: '' };
+		} catch (e) {
+			decisionsError = {
+				...decisionsError,
+				[i]: e instanceof Error ? e.message : String(e),
+			};
+		}
+	}
+
+	async function rollBack(i: number, rec: ProvenanceRecord, d: ReadingDecision) {
+		rollingBack = d.id;
+		try {
+			await rollbackEdit(d.id);
+			toastStore.success(`${decisionLabel(d.kind)} rolled back`);
+			await loadDecisions(i, rec);
+			await load();
+		} catch (e) {
+			decisionsError = {
+				...decisionsError,
+				[i]: e instanceof Error ? e.message : String(e),
+			};
+		} finally {
+			rollingBack = null;
+		}
+	}
+
+	function openEdit(rec: ProvenanceRecord) {
+		editSelection = { keys: [{ stream_id: rec.origin.stream_id, time: timeIso }] };
+		editOpen = true;
+	}
 
 	const ORIGIN_LABEL: Record<string, string> = {
 		sync: 'Synced',
@@ -194,27 +265,36 @@
 		return rec.readings.some((r) => r.measurement_type === 'spot');
 	}
 
-	$effect(() => {
-		const key = `${siteId}|${parameterId}|${timeIso}|${measurementType ?? ''}|${revision}`;
-		void key;
-		showToolRun = new Set();
-		error = '';
+	async function load() {
 		if (preloaded) {
 			resp = preloaded;
 			loading = false;
 			return;
 		}
 		loading = true;
-		resp = null;
-		getReadingProvenance({
-			time: timeIso,
-			site_id: siteId,
-			parameter_id: parameterId,
-			measurement_type: measurementType,
-		})
-			.then((r) => (resp = r))
-			.catch((e) => (error = e instanceof Error ? e.message : 'Could not load the record'))
-			.finally(() => (loading = false));
+		try {
+			resp = await getReadingProvenance({
+				time: timeIso,
+				site_id: siteId,
+				parameter_id: parameterId,
+				measurement_type: measurementType,
+			});
+			error = '';
+		} catch (e) {
+			resp = null;
+			error = e instanceof Error ? e.message : 'Could not load the record';
+		} finally {
+			loading = false;
+		}
+	}
+
+	$effect(() => {
+		const key = `${siteId}|${parameterId}|${timeIso}|${measurementType ?? ''}|${revision}`;
+		void key;
+		showToolRun = new Set();
+		showDecisions = new Set();
+		error = '';
+		void load();
 	});
 
 	function toggleToolRun(i: number) {
@@ -456,7 +536,49 @@
 							onclick={copyLink}>Copy link</button
 						>
 					{/if}
+					<button
+						class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline"
+						title="What produced this value decides what may be done to it."
+						onclick={() => openEdit(rec)}>Edit</button
+					>
+					<button
+						class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline"
+						onclick={() => toggleDecisions(i, rec)}
+						>{showDecisions.has(i) ? 'Hide decisions' : 'Show decisions'}</button
+					>
 				</div>
+				{#if showDecisions.has(i)}
+					<div class="mt-2 text-xs">
+						{#if decisionsError[i]}
+							<ErrorNotice message={decisionsError[i]} />
+						{:else if (decisions[i] ?? []).length === 0}
+							<p class="text-gray-500">
+								Nobody has decided anything about this reading: it stands as it arrived.
+							</p>
+						{:else}
+							<ul class="space-y-1">
+								{#each decisions[i] ?? [] as d (d.id)}
+									<li class="flex flex-wrap items-baseline gap-x-2">
+										<span class="font-medium">{decisionLabel(d.kind)}</span>
+										<span class="text-gray-500">
+											{formatDateTime(d.at)} · {d.actor} · {d.origin}
+										</span>
+										{#if d.reason}<span class="text-gray-500">“{d.reason}”</span>{/if}
+										{#if d.rolled_back_by}
+											<span class="text-gray-400">rolled back</span>
+										{:else if live(d)}
+											<button
+												class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline disabled:opacity-50"
+												disabled={rollingBack === d.id}
+												onclick={() => rollBack(i, rec, d)}>Roll back</button
+											>
+										{/if}
+									</li>
+								{/each}
+							</ul>
+						{/if}
+					</div>
+				{/if}
 				{#if rec.computation?.provenance && showToolRun.has(i)}
 					<div class="mt-2">
 						<ProvenanceCard provenance={rec.computation.provenance} />
@@ -466,3 +588,12 @@
 		{/each}
 	{/if}
 </div>
+
+{#if editSelection}
+	<EditReadingDialog
+		bind:open={editOpen}
+		selection={editSelection}
+		title="Edit {parameterName}"
+		onsuccess={() => void load()}
+	/>
+{/if}

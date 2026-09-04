@@ -2802,3 +2802,135 @@ export const getCalculationClosure = (params: {
 	site_id?: string;
 	include_coverage?: boolean;
 }) => GET<ClosureResponse>(`${ADMIN}/calculations/closure`, params);
+
+// The edit primitive (Q8, M60): the one path a stored measurement is changed by. Every edit is
+// routed by what produced the value, previewed before it is written, and reversible after.
+
+export type EditOptionKind =
+	| 'reopen_run'
+	| 'detach'
+	| 'value_correction'
+	| 'curve'
+	| 'calibration_pin'
+	| 'instrument_pin'
+	| 'edit_deployment'
+	| 'flag'
+	| 'unflag'
+	| 'withdraw'
+	| 'reassert'
+	| 'verify'
+	| 'reject';
+
+export interface EditRowProvenance {
+	has_tool_run: boolean;
+	classification: string;
+	has_standard_curve: boolean;
+	has_calibration: boolean;
+	has_deployment: boolean;
+	is_flagged: boolean;
+	withdrawn: boolean;
+	unverified: boolean;
+}
+
+export interface InspectedRow {
+	stream_id: string;
+	time: string;
+	replicate_index: number;
+	raw_value: number;
+	provenance: EditRowProvenance;
+	options: EditOptionKind[];
+	tool_run_id?: string;
+}
+
+/** A stream, a slot and window, or explicit keys. Naming nothing is refused. */
+export interface EditSelection {
+	stream_id?: string;
+	site_id?: string;
+	parameter_id?: string;
+	from?: string;
+	to?: string;
+	keys?: { stream_id: string; time: string; replicate_index?: number | null }[];
+}
+
+export interface EditDecisionBody {
+	kind: EditOptionKind;
+	value?: number;
+	target_id?: string;
+	reason?: string;
+}
+
+export interface MovedRow {
+	stream_id: string;
+	time: string;
+	replicate_index: number;
+	before: Record<string, unknown>;
+	after: Record<string, unknown>;
+}
+
+export interface MovedSample {
+	sample_id: string;
+	before: Record<string, unknown>;
+	after: Record<string, unknown>;
+}
+
+export interface EditPreviewResponse {
+	preview_id: string;
+	rows: MovedRow[];
+	samples: MovedSample[];
+	calculations: CalculationImpact[];
+	/** What the preview does not compute, named rather than left to be assumed. */
+	not_previewed: string[];
+}
+
+export interface EditCommitResponse {
+	rows_decided: number;
+	decision_ids: string[];
+}
+
+export const inspectEdits = (selection: EditSelection) =>
+	POST<{ rows: InspectedRow[] }>(`${SERVICE}/readings/edits/inspect`, { selection });
+
+export const previewEdit = (selection: EditSelection, decision: EditDecisionBody) =>
+	POST<EditPreviewResponse>(`${SERVICE}/readings/edits/preview`, { selection, decision });
+
+export const commitEdit = (
+	selection: EditSelection,
+	decision: EditDecisionBody,
+	preview_id: string,
+) => POST<EditCommitResponse>(`${SERVICE}/readings/edits`, { selection, decision, preview_id });
+
+export const rollbackEdit = (decisionId: string) =>
+	POST<{ rollback_id: string }>(`${SERVICE}/readings/edits/${decisionId}/rollback`, {});
+
+export interface ToolRunReload {
+	tool: string;
+	body: Record<string, unknown>;
+	constants: Record<string, unknown>;
+	curves: Record<string, unknown>[];
+}
+
+export const reloadToolRun = (runId: string) =>
+	GET<ToolRunReload>(`${SERVICE}/tool_runs/${runId}/reload`);
+
+export interface ReadingDecision {
+	id: string;
+	stream_id: string;
+	time: string;
+	replicate_index?: number | null;
+	kind: string;
+	old: Record<string, unknown>;
+	new: Record<string, unknown>;
+	actor: string;
+	at: string;
+	reason?: string;
+	origin: string;
+	supersedes?: string | null;
+	rolled_back_by?: string | null;
+	set_id?: string | null;
+}
+
+export const getReadingDecisions = (key: {
+	stream_id: string;
+	time: string;
+	replicate_index?: number;
+}) => GET<ReadingDecision[]>(`${SERVICE}/readings/decisions`, { ...key });
