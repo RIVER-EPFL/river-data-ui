@@ -3,6 +3,7 @@
 	import Papa from 'papaparse';
 	import { api, type Site, type Parameter, type Subproject, type SiteParameter } from '$api/crud';
 	import { templateRows, templateCsv } from '$lib/upload/template';
+	import { detectWideFile } from '$lib/upload/wideFile';
 	import { buildXlsx } from '$lib/upload/xlsx';
 	import { POST } from '$api/client';
 	import { grabConflictGroups, type GrabExistingGroup } from '$api/service';
@@ -29,6 +30,18 @@
 	let csvHeaders = $state<string[]>([]);
 	let csvData = $state<Record<string, string>[]>([]);
 	let parseError = $state('');
+
+	// A wide file belongs to the per-site import, which maps one column per channel. Readings and
+	// grab samples both land there; status events have no wide path.
+	const wideFile = $derived(
+		entityType === 'status_events' ? null : detectWideFile(csvHeaders, csvData),
+	);
+	let wideSiteId = $state('');
+
+	function openSiteImport() {
+		if (!wideSiteId) return;
+		goto(`${base}/sites/${wideSiteId}/import`);
+	}
 
 	// --- Step 2: Column mapping ---
 	type MappingMode = 'single' | 'column';
@@ -686,6 +699,34 @@
 				{#if parseError}
 					<div class="rounded-md border border-severity-alarm-border bg-severity-alarm-soft px-4 py-3 text-sm text-severity-alarm">
 						Parse error: {parseError}
+					</div>
+				{/if}
+
+				{#if wideFile}
+					<div class="rounded-md border border-brand-divider bg-brand-bg px-4 py-3 space-y-3 text-sm">
+						<p>
+							<span class="font-medium">This looks like a logger export.</span>
+							<span class="text-brand-muted">
+								{wideFile.timeColumn} plus {formatCount(wideFile.channels.length)} channel columns.
+								This page takes one row per reading, so mapping it here means reshaping it by hand.
+								The per-site import takes it as it is: each column maps to one of the site's
+								parameters and lands as its own series.
+							</span>
+						</p>
+						<div class="flex flex-wrap items-end gap-3">
+							<div>
+								<label for="wideSite" class="text-sm font-medium block mb-1">Site</label>
+								<select id="wideSite" bind:value={wideSiteId} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
+									<option value="">-- Select site --</option>
+									{#each sites as s}
+										<option value={s.id}>{s.name}</option>
+									{/each}
+								</select>
+							</div>
+							<Button variant="primary" onclick={openSiteImport} disabled={!wideSiteId}>
+								Open the per-site import
+							</Button>
+						</div>
 					</div>
 				{/if}
 
