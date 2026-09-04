@@ -18,6 +18,7 @@
 		grabConflictGroups,
 		seasonalCheck,
 		type SeasonalFinding,
+		type SeasonalMethod,
 		type CalculationImpact,
 		type GrabExistingGroup,
 		type GrabPreviewRow,
@@ -259,7 +260,12 @@
 	// The seasonal check gate (the portal's Check button): the save is enabled once the exact
 	// values being saved have been screened. Any edit changes the signature and re-arms the gate;
 	// the server enforces the same rule on the check_id the save names.
-	let check = $state<{ id: string; signature: string; findings: SeasonalFinding[] } | null>(null);
+	let check = $state<{
+		id: string;
+		signature: string;
+		findings: SeasonalFinding[];
+		method: SeasonalMethod;
+	} | null>(null);
 	let checking = $state(false);
 
 	// Server-computed correction chain for the current inputs, refreshed via dry_run.
@@ -600,7 +606,12 @@
 				time: saveTime,
 				values: checkValues,
 			});
-			check = { id: res.check_id, signature: checkSignature, findings: res.findings };
+			check = {
+				id: res.check_id,
+				signature: checkSignature,
+				findings: res.findings,
+				method: res.method,
+			};
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Check failed');
 		} finally {
@@ -988,7 +999,37 @@
 			{#if canSave}
 				<div class="rounded-md border border-brand-divider bg-brand-bg p-2.5 space-y-1.5">
 					<div class="flex items-center justify-between">
-						<span class="text-xs font-semibold">Seasonal check</span>
+						<span class="flex items-center gap-1 text-xs font-semibold">
+							Seasonal check
+							{#if check}
+								<span class="group relative inline-block">
+									<button
+										type="button"
+										class="flex h-4 w-4 items-center justify-center rounded-full border border-brand-divider text-[10px] font-normal text-brand-muted"
+										aria-label="How this check is computed"
+									>
+										i
+									</button>
+									<div
+										class="absolute left-0 top-5 z-20 hidden w-80 rounded-md border border-brand-divider bg-brand-surface p-2.5 text-left text-xs font-normal text-brand-text shadow-lg group-hover:block group-focus-within:block"
+										role="tooltip"
+									>
+										<p class="mb-1 font-semibold">How this check is computed</p>
+										<p><span class="font-medium">Window.</span> {check.method.window}</p>
+										<p><span class="font-medium">Pooled.</span> {check.method.pooled}</p>
+										<p><span class="font-medium">Value.</span> {check.method.value}</p>
+										<p><span class="font-medium">Statistics.</span> {check.method.statistics}</p>
+										<ul class="mt-1 space-y-0.5">
+											{#each check.method.classes as c}
+												<li>
+													<span class="font-mono">{CLASS_LABELS[c.class] ?? c.class}</span>: {c.meaning}{c.warning ? ' (warning)' : ''}
+												</li>
+											{/each}
+										</ul>
+									</div>
+								</span>
+							{/if}
+						</span>
 						<Button size="sm" onclick={runCheck} disabled={checking}>
 							{checking ? 'Checking…' : checkSatisfied ? 'Re-check' : 'Check against site history'}
 						</Button>

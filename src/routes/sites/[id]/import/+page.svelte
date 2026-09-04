@@ -5,7 +5,12 @@
 	import Papa from 'papaparse';
 	import { api, type Site, type SiteParameter, type Parameter, type ReprocessingJob } from '$api/crud';
 	import { GET, POST } from '$api/client';
-	import { listTools, type ToolDescriptor } from '$api/service';
+	import {
+		listTools,
+		type ToolDescriptor,
+		type SeasonalClass,
+		type SeasonalMethod,
+	} from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import CurvePicker, {
@@ -34,6 +39,35 @@
 		name: string | null;
 	}
 
+	interface ScreenedCell {
+		row: number;
+		parameter_id: string;
+		value: number;
+		class: SeasonalClass;
+		warning: boolean;
+		n: number;
+		min: number | null;
+		max: number | null;
+	}
+
+	// The seasonal Check gate's CSV arm: the plan carries the check the commit must name.
+	interface ImportCheck {
+		check_id: string | null;
+		screened: number;
+		warnings: number;
+		findings: ScreenedCell[];
+		method: SeasonalMethod;
+	}
+
+	const CLASS_LABELS: Record<string, string> = {
+		no_history: 'no history',
+		below_min: 'below recorded minimum',
+		below_q10: 'below Q10',
+		normal: 'normal',
+		above_q90: 'above Q90',
+		above_max: 'above recorded maximum',
+	};
+
 	interface ImportPlan {
 		site_id: string;
 		site_name: string;
@@ -59,6 +93,7 @@
 		error_count: number;
 		tool_runs_created: number;
 		curves: ImportCurve[];
+		check: ImportCheck | null;
 	}
 
 	const siteId = $derived(page.params.id!);
@@ -237,7 +272,9 @@
 				site: siteId,
 				dry_run: true,
 				tz_offset_hours: tzOffsetHours || undefined,
-				...(toolName ? { tool: toolName, curves: requestCurves() } : { mapping: buildMapping() }),
+				...(toolName
+					? { tool: toolName, curves: requestCurves() }
+					: { mapping: buildMapping(), measurement_type: measurementType }),
 			};
 			if (stagingSessionId) {
 				body.session_id = stagingSessionId;
@@ -271,6 +308,8 @@
 				...(toolName
 					? { tool: toolName, curves: requestCurves() }
 					: { mapping: buildMapping(), measurement_type: measurementType, values: valueState }),
+				// The commit is held to the values the preview screened.
+				...(plan?.check?.check_id ? { check_id: plan.check.check_id } : {}),
 			};
 			if (stagingSessionId) {
 				body.session_id = stagingSessionId;
@@ -568,6 +607,68 @@
 			{#if plan.replicate_groups > 0}
 				<div class="mt-3 rounded-md bg-brand-primary/5 border border-brand-primary/30 px-3 py-2 text-sm">
 					<strong>{plan.replicate_groups}</strong> timestamp{plan.replicate_groups === 1 ? ' has' : 's have'} multiple values and will be stored as replicate sets.
+				</div>
+			{/if}
+
+			{#if plan.check}
+				<div
+					class="mt-3 rounded-md px-3 py-2 text-sm {plan.check.warnings > 0
+						? 'bg-severity-warning-soft'
+						: 'bg-severity-ok-soft text-severity-ok'}"
+				>
+					<div class="flex items-center gap-1">
+						<p class="font-medium">
+							Seasonal check: {plan.check.screened} value{plan.check.screened === 1 ? '' : 's'} screened,
+							{plan.check.warnings} outside the site's seasonal range
+						</p>
+						<span class="group relative inline-block">
+							<button
+								type="button"
+								class="flex h-4 w-4 items-center justify-center rounded-full border border-current text-[10px] font-normal"
+								aria-label="How this check is computed"
+							>
+								i
+							</button>
+							<div
+								class="absolute left-0 top-5 z-20 hidden w-80 rounded-md border border-brand-divider bg-brand-surface p-2.5 text-left text-xs font-normal text-brand-text shadow-lg group-hover:block group-focus-within:block"
+								role="tooltip"
+							>
+								<p class="mb-1 font-semibold">How this check is computed</p>
+								<p><span class="font-medium">Window.</span> {plan.check.method.window}</p>
+								<p><span class="font-medium">Pooled.</span> {plan.check.method.pooled}</p>
+								<p><span class="font-medium">Value.</span> {plan.check.method.value}</p>
+								<p><span class="font-medium">Statistics.</span> {plan.check.method.statistics}</p>
+								<ul class="mt-1 space-y-0.5">
+									{#each plan.check.method.classes as c}
+										<li>
+											<span class="font-mono">{CLASS_LABELS[c.class] ?? c.class}</span>: {c.meaning}{c.warning ? ' (warning)' : ''}
+										</li>
+									{/each}
+								</ul>
+							</div>
+						</span>
+					</div>
+					{#if plan.check.findings.length > 0}
+						<ul class="list-disc pl-5">
+							{#each plan.check.findings.slice(0, 20) as f}
+								<li>
+									Row {f.row}: {paramNameById.get(f.parameter_id) ?? f.parameter_id} = {f.value},
+									{CLASS_LABELS[f.class] ?? f.class}{f.min !== null && f.max !== null
+										? ` (seasonal range ${f.min.toPrecision(4)} to ${f.max.toPrecision(4)}, n=${f.n})`
+										: ''}
+								</li>
+							{/each}
+						</ul>
+						{#if plan.check.findings.length < plan.check.warnings}
+							<p class="text-xs text-brand-muted">…and {plan.check.warnings - plan.check.findings.length} more</p>
+						{:else if plan.check.findings.length > 20}
+							<p class="text-xs text-brand-muted">…and {plan.check.findings.length - 20} more</p>
+						{/if}
+						<p class="mt-1 text-xs">
+							Advisory: importing keeps these values. The import is held to exactly the values shown
+							in this preview; change the file or the mapping and preview again.
+						</p>
+					{/if}
 				</div>
 			{/if}
 

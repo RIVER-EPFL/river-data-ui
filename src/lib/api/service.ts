@@ -2362,10 +2362,27 @@ export interface SeasonalFinding {
 	distribution: number[];
 }
 
+export interface SeasonalClassDescription {
+	class: SeasonalClass;
+	meaning: string;
+	warning: boolean;
+}
+
+/** What the check computed, built by the API beside the query it describes. */
+export interface SeasonalMethod {
+	window_months: number;
+	window: string;
+	pooled: string;
+	value: string;
+	statistics: string;
+	classes: SeasonalClassDescription[];
+}
+
 export interface SeasonalCheckResponse {
 	check_id: string;
 	findings: SeasonalFinding[];
 	warnings: number;
+	method: SeasonalMethod;
 }
 
 /**
