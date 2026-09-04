@@ -2,6 +2,7 @@
 	import { getChartSyncGroup } from '$lib/charts/chart-sync.svelte';
 	import { uPlotTheme } from '$lib/charts/uPlotTheme';
 	import { tokens } from '$lib/charts/tokens';
+	import { seriesColor, seriesDash, tooltipRow } from '$lib/charts/legend';
 	import { bandAtTime, calibrationAtTime, severityForValue } from '$lib/charts/overlay-plugins';
 	import { severityLabel } from '$lib/alarms';
 	import { curveRefs } from '$lib/curveRefs.svelte';
@@ -22,10 +23,19 @@
 	}
 
 	interface Row {
+		/** Registration id, so the row for the chart under the cursor can be told apart. */
+		id: string;
+		/**
+		 * The chart being read shows its full record; every other series at this instant shows one
+		 * line, so a fifteen-parameter site does not fill the screen with provenance nobody asked
+		 * for. The full record of any of them is one click away.
+		 */
+		detailed: boolean;
 		name: string;
 		value: string;
 		units: string;
 		color: string;
+		dash?: number[];
 		severity: 'alarm' | 'warning' | null;
 		flagged: boolean;
 		flagReason: string | null;
@@ -68,9 +78,13 @@
 
 		const result: Row[] = [];
 
+		// With no source id (an older cursor state, or a single chart) every row stays detailed.
+		const detailedId = c.sourceId ?? null;
+
 		for (const [, reg] of group.registrations) {
 			const val = reg.values[c.idx];
-			const color = tokens.dataViz[reg.paletteIndex % tokens.dataViz.length];
+			const color = seriesColor(reg.paletteIndex);
+			const dash = seriesDash(reg.paletteIndex);
 
 			const sevLevel = severityForValue(val, reg.threshold);
 			const severity: 'alarm' | 'warning' | null =
@@ -153,10 +167,13 @@
 			}
 
 			result.push({
+				id: reg.id,
+				detailed: detailedId == null || reg.id === detailedId,
 				name: reg.parameterName,
 				value: val != null ? val.toFixed(2) : '--',
 				units: reg.units,
 				color,
+				dash,
 				severity,
 				flagged,
 				flagReason,
@@ -198,7 +215,17 @@
 		if (!c) return { left: 0, top: 0 };
 		let left = c.mouseX + 20;
 		let top = c.mouseY + 20;
-		const extraRows = rows.reduce((acc, r) => acc + r.annotations.length + (r.flagged ? 1 : 0) + (r.sensorLabel ? 1 : 0) + (r.recordedCurves ? (r.recordedCurves.raw != null ? 3 : 2) : r.calEquation ? 1 : 0), 0);
+		const extraRows = rows.reduce(
+			(acc, r) =>
+				acc +
+				(r.detailed
+					? r.annotations.length +
+						(r.flagged ? 1 : 0) +
+						(r.sensorLabel ? 1 : 0) +
+						(r.recordedCurves ? (r.recordedCurves.raw != null ? 3 : 2) : r.calEquation ? 1 : 0)
+					: 0),
+			0,
+		);
 		const w = 280, h = (rows.length + extraRows) * 22 + 32;
 		if (left + w > window.innerWidth - 10) left = c.mouseX - w - 20;
 		if (top + h > window.innerHeight - 10) top = c.mouseY - h - 20;
@@ -219,12 +246,12 @@
 		{#each rows as row}
 			<div class="flex items-center justify-between gap-4" style="font-size:12px;line-height:20px">
 				<span class="flex items-center gap-1.5">
-					<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:{row.color};flex-shrink:0"></span>
-					<span style="color:{row.color};font-weight:500">{row.name}</span>
+					<span style="display:inline-block;width:8px;height:8px;border-radius:50%;flex-shrink:0;{tooltipRow(row.color, row.dash).swatch}"></span>
+					<span style="color:{tooltipRow(row.color, row.dash).name};font-weight:500">{row.name}</span>
 					{#if row.severity === 'alarm'}
 						<span style="font-size:9px;padding:0 4px;border-radius:3px;background:{tokens.severity.alarm.main};color:white;font-weight:700">{severityLabel('alarm')}</span>
 					{:else if row.severity === 'warning'}
-						<span style="font-size:9px;padding:0 4px;border-radius:3px;background:{tokens.severity.warning.main};color:{tokens.severity.warning.text};font-weight:700">{severityLabel('warning')}</span>
+						<span style="font-size:9px;padding:0 4px;border-radius:3px;background:{tokens.severity.warning.fill};color:{tokens.severity.warning.text};font-weight:700">{severityLabel('warning')}</span>
 					{/if}
 					{#if row.flagged}
 						<span style="font-size:9px;padding:0 4px;border-radius:3px;background:{tokens.markers.flagged.stroke};color:white;font-weight:700">FLAG</span>
@@ -232,7 +259,7 @@
 				</span>
 				<span style="color:{uPlotTheme.tooltipColor};font-weight:600;font-variant-numeric:tabular-nums">{row.value} <span style="opacity:0.6;font-weight:400">{row.units}</span></span>
 			</div>
-			{#if row.sensorLabel || row.calEquation || row.recordedCurves}
+			{#if row.detailed && (row.sensorLabel || row.calEquation || row.recordedCurves)}
 				<div style="margin:4px 0 2px 14px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.15)">
 					{#if row.sensorLabel}
 						<div style="font-size:11px;color:{uPlotTheme.tooltipColor};opacity:0.9;line-height:16px">Sensor: <span style="font-weight:600">{row.sensorLabel}</span></div>
@@ -250,19 +277,19 @@
 					{/if}
 				</div>
 			{/if}
-			{#if row.flagged && row.flagReason}
+			{#if row.detailed && row.flagged && row.flagReason}
 				<div style="font-size:10px;color:{uPlotTheme.tooltipColor};opacity:0.7;padding-left:14px;white-space:normal;line-height:14px;margin-bottom:2px">{row.flagReason}</div>
 			{/if}
-			{#if row.sampleLine}
+			{#if row.detailed && row.sampleLine}
 				<div style="font-size:10px;color:{uPlotTheme.tooltipColor};opacity:0.8;padding-left:14px;white-space:normal;line-height:14px;margin-bottom:2px">{row.sampleLine}</div>
 			{/if}
-			{#if row.originLabel}
+			{#if row.detailed && row.originLabel}
 				<div style="font-size:10px;color:{uPlotTheme.tooltipColor};opacity:0.7;padding-left:14px;white-space:normal;line-height:14px;margin-bottom:2px">{row.originLabel}</div>
 			{/if}
-			{#if row.spotClickable}
+			{#if row.detailed && row.spotClickable}
 				<div style="font-size:10px;color:{uPlotTheme.tooltipColor};opacity:0.7;padding-left:14px;white-space:normal;line-height:14px;margin-bottom:2px">Click for the full record</div>
 			{/if}
-			{#each row.annotations as a}
+			{#each row.detailed ? row.annotations : [] as a}
 				<div style="font-size:10px;color:{uPlotTheme.tooltipColor};line-height:14px;white-space:normal;padding-left:14px;margin-bottom:2px" class="flex items-start gap-1.5">
 					<span style="display:inline-block;width:6px;height:6px;border-radius:2px;background:{a.bg};flex-shrink:0;margin-top:4px"></span>
 					<span><span style="opacity:0.7">{a.category}:</span> {a.text}</span>

@@ -226,7 +226,7 @@
 									</span>
 								{/if}
 								{#if defId}
-									<a href="{base}/derived/{defId}" title="Formula-derived parameter - view its definition" class="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-brand-accent/15 text-brand-accent align-middle no-underline hover:underline">derived</a>
+									<a href="{base}/derived/{defId}" title="Formula-derived parameter - view its definition" class="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-brand-accent/15 text-brand-accent-dark align-middle no-underline hover:underline">derived</a>
 								{/if}
 							</td>
 							<td class="px-4 py-2 font-mono text-xs text-brand-muted">{param.code}</td>

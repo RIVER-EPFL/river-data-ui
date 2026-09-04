@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type uPlot from 'uplot';
+	import { seriesColor, seriesDash, swatchStyle } from '$lib/charts/legend';
 	import type { Site, Parameter, SiteParameter } from '$api/crud';
 	import Button from '$components/ui/Button.svelte';
 	import UPlotChart from '$components/charts/UPlotChart.svelte';
@@ -33,7 +34,7 @@
 	} = $props();
 
 	// Data
-	let chartData = $state<Array<{ site: string; times: number[]; values: (number | null)[]; spot?: boolean }>>([]);
+	let chartData = $state<Array<{ site: string; units: string | null; times: number[]; values: (number | null)[]; spot?: boolean }>>([]);
 	let loadingData = $state(false);
 
 	const availableParams = $derived(() => {
@@ -89,10 +90,14 @@
 							: Promise.resolve(null),
 					]);
 					const name = site?.name ?? siteId;
+					// Sites can serve one parameter in different units (ppb against ppt), which is
+					// exactly the comparison this tab is for, so every series carries its own.
+					const seriesUnits =
+						sp?.display_units ?? params.find((p) => p.id === selectedParamId)?.default_units ?? null;
 					const series: typeof chartData = [];
-					if (cont) series.push({ site: name, times: cont.times, values: cont.values });
+					if (cont) series.push({ site: name, units: seriesUnits, times: cont.times, values: cont.values });
 					if (spot && spot.times.length > 0) {
-						series.push({ site: `${name} (grabs)`, times: spot.times, values: spot.values, spot: true });
+						series.push({ site: `${name} (grabs)`, units: seriesUnits, times: spot.times, values: spot.values, spot: true });
 					}
 					return series;
 				}),
@@ -128,6 +133,7 @@
 	// Per-parameter statistics for the stats panel
 	interface ParamStats {
 		site: string;
+		units: string | null;
 		n: number;
 		mean: number;
 		min: number;
@@ -139,14 +145,14 @@
 		return chartData.map((series) => {
 			const vals = series.values.filter((v): v is number => v != null && isFinite(v));
 			const n = vals.length;
-			if (n === 0) return { site: series.site, n: 0, mean: 0, min: 0, max: 0, stddev: 0 };
+			if (n === 0) return { site: series.site, units: series.units, n: 0, mean: 0, min: 0, max: 0, stddev: 0 };
 			const sum = vals.reduce((a, b) => a + b, 0);
 			const mean = sum / n;
 			const min = Math.min(...vals);
 			const max = Math.max(...vals);
 			const variance = vals.reduce((a, v) => a + (v - mean) ** 2, 0) / n;
 			const stddev = Math.sqrt(variance);
-			return { site: series.site, n, mean, min, max, stddev };
+			return { site: series.site, units: series.units, n, mean, min, max, stddev };
 		});
 	});
 
@@ -237,7 +243,7 @@
 					<div class="flex gap-3 flex-wrap">
 						{#each chartData as series, i}
 							<div class="flex items-center gap-1.5 text-xs">
-								<span class="w-3 h-0.5 rounded" style:background="var(--color-viz-{i})"></span>
+								<span class="w-3 h-0.5 rounded" style={swatchStyle(seriesColor(i), seriesDash(i))}></span>
 								{series.site} ({series.values.length} points)
 							</div>
 						{/each}
@@ -274,7 +280,10 @@
 						<tbody>
 							{#each compareStats as stat}
 								<tr class="border-b border-brand-divider last:border-b-0">
-									<td class="py-1.5 font-medium">{stat.site}</td>
+									<td class="py-1.5 font-medium">
+										{stat.site}
+										{#if stat.units}<span class="font-normal text-brand-muted">({stat.units})</span>{/if}
+									</td>
 									<td class="py-1.5 text-right font-mono text-xs">{stat.n}</td>
 									<td class="py-1.5 text-right font-mono text-xs">{stat.n > 0 ? stat.mean.toFixed(3) : '--'}</td>
 									<td class="py-1.5 text-right font-mono text-xs">{stat.n > 0 ? stat.min.toFixed(3) : '--'}</td>

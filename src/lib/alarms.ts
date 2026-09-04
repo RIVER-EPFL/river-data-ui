@@ -37,6 +37,22 @@ export function severityLabel(s: Severity | number): string {
 	}
 }
 
+/**
+ * The severity spelled out, with what is open behind it: the accessible name and title for any
+ * surface that signals severity by colour alone.
+ */
+export function severityDescription(
+	s: Severity | number,
+	alarmCount = 0,
+	warningCount = 0,
+): string {
+	const label = severityLabel(s);
+	const parts: string[] = [];
+	if (alarmCount > 0) parts.push(`${alarmCount} alarm${alarmCount === 1 ? '' : 's'}`);
+	if (warningCount > 0) parts.push(`${warningCount} warning${warningCount === 1 ? '' : 's'}`);
+	return `${label}: ${parts.length ? parts.join(', ') : 'no active alarms'}`;
+}
+
 /** Badge variant (ui/Badge.svelte) for a severity. */
 export function severityBadgeVariant(s: Severity | number): 'alarm' | 'warning' | 'ok' | 'muted' {
 	switch (typeof s === 'number' ? severityFromLevel(s) : s) {

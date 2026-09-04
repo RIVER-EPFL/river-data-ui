@@ -478,11 +478,11 @@
 								class="flex-1 min-w-0 flex items-center gap-2 px-4 py-3 cursor-pointer bg-transparent border-none text-left"
 							>
 								<span class="text-brand-muted text-xs w-3">{open ? '▾' : '▸'}</span>
-								<span class="w-2.5 h-2.5 rounded-full {health === 'ok' ? 'bg-severity-ok' : health === 'warning' ? 'bg-severity-warning' : health === 'alarm' ? 'bg-severity-alarm' : 'bg-severity-unknown'}"></span>
+								<span class="w-2.5 h-2.5 rounded-full {health === 'ok' ? 'bg-severity-ok-fill' : health === 'warning' ? 'bg-severity-warning-fill' : health === 'alarm' ? 'bg-severity-alarm' : 'bg-severity-unknown'}"></span>
 								<span class="font-semibold text-sm">{svc.instance_id}</span>
 								<span class="text-xs text-brand-muted">{svc.service_type}</span>
 								{#if svc.paused}
-									<span class="text-xs px-1.5 py-0.5 rounded bg-severity-warning/15 text-severity-warning">Paused</span>
+									<span class="text-xs px-1.5 py-0.5 rounded bg-severity-warning-fill/15 text-severity-warning">Paused</span>
 								{/if}
 								<span class="text-xs text-brand-muted">{svc.sync_interval_secs ? formatInterval(svc.sync_interval_secs) : 'service default'}</span>
 								<span class="text-xs text-brand-muted ml-auto pl-2">{svc.last_heartbeat ? formatRelativeTime(svc.last_heartbeat) : 'Never'}</span>

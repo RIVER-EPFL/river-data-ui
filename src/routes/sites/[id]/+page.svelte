@@ -16,6 +16,7 @@
 	import Dialog from '$components/ui/Dialog.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import PaginationControls from '$components/ui/PaginationControls.svelte';
+	import { visitCellMarker } from '$lib/visits/cell';
 	import Badge from '$components/ui/Badge.svelte';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
 	import ThresholdDialog from '$components/dialogs/ThresholdDialog.svelte';
@@ -27,6 +28,7 @@
 	import ParameterChart, { type ChartData } from '$components/charts/ParameterChart.svelte';
 	import { GAP_THRESHOLDS } from '$lib/charts/uPlotTheme';
 	import { autoResolution, type Frequency } from '$lib/charts/multiSiteSeries';
+	import { initialChartRange } from '$lib/charts/initialRange';
 	import type { SpotPointStats } from '$lib/charts/spotMarkers';
 	import FrequencyChips from '$components/charts/FrequencyChips.svelte';
 	import SharedChartTooltip from '$components/charts/SharedChartTooltip.svelte';
@@ -954,17 +956,18 @@
 					sliderMin = Math.min(sliderMin, chartStart);
 					sliderMax = Math.max(sliderMax, chartEnd);
 				} else {
-					// Default to the last 7 days of available data, anchored to the newest reading
-					// (≈ now for live sites, the tail of the record for historical ones). Guard the
-					// degenerate extent where data_start == data_end (a single-instant site) so we
-					// never emit start >= end, the readings API rejects a zero-width range.
-					const WEEK = 604800000;
-					chartEnd = sliderMax;
-					chartStart = Math.max(sliderMin, sliderMax - WEEK);
-					if (chartStart >= chartEnd) {
-						chartStart = chartEnd - WEEK;
-						sliderMin = Math.min(sliderMin, chartStart);
-					}
+					// The last 7 days of available data for a logger, the spot span for grab data:
+					// a week of a campaign record is usually empty. The cadence resolved just above
+					// is what the charts will actually draw.
+					const range = initialChartRange(
+						detailRes.parameters ?? [],
+						{ minMs: sliderMin, maxMs: sliderMax },
+						frequency,
+					);
+					chartStart = range.startMs;
+					chartEnd = range.endMs;
+					sliderMin = Math.min(sliderMin, chartStart);
+					sliderMax = Math.max(sliderMax, chartEnd);
 				}
 				exportStartMs = sliderMin;
 				exportEndMs = sliderMax;
@@ -1074,6 +1077,13 @@
 	});
 
 	function paramName(paramId: string): string { return parameters.find((p) => p.id === paramId)?.name ?? 'None'; }
+
+	// The unit a slot serves: the site's override where it has one, else the catalog default. Any
+	// table printing a number for a parameter names it, since sites can disagree (ppb against ppt).
+	function unitsForParameter(paramId: string): string | null {
+		const sp = siteParameters.find((s) => s.parameter_id === paramId);
+		return sp?.display_units ?? parameters.find((p) => p.id === paramId)?.default_units ?? null;
+	}
 
 	// Sample rows whose provenance card is expanded.
 	let expandedProvenance = $state<Set<string>>(new Set());
@@ -1737,6 +1747,7 @@
 								siteId={siteId}
 								parameterId={sp.parameter_id}
 								parameterName={param.name}
+								units={unitsForParameter(sp.parameter_id)}
 								timeIso={inspector.timeIso}
 								measurementType={inspector.measurementType}
 								onclose={() => (inspector = null)}
@@ -1795,6 +1806,7 @@
 											siteId={siteId}
 											parameterId={sp.parameter_id}
 											parameterName={param.name}
+											units={unitsForParameter(sp.parameter_id)}
 											timeIso={inspector.timeIso}
 											measurementType={inspector.measurementType}
 											onclose={() => (inspector = null)}
@@ -2092,7 +2104,10 @@
 									{@const src = sampleSource(s.created_by)}
 									<tr class="border-b border-brand-divider last:border-b-0">
 										<td class="px-4 py-2 text-xs">{formatDateTime(s.collected_at)}</td>
-										<td class="px-4 py-2">{paramName(s.parameter_id)}</td>
+										<td class="px-4 py-2">
+											{paramName(s.parameter_id)}
+											{#if unitsForParameter(s.parameter_id)}<span class="text-brand-muted">({unitsForParameter(s.parameter_id)})</span>{/if}
+										</td>
 										<td class="px-4 py-2 text-brand-muted">{s.label ?? 'None'}</td>
 										<td class="px-4 py-2 text-right font-mono">{s.mean != null ? s.mean.toFixed(3) : 'None'}</td>
 										<td class="px-4 py-2 text-right font-mono">{s.stdev != null ? s.stdev.toFixed(3) : 'None'}</td>
@@ -2142,7 +2157,7 @@
 											{#if s.provenance}
 												<button
 													onclick={() => toggleProvenance(s.id)}
-													class="px-2 py-0.5 rounded-full bg-brand-accent/15 text-brand-accent cursor-pointer border-none hover:underline"
+													class="px-2 py-0.5 rounded-full bg-brand-accent/15 text-brand-accent-dark cursor-pointer border-none hover:underline"
 												>{expandedProvenance.has(s.id) ? 'Hide tool run' : 'Tool run'}</button>
 											{:else}
 												<span class="text-brand-muted">Hand-entered</span>
@@ -2211,7 +2226,9 @@
 									<th class="px-3 py-2 font-medium">Source</th>
 									<th class="px-3 py-2 font-medium">Filled</th>
 									{#each visitColumns as col (col.parameter_id)}
-										<th class="px-3 py-2 font-medium whitespace-nowrap" title={col.name}>{col.code}</th>
+										<th class="px-3 py-2 font-medium whitespace-nowrap" title={col.name}>
+											{col.code}{#if unitsForParameter(col.parameter_id)}<span class="font-normal text-brand-muted"> ({unitsForParameter(col.parameter_id)})</span>{/if}
+										</th>
 									{/each}
 								</tr>
 							</thead>
@@ -2248,21 +2265,17 @@
 												class="px-3 py-2 tabular-nums whitespace-nowrap
 													{cell?.finding === 'stale_output' ? 'bg-severity-warning-soft' : ''}
 													{cell?.withdrawn ? 'text-brand-muted line-through' : ''}
-													{cell?.flagged ? 'text-severity-warning-text' : ''}"
+													{cell?.flagged ? 'text-severity-warning' : ''}"
 											>
 												{#if !cell}
 													<span class="text-brand-muted">—</span>
 												{:else if cell.finding === 'missing_output' && cell.value == null}
 													<Badge variant="warning">missing</Badge>
 												{:else if cell.value != null}
+													{@const marker = visitCellMarker(cell)}
 													{Number(cell.value.toPrecision(6))}
-													{#if cell.n_flagged > 0 || cell.n_withdrawn > 0}
-														<span
-															class="text-severity-warning-text"
-															title="{cell.n_flagged} of {cell.n_total} flagged{cell.n_withdrawn
-																? `, ${cell.n_withdrawn} withdrawn`
-																: ''}: the mean excludes them"
-														>*</span>
+													{#if marker}
+														<span class="text-severity-warning" title={marker.title}>{marker.text}</span>
 													{/if}
 												{:else}
 													<span class="text-brand-muted">—</span>
@@ -2324,7 +2337,10 @@
 																	class="border-t border-brand-divider/60 cursor-pointer hover:bg-brand-bg/60"
 																	onclick={() => (visitCell = { parameterId: cell.parameter_id, parameterName: cell.parameter_name })}
 																>
-																	<td class="py-1 pr-3">{cell.parameter_name}</td>
+																	<td class="py-1 pr-3">
+																		{cell.parameter_name}
+																		{#if unitsForParameter(cell.parameter_id)}<span class="text-brand-muted">({unitsForParameter(cell.parameter_id)})</span>{/if}
+																	</td>
 																	<td class="py-1 pr-3 tabular-nums">
 																		{cell.served_value != null ? Number(cell.served_value.toPrecision(6)) : '—'}
 																		{#if cell.sample && cell.sample.n >= 2 && cell.sample.stdev != null}
@@ -2362,6 +2378,7 @@
 															siteId={siteId}
 															parameterId={visitCell.parameterId}
 															parameterName={visitCell.parameterName}
+															units={unitsForParameter(visitCell.parameterId)}
 															timeIso={visitDetail.collected_at}
 															measurementType="spot"
 															onclose={() => (visitCell = null)}
@@ -2375,6 +2392,9 @@
 							</tbody>
 						</table>
 					</div>
+					{#if visits.some((v) => v.cells.some((c) => visitCellMarker(c)))}
+						<p class="text-[11px] text-brand-muted">* flagged · † withdrawn at source</p>
+					{/if}
 					<PaginationControls
 						total={visitsTotal}
 						page={visitsPage}
@@ -2624,6 +2644,7 @@
 				siteId={site.id}
 				parameterId={inspector.parameterId}
 				parameterName={inspector.parameterName}
+				units={unitsForParameter(inspector.parameterId)}
 				timeIso={inspector.timeIso}
 				replicates={inspectorFlagReplicates}
 				sampleId={inspectorFlagSampleId}

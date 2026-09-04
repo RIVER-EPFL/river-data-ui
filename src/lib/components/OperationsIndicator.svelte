@@ -43,9 +43,9 @@
 
 	function statusDotClass(status: string): string {
 		switch (status) {
-			case 'completed': return 'bg-severity-ok';
+			case 'completed': return 'bg-severity-ok-fill';
 			case 'failed': return 'bg-severity-alarm';
-			case 'running': return 'bg-severity-warning';
+			case 'running': return 'bg-severity-warning-fill';
 			default: return 'bg-brand-muted';
 		}
 	}
@@ -159,7 +159,7 @@
 		</svg>
 		{#if badgeCount > 0}
 			<span
-				class="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-severity-warning text-severity-warning-text text-[10px] font-semibold flex items-center justify-center"
+				class="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-severity-warning-fill text-severity-warning-text text-[10px] font-semibold flex items-center justify-center"
 			>{badgeCount}</span>
 		{/if}
 	</button>

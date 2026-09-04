@@ -12,7 +12,7 @@
 		type ReconciliationFamily,
 	} from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { formatDateTime, triggerLabel, statusBadgeClass } from '$lib/utils';
+	import { formatDateTime, triggerLabel, countLabel, statusBadgeClass } from '$lib/utils';
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
@@ -359,7 +359,7 @@
 						<div class="grid grid-cols-2 gap-2 text-xs md:grid-cols-3">
 							{#each countEntries as [name, value]}
 								<div class="p-2 bg-brand-bg rounded">
-									<span class="block text-brand-muted">{name}</span>
+									<span class="block text-brand-muted">{countLabel(name)}</span>
 									<span class="font-mono">{value.toLocaleString()}</span>
 								</div>
 							{/each}
@@ -402,7 +402,7 @@
 					<div class="grid grid-cols-2 gap-2 text-sm md:grid-cols-4">
 						{#each countEntries as [name, value]}
 							<div class="p-3 bg-brand-bg rounded">
-								<span class="block text-xs text-brand-muted">{name}</span>
+								<span class="block text-xs text-brand-muted">{countLabel(name)}</span>
 								<span class="font-mono text-lg">{value.toLocaleString()}</span>
 							</div>
 						{/each}
@@ -504,7 +504,7 @@
 						<div class="grid grid-cols-2 gap-2 text-xs md:grid-cols-3">
 							{#each countEntries as [name, value]}
 								<div class="p-2 bg-brand-bg rounded">
-									<span class="block text-brand-muted">{name}</span>
+									<span class="block text-brand-muted">{countLabel(name)}</span>
 									<span class="font-mono">{value.toLocaleString()}</span>
 								</div>
 							{/each}

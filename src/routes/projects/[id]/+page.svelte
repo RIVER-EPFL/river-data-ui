@@ -602,7 +602,7 @@
 															<td class="px-4 py-1.5">
 																{paramName(sp.parameter_id)}
 																{#if sp.is_derived}
-																	<span class="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-brand-accent/15 text-brand-accent align-middle">derived</span>
+																	<span class="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-brand-accent/15 text-brand-accent-dark align-middle">derived</span>
 																{/if}
 															</td>
 															<td class="px-4 py-1.5 text-brand-muted text-xs">{paramUnits(sp)}</td>

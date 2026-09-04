@@ -85,7 +85,7 @@
 	}
 
 	function severityDot(n: number): string {
-		return n >= 2 ? 'bg-severity-alarm' : 'bg-severity-warning';
+		return n >= 2 ? 'bg-severity-alarm' : 'bg-severity-warning-fill';
 	}
 
 	function exportEventsCsv() {

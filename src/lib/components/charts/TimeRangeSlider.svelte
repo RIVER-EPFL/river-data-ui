@@ -31,7 +31,7 @@
 	// Light versions for track background, full for labels
 	const COL_HISTORY = tokens.brand.textMuted;
 	const COL_WEEK = tokens.brand.primary;
-	const COL_TODAY = tokens.severity.ok.main;
+	const COL_TODAY = tokens.severity.ok.fill;
 	const COL_HISTORY_LIGHT = tokens.slider.historyTrack;
 	const COL_WEEK_LIGHT = tokens.slider.weekTrack;
 	const COL_TODAY_LIGHT = tokens.slider.todayTrack;

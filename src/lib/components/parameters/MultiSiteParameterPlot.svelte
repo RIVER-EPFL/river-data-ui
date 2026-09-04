@@ -1,11 +1,13 @@
 <script lang="ts">
 	import type uPlot from 'uplot';
+	import { seriesColor, seriesDash, spotMarkerColors, swatchStyle } from '$lib/charts/legend';
+	import { axisLabel } from './multiSiteAxis';
 	import UPlotChart from '$components/charts/UPlotChart.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
 	import ResolutionChips from '$components/charts/ResolutionChips.svelte';
 	import FrequencyChips from '$components/charts/FrequencyChips.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
-	import { uPlotTheme, makeSeries, makeAxis, makeGaps, GAP_THRESHOLDS, tzDateOption } from '$lib/charts/uPlotTheme';
+	import { uPlotTheme, makeSeries, makeAxis, makeGaps, GAP_THRESHOLDS, tzDateOption, xRangeWithPadding } from '$lib/charts/uPlotTheme';
 	import { tokens } from '$lib/charts/tokens';
 	import {
 		fetchSiteSeries,
@@ -286,13 +288,12 @@
 	});
 
 	const chartOptions = $derived.by((): uPlot.Options => {
-		const yLabel = `${parameterName}${units ? ' (' + units + ')' : ''}`;
+		const yLabel = axisLabel(parameterName, units, mixedUnits);
 		const gaps = makeGaps(GAP_THRESHOLDS[resolution] ?? 0);
 		const spotBase = 1 + loaded.length;
 		const specs: SpotSeriesSpec[] = loaded.map((s, i) => ({
 			seriesIdx: spotBase + i,
-			fill: tokens.markers.grabSample.fill,
-			stroke: tokens.dataViz[i % tokens.dataViz.length],
+			...spotMarkerColors(i),
 			stats: new Map(
 				[...s.spotStats.entries()].map(([ms, stat]) => [ms / 1000, stat]),
 			),
@@ -301,7 +302,7 @@
 			width: 800,
 			height: 350,
 			...tzDateOption(),
-			scales: { x: { time: true }, y: { auto: true, range: yRange } },
+			scales: { x: { time: true, range: xRangeWithPadding }, y: { auto: true, range: yRange } },
 			axes: [makeAxis({}), makeAxis({ size: 60, label: yLabel })],
 			series: [
 				{ label: 'Time' },
@@ -397,7 +398,7 @@
 							<div class="flex gap-3 flex-wrap">
 								{#each loaded as series, i}
 									<div class="flex items-center gap-1.5 text-xs">
-										<span class="w-3 h-0.5 rounded" style:background="var(--color-viz-{i})"></span>
+										<span class="w-3 h-0.5 rounded" style={swatchStyle(seriesColor(i), seriesDash(i))}></span>
 										{series.label}
 										({series.times.length} points{series.spot.times.length > 0 ? `, ${series.spot.times.length} spot` : ''})
 									</div>

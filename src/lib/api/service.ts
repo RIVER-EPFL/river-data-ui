@@ -691,6 +691,17 @@ export interface CurveUsageResponse {
 export const getCurveUsage = (curveId: string) =>
 	GET<CurveUsageResponse>(`${SERVICE}/standard_curves/${curveId}/usage`);
 
+// One instrument's curve usage, the figures the overview reports without reading every instrument.
+export interface SensorCurveUsage {
+	curve_id: string;
+	reading_count: number;
+	first_used: string | null;
+	last_used: string | null;
+}
+
+export const getSensorCurveUsage = (sensorId: string) =>
+	GET<{ sensor_id: string; usage: SensorCurveUsage[] }>(`${SERVICE}/sensors/${sensorId}/curve_usage`);
+
 // Sync
 export interface SyncService {
 	id: string;

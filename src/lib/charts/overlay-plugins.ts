@@ -235,7 +235,7 @@ export function computeSeverityBands(
 }
 
 const severityFill = { 1: tokens.severity.warning.soft, 2: tokens.severity.alarm.soft } as const;
-const severityStrip = { 1: tokens.severity.warning.main, 2: tokens.severity.alarm.main } as const;
+const severityStrip = { 1: tokens.severity.warning.fill, 2: tokens.severity.alarm.main } as const;
 
 /** Height (CSS px) of the solid strip along the bottom edge marking a breach span. */
 export const ALARM_STRIP_CSS = 4;

@@ -2,6 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import type { Site } from '$api/crud';
 	import { tokens } from '$lib/charts/tokens';
+	import { siteMarkerHtml } from './siteMarker';
 
 	export type SiteStatus = {
 		severity: 'ok' | 'warning' | 'alarm';
@@ -38,12 +39,6 @@
 		warningCount: 0,
 		latestReadingTime: null,
 		projectName: null,
-	};
-
-	const severityColor: Record<string, string> = {
-		ok: tokens.severity.ok.main,
-		warning: tokens.severity.warning.main,
-		alarm: tokens.severity.alarm.main,
 	};
 
 	const filteredSites = $derived(
@@ -88,7 +83,7 @@
 			chips.push(`<span style="background:${tokens.severity.alarm.main};color:#fff;padding:2px 6px;border-radius:10px;font-size:11px;font-weight:600;">${status.alarmCount} alarm${status.alarmCount === 1 ? '' : 's'}</span>`);
 		}
 		if (status.warningCount > 0) {
-			chips.push(`<span style="background:${tokens.severity.warning.main};color:${tokens.severity.warning.text};padding:2px 6px;border-radius:10px;font-size:11px;font-weight:700;">${status.warningCount} warning${status.warningCount === 1 ? '' : 's'}</span>`);
+			chips.push(`<span style="background:${tokens.severity.warning.fill};color:${tokens.severity.warning.text};padding:2px 6px;border-radius:10px;font-size:11px;font-weight:700;">${status.warningCount} warning${status.warningCount === 1 ? '' : 's'}</span>`);
 		}
 		const chipRow = chips.length
 			? `<div style="display:flex;gap:4px;margin-bottom:6px;">${chips.join('')}</div>`
@@ -144,11 +139,10 @@
 
 		for (const site of filteredSites) {
 			const status: SiteStatus = statusBySite?.get(site.id) ?? defaultStatus;
-			const color = severityColor[status.severity];
 			const size = 22;
 			const icon = L.divIcon({
 				className: '',
-				html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3);cursor:pointer;transition:transform 0.15s;" onmouseenter="this.style.transform='scale(1.3)'" onmouseleave="this.style.transform='scale(1)'"></div>`,
+				html: siteMarkerHtml(status, size),
 				iconSize: [size, size],
 				iconAnchor: [size / 2, size / 2],
 			});

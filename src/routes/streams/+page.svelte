@@ -930,8 +930,25 @@
 				e.action === 'pair' &&
 				e.replicates?.portal_sd_column &&
 				!(e as { sd_estimator?: SdEstimator | null }).sd_estimator,
-		).length,
+		),
 	);
+
+	// The families behind that count, so the confirm screen names them rather than leaving the
+	// operator to find them. One row per parameter, since the divisor is declared per slot and a
+	// parameter is the same decision at every site it is paired at.
+	const undeclaredEstimatorFamilies = $derived.by(() => {
+		const byParam = new Map<string, { paramName: string; sdColumn: string; sites: number }>();
+		for (const e of undeclaredEstimatorEntries) {
+			const row = byParam.get(e.parameter.name) ?? {
+				paramName: e.parameter.name,
+				sdColumn: e.replicates?.portal_sd_column ?? '',
+				sites: 0,
+			};
+			row.sites += 1;
+			byParam.set(e.parameter.name, row);
+		}
+		return [...byParam.values()].sort((a, b) => a.paramName.localeCompare(b.paramName));
+	});
 
 	function setEntryEstimator(entry: PairingPlanEntry, value: SdEstimator | '') {
 		(entry as { sd_estimator?: SdEstimator | null }).sd_estimator = value || null;
@@ -2062,7 +2079,7 @@
 							{@const siteMatched = existingSites.find((s) => s.name.toLowerCase() === group.siteName.toLowerCase())}
 							<div class="flex items-center border-b border-brand-divider hover:bg-brand-bg/50 {allSkip ? 'opacity-50' : ''}">
 								<button onclick={() => toggleExpand(group.siteName)} aria-label={isExpanded ? 'Collapse site group' : 'Expand site group'} class="px-3 py-2 bg-transparent border-none cursor-pointer text-brand-muted text-xs w-6">{isExpanded ? '▼' : '▶'}</button>
-								<span class="w-2.5 h-2.5 rounded-full mr-2 flex-shrink-0 {group.exactCount === group.entries.length ? 'bg-severity-ok' : group.noneCount === group.entries.length ? 'bg-severity-warning' : 'bg-brand-accent'}"></span>
+								<span class="w-2.5 h-2.5 rounded-full mr-2 flex-shrink-0 {group.exactCount === group.entries.length ? 'bg-severity-ok-fill' : group.noneCount === group.entries.length ? 'bg-severity-warning-fill' : 'bg-brand-accent'}"></span>
 								<div class="flex-1 py-2 min-w-0">
 									{#if editingSite === group.siteName}
 										<input type="text" bind:value={editValue} onkeydown={(e) => { if (e.key === 'Enter') commitEditSite(); if (e.key === 'Escape') editingSite = null; }} onblur={commitEditSite} class="px-1 py-0.5 border border-brand-primary rounded text-sm bg-brand-surface w-48" autofocus />
@@ -2583,14 +2600,32 @@
 					0..n-1; the source's averages and standard deviations are audited, not stored.
 				</p>
 			{/if}
-			{#if undeclaredEstimatorEntries > 0}
-				<p class="px-3 py-2 rounded-md bg-severity-warning-soft border border-severity-warning-border text-xs text-severity-warning-text">
-					{undeclaredEstimatorEntries} replicate famil{undeclaredEstimatorEntries === 1 ? 'y' : 'ies'}
-					will be paired undeclared: the source's own standard deviations disagree with ours and the
-					population divisor (n) explains it. Their statistics use sample (n-1) meanwhile, and the
-					disagreements are held in the audit queue until you declare one. Go back to Review to set
-					it now, or leave it and decide there.
-				</p>
+			{#if undeclaredEstimatorFamilies.length > 0}
+				<div class="px-3 py-2 rounded-md bg-severity-warning-soft border border-severity-warning-border text-xs text-severity-warning-text space-y-1">
+					<p>
+						{undeclaredEstimatorEntries.length} replicate famil{undeclaredEstimatorEntries.length === 1 ? 'y' : 'ies'}
+						will be paired undeclared: their statistics use sample (n-1) meanwhile, and every
+						disagreement the population divisor (n) explains is held in the audit queue until you
+						declare one.
+					</p>
+					<ul class="space-y-0.5">
+						{#each undeclaredEstimatorFamilies.slice(0, 6) as fam (fam.paramName)}
+							<li>
+								<button
+									onclick={() => { setMode('review'); goToParam(fam.paramName); }}
+									class="bg-transparent border-none p-0 cursor-pointer font-semibold underline-offset-2 hover:underline text-severity-warning-text"
+								>{fam.paramName}</button>
+								<span class="text-brand-muted">
+									— source ships {fam.sdColumn}, {fam.sites} site{fam.sites === 1 ? '' : 's'}
+								</span>
+							</li>
+						{/each}
+						{#if undeclaredEstimatorFamilies.length > 6}
+							<li class="text-brand-muted">and {undeclaredEstimatorFamilies.length - 6} more</li>
+						{/if}
+					</ul>
+					<p class="text-brand-muted">Set the divisor in Review now, or leave it and decide from the audit queue.</p>
+				</div>
 			{/if}
 			<p class="text-xs text-brand-muted">Readings will be backfilled with site and parameter IDs. Continuous aggregates will refresh in the background. This operation can be reverted.</p>
 

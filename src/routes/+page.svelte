@@ -5,6 +5,7 @@
 	import { api, type Site, type Project } from '$api/crud';
 	import { getAlarmSummary, type AlarmSummaryResponse } from '$api/service';
 	import { formatRelativeTime, formatDateTime } from '$lib/utils';
+	import { severityDescription } from '$lib/alarms';
 	import SiteMap, { type SiteStatus } from '$components/dashboard/SiteMap.svelte';
 
 	type SiteSummary = AlarmSummaryResponse['by_site'][number];
@@ -148,7 +149,12 @@
 										{@const entry = summaryBySite.get(site.id)}
 										<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50">
 											<td class="px-4 py-2">
-												<span class="inline-block w-2.5 h-2.5 rounded-full mr-2 {severity === 'alarm' ? 'bg-severity-alarm' : severity === 'warning' ? 'bg-severity-warning' : 'bg-severity-ok'}"></span>
+												<span
+													role="img"
+													aria-label={severityDescription(severity, entry?.alarm_count ?? 0, entry?.warning_count ?? 0)}
+													title={severityDescription(severity, entry?.alarm_count ?? 0, entry?.warning_count ?? 0)}
+													class="inline-block w-2.5 h-2.5 rounded-full mr-2 {severity === 'alarm' ? 'bg-severity-alarm' : severity === 'warning' ? 'bg-severity-warning-fill' : 'bg-severity-ok-fill'}"
+												></span>
 												<a href="{base}/sites/{site.id}" class="font-semibold text-brand-primary no-underline hover:underline">{site.name}</a>
 												{#if site.description}<span class="text-brand-muted ml-2">{site.description}</span>{/if}
 												{#if !site.latitude || !site.longitude}

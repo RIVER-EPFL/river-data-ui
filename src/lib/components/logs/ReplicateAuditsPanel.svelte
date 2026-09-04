@@ -245,7 +245,7 @@
 	}
 	const BAR_FILL: Record<Band, string> = {
 		low: 'bg-brand-muted',
-		mid: 'bg-severity-warning',
+		mid: 'bg-severity-warning-fill',
 		high: 'bg-severity-alarm',
 	};
 	const DELTA_TEXT: Record<Band, string> = {
@@ -646,7 +646,7 @@
 					style="width: {Math.min((rel * 100) / METER_CAP_PCT, 1) * 100}%"
 				></div>
 			</div>
-			<span class="font-mono text-[10px] text-brand-muted w-9 text-right">{fmtPct(rel)}</span>
+			<span class="font-mono text-numeric text-brand-muted w-10 text-right">{fmtPct(rel)}</span>
 		</div>
 	</td>
 {/snippet}

@@ -1,5 +1,6 @@
 import uPlot from 'uplot';
 import { tokens } from './tokens';
+import { seriesColor, seriesDash } from './legend';
 import { timezoneStore } from '$lib/stores/timezone.svelte';
 
 /**
@@ -52,7 +53,8 @@ export function makeSeries(
 ): uPlot.Series {
   return {
     label,
-    stroke: tokens.dataViz[paletteIndex % tokens.dataViz.length],
+    stroke: seriesColor(paletteIndex),
+    dash: seriesDash(paletteIndex),
     width: uPlotTheme.lineWidth,
     value: (_u, v) => (v == null ? '--' : v.toFixed(2) + (units ? ' ' + units : '')),
   };
@@ -89,4 +91,24 @@ export function makeAxis(opts: Partial<uPlot.Axis> = {}): uPlot.Axis {
     size: 50,
     ...opts,
   };
+}
+
+/**
+ * Padding applied to the plotted x range so a marker at a window endpoint is drawn whole. The
+ * queried window is unchanged: only the scale is widened, by the larger of a fraction of the span
+ * and the widest spot glyph converted to time.
+ */
+export const X_RANGE_PAD_FRACTION = 0.025;
+const WIDEST_SPOT_GLYPH_PX = 8;
+
+export function xRangeWithPadding(u: uPlot, min: number, max: number): [number, number] {
+	if (!Number.isFinite(min) || !Number.isFinite(max)) return [min, max];
+	const span = max - min;
+	// A single instant has no span to take a fraction of; a second either side keeps it centred.
+	if (span <= 0) return [min - 1, max + 1];
+	const ratio = (u as unknown as { pxRatio?: number }).pxRatio || 1;
+	const plotWidth = u.bbox?.width ? u.bbox.width / ratio : u.width;
+	const glyphSpan = plotWidth > 0 ? (WIDEST_SPOT_GLYPH_PX / plotWidth) * span : 0;
+	const pad = Math.max(span * X_RANGE_PAD_FRACTION, glyphSpan);
+	return [min - pad, max + pad];
 }

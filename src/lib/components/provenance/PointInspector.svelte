@@ -18,6 +18,7 @@
 		siteId,
 		parameterId,
 		parameterName,
+		units = null,
 		timeIso,
 		measurementType,
 		onclose,
@@ -26,6 +27,8 @@
 		siteId: string;
 		parameterId: string;
 		parameterName: string;
+		/** The unit the slot serves. Printed on the value columns; the caller resolves it. */
+		units?: string | null;
 		timeIso: string;
 		measurementType?: string;
 		onclose?: () => void;
@@ -138,8 +141,8 @@
 					<thead class="text-xs text-brand-muted">
 						<tr>
 							{#if rec.readings.length > 1}<th class="py-1 pr-3 font-medium">Replicate</th>{/if}
-							<th class="py-1 pr-3 font-medium">Measured</th>
-							<th class="py-1 pr-3 font-medium">Corrected</th>
+							<th class="py-1 pr-3 font-medium">Measured{units ? ` (${units})` : ''}</th>
+							<th class="py-1 pr-3 font-medium">Corrected{units ? ` (${units})` : ''}</th>
 							<th class="py-1 pr-3 font-medium">Applied</th>
 							<th class="py-1 font-medium">State</th>
 						</tr>

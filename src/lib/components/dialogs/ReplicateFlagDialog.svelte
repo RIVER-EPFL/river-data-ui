@@ -15,6 +15,7 @@
 		siteId,
 		parameterId,
 		parameterName,
+		units = null,
 		timeIso,
 		replicates,
 		sampleId = null,
@@ -24,12 +25,17 @@
 		siteId: string;
 		parameterId: string;
 		parameterName: string;
+		/** The unit the slot serves, printed on the value column. */
+		units?: string | null;
 		timeIso: string;
 		replicates: SampleReplicate[];
 		/** The `samples` row behind the point, the only place its tool-run provenance is stored. */
 		sampleId?: string | null;
 		onsuccess?: () => void;
 	} = $props();
+
+	const FLAG_HELP =
+		'Flagging one replicate excludes it from the sample mean; the remaining replicates are recomputed. The other replicates at this timestamp are untouched.';
 
 	let reason = $state('');
 	let busyIndex = $state<number | null>(null);
@@ -110,37 +116,32 @@
 	{#snippet children()}
 		<div class="space-y-3">
 			<div class="text-xs text-brand-muted font-mono">{formatDateTime(timeIso)}</div>
-			<p class="text-sm text-brand-text">
-				Flagging one replicate excludes it from the sample mean; the remaining replicates are
-				recomputed. The other replicates at this timestamp are untouched.
-			</p>
-			<div>
-				<label for="replicate-flag-reason" class="text-sm font-medium block mb-1">Reason</label>
-				<input
-					id="replicate-flag-reason"
-					type="text"
-					bind:value={reason}
-					placeholder="e.g. pipetting error, contaminated vial"
-					class="w-full px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
-				/>
-				<p class="text-xs text-brand-muted mt-1">Required to flag, ignored when restoring.</p>
-			</div>
-			<table class="w-full text-sm">
+			<table class="w-full text-sm table-fixed">
+				<colgroup>
+					<col style="width:4.5rem" />
+					<col style="width:7rem" />
+					<col style="width:9rem" />
+					<col style="width:9rem" />
+					<col style="width:6rem" />
+					<col style="width:5.5rem" />
+				</colgroup>
 				<thead>
 					<tr class="border-b border-brand-divider">
-						<th class="text-left py-1 font-semibold">Replicate</th>
-						<th class="text-right py-1 font-semibold">Value</th>
-						<th class="text-left py-1 font-semibold">Calibration</th>
-						<th class="text-left py-1 font-semibold">Standard curve</th>
-						<th class="text-right py-1 font-semibold">State</th>
-						<th class="text-right py-1"></th>
+						<th class="text-left py-1 pr-2 font-semibold">Replicate</th>
+						<th class="text-right py-1 pr-2 font-semibold whitespace-nowrap">Value{units ? ` (${units})` : ''}</th>
+						<th class="text-left py-1 pr-2 font-semibold">Calibration</th>
+						<th class="text-left py-1 pr-2 font-semibold">Standard curve</th>
+						<th class="text-right py-1 pr-2 font-semibold">State</th>
+						<th
+							class="text-right py-1 font-semibold"
+							title={FLAG_HELP}>Flag</th>
 					</tr>
 				</thead>
 				<tbody>
 					{#each ordered as rep}
 						<tr class="border-b border-brand-divider last:border-b-0">
-							<td class="py-1.5 font-mono">{rep.replicate_index}</td>
-							<td class="py-1.5 text-right font-mono">
+							<td class="py-1.5 pr-2 font-mono">{rep.replicate_index}</td>
+							<td class="py-1.5 pr-2 text-right font-mono tabular-nums">
 								<button
 									type="button"
 									class="underline decoration-dotted underline-offset-2 hover:text-brand-primary"
@@ -152,14 +153,16 @@
 									{(rep.calibrated_value ?? rep.raw_value).toFixed(3)}
 								</button>
 							</td>
-							<td class="py-1.5 text-xs {rep.calibration_id ? '' : 'text-brand-muted'}">
+							<td class="py-1.5 pr-2 text-xs truncate {rep.calibration_id ? '' : 'text-brand-muted'}"
+								title={curveRefs.calibrationLabel(rep.calibration_id)}>
 								{curveRefs.calibrationLabel(rep.calibration_id)}
 							</td>
-							<td class="py-1.5 text-xs {rep.standard_curve_id ? '' : 'text-brand-muted'}">
+							<td class="py-1.5 pr-2 text-xs truncate {rep.standard_curve_id ? '' : 'text-brand-muted'}"
+								title={curveRefs.standardCurveLabel(rep.standard_curve_id)}>
 								{curveRefs.standardCurveLabel(rep.standard_curve_id)}
 							</td>
 							<td
-								class="py-1.5 text-right {rep.flagged || rep.withdrawn
+								class="py-1.5 pr-2 text-right {rep.flagged || rep.withdrawn
 									? 'text-severity-alarm'
 									: 'text-brand-muted'}"
 								title={rep.withdrawn
@@ -221,6 +224,19 @@
 					{/each}
 				</tbody>
 			</table>
+			<div class="flex items-end gap-3">
+				<div class="flex-1">
+					<label for="replicate-flag-reason" class="text-sm font-medium block mb-1">Reason</label>
+					<input
+						id="replicate-flag-reason"
+						type="text"
+						bind:value={reason}
+						placeholder="e.g. pipetting error, contaminated vial"
+						class="w-full px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+					/>
+				</div>
+				<p class="text-xs text-brand-muted pb-2">Required to flag, ignored when restoring.</p>
+			</div>
 			{#if provenanceLoading}
 				<p class="text-xs text-brand-muted">Loading tool run…</p>
 			{:else if provenance}

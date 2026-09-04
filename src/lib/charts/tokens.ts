@@ -3,7 +3,7 @@ export const tokens = {
 		primary: '#1F4E79',
 		primaryDk: '#16314A',
 		accent: '#C77700',
-		accentDk: '#9E5F00',
+		accentDk: '#8A5300',
 		surface: '#FFFFFF',
 		bg: '#F7F8FA',
 		divider: '#E2E5EA',
@@ -11,12 +11,15 @@ export const tokens = {
 		textMuted: '#5A6472',
 	},
 	severity: {
-		ok: { main: '#2E7D32', soft: 'rgba(46,125,50,0.10)', border: 'rgba(46,125,50,0.45)' },
-		warning: { main: '#CA8A04', soft: 'rgba(202,138,4,0.16)', border: 'rgba(202,138,4,0.65)', text: '#3A2A00' },
-		alarm: { main: '#C62828', soft: 'rgba(198,40,40,0.12)', border: 'rgba(198,40,40,0.65)' },
+		ok: { main: '#286E2B', fill: '#2E7D32', soft: 'rgba(46,125,50,0.10)', border: 'rgba(46,125,50,0.45)' },
+		// `main` is the text weight, `fill` the chip, marker and band weight.
+		warning: { main: '#8A5D00', fill: '#CA8A04', soft: 'rgba(202,138,4,0.16)', border: 'rgba(202,138,4,0.65)', text: '#3A2A00' },
+		alarm: { main: '#C62828', fill: '#C62828', soft: 'rgba(198,40,40,0.12)', border: 'rgba(198,40,40,0.65)' },
 		unknown: { main: '#90A4AE', soft: 'rgba(144,164,174,0.10)', border: 'rgba(144,164,174,0.40)' },
 	},
-	dataViz: ['#0072B2', '#D55E00', '#009E73', '#CC79A7', '#56B4E9', '#E69F00', '#F0E442', '#000000'],
+	// Every entry clears 3:1 on the white plot area and the set stays separable under
+	// deuteranopia and protanopia; src/lib/theme-contrast.test.ts holds both.
+	dataViz: ['#0072B2', '#D55E00', '#009E73', '#CC79A7', '#593959', '#332288', '#661100', '#000000'],
 	markers: {
 		grabSample: { fill: '#FFB74D', stroke: '#E65100' },
 		flagged: { stroke: '#D32F2F' },

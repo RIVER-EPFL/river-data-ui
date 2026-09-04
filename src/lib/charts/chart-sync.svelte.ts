@@ -28,6 +28,12 @@ export interface CursorState {
 	idx: number;
 	mouseX: number;
 	mouseY: number;
+	/**
+	 * Registration id of the chart the cursor is actually over. The shared tooltip shows every
+	 * registered series at the instant, but the provenance of one measurement belongs to the chart
+	 * being read; the others are there for comparison.
+	 */
+	sourceId?: string;
 }
 
 class ChartSyncGroup {

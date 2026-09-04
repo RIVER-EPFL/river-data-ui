@@ -6,6 +6,7 @@
 		listTools,
 		calculateTool,
 		type ToolDescriptor,
+		type ToolOutput,
 		type ToolCalculateResponse,
 	} from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
@@ -137,8 +138,47 @@
 			.join('; '),
 	);
 
+	// Results are read through the manifest, so each number carries the label and units the tool
+	// declares for it. A per_replicate output's keys arrive suffixed ({base}_{rep}) and take their
+	// declaration from the base.
+	const outputFor = $derived.by(() => {
+		const exact = new Map<string, ToolOutput>();
+		const replicated: { base: string; output: ToolOutput }[] = [];
+		for (const o of activeTool?.outputs ?? []) {
+			const base = o.key.replace(/_?\{rep\}/, '');
+			if (o.per_replicate) replicated.push({ base, output: o });
+			else exact.set(o.key, o);
+		}
+		return (key: string): { output: ToolOutput; suffix: string | null } | null => {
+			const direct = exact.get(key);
+			if (direct) return { output: direct, suffix: null };
+			const rep = replicated.find((r) => key.startsWith(`${r.base}_`));
+			return rep ? { output: rep.output, suffix: key.slice(rep.base.length + 1) } : null;
+		};
+	});
+
 	const displayResults = $derived(
-		result ? Object.entries(result.results).filter(([, v]) => v != null) : [],
+		result
+			? Object.entries(result.results)
+					.filter(([, v]) => v != null)
+					.map(([key, value]) => {
+						const match = outputFor(key);
+						const label = match
+							? match.suffix
+								? `${match.output.label} ${match.suffix}`
+								: match.output.label
+							: key.replace(/_/g, ' ');
+						return {
+							key,
+							value,
+							label,
+							units: match?.output.units ?? null,
+							// An avg or sd row summarises another output; the database derives it from
+							// the replicates that are saved, so it is shown and never stored.
+							derived: !!match?.output.aggregate_of,
+						};
+					})
+			: [],
 	);
 
 	$effect(() => {
@@ -300,10 +340,13 @@
 							</p>
 						{/if}
 						<div class="space-y-2">
-							{#each displayResults as [key, value]}
-								<div class="flex justify-between text-sm border-b border-brand-divider pb-1 last:border-b-0">
-									<span class="text-brand-muted">{key.replace(/_/g, ' ')}</span>
-									<span class="font-mono">{fmtValue(value)}</span>
+							{#each displayResults as row (row.key)}
+								<div class="flex justify-between gap-3 text-sm border-b border-brand-divider pb-1 last:border-b-0">
+									<span class="text-brand-muted">
+										{row.label}{#if row.units}&nbsp;({row.units}){/if}
+										{#if row.derived}<span class="ml-1 text-[10px] uppercase tracking-wide text-brand-accent-dark">derived</span>{/if}
+									</span>
+									<span class="font-mono">{fmtValue(row.value)}</span>
 								</div>
 							{/each}
 							{#if displayResults.length === 0}

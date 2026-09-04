@@ -371,7 +371,7 @@
 								title={c.description || c.name}
 							>
 								<span class="font-mono text-xs text-brand-text">{c.name}</span>
-								<span class="font-mono text-[10px] text-brand-muted whitespace-nowrap">
+								<span class="font-mono text-numeric text-brand-muted whitespace-nowrap">
 									{fmtNumber(c.value)}{c.units ? ` ${c.units}` : ''}
 								</span>
 							</div>
@@ -433,7 +433,7 @@
 		>
 			{#if isConstant}
 				<span class="font-mono text-brand-text">{node.name}</span>
-				{#if cdef}<span class="text-[10px] text-brand-muted font-mono">{fmtNumber(cdef.value)}{cdef.units ? ` ${cdef.units}` : ''}</span>{/if}
+				{#if cdef}<span class="text-numeric text-brand-muted font-mono">{fmtNumber(cdef.value)}{cdef.units ? ` ${cdef.units}` : ''}</span>{/if}
 			{:else}
 				{label}
 			{/if}

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api, type StandardCurve } from '$api/crud';
+	import { getSensorCurveUsage, type SensorCurveUsage } from '$api/service';
 	import { ApiError } from '$api/client';
 	import { me } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
@@ -42,6 +43,7 @@
 	let loading = $state(true);
 	let listError = $state('');
 	let copyOpen = $state(false);
+	let usage = $state<Record<string, SensorCurveUsage>>({});
 
 	const canWrite = $derived(me.can('writeFieldMetadata'));
 	const existingNames = $derived(curves.map((c) => c.name).filter((n): n is string => !!n));
@@ -58,11 +60,34 @@
 			});
 			curves = res.data;
 			total = res.total;
+			await loadUsage();
 		} catch (e) {
 			listError = apiMessage(e);
 		} finally {
 			loading = false;
 		}
+	}
+
+	// Usage decides which rows can still be edited or deleted, so it is loaded with the list rather
+	// than left to the write's refusal. A failure leaves the figures unknown and the actions enabled.
+	async function loadUsage() {
+		try {
+			const res = await getSensorCurveUsage(sensorId);
+			usage = Object.fromEntries(res.usage.map((u) => [u.curve_id, u]));
+		} catch {
+			usage = {};
+		}
+	}
+
+	function usedCount(curve: StandardCurve): number {
+		return usage[curve.id]?.reading_count ?? 0;
+	}
+
+	function frozenTitle(curve: StandardCurve): string | undefined {
+		const n = usedCount(curve);
+		return n > 0
+			? `${n} reading${n === 1 ? ' was' : 's were'} corrected with this curve, so its coefficients are frozen and it cannot be deleted. Duplicate it and re-enter those measurements against the copy.`
+			: undefined;
 	}
 
 	onMount(load);
@@ -208,9 +233,8 @@
 	{#if canWrite && curves.length > 0}
 		<p class="text-xs text-brand-muted max-w-2xl">
 			A curve freezes once a reading is corrected with it: only its notes stay editable, and it
-			cannot be deleted. Correcting one means adding a new curve and re-entering the affected
-			measurements against it. The API does not report which curves are in use, so Edit and Delete
-			stay on every row and explain themselves if refused. Duplicating always works.
+			cannot be deleted. Correcting one means duplicating it and re-entering the affected
+			measurements against the copy. Readings below counts what each curve corrected.
 		</p>
 	{/if}
 
@@ -277,6 +301,9 @@
 					<th class="text-left px-4 py-2 font-semibold">Source</th>
 					<th class="text-left px-4 py-2 font-semibold">Equation</th>
 					<th class="text-left px-4 py-2 font-semibold">R²</th>
+					<th class="text-left px-4 py-2 font-semibold">Readings</th>
+					<th class="text-left px-4 py-2 font-semibold">First used</th>
+					<th class="text-left px-4 py-2 font-semibold">Last used</th>
 					<th class="text-left px-4 py-2 font-semibold">Created</th>
 					<th class="text-left px-4 py-2 font-semibold">Created by</th>
 					<th class="text-left px-4 py-2 font-semibold">Notes</th>
@@ -289,6 +316,9 @@
 							<td class="px-4 py-2 text-xs text-brand-muted">{curve.source_key ?? curve.source_system ?? 'manual'}</td>
 							<td class="px-4 py-2 font-mono text-xs">{curveEquation(curve)}</td>
 							<td class="px-4 py-2 font-mono text-xs">{curve.r_squared ?? 'None'}</td>
+							<td class="px-4 py-2 font-mono text-xs">{usedCount(curve)}</td>
+							<td class="px-4 py-2 text-xs text-brand-muted">{usage[curve.id]?.first_used ? formatDateTime(usage[curve.id].first_used!) : 'None'}</td>
+							<td class="px-4 py-2 text-xs text-brand-muted">{usage[curve.id]?.last_used ? formatDateTime(usage[curve.id].last_used!) : 'None'}</td>
 							<td class="px-4 py-2 text-xs text-brand-muted">{formatDateTime(curve.created_at)}</td>
 							<td class="px-4 py-2 text-xs text-brand-muted">{curve.created_by ?? 'None'}</td>
 							<td class="px-4 py-2 text-xs text-brand-muted">{curve.notes ?? 'None'}</td>
@@ -296,39 +326,48 @@
 								<td class="px-4 py-2">
 									<div class="flex gap-3">
 										<Button variant="ghost" size="sm" class="text-brand-primary" onclick={() => openDuplicate(curve)}>Duplicate</Button>
-										<Button variant="ghost" size="sm" class="text-brand-primary" disabled={!!curve.source_system} title={curve.source_system ? `Replicated from ${curve.source_system}; the next sync cycle re-asserts its coefficients, so an edit here would not survive. Correct it in the portal.` : undefined} onclick={() => (editingId === curve.id ? (editingId = null) : startEdit(curve))}>{editingId === curve.id ? 'Close' : 'Edit'}</Button>
-										<ConfirmPopover
-											message="Delete this standard curve? Refused if any reading was corrected with it."
-											confirmLabel="Delete"
-											onconfirm={() => deleteCurve(curve)}
-										>
-											<Button variant="ghost" size="sm" class="text-severity-alarm">Delete</Button>
-										</ConfirmPopover>
+										<Button variant="ghost" size="sm" class="text-brand-primary" disabled={!!curve.source_system} title={curve.source_system ? `Replicated from ${curve.source_system}; the next sync cycle re-asserts its coefficients, so an edit here would not survive. Correct it in the portal.` : frozenTitle(curve)} onclick={() => (editingId === curve.id ? (editingId = null) : startEdit(curve))}>{editingId === curve.id ? 'Close' : 'Edit'}</Button>
+										{#if usedCount(curve) > 0}
+											<Button variant="ghost" size="sm" class="text-severity-alarm" disabled title={frozenTitle(curve)}>Delete</Button>
+										{:else}
+											<ConfirmPopover
+												message="Delete this standard curve? Nothing was corrected with it."
+												confirmLabel="Delete"
+												onconfirm={() => deleteCurve(curve)}
+											>
+												<Button variant="ghost" size="sm" class="text-severity-alarm">Delete</Button>
+											</ConfirmPopover>
+										{/if}
 									</div>
 								</td>
 							{/if}
 						</tr>
 						{#if editingId === curve.id}
 							<tr class="border-b border-brand-divider bg-brand-bg/40">
-								<td colspan={canWrite ? 8 : 7} class="px-4 py-3 space-y-3">
+								<td colspan={canWrite ? 11 : 10} class="px-4 py-3 space-y-3">
+									{#if usedCount(curve) > 0}
+										<p class="text-xs text-brand-muted">
+											{usedCount(curve)} reading{usedCount(curve) === 1 ? ' was' : 's were'} corrected with this curve, so its name and coefficients are frozen and it cannot be deleted. Notes stay editable. Duplicate it to correct the coefficients, then re-enter those measurements against the copy.
+										</p>
+									{/if}
 									<div class="grid grid-cols-4 gap-3">
-										<label class="flex flex-col gap-1 text-xs text-brand-muted col-span-2">Name<input type="text" bind:value={editForm.name} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm" /></label>
-										<label class="flex flex-col gap-1 text-xs text-brand-muted">Slope<input type="number" step="any" bind:value={editForm.slope} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm font-mono" /></label>
-										<label class="flex flex-col gap-1 text-xs text-brand-muted">Intercept<input type="number" step="any" bind:value={editForm.intercept} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm font-mono" /></label>
-										<label class="flex flex-col gap-1 text-xs text-brand-muted">R²<input type="number" step="any" bind:value={editForm.r_squared} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm font-mono" /></label>
+										<label class="flex flex-col gap-1 text-xs text-brand-muted col-span-2">Name<input type="text" bind:value={editForm.name} disabled={usedCount(curve) > 0} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm disabled:opacity-60" /></label>
+										<label class="flex flex-col gap-1 text-xs text-brand-muted">Slope<input type="number" step="any" bind:value={editForm.slope} disabled={usedCount(curve) > 0} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm font-mono disabled:opacity-60" /></label>
+										<label class="flex flex-col gap-1 text-xs text-brand-muted">Intercept<input type="number" step="any" bind:value={editForm.intercept} disabled={usedCount(curve) > 0} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm font-mono disabled:opacity-60" /></label>
+										<label class="flex flex-col gap-1 text-xs text-brand-muted">R²<input type="number" step="any" bind:value={editForm.r_squared} disabled={usedCount(curve) > 0} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm font-mono disabled:opacity-60" /></label>
 										<label class="flex flex-col gap-1 text-xs text-brand-muted col-span-3">Notes<input type="text" bind:value={editForm.notes} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm" /></label>
 									</div>
 									<div class="flex items-center gap-3">
 										<Button variant="primary" onclick={() => saveEdit(curve)} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
 										<Button variant="ghost" onclick={() => { editingId = null; rowError = null; }}>Cancel</Button>
-										<span class="text-[11px] text-brand-muted">Notes stay editable after the curve is used; everything else does not.</span>
+										<span class="text-[11px] text-brand-muted">Recorded against {sensorName}.</span>
 									</div>
 								</td>
 							</tr>
 						{/if}
 						{#if rowError?.id === curve.id}
 							<tr class="border-b border-brand-divider bg-brand-bg/40">
-								<td colspan={canWrite ? 8 : 7} class="px-4 py-3">
+								<td colspan={canWrite ? 11 : 10} class="px-4 py-3">
 									<ErrorNotice>
 										<div class="space-y-2">
 											<p>{rowError.message}</p>

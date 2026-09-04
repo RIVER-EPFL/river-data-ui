@@ -133,6 +133,57 @@ export function formatInterval(seconds: number): string {
 	return `every ${seconds}s`;
 }
 
+/**
+ * The label for a job `detail.counts` key. The keys are the server-side identifiers the job bodies
+ * write, so an unmapped one falls back to its de-underscored form rather than disappearing.
+ */
+export function countLabel(key: string): string {
+	switch (key) {
+		case 'readings_updated': return 'Readings updated';
+		case 'readings_written': return 'Readings written';
+		case 'readings_deleted': return 'Readings deleted';
+		case 'readings_retagged': return 'Readings retagged';
+		case 'samples_retagged': return 'Samples retagged';
+		case 'families': return 'Replicate families';
+		case 'migrated': return 'Families migrated';
+		case 'already_migrated': return 'Already migrated';
+		case 'skipped_unmigrated': return 'Skipped, not migrated';
+		case 'preverify_failed': return 'Failed pre-verification';
+		case 'verify_failed': return 'Failed verification';
+		case 'cutover_failed': return 'Failed cutover';
+		case 'awaiting_backfill': return 'Awaiting backfill';
+		case 'old_stream_unpaired': return 'Legacy streams unpaired';
+		case 'stray_member_streams': return 'Stray member streams';
+		case 'streams_deleted': return 'Streams deleted';
+		case 'replicate_groups': return 'Replicate groups';
+		case 'slots': return 'Slots';
+		case 'timestamps': return 'Timestamps';
+		case 'inserted': return 'Inserted';
+		case 'overwritten': return 'Overwritten';
+		case 'recomposed': return 'Recomposed';
+		case 'pruned': return 'Pruned';
+		case 'reverted': return 'Reverted';
+		case 'superseded': return 'Superseded';
+		case 'filled': return 'Gaps filled';
+		case 'gaps_found': return 'Gaps found';
+		case 'events_written': return 'Alarm events written';
+		case 'events_audited': return 'Events audited';
+		case 'missing_findings': return 'Missing outputs found';
+		case 'stale_findings': return 'Stale outputs found';
+		case 'tools_run': return 'Tools run';
+		case 'tools_skipped': return 'Tools skipped';
+		case 'tools_unchanged': return 'Tools unchanged';
+		case 'instant_decisions_skipped': return 'Instant decisions kept';
+		case 'commands_queued': return 'Commands queued';
+		case 'sync_events_pruned': return 'Sync events pruned';
+		case 'ingest_receipts_pruned': return 'Ingest receipts pruned';
+		default: {
+			const words = key.replace(/_/g, ' ');
+			return words.charAt(0).toUpperCase() + words.slice(1);
+		}
+	}
+}
+
 export function triggerLabel(triggerType: string): string {
 	switch (triggerType) {
 		case 'janitor_service': return 'Janitor sweep';

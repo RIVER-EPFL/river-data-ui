@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { api, type Sensor, type Site, type SiteParameter, type SensorDeployment, type Parameter } from '$api/crud';
+	import { pollJob } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
+	import { toDatetimeLocal, fromDatetimeLocal, formatDateTime } from '$lib/utils';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
@@ -48,6 +49,47 @@
 
 	function paramName(id: string) { return parameters.find((p) => p.id === id)?.name ?? id; }
 
+	// The incumbent is named by the instrument holding the slot, not by its deployment id: the
+	// operator is checking this against a field notebook, which records serials and dates.
+	let incumbentSensor = $state<Sensor | null>(null);
+	$effect(() => {
+		const id = incumbent?.sensor_id;
+		if (!id) { incumbentSensor = null; return; }
+		let current = true;
+		api.sensors
+			.get(id)
+			.then((s) => { if (current) incumbentSensor = s; })
+			.catch(() => { if (current) incumbentSensor = null; });
+		return () => { current = false; };
+	});
+
+	const incumbentLabel = $derived(
+		incumbentSensor
+			? [incumbentSensor.serial_number, incumbentSensor.name].filter(Boolean).join(' — ') ||
+					incumbentSensor.id.slice(0, 8)
+			: null,
+	);
+
+	// The swap's reprocess is tracked, so what it re-attributed is reported once it lands rather
+	// than described as happening somewhere in the background.
+	async function reportReprocess() {
+		try {
+			const jobs = await api.reprocessingJobs.list({
+				perPage: 1,
+				filter: { sensor_id: sensor.id },
+				sort: ['created_at', 'DESC'],
+			});
+			const started = jobs.data[0];
+			if (!started) return;
+			const job = await pollJob(started.id, { timeoutMs: 120_000 });
+			if (job.status !== 'completed') return;
+			const n = job.readings_updated ?? 0;
+			toastStore.info(`${n.toLocaleString()} reading${n === 1 ? '' : 's'} re-attributed`);
+		} catch {
+			// The deployment is written either way; the count is reporting, not the operation.
+		}
+	}
+
 	// Sensors are parameter-free, so any of the site's parameter slots can be adopted.
 	const compatibleSiteParams = $derived(siteParams);
 
@@ -69,10 +111,11 @@
 				deployment_type: 'permanent',
 			});
 			toastStore.success(incumbent
-				? 'Site parameter adopted - incumbent deployment closed; readings re-coordinated in the background'
-				: 'Sensor deployed - readings re-coordinated in the background');
+				? `Site parameter adopted, ${incumbentLabel ?? 'the incumbent instrument'}'s deployment closed`
+				: 'Sensor deployed');
 			open = false;
 			onsuccess?.();
+			void reportReprocess();
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Adopt failed');
 		} finally { working = false; }
@@ -114,7 +157,10 @@
 					</div>
 					{#if incumbent}
 						<div class="p-2 rounded border border-severity-warning-border bg-severity-warning-soft text-xs">
-							<span class="font-semibold text-severity-warning">Swap:</span> this site parameter is held by another sensor (deployment {incumbent.id.slice(0, 8)}). Adopting closes it at your chosen time.
+							<span class="font-semibold text-severity-warning">Swap:</span>
+							{incumbentLabel ?? `deployment ${incumbent.id.slice(0, 8)}`} holds this slot since
+							{formatDateTime(incumbent.deployed_from)}. Adopting closes that deployment at your
+							chosen time, and the readings from then on are re-attributed to this instrument.
 						</div>
 					{/if}
 					<div class="flex flex-col gap-1">

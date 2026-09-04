@@ -2,7 +2,7 @@
 	import { onMount, tick } from 'svelte';
 	import uPlot from 'uplot';
 	import 'uplot/dist/uPlot.min.css';
-	import { uPlotTheme, makeSeries, makeAxis, makeGaps, tzDateOption } from '$lib/charts/uPlotTheme';
+	import { uPlotTheme, makeSeries, makeAxis, makeGaps, tzDateOption, xRangeWithPadding } from '$lib/charts/uPlotTheme';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import { tokens } from '$lib/charts/tokens';
 	import { getChartSyncGroup } from '$lib/charts/chart-sync.svelte';
@@ -19,6 +19,7 @@
 	} from '$lib/charts/overlay-plugins';
 	import type { SensorIdentityBand, CalibrationMarker } from '$api/sensors';
 	import { spotMarkersPlugin, spotWhiskerExtent, type SpotPointStats } from '$lib/charts/spotMarkers';
+	import { spotMarkerColors } from '$lib/charts/legend';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { formatDateTime } from '$lib/utils';
@@ -185,7 +186,7 @@
 							const bbox = u.root.getBoundingClientRect();
 							const cx = (u.cursor.left ?? 0) + bbox.left;
 							const cy = (u.cursor.top ?? 0) + bbox.top;
-							syncGroup!.setCursor({ idx, mouseX: cx, mouseY: cy });
+							syncGroup!.setCursor({ idx, mouseX: cx, mouseY: cy, sourceId: chartId });
 						} else {
 							hideRaf = requestAnimationFrame(() => {
 								syncGroup!.setCursor(null);
@@ -356,7 +357,12 @@
 			? new Map([...spotStats.entries()].map(([ms, s]) => [ms / 1000, s]))
 			: undefined;
 		return spotMarkersPlugin(() => [
-			{ seriesIdx, stats, flagged: flagged ? (i: number) => flagged[i] === true : undefined },
+			{
+				seriesIdx,
+				...spotMarkerColors(seriesIndex),
+				stats,
+				flagged: flagged ? (i: number) => flagged[i] === true : undefined,
+			},
 		]);
 	}
 
@@ -532,7 +538,7 @@
 				...(syncKey ? { sync: { key: syncKey } } : {}),
 			},
 			legend: { show: false },
-			scales: { x: { time: true }, y: { range: yRange } },
+			scales: { x: { time: true, range: xRangeWithPadding }, y: { range: yRange } },
 			axes: [
 				{ ...makeAxis(), size: 40 },
 				{
@@ -858,7 +864,7 @@
 	<div class="flex items-center justify-between px-3 py-1.5 border-b border-brand-divider bg-brand-bg">
 		<span class="text-sm font-semibold">
 			{parameterName} <span class="text-brand-muted font-normal">({units})</span>
-			{#if isDerived}<span class="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-brand-accent/15 text-brand-accent align-middle">derived</span>{/if}
+			{#if isDerived}<span class="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-brand-accent/15 text-brand-accent-dark align-middle">derived</span>{/if}
 			{#if parameterCode}<span class="text-xs text-brand-muted font-normal font-mono ml-1.5">{parameterCode}</span>{/if}
 			{#if hasData}<span class="text-xs text-brand-muted font-normal ml-2">{dataPoints} pts</span>{/if}
 		</span>
@@ -871,7 +877,7 @@
 					title="View this parameter's alarm log"
 					class="flex items-center gap-1.5 px-2 py-0.5 text-xs rounded no-underline hover:underline {isAlarm ? 'text-severity-alarm bg-severity-alarm-soft' : 'text-severity-warning bg-severity-warning-soft'}"
 				>
-					<span class="inline-block w-2 h-2 rounded-full shrink-0 {isAlarm ? 'bg-severity-alarm' : 'bg-severity-warning'}"></span>
+					<span class="inline-block w-2 h-2 rounded-full shrink-0 {isAlarm ? 'bg-severity-alarm' : 'bg-severity-warning-fill'}"></span>
 					{isAlarm ? 'Alarm' : 'Warning'} active for {breachDuration(since)} since {formatDateTime(since)}
 				</a>
 			{/if}
@@ -976,6 +982,7 @@
 		{siteId}
 		{parameterId}
 		{parameterName}
+		{units}
 		timeIso={new Date(replicateTarget.timeMs).toISOString()}
 		replicates={replicateTarget.stats.replicates ?? []}
 		sampleId={replicateTarget.stats.sampleId ?? null}
