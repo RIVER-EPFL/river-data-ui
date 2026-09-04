@@ -880,6 +880,38 @@ export interface SyncCommand {
 	completed_at: string | null;
 }
 
+/// The `source_audit` command's result: everything a source holds against everything registered
+/// here, per group. Per-cycle reconciliation only ever sees registered streams, so a channel the
+/// connector declined and a group with no stream are outside every window and named on no receipt.
+export interface SourceAuditReport {
+	source_system: string;
+	totals: {
+		candidates: number;
+		declined: number;
+		registered: number;
+		matched: number;
+		unregistered: number;
+		orphaned: number;
+		unpaired: number;
+	};
+	groups: {
+		name: string;
+		candidates: number;
+		registered: number;
+		matched: number;
+		unregistered: string[];
+		orphaned: string[];
+		unpaired: string[];
+	}[];
+	declined: { channel: string; reason: string }[];
+	curves: {
+		at_source: number;
+		registered: number;
+		unregistered: string[];
+		orphaned: string[];
+	};
+}
+
 export interface SyncEvent {
 	id: string;
 	service_id: string;

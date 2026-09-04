@@ -16,7 +16,9 @@
 		type PairingPlanListing,
 	type StreamPreview,
 	} from '$api/service';
-	import { listReplicateAudits } from '$api/service';
+	import { listReplicateAudits, issueSyncCommand, type SyncService } from '$api/service';
+	import { getList } from '$api/client';
+	import { resyncConfirmation, resyncServiceFor } from '$lib/sync/resync';
 	import { me } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatRelativeTime, holdKindBreakdown } from '$lib/utils';
@@ -1326,6 +1328,28 @@
 
 	// Classify a stream's cadence; existing readings are retagged by a tracked job so charts and
 	// aggregates agree with the new classification.
+	// The one command that corrects rows already stored, per stream. Only offered where a reachable
+	// service feeds the stream's source system; the internal channels have none.
+	let syncServices = $state<SyncService[]>([]);
+	let resyncing = $state<Record<string, boolean>>({});
+
+	const resyncServiceForStream = (stream: DataStream) =>
+		resyncServiceFor(syncServices, stream.source_system);
+
+	async function handleResync(stream: DataStream) {
+		const svc = resyncServiceForStream(stream);
+		if (!svc) return;
+		resyncing[stream.id] = true;
+		try {
+			await issueSyncCommand(svc.id, 'resync_streams', { source_keys: [stream.source_key] });
+			toastStore.success(`Repair queued with ${svc.instance_id}`);
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Failed to queue the repair');
+		} finally {
+			resyncing[stream.id] = false;
+		}
+	}
+
 	async function handleRetagStream(stream: DataStream, type: 'continuous' | 'spot') {
 		try {
 			await retagStreams({ streamIds: [stream.id] }, type, true);
@@ -1537,6 +1561,11 @@
 		}
 		await load();
 		void loadReplicateSurfacing(sourceSummary.map((s) => s.source_system));
+		try {
+			syncServices = (await getList<SyncService>('/api/sync_services', { perPage: 50 })).data;
+		} catch {
+			// Without the service list no repair is offered, which is the right default.
+		}
 		// A reload or a bookmark on ?step=review&plan=<id> reopens that review; the draft on the
 		// server is the record, so the page rebuilds from it rather than rendering nothing.
 		const resumeId = page.url.searchParams.get('plan');
@@ -1792,6 +1821,12 @@
 									{:else if stream.measurement_type !== 'derived'}
 										<ConfirmPopover message="Classify this stream as grab samples (low-frequency)? Existing readings render as points and leave hourly/daily averages." confirmLabel="Mark as grab" confirmVariant="primary" onconfirm={() => handleRetagStream(stream, 'spot')}>
 											<Button variant="ghost" size="sm" class="text-brand-primary">Mark as grab</Button>
+										</ConfirmPopover>
+									{/if}
+									{#if resyncServiceForStream(stream)}
+										{@const resyncSvc = resyncServiceForStream(stream)!}
+										<ConfirmPopover message={resyncConfirmation(1, resyncSvc.instance_id)} confirmLabel="Repair" confirmVariant="alarm" onconfirm={() => handleResync(stream)}>
+											<Button variant="ghost" size="sm" disabled={resyncing[stream.id]} class="text-severity-alarm">Repair</Button>
 										</ConfirmPopover>
 									{/if}
 									{#if stream.site_parameter_id}

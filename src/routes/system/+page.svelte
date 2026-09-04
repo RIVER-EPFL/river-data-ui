@@ -17,6 +17,8 @@
 		getScheduleAudit,
 		type SyncService,
 		type SyncCommand,
+		type SourceAuditReport,
+		getSyncCommand,
 		type SyncEvent,
 		type SyncServiceCredential,
 		type Schedule,
@@ -26,6 +28,8 @@
 		type CatchupPolicy,
 	} from '$api/service';
 	import { getList, ApiError } from '$api/client';
+	import { api } from '$api/crud';
+	import { FULL_SYNC_CONFIRMATION, resyncConfirmation } from '$lib/sync/resync';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import {
 		formatRelativeTime,
@@ -36,6 +40,7 @@
 	} from '$lib/utils';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import Button from '$components/ui/Button.svelte';
+	import SourceAuditPanel from '$components/sync/SourceAuditPanel.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
@@ -199,6 +204,76 @@
 			toastStore.success(`Command "${command}" sent`);
 			loadStatus();
 		} catch { toastStore.error('Failed to send command'); }
+	}
+
+	// resync_streams needs the keys by name, so the service's registered streams are read at the
+	// moment of the repair rather than held on the page.
+	let resyncing = $state<Record<string, boolean>>({});
+	let resyncMessage = $state<Record<string, string>>({});
+
+	async function prepareResync(svc: SyncService) {
+		try {
+			const r = await api.dataStreams.list({ perPage: 1000, filter: { source_system: svc.service_type } });
+			resyncMessage[svc.id] = r.data.length === 0
+				? `${svc.instance_id} has no registered streams to repair.`
+				: resyncConfirmation(r.data.length, svc.instance_id);
+		} catch {
+			resyncMessage[svc.id] = `Could not read ${svc.instance_id}'s streams.`;
+		}
+	}
+
+	async function sendResync(svc: SyncService) {
+		resyncing[svc.id] = true;
+		try {
+			const r = await api.dataStreams.list({ perPage: 1000, filter: { source_system: svc.service_type } });
+			const source_keys = r.data.map((d) => d.source_key);
+			if (source_keys.length === 0) {
+				toastStore.error(`${svc.instance_id} has no registered streams`);
+				return;
+			}
+			await issueSyncCommand(svc.id, 'resync_streams', { source_keys });
+			toastStore.success(`Repair queued for ${source_keys.length} streams`);
+			loadStatus();
+		} catch {
+			toastStore.error('Failed to queue the repair');
+		} finally {
+			resyncing[svc.id] = false;
+		}
+	}
+
+	// The audit is answered on the service's next heartbeat, so the command is queued and then
+	// polled. It writes nothing, so a poll that gives up costs only the report.
+	let sourceAuditing = $state<Record<string, boolean>>({});
+	let sourceAuditReport = $state<Record<string, SourceAuditReport>>({});
+	let sourceAuditError = $state<Record<string, string>>({});
+
+	const AUDIT_POLL_MS = 2000;
+	const AUDIT_POLL_ATTEMPTS = 60;
+
+	async function runSourceAudit(svc: SyncService) {
+		sourceAuditing[svc.id] = true;
+		delete sourceAuditReport[svc.id];
+		delete sourceAuditError[svc.id];
+		try {
+			const command = await issueSyncCommand(svc.id, 'source_audit');
+			for (let attempt = 0; attempt < AUDIT_POLL_ATTEMPTS; attempt++) {
+				await new Promise((resolve) => setTimeout(resolve, AUDIT_POLL_MS));
+				const current = await getSyncCommand(command.id);
+				if (current.status === 'completed') {
+					sourceAuditReport[svc.id] = current.result as SourceAuditReport;
+					return;
+				}
+				if (current.status === 'failed' || current.status === 'expired') {
+					sourceAuditError[svc.id] = `The audit ${current.status}.`;
+					return;
+				}
+			}
+			sourceAuditError[svc.id] = `${svc.instance_id} has not answered yet; it runs on the next heartbeat.`;
+		} catch {
+			sourceAuditError[svc.id] = 'Could not queue the audit.';
+		} finally {
+			sourceAuditing[svc.id] = false;
+		}
 	}
 
 	function openCreateDialog(serviceType = '') {
@@ -519,10 +594,27 @@
 								</div>
 								<div class="flex gap-2">
 									<Button variant="primary" size="sm" onclick={() => sendCommand(svc.id, 'trigger_sync')}>Sync</Button>
-									<ConfirmPopover message="Trigger a full sync (re-fetch all data)?" confirmLabel="Full Sync" confirmVariant="primary" onconfirm={() => sendCommand(svc.id, 'trigger_full_sync')}>
+									<ConfirmPopover message={FULL_SYNC_CONFIRMATION} confirmLabel="Full Sync" confirmVariant="primary" onconfirm={() => sendCommand(svc.id, 'trigger_full_sync')}>
 										<Button size="sm">Full Sync</Button>
 									</ConfirmPopover>
+									<ConfirmPopover
+										message={resyncMessage[svc.id] ?? `Read ${svc.instance_id}'s streams…`}
+										confirmLabel="Repair"
+										confirmVariant="alarm"
+										onconfirm={() => sendResync(svc)}
+									>
+										<Button size="sm" disabled={resyncing[svc.id]} onclick={() => prepareResync(svc)}>Repair stored values</Button>
+									</ConfirmPopover>
+									<Button size="sm" disabled={sourceAuditing[svc.id]} onclick={() => runSourceAudit(svc)}>
+										{sourceAuditing[svc.id] ? 'Auditing…' : 'Audit against source'}
+									</Button>
 								</div>
+								{#if sourceAuditError[svc.id]}
+									<p class="text-xs text-severity-alarm">{sourceAuditError[svc.id]}</p>
+								{/if}
+								{#if sourceAuditReport[svc.id]}
+									<SourceAuditPanel report={sourceAuditReport[svc.id]} />
+								{/if}
 								<div class="flex items-center gap-2 flex-wrap">
 									<label class="text-xs text-brand-muted" for="cadence-{svc.id}">Sync every</label>
 									<input

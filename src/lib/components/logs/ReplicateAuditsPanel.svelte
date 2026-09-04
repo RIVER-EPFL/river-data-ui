@@ -23,6 +23,7 @@
 		type SyncService,
 	} from '$api/service';
 	import { getList } from '$api/client';
+	import { resyncServiceFor } from '$lib/sync/resync';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatRelativeTime, formatDateTime, holdKindLabel } from '$lib/utils';
 	import { estimatorLabel, sdFormulaTitle, sdRowLabel } from '$lib/sdEstimator';
@@ -111,14 +112,7 @@
 		[...new Set([...syncServices.map((s) => s.service_type), ...visibleSources])].sort(),
 	);
 
-	function serviceActive(svc: SyncService): boolean {
-		if (!svc.last_heartbeat) return false;
-		return Date.now() - new Date(svc.last_heartbeat).getTime() < 300_000;
-	}
-
-	const syncService = $derived(
-		syncServices.find((s) => s.service_type === sourceFilter && serviceActive(s)) ?? null,
-	);
+	const syncService = $derived(resyncServiceFor(syncServices, sourceFilter));
 
 	function pollCommand(id: string, deadline: number) {
 		clearTimeout(commandTimer);
