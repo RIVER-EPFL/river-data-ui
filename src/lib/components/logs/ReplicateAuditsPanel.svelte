@@ -12,6 +12,9 @@
 		type UndeclaredEstimatorSlot,
 		issueSyncCommand,
 		getSyncCommand,
+		stageCollectionEvent,
+		recomputeCollectionEvent,
+		pollJob,
 		type ReplicateAuditHold,
 		type HoldKind,
 		type SyncCommand,
@@ -543,6 +546,38 @@
 
 	// Acknowledge one non-statistics hold: for brake_fired this IS the release (one braked-scale
 	// pass is admitted, then the hold moves to remediated); for the others it records review.
+	let recomputing = $state(false);
+	// Recompute the visit a finding names: the visit standing at (site, instant) is adopted, its
+	// chain runs as a tracked job, and the finding closes when the run rewrites the output.
+	async function handleRecomputeVisit(
+		hold: ReplicateAuditHold,
+		ctx: { close: () => void; reload: () => Promise<void> },
+	) {
+		if (!hold.site_id) return;
+		recomputing = true;
+		try {
+			const visit = await stageCollectionEvent({ site_id: hold.site_id, collected_at: hold.group_time });
+			const r = await recomputeCollectionEvent(visit.id);
+			if (r.job_id) {
+				const job = await pollJob(r.job_id);
+				if (job.status !== 'completed') {
+					toastStore.error(job.error_message ?? 'The recompute did not complete');
+					return;
+				}
+				const counts = (job.detail?.counts ?? {}) as Record<string, number>;
+				toastStore.success(
+					`Recomputed: ${counts.tools_run ?? 0} run, ${counts.tools_unchanged ?? 0} unchanged, ${counts.findings_closed ?? 0} finding${(counts.findings_closed ?? 0) === 1 ? '' : 's'} closed`,
+				);
+			}
+			ctx.close();
+			await ctx.reload();
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Failed to recompute the visit');
+		} finally {
+			recomputing = false;
+		}
+	}
+
 	async function handleAcknowledgeHold(
 		hold: ReplicateAuditHold,
 		ctx: { close: () => void; reload: () => Promise<void> },
@@ -1094,6 +1129,17 @@
 				<Button variant="primary" disabled={acknowledging}>Acknowledge</Button>
 			</ConfirmPopover>
 		{:else if hold.status === 'pending' && (hold.kind === 'missing_output' || hold.kind === 'stale_output')}
+			{#if hold.site_id}
+				<ConfirmPopover
+					message="Recompute this visit? Every calculation whose inputs resolve there runs again and its outputs are rewritten; this finding closes if the run rewrites {hold.parameter_code ?? 'the output'}. Unchanged calculations are skipped."
+					confirmLabel="Recompute"
+					confirmVariant="primary"
+					above
+					onconfirm={() => handleRecomputeVisit(hold, ctx)}
+				>
+					<Button variant="primary" disabled={recomputing}>{recomputing ? 'Recomputing…' : 'Recompute the visit'}</Button>
+				</ConfirmPopover>
+			{/if}
 			{#if hold.site_name}
 				<Button
 					variant="secondary"

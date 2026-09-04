@@ -3,9 +3,9 @@
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
-	import { api, type Site, type Project, type SiteParameter, type Parameter, type Sensor, type SensorDeployment, type SensorCalibration, type Note, type AlarmThreshold, type DerivedParameter, type Sample, type Annotation, type Subproject } from '$api/crud';
+	import { api, type Site, type Project, type SiteParameter, type Parameter, type Sensor, type SensorDeployment, type SensorCalibration, type Note, type AlarmThreshold, type DerivedParameter, type Sample, type Annotation, type Subproject, type ReprocessingJob } from '$api/crud';
 	import { GET, POST, PATCH } from '$api/client';
-	import { recomputeDerived, getThresholds, getActiveAlarms, listSiteVisits, getCollectionEventDetail, recomputeCollectionEvent, runEventAudit, pollJob, getSiteExportSummary, type ResolvedThreshold, type ActiveAlarm, type VisitRow, type VisitsResponse, type EventDetailResponse, type ExportSummary } from '$api/service';
+	import { recomputeDerived, getThresholds, getActiveAlarms, listSiteVisits, getCollectionEventDetail, recomputeCollectionEvent, runEventAudit, runEventRecompute, pollJob, getSiteExportSummary, type ResolvedThreshold, type ActiveAlarm, type VisitRow, type VisitsResponse, type EventDetailResponse, type ExportSummary } from '$api/service';
 	import { getSiteSensorIdentity, type SensorIdentityResponse } from '$api/sensors';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { siteNavigator } from '$lib/stores/sites.svelte';
@@ -165,10 +165,19 @@
 	let visitBusy = $state<string | null>(null);
 	let visitCell = $state<{ parameterId: string; parameterName: string } | null>(null);
 
+	// A deep link can name a visit older than one page of results. The list is newest first, so
+	// asking for everything up to that instant puts it at the top of page 1 with its neighbours
+	// around it, rather than the link landing on the most recent 50 and expanding nothing.
+	let visitsEnd = $state<string | null>(null);
+
 	async function loadVisits() {
 		visitsLoading = true;
 		try {
-			const r = await listSiteVisits(siteId, { page: visitsPage, page_size: VISITS_PER_PAGE });
+			const r = await listSiteVisits(siteId, {
+				page: visitsPage,
+				page_size: VISITS_PER_PAGE,
+				...(visitsEnd ? { end: visitsEnd } : {}),
+			});
 			visits = r.visits;
 			visitsTotal = r.total;
 			visitColumns = r.expected_parameters;
@@ -192,10 +201,92 @@
 		visitDetailLoading = true;
 		try {
 			visitDetail = await getCollectionEventDetail(id);
+			if (visitDetail && !visits.some((v) => v.id === id)) {
+				visitsEnd = visitDetail.collected_at;
+				visitsPage = 1;
+				visitsLoadedKey = '';
+				await loadVisits();
+			}
 		} catch {
 			toastStore.error('Failed to load the visit');
 		} finally {
 			visitDetailLoading = false;
+		}
+	}
+
+	/// How a cell's readings reached the store. Absent a tool run they were not necessarily typed
+	/// by a person: an import and a batch are different answers to that question.
+	function originLabel(origin: string | undefined): string {
+		switch (origin) {
+			case 'manual':
+				return 'hand-entered';
+			case 'csv':
+				return 'CSV import';
+			case 'api':
+				return 'API batch';
+			case 'sync':
+				return 'portal sync';
+			default:
+				return 'unknown origin';
+		}
+	}
+
+	/// What the run actually did, from the counts the job records. "Visit audited" and "Visit
+	/// audited" are the same sentence whether two stale findings opened or none did, so whether
+	/// anything was found had to be inferred by re-reading the grid.
+	const recomputeBadge: Record<string, { label: string; variant: 'muted' | 'accent' | 'alarm' | 'warning' }> = {
+		queued: { label: 'recompute queued', variant: 'muted' },
+		running: { label: 'recomputing', variant: 'accent' },
+		failed: { label: 'recompute failed', variant: 'alarm' },
+		stale: { label: 'stale output', variant: 'warning' },
+	};
+
+	function visitJobSummary(kind: 'recompute' | 'audit', job: ReprocessingJob): string {
+		const counts = (job.detail?.counts ?? {}) as Record<string, number>;
+		const parts =
+			kind === 'recompute'
+				? [
+						`${counts.tools_run ?? 0} tool${counts.tools_run === 1 ? '' : 's'} run`,
+						`${counts.readings_written ?? 0} written`,
+						...(counts.tools_skipped ? [`${counts.tools_skipped} skipped`] : []),
+					]
+				: [
+						`${counts.missing_findings ?? 0} missing`,
+						`${counts.stale_findings ?? 0} stale`,
+						...(counts.superseded ? [`${counts.superseded} closed`] : []),
+					];
+		const skipped = (job.detail?.scope as { skipped?: Array<{ tool?: string }> } | undefined)
+			?.skipped;
+		const named = skipped?.length
+			? ` (${skipped.map((sk) => sk.tool ?? '?').join(', ')})`
+			: '';
+		return `${kind === 'recompute' ? 'Recomputed' : 'Audited'}: ${parts.join(', ')}${named}`;
+	}
+
+	// The scoped apply: every visit at this site with an open finding, in one tracked job.
+	let staleApplyBusy = $state(false);
+	const staleVisitCount = $derived(visits.filter((v) => v.recompute === 'stale').length);
+	async function applyToStaleVisits() {
+		staleApplyBusy = true;
+		try {
+			const r = await runEventRecompute({ site_id: siteId, only_findings: true });
+			if (r.job_id) {
+				const job = await pollJob(r.job_id);
+				if (job.status === 'completed') {
+					const counts = (job.detail?.counts ?? {}) as Record<string, number>;
+					toastStore.success(
+						`Recomputed ${counts.events_recomputed ?? 0} visit${(counts.events_recomputed ?? 0) === 1 ? '' : 's'}: ${counts.tools_run ?? 0} run, ${counts.tools_unchanged ?? 0} unchanged, ${counts.findings_closed ?? 0} finding${(counts.findings_closed ?? 0) === 1 ? '' : 's'} closed`,
+					);
+				} else {
+					toastStore.error(job.error_message ?? 'The recompute job did not complete');
+				}
+			}
+			await loadVisits();
+			scheduleFetch();
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Failed to recompute the stale visits');
+		} finally {
+			staleApplyBusy = false;
 		}
 	}
 
@@ -210,7 +301,7 @@
 			if (r.job_id) {
 				const job = await pollJob(r.job_id);
 				if (job.status === 'completed') {
-					toastStore.success(kind === 'recompute' ? 'Visit recomputed' : 'Visit audited');
+					toastStore.success(visitJobSummary(kind, job));
 				} else {
 					toastStore.error(job.error_message ?? `The ${kind} job did not complete`);
 				}
@@ -226,7 +317,7 @@
 
 	$effect(() => {
 		if (activeKey !== 'visits' || !siteId) return;
-		const key = `${siteId}|${visitsPage}`;
+		const key = `${siteId}|${visitsPage}|${visitsEnd ?? ''}`;
 		if (key === visitsLoadedKey) return;
 		visitsLoadedKey = key;
 		untrack(() => void loadVisits());
@@ -1141,6 +1232,12 @@
 			params.set('format', exportFormat);
 			if (exportResolution === 'raw') {
 				params.set('include_flagged', String(exportIncludeFlagged));
+				// `include_flagged` decides whether flagged rows are in the file at all;
+				// `include_flags` is what adds the columns saying which ones they are. The
+				// checkbox promises the metadata, so it has to ask for both.
+				if (exportIncludeFlagged && exportFormat !== 'json') {
+					params.set('include_flags', 'true');
+				}
 				params.set('include_replicates', String(exportIncludeReplicates));
 				if (exportMeasurementType !== 'all') {
 					params.set('measurement_type', exportMeasurementType);
@@ -2075,11 +2172,37 @@
 		<!-- Visits tab: the portal's wide data row, one per field date -->
 		{:else if activeKey === 'visits'}
 			<div class="space-y-3">
+				{#if visitsEnd}
+					<p class="text-sm text-brand-muted">
+						Showing visits up to {formatDateTime(visitsEnd)}.
+						<button
+							class="text-brand-primary bg-transparent border-none cursor-pointer p-0 hover:underline"
+							onclick={() => {
+								visitsEnd = null;
+								visitsPage = 1;
+								visitsLoadedKey = '';
+								void loadVisits();
+							}}>Back to the latest</button>
+					</p>
+				{/if}
 				{#if visitsLoading && visits.length === 0}
 					<p class="text-sm text-brand-muted">Loading…</p>
 				{:else if visits.length === 0}
 					<p class="text-sm text-brand-muted">No visits recorded for this site.</p>
 				{:else}
+					{#if me.can('writeData')}
+						<div class="flex items-center gap-2">
+							<Button
+								size="sm"
+								variant="secondary"
+								disabled={staleApplyBusy}
+								title="Recompute every visit at this site with an open missing- or stale-output finding, in one tracked job. Unchanged calculations are skipped; the findings a run repairs close with it."
+								onclick={applyToStaleVisits}
+							>
+								{staleApplyBusy ? 'Recomputing…' : `Recompute stale visits${staleVisitCount > 0 ? ` (${staleVisitCount} on this page)` : ''}`}
+							</Button>
+						</div>
+					{/if}
 					<div class="rounded-md border border-brand-divider bg-brand-surface overflow-x-auto">
 						<table class="w-full text-sm">
 							<thead>
@@ -2095,6 +2218,9 @@
 							<tbody>
 								{#each visits as v (v.id)}
 									{@const cellsById = new Map(v.cells.map((c) => [c.parameter_id, c]))}
+									{@const extraCells = v.cells.filter(
+										(c) => !visitColumns.some((col) => col.parameter_id === c.parameter_id),
+									)}
 									<tr
 										class="border-t border-brand-divider cursor-pointer hover:bg-brand-bg/50 {expandedVisit === v.id ? 'bg-brand-bg/50' : ''}"
 										onclick={() => openVisit(v.id)}
@@ -2103,6 +2229,9 @@
 											{formatDateTime(v.collected_at)}
 											{#if v.findings_open > 0}
 												<Badge variant="warning">{v.findings_open} finding{v.findings_open === 1 ? '' : 's'}</Badge>
+											{/if}
+											{#if recomputeBadge[v.recompute]}
+												<Badge variant={recomputeBadge[v.recompute].variant}>{recomputeBadge[v.recompute].label}</Badge>
 											{/if}
 										</td>
 										<td class="px-3 py-2">
@@ -2127,9 +2256,22 @@
 													<Badge variant="warning">missing</Badge>
 												{:else if cell.value != null}
 													{Number(cell.value.toPrecision(6))}
+													{#if cell.n_flagged > 0 || cell.n_withdrawn > 0}
+														<span
+															class="text-severity-warning-text"
+															title="{cell.n_flagged} of {cell.n_total} flagged{cell.n_withdrawn
+																? `, ${cell.n_withdrawn} withdrawn`
+																: ''}: the mean excludes them"
+														>*</span>
+													{/if}
 												{:else}
 													<span class="text-brand-muted">—</span>
 												{/if}
+											</td>
+										{/each}
+										{#each extraCells as cell (cell.parameter_id)}
+											<td class="px-3 py-2 tabular-nums whitespace-nowrap text-brand-muted">
+												{cell.value != null ? Number(cell.value.toPrecision(6)) : '—'}
 											</td>
 										{/each}
 									</tr>
@@ -2145,6 +2287,9 @@
 																? 'Synced from the portal'
 																: `Entered manually${visitDetail.created_by ? ` by ${visitDetail.created_by}` : ''}`}
 															{#if visitDetail.notes}· {visitDetail.notes}{/if}
+															{#if recomputeBadge[visitDetail.recompute]}
+																<Badge variant={recomputeBadge[visitDetail.recompute].variant}>{recomputeBadge[visitDetail.recompute].label}</Badge>
+															{/if}
 														</div>
 														{#if me.can('writeData')}
 															<div class="flex gap-2">
@@ -2195,7 +2340,7 @@
 																		{#if cell.sample?.has_provenance}
 																			<Badge variant="ok">{cell.sample.tool ?? 'tool run'}</Badge>
 																		{:else}
-																			<span class="text-brand-muted">portal / hand-entered</span>
+																			<span class="text-brand-muted">{originLabel(cell.sample?.origin)}</span>
 																		{/if}
 																	</td>
 																	<td class="py-1">

@@ -525,6 +525,22 @@
 		}
 	}
 
+	let togglingEnabled = $state(false);
+	async function setEnabled(enabled: boolean) {
+		if (!detail) return;
+		togglingEnabled = true;
+		try {
+			await updateToolScript(detail.id, { enabled });
+			toastStore.success(enabled ? 'Calculation switched on' : 'Calculation switched off');
+			await refreshList();
+			await selectScript(detail.id);
+		} catch (e) {
+			toastStore.error(apiMessage(e));
+		} finally {
+			togglingEnabled = false;
+		}
+	}
+
 	async function saveMeta() {
 		if (!detail) return;
 		savingMeta = true;
@@ -608,6 +624,18 @@
 									{#if detail.active_version_no != null}
 										<span class="text-xs text-brand-muted">Active version {detail.active_version_no}</span>
 									{/if}
+									<label
+										class="flex items-center gap-1 text-xs"
+										title="On: runs at every visit where its inputs land, is audited and listed. Off: kept, activated, but fires at no visit."
+									>
+										<input
+											type="checkbox"
+											checked={detail.enabled}
+											disabled={togglingEnabled}
+											onchange={(e) => setEnabled((e.currentTarget as HTMLInputElement).checked)}
+										/>
+										Fires at visits
+									</label>
 								</div>
 								<p class="text-xs text-brand-muted">
 									{#if selectedVersion}

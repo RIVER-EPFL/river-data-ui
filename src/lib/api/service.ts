@@ -1101,6 +1101,7 @@ export interface ReplicateAuditHold {
 	source_system: string | null;
 	source_key: string | null;
 	source_name: string | null;
+	site_id: string | null;
 	site_name: string | null;
 	parameter_name: string | null;
 	parameter_code: string | null;
@@ -1389,7 +1390,14 @@ export interface VisitCell {
 	// Every replicate in the group is flagged / withdrawn.
 	flagged: boolean;
 	withdrawn: boolean;
+	// Replicates stored, flagged and withdrawn: a partly curated group serves a mean the
+	// exclusions moved, and the counts are what says so.
+	n_total: number;
+	n_flagged: number;
+	n_withdrawn: number;
 	finding?: 'missing_output' | 'stale_output' | string;
+	/** Open findings on this cell, when more than one. */
+	finding_count?: number;
 }
 
 export interface VisitRow {
@@ -1400,6 +1408,8 @@ export interface VisitRow {
 	notes: string | null;
 	parameters_filled: number;
 	findings_open: number;
+	/** The visit's recompute state as the API derives it from its latest job and open findings. */
+	recompute: 'current' | 'queued' | 'running' | 'failed' | 'stale' | string;
 	cells: VisitCell[];
 }
 
@@ -1431,12 +1441,17 @@ export interface EventCell {
 	parameter_code: string;
 	parameter_name: string;
 	stream_id: string;
+	/** Which feed these replicates came in on; two streams can serve one slot at one instant. */
+	source_system?: string;
+	source_key?: string;
 	served_value?: number;
 	sample?: {
 		sample_id: string;
 		mean?: number;
 		stdev?: number;
 		n: number;
+		/** How the readings reached the store: manual, csv, api or sync. */
+		origin?: string;
 		has_provenance: boolean;
 		tool?: string;
 	};
@@ -1451,6 +1466,7 @@ export interface EventDetailResponse {
 	source: string;
 	created_by?: string;
 	notes?: string;
+	recompute: 'current' | 'queued' | 'running' | 'failed' | 'stale' | string;
 	cells: EventCell[];
 }
 
@@ -1477,6 +1493,14 @@ export const recomputeCollectionEvent = (id: string) =>
 
 export const runEventAudit = (req: { site_id?: string; collection_event_id?: string }) =>
 	POST<{ job_id: string | null }>(`${SERVICE}/actions/event_audit`, req);
+
+/** The scoped apply: recompute every manual visit in a site and/or range, or only those with open findings. */
+export const runEventRecompute = (req: {
+	site_id?: string;
+	start?: string;
+	end?: string;
+	only_findings?: boolean;
+}) => POST<{ job_id: string | null }>(`${SERVICE}/actions/event_recompute`, req);
 
 // Replicate reconciliation: migrate readings from legacy per-`_avg`-column streams onto their
 // replicate-family streams (tracked job, migrate + verify, never deletes), then a separate
@@ -1839,6 +1863,8 @@ export interface ToolScriptSummary {
 	active_version_id: string | null;
 	active_version_no: number | null;
 	version_count: number;
+	/** Part of the calculation set: fired at visits, audited and listed. Off, it runs only by name. */
+	enabled: boolean;
 	updated_at: string;
 }
 
@@ -1909,7 +1935,10 @@ export const createToolScript = (body: {
 	created_by?: string;
 }) => POST<ToolScriptSummary>(`${ADMIN}/tool_scripts`, body);
 
-export const updateToolScript = (id: string, body: { label?: string; description?: string }) =>
+export const updateToolScript = (
+	id: string,
+	body: { label?: string; description?: string; enabled?: boolean },
+) =>
 	PATCH<ToolScriptSummary>(`${ADMIN}/tool_scripts/${id}`, body);
 
 export const createToolVersion = (
@@ -2157,6 +2186,19 @@ export interface GrabExistingGroup {
 	replicates: GrabExistingReplicate[];
 }
 
+export interface ImpactParameter {
+	parameter_id: string;
+	parameter_code: string;
+}
+
+/** One calculation a save feeds, and the output parameters it rewrites at the visit. */
+export interface CalculationImpact {
+	tool: string;
+	label: string;
+	reads: ImpactParameter[];
+	outputs: ImpactParameter[];
+}
+
 export interface GrabSampleResponse {
 	inserted: number;
 	samples_created: number;
@@ -2165,6 +2207,8 @@ export interface GrabSampleResponse {
 	replaced: number;
 	preview: GrabPreviewRow[];
 	existing_groups: GrabExistingGroup[];
+	/** Reported on dry_run too: the calculations this save re-runs and the columns that move. */
+	calculations: CalculationImpact[];
 }
 
 export const saveGrabSample = (req: GrabSampleRequest) =>

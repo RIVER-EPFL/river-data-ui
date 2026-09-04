@@ -1288,7 +1288,14 @@
 			if (job.status !== 'completed') {
 				throw new Error(job.error_message ?? 'Revert job did not complete');
 			}
-			toastStore.success('Plan reverted');
+			// The job records what it undid; "Plan reverted" is the same sentence whether it
+			// unpaired forty streams or none.
+			const counts = (job.detail?.counts ?? {}) as Record<string, number>;
+			const undone = Object.entries(counts)
+				.filter(([, n]) => typeof n === 'number' && n > 0)
+				.map(([k, n]) => `${n} ${k.replace(/_/g, ' ')}`)
+				.join(', ');
+			toastStore.success(undone ? `Plan reverted: ${undone}` : 'Plan reverted, nothing to undo');
 			plan = null; planEntries = []; applyResult = null;
 			setMode('list'); load();
 		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Failed to revert plan'); }

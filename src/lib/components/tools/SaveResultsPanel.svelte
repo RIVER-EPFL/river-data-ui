@@ -18,6 +18,7 @@
 		grabConflictGroups,
 		seasonalCheck,
 		type SeasonalFinding,
+		type CalculationImpact,
 		type GrabExistingGroup,
 		type GrabPreviewRow,
 		type GrabSampleReading,
@@ -264,6 +265,8 @@
 	// Server-computed correction chain for the current inputs, refreshed via dry_run.
 	let preview = $state<GrabPreviewRow[]>([]);
 	let previewGroups = $state<GrabExistingGroup[]>([]);
+	// The calculations this save re-runs, from the same dry run: known before the write.
+	let calculations = $state<CalculationImpact[]>([]);
 	let previewBusy = $state(false);
 	// Existing replicate groups from a refused save; confirming re-sends with mode: 'replace'.
 	let conflictGroups = $state<GrabExistingGroup[] | null>(null);
@@ -637,10 +640,12 @@
 			if (gen !== previewGeneration) return;
 			preview = res.preview ?? [];
 			previewGroups = res.existing_groups ?? [];
+			calculations = res.calculations ?? [];
 		} catch {
 			if (gen !== previewGeneration) return;
 			preview = [];
 			previewGroups = [];
+			calculations = [];
 		} finally {
 			if (gen === previewGeneration) previewBusy = false;
 		}
@@ -650,6 +655,7 @@
 		if (!open || !canSave) {
 			preview = [];
 			previewGroups = [];
+			calculations = [];
 			return;
 		}
 		// Read every input the request depends on so a change re-arms the debounce.
@@ -932,6 +938,21 @@
 							{previewGroups.length} replicate group{previewGroups.length === 1 ? '' : 's'} already exist
 							at this timestamp; saving will ask before replacing them.
 						</p>
+					{/if}
+					{#if calculations.length > 0}
+						<div class="mt-1.5 text-xs">
+							<span class="font-semibold">Saving re-runs</span>
+							{#each calculations as c (c.tool)}
+								<span class="block">
+									{c.label}
+									{#if c.outputs.length > 0}
+										<span class="text-brand-muted">
+											rewriting {c.outputs.map((o) => o.parameter_code).join(', ')} at this visit
+										</span>
+									{/if}
+								</span>
+							{/each}
+						</div>
 					{/if}
 				</div>
 			{/if}
