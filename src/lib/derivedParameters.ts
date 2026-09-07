@@ -1,3 +1,5 @@
+import type { DerivedParameter } from '$api/crud';
+
 /** The four bounds as the number inputs bind them; `bind:value` on `type="number"` yields a number
  *  as soon as anything is typed, so each is read as text. */
 export interface ThresholdForm {
@@ -39,4 +41,31 @@ export function thresholdPatch(
 	};
 	if (mode === 'edit') return patch;
 	return Object.values(patch).some((v) => v !== null) ? patch : null;
+}
+
+/** What a formula's create or update body carries, beyond its own text. */
+export interface FormulaOwnership {
+	tool_script_id: string | null;
+	ordinal: number;
+}
+
+/**
+ * The calculation a formula being authored belongs to, and where it sits in that calculation's
+ * order. A formula authored from a calculation takes the next free ordinal in it; one authored
+ * from the definition list belongs to no calculation and is standalone, which is the per-reading
+ * continuous kind. An edit keeps what the definition already says rather than re-deciding it.
+ */
+export function formulaOwnership(
+	calculationId: string | null,
+	existing: DerivedParameter | null,
+	siblings: DerivedParameter[],
+): FormulaOwnership {
+	if (existing) {
+		return { tool_script_id: existing.tool_script_id, ordinal: existing.ordinal };
+	}
+	if (!calculationId) return { tool_script_id: null, ordinal: 0 };
+	const taken = siblings
+		.filter((f) => f.tool_script_id === calculationId)
+		.map((f) => f.ordinal);
+	return { tool_script_id: calculationId, ordinal: taken.length === 0 ? 1 : Math.max(...taken) + 1 };
 }

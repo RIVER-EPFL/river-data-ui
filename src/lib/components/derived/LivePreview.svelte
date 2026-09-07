@@ -36,19 +36,25 @@
 
 	$effect(() => {
 		if (!formula || !selectedSiteId) return;
+		// `range` is read here so the effect tracks it; runPreview runs from a timeout, outside
+		// the tracking scope.
+		const days = rangeDays(range);
 		const myToken = ++fetchToken;
 		const handle = setTimeout(() => {
-			void runPreview(myToken);
+			void runPreview(myToken, days);
 		}, 400);
 		return () => clearTimeout(handle);
 	});
 
-	async function runPreview(myToken: number) {
+	function rangeDays(r: typeof range): number {
+		if (r === '24h') return 1;
+		return r === '7d' ? 7 : 30;
+	}
+
+	async function runPreview(myToken: number, days: number) {
 		const end = new Date();
 		const start = new Date(end);
-		if (range === '24h') start.setUTCDate(end.getUTCDate() - 1);
-		else if (range === '7d') start.setUTCDate(end.getUTCDate() - 7);
-		else start.setUTCDate(end.getUTCDate() - 30);
+		start.setUTCDate(end.getUTCDate() - days);
 
 		loading = true;
 		previewError = null;

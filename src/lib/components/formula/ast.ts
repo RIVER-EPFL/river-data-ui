@@ -73,6 +73,7 @@ function parseAtom(s: string): { node: FormulaNode; rest: string } {
 		let rest = s.slice(fnMatch[0].length);
 		const args: FormulaNode[] = [];
 		while (rest.length > 0 && rest[0] !== ')') {
+			const before = rest;
 			if (args.length > 0) {
 				rest = rest.trimStart();
 				if (rest[0] === ',') rest = rest.slice(1);
@@ -80,6 +81,9 @@ function parseAtom(s: string): { node: FormulaNode; rest: string } {
 			const arg = parseExpr(rest, 0);
 			args.push(arg.node);
 			rest = arg.rest.trimStart();
+			// A pass that consumed nothing cannot consume anything on the next one either, and
+			// the caller parses on every keystroke.
+			if (rest === before) break;
 		}
 		if (rest[0] === ')') rest = rest.slice(1);
 		return { node: { type: 'function', name, args }, rest };
@@ -97,15 +101,14 @@ export function getNodeAtPath(root: FormulaNode, path: string): FormulaNode | nu
 	if (path === 'root') return root;
 	const parts = path.replace('root.', '').split('.');
 	let node: FormulaNode = root;
-	for (const part of parts) {
-		if (node.type === 'binary') {
-			if (part === 'left') node = node.left;
-			else if (part === 'right') node = node.right;
-			else return null;
-		} else if (node.type === 'function') {
-			const idx = parseInt(part.replace('args.', ''));
-			if (!isNaN(idx) && node.args[idx]) node = node.args[idx];
-			else return null;
+	for (let i = 0; i < parts.length; i++) {
+		const part = parts[i];
+		if (node.type === 'binary' && (part === 'left' || part === 'right')) {
+			node = part === 'left' ? node.left : node.right;
+		} else if (node.type === 'function' && part === 'args') {
+			const idx = Number(parts[++i]);
+			if (!Number.isInteger(idx) || !node.args[idx]) return null;
+			node = node.args[idx];
 		} else return null;
 	}
 	return node;
@@ -125,11 +128,12 @@ function replaceRecursive(node: FormulaNode, parts: string[], replacement: Formu
 		if (head === 'left') return { ...node, left: replaceRecursive(node.left, tail, replacement) };
 		if (head === 'right') return { ...node, right: replaceRecursive(node.right, tail, replacement) };
 	}
-	if (node.type === 'function') {
-		const idx = parseInt(head.replace('args.', ''));
-		if (!isNaN(idx)) {
+	// `args` names the child list; the segment after it is the index into it.
+	if (node.type === 'function' && head === 'args') {
+		const idx = Number(tail[0]);
+		if (Number.isInteger(idx) && node.args[idx]) {
 			const args = [...node.args];
-			args[idx] = replaceRecursive(args[idx], tail, replacement);
+			args[idx] = replaceRecursive(args[idx], tail.slice(1), replacement);
 			return { ...node, args };
 		}
 	}
@@ -145,4 +149,36 @@ export function hasEmptySlots(node: FormulaNode): boolean {
 
 export function wrapWithOp(node: FormulaNode, op: string): FormulaNode {
 	return { type: 'binary', op, left: node, right: { type: 'empty' } };
+}
+
+/** What the palette hands the builder when a term is dropped or clicked. */
+export type DragPayload =
+	| { kind: 'variable'; name: string }
+	| { kind: 'constant'; name: string }
+	| { kind: 'function'; name: string }
+	| { kind: 'operator'; op: string };
+
+const MULTI_ARG_FUNCTIONS = new Set(['min', 'max']);
+
+/**
+ * The node a dropped palette term becomes. A named constant is an identifier, the same as a
+ * parameter: the API resolves an identifier against the catalog and then against the constants
+ * table, so the name has to reach the formula verbatim. `{type: 'constant'}` is a typed number,
+ * which is a different thing and is what the inline editor produces.
+ */
+export function payloadToNode(payload: DragPayload, existing?: FormulaNode | null): FormulaNode {
+	switch (payload.kind) {
+		case 'variable':
+		case 'constant':
+			return { type: 'variable', name: payload.name };
+		case 'function': {
+			const argCount = MULTI_ARG_FUNCTIONS.has(payload.name) ? 2 : 1;
+			const firstArg = existing && existing.type !== 'empty' ? existing : { type: 'empty' as const };
+			const rest: FormulaNode[] = Array(argCount - 1).fill({ type: 'empty' });
+			return { type: 'function', name: payload.name, args: [firstArg, ...rest] };
+		}
+		case 'operator':
+			if (existing && existing.type !== 'empty') return wrapWithOp(existing, payload.op);
+			return { type: 'binary', op: payload.op, left: { type: 'empty' }, right: { type: 'empty' } };
+	}
 }

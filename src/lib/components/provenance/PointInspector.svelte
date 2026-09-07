@@ -6,6 +6,7 @@
 		type ProvenanceRecord,
 		type ProvenanceReading,
 		type ProvenanceCalibrationRef,
+		type ProvenanceCalculation,
 		type StreamReceipt,
 		type HoldKind,
 		getReadingDecisions,
@@ -154,6 +155,7 @@
 		manual: 'Manual entry',
 		csv: 'CSV import',
 		api: 'API batch',
+		derived: 'Computed',
 	};
 
 	const HOLD_LABEL: Record<HoldKind, string> = {
@@ -252,6 +254,7 @@
 	}
 
 	function computationText(rec: ProvenanceRecord): string {
+		if (rec.calculation) return calculationText(rec.calculation);
 		if (!rec.computation?.provenance) return NO_VALUE;
 		const src = rec.computation.run_source;
 		if (src === 'chain') return 'recomputed by chain';
@@ -260,9 +263,30 @@
 	}
 
 	function computationTip(rec: ProvenanceRecord): string {
+		if (rec.calculation) return calculationTip(rec.calculation);
 		return rec.computation?.provenance
 			? 'Computed by a recorded tool run; open it from the actions below.'
 			: 'Hand-entered measurement, no tool run recorded.';
+	}
+
+	// A formula's counterpart of a run: the calculation, and the version of it this value carries.
+	function calculationText(calc: ProvenanceCalculation): string {
+		if (!calc.version_no) return `${calc.code}, formula not recoverable`;
+		const older =
+			calc.active_version_no && calc.active_version_no > calc.version_no
+				? `, now at v${calc.active_version_no}`
+				: '';
+		return `${calc.code} v${calc.version_no}${older}`;
+	}
+
+	function calculationTip(calc: ProvenanceCalculation): string {
+		if (!calc.formula)
+			return 'Computed by a formula, from before formulas were versioned: the text that produced this value is not recoverable.';
+		const older =
+			calc.active_version_no && calc.active_version_no > (calc.version_no ?? 0)
+				? ' The calculation has been edited since.'
+				: '';
+		return `Computed by ${calc.name}: ${calc.formula}.${older}`;
 	}
 
 	function holdTip(h: ProvenanceRecord['holds'][number]): string {

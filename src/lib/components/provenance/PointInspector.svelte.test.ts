@@ -169,6 +169,59 @@ describe('PointInspector', () => {
 		expect(computation.getAttribute('title')).toContain('no tool run');
 	});
 
+	// A continuous value computed by a standalone formula: no run, and the formula version the
+	// stored value names.
+	function computed(calculation: Record<string, unknown>) {
+		return response([
+			{
+				origin: {
+					stream_id: 'stream-d',
+					source_system: 'derived',
+					source_key: 'pCO2_site',
+					classification: 'derived',
+					ingested_at: '2026-07-15T04:00:00Z',
+				},
+				readings: [reading(0, 8.005, { measurement_type: 'derived' })],
+				chain: {},
+				calculation,
+				holds: [],
+			},
+		]);
+	}
+
+	it('names the formula behind a computed value instead of calling it a hand entry', async () => {
+		open(
+			computed({
+				definition_id: 'def-1',
+				code: 'pCO2',
+				name: 'Partial pressure of CO2',
+				version_id: 'v-1',
+				version_no: 2,
+				formula: 'DIC * 0.5',
+				content_hash: 'sha256:abc',
+				active_version_no: 3,
+			}),
+		);
+		await screen.findByText('8.005');
+		expect(screen.getByText('pCO2 v2, now at v3')).toBeTruthy();
+		const computation = screen.getByText('Computation').closest('div')!;
+		expect(computation.getAttribute('title')).toContain('DIC * 0.5');
+		expect(computation.getAttribute('title')).not.toContain('Hand-entered');
+	});
+
+	it('says the formula is not recoverable for a value stored before versioning', async () => {
+		open(
+			computed({
+				definition_id: 'def-1',
+				code: 'pCO2',
+				name: 'Partial pressure of CO2',
+				active_version_no: 1,
+			}),
+		);
+		await screen.findByText('8.005');
+		expect(screen.getByText('pCO2, formula not recoverable')).toBeTruthy();
+	});
+
 	it('offers its actions as one row of links', async () => {
 		open(handEntered(), { onflag: () => {} });
 		await screen.findByText('8.005');

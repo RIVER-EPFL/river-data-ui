@@ -278,9 +278,13 @@ export interface DerivedParameter {
 	formula: string;
 	output_parameter_id: string | null;
 	description: string | null;
+	/** The calculation this formula belongs to. Null is a standalone definition, the per-reading
+	 *  continuous kind the derived job and janitor serve. */
+	tool_script_id: string | null;
+	/** Evaluation order inside the calculation. */
+	ordinal: number;
 	sources: DerivedParameterSource[];
 	created_at: string;
-	updated_at: string;
 }
 
 export interface DerivedParameterSource {

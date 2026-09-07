@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { fromNum, thresholdPatch, toNum } from './derivedParameters';
+import type { DerivedParameter } from '$api/crud';
+import { formulaOwnership, fromNum, thresholdPatch, toNum } from './derivedParameters';
 
 const blank = { warningMin: '', warningMax: '', alarmMin: '', alarmMax: '' };
 
@@ -32,5 +33,34 @@ describe('toNum and fromNum', () => {
 		expect(toNum(fromNum(0))).toBe(0);
 		expect(toNum('  ')).toBeNull();
 		expect(fromNum(null)).toBe('');
+	});
+});
+
+describe('formulaOwnership', () => {
+	const formula = (id: string, tool_script_id: string | null, ordinal: number) =>
+		({ id, tool_script_id, ordinal }) as unknown as DerivedParameter;
+
+	it('leaves a formula authored from the definition list standalone', () => {
+		expect(formulaOwnership(null, null, [])).toEqual({ tool_script_id: null, ordinal: 0 });
+	});
+
+	it('gives the first formula of a calculation ordinal 1', () => {
+		expect(formulaOwnership('calc', null, [])).toEqual({ tool_script_id: 'calc', ordinal: 1 });
+	});
+
+	it('takes the next free ordinal, counting only that calculation own formulas', () => {
+		const siblings = [formula('a', 'calc', 1), formula('b', 'calc', 4), formula('c', 'other', 9)];
+		expect(formulaOwnership('calc', null, siblings)).toEqual({
+			tool_script_id: 'calc',
+			ordinal: 5,
+		});
+	});
+
+	it('keeps what an existing definition already says rather than re-deciding it', () => {
+		const existing = formula('a', 'calc', 3);
+		expect(formulaOwnership('other', existing, [])).toEqual({
+			tool_script_id: 'calc',
+			ordinal: 3,
+		});
 	});
 });

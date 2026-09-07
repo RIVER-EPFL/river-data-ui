@@ -6,6 +6,7 @@ export function originLabel(source: string): string {
 	if (source === 'grab_sample') return 'manual entry';
 	if (source === 'csv' || source === 'csv_import') return 'CSV import';
 	if (source === 'api') return 'API';
+	if (source === 'derived') return 'computed';
 	return `${source} sync`;
 }
 

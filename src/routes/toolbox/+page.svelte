@@ -30,6 +30,16 @@
 		)
 	);
 	const missingInputs = $derived(unconfiguredInputs(rows));
+	/** A formula calculation holds an ordered set of formulas, and this is where one is added to
+	 *  it: authoring a formula from the definition list makes a standalone definition instead. */
+	const formulaCalculations = $derived(
+		scripts
+			.filter((s) => s.engine === 'formula')
+			.map((s) => ({
+				...s,
+				formulas: formulas.filter((f) => f.tool_script_id === s.id).length,
+			}))
+	);
 
 	onMount(async () => {
 		try {
@@ -75,7 +85,8 @@
 			<p class="text-sm text-brand-muted">
 				Every calculation: input parameters in, output parameters out, re-run at a visit when an
 				input changes. The engine is a property of the calculation, a formula or an R script,
-				not a separate surface. Authoring stays on the parameter and tool pages.
+				not a separate surface. A formula calculation's formulas are authored from here; an R
+				script's versions from the tool pages.
 			</p>
 		</div>
 		<div class="flex items-center gap-1.5 text-xs">
@@ -95,6 +106,31 @@
 	{:else if loading}
 		<p class="text-sm text-brand-muted">Loading…</p>
 	{:else}
+		{#if formulaCalculations.length > 0}
+			<div class="rounded-md border border-brand-divider bg-brand-surface px-4 py-3 text-sm">
+				<p class="font-semibold">Formula calculations</p>
+				<p class="text-brand-muted text-xs mt-0.5">
+					Each holds an ordered set of formulas over its group's members and records one run.
+				</p>
+				<ul class="mt-2 space-y-1">
+					{#each formulaCalculations as calculation}
+						<li class="flex items-center justify-between gap-3">
+							<span>
+								{calculation.label || calculation.name}
+								<span class="text-brand-muted text-xs">
+									({calculation.formulas} formula{calculation.formulas === 1 ? '' : 's'})
+								</span>
+							</span>
+							<a
+								href="{base}/derived/new?calculation={calculation.id}"
+								class="text-brand-primary no-underline hover:underline text-xs"
+							>Add formula</a>
+						</li>
+					{/each}
+				</ul>
+			</div>
+		{/if}
+
 		{#if missingInputs.length > 0}
 			<div
 				class="rounded-md border border-severity-warning-border bg-severity-warning-soft px-4 py-2.5 text-sm text-severity-warning-text"

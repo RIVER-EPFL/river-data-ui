@@ -1741,7 +1741,7 @@ export interface ProvenanceOrigin {
 	source_system: string;
 	source_key: string;
 	source_name?: string;
-	classification: 'sync' | 'manual' | 'csv' | 'api';
+	classification: 'sync' | 'manual' | 'csv' | 'api' | 'derived';
 	paired_at?: string;
 	ingested_at?: string;
 	value_arrived_at?: string;
@@ -1765,6 +1765,20 @@ export interface ProvenanceChain {
 	};
 }
 
+// The formula behind a derived value: the definition, and the version the value was made with.
+// A value stored before versioning names no version, so no formula is reported for it: today's
+// text is not what produced it.
+export interface ProvenanceCalculation {
+	definition_id: string;
+	code: string;
+	name: string;
+	version_id?: string;
+	version_no?: number;
+	formula?: string;
+	content_hash?: string;
+	active_version_no?: number;
+}
+
 export interface ProvenanceRecord {
 	origin: ProvenanceOrigin;
 	readings: ProvenanceReading[];
@@ -1783,6 +1797,7 @@ export interface ProvenanceRecord {
 		sd_estimator?: SdEstimator;
 		sd_estimator_source?: 'default' | 'slot' | 'sample' | 'stream' | 'tool';
 	};
+	calculation?: ProvenanceCalculation;
 	holds: { id: string; kind: HoldKind; status: string; created_at: string }[];
 }
 
@@ -2382,6 +2397,10 @@ export interface ToolScriptSummary {
 	version_count: number;
 	/** Part of the calculation set: fired at visits, audited and listed. Off, it runs only by name. */
 	enabled: boolean;
+	/** Which engine its versions carry: an R script, or a set of formulas. */
+	engine: 'script' | 'formula';
+	/** The group whose members it reads and writes. One calculation per group. */
+	parameter_group_id: string | null;
 	updated_at: string;
 }
 

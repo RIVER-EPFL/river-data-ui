@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { type FormulaNode, parseFromMeval, serializeToMeval, replaceAtPath, hasEmptySlots, wrapWithOp } from './ast';
+	import { type DragPayload, type FormulaNode, parseFromMeval, serializeToMeval, getNodeAtPath, replaceAtPath, hasEmptySlots, wrapWithOp, payloadToNode } from './ast';
 	import { tokens } from '$lib/charts/tokens';
 	import type { Constant } from '$api/crud';
 	import Button from '$components/ui/Button.svelte';
@@ -53,30 +53,6 @@
 		value = serializeToMeval(root);
 	}
 
-	function getNodeFromPath(path: string): FormulaNode | null {
-		if (path === 'root') return root;
-		const parts = path.replace('root.', '').split('.');
-		let node: FormulaNode = root;
-		for (const part of parts) {
-			if (node.type === 'binary') {
-				if (part === 'left') node = node.left;
-				else if (part === 'right') node = node.right;
-				else return null;
-			} else if (node.type === 'function') {
-				const idx = parseInt(part.replace('args.', ''));
-				if (!isNaN(idx) && node.args[idx]) node = node.args[idx];
-				else return null;
-			} else return null;
-		}
-		return node;
-	}
-
-	type DragPayload =
-		| { kind: 'variable'; name: string }
-		| { kind: 'constant'; name: string }
-		| { kind: 'function'; name: string }
-		| { kind: 'operator'; op: string };
-
 	let dragPayload: DragPayload | null = null;
 
 	function onDragStart(e: DragEvent, payload: DragPayload) {
@@ -99,29 +75,12 @@
 		dragOverPath = null;
 	}
 
-	function payloadToNode(payload: DragPayload, existing?: FormulaNode | null): FormulaNode {
-		switch (payload.kind) {
-			case 'variable':
-			case 'constant':
-				return { type: 'variable', name: payload.name };
-			case 'function': {
-				const argCount = MULTI_ARG_FUNCTIONS.has(payload.name) ? 2 : 1;
-				const firstArg = existing && existing.type !== 'empty' ? existing : { type: 'empty' as const };
-				const rest = Array(argCount - 1).fill({ type: 'empty' });
-				return { type: 'function', name: payload.name, args: [firstArg, ...rest] };
-			}
-			case 'operator':
-				if (existing && existing.type !== 'empty') return wrapWithOp(existing, payload.op);
-				return { type: 'binary', op: payload.op, left: { type: 'empty' }, right: { type: 'empty' } };
-		}
-	}
-
 	function onDrop(e: DragEvent, path: string) {
 		e.preventDefault();
 		e.stopPropagation();
 		dragOverPath = null;
 		if (!dragPayload) return;
-		const existing = getNodeFromPath(path);
+		const existing = getNodeAtPath(root, path);
 		const node = payloadToNode(dragPayload, existing);
 		root = replaceAtPath(root, path, node);
 		dragPayload = null;
@@ -153,7 +112,7 @@
 	}
 
 	function addFunctionArg(path: string) {
-		const node = getNodeFromPath(path);
+		const node = getNodeAtPath(root, path);
 		if (node && node.type === 'function') {
 			node.args.push({ type: 'empty' });
 			root = { ...root };
@@ -189,7 +148,7 @@
 
 	function clickPalette(payload: DragPayload) {
 		if (selectedPath) {
-			const existing = getNodeFromPath(selectedPath);
+			const existing = getNodeAtPath(root, selectedPath);
 			const node = payloadToNode(payload, existing);
 			root = replaceAtPath(root, selectedPath, node);
 			selectedPath = payload.kind === 'operator' ? `${selectedPath}.right` : null;

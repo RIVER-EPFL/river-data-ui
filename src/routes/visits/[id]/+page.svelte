@@ -471,12 +471,20 @@
 							</td>
 							<td class="px-2 py-1">
 								{#if row.standardCurveId}
+									{@const curveTool = row.writtenBy ?? row.tool}
 									{@const sensorId = curveRefs.standardCurveSensorId(row.standardCurveId)}
-									{#if sensorId}
+									{#if curveTool}
+										<button
+											type="button"
+											class="text-brand-primary hover:underline"
+											title="The curve the stored values were corrected with. It is chosen in {curveTool}, which is where its uses are seen, never here."
+											onclick={() => openCalculation(curveTool)}
+										>{curveRefs.standardCurveLabel(row.standardCurveId)}</button>
+									{:else if sensorId}
 										<a
 											class="text-brand-primary hover:underline"
 											href="{base}/sensors/{sensorId}?tab=curves"
-											title="The curve the stored values were corrected with. A curve is chosen in the tool that computes with it, never here."
+											title="The curve the stored values were corrected with. No calculation wrote this row, so the instrument holding the curve is where it is read."
 										>{curveRefs.standardCurveLabel(row.standardCurveId)}</a>
 									{:else}
 										<span title="The curve the stored values were corrected with. A curve is chosen in the tool that computes with it, never here."

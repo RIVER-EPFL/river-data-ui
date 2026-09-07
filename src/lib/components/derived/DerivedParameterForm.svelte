@@ -12,20 +12,30 @@
 		type SiteParameter,
 	} from '$api/crud';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { fromNum, thresholdPatch } from '$lib/derivedParameters';
+	import { listToolScripts, type ToolScriptSummary } from '$api/service';
+	import { formulaOwnership, fromNum, thresholdPatch } from '$lib/derivedParameters';
 	import Button from '$components/ui/Button.svelte';
 	import VisualFormulaBuilder from '$lib/components/formula/VisualFormulaBuilder.svelte';
 	import LivePreview from '$lib/components/derived/LivePreview.svelte';
 
 	// The derived-parameter form in both modes. The bounds live on the output parameter's global
 	// threshold row, and a create only learns that parameter's id after the after-create hook.
-	let { mode, defId = null }: { mode: 'create' | 'edit'; defId?: string | null } = $props();
+	// `calculationId` is what makes this the calculation's formula rather than a standalone
+	// definition: M67 gave a formula calculation its formulas as definitions carrying
+	// `tool_script_id` and an `ordinal`, and until now the form sent neither.
+	let {
+		mode,
+		defId = null,
+		calculationId = null,
+	}: { mode: 'create' | 'edit'; defId?: string | null; calculationId?: string | null } = $props();
 
 	let def = $state<DerivedParameter | null>(null);
 	let allParams = $state<Parameter[]>([]);
 	let allSites = $state<Site[]>([]);
 	let allSiteParams = $state<SiteParameter[]>([]);
 	let constants = $state<Constant[]>([]);
+	let siblings = $state<DerivedParameter[]>([]);
+	let calculations = $state<ToolScriptSummary[]>([]);
 	let loading = $state(true);
 	let saving = $state(false);
 
@@ -47,6 +57,12 @@
 
 	const editing = untrack(() => mode === 'edit');
 	const backHref = $derived(editing ? `${base}/derived/${defId}` : `${base}/parameters?type=derived`);
+	/** The calculation this formula belongs to, once it is known: the one being authored for, or
+	 *  the one the definition already names. */
+	const ownedBy = $derived.by(() => {
+		const id = def?.tool_script_id ?? calculationId;
+		return id ? (calculations.find((c) => c.id === id) ?? null) : null;
+	});
 
 	const paramVars = $derived(
 		allParams
@@ -79,17 +95,21 @@
 
 	onMount(async () => {
 		try {
-			const [d, p, s, sp, c] = await Promise.all([
+			const [d, p, s, sp, c, f, ts] = await Promise.all([
 				editing && defId ? api.derivedParameters.get(defId) : Promise.resolve(null),
 				api.parameters.list({ perPage: 500, sort: ['name', 'ASC'] }),
 				api.sites.list({ perPage: 200, sort: ['name', 'ASC'] }),
 				api.siteParameters.list({ perPage: 1000 }),
 				api.constants.list({ perPage: 200, sort: ['name', 'ASC'] }),
+				api.derivedParameters.list({ perPage: 500 }),
+				listToolScripts().catch(() => [] as ToolScriptSummary[]),
 			]);
 			allParams = p.data;
 			allSites = s.data;
 			allSiteParams = sp.data;
 			constants = c.data;
+			siblings = f.data;
+			calculations = ts;
 			if (!d) return;
 			def = d;
 			code = d.code;
@@ -116,7 +136,14 @@
 		if (!code || !formula) return;
 		saving = true;
 		try {
-			const values = { code, name: name || code, units, formula, description: description || undefined };
+			const values = {
+				code,
+				name: name || code,
+				units,
+				formula,
+				description: description || undefined,
+				...formulaOwnership(calculationId, def, siblings),
+			};
 			// The output parameter is created by an after-create hook, so a create re-fetches the
 			// definition to learn its id before it can write its bounds.
 			let outputId = outputParameterId;
@@ -158,6 +185,16 @@
 		<h2 class="text-xl font-semibold mt-1">
 			{editing ? `Edit ${def?.name || def?.code || ''}` : 'New Derived Parameter'}
 		</h2>
+		{#if ownedBy}
+			<p class="text-sm text-brand-muted mt-1">
+				A formula of <a href="{base}/tools/manage" class="text-brand-primary no-underline hover:underline">{ownedBy.label || ownedBy.name}</a>,
+				which runs its formulas together and records one run.
+			</p>
+		{:else if !editing}
+			<p class="text-sm text-brand-muted mt-1">
+				Standalone: computed per source reading, belonging to no calculation.
+			</p>
+		{/if}
 	</div>
 
 	{#if loading}
