@@ -8,6 +8,7 @@
 	import { estimatorLabel } from '$lib/sdEstimator';
 	import Button from '$components/ui/Button.svelte';
 	import type { Field } from '$components/crud/CrudForm.svelte';
+	import ChangeTrail from '$components/audit/ChangeTrail.svelte';
 
 	let siteOptions = $state<Array<{ value: string; label: string }>>([]);
 	let paramOptions = $state<Array<{ value: string; label: string }>>([]);
@@ -195,4 +196,8 @@
 		</div>
 	{/if}
 	{#if declareNote}<p class="text-xs text-brand-muted">{declareNote}</p>{/if}
+</div>
+
+<div class="mt-4">
+	<ChangeTrail subject={`site_parameter:${page.params.id}`} title="What has been done to this slot" />
 </div>

@@ -10,6 +10,7 @@
 		type HoldKind,
 		getReadingDecisions,
 		rollbackEdit,
+		rollbackEditSet,
 		type ReadingDecision,
 	} from '$api/service';
 	import type { SampleReplicate } from '$api/types';
@@ -23,7 +24,14 @@
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import ProvenanceCard from '$components/samples/ProvenanceCard.svelte';
 	import EditReadingDialog from '$components/dialogs/EditReadingDialog.svelte';
-	import { EDIT_METHODS } from '$lib/provenance/edits';
+	import {
+		changedFields,
+		decisionLabel,
+		fieldLabel,
+		timelineEntries,
+		undoable,
+		type DecisionEntry,
+	} from '$lib/provenance/decisions';
 
 	// The record of one measured instant, pinned in place under its chart or table row.
 	let {
@@ -73,15 +81,6 @@
 	let editOpen = $state(false);
 	let editSelection = $state<{ keys: { stream_id: string; time: string }[] } | null>(null);
 
-	/** A decision that still stands, so rolling it back is a thing that can be done. */
-	function live(d: ReadingDecision): boolean {
-		return !d.rolled_back_by && d.kind !== 'rollback';
-	}
-
-	function decisionLabel(kind: string): string {
-		return (EDIT_METHODS as Record<string, { label: string }>)[kind]?.label ?? kind;
-	}
-
 	async function toggleDecisions(i: number, rec: ProvenanceRecord) {
 		const next = new Set(showDecisions);
 		if (next.has(i)) {
@@ -92,6 +91,18 @@
 		next.add(i);
 		showDecisions = next;
 		await loadDecisions(i, rec);
+	}
+
+	function cellText(v: unknown): string {
+		if (v === null || v === undefined || v === '') return NO_VALUE;
+		return typeof v === 'string' ? v : JSON.stringify(v);
+	}
+
+	function memberRows(e: DecisionEntry): string {
+		const rows = e.members
+			.map((m) => (m.replicate_index === null || m.replicate_index === undefined ? 'the group' : `replicate ${m.replicate_index}`))
+			.join(', ');
+		return `One act over ${rows}`;
 	}
 
 	async function loadDecisions(i: number, rec: ProvenanceRecord) {
@@ -109,10 +120,17 @@
 		}
 	}
 
-	async function rollBack(i: number, rec: ProvenanceRecord, d: ReadingDecision) {
+	// A set was one act, so it is undone as one: the set endpoint inverts every live decision it
+	// recorded, which is what the per-decision endpoint cannot do for its siblings.
+	async function rollBack(i: number, rec: ProvenanceRecord, e: DecisionEntry) {
+		const d = e.head;
 		rollingBack = d.id;
 		try {
-			await rollbackEdit(d.id);
+			if (e.set_id && e.members.length > 1) {
+				await rollbackEditSet(e.set_id);
+			} else {
+				await rollbackEdit(d.id);
+			}
 			toastStore.success(`${decisionLabel(d.kind)} rolled back`);
 			await loadDecisions(i, rec);
 			await load();
@@ -178,8 +196,11 @@
 		return undefined;
 	}
 
+	// When the value on display arrived, which is the correction that wrote it where there is one.
+	// `ingested_at` is the row's first arrival and nothing moves it.
 	function arrivedText(r: ProvenanceReading): string {
-		return r.ingested_at ? formatDateTime(r.ingested_at) : NO_VALUE;
+		const at = r.value_arrived_at ?? r.ingested_at;
+		return at ? formatDateTime(at) : NO_VALUE;
 	}
 
 	// Every reading says where it came from, whether its story is stored on the row (a tool run, a
@@ -407,8 +428,13 @@
 					<span class="text-brand-muted" title={rec.origin.source_key}>
 						{rec.origin.source_name ?? rec.origin.source_key}
 					</span>
-					{#if rec.origin.ingested_at}
-						<span class="text-brand-muted">arrived {formatDateTime(rec.origin.ingested_at)}</span>
+					{#if rec.origin.value_arrived_at ?? rec.origin.ingested_at}
+						<span
+							class="text-brand-muted"
+							title={rec.origin.ingested_at ? `First arrived ${formatDateTime(rec.origin.ingested_at)}` : undefined}
+						>
+							arrived {formatDateTime((rec.origin.value_arrived_at ?? rec.origin.ingested_at) as string)}
+						</span>
 					{/if}
 					{#if rec.origin.paired_at}
 						<span class="text-brand-muted">paired {formatDateTime(rec.origin.paired_at)}</span>
@@ -565,20 +591,31 @@
 							</p>
 						{:else}
 							<ul class="space-y-1">
-								{#each decisions[i] ?? [] as d (d.id)}
+								{#each timelineEntries(decisions[i] ?? []) as e (e.head.id)}
 									<li class="flex flex-wrap items-baseline gap-x-2">
-										<span class="font-medium">{decisionLabel(d.kind)}</span>
+										<span class="font-medium">{decisionLabel(e.head.kind)}</span>
+										{#if e.members.length > 1}
+											<span class="text-gray-500" title={memberRows(e)}
+												>{formatCount(e.members.length)} readings</span
+											>
+										{/if}
 										<span class="text-gray-500">
-											{formatDateTime(d.at)} · {d.actor} · {d.origin}
+											{formatDateTime(e.head.at)} · {e.head.actor} · {e.head.origin}
 										</span>
-										{#if d.reason}<span class="text-gray-500">“{d.reason}”</span>{/if}
-										{#if d.rolled_back_by}
+										{#each changedFields(e.head) as c (c.field)}
+											<span class="text-gray-500">
+												{fieldLabel(c.field)}
+												{cellText(c.from)} → {cellText(c.to)}
+											</span>
+										{/each}
+										{#if e.head.reason}<span class="text-gray-500">“{e.head.reason}”</span>{/if}
+										{#if e.head.rolled_back_by}
 											<span class="text-gray-400">rolled back</span>
-										{:else if live(d)}
+										{:else if undoable(e.head)}
 											<button
 												class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline disabled:opacity-50"
-												disabled={rollingBack === d.id}
-												onclick={() => rollBack(i, rec, d)}>Roll back</button
+												disabled={rollingBack === e.head.id}
+												onclick={() => rollBack(i, rec, e)}>Roll back</button
 											>
 										{/if}
 									</li>

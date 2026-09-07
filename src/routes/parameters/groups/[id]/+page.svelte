@@ -12,6 +12,7 @@
 	import Button from '$components/ui/Button.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
+	import ChangeTrail from '$components/audit/ChangeTrail.svelte';
 
 	const groupId = page.params.id!;
 
@@ -255,5 +256,7 @@
 			<p class="text-xs text-brand-muted">A parameter belongs to one group; assigning one that is already grouped is refused, naming the group that holds it.</p>
 			{#if assignError}<ErrorNotice message={assignError} />{/if}
 		</div>
+
+		<ChangeTrail subject={`parameter_group:${group.id}`} title="What has been done to this group" />
 	</div>
 {/if}

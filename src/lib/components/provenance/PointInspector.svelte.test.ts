@@ -5,7 +5,13 @@ import type { ProvenanceResponse } from '$api/service';
 import { formatDateTime } from '$lib/utils';
 
 const getReadingProvenance = vi.fn();
-vi.mock('$api/service', () => ({ getReadingProvenance: (q: unknown) => getReadingProvenance(q) }));
+const getReadingDecisions = vi.fn();
+vi.mock('$api/service', () => ({
+	getReadingProvenance: (q: unknown) => getReadingProvenance(q),
+	getReadingDecisions: (q: unknown) => getReadingDecisions(q),
+	rollbackEdit: vi.fn(),
+	rollbackEditSet: vi.fn(),
+}));
 
 const PointInspector = (await import('./PointInspector.svelte')).default;
 
@@ -71,6 +77,71 @@ describe('PointInspector', () => {
 		for (const label of ['Measured', 'Corrected', 'Calibration', 'Standard curve', 'State']) {
 			expect(screen.getByText(label)).toBeTruthy();
 		}
+	});
+
+	it('reports when the value on display arrived, not when the row first did', async () => {
+		const resp = response([
+			{
+				origin: {
+					stream_id: 'stream',
+					source_system: 'cnet',
+					source_key: 'FP15:pH',
+					classification: 'sync',
+					ingested_at: '2026-07-15T04:00:00Z',
+					value_arrived_at: '2026-08-02T11:00:00Z',
+				},
+				readings: [
+					reading(0, 8.005, {
+						ingested_at: '2026-07-15T04:00:00Z',
+						value_arrived_at: '2026-08-02T11:00:00Z',
+					}),
+				],
+				chain: {},
+				computation: { sd_estimator: 'sample', sd_estimator_source: 'default' },
+				holds: [],
+			},
+		]);
+		const { container } = open(resp);
+		await screen.findByText('8.005');
+		expect(container.textContent).toContain('2 Aug 2026');
+		expect(container.textContent).not.toContain('arrived 15 Jul 2026');
+	});
+
+	it('offers Roll back only where the API says the kind can be rolled back', async () => {
+		getReadingDecisions.mockResolvedValue([
+			{
+				id: 'd1',
+				stream_id: 'stream',
+				time: '2026-07-14T09:00:00Z',
+				kind: 'value_correction',
+				old: { raw_value: 8.005 },
+				new: { raw_value: 11 },
+				actor: 'lab',
+				at: '2026-08-02T11:00:00Z',
+				origin: 'manual',
+				reversible: true,
+			},
+			{
+				id: 'd2',
+				stream_id: 'stream',
+				time: '2026-07-14T09:00:00Z',
+				kind: 'chain',
+				old: {},
+				new: { run_id: 'run-1' },
+				actor: 'chain',
+				at: '2026-08-01T11:00:00Z',
+				origin: 'chain',
+				reversible: false,
+			},
+		]);
+		const { container } = open(handEntered());
+		await screen.findByText('8.005');
+		(await screen.findByText('Show decisions')).click();
+		await screen.findByText('Value corrected');
+		expect(screen.getByText('Calculated by a chain run')).toBeTruthy();
+		expect(screen.getAllByText('Roll back')).toHaveLength(1);
+		// The change itself, which the record held and the panel used not to show.
+		expect(container.textContent).toContain('8.005 → 11');
 	});
 
 	it('writes an absent value as a plain hyphen and never an em dash', async () => {

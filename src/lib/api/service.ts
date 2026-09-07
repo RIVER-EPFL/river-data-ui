@@ -1724,7 +1724,11 @@ export interface ProvenanceReading {
 	flag_reason?: string;
 	withdrawn_at?: string;
 	withdrawn_reason?: string;
+	/// When the row first existed. Nothing moves it.
 	ingested_at?: string;
+	/// When the value the row currently serves arrived: its latest live correction, else its first
+	/// arrival.
+	value_arrived_at?: string;
 	/// Where the value came from: a stored blob's kind, or the one the row's stream proves.
 	provenance_kind?: string;
 	calibration?: ProvenanceCalibrationRef;
@@ -1739,6 +1743,7 @@ export interface ProvenanceOrigin {
 	classification: 'sync' | 'manual' | 'csv' | 'api';
 	paired_at?: string;
 	ingested_at?: string;
+	value_arrived_at?: string;
 	receipt?: StreamReceipt;
 }
 
@@ -3066,6 +3071,8 @@ export interface ReadingDecision {
 	supersedes?: string | null;
 	rolled_back_by?: string | null;
 	set_id?: string | null;
+	/** Whether the rollback endpoint accepts this kind; absent on an API that predates the field. */
+	reversible?: boolean;
 }
 
 export const getReadingDecisions = (key: {
@@ -3073,3 +3080,16 @@ export const getReadingDecisions = (key: {
 	time: string;
 	replicate_index?: number;
 }) => GET<ReadingDecision[]>(`${SERVICE}/readings/decisions`, { ...key });
+
+export interface ChangeEntry {
+	changed_at: string;
+	changed_by?: string | null;
+	/** What happened, as the writer named it: `site_parameter_update`, `member_insert`, and so on. */
+	change: string;
+	old_value?: Record<string, unknown> | null;
+	new_value?: Record<string, unknown> | null;
+}
+
+/** The change trail of one subject, newest first. An unknown subject is an empty list. */
+export const getChangeAudit = (subject: string) =>
+	GET<ChangeEntry[]>(`${SERVICE}/change_audit`, { subject });
