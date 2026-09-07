@@ -7,29 +7,32 @@
 		getCollectionEventDetail,
 		previewEdit,
 		rollbackEditSet,
+		listSiteVisits,
 		saveGrabSample,
 		type CalculationImpact,
 		type EventDetailResponse,
 	} from '$api/service';
 	import {
-		addParameterRow,
-		addableParameters,
 		applyPaste,
 		clearedCells,
 		entryGroups,
 		gridFromVisit,
 		pendingWrites,
+		rowsInGroup,
+		seedReplicateCounts,
+		setReplicateCount,
 		stagedVisitFrom,
 		touchedParameters,
 		headerCount,
 		isEditable,
 		setCellValue,
+		withConfiguredRows,
 		type ConfiguredParameter,
 		type GridRow,
 	} from '$lib/visits/grid';
 	import { at, covers, isGridKey, move, type Selection } from '$lib/visits/keys';
 	import { push, undo, type History } from '$lib/visits/history';
-	import { api, type Sensor } from '$api/crud';
+	import { api, type ParameterGroup, type Sensor } from '$api/crud';
 	import { goto } from '$app/navigation';
 	import { stagedVisit } from '$lib/stores/visit.svelte';
 	import { curveRefs } from '$lib/curveRefs.svelte';
@@ -63,7 +66,10 @@
 	// What the grid held before each edit, so one mistyped cell costs the cell and not the block.
 	let history = $state<History<GridRow[]>>([]);
 	let configured = $state<ConfiguredParameter[]>([]);
-	let chosenParameter = $state('');
+	/** The group each parameter belongs to, and the groups themselves, for the grid's filter. */
+	let groups = $state<ParameterGroup[]>([]);
+	let groupOf = $state<Record<string, string>>({});
+	let groupFilter = $state('');
 	// The visit's retraction: what withdrawing it would cover, and the set that undoes it.
 	let withdrawOpen = $state(false);
 	let withdrawing = $state(false);
@@ -77,7 +83,7 @@
 	let slotDisplay = $state<Record<string, { units?: string; decimals?: number }>>({});
 
 	const width = $derived(headerCount(rows));
-	const addable = $derived(addableParameters(rows, configured));
+	const shown = $derived(new Set(rowsInGroup(rows, groupOf, groupFilter).map((r) => r.parameterId)));
 	const writes = $derived(pendingWrites(rows));
 	const cleared = $derived(clearedCells(rows));
 
@@ -99,13 +105,21 @@
 			.finally(() => (loading = false));
 	});
 
-	/** The site's configured parameters, so a visit can take a value it has never held before. */
+	/**
+	 * The site's own sheet: every parameter it is assigned, the group each belongs to, and how wide
+	 * each row opens (Q61). The visit's stored values are already on the grid; this is what the
+	 * site adds around them.
+	 */
 	async function loadConfigured(siteId: string) {
-		const [slots, catalog, instruments] = await Promise.all([
+		const [slots, catalog, instruments, groupRows, members] = await Promise.all([
 			api.siteParameters.list({ perPage: 500, filter: { site_id: siteId } }),
 			api.parameters.list({ perPage: 1000, sort: ['code', 'ASC'] }),
 			api.sensors.list({ perPage: 200, sort: ['name', 'ASC'] }),
+			api.parameterGroups.list({ perPage: 200, sort: ['ordinal', 'ASC'] }),
+			api.parameterGroupMembers.list({ perPage: 1000 }),
 		]);
+		groups = groupRows.data;
+		groupOf = Object.fromEntries(members.data.map((m) => [m.parameter_id, m.group_id]));
 		sensors = instruments.data;
 		// What each slot declares measures it, which is what a row with nothing stored takes.
 		slotInstruments = Object.fromEntries(
@@ -134,6 +148,30 @@
 				};
 			})
 			.sort((a, b) => a.code.localeCompare(b.code));
+		rows = seedReplicateCounts(withConfiguredRows(rows, configured), await priorWidths(siteId));
+	}
+
+	/**
+	 * How many repeats the site last recorded for each parameter, from its most recent visits. A
+	 * parameter with no history is absent, which opens its row one cell wide.
+	 */
+	async function priorWidths(siteId: string): Promise<Record<string, number>> {
+		try {
+			const visits = await listSiteVisits(siteId, { page: 1, page_size: 10 });
+			const widths: Record<string, number> = {};
+			// Newest first, so the first visit holding a parameter is the one that answers for it.
+			for (const visit of visits.visits) {
+				for (const cell of visit.cells) {
+					if (cell.n_total > 0 && !(cell.parameter_id in widths)) {
+						widths[cell.parameter_id] = cell.n_total;
+					}
+				}
+			}
+			return widths;
+		} catch {
+			// Without the history every row opens one cell wide, which is what it did before.
+			return {};
+		}
 	}
 
 	/** Open the calculation that writes a row, at this visit, with what it reads already loaded. */
@@ -150,12 +188,9 @@
 		await goto(`${base}/tools?tool=${encodeURIComponent(tool)}`);
 	}
 
-	function addParameter() {
-		const parameter = addable.find((p) => p.parameterId === chosenParameter);
-		if (!parameter) return;
+	function setRowReplicates(rowIndex: number, count: number) {
 		remember();
-		rows = addParameterRow(rows, parameter);
-		chosenParameter = '';
+		rows = setReplicateCount(rows, rowIndex, count);
 	}
 
 	// Record what the grid holds before changing it. Every edit replaces `rows` wholesale, so the
@@ -238,19 +273,21 @@
 		try {
 			// A value nothing computed is corrected in place through the edit primitive; a replicate
 			// the visit did not hold is an entry, so it goes through the grab write path (Q8).
-			for (const write of writes.filter((w) => w.corrects)) {
+			// One decision over every corrected cell: the values differ per key, so they travel on
+			// the keys. A pasted block is then one set to roll back rather than one per cell, and
+			// a failure part-way leaves nothing half corrected.
+			const corrections = writes.filter((w) => w.corrects);
+			if (corrections.length > 0) {
 				const selection = {
-					keys: [
-						{
-							stream_id: write.streamId,
-							time: visit.collected_at,
-							replicate_index: write.replicateIndex,
-						},
-					],
+					keys: corrections.map((w) => ({
+						stream_id: w.streamId,
+						time: visit.collected_at,
+						replicate_index: w.replicateIndex,
+						value: w.value,
+					})),
 				};
 				const decision = {
 					kind: 'value_correction' as const,
-					value: write.value,
 					reason: 'corrected in the visit grid',
 				};
 				const preview = await previewEdit(selection, decision);
@@ -381,28 +418,28 @@
 
 		<div class="flex flex-wrap items-center gap-2 text-sm">
 			<span class="text-brand-muted">
-				A row is as wide as the repeats it holds: type into the empty cell after the last one to
-				add a repeat to that parameter alone. Paste a spreadsheet block into any cell and it
-				fills rightward and downward, where a blank cell stays a gap.
+				Each row opens as wide as the site last recorded that parameter; − and + change its
+				repeat count, and a stored repeat is never dropped by the minus. Paste a spreadsheet
+				block into any cell and it fills rightward and downward, where a blank cell stays a
+				gap.
 			</span>
 		</div>
 
 		<div class="flex flex-wrap items-center gap-2 text-sm">
-			<label for="add-parameter">Add a parameter</label>
+			<label for="group-filter">Parameter group</label>
 			<select
-				id="add-parameter"
-				bind:value={chosenParameter}
-				disabled={addable.length === 0}
+				id="group-filter"
+				bind:value={groupFilter}
 				class="rounded-md border border-brand-divider bg-brand-surface px-2 py-1"
+				title="Narrow the sheet to one group. Every parameter the site is assigned is on the grid either way."
 			>
-				<option value="">
-					{addable.length === 0 ? 'Every configured parameter is on the grid' : 'Choose a parameter'}
-				</option>
-				{#each addable as parameter (parameter.parameterId)}
-					<option value={parameter.parameterId}>{parameter.name} ({parameter.code})</option>
+				<option value="">All groups</option>
+				{#each groups as group (group.id)}
+					<option value={group.id}>{group.label}</option>
 				{/each}
+				<option value="none">Ungrouped</option>
 			</select>
-			<Button size="sm" disabled={chosenParameter === ''} onclick={addParameter}>Add row</Button>
+			<span class="text-brand-muted">{shown.size} of {rows.length} parameters</span>
 		</div>
 
 		<div class="overflow-x-auto">
@@ -415,6 +452,7 @@
 						{#each Array.from({ length: width }, (_, i) => i) as column (column)}
 							<th class="px-2 py-1">Rep {column + 1}</th>
 						{/each}
+						<th class="px-2 py-1">Repeats</th>
 						<th class="px-2 py-1">n</th>
 						<th class="px-2 py-1">Mean</th>
 						<th class="px-2 py-1">SD</th>
@@ -424,6 +462,7 @@
 				</thead>
 				<tbody>
 					{#each rows as row, rowIndex (row.parameterId)}
+						{#if shown.has(row.parameterId)}
 						<tr class="border-t border-gray-100 dark:border-gray-800">
 							<th
 								scope="row"
@@ -527,6 +566,27 @@
 									{/if}
 								</td>
 							{/each}
+							<td class="px-2 py-1 whitespace-nowrap">
+								{#if row.writtenBy}
+									<span class="text-brand-muted">—</span>
+								{:else}
+									<button
+										type="button"
+										class="rounded border border-brand-divider px-1.5 leading-none"
+										title="One repeat fewer. A repeat the store holds is not dropped here: that is a flag or a withdrawal."
+										aria-label="One repeat fewer for {row.parameterName}"
+										onclick={() => setRowReplicates(rowIndex, row.replicates.length - 1)}
+									>&minus;</button>
+									<span class="px-1 text-brand-muted">{row.replicates.length}</span>
+									<button
+										type="button"
+										class="rounded border border-brand-divider px-1.5 leading-none"
+										title="One repeat more"
+										aria-label="One repeat more for {row.parameterName}"
+										onclick={() => setRowReplicates(rowIndex, row.replicates.length + 1)}
+									>&plus;</button>
+								{/if}
+							</td>
 							<td class="px-2 py-1 text-brand-muted">{row.stats ? row.stats.n : '—'}</td>
 							<td class="px-2 py-1 text-brand-muted">{fmt(row.stats?.mean)}</td>
 							<td
@@ -540,7 +600,7 @@
 						</tr>
 						{#if inspecting?.parameterId === row.parameterId && detail}
 							<tr class="border-t border-gray-100 dark:border-gray-800">
-								<td colspan={width + 8} class="px-2 py-2">
+								<td colspan={width + 9} class="px-2 py-2">
 									<PointInspector
 										siteId={detail.site_id}
 										parameterId={row.parameterId}
@@ -554,6 +614,7 @@
 									/>
 								</td>
 							</tr>
+						{/if}
 						{/if}
 					{/each}
 				</tbody>

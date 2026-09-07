@@ -62,15 +62,6 @@ export interface ConfiguredParameter {
 	name: string;
 }
 
-/** The configured parameters the visit does not hold a row for yet. */
-export function addableParameters(
-	rows: GridRow[],
-	configured: ConfiguredParameter[],
-): ConfiguredParameter[] {
-	const held = new Set(rows.map((r) => r.parameterId));
-	return configured.filter((p) => !held.has(p.parameterId));
-}
-
 /**
  * A row for a parameter measured at this visit but never stored here: no replicates yet, and no
  * stream behind it. The grab write path mints the slot's channel on save.
@@ -208,6 +199,78 @@ function rowOf(cell: EventCell): GridRow {
 /** The grid a visit opens as: its stored parameters in the order the detail serves them. */
 export function gridFromVisit(detail: EventDetailResponse): GridRow[] {
 	return detail.cells.map(rowOf);
+}
+
+/**
+ * The grid as the site defines it: every parameter the site is assigned, in the assigned order,
+ * with the visit's own rows filled in where it holds them (Q61).
+ *
+ * A parameter the visit holds and the site no longer declares stays on the grid. Its values are
+ * stored, and a sheet that hides them is a sheet that says they were never measured.
+ */
+export function withConfiguredRows(
+	rows: GridRow[],
+	configured: ConfiguredParameter[],
+): GridRow[] {
+	const held = new Map(rows.map((r) => [r.parameterId, r]));
+	const assigned = configured.map(
+		(p) => held.get(p.parameterId) ?? addParameterRow([], p)[0],
+	);
+	const unassigned = rows.filter((r) => !configured.some((p) => p.parameterId === r.parameterId));
+	return [...assigned, ...unassigned];
+}
+
+/**
+ * The rows of one parameter group. `""` is every row; `"none"` is the rows no group claims, which
+ * is what keeps a parameter belonging to nothing reachable rather than filtered out of existence.
+ */
+export function rowsInGroup(
+	rows: GridRow[],
+	groupOf: Record<string, string>,
+	groupId: string,
+): GridRow[] {
+	if (groupId === '') return rows;
+	if (groupId === 'none') return rows.filter((r) => !groupOf[r.parameterId]);
+	return rows.filter((r) => groupOf[r.parameterId] === groupId);
+}
+
+/**
+ * Open each empty row at the width the site last used for that parameter, so a triplicate slot
+ * arrives with three cells rather than one (Q61).
+ *
+ * A row that already holds values keeps its own width: the stored group is the record, and the
+ * site's habit is a default for what has not been entered yet.
+ */
+export function seedReplicateCounts(
+	rows: GridRow[],
+	widths: Record<string, number>,
+): GridRow[] {
+	return rows.map((row) => {
+		if (row.replicates.length > 0) return row;
+		const count = Math.max(1, widths[row.parameterId] ?? 1);
+		return { ...row, replicates: Array.from({ length: count }, emptyCell) };
+	});
+}
+
+/**
+ * Set one row's replicate count by hand.
+ *
+ * Growing appends empty cells. Shrinking stops at the last stored replicate: dropping a value the
+ * store holds is a curation decision, taken through the flag and withdraw paths, not by narrowing a
+ * column. A row always keeps one cell to type into.
+ */
+export function setReplicateCount(rows: GridRow[], rowIndex: number, count: number): GridRow[] {
+	return rows.map((row, index) => {
+		if (index !== rowIndex || row.writtenBy) return row;
+		const lastStored = row.replicates.reduce(
+			(last, cell, i) => (cell.stored !== null ? i + 1 : last),
+			0,
+		);
+		const width = Math.max(1, lastStored, count);
+		const replicates = row.replicates.slice(0, width);
+		while (replicates.length < width) replicates.push(emptyCell());
+		return { ...row, replicates };
+	});
 }
 
 /** Grow every row to `count` replicate columns, so the grid stays rectangular. */

@@ -3048,7 +3048,13 @@ export interface EditSelection {
 	parameter_id?: string;
 	from?: string;
 	to?: string;
-	keys?: { stream_id: string; time: string; replicate_index?: number | null }[];
+	/** `value` corrects that key alone, so a block of cells is one decision rather than one each. */
+	keys?: {
+		stream_id: string;
+		time: string;
+		replicate_index?: number | null;
+		value?: number;
+	}[];
 }
 
 export interface EditDecisionBody {

@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import type { EventCell, EventDetailResponse } from '$api/service';
 import {
 	addParameterRow,
-	addableParameters,
 	applyPaste,
 	clearedCells,
 	columnCount,
@@ -12,10 +11,14 @@ import {
 	headerCount,
 	isEditable,
 	pendingWrites,
+	rowsInGroup,
+	seedReplicateCounts,
 	setCellValue,
+	setReplicateCount,
 	stagedVisitFrom,
 	touchedParameters,
 	withColumns,
+	withConfiguredRows,
 } from './grid';
 
 function cell(over: Partial<EventCell> = {}): EventCell {
@@ -245,20 +248,12 @@ describe('entering a parameter the visit does not hold yet', () => {
 		{ parameterId: 'p-ph', code: 'pH', name: 'pH' },
 	];
 
-	it('offers only what is not already a row', () => {
-		const rows = gridFromVisit(visit([cell({ replicates: [stored(0, 120)] })]));
-		expect(addableParameters(rows, configured)).toEqual([
-			{ parameterId: 'p-ph', code: 'pH', name: 'pH' },
-		]);
-	});
-
 	it('adds a row of no replicates, and writes what is typed into it as an entry', () => {
 		let rows = gridFromVisit(visit([cell({ replicates: [stored(0, 120), stored(1, 118)] })]));
 		rows = addParameterRow(rows, configured[1]);
 		expect(rows).toHaveLength(2);
 		expect(rows[1].parameterId).toBe('p-ph');
 		expect(rows[1].replicates).toEqual([]);
-		expect(addableParameters(rows, configured)).toEqual([]);
 
 		rows = applyPaste(rows, 1, 0, '7.1\t7.3');
 		expect(pendingWrites(rows)).toEqual([
@@ -409,5 +404,115 @@ describe('the instrument a row was measured with', () => {
 		const rows = gridFromVisit(visit([cell({ replicates: [stored(0, 120)] })]));
 		rows[0].replicates[0].value = 121;
 		expect(pendingWrites(rows).map((w) => w.sensorId)).toEqual([null]);
+	});
+});
+
+describe('the grid a site opens as', () => {
+	const configured = [
+		{ parameterId: 'p-doc', code: 'DOC_ppb', name: 'DOC' },
+		{ parameterId: 'p-nut', code: 'NUT_P_ugL', name: 'Phosphate' },
+		{ parameterId: 'p-chla', code: 'Chla_ugL', name: 'Chlorophyll a' },
+	];
+
+	it('holds one row per parameter the site is assigned, stored or not', () => {
+		const rows = withConfiguredRows(
+			gridFromVisit(visit([cell({ replicates: [stored(0, 120)] })])),
+			configured,
+		);
+		expect(rows.map((r) => r.parameterId)).toEqual(['p-doc', 'p-nut', 'p-chla']);
+		expect(rows[0].replicates.map((c) => c.value)).toEqual([120]);
+		expect(rows[1].replicates).toEqual([]);
+	});
+
+	it('leaves a stored parameter the site no longer declares on the grid', () => {
+		const rows = withConfiguredRows(
+			gridFromVisit(visit([cell({ parameter_id: 'p-retired', parameter_code: 'OLD' })])),
+			configured,
+		);
+		expect(rows.map((r) => r.parameterId)).toContain('p-retired');
+	});
+});
+
+describe('narrowing the grid to one parameter group', () => {
+	const rows = () =>
+		gridFromVisit(
+			visit([
+				cell({ parameter_id: 'p-doc' }),
+				cell({ parameter_id: 'p-nut' }),
+				cell({ parameter_id: 'p-loose' }),
+			]),
+		);
+	const groups = { 'p-doc': 'g-carbon', 'p-nut': 'g-nutrients' };
+
+	it('shows every row when no group is chosen', () => {
+		expect(rowsInGroup(rows(), groups, '').map((r) => r.parameterId)).toEqual([
+			'p-doc',
+			'p-nut',
+			'p-loose',
+		]);
+	});
+
+	it('keeps only the chosen group', () => {
+		expect(rowsInGroup(rows(), groups, 'g-carbon').map((r) => r.parameterId)).toEqual(['p-doc']);
+	});
+
+	it('reaches a parameter belonging to no group', () => {
+		expect(rowsInGroup(rows(), groups, 'none').map((r) => r.parameterId)).toEqual(['p-loose']);
+	});
+});
+
+describe('how many repeats a row opens with', () => {
+	it('takes the count from the most recent visit that held the parameter', () => {
+		const rows = seedReplicateCounts(
+			withConfiguredRows(gridFromVisit(visit([])), [
+				{ parameterId: 'p-doc', code: 'DOC_ppb', name: 'DOC' },
+			]),
+			{ 'p-doc': 3 },
+		);
+		expect(rows[0].replicates).toHaveLength(3);
+		expect(rows[0].replicates.every((c) => c.value === null)).toBe(true);
+	});
+
+	it('leaves a row that already holds values alone', () => {
+		const rows = seedReplicateCounts(
+			gridFromVisit(visit([cell({ replicates: [stored(0, 120)] })])),
+			{ 'p-doc': 3 },
+		);
+		expect(rows[0].replicates).toHaveLength(1);
+	});
+
+	it('opens one repeat where the site has no history for the parameter', () => {
+		const rows = seedReplicateCounts(
+			withConfiguredRows(gridFromVisit(visit([])), [
+				{ parameterId: 'p-doc', code: 'DOC_ppb', name: 'DOC' },
+			]),
+			{},
+		);
+		expect(rows[0].replicates).toHaveLength(1);
+	});
+});
+
+describe('adding and removing a repeat by hand', () => {
+	it('adds an empty repeat at the end of the row', () => {
+		const rows = setReplicateCount(gridFromVisit(visit([cell({ replicates: [stored(0, 120)] })])), 0, 2);
+		expect(rows[0].replicates.map((c) => c.value)).toEqual([120, null]);
+	});
+
+	it('drops a typed repeat the store does not hold', () => {
+		let rows = gridFromVisit(visit([cell({ replicates: [stored(0, 120)] })]));
+		rows = setCellValue(rows, 0, 1, 121);
+		expect(setReplicateCount(rows, 0, 1)[0].replicates.map((c) => c.value)).toEqual([120]);
+	});
+
+	it('refuses to drop a stored replicate, which is a curation decision and not a layout one', () => {
+		const rows = gridFromVisit(
+			visit([cell({ replicates: [stored(0, 120), stored(1, 122)] })]),
+		);
+		expect(setReplicateCount(rows, 0, 1)[0].replicates).toHaveLength(2);
+	});
+
+	it('never leaves a row with no cell to type into', () => {
+		const rows = setReplicateCount(gridFromVisit(visit([cell({ replicates: [] })])), 0, 0);
+		expect(rows[0].replicates).toHaveLength(1);
 	});
 });
