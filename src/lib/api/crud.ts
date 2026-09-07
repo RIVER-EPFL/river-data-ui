@@ -195,6 +195,11 @@ export interface Sensor {
 	notes: string | null;
 	metadata: Record<string, unknown> | null;
 	created_at: string | null;
+	/** The portal a replicated instrument came from, null for one registered here. A synced row
+	 *  labels a portal's analyte, not a physical device, so the source is shown wherever an
+	 *  operator picks an instrument. */
+	source_system: string | null;
+	source_key: string | null;
 	// read-only enrichment (populated by the API, never sent on create/update)
 	deployments?: SensorDeployment[];
 	reading_count?: number | null;
@@ -236,6 +241,8 @@ export interface StandardCurve {
 	id: string;
 	sensor_id: string;
 	name: string | null;
+	/** The date the curve was fitted, which is how the lab identifies one. */
+	fitted_on: string | null;
 	slope: number;
 	intercept: number;
 	r_squared: number | null;

@@ -11,6 +11,7 @@
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import PaginationControls from '$components/ui/PaginationControls.svelte';
 	import CopyStandardCurvesDialog from '$components/dialogs/CopyStandardCurvesDialog.svelte';
+	import NewStandardCurveForm from './NewStandardCurveForm.svelte';
 	import {
 		curveEquation,
 		curveLabel,
@@ -102,18 +103,17 @@
 	// exactly what an operator needs when an edit is refused because the curve is already in use.
 	let createOpen = $state(false);
 	let form = $state<CurveForm>({ ...emptyCurveForm });
-	let formError = $state('');
 	let saving = $state(false);
 
 	function openCreate(seed?: Partial<CurveForm>) {
 		form = { ...emptyCurveForm, ...seed };
-		formError = '';
 		createOpen = true;
 	}
 
 	function formOf(curve: StandardCurve): CurveForm {
 		return {
 			name: curve.name ?? '',
+			fitted_on: curve.fitted_on ?? '',
 			slope: String(curve.slope),
 			intercept: String(curve.intercept),
 			r_squared: curve.r_squared == null ? '' : String(curve.r_squared),
@@ -128,32 +128,12 @@
 		});
 	}
 
-	async function saveCreate() {
-		const parsed = parseCurveForm(form);
-		if ('error' in parsed) {
-			formError = parsed.error;
-			return;
-		}
-		saving = true;
-		formError = '';
-		try {
-			await api.standardCurves.create({
-				sensor_id: sensorId,
-				...parsed.values,
-				// The API stores created_by verbatim and freezes it on first use, so the column stays
-				// permanently empty unless the dashboard sends it here.
-				created_by: me.data?.email ?? null,
-			});
-			toastStore.success('Standard curve added');
-			createOpen = false;
-			form = { ...emptyCurveForm };
-			page = 1;
-			await load();
-		} catch (e) {
-			formError = apiMessage(e);
-		} finally {
-			saving = false;
-		}
+	async function onCreated() {
+		toastStore.success('Standard curve added');
+		createOpen = false;
+		form = { ...emptyCurveForm };
+		page = 1;
+		await load();
 	}
 
 	// ─── Edit and delete, and the refusal they can meet ───
@@ -243,39 +223,15 @@
 	{/if}
 
 	{#if createOpen}
-		<div class="rounded-md border border-brand-primary/30 bg-brand-primary/5 p-4 space-y-3">
-			<h3 class="text-sm font-semibold">New standard curve</h3>
-			<div class="grid grid-cols-2 gap-3 max-w-2xl">
-				<label class="flex flex-col gap-1 text-xs text-brand-muted col-span-2">
-					Name
-					<input type="text" bind:value={form.name} placeholder="Plate or series this curve was fitted from" class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm" />
-				</label>
-				<label class="flex flex-col gap-1 text-xs text-brand-muted">
-					Slope
-					<input type="number" step="any" bind:value={form.slope} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm font-mono" />
-				</label>
-				<label class="flex flex-col gap-1 text-xs text-brand-muted">
-					Intercept
-					<input type="number" step="any" bind:value={form.intercept} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm font-mono" />
-				</label>
-				<label class="flex flex-col gap-1 text-xs text-brand-muted">
-					R² <span class="text-[10px]">(optional)</span>
-					<input type="number" step="any" bind:value={form.r_squared} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm font-mono" />
-				</label>
-				<label class="flex flex-col gap-1 text-xs text-brand-muted">
-					Notes <span class="text-[10px]">(optional)</span>
-					<input type="text" bind:value={form.notes} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm" />
-				</label>
-			</div>
-			{#if formError}
-				<ErrorNotice message={formError} />
-			{/if}
-			<div class="flex items-center gap-3">
-				<Button variant="primary" onclick={saveCreate} disabled={saving}>{saving ? 'Saving…' : 'Add curve'}</Button>
-				<Button variant="ghost" onclick={() => (createOpen = false)}>Cancel</Button>
-				<span class="text-[11px] text-brand-muted">Recorded against {sensorName}.</span>
-			</div>
-		</div>
+		{#key form}
+			<NewStandardCurveForm
+				{sensorId}
+				{sensorName}
+				seed={form}
+				oncreated={onCreated}
+				oncancel={() => (createOpen = false)}
+			/>
+		{/key}
 	{/if}
 
 	{#if loading}
@@ -298,6 +254,7 @@
 			<table class="w-full text-sm">
 				<thead><tr class="bg-brand-bg border-b border-brand-divider">
 					<th class="text-left px-4 py-2 font-semibold">Name</th>
+					<th class="text-left px-4 py-2 font-semibold">Fitted</th>
 					<th class="text-left px-4 py-2 font-semibold">Source</th>
 					<th class="text-left px-4 py-2 font-semibold">Equation</th>
 					<th class="text-left px-4 py-2 font-semibold">R²</th>
@@ -313,6 +270,7 @@
 					{#each curves as curve (curve.id)}
 						<tr class="border-b border-brand-divider last:border-b-0 {curve.id === focusCurveId ? 'bg-brand-primary/5' : ''}">
 							<td class="px-4 py-2">{curveLabel(curve)}</td>
+							<td class="px-4 py-2 text-xs text-brand-muted">{curve.fitted_on ?? 'None'}</td>
 							<td class="px-4 py-2 text-xs text-brand-muted">{curve.source_key ?? curve.source_system ?? 'manual'}</td>
 							<td class="px-4 py-2 font-mono text-xs">{curveEquation(curve)}</td>
 							<td class="px-4 py-2 font-mono text-xs">{curve.r_squared ?? 'None'}</td>
@@ -344,14 +302,15 @@
 						</tr>
 						{#if editingId === curve.id}
 							<tr class="border-b border-brand-divider bg-brand-bg/40">
-								<td colspan={canWrite ? 11 : 10} class="px-4 py-3 space-y-3">
+								<td colspan={canWrite ? 12 : 11} class="px-4 py-3 space-y-3">
 									{#if usedCount(curve) > 0}
 										<p class="text-xs text-brand-muted">
-											{usedCount(curve)} reading{usedCount(curve) === 1 ? ' was' : 's were'} corrected with this curve, so its name and coefficients are frozen and it cannot be deleted. Notes stay editable. Duplicate it to correct the coefficients, then re-enter those measurements against the copy.
+											{usedCount(curve)} reading{usedCount(curve) === 1 ? ' was' : 's were'} corrected with this curve, so its name, fit date and coefficients are frozen and it cannot be deleted. Notes stay editable. Duplicate it to correct the coefficients, then re-enter those measurements against the copy.
 										</p>
 									{/if}
 									<div class="grid grid-cols-4 gap-3">
 										<label class="flex flex-col gap-1 text-xs text-brand-muted col-span-2">Name<input type="text" bind:value={editForm.name} disabled={usedCount(curve) > 0} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm disabled:opacity-60" /></label>
+										<label class="flex flex-col gap-1 text-xs text-brand-muted col-span-2">Fit date<input type="date" bind:value={editForm.fitted_on} disabled={usedCount(curve) > 0} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm disabled:opacity-60" /></label>
 										<label class="flex flex-col gap-1 text-xs text-brand-muted">Slope<input type="number" step="any" bind:value={editForm.slope} disabled={usedCount(curve) > 0} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm font-mono disabled:opacity-60" /></label>
 										<label class="flex flex-col gap-1 text-xs text-brand-muted">Intercept<input type="number" step="any" bind:value={editForm.intercept} disabled={usedCount(curve) > 0} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm font-mono disabled:opacity-60" /></label>
 										<label class="flex flex-col gap-1 text-xs text-brand-muted">R²<input type="number" step="any" bind:value={editForm.r_squared} disabled={usedCount(curve) > 0} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm font-mono disabled:opacity-60" /></label>
@@ -367,7 +326,7 @@
 						{/if}
 						{#if rowError?.id === curve.id}
 							<tr class="border-b border-brand-divider bg-brand-bg/40">
-								<td colspan={canWrite ? 11 : 10} class="px-4 py-3">
+								<td colspan={canWrite ? 12 : 11} class="px-4 py-3">
 									<ErrorNotice>
 										<div class="space-y-2">
 											<p>{rowError.message}</p>

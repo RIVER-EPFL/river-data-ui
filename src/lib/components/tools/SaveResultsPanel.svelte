@@ -33,7 +33,7 @@
 	} from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { toDatetimeLocal, fromDatetimeLocal, formatDateTime } from '$lib/utils';
-	import { curveEquation, curveLabel } from '$lib/standardCurves';
+	import { curveEquation, curveIdentity } from '$lib/standardCurves';
 	import { kindLabel, measuringInstruments } from '$lib/instruments/kind';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
@@ -463,12 +463,13 @@
 
 	function instrumentLabel(instrument: Sensor): string {
 		const name = instrument.name ?? instrument.serial_number ?? instrument.id;
-		return `${name} (${kindLabel(instrument)})`;
+		const source = instrument.source_system ? `, from ${instrument.source_system}` : '';
+		return `${name} (${kindLabel(instrument)}${source})`;
 	}
 
 	function curveOptionLabel(curve: StandardCurve): string {
 		const r2 = curve.r_squared != null ? `, R² ${curve.r_squared}` : '';
-		return `${curveLabel(curve)} · ${curveEquation(curve)}${r2}`;
+		return `${curveIdentity(curve)} · ${curveEquation(curve)}${r2}`;
 	}
 
 	// Curves belong to one instrument, so the list is always scoped to the chosen one; that also
@@ -482,7 +483,7 @@
 			const res = await api.standardCurves.list({
 				perPage: 200,
 				filter: { sensor_id: sensorId },
-				sort: ['created_at', 'DESC'],
+				sort: ['fitted_on', 'DESC'],
 			});
 			curves = res.data;
 		} catch (e) {

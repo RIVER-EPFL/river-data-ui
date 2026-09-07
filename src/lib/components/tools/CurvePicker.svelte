@@ -18,9 +18,11 @@
 <script lang="ts">
 	import { api, type Sensor, type StandardCurve } from '$api/crud';
 	import { getLastUsedCurve, type LastUsedCurve } from '$api/service';
+	import { me } from '$auth/me.svelte';
 	import LastUsedCurveNote from './LastUsedCurveNote.svelte';
+	import NewStandardCurveForm from '$components/sensors/NewStandardCurveForm.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { curveEquation, curveLabel, formatEquation } from '$lib/standardCurves';
+	import { curveEquation, curveIdentity, curveLabel, formatEquation } from '$lib/standardCurves';
 	import { kindLabel, measuringInstruments } from '$lib/instruments/kind';
 
 	// Stored-curve dropdown (instrument -> its standard_curves) with a
@@ -55,16 +57,32 @@
 	let manualSlope = $state('');
 	let manualIntercept = $state('');
 
+	// A curve is fitted in the lab and used at the bench in the same session, so it is created here
+	// rather than only on the instrument's own page: an instrument carrying none is otherwise a dead
+	// end that the manual arm gets past without cataloguing anything.
+	let createOpen = $state(false);
+	const canCreate = $derived(me.can('writeFieldMetadata'));
+
+	function curveCreated(curve: StandardCurve) {
+		curves = [curve, ...curves];
+		selectedCurveId = curve.id;
+		createOpen = false;
+		publish();
+	}
+
 	const selectedCurve = $derived(curves.find((c) => c.id === selectedCurveId) ?? null);
 
+	// A synced row labels a portal's analyte, not a physical device, so the source it came from is
+	// named beside it rather than left to be read as an instrument the lab owns.
 	function instrumentLabel(instrument: Sensor): string {
 		const name = instrument.name ?? instrument.serial_number ?? instrument.id;
-		return `${name} (${kindLabel(instrument)})`;
+		const source = instrument.source_system ? `, from ${instrument.source_system}` : '';
+		return `${name} (${kindLabel(instrument)}${source})`;
 	}
 
 	function curveOptionLabel(c: StandardCurve): string {
 		const r2 = c.r_squared != null ? `, R² ${c.r_squared}` : '';
-		return `${curveLabel(c)}: ${curveEquation(c)}${r2}`;
+		return `${curveIdentity(c)}: ${curveEquation(c)}${r2}`;
 	}
 
 	function publish() {
@@ -111,6 +129,7 @@
 	async function loadCurves(sensorId: string) {
 		selectedCurveId = '';
 		curves = [];
+		createOpen = false;
 		publish();
 		if (!sensorId) return;
 		loadingCurves = true;
@@ -118,7 +137,7 @@
 			const res = await api.standardCurves.list({
 				perPage: 200,
 				filter: { sensor_id: sensorId },
-				sort: ['created_at', 'DESC'],
+				sort: ['fitted_on', 'DESC'],
 			});
 			curves = res.data;
 		} catch (e) {
@@ -224,6 +243,21 @@
 						<option value={c.id}>{curveOptionLabel(c)}</option>
 					{/each}
 				</select>
+			{/if}
+			{#if canCreate && !loadingCurves}
+				{#if createOpen}
+					<NewStandardCurveForm
+						sensorId={selectedInstrumentId}
+						oncreated={curveCreated}
+						oncancel={() => (createOpen = false)}
+					/>
+				{:else}
+					<button
+						type="button"
+						onclick={() => (createOpen = true)}
+						class="self-start text-xs text-brand-primary underline"
+					>Add a curve to this instrument</button>
+				{/if}
 			{/if}
 		{/if}
 	{:else}

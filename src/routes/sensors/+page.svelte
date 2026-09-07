@@ -392,6 +392,9 @@
 							<td class="px-4 py-2">{sensor.name ?? 'None'}</td>
 							<td class="px-4 py-2">
 								<Badge variant={isBookkeeping(sensor) ? 'default' : isLab ? 'accent' : 'default'}>{kindLabel(sensor)}</Badge>
+								{#if sensor.source_system}
+									<Badge variant="muted">from {sensor.source_system}</Badge>
+								{/if}
 							</td>
 							<td class="px-4 py-2">
 								<Badge variant={isLow ? 'accent' : 'muted'}>{isLow ? 'Low' : 'High'}</Badge>

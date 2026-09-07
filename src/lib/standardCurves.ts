@@ -10,6 +10,16 @@ export function curveLabel(curve: Pick<StandardCurve, 'id' | 'name'>): string {
 	return curve.name?.trim() || `Curve ${curve.id.slice(0, 8)}`;
 }
 
+/**
+ * Identity line for a curve: its name, and the date it was fitted where the name does not already
+ * carry it. A synced curve folds the portal's date into its name, so showing both reads it twice.
+ */
+export function curveIdentity(curve: Pick<StandardCurve, 'id' | 'name' | 'fitted_on'>): string {
+	const label = curveLabel(curve);
+	const fitted = curve.fitted_on;
+	return fitted && !label.includes(fitted) ? `${label} (fitted ${fitted})` : label;
+}
+
 /** Renders "y = 2x + 1" / "y = 0.9x - 0.1"; a negative intercept becomes a subtraction. */
 export function formatEquation(slope: number, intercept: number): string {
 	const sign = intercept < 0 ? '-' : '+';
@@ -43,19 +53,36 @@ export function composedCurve(
 	};
 }
 
-/** Free-text fields the operator types, before validation. */
+/**
+ * Fields the operator types, before validation. The numeric inputs are `type="number"`, which binds
+ * a number as soon as anything is typed, so each field is read as text rather than assumed to be a
+ * string.
+ */
 export interface CurveForm {
 	name: string;
-	slope: string;
-	intercept: string;
-	r_squared: string;
+	fitted_on: string;
+	slope: string | number;
+	intercept: string | number;
+	r_squared: string | number;
 	notes: string;
 }
 
-export const emptyCurveForm: CurveForm = { name: '', slope: '', intercept: '', r_squared: '', notes: '' };
+function typed(value: string | number): string {
+	return String(value ?? '').trim();
+}
+
+export const emptyCurveForm: CurveForm = {
+	name: '',
+	fitted_on: '',
+	slope: '',
+	intercept: '',
+	r_squared: '',
+	notes: '',
+};
 
 export interface CurveValues {
 	name: string;
+	fitted_on: string | null;
 	slope: number;
 	intercept: number;
 	r_squared: number | null;
@@ -71,20 +98,28 @@ export function parseCurveForm(form: CurveForm): { values: CurveValues } | { err
 	const name = form.name.trim();
 	if (!name) return { error: 'Name is required: the grab-entry picker has nothing else to show.' };
 
-	const slope = Number(form.slope);
-	if (!form.slope.trim() || Number.isNaN(slope)) return { error: 'Slope is required and must be a number.' };
+	const slopeText = typed(form.slope);
+	const slope = Number(slopeText);
+	if (!slopeText || Number.isNaN(slope)) return { error: 'Slope is required and must be a number.' };
 	if (slope === 0) return { error: 'Slope cannot be zero: every measurement would produce the same value.' };
 
-	const intercept = Number(form.intercept);
-	if (!form.intercept.trim() || Number.isNaN(intercept)) return { error: 'Intercept is required and must be a number.' };
+	const interceptText = typed(form.intercept);
+	const intercept = Number(interceptText);
+	if (!interceptText || Number.isNaN(intercept)) return { error: 'Intercept is required and must be a number.' };
 
 	let r_squared: number | null = null;
-	if (form.r_squared.trim()) {
-		r_squared = Number(form.r_squared);
+	const rSquaredText = typed(form.r_squared);
+	if (rSquaredText) {
+		r_squared = Number(rSquaredText);
 		if (Number.isNaN(r_squared)) return { error: 'R² must be a number.' };
 	}
 
-	return { values: { name, slope, intercept, r_squared, notes: form.notes.trim() || null } };
+	const fitted_on = form.fitted_on.trim() || null;
+	if (fitted_on && Number.isNaN(Date.parse(fitted_on))) return { error: 'Fit date must be a date.' };
+
+	return {
+		values: { name, fitted_on, slope, intercept, r_squared, notes: form.notes.trim() || null },
+	};
 }
 
 /**
