@@ -15,6 +15,7 @@
 	import type { SampleReplicate } from '$api/types';
 	import { replicatesOf } from '$lib/provenance/replicates';
 	import { curveLabel, formatEquation } from '$lib/standardCurves';
+	import { provenanceKindLabel } from '$lib/origin';
 	import { NO_VALUE, formatCount, formatMeasurement, numericCell } from '$lib/format';
 	import { formatDateTime } from '$lib/utils';
 	import { toastStore } from '$lib/stores/toast.svelte';
@@ -179,6 +180,12 @@
 
 	function arrivedText(r: ProvenanceReading): string {
 		return r.ingested_at ? formatDateTime(r.ingested_at) : NO_VALUE;
+	}
+
+	// Every reading says where it came from, whether its story is stored on the row (a tool run, a
+	// chain, a CSV import, a hand entry, a batch) or resolved from what the row points at.
+	function originText(r: ProvenanceReading): string {
+		return provenanceKindLabel(r.provenance_kind) ?? NO_VALUE;
 	}
 
 	function instrumentText(rec: ProvenanceRecord): string {
@@ -436,6 +443,7 @@
 						</div>
 						{@render field('State', stateText(r), stateTip(r), false)}
 						{@render field('Arrived', arrivedText(r), 'When this value reached the store.', false)}
+						{@render field('Origin', originText(r), 'Which write path produced this value.', false)}
 						{@render recordFields(rec)}
 					</dl>
 				{:else}

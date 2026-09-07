@@ -1705,6 +1705,8 @@ export interface ProvenanceReading {
 	withdrawn_at?: string;
 	withdrawn_reason?: string;
 	ingested_at?: string;
+	/// Where the value came from: a stored blob's kind, or the one the row's stream proves.
+	provenance_kind?: string;
 	calibration?: ProvenanceCalibrationRef;
 	standard_curve?: ProvenanceCurveRef;
 }
@@ -1910,6 +1912,8 @@ export interface EventCell {
 	/** How the readings reached the store: manual, csv, api or sync. */
 	origin: string;
 	has_provenance: boolean;
+	/// The row's own recorded origin, narrower than `origin`, which reads the stream alone.
+	provenance_kind?: string;
 	tool?: string;
 	replicates: EventCellReplicate[];
 	/** Calculations that read this parameter: what this value feeds, by tool name. */

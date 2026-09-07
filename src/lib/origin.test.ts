@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { originFilter, originLabel, originSource } from './origin';
+import { originFilter, originLabel, originSource, provenanceKindLabel } from './origin';
 
 describe('originFilter', () => {
 	it('asks for nothing when no origin is chosen', () => {
@@ -43,5 +43,18 @@ describe('originSource', () => {
 		expect(originSource('any')).toBeNull();
 		expect(originSource('sync')).toBeNull();
 		expect(originSource('source:cnet')).toBe('cnet');
+	});
+});
+
+describe('provenanceKindLabel', () => {
+	it('names each stored origin in the words a reader uses', () => {
+		expect(provenanceKindLabel('tool_run')).toBe('tool run');
+		expect(provenanceKindLabel('manual')).toBe('hand entry');
+		expect(provenanceKindLabel('migration')).toBe('origin not recorded');
+	});
+
+	it('passes an unknown kind through and says nothing about a row that carries none', () => {
+		expect(provenanceKindLabel('something_new')).toBe('something_new');
+		expect(provenanceKindLabel(undefined)).toBeUndefined();
 	});
 });

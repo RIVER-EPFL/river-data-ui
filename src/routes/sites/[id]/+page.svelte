@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { SdEstimator } from '$lib/sdEstimator';
+	import { provenanceKindLabel } from '$lib/origin';
 	import { onMount, onDestroy, untrack } from 'svelte';
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
@@ -2719,7 +2720,7 @@
 																		{#if cell.has_provenance}
 																			<Badge variant="ok">{cell.tool ?? 'tool run'}</Badge>
 																		{:else}
-																			<span class="text-brand-muted">{originLabel(cell.origin)}</span>
+																			<span class="text-brand-muted">{provenanceKindLabel(cell.provenance_kind) ?? originLabel(cell.origin)}</span>
 																		{/if}
 																	</td>
 																	<td class="py-1">

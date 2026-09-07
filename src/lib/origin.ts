@@ -9,6 +9,25 @@ export function originLabel(source: string): string {
 	return `${source} sync`;
 }
 
+/**
+ * The wording for a reading's own recorded origin, which is narrower than its stream's: a hand
+ * entry and a tool save arrive on the same channel and are not the same act.
+ */
+export function provenanceKindLabel(kind: string | undefined): string | undefined {
+	if (!kind) return undefined;
+	const labels: Record<string, string> = {
+		tool_run: 'tool run',
+		chain: 'chain recompute',
+		csv_import: 'CSV import',
+		manual: 'hand entry',
+		batch: 'API batch',
+		sync: 'sync service',
+		derived: 'derived parameter',
+		migration: 'origin not recorded',
+	};
+	return labels[kind] ?? kind;
+}
+
 /** The source system named by an origin, or null for the origins that name none. */
 export function originSource(origin: Origin): string | null {
 	return origin.startsWith('source:') ? origin.slice('source:'.length) : null;
