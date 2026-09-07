@@ -1307,18 +1307,43 @@ export const applyPairingPlan = (id: string, expectedVersion: number) =>
 export const revertPairingPlan = (id: string) =>
 	POST<{ job_id: string; status: string }>(`${ADMIN}/sync/pairing-plans/${id}/revert`);
 
-// Poll a tracked job until it reaches a terminal state, returning the final row.
+// What the wait looks like right now, in one phrase. A failed attempt puts the row back to
+// `queued` with `retry_count` bumped, so a retrying job and one that has never run read alike
+// unless the count is read with the status.
+export function jobWaitLabel(job: ReprocessingJob): string {
+	if (job.status === 'queued' && job.retry_count > 0) {
+		const attempt = job.retry_count + 1;
+		return job.error_message
+			? `Retrying after ${job.error_message} (attempt ${attempt})`
+			: `Retrying (attempt ${attempt})`;
+	}
+	if (job.status === 'queued') return 'Queued';
+	if (job.status === 'running' && job.total) return `Running (${job.progress ?? 0} of ${job.total})`;
+	return job.status === 'running' ? 'Running' : job.status;
+}
+
+// Poll a tracked job until it completes, reporting each row it reads through `onTick` so the
+// caller can render the wait. A terminal state that is not `completed` throws the job's own
+// error, which is what the operator needs to read; the timeout is for a job that never lands.
 export async function pollJob(
 	jobId: string,
-	opts: { intervalMs?: number; timeoutMs?: number } = {},
+	opts: {
+		intervalMs?: number;
+		timeoutMs?: number;
+		onTick?: (job: ReprocessingJob) => void;
+	} = {},
 ): Promise<ReprocessingJob> {
 	const intervalMs = opts.intervalMs ?? 1000;
 	const timeoutMs = opts.timeoutMs ?? 600_000;
 	const start = Date.now();
-	const terminal = new Set(['completed', 'failed', 'cancelled', 'interrupted']);
+	const terminal = new Set(['failed', 'cancelled', 'interrupted']);
 	for (;;) {
 		const job = await GET<ReprocessingJob>(`${SERVICE}/reprocessing_jobs/${jobId}`);
-		if (terminal.has(job.status)) return job;
+		opts.onTick?.(job);
+		if (job.status === 'completed') return job;
+		if (terminal.has(job.status)) {
+			throw new Error(job.error_message ?? `Job ${job.status}`);
+		}
 		if (Date.now() - start > timeoutMs) throw new Error('Timed out waiting for job');
 		await new Promise((r) => setTimeout(r, intervalMs));
 	}

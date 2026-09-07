@@ -7,7 +7,7 @@
 	import { api, type DataStream, type SiteParameter, type Site, type Parameter } from '$api/crud';
 	import {
 		pairStream, unpairStream, getStreamStats, listStreamReceipts, retagStreams, createPairingPlan, updatePairingPlan,
-		applyPairingPlan, revertPairingPlan, pollJob, getUnpairedSummary, getPlanSiteMetadata,
+		applyPairingPlan, revertPairingPlan, pollJob, jobWaitLabel, getUnpairedSummary, getPlanSiteMetadata,
 		replicateSpec, getPendingAuditSummary, getReconciliationCandidates, getStreamPreview, declareSdEstimator,
 		getPlanInstruments, listPairingPlans, supersedePairingPlan, getPairingPlan, bulkUpdatePairingPlan,
 		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type SdEstimator, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
@@ -171,6 +171,10 @@
 	let applyResult = $state<PairingPlanApplyResult | null>(null);
 	let planLoading = $state(false);
 	let applying = $state(false);
+	// What the apply is doing right now, read from the job row on every poll: a retrying run says
+	// which attempt it is on and why the last one stopped, rather than reading as a queued one.
+	let applyStatus = $state('');
+	let applyJobId = $state('');
 	let reverting = $state(false);
 	let saving = $state(false);
 
@@ -1527,14 +1531,12 @@
 		applying = true;
 		try {
 			const { job_id } = await applyPairingPlan(plan.id, plan.version);
-			const job = await pollJob(job_id);
-			if (job.status !== 'completed') {
-				throw new Error(job.error_message ?? 'Apply job did not complete');
-			}
+			applyJobId = job_id;
+			const job = await pollJob(job_id, { onTick: (j) => (applyStatus = jobWaitLabel(j)) });
 			applyResult = (job.detail?.counts ?? null) as PairingPlanApplyResult | null;
 			setMode('results');
 		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Failed to apply plan'); }
-		finally { applying = false; }
+		finally { applying = false; applyStatus = ''; }
 	}
 
 	async function revertPlan() {
@@ -2996,10 +2998,18 @@
 				{/if}
 			</div>
 
+			{#if applying && applyJobId}
+				<p class="text-xs text-brand-muted">
+					Running as job <span class="font-mono">{applyJobId.slice(0, 8)}</span>, which carries on if
+					you leave this page: follow it on
+					<a href="{base}/system?tab=jobs" class="text-brand-primary no-underline hover:underline">System → Jobs</a>.
+				</p>
+			{/if}
+
 			<div class="flex gap-3 pt-2">
 				<Button onclick={() => setMode('review')} class="px-4 py-2">Back to Review</Button>
 				<Button variant="primary" onclick={applyPlan} disabled={applying} class="px-4 py-2 font-semibold">
-					{applying ? 'Applying…' : 'Apply Plan'}
+					{applying ? applyStatus || 'Applying…' : 'Apply Plan'}
 				</Button>
 			</div>
 		</div>
