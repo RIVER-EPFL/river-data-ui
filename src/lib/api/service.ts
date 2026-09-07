@@ -3046,6 +3046,39 @@ export const rollbackEditSet = (setId: string) =>
 		{},
 	);
 
+/** Which resolution a pin overrides: the deployment window, or the calibration window. */
+export type PinKind = 'instrument' | 'calibration';
+
+export interface PinResponse {
+	/** The set the pins were recorded under, which is what undoes them as one act. */
+	set_id: string;
+	rows_decided: number;
+	/** The slot reprocess jobs enqueued so the pinned rows' curves follow the pin. */
+	jobs: string[];
+}
+
+export interface PinRollbackResponse {
+	set_id: string;
+	rolled_back: number;
+	jobs: string[];
+}
+
+/**
+ * Pin a selection of readings to an instrument or a calibration: one decision per reading in one
+ * set, honoured by every later reprocess instead of the window it would otherwise resolve. The
+ * per-reading pins under `EDIT_METHODS` record one at a time; this is the same decision over a
+ * selection, and `rollbackPinSet` is what undoes the whole of it.
+ */
+export const pinReadings = (
+	kind: PinKind,
+	target_id: string,
+	selection: EditSelection,
+	reason?: string,
+) => POST<PinResponse>(`${SERVICE}/readings/pins`, { kind, target_id, selection, reason });
+
+export const rollbackPinSet = (setId: string) =>
+	POST<PinRollbackResponse>(`${SERVICE}/readings/pins/${setId}/rollback`, {});
+
 export interface ToolRunReload {
 	tool: string;
 	body: Record<string, unknown>;
