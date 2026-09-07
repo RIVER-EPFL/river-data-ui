@@ -3,7 +3,9 @@
 	import Tabs from '$components/ui/Tabs.svelte';
 	import CopyButton from '$components/ui/CopyButton.svelte';
 	import { GET } from '$api/client';
-	import { api, type TokenPermissions, type Site, type SiteParameter } from '$api/crud';
+	import { api, type TokenPermissions, type SiteParameter } from '$api/crud';
+	import SiteSelect from '$components/SiteSelect.svelte';
+	import { siteRefs } from '$lib/siteRefs.svelte';
 
 	let {
 		token = null,
@@ -38,8 +40,11 @@
 	}
 
 	// Real ids to drop into the examples, fetched live and confined to the key's project.
-	let sites = $state<Site[]>([]);
 	let allSiteParams = $state<SiteParameter[]>([]);
+	// A project-scoped key may only reach its own project's sites, so the examples offer those.
+	const sites = $derived(
+		projectScope ? siteRefs.all.filter((s) => s.project_id === projectScope) : siteRefs.all,
+	);
 	let paramNames = $state<Record<string, string>>({});
 	let siteId = $state('');
 	let paramId = $state('');
@@ -52,14 +57,11 @@
 	onMount(async () => {
 		nowIso = isoZ(new Date());
 		try {
-			const [siteResult, spResult, paramResult] = await Promise.all([
-				api.sites.list({ perPage: 200 }),
+			const [, spResult, paramResult] = await Promise.all([
+				siteRefs.ensure(),
 				api.siteParameters.list({ perPage: 1000 }),
 				api.parameters.list({ perPage: 500 }),
 			]);
-			sites = projectScope
-				? siteResult.data.filter((s) => s.project_id === projectScope)
-				: siteResult.data;
 			allSiteParams = spResult.data;
 			paramNames = Object.fromEntries(paramResult.data.map((p) => [p.id, p.name]));
 			if (sites.length) siteId = sites[0].id;
@@ -270,9 +272,12 @@
 			<div class="flex flex-wrap items-center gap-3 text-xs">
 				<label class="flex items-center gap-1.5">
 					<span class="text-brand-muted">Site</span>
-					<select bind:value={siteId} class="px-2 py-1 border border-brand-divider rounded-md bg-brand-surface">
-						{#each sites as s}<option value={s.id}>{s.name}</option>{/each}
-					</select>
+					<SiteSelect
+						bind:value={siteId}
+						{sites}
+						placeholder={null}
+						class="px-2 py-1 border border-brand-divider rounded-md bg-brand-surface"
+					/>
 				</label>
 				{#if showParamPicker}
 					<label class="flex items-center gap-1.5">

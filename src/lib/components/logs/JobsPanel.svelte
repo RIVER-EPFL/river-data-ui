@@ -26,7 +26,7 @@
 	let logs = $state<JobLogLine[]>([]);
 	let logsLoading = $state(false);
 
-	async function fetchPage({ page, perPage }: { page: number; perPage: number }) {
+	async function loadPage({ page, perPage }: { page: number; perPage: number }) {
 		const filter: Record<string, unknown> = {};
 		if (statusFilter !== 'all') filter.status = statusFilter;
 		if (categoryFilter !== 'all') filter.category = categoryFilter;
@@ -151,7 +151,7 @@
 </script>
 
 <EventPanel
-	{fetchPage}
+	load={loadPage}
 	perPage={PER_PAGE}
 	colCount={8}
 	emptyText="No jobs"

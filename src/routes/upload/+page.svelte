@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import Papa from 'papaparse';
-	import { api, type Site, type Parameter, type Subproject, type SiteParameter } from '$api/crud';
+	import { api, type Parameter, type Subproject, type SiteParameter } from '$api/crud';
 	import { templateRows, templateCsv } from '$lib/upload/template';
 	import { detectWideFile } from '$lib/upload/wideFile';
 	import { buildXlsx } from '$lib/upload/xlsx';
@@ -9,13 +9,16 @@
 	import { grabConflictGroups, type GrabExistingGroup } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
+	import ParameterSelect from '$components/ParameterSelect.svelte';
+	import SiteSelect from '$components/SiteSelect.svelte';
+	import { siteRefs } from '$lib/siteRefs.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import { formatCount } from '$lib/format';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 
 	// --- Entity data ---
-	let sites = $state<Site[]>([]);
+	const sites = $derived(siteRefs.all);
 	let params = $state<Parameter[]>([]);
 	let loadingEntities = $state(true);
 
@@ -174,12 +177,11 @@
 	// --- Load sites + parameters ---
 	onMount(async () => {
 		try {
-			const [s, p, sp] = await Promise.all([
-				api.sites.list({ perPage: 200 }),
+			const [, p, sp] = await Promise.all([
+				siteRefs.ensure(),
 				api.parameters.list({ perPage: 500 }),
 				api.subprojects.list({ perPage: 1000, sort: ['name', 'ASC'] }),
 			]);
-			sites = s.data;
 			params = p.data;
 			subprojects = sp.data;
 		} catch (e) {
@@ -584,13 +586,12 @@
 			<span class="px-3 py-1 rounded-md bg-brand-primary text-white">One value per row (this page)</span>
 			<label class="flex items-center gap-1.5">
 				<span class="px-3 py-1 rounded-md bg-brand-bg text-brand-muted">One column per parameter</span>
-				<select
+				<SiteSelect
+					value=""
+					placeholder="open the importer for a site…"
 					class="rounded border border-brand-divider px-2 py-1 text-sm"
-					onchange={(e) => { const id = (e.currentTarget as HTMLSelectElement).value; if (id) goto(`${base}/sites/${id}/import`); }}
-				>
-					<option value="">open the importer for a site…</option>
-					{#each sites as s (s.id)}<option value={s.id}>{s.name}</option>{/each}
-				</select>
+					onchange={(id) => { if (id) goto(`${base}/sites/${id}/import`); }}
+				/>
 			</label>
 		</div>
 		<div class="rounded border border-brand-divider bg-brand-surface p-3 space-y-3">
@@ -716,12 +717,7 @@
 						<div class="flex flex-wrap items-end gap-3">
 							<div>
 								<label for="wideSite" class="text-sm font-medium block mb-1">Site</label>
-								<select id="wideSite" bind:value={wideSiteId} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
-									<option value="">-- Select site --</option>
-									{#each sites as s}
-										<option value={s.id}>{s.name}</option>
-									{/each}
-								</select>
+								<SiteSelect id="wideSite" bind:value={wideSiteId} />
 							</div>
 							<Button variant="primary" onclick={openSiteImport} disabled={!wideSiteId}>
 								Open the per-site import
@@ -773,21 +769,20 @@
 					<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
 						<div>
 							<label for="singleSite" class="text-sm font-medium block mb-1">Site <span class="text-severity-alarm">*</span></label>
-							<select id="singleSite" bind:value={singleSiteId} class="w-full px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
-								<option value="">-- Select site --</option>
-								{#each sites as s}
-									<option value={s.id}>{s.name}</option>
-								{/each}
-							</select>
+							<SiteSelect
+								id="singleSite"
+								bind:value={singleSiteId}
+								class="w-full px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
+							/>
 						</div>
 						<div>
 							<label for="singleParam" class="text-sm font-medium block mb-1">Parameter <span class="text-severity-alarm">*</span></label>
-							<select id="singleParam" bind:value={singleParameterId} class="w-full px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
-								<option value="">-- Select parameter --</option>
-								{#each params as p}
-									<option value={p.id}>{p.name} ({p.default_units})</option>
-								{/each}
-							</select>
+							<ParameterSelect
+								id="singleParam"
+								bind:value={singleParameterId}
+								global
+								parameters={params}
+							/>
 						</div>
 					</div>
 				{:else}

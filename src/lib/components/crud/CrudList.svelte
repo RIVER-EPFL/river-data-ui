@@ -2,7 +2,7 @@
 	import { formatRelativeTime } from '$lib/utils';
 	import type { CrudClient } from '$api/crud';
 	import { goto } from '$app/navigation';
-	import { onMount } from 'svelte';
+	import { onMount, type Snippet } from 'svelte';
 	import PaginationControls from '$components/ui/PaginationControls.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 
@@ -17,8 +17,18 @@
 		class?: string;
 	}
 
+	/** What one page of a list costs to fetch: the shape `CrudClient.list` already returns. */
+	export interface PageRequest {
+		page: number;
+		perPage: number;
+		sort: [string, 'ASC' | 'DESC'];
+		filter: Record<string, unknown>;
+	}
+	export type PageLoader<R> = (params: PageRequest) => Promise<{ data: R[]; total: number }>;
+
 	let {
 		client,
+		load: loadPage,
 		columns,
 		title,
 		createHref = '',
@@ -30,9 +40,22 @@
 		filters: externalFilters = {},
 		rowHref,
 		onrowclick,
+		emptyText = 'No items found',
+		cell,
+		actions,
+		actionsLabel = '',
+		filterBar,
+		footer,
+		header,
+		rowClass,
+		rowDetail,
+		empty,
 	}: {
+		/** The entity's CRUD client. Omit it and pass `load` for a list that is not one entity. */
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		client: CrudClient<any>;
+		client?: CrudClient<any>;
+		/** One page of rows, however they are assembled. Defaults to `client.list`. */
+		load?: PageLoader<T>;
 		columns: Column[];
 		title: string;
 		createHref?: string;
@@ -44,7 +67,30 @@
 		filters?: Record<string, unknown>;
 		rowHref?: (row: T) => string;
 		onrowclick?: (row: T) => void;
+		emptyText?: string;
+		/** Renders every cell. `text` is the default rendering, to fall back to per column. */
+		cell?: Snippet<[{ column: Column; row: T; value: unknown; text: string }]>;
+		/** A trailing column of per-row controls. */
+		actions?: Snippet<[T]>;
+		actionsLabel?: string;
+		/** Controls above the table. A filter change calls `reload`, which returns to page one. */
+		filterBar?: Snippet<[{ reload: () => void }]>;
+		/** A line under the pagination, for a count the list itself cannot know. */
+		footer?: Snippet;
+		/** Renders every header cell. `label` is the default, to fall back to per column. */
+		header?: Snippet<[{ column: Column; label: string }]>;
+		rowClass?: (row: T) => string;
+		/** Extra rows under a row, expanding it. The snippet writes its own `<tr>`. */
+		rowDetail?: Snippet<[{ row: T; colCount: number }]>;
+		/** Replaces the whole table when the list is empty, for a call to action `emptyText` cannot carry. */
+		empty?: Snippet;
 	} = $props();
+
+	const fetchPage: PageLoader<T> = (params) => {
+		if (loadPage) return loadPage(params);
+		if (client) return client.list(params) as Promise<{ data: T[]; total: number }>;
+		throw new Error('CrudList needs either a client or a load function');
+	};
 
 	let items = $state<T[]>([]);
 	let total = $state(0);
@@ -61,13 +107,13 @@
 		try {
 			const filter: Record<string, unknown> = { ...externalFilters };
 			if (searchQuery) filter.q = searchQuery;
-			const result = await client.list({
+			const result = await fetchPage({
 				page: currentPage,
 				perPage,
 				sort: [sortField, sortOrder],
 				filter,
 			});
-			items = result.data as T[];
+			items = result.data;
 			total = result.total;
 		} catch (e) {
 			items = [];
@@ -97,6 +143,14 @@
 		return String(val);
 	}
 
+	const colCount = $derived(columns.length + (actions ? 1 : 0));
+
+	/** A filter change is a new list, so it returns to page one. */
+	export function reload() {
+		currentPage = 1;
+		load();
+	}
+
 	export function refresh() {
 		load();
 	}
@@ -123,6 +177,12 @@
 		<ErrorNotice message="Failed to load {title.toLowerCase()}: {error}" />
 	{/if}
 
+	{#if filterBar}
+		<div class="flex flex-wrap items-center gap-2">
+			{@render filterBar({ reload })}
+		</div>
+	{/if}
+
 	{#if searchable}
 		<input
 			type="text"
@@ -133,6 +193,9 @@
 		/>
 	{/if}
 
+	{#if empty && !loading && items.length === 0}
+		{@render empty()}
+	{:else}
 	<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 		<table class="w-full text-sm">
 			<thead>
@@ -142,46 +205,66 @@
 							class="text-left px-4 py-2 font-semibold {col.sortable !== false ? 'cursor-pointer select-none hover:text-brand-primary' : ''} {col.class ?? ''}"
 							onclick={() => col.sortable !== false && toggleSort(col.key)}
 						>
-							{col.label}
+							{#if header}
+								{@render header({ column: col, label: col.label })}
+							{:else}
+								{col.label}
+							{/if}
 							{#if col.sortable !== false && sortField === col.key}
 								{sortOrder === 'ASC' ? '↑' : '↓'}
 							{/if}
 						</th>
 					{/each}
+					{#if actions}
+						<th class="text-left px-4 py-2 font-semibold">{actionsLabel}</th>
+					{/if}
 				</tr>
 			</thead>
 			<tbody>
 				{#if loading}
-					<tr><td colspan={columns.length} class="px-4 py-8 text-center text-brand-muted">Loading…</td></tr>
+					<tr><td colspan={colCount} class="px-4 py-8 text-center text-brand-muted">Loading…</td></tr>
 				{:else if items.length === 0}
-					<tr><td colspan={columns.length} class="px-4 py-8 text-center text-brand-muted">No items found</td></tr>
+					<tr><td colspan={colCount} class="px-4 py-8 text-center text-brand-muted">{emptyText}</td></tr>
 				{:else}
 					{#each items as row}
 						{@const href = rowHref?.(row)}
 						<tr
-							class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 {href || onrowclick ? 'cursor-pointer' : ''}"
+							class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 {href || onrowclick ? 'cursor-pointer' : ''} {rowClass?.(row) ?? ''}"
 							onclick={() => {
 								if (onrowclick) onrowclick(row);
 								else if (href) goto(href);
 							}}
 						>
 							{#each columns as col, i}
+								{@const text = cellValue(col, row)}
 								<td class="px-4 py-2 {col.class ?? ''}">
 									{#if i === 0 && href}
 										<a href={href} onclick={(e) => e.stopPropagation()} class="text-brand-primary font-semibold no-underline hover:underline">
-											{cellValue(col, row)}
+											{text}
 										</a>
+									{:else if cell}
+										{@render cell({ column: col, row, value: row[col.key], text })}
 									{:else}
-										{cellValue(col, row)}
+										{text}
 									{/if}
 								</td>
 							{/each}
+							{#if actions}
+								<!-- A control in this cell acts on its row; it never also follows the row's link. -->
+								<td class="px-4 py-2" onclick={(e) => e.stopPropagation()}>
+									{@render actions(row)}
+								</td>
+							{/if}
 						</tr>
+						{#if rowDetail}
+							{@render rowDetail({ row, colCount })}
+						{/if}
 					{/each}
 				{/if}
 			</tbody>
 		</table>
 	</div>
+	{/if}
 
 	<PaginationControls
 		{total}
@@ -189,4 +272,8 @@
 		{perPage}
 		onPageChange={(p) => { currentPage = p; load(); }}
 	/>
+
+	{#if footer}
+		<p class="text-xs text-brand-muted">{@render footer()}</p>
+	{/if}
 </div>

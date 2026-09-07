@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { api, type StandardCurve } from '$api/crud';
 	import { getSensorCurveUsage, type SensorCurveUsage } from '$api/service';
 	import { ApiError } from '$api/client';
@@ -9,7 +8,8 @@
 	import Button from '$components/ui/Button.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
-	import PaginationControls from '$components/ui/PaginationControls.svelte';
+	import CrudList from '$components/crud/CrudList.svelte';
+	import type { Column, PageRequest } from '$components/crud/CrudList.svelte';
 	import CopyStandardCurvesDialog from '$components/dialogs/CopyStandardCurvesDialog.svelte';
 	import NewStandardCurveForm from './NewStandardCurveForm.svelte';
 	import {
@@ -36,37 +36,38 @@
 		focusCurveId?: string | null;
 	} = $props();
 
-	const PER_PAGE = 25;
-
 	let curves = $state<StandardCurve[]>([]);
-	let total = $state(0);
-	let page = $state(1);
-	let loading = $state(true);
-	let listError = $state('');
 	let copyOpen = $state(false);
 	let usage = $state<Record<string, SensorCurveUsage>>({});
+	let list = $state<ReturnType<typeof CrudList> | null>(null);
 
 	const canWrite = $derived(me.can('writeFieldMetadata'));
 	const existingNames = $derived(curves.map((c) => c.name).filter((n): n is string => !!n));
 
-	async function load() {
-		loading = true;
-		listError = '';
-		try {
-			const res = await api.standardCurves.list({
-				page,
-				perPage: PER_PAGE,
-				filter: { sensor_id: sensorId },
-				sort: ['created_at', 'DESC'],
-			});
-			curves = res.data;
-			total = res.total;
-			await loadUsage();
-		} catch (e) {
-			listError = apiMessage(e);
-		} finally {
-			loading = false;
-		}
+	const columns: Column[] = [
+		{ key: 'name', label: 'Name', sortable: false },
+		{ key: 'fitted_on', label: 'Fitted', sortable: false, class: 'text-xs text-brand-muted' },
+		{ key: 'source', label: 'Source', sortable: false, class: 'text-xs text-brand-muted' },
+		{ key: 'equation', label: 'Equation', sortable: false, class: 'font-mono text-xs' },
+		{ key: 'r_squared', label: 'R²', sortable: false, class: 'font-mono text-xs' },
+		{ key: 'readings', label: 'Readings', sortable: false, class: 'font-mono text-xs' },
+		{ key: 'first_used', label: 'First used', sortable: false, class: 'text-xs text-brand-muted' },
+		{ key: 'last_used', label: 'Last used', sortable: false, class: 'text-xs text-brand-muted' },
+		{ key: 'created_at', label: 'Created', sortable: false, class: 'text-xs text-brand-muted' },
+		{ key: 'created_by', label: 'Created by', sortable: false, class: 'text-xs text-brand-muted' },
+		{ key: 'notes', label: 'Notes', sortable: false, class: 'text-xs text-brand-muted' },
+	];
+
+	async function loadCurves({ page, perPage }: PageRequest) {
+		const res = await api.standardCurves.list({
+			page,
+			perPage,
+			filter: { sensor_id: sensorId },
+			sort: ['created_at', 'DESC'],
+		});
+		curves = res.data;
+		await loadUsage();
+		return { data: res.data, total: res.total };
 	}
 
 	// Usage decides which rows can still be edited or deleted, so it is loaded with the list rather
@@ -89,13 +90,6 @@
 		return n > 0
 			? `${n} reading${n === 1 ? ' was' : 's were'} corrected with this curve, so its coefficients are frozen and it cannot be deleted. Duplicate it and re-enter those measurements against the copy.`
 			: undefined;
-	}
-
-	onMount(load);
-
-	function changePage(p: number) {
-		page = p;
-		void load();
 	}
 
 	// ─── Create, which is also duplicate and corrected copy ───
@@ -128,12 +122,11 @@
 		});
 	}
 
-	async function onCreated() {
+	function onCreated() {
 		toastStore.success('Standard curve added');
 		createOpen = false;
 		form = { ...emptyCurveForm };
-		page = 1;
-		await load();
+		list?.reload();
 	}
 
 	// ─── Edit and delete, and the refusal they can meet ───
@@ -162,7 +155,7 @@
 			toastStore.success('Standard curve updated');
 			editingId = null;
 			rowError = null;
-			await load();
+			list?.refresh();
 		} catch (e) {
 			rowError = {
 				id: curve.id,
@@ -180,7 +173,7 @@
 			await api.standardCurves.remove(curve.id);
 			toastStore.success('Standard curve deleted');
 			rowError = null;
-			await load();
+			list?.refresh();
 		} catch (e) {
 			rowError = { id: curve.id, message: apiMessage(e), seed: null };
 		}
@@ -218,10 +211,6 @@
 		</p>
 	{/if}
 
-	{#if listError}
-		<ErrorNotice message={listError} />
-	{/if}
-
 	{#if createOpen}
 		{#key form}
 			<NewStandardCurveForm
@@ -234,123 +223,119 @@
 		{/key}
 	{/if}
 
-	{#if loading}
-		<p class="text-brand-muted text-sm">Loading…</p>
-	{:else if curves.length === 0 && !createOpen}
-		<div class="rounded-md border border-brand-divider bg-brand-surface px-4 py-8 text-center space-y-3">
-			<h3 class="text-sm font-semibold">No standard curves on this instrument.</h3>
-			<p class="text-sm text-brand-muted max-w-xl mx-auto">
-				Add one here, or copy a curve from another instrument.
-			</p>
-			{#if canWrite}
-				<div class="flex gap-2 justify-center">
-					<Button variant="primary" onclick={() => openCreate()}>Add curve</Button>
-					<Button onclick={() => (copyOpen = true)}>Copy curves…</Button>
+	<CrudList
+		bind:this={list}
+		load={loadCurves}
+		{columns}
+		title="Standard curves"
+		showHeader={false}
+		actions={canWrite ? rowActions : undefined}
+		actionsLabel="Actions"
+		rowClass={(c: StandardCurve) => (c.id === focusCurveId ? 'bg-brand-primary/5' : '')}
+	>
+		{#snippet empty()}
+			{#if !createOpen}
+				<div class="rounded-md border border-brand-divider bg-brand-surface px-4 py-8 text-center space-y-3">
+					<h3 class="text-sm font-semibold">No standard curves on this instrument.</h3>
+					<p class="text-sm text-brand-muted max-w-xl mx-auto">
+						Add one here, or copy a curve from another instrument.
+					</p>
+					{#if canWrite}
+						<div class="flex gap-2 justify-center">
+							<Button variant="primary" onclick={() => openCreate()}>Add curve</Button>
+							<Button onclick={() => (copyOpen = true)}>Copy curves…</Button>
+						</div>
+					{/if}
 				</div>
 			{/if}
-		</div>
-	{:else if curves.length > 0}
-		<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
-			<table class="w-full text-sm">
-				<thead><tr class="bg-brand-bg border-b border-brand-divider">
-					<th class="text-left px-4 py-2 font-semibold">Name</th>
-					<th class="text-left px-4 py-2 font-semibold">Fitted</th>
-					<th class="text-left px-4 py-2 font-semibold">Source</th>
-					<th class="text-left px-4 py-2 font-semibold">Equation</th>
-					<th class="text-left px-4 py-2 font-semibold">R²</th>
-					<th class="text-left px-4 py-2 font-semibold">Readings</th>
-					<th class="text-left px-4 py-2 font-semibold">First used</th>
-					<th class="text-left px-4 py-2 font-semibold">Last used</th>
-					<th class="text-left px-4 py-2 font-semibold">Created</th>
-					<th class="text-left px-4 py-2 font-semibold">Created by</th>
-					<th class="text-left px-4 py-2 font-semibold">Notes</th>
-					{#if canWrite}<th class="text-left px-4 py-2 font-semibold">Actions</th>{/if}
-				</tr></thead>
-				<tbody>
-					{#each curves as curve (curve.id)}
-						<tr class="border-b border-brand-divider last:border-b-0 {curve.id === focusCurveId ? 'bg-brand-primary/5' : ''}">
-							<td class="px-4 py-2">{curveLabel(curve)}</td>
-							<td class="px-4 py-2 text-xs text-brand-muted">{curve.fitted_on ?? 'None'}</td>
-							<td class="px-4 py-2 text-xs text-brand-muted">{curve.source_key ?? curve.source_system ?? 'manual'}</td>
-							<td class="px-4 py-2 font-mono text-xs">{curveEquation(curve)}</td>
-							<td class="px-4 py-2 font-mono text-xs">{curve.r_squared ?? 'None'}</td>
-							<td class="px-4 py-2 font-mono text-xs">{usedCount(curve)}</td>
-							<td class="px-4 py-2 text-xs text-brand-muted">{usage[curve.id]?.first_used ? formatDateTime(usage[curve.id].first_used!) : 'None'}</td>
-							<td class="px-4 py-2 text-xs text-brand-muted">{usage[curve.id]?.last_used ? formatDateTime(usage[curve.id].last_used!) : 'None'}</td>
-							<td class="px-4 py-2 text-xs text-brand-muted">{formatDateTime(curve.created_at)}</td>
-							<td class="px-4 py-2 text-xs text-brand-muted">{curve.created_by ?? 'None'}</td>
-							<td class="px-4 py-2 text-xs text-brand-muted">{curve.notes ?? 'None'}</td>
-							{#if canWrite}
-								<td class="px-4 py-2">
-									<div class="flex gap-3">
-										<Button variant="ghost" size="sm" class="text-brand-primary" onclick={() => openDuplicate(curve)}>Duplicate</Button>
-										<Button variant="ghost" size="sm" class="text-brand-primary" disabled={!!curve.source_system} title={curve.source_system ? `Replicated from ${curve.source_system}; the next sync cycle re-asserts its coefficients, so an edit here would not survive. Correct it in the portal.` : frozenTitle(curve)} onclick={() => (editingId === curve.id ? (editingId = null) : startEdit(curve))}>{editingId === curve.id ? 'Close' : 'Edit'}</Button>
-										{#if usedCount(curve) > 0}
-											<Button variant="ghost" size="sm" class="text-severity-alarm" disabled title={frozenTitle(curve)}>Delete</Button>
-										{:else}
-											<ConfirmPopover
-												message="Delete this standard curve? Nothing was corrected with it."
-												confirmLabel="Delete"
-												onconfirm={() => deleteCurve(curve)}
-											>
-												<Button variant="ghost" size="sm" class="text-severity-alarm">Delete</Button>
-											</ConfirmPopover>
-										{/if}
-									</div>
-								</td>
-							{/if}
-						</tr>
-						{#if editingId === curve.id}
-							<tr class="border-b border-brand-divider bg-brand-bg/40">
-								<td colspan={canWrite ? 12 : 11} class="px-4 py-3 space-y-3">
-									{#if usedCount(curve) > 0}
-										<p class="text-xs text-brand-muted">
-											{usedCount(curve)} reading{usedCount(curve) === 1 ? ' was' : 's were'} corrected with this curve, so its name, fit date and coefficients are frozen and it cannot be deleted. Notes stay editable. Duplicate it to correct the coefficients, then re-enter those measurements against the copy.
-										</p>
-									{/if}
-									<div class="grid grid-cols-4 gap-3">
-										<label class="flex flex-col gap-1 text-xs text-brand-muted col-span-2">Name<input type="text" bind:value={editForm.name} disabled={usedCount(curve) > 0} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm disabled:opacity-60" /></label>
-										<label class="flex flex-col gap-1 text-xs text-brand-muted col-span-2">Fit date<input type="date" bind:value={editForm.fitted_on} disabled={usedCount(curve) > 0} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm disabled:opacity-60" /></label>
-										<label class="flex flex-col gap-1 text-xs text-brand-muted">Slope<input type="number" step="any" bind:value={editForm.slope} disabled={usedCount(curve) > 0} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm font-mono disabled:opacity-60" /></label>
-										<label class="flex flex-col gap-1 text-xs text-brand-muted">Intercept<input type="number" step="any" bind:value={editForm.intercept} disabled={usedCount(curve) > 0} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm font-mono disabled:opacity-60" /></label>
-										<label class="flex flex-col gap-1 text-xs text-brand-muted">R²<input type="number" step="any" bind:value={editForm.r_squared} disabled={usedCount(curve) > 0} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm font-mono disabled:opacity-60" /></label>
-										<label class="flex flex-col gap-1 text-xs text-brand-muted col-span-3">Notes<input type="text" bind:value={editForm.notes} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm" /></label>
-									</div>
-									<div class="flex items-center gap-3">
-										<Button variant="primary" onclick={() => saveEdit(curve)} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
-										<Button variant="ghost" onclick={() => { editingId = null; rowError = null; }}>Cancel</Button>
-										<span class="text-[11px] text-brand-muted">Recorded against {sensorName}.</span>
-									</div>
-								</td>
-							</tr>
+		{/snippet}
+
+		{#snippet cell({ column, row, text }: { column: Column; row: StandardCurve; text: string })}
+			{#if column.key === 'name'}
+				{curveLabel(row)}
+			{:else if column.key === 'source'}
+				{row.source_key ?? row.source_system ?? 'manual'}
+			{:else if column.key === 'equation'}
+				{curveEquation(row)}
+			{:else if column.key === 'readings'}
+				{usedCount(row)}
+			{:else if column.key === 'first_used'}
+				{usage[row.id]?.first_used ? formatDateTime(usage[row.id].first_used!) : 'None'}
+			{:else if column.key === 'last_used'}
+				{usage[row.id]?.last_used ? formatDateTime(usage[row.id].last_used!) : 'None'}
+			{:else if column.key === 'created_at'}
+				{formatDateTime(row.created_at)}
+			{:else}
+				{text}
+			{/if}
+		{/snippet}
+
+		{#snippet rowDetail({ row, colCount }: { row: StandardCurve; colCount: number })}
+			{#if editingId === row.id}
+				<tr class="border-b border-brand-divider bg-brand-bg/40">
+					<td colspan={colCount} class="px-4 py-3 space-y-3">
+						{#if usedCount(row) > 0}
+							<p class="text-xs text-brand-muted">
+								{usedCount(row)} reading{usedCount(row) === 1 ? ' was' : 's were'} corrected with this curve, so its name, fit date and coefficients are frozen and it cannot be deleted. Notes stay editable. Duplicate it to correct the coefficients, then re-enter those measurements against the copy.
+							</p>
 						{/if}
-						{#if rowError?.id === curve.id}
-							<tr class="border-b border-brand-divider bg-brand-bg/40">
-								<td colspan={canWrite ? 12 : 11} class="px-4 py-3">
-									<ErrorNotice>
-										<div class="space-y-2">
-											<p>{rowError.message}</p>
-											<div class="flex gap-2">
-												<Button variant="primary" size="sm" onclick={() => correctedCopyFrom(curve)}>Create corrected copy</Button>
-												<Button variant="ghost" size="sm" onclick={() => (rowError = null)}>Dismiss</Button>
-											</div>
-										</div>
-									</ErrorNotice>
-								</td>
-							</tr>
-						{/if}
-					{/each}
-				</tbody>
-			</table>
-		</div>
-		<PaginationControls {total} {page} perPage={PER_PAGE} onPageChange={changePage} />
-	{/if}
+						<div class="grid grid-cols-4 gap-3">
+							<label class="flex flex-col gap-1 text-xs text-brand-muted col-span-2">Name<input type="text" bind:value={editForm.name} disabled={usedCount(row) > 0} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm disabled:opacity-60" /></label>
+							<label class="flex flex-col gap-1 text-xs text-brand-muted col-span-2">Fit date<input type="date" bind:value={editForm.fitted_on} disabled={usedCount(row) > 0} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm disabled:opacity-60" /></label>
+							<label class="flex flex-col gap-1 text-xs text-brand-muted">Slope<input type="number" step="any" bind:value={editForm.slope} disabled={usedCount(row) > 0} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm font-mono disabled:opacity-60" /></label>
+							<label class="flex flex-col gap-1 text-xs text-brand-muted">Intercept<input type="number" step="any" bind:value={editForm.intercept} disabled={usedCount(row) > 0} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm font-mono disabled:opacity-60" /></label>
+							<label class="flex flex-col gap-1 text-xs text-brand-muted">R²<input type="number" step="any" bind:value={editForm.r_squared} disabled={usedCount(row) > 0} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm font-mono disabled:opacity-60" /></label>
+							<label class="flex flex-col gap-1 text-xs text-brand-muted col-span-3">Notes<input type="text" bind:value={editForm.notes} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm" /></label>
+						</div>
+						<div class="flex items-center gap-3">
+							<Button variant="primary" onclick={() => saveEdit(row)} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
+							<Button variant="ghost" onclick={() => { editingId = null; rowError = null; }}>Cancel</Button>
+							<span class="text-[11px] text-brand-muted">Recorded against {sensorName}.</span>
+						</div>
+					</td>
+				</tr>
+			{/if}
+			{#if rowError?.id === row.id}
+				<tr class="border-b border-brand-divider bg-brand-bg/40">
+					<td colspan={colCount} class="px-4 py-3">
+						<ErrorNotice>
+							<div class="space-y-2">
+								<p>{rowError.message}</p>
+								<div class="flex gap-2">
+									<Button variant="primary" size="sm" onclick={() => correctedCopyFrom(row)}>Create corrected copy</Button>
+									<Button variant="ghost" size="sm" onclick={() => (rowError = null)}>Dismiss</Button>
+								</div>
+							</div>
+						</ErrorNotice>
+					</td>
+				</tr>
+			{/if}
+		{/snippet}
+	</CrudList>
 </div>
+
+{#snippet rowActions(curve: StandardCurve)}
+	<div class="flex gap-3">
+		<Button variant="ghost" size="sm" class="text-brand-primary" onclick={() => openDuplicate(curve)}>Duplicate</Button>
+		<Button variant="ghost" size="sm" class="text-brand-primary" disabled={!!curve.source_system} title={curve.source_system ? `Replicated from ${curve.source_system}; the next sync cycle re-asserts its coefficients, so an edit here would not survive. Correct it in the portal.` : frozenTitle(curve)} onclick={() => (editingId === curve.id ? (editingId = null) : startEdit(curve))}>{editingId === curve.id ? 'Close' : 'Edit'}</Button>
+		{#if usedCount(curve) > 0}
+			<Button variant="ghost" size="sm" class="text-severity-alarm" disabled title={frozenTitle(curve)}>Delete</Button>
+		{:else}
+			<ConfirmPopover
+				message="Delete this standard curve? Nothing was corrected with it."
+				confirmLabel="Delete"
+				onconfirm={() => deleteCurve(curve)}
+			>
+				<Button variant="ghost" size="sm" class="text-severity-alarm">Delete</Button>
+			</ConfirmPopover>
+		{/if}
+	</div>
+{/snippet}
 
 <CopyStandardCurvesDialog
 	bind:open={copyOpen}
 	targetSensorId={sensorId}
 	targetSensorName={sensorName}
 	{existingNames}
-	onsuccess={() => { page = 1; void load(); }}
+	onsuccess={() => list?.reload()}
 />

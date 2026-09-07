@@ -1,32 +1,21 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
-	import { api } from '$api/crud';
 	import { listVisits, type VisitListRow, type VisitListSort } from '$api/service';
 	import EventPanel from '$components/logs/EventPanel.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
+	import SiteSelect from '$components/SiteSelect.svelte';
 	import { formatDateTime } from '$lib/utils';
 
 	// One row per collection event (field visit) across sites, with the fill and open-finding
 	// counts the site's Visits tab computes; a row opens that tab on the visit.
-	let sites = $state<{ id: string; name: string }[]>([]);
 	let siteFilter = $state('');
 	let sort = $state<VisitListSort>('collected_at');
 	let order = $state<'asc' | 'desc'>('desc');
 	let panel = $state<{ reload: () => Promise<void> } | null>(null);
 
-	onMount(async () => {
-		try {
-			const result = await api.sites.list({ perPage: 500, sort: ['name', 'ASC'] });
-			sites = result.data.map((s) => ({ id: s.id, name: s.name }));
-		} catch {
-			// The list still renders with the names the rows carry.
-		}
-	});
-
-	async function fetchPage({ page, perPage }: { page: number; perPage: number }) {
+	async function loadPage({ page, perPage }: { page: number; perPage: number }) {
 		const r = await listVisits({
 			page,
 			page_size: perPage,
@@ -69,19 +58,15 @@
 <div class="space-y-4">
 	<Breadcrumbs items={[{ label: 'Visits' }]} />
 
-	<EventPanel bind:this={panel} {fetchPage} perPage={100} colCount={7} onRowClick={open} emptyText="No visits">
+	<EventPanel bind:this={panel} load={loadPage} perPage={100} colCount={7} onRowClick={open} emptyText="No visits">
 		{#snippet filterBar({ reload })}
 			<div class="flex items-center gap-2">
-				<select
+				<SiteSelect
 					bind:value={siteFilter}
 					onchange={() => reload()}
+					placeholder="All sites"
 					class="px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm"
-				>
-					<option value="">All sites</option>
-					{#each sites as s (s.id)}
-						<option value={s.id}>{s.name}</option>
-					{/each}
-				</select>
+				/>
 				<a class="text-sm text-brand-primary hover:underline" href="{base}/visits/new">
 					Enter a field day
 				</a>

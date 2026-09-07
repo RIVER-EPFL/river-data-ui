@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { base } from '$app/paths';
-	import { api, type CollectionEvent, type Site } from '$api/crud';
-	import { listAll } from '$api/paged';
+	import { api, type CollectionEvent } from '$api/crud';
 	import { stageCollectionEvent } from '$api/service';
 	import { stagedVisit } from '$lib/stores/visit.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
@@ -9,6 +8,8 @@
 	import Badge from '$components/ui/Badge.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
+	import SiteSelect from '$components/SiteSelect.svelte';
+	import { siteRefs } from '$lib/siteRefs.svelte';
 
 	// Staging a field visit before running a tool: the site and instant are chosen once, and
 	// every tool run and save on this page attaches to that visit. An existing visit at the chosen
@@ -17,7 +18,6 @@
 	const BROWSER_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 	let open = $state(false);
-	let sites = $state<Site[]>([]);
 	let siteId = $state('');
 	let when = $state(toDatetimeLocal(Date.now(), BROWSER_ZONE));
 	let notes = $state('');
@@ -43,16 +43,9 @@
 		siteId = visit?.siteId ?? siteId;
 		when = visit ? toDatetimeLocal(Date.parse(visit.collectedAt), BROWSER_ZONE) : when;
 		notes = '';
-		void loadSites();
-	}
-
-	async function loadSites() {
-		if (sites.length > 0) return;
-		try {
-			sites = await listAll(api.sites, { perPage: 200, sort: ['name', 'ASC'] });
-		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Failed to load sites');
-		}
+		void siteRefs.ensure().catch((e) =>
+			toastStore.error(e instanceof Error ? e.message : 'Failed to load sites'),
+		);
 	}
 
 	// The site's recent visits, so a return trip to an already-staged date is a click.
@@ -75,7 +68,7 @@
 	}
 
 	function siteName(id: string): string {
-		return sites.find((s) => s.id === id)?.name ?? id;
+		return siteRefs.name(id);
 	}
 
 	function adopt(event: CollectionEvent) {
@@ -168,15 +161,7 @@
 			<div class="grid grid-cols-2 gap-3">
 				<div class="flex flex-col gap-1">
 					<label for="svb-site" class="text-sm font-medium">Site <span class="text-severity-alarm">*</span></label>
-					<select
-						id="svb-site"
-						bind:value={siteId}
-						onchange={loadRecent}
-						class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
-					>
-						<option value=""> - Select site - </option>
-						{#each sites as s (s.id)}<option value={s.id}>{s.name}</option>{/each}
-					</select>
+					<SiteSelect id="svb-site" bind:value={siteId} onchange={loadRecent} />
 				</div>
 				<div class="flex flex-col gap-1">
 					<label for="svb-time" class="text-sm font-medium">Collection time <span class="text-severity-alarm">*</span></label>

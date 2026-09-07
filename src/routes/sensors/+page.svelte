@@ -18,20 +18,15 @@
 	import Badge from '$components/ui/Badge.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import CountList from '$components/ui/CountList.svelte';
-	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
-	import PaginationControls from '$components/ui/PaginationControls.svelte';
+	import CrudList from '$components/crud/CrudList.svelte';
+	import type { Column, PageRequest } from '$components/crud/CrudList.svelte';
 	import { formatCount } from '$lib/format';
 
 	type FilterMode = 'all' | 'field' | 'lab' | 'source_parameter' | 'entry_channel';
 
 	let sensors = $state<Sensor[]>([]);
 	let deployments = $state<SensorDeployment[]>([]);
-	let total = $state(0);
-	let loading = $state(true);
-	let error = $state<string | null>(null);
-	let currentPage = $state(1);
-	let sortField = $state('name');
-	let sortOrder = $state<'ASC' | 'DESC'>('ASC');
+	let list = $state<ReturnType<typeof CrudList> | null>(null);
 	let searchQuery = $state('');
 	let filterActive = $state<'' | 'true' | 'false'>('');
 	let quickFilter = $state<'' | 'undeployed' | 'no_curves'>('');
@@ -62,31 +57,24 @@
 
 	const perPage = 25;
 
-	async function load() {
-		loading = true;
-		error = null;
-		try {
-			const filter: Record<string, unknown> = {};
-			if (searchQuery) filter.q = searchQuery;
-			if (filterActive) filter.is_active = filterActive === 'true';
-			if (filterMode === 'field') filter.kind = 'device';
-			else if (filterMode === 'lab') filter.kind = 'lab';
-			else if (filterMode !== 'all') filter.kind = filterMode;
+	async function loadSensors({ page: p, perPage: pp, sort }: PageRequest) {
+		const filter: Record<string, unknown> = {};
+		if (searchQuery) filter.q = searchQuery;
+		if (filterActive) filter.is_active = filterActive === 'true';
+		if (filterMode === 'field') filter.kind = 'device';
+		else if (filterMode === 'lab') filter.kind = 'lab';
+		else if (filterMode !== 'all') filter.kind = filterMode;
 
-			const [result, depResult] = await Promise.all([
-				api.sensors.list({ page: currentPage, perPage, sort: [sortField, sortOrder], filter }),
-				deployments.length === 0
-					? api.sensorDeployments.list({ perPage: 500, filter: { deployed_until: null } })
-					: Promise.resolve(null),
-			]);
-			sensors = result.data;
-			total = result.total;
-			if (depResult) deployments = depResult.data;
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to load sensors';
-		} finally {
-			loading = false;
-		}
+		const [result, depResult] = await Promise.all([
+			api.sensors.list({ page: p, perPage: pp, sort, filter }),
+			deployments.length === 0
+				? api.sensorDeployments.list({ perPage: 500, filter: { deployed_until: null } })
+				: Promise.resolve(null),
+		]);
+		sensors = result.data;
+		if (depResult) deployments = depResult.data;
+		// The quick filters narrow the page that was fetched, not the query behind it.
+		return { data: displayed, total: result.total };
 	}
 
 	// Curves are global (grouped by sensor), so they load once for the whole catalog.
@@ -188,7 +176,7 @@
 				`${res.sensors_updated} sensor${res.sensors_updated === 1 ? '' : 's'} marked ${freq}-frequency; existing readings are being retagged`,
 			);
 			selected = new Set();
-			await load();
+			list?.refresh();
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Reclassification failed');
 		} finally {
@@ -198,18 +186,7 @@
 
 	function setFilter(mode: FilterMode) {
 		filterMode = mode;
-		currentPage = 1;
-		load();
-	}
-
-	function toggleSort(field: string) {
-		if (sortField === field) sortOrder = sortOrder === 'ASC' ? 'DESC' : 'ASC';
-		else {
-			sortField = field;
-			sortOrder = 'ASC';
-		}
-		currentPage = 1;
-		load();
+		list?.reload();
 	}
 
 	// Client-side quick filters over the current page (the list itself is server-paginated).
@@ -222,7 +199,24 @@
 	);
 
 	const canManage = $derived(me.can('manageSensors'));
-	const columnCount = $derived(canManage ? 11 : 10);
+
+	const columns: Column[] = [
+		{ key: 'expand', label: '', sortable: false, class: 'w-8 px-2 text-center' },
+		{ key: 'serial_number', label: 'Serial' },
+		{ key: 'name', label: 'Name' },
+		{ key: 'kind', label: 'Type', sortable: false },
+		{ key: 'data_frequency', label: 'Frequency' },
+		{ key: 'manufacturer', label: 'Manufacturer', sortable: false, class: 'text-brand-muted' },
+		{ key: 'model', label: 'Model', sortable: false, class: 'text-brand-muted' },
+		{ key: 'deployed_at', label: 'Deployed At', sortable: false, class: 'text-brand-muted text-xs' },
+		{ key: 'curves', label: 'Curves', sortable: false },
+		{ key: 'is_active', label: 'Active', sortable: false },
+	];
+	const listColumns = $derived(
+		canManage
+			? [{ key: 'select', label: '', sortable: false, class: 'w-8 px-2 text-center' }, ...columns]
+			: columns,
+	);
 
 	// The four kinds a row can be: two instruments something was measured on, two bookkeeping rows
 	// minted so a reading can name what it came through.
@@ -243,7 +237,6 @@
 		}
 		void loadCurveCounts();
 		void loadCalBackfill();
-		await load();
 	});
 </script>
 
@@ -283,15 +276,15 @@
 				>{chip.label}</button>
 			{/each}
 		</div>
-		<input type="text" placeholder="Search sensors…" bind:value={searchQuery} oninput={() => { currentPage = 1; load(); }}
+		<input type="text" placeholder="Search sensors…" bind:value={searchQuery} oninput={() => list?.reload()}
 			class="w-64 px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30" />
-		<select bind:value={filterActive} onchange={() => { currentPage = 1; load(); }}
+		<select bind:value={filterActive} onchange={() => list?.reload()}
 			class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
 			<option value="">All sensors</option>
 			<option value="true">Active</option>
 			<option value="false">Inactive</option>
 		</select>
-		<select bind:value={quickFilter} title="Applied within the current page"
+		<select bind:value={quickFilter} onchange={() => list?.refresh()} title="Applied within the current page"
 			class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
 			<option value="">No quick filter</option>
 			<option value="undeployed">Undeployed</option>
@@ -328,149 +321,131 @@
 		</div>
 	{/if}
 
-	{#if error}
-		<ErrorNotice message={error} />
-	{/if}
+	<CrudList
+		bind:this={list}
+		load={loadSensors}
+		columns={listColumns}
+		title="Sensors"
+		showHeader={false}
+		{perPage}
+		defaultSort={['name', 'ASC']}
+		emptyText="No sensors found"
+	>
+		{#snippet header({ column, label }: { column: Column; label: string })}
+			{#if column.key === 'select'}
+				<input
+					type="checkbox"
+					checked={displayed.length > 0 && selected.size === displayed.length}
+					onchange={toggleSelectAll}
+					aria-label="Select all sensors"
+				/>
+			{:else}
+				{label}
+			{/if}
+		{/snippet}
 
-	<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
-		<table class="w-full text-sm">
-			<thead>
-				<tr class="bg-brand-bg border-b border-brand-divider">
-					{#if canManage}
-						<th class="w-8 px-2 py-2">
-							<input
-								type="checkbox"
-								checked={displayed.length > 0 && selected.size === displayed.length}
-								onchange={toggleSelectAll}
-								aria-label="Select all sensors"
-							/>
-						</th>
-					{/if}
-					<th class="w-8 px-2 py-2"></th>
-					<th class="text-left px-4 py-2 font-semibold cursor-pointer hover:text-brand-primary" onclick={() => toggleSort('serial_number')}>Serial {sortField === 'serial_number' ? (sortOrder === 'ASC' ? '↑' : '↓') : ''}</th>
-					<th class="text-left px-4 py-2 font-semibold cursor-pointer hover:text-brand-primary" onclick={() => toggleSort('name')}>Name {sortField === 'name' ? (sortOrder === 'ASC' ? '↑' : '↓') : ''}</th>
-					<th class="text-left px-4 py-2 font-semibold">Type</th>
-					<th class="text-left px-4 py-2 font-semibold cursor-pointer hover:text-brand-primary" onclick={() => toggleSort('data_frequency')}>Frequency {sortField === 'data_frequency' ? (sortOrder === 'ASC' ? '↑' : '↓') : ''}</th>
-					<th class="text-left px-4 py-2 font-semibold">Manufacturer</th>
-					<th class="text-left px-4 py-2 font-semibold">Model</th>
-					<th class="text-left px-4 py-2 font-semibold">Deployed At</th>
-					<th class="text-left px-4 py-2 font-semibold">Curves</th>
-					<th class="text-left px-4 py-2 font-semibold">Active</th>
-				</tr>
-			</thead>
-			<tbody>
-				{#if loading}
-					<tr><td colspan={columnCount} class="px-4 py-8 text-center text-brand-muted">Loading…</td></tr>
-				{:else if displayed.length === 0}
-					<tr><td colspan={columnCount} class="px-4 py-8 text-center text-brand-muted">No sensors found</td></tr>
-				{:else}
-					{#each displayed as sensor}
-						{@const isLab = sensor.is_lab_instrument === true}
-						{@const isLow = sensor.data_frequency === 'low'}
-						{@const dep = currentDeployment(sensor.id)}
-						<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50">
-							{#if canManage}
-								<td class="px-2 py-2 text-center">
-									<input
-										type="checkbox"
-										checked={selected.has(sensor.id)}
-										onchange={() => toggleSelected(sensor.id)}
-										aria-label="Select {sensor.name ?? sensor.serial_number ?? 'sensor'}"
-									/>
-								</td>
-							{/if}
-							<td class="px-2 py-2 text-center">
-								<button
-									onclick={() => toggleExpand(sensor.id)}
-									class="text-brand-muted hover:text-brand-primary cursor-pointer bg-transparent border-none px-1"
-									aria-label={expanded.has(sensor.id) ? 'Collapse curves' : 'Expand curves'}
-								>{expanded.has(sensor.id) ? '▾' : '▸'}</button>
-							</td>
-							<td class="px-4 py-2">
-								<a href="{base}/sensors/{sensor.id}" class="text-brand-primary font-semibold no-underline hover:underline font-mono text-xs">{sensor.serial_number ?? 'None'}</a>
-							</td>
-							<td class="px-4 py-2">{sensor.name ?? 'None'}</td>
-							<td class="px-4 py-2">
-								<Badge variant={isBookkeeping(sensor) ? 'default' : isLab ? 'accent' : 'default'}>{kindLabel(sensor)}</Badge>
-								{#if sensor.source_system}
-									<Badge variant="muted">from {sensor.source_system}</Badge>
-								{/if}
-							</td>
-							<td class="px-4 py-2">
-								<Badge variant={isLow ? 'accent' : 'muted'}>{isLow ? 'Low' : 'High'}</Badge>
-							</td>
-							<td class="px-4 py-2 text-brand-muted">{sensor.manufacturer ?? 'None'}</td>
-							<td class="px-4 py-2 text-brand-muted">{sensor.model ?? 'None'}</td>
-							<td class="px-4 py-2 text-brand-muted text-xs">{dep ? formatRelativeTime(dep.deployed_from) : 'Undeployed'}</td>
-							<td class="px-4 py-2">
-								<div class="flex items-center gap-1.5">
-									<span class="text-brand-muted">{curveCountBySensor.get(sensor.id) ?? 0}</span>
-									{#if calBackfillBySensor.get(sensor.id)}
-										{@const cb = calBackfillBySensor.get(sensor.id)!}
-										<Button
-											size="sm"
-											variant="ghost"
-											class="text-brand-primary whitespace-nowrap"
-											onclick={() => runCalBackfill({ sensor_id: sensor.id }, sensor.id)}
-											disabled={backfilling !== null}
-											title="{formatCount(cb.uncalibrated_count)} reading(s) sit inside one of this sensor's calibration windows but were never stamped with it. Reprocessing resolves them; no curve is created."
-										>{backfilling === sensor.id ? '…' : `Reprocess (${formatCount(cb.uncalibrated_count)})`}</Button>
-									{/if}
-								</div>
-							</td>
-							<td class="px-4 py-2">{sensor.is_active ? '✓' : 'None'}</td>
-						</tr>
-						{#if expanded.has(sensor.id)}
-							<tr class="border-b border-brand-divider bg-brand-bg/40">
-								<td colspan={columnCount} class="px-4 py-3">
-									{#if curvesLoading.has(sensor.id) && !curvesBySensor.has(sensor.id)}
-										<p class="text-xs text-brand-muted">Loading…</p>
-									{:else}
-										{@const curves = curvesBySensor.get(sensor.id) ?? []}
-										{#if curves.length === 0}
-											<p class="text-xs text-brand-muted">No curves recorded - this instrument's readings are served uncorrected.</p>
-										{:else}
-											<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
-												<table class="w-full text-xs">
-													<thead><tr class="bg-brand-bg border-b border-brand-divider">
-														<th class="text-left px-3 py-1.5 font-semibold">Name</th>
-														<th class="text-left px-3 py-1.5 font-semibold">Parameter</th>
-														<th class="text-left px-3 py-1.5 font-semibold">Valid From</th>
-														<th class="text-left px-3 py-1.5 font-semibold">Slope</th>
-														<th class="text-left px-3 py-1.5 font-semibold">Intercept</th>
-														<th class="text-left px-3 py-1.5 font-semibold">R²</th>
-														<th class="text-left px-3 py-1.5 font-semibold">Equation</th>
-													</tr></thead>
-													<tbody>
-														{#each curves as cal}
-															<tr class="border-b border-brand-divider last:border-b-0">
-																<td class="px-3 py-1.5">{cal.name ?? '-'}</td>
-																<td class="px-3 py-1.5 text-brand-muted">{parameterNames.get(cal.parameter_id ?? '') ?? ''}</td>
-																<td class="px-3 py-1.5 text-brand-muted">{formatDate(cal.valid_from)}</td>
-																<td class="px-3 py-1.5 font-mono">{cal.slope}</td>
-																<td class="px-3 py-1.5 font-mono">{cal.intercept}</td>
-																<td class="px-3 py-1.5 font-mono">{cal.r_squared?.toFixed(4) ?? '-'}</td>
-																<td class="px-3 py-1.5 font-mono">{formatEquation(cal.slope, cal.intercept)}</td>
-															</tr>
-														{/each}
-													</tbody>
-												</table>
-											</div>
-										{/if}
-										{#if canManage}
-											<div class="mt-2">
-												<a href="{base}/sensor-calibrations/new?sensor_id={sensor.id}" class="text-xs text-brand-primary no-underline hover:underline">+ Add curve</a>
-											</div>
-										{/if}
-									{/if}
-								</td>
-							</tr>
-						{/if}
-					{/each}
+		{#snippet cell({ column, row, text }: { column: Column; row: Sensor; text: string })}
+			{#if column.key === 'select'}
+				<input
+					type="checkbox"
+					checked={selected.has(row.id)}
+					onchange={() => toggleSelected(row.id)}
+					aria-label="Select {row.name ?? row.serial_number ?? 'sensor'}"
+				/>
+			{:else if column.key === 'expand'}
+				<button
+					onclick={() => toggleExpand(row.id)}
+					class="text-brand-muted hover:text-brand-primary cursor-pointer bg-transparent border-none px-1"
+					aria-label={expanded.has(row.id) ? 'Collapse curves' : 'Expand curves'}
+				>{expanded.has(row.id) ? '▾' : '▸'}</button>
+			{:else if column.key === 'serial_number'}
+				<a href="{base}/sensors/{row.id}" class="text-brand-primary font-semibold no-underline hover:underline font-mono text-xs">{row.serial_number ?? 'None'}</a>
+			{:else if column.key === 'name'}
+				{row.name ?? 'None'}
+			{:else if column.key === 'kind'}
+				<Badge variant={isBookkeeping(row) ? 'default' : row.is_lab_instrument === true ? 'accent' : 'default'}>{kindLabel(row)}</Badge>
+				{#if row.source_system}
+					<Badge variant="muted">from {row.source_system}</Badge>
 				{/if}
-			</tbody>
-		</table>
-	</div>
+			{:else if column.key === 'data_frequency'}
+				{@const isLow = row.data_frequency === 'low'}
+				<Badge variant={isLow ? 'accent' : 'muted'}>{isLow ? 'Low' : 'High'}</Badge>
+			{:else if column.key === 'manufacturer'}
+				{row.manufacturer ?? 'None'}
+			{:else if column.key === 'model'}
+				{row.model ?? 'None'}
+			{:else if column.key === 'deployed_at'}
+				{@const dep = currentDeployment(row.id)}
+				{dep ? formatRelativeTime(dep.deployed_from) : 'Undeployed'}
+			{:else if column.key === 'curves'}
+				<div class="flex items-center gap-1.5">
+					<span class="text-brand-muted">{curveCountBySensor.get(row.id) ?? 0}</span>
+					{#if calBackfillBySensor.get(row.id)}
+						{@const cb = calBackfillBySensor.get(row.id)!}
+						<Button
+							size="sm"
+							variant="ghost"
+							class="text-brand-primary whitespace-nowrap"
+							onclick={() => runCalBackfill({ sensor_id: row.id }, row.id)}
+							disabled={backfilling !== null}
+							title="{formatCount(cb.uncalibrated_count)} reading(s) sit inside one of this sensor's calibration windows but were never stamped with it. Reprocessing resolves them; no curve is created."
+						>{backfilling === row.id ? '…' : `Reprocess (${formatCount(cb.uncalibrated_count)})`}</Button>
+					{/if}
+				</div>
+			{:else if column.key === 'is_active'}
+				{row.is_active ? '✓' : 'None'}
+			{:else}
+				{text}
+			{/if}
+		{/snippet}
 
-	<PaginationControls {total} page={currentPage} {perPage} onPageChange={(p) => { currentPage = p; load(); }} />
+		{#snippet rowDetail({ row, colCount }: { row: Sensor; colCount: number })}
+			{#if expanded.has(row.id)}
+				<tr class="border-b border-brand-divider bg-brand-bg/40">
+					<td colspan={colCount} class="px-4 py-3">
+						{#if curvesLoading.has(row.id) && !curvesBySensor.has(row.id)}
+							<p class="text-xs text-brand-muted">Loading…</p>
+						{:else}
+							{@const curves = curvesBySensor.get(row.id) ?? []}
+							{#if curves.length === 0}
+								<p class="text-xs text-brand-muted">No curves recorded - this instrument's readings are served uncorrected.</p>
+							{:else}
+								<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
+									<table class="w-full text-xs">
+										<thead><tr class="bg-brand-bg border-b border-brand-divider">
+											<th class="text-left px-3 py-1.5 font-semibold">Name</th>
+											<th class="text-left px-3 py-1.5 font-semibold">Parameter</th>
+											<th class="text-left px-3 py-1.5 font-semibold">Valid From</th>
+											<th class="text-left px-3 py-1.5 font-semibold">Slope</th>
+											<th class="text-left px-3 py-1.5 font-semibold">Intercept</th>
+											<th class="text-left px-3 py-1.5 font-semibold">R²</th>
+											<th class="text-left px-3 py-1.5 font-semibold">Equation</th>
+										</tr></thead>
+										<tbody>
+											{#each curves as cal}
+												<tr class="border-b border-brand-divider last:border-b-0">
+													<td class="px-3 py-1.5">{cal.name ?? '-'}</td>
+													<td class="px-3 py-1.5 text-brand-muted">{parameterNames.get(cal.parameter_id ?? '') ?? ''}</td>
+													<td class="px-3 py-1.5 text-brand-muted">{formatDate(cal.valid_from)}</td>
+													<td class="px-3 py-1.5 font-mono">{cal.slope}</td>
+													<td class="px-3 py-1.5 font-mono">{cal.intercept}</td>
+													<td class="px-3 py-1.5 font-mono">{cal.r_squared?.toFixed(4) ?? '-'}</td>
+													<td class="px-3 py-1.5 font-mono">{formatEquation(cal.slope, cal.intercept)}</td>
+												</tr>
+											{/each}
+										</tbody>
+									</table>
+								</div>
+							{/if}
+							{#if canManage}
+								<div class="mt-2">
+									<a href="{base}/sensor-calibrations/new?sensor_id={row.id}" class="text-xs text-brand-primary no-underline hover:underline">+ Add curve</a>
+								</div>
+							{/if}
+						{/if}
+					</td>
+				</tr>
+			{/if}
+		{/snippet}
+	</CrudList>
 </div>

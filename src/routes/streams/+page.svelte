@@ -813,7 +813,7 @@
 		const updates: PlanEntryUpdate[] = [];
 		for (const e of planEntries) {
 			if (e.parameter.name !== w.paramName || e.parameter.units === units) continue;
-			(e.parameter as any).units = units;
+			e.parameter.units = units;
 			updates.push({ stream_id: e.stream_id, parameter_units: units });
 		}
 		if (updates.length === 0) return;
@@ -859,12 +859,12 @@
 		const updates: PlanEntryUpdate[] = [];
 		for (const e of planEntries) {
 			if (e.parameter.name === oldName) {
-				(e.parameter as any).name = newName.trim();
-				(e.parameter as any).create = true;
-				(e.parameter as any).id = null;
+				e.parameter.name = newName.trim();
+				e.parameter.create = true;
+				e.parameter.id = null;
 				const update: PlanEntryUpdate = { stream_id: e.stream_id, parameter_name: newName.trim() };
 				if (newUnits !== undefined && newUnits !== e.parameter.units) {
-					(e.parameter as any).units = newUnits;
+					e.parameter.units = newUnits;
 					update.parameter_units = newUnits;
 				}
 				updates.push(update);
@@ -879,9 +879,9 @@
 		const updates: PlanEntryUpdate[] = [];
 		for (const e of planEntries) {
 			if (e.original_parameter_name === sourceName) {
-				(e.parameter as any).name = newParamName.trim();
-				(e.parameter as any).create = true;
-				(e.parameter as any).id = null;
+				e.parameter.name = newParamName.trim();
+				e.parameter.create = true;
+				e.parameter.id = null;
 				updates.push({ stream_id: e.stream_id, parameter_name: newParamName.trim() });
 			}
 		}
@@ -921,7 +921,7 @@
 		const updates: PlanEntryUpdate[] = [];
 		for (const e of planEntries) {
 			if (e.parameter.name === oldName && e.parameter.units === oldUnits) {
-				(e.parameter as any).units = newUnits;
+				e.parameter.units = newUnits;
 				updates.push({ stream_id: e.stream_id, parameter_units: newUnits });
 			}
 		}
@@ -953,7 +953,7 @@
 		const updates: PlanEntryUpdate[] = [];
 		for (const e of planEntries) {
 			if (e.parameter.name === name && (e.parameter.label ?? '') !== newLabel) {
-				(e.parameter as any).label = newLabel;
+				e.parameter.label = newLabel;
 				updates.push({ stream_id: e.stream_id, parameter_label: newLabel });
 			}
 		}
@@ -1135,7 +1135,7 @@
 
 	function setEntryAction(entry: PairingPlanEntry, action: 'pair' | 'skip') {
 		if (entry.action === action) return;
-		(entry as any).action = action;
+		entry.action = action;
 		planEntries = [...planEntries];
 		queueUpdate([{ stream_id: entry.stream_id, action }], { immediate: true });
 	}
@@ -1144,7 +1144,7 @@
 	// the entry moves.
 	function setEntryAcknowledged(entry: PairingPlanEntry, acknowledged: boolean) {
 		if ((entry.acknowledged ?? false) === acknowledged) return;
-		(entry as any).acknowledged = acknowledged;
+		entry.acknowledged = acknowledged;
 		planEntries = [...planEntries];
 		queueUpdate([{ stream_id: entry.stream_id, acknowledged }], { immediate: true });
 	}
@@ -1153,7 +1153,7 @@
 		const updates: PlanEntryUpdate[] = [];
 		for (const e of group.entries) {
 			if (e.action !== action) {
-				(e as any).action = action;
+				e.action = action;
 				updates.push({ stream_id: e.stream_id, action });
 			}
 		}
@@ -1169,7 +1169,7 @@
 			// An entry missing a site or parameter name cannot pair; the server skips it too.
 			if (action === 'pair' && (!e.site.name.trim() || !e.parameter.name.trim())) continue;
 			if (e.action !== action) {
-				(e as any).action = action;
+				e.action = action;
 				updates.push({ stream_id: e.stream_id, action });
 			}
 		}
@@ -1193,7 +1193,7 @@
 	function renameSiteGlobal(oldName: string, newName: string) {
 		const entries = planEntries.filter((e) => e.site.name === oldName);
 		const updates: PlanEntryUpdate[] = entries.map((e) => ({ stream_id: e.stream_id, site_name: newName }));
-		for (const e of entries) { (e.site as any).name = newName; (e.site as any).create = true; (e.site as any).id = null; }
+		for (const e of entries) { e.site.name = newName; e.site.create = true; e.site.id = null; }
 		planEntries = [...planEntries];
 		queueUpdate(updates);
 	}
@@ -1211,9 +1211,9 @@
 		if (!editingParam || !editValue.trim()) { editingParam = null; return; }
 		const entry = planEntries.find((e) => e.stream_id === editingParam!.streamId);
 		if (!entry || editValue === entry.parameter.name) { editingParam = null; return; }
-		(entry.parameter as any).name = editValue.trim();
-		(entry.parameter as any).create = true;
-		(entry.parameter as any).id = null;
+		entry.parameter.name = editValue.trim();
+		entry.parameter.create = true;
+		entry.parameter.id = null;
 		planEntries = [...planEntries];
 		editingParam = null;
 		queueUpdate([{ stream_id: entry.stream_id, parameter_name: editValue.trim() }]);
@@ -2472,8 +2472,8 @@
 														onkeydown={(e) => {
 															if (e.key === 'Enter' && customParamInput?.trim()) {
 																const name = customParamInput.trim();
-																(entry.parameter as any).name = name;
-																(entry.parameter as any).create = true;
+																entry.parameter.name = name;
+																entry.parameter.create = true;
 																planEntries = [...planEntries];
 																queueUpdate([{ stream_id: entry.stream_id, parameter_name: name }]);
 																customParamInput = null;
@@ -2496,8 +2496,8 @@
 															if (val.startsWith('db:')) {
 																const ep = existingParams.find((p) => p.id === val.slice(3));
 																if (ep && ep.code !== entry.parameter.name) {
-																	(entry.parameter as any).name = ep.code;
-																	(entry.parameter as any).create = false;
+																	entry.parameter.name = ep.code;
+																	entry.parameter.create = false;
 																	planEntries = [...planEntries];
 																	queueUpdate([{ stream_id: entry.stream_id, parameter_name: ep.code }]);
 																}
@@ -2505,11 +2505,11 @@
 																const { name: newName, units: newUnits } = parseNewParamOption(val);
 																const unitsChanged = newUnits !== null && newUnits !== entry.parameter.units;
 																if (newName !== entry.parameter.name || unitsChanged) {
-																	(entry.parameter as any).name = newName;
-																	(entry.parameter as any).create = true;
+																	entry.parameter.name = newName;
+																	entry.parameter.create = true;
 																	const update: PlanEntryUpdate = { stream_id: entry.stream_id, parameter_name: newName };
 																	if (unitsChanged) {
-																		(entry.parameter as any).units = newUnits;
+																		entry.parameter.units = newUnits;
 																		update.parameter_units = newUnits as string;
 																	}
 																	planEntries = [...planEntries];

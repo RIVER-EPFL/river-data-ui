@@ -7,6 +7,7 @@
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import ScatterPlot from '$components/charts/ScatterPlot.svelte';
 	import TimeRangeControls from '$components/charts/TimeRangeControls.svelte';
+	import SiteSelect from '$components/SiteSelect.svelte';
 	import ChartCard from './ChartCard.svelte';
 
 	let {
@@ -127,12 +128,12 @@
 	{#snippet controls()}
 		<div>
 			<label for="{id}-site" class="text-sm font-medium block mb-1">Site</label>
-			<select id="{id}-site" bind:value={spec.siteId} class="w-full px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
-				<option value="">-- Select site --</option>
-				{#each sites as site}
-					<option value={site.id}>{site.name}</option>
-				{/each}
-			</select>
+			<SiteSelect
+				id="{id}-site"
+				bind:value={spec.siteId}
+				{sites}
+				class="w-full px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
+			/>
 		</div>
 		<div>
 			<label for="{id}-x" class="text-sm font-medium block mb-1">X Axis</label>

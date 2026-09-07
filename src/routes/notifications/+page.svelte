@@ -15,14 +15,16 @@
 		type ChannelHealth,
 		type NotificationSubscriber,
 	} from '$api/service';
-	import { api, type Site, type Parameter, type NotificationMute, type RealmUser } from '$api/crud';
+	import { api, type Parameter, type NotificationMute, type RealmUser } from '$api/crud';
 	import Tabs from '$components/ui/Tabs.svelte';
+	import ParameterSelect from '$components/ParameterSelect.svelte';
+	import SiteSelect from '$components/SiteSelect.svelte';
+	import { siteRefs } from '$lib/siteRefs.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
-	import PaginationControls from '$components/ui/PaginationControls.svelte';
 	import DeliveryLogPanel from '$components/notifications/DeliveryLogPanel.svelte';
 
 	const ready = $derived(me.status !== 'loading');
@@ -32,9 +34,8 @@
 	const tab = createUrlTab({ keys: ['status', 'mutes', 'log'], aliases: { subscribers: 'status' } });
 
 	// ── Lookups shared by Mutes tab ──
-	let sites = $state<Site[]>([]);
 	let parameters = $state<Parameter[]>([]);
-	const siteName = $derived(new Map(sites.map((s) => [s.id, s.name])));
+	const siteName = $derived(new Map(siteRefs.all.map((s) => [s.id, s.name])));
 	const paramName = $derived(new Map(parameters.map((p) => [p.id, p.name])));
 
 	// ── Status tab ──
@@ -245,11 +246,10 @@
 		pollInterval = setInterval(loadHealth, 30_000);
 		// Lookups are needed by the Mutes tab's joins + selects.
 		try {
-			const [s, p] = await Promise.all([
-				api.sites.list({ perPage: 1000 }),
+			const [, p] = await Promise.all([
+				siteRefs.ensure(),
 				api.parameters.list({ perPage: 1000 }),
 			]);
-			sites = s.data;
 			parameters = p.data;
 		} catch {
 			/* lookups are best-effort; tables fall back to ids */
@@ -422,17 +422,11 @@
 		<div class="space-y-3">
 			<label class="block text-sm">
 				<span class="text-brand-muted">Site</span>
-				<select bind:value={muteSiteId} class="mt-1 w-full {selectCls}">
-					<option value="">Select a site…</option>
-					{#each sites as s (s.id)}<option value={s.id}>{s.name}</option>{/each}
-				</select>
+				<SiteSelect bind:value={muteSiteId} class="mt-1 w-full {selectCls}" />
 			</label>
 			<label class="block text-sm">
 				<span class="text-brand-muted">Parameter</span>
-				<select bind:value={muteParameterId} class="mt-1 w-full {selectCls}">
-					<option value="">Select a parameter…</option>
-					{#each parameters as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
-				</select>
+				<ParameterSelect bind:value={muteParameterId} global {parameters} />
 			</label>
 			<label class="block text-sm">
 				<span class="text-brand-muted">Mute for (days)</span>

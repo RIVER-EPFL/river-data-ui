@@ -6,6 +6,7 @@
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
+	import SiteSelect from '$components/SiteSelect.svelte';
 	import { base } from '$app/paths';
 	import { formatCount } from '$lib/format';
 
@@ -158,10 +159,7 @@
 			<div class="space-y-3">
 				<div class="flex flex-col gap-1">
 					<label for="ad-site" class="text-sm font-medium">Site</label>
-					<select id="ad-site" bind:value={selectedSiteId} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
-						<option value=""> - Select site - </option>
-						{#each sites as s}<option value={s.id}>{s.name}</option>{/each}
-					</select>
+					<SiteSelect id="ad-site" bind:value={selectedSiteId} {sites} />
 				</div>
 				{#if selectedSiteId}
 					<div class="flex flex-col gap-1">

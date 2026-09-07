@@ -1,18 +1,13 @@
 <script lang="ts">
-	import {
-		getNotificationDeliveries,
-		type DeliveryMessage,
-	} from '$api/service';
+	import { getNotificationDeliveries, type DeliveryMessage } from '$api/service';
 	import { formatDateTime } from '$lib/utils';
 	import Badge from '$components/ui/Badge.svelte';
-	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
-	import PaginationControls from '$components/ui/PaginationControls.svelte';
+	import CrudList from '$components/crud/CrudList.svelte';
+	import type { Column, PageRequest } from '$components/crud/CrudList.svelte';
 
 	// The delivery log by message: one row per notification, with every attempt it made under it.
 	// A message that reached nobody (muted, undeliverable, no recipients) is a row like any other,
 	// which is the whole point of reading the log rather than the channel health.
-
-	const PER_PAGE = 25;
 
 	// The kinds the API writes (messages.rs, triggers.rs, views.rs test-send).
 	const KINDS = [
@@ -26,16 +21,19 @@
 	];
 	const STATUSES = ['sent', 'failed', 'muted', 'undeliverable', 'skipped'];
 
-	let messages = $state<DeliveryMessage[]>([]);
-	let total = $state(0);
-	let page = $state(1);
-	let loading = $state(true);
-	let error = $state<string | null>(null);
 	let kind = $state('');
 	let status = $state('');
 	let expanded = $state<Set<string>>(new Set());
 
 	const hasFilters = $derived(Boolean(kind || status));
+
+	const columns: Column[] = [
+		{ key: 'at', label: 'Time', sortable: false, class: 'whitespace-nowrap text-brand-muted' },
+		{ key: 'kind', label: 'Kind', sortable: false },
+		{ key: 'scope', label: 'Scope', sortable: false, class: 'text-brand-muted' },
+		{ key: 'outcome', label: 'Outcome', sortable: false },
+		{ key: 'recipients', label: 'Recipients', sortable: false },
+	];
 
 	function key(m: DeliveryMessage): string {
 		return `${m.alarmEventId ?? '-'}|${m.kind}|${m.at}`;
@@ -56,31 +54,15 @@
 		return out;
 	}
 
-	async function load() {
-		loading = true;
-		error = null;
-		try {
-			const r = await getNotificationDeliveries({
-				limit: PER_PAGE,
-				offset: (page - 1) * PER_PAGE,
-				kind: kind || undefined,
-				status: status || undefined,
-			});
-			messages = r.messages;
-			total = r.total;
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to load the delivery log';
-			messages = [];
-			total = 0;
-		} finally {
-			loading = false;
-		}
-	}
-
-	function applyFilters() {
-		page = 1;
+	async function loadDeliveries({ page, perPage }: PageRequest) {
 		expanded = new Set();
-		void load();
+		const r = await getNotificationDeliveries({
+			limit: perPage,
+			offset: (page - 1) * perPage,
+			kind: kind || undefined,
+			status: status || undefined,
+		});
+		return { data: r.messages, total: r.total };
 	}
 
 	function toggle(m: DeliveryMessage) {
@@ -91,132 +73,99 @@
 		expanded = next;
 	}
 
-	$effect(() => {
-		void load();
-	});
-
 	const selectCls =
 		'px-2 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30';
 </script>
 
-<div class="flex flex-col gap-3">
-	<div class="flex flex-wrap items-end gap-3">
-		<label class="flex flex-col gap-1 text-xs text-brand-muted">
-			Kind
-			<select bind:value={kind} onchange={applyFilters} class={selectCls}>
-				<option value="">Any</option>
-				{#each KINDS as k (k)}
-					<option value={k}>{k}</option>
-				{/each}
-			</select>
-		</label>
-		<label class="flex flex-col gap-1 text-xs text-brand-muted">
-			Status
-			<select bind:value={status} onchange={applyFilters} class={selectCls}>
-				<option value="">Any</option>
-				{#each STATUSES as s (s)}
-					<option value={s}>{s}</option>
-				{/each}
-			</select>
-		</label>
-		<p class="text-xs text-brand-muted">
-			Web Push reports that the push service accepted a message or that a subscription is dead. It
-			never reports arrival on the device.
-		</p>
-	</div>
-
-	{#if error}
-		<ErrorNotice message={error} />
-	{/if}
-
-	<div class="overflow-x-auto rounded-md border border-brand-divider bg-brand-surface">
-		<table class="w-full text-sm">
-			<thead>
-				<tr class="border-b border-brand-divider bg-brand-bg">
-					<th class="px-4 py-2 text-left font-semibold">Time</th>
-					<th class="px-4 py-2 text-left font-semibold">Kind</th>
-					<th class="px-4 py-2 text-left font-semibold">Scope</th>
-					<th class="px-4 py-2 text-left font-semibold">Outcome</th>
-					<th class="px-4 py-2 text-left font-semibold">Recipients</th>
-				</tr>
-			</thead>
-			<tbody>
-				{#if loading}
-					<tr><td colspan="5" class="px-4 py-8 text-center text-brand-muted">Loading…</td></tr>
-				{:else if messages.length === 0}
-					<tr
-						><td colspan="5" class="px-4 py-8 text-center text-brand-muted">
-							{hasFilters
-								? 'No deliveries match those filters.'
-								: 'No deliveries yet. Messages appear here once an alarm fires or you send a test.'}
-						</td></tr
-					>
-				{:else}
-					{#each messages as m (key(m))}
-						<tr class="border-b border-brand-divider last:border-b-0">
-							<td class="whitespace-nowrap px-4 py-2 text-brand-muted">{formatDateTime(m.at)}</td>
-							<td class="px-4 py-2">{m.kind}</td>
-							<td class="px-4 py-2 text-brand-muted">{scope(m) || '-'}</td>
-							<td class="px-4 py-2">
-								<span class="flex flex-wrap gap-1">
-									{#each outcomes(m) as o (o.label)}
-										<Badge variant={o.variant === 'muted' ? 'default' : o.variant}>{o.label}</Badge>
-									{/each}
-								</span>
-							</td>
-							<td class="px-4 py-2">
-								<button
-									class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline"
-									onclick={() => toggle(m)}
-									>{expanded.has(key(m)) ? 'Hide' : 'Show'}
-									{m.counts.total} recipient{m.counts.total === 1 ? '' : 's'}</button
-								>
-							</td>
-						</tr>
-						{#if expanded.has(key(m))}
-							<tr class="border-b border-brand-divider bg-brand-bg last:border-b-0">
-								<td colspan="5" class="px-4 py-2">
-									<table class="w-full text-xs">
-										<thead class="text-brand-muted">
-											<tr>
-												<th class="py-1 pr-3 text-left font-medium">Channel</th>
-												<th class="py-1 pr-3 text-left font-medium">Recipient</th>
-												<th class="py-1 pr-3 text-left font-medium">Status</th>
-												<th class="py-1 text-left font-medium">Error</th>
-											</tr>
-										</thead>
-										<tbody>
-											{#each m.recipients as r (r.channel + r.recipient + r.createdAt)}
-												<tr>
-													<td class="py-1 pr-3">{r.channel}</td>
-													<td class="py-1 pr-3 font-mono break-all">{r.recipient}</td>
-													<td class="py-1 pr-3">
-														{#if r.status === 'sent'}<Badge variant="ok">sent</Badge>
-														{:else if r.status === 'failed'}<Badge variant="alarm">failed</Badge>
-														{:else}<Badge variant="default">{r.status}</Badge>{/if}
-													</td>
-													<td class="py-1 text-brand-muted">{r.error ?? '-'}</td>
-												</tr>
-											{/each}
-										</tbody>
-									</table>
-								</td>
-							</tr>
-						{/if}
+<CrudList
+	load={loadDeliveries}
+	{columns}
+	title="Delivery log"
+	showHeader={false}
+	emptyText={hasFilters
+		? 'No deliveries match those filters.'
+		: 'No deliveries yet. Messages appear here once an alarm fires or you send a test.'}
+>
+	{#snippet filterBar({ reload }: { reload: () => void })}
+		<div class="flex flex-wrap items-end gap-3">
+			<label class="flex flex-col gap-1 text-xs text-brand-muted">
+				Kind
+				<select bind:value={kind} onchange={reload} class={selectCls}>
+					<option value="">Any</option>
+					{#each KINDS as k (k)}
+						<option value={k}>{k}</option>
 					{/each}
-				{/if}
-			</tbody>
-		</table>
-	</div>
+				</select>
+			</label>
+			<label class="flex flex-col gap-1 text-xs text-brand-muted">
+				Status
+				<select bind:value={status} onchange={reload} class={selectCls}>
+					<option value="">Any</option>
+					{#each STATUSES as s (s)}
+						<option value={s}>{s}</option>
+					{/each}
+				</select>
+			</label>
+			<p class="text-xs text-brand-muted">
+				Web Push reports that the push service accepted a message or that a subscription is dead. It
+				never reports arrival on the device.
+			</p>
+		</div>
+	{/snippet}
 
-	<PaginationControls
-		{total}
-		{page}
-		perPage={PER_PAGE}
-		onPageChange={(p) => {
-			page = p;
-			expanded = new Set();
-			void load();
-		}}
-	/>
-</div>
+	{#snippet cell({ column, row, text }: { column: Column; row: DeliveryMessage; text: string })}
+		{#if column.key === 'at'}
+			{formatDateTime(row.at)}
+		{:else if column.key === 'scope'}
+			{scope(row) || '-'}
+		{:else if column.key === 'outcome'}
+			<span class="flex flex-wrap gap-1">
+				{#each outcomes(row) as o (o.label)}
+					<Badge variant={o.variant === 'muted' ? 'default' : o.variant}>{o.label}</Badge>
+				{/each}
+			</span>
+		{:else if column.key === 'recipients'}
+			<button
+				class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline"
+				onclick={() => toggle(row)}
+				>{expanded.has(key(row)) ? 'Hide' : 'Show'}
+				{row.counts.total} recipient{row.counts.total === 1 ? '' : 's'}</button
+			>
+		{:else}
+			{text}
+		{/if}
+	{/snippet}
+
+	{#snippet rowDetail({ row, colCount }: { row: DeliveryMessage; colCount: number })}
+		{#if expanded.has(key(row))}
+			<tr class="border-b border-brand-divider bg-brand-bg last:border-b-0">
+				<td colspan={colCount} class="px-4 py-2">
+					<table class="w-full text-xs">
+						<thead class="text-brand-muted">
+							<tr>
+								<th class="py-1 pr-3 text-left font-medium">Channel</th>
+								<th class="py-1 pr-3 text-left font-medium">Recipient</th>
+								<th class="py-1 pr-3 text-left font-medium">Status</th>
+								<th class="py-1 text-left font-medium">Error</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each row.recipients as r (r.channel + r.recipient + r.createdAt)}
+								<tr>
+									<td class="py-1 pr-3">{r.channel}</td>
+									<td class="py-1 pr-3 font-mono break-all">{r.recipient}</td>
+									<td class="py-1 pr-3">
+										{#if r.status === 'sent'}<Badge variant="ok">sent</Badge>
+										{:else if r.status === 'failed'}<Badge variant="alarm">failed</Badge>
+										{:else}<Badge variant="default">{r.status}</Badge>{/if}
+									</td>
+									<td class="py-1 text-brand-muted">{r.error ?? '-'}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</td>
+			</tr>
+		{/if}
+	{/snippet}
+</CrudList>

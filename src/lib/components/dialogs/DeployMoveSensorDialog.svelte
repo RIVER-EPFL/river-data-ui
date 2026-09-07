@@ -6,6 +6,8 @@
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
+	import SiteSelect from '$components/SiteSelect.svelte';
+	import { siteRefs } from '$lib/siteRefs.svelte';
 
 	// Two modes:
 	//  - 'site':   the site is fixed; pick a sensor to deploy here.
@@ -35,7 +37,6 @@
 		onsuccess?: () => void;
 	} = $props();
 
-	let sites = $state<Site[]>([]);
 	let selectedSensorId = $state('');
 	let selectedSiteId = $state('');
 	let deploymentType = $state('permanent');
@@ -51,7 +52,6 @@
 	let showDeployed = $state(false);
 	let selectedSensor = $state<Sensor | null>(null);
 	let activeDepBySensor = $state<Map<string, SensorDeployment>>(new Map());
-	let siteNameMap = $state<Map<string, string>>(new Map());
 	let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
 	async function runSearch() {
@@ -73,15 +73,12 @@
 
 	onMount(async () => {
 		if (mode === 'site') {
-			const [depRes, siteRes] = await Promise.all([
+			const [depRes] = await Promise.all([
 				api.sensorDeployments.list({ perPage: 500, filter: { deployed_until: null } }),
-				api.sites.list({ perPage: 200 }),
+				siteRefs.ensure(),
 			]);
 			activeDepBySensor = new Map(depRes.data.map((d) => [d.sensor_id, d]));
-			siteNameMap = new Map(siteRes.data.map((s) => [s.id, s.name]));
 			await runSearch();
-		} else {
-			sites = sitesProp ?? (await api.sites.list({ perPage: 200 })).data;
 		}
 	});
 
@@ -98,7 +95,7 @@
 	function deployedSiteName(sensorId: string): string | null {
 		const dep = activeDepBySensor.get(sensorId);
 		if (!dep) return null;
-		return siteNameMap.get(dep.site_id) ?? 'another site';
+		return siteRefs.name(dep.site_id) || 'another site';
 	}
 
 	// A deployment binds the sensor to one parameter at the site, so the destination site's slots
@@ -115,7 +112,7 @@
 
 	const selectedDep = $derived(selectedSensorId ? activeDepBySensor.get(selectedSensorId) ?? null : null);
 	const isMove = $derived(!!selectedDep && selectedDep.site_id !== siteId);
-	const sourceSiteName = $derived(selectedDep ? (siteNameMap.get(selectedDep.site_id) ?? 'another site') : '');
+	const sourceSiteName = $derived(selectedDep ? siteRefs.name(selectedDep.site_id) || 'another site' : '');
 
 	function pickSensor(s: Sensor) {
 		selectedSensor = s;
@@ -129,7 +126,9 @@
 	const sensorDisplay = (s: Sensor) => s.name ?? s.serial_number ?? s.id;
 
 	const targetSiteName = $derived(
-		mode === 'site' ? siteName : (sites.find((s) => s.id === selectedSiteId)?.name ?? ''),
+		mode === 'site'
+			? siteName
+			: (sitesProp?.find((s) => s.id === selectedSiteId)?.name ?? siteRefs.name(selectedSiteId)),
 	);
 	const movingFrom = $derived(currentSiteName || (isMove ? sourceSiteName : ''));
 
@@ -213,12 +212,7 @@
 			{:else}
 				<div class="flex flex-col gap-1">
 					<label for="dm-site" class="text-sm font-medium">Destination site</label>
-					<select id="dm-site" bind:value={selectedSiteId} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
-						<option value=""> - Select site - </option>
-						{#each sites as s}
-							<option value={s.id}>{s.name}</option>
-						{/each}
-					</select>
+					<SiteSelect id="dm-site" bind:value={selectedSiteId} sites={sitesProp} />
 				</div>
 			{/if}
 

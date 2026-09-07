@@ -174,7 +174,7 @@
 		deferred: 'deferred',
 	};
 
-	async function fetchPage({ page, perPage }: { page: number; perPage: number }) {
+	async function loadPage({ page, perPage }: { page: number; perPage: number }) {
 		const result = await listReplicateAudits({
 			page,
 			page_size: perPage,
@@ -729,7 +729,7 @@
 {/snippet}
 
 <EventPanel
-	{fetchPage}
+	load={loadPage}
 	perPage={PER_PAGE}
 	colCount={12}
 	rowClass={(hold) => (underThreshold(hold) ? 'bg-severity-ok-soft' : '')}

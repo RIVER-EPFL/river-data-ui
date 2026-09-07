@@ -1,7 +1,6 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
-	import uPlot from 'uplot';
-	import 'uplot/dist/uPlot.min.css';
+	import type uPlot from 'uplot';
+	import UPlotChart, { type ChartOptions } from './UPlotChart.svelte';
 	import { tokens } from '$lib/charts/tokens';
 	import { makeAxis, uPlotTheme } from '$lib/charts/uPlotTheme';
 	import { linearRegression } from '$lib/charts/regression';
@@ -32,9 +31,6 @@
 		height?: number;
 		showRegression?: boolean;
 	} = $props();
-
-	let el: HTMLDivElement;
-	let chart: uPlot | null = null;
 
 	/** Filter out paired points where either x or y is null, then sort by x ascending. */
 	function preparePairs(): { xs: number[]; ys: number[]; timestamps: number[] } {
@@ -138,21 +134,16 @@
 		return { fill, stroke, clip: undefined as unknown as Path2D };
 	}
 
-	function renderChart() {
-		if (chart) { chart.destroy(); chart = null; }
-		if (!el) return;
+	const plot = $derived.by(() => {
 		const { xs, ys, timestamps } = preparePairs();
-		if (xs.length === 0) return;
-
-		const rect = el.getBoundingClientRect();
-		if (rect.width === 0) return;
+		if (xs.length === 0) return null;
 
 		const xAxisLabel = `${xLabel} (${xUnits})`;
 		const yAxisLabel = `${yLabel} (${yUnits})`;
 
 		const yColor = tokens.dataViz[yColorIndex % tokens.dataViz.length];
-		const plotData: uPlot.AlignedData = [xs, ys];
-		const seriesDefs: uPlot.Series[] = [
+		const data: uPlot.AlignedData = [xs, ys];
+		const series: uPlot.Series[] = [
 			{ label: xAxisLabel },
 			{
 				label: yAxisLabel,
@@ -167,8 +158,8 @@
 		const reg = regression;
 		if (showRegression && reg) {
 			const regY = xs.map((x) => reg.slope * x + reg.intercept);
-			plotData.push(regY);
-			seriesDefs.push({
+			data.push(regY);
+			series.push({
 				label: `Regression`,
 				stroke: tokens.severity.alarm.border,
 				width: 2,
@@ -178,11 +169,10 @@
 		}
 
 		const xColor = tokens.dataViz[xColorIndex % tokens.dataViz.length];
-		const opts: uPlot.Options = {
-			width: rect.width,
+		const options: ChartOptions = {
 			height,
 			plugins: [tooltipPlugin(timestamps)],
-			series: seriesDefs,
+			series,
 			scales: { x: { time: false } },
 			axes: [
 				{ ...makeAxis(), label: xAxisLabel, labelSize: 14, size: 40, stroke: xColor },
@@ -194,29 +184,9 @@
 			},
 			legend: { show: false },
 		};
-
-		chart = new uPlot(opts, plotData, el);
-	}
-
-	function handleResize() {
-		if (!chart || !el) return;
-		const w = el.getBoundingClientRect().width;
-		if (w > 0) chart.setSize({ width: w, height });
-	}
-
-	$effect(() => {
-		// Re-render when data or regression toggle change
-		if (el && xData && yData) renderChart();
+		return { options, data };
 	});
 
-	onMount(() => {
-		window.addEventListener('resize', handleResize);
-	});
-
-	onDestroy(() => {
-		window.removeEventListener('resize', handleResize);
-		chart?.destroy();
-	});
 </script>
 
 <div class="space-y-2">
@@ -238,7 +208,7 @@
 		<div class="h-[{height}px] flex items-center justify-center text-sm text-brand-muted rounded-md border border-brand-divider bg-brand-surface">
 			No overlapping data points for the selected parameters
 		</div>
-	{:else}
-		<div bind:this={el} class="w-full"></div>
+	{:else if plot}
+		<UPlotChart options={plot.options} data={plot.data} />
 	{/if}
 </div>

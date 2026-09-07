@@ -12,7 +12,7 @@
 	let serviceMap = $state<Map<string, SyncService>>(new Map());
 	let statusFilter = $state<'all' | 'running' | 'completed' | 'partial' | 'failed'>('all');
 
-	async function fetchPage({ page, perPage }: { page: number; perPage: number }) {
+	async function loadPage({ page, perPage }: { page: number; perPage: number }) {
 		const filter: Record<string, unknown> = {};
 		if (statusFilter !== 'all') filter.status = statusFilter;
 		const result = await getList<SyncEvent>('/api/sync_events', {
@@ -41,7 +41,7 @@
 </script>
 
 <EventPanel
-	{fetchPage}
+	load={loadPage}
 	perPage={PER_PAGE}
 	colCount={7}
 	emptyText="No sync events"

@@ -1,7 +1,6 @@
 <script lang="ts">
-	import { onMount, onDestroy, tick } from 'svelte';
-	import uPlot from 'uplot';
-	import 'uplot/dist/uPlot.min.css';
+	import type uPlot from 'uplot';
+	import UPlotChart, { type ChartOptions } from './UPlotChart.svelte';
 	import { makeSeries, makeAxis, makeGaps, uPlotTheme, tzDateOption } from '$lib/charts/uPlotTheme';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import { formatEquation } from '$lib/standardCurves';
@@ -59,7 +58,6 @@
 		onCalibrationClick?: (marker: CalibrationMarker) => void;
 	} = $props();
 
-	let el: HTMLDivElement;
 	let chart: uPlot | null = null;
 
 	const visRef: { current: OverlayVisibility } = {
@@ -119,11 +117,9 @@
 
 	function toU(arr: (number | null)[]) { return arr.map((v) => v ?? undefined); }
 
-	function render() {
-		if (chart) { chart.destroy(); chart = null; }
-		if (!el || times.length === 0) return;
-		const rect = el.getBoundingClientRect();
-		if (rect.width === 0) return;
+	const plot = $derived.by(() => {
+		void timezoneStore.zone; // re-derive on a timezone-preference toggle (applies tzDate below)
+		if (times.length === 0) return null;
 
 		const gaps = gapThreshold > 0 ? makeGaps(gapThreshold) : undefined;
 		const series: uPlot.Series[] = [
@@ -158,8 +154,7 @@
 
 		const stripPad = (showSensorVectors ? BAND_STRIP_CSS : 0) + (showCalibrationMarkers ? CALIBRATION_STRIP_CSS : 0);
 
-		const opts: uPlot.Options = {
-			width: rect.width,
+		const options: ChartOptions = {
 			height,
 			padding: [stripPad, 0, 0, 0],
 			...tzDateOption(),
@@ -188,12 +183,22 @@
 				}],
 			},
 		};
-		chart = new uPlot(opts, data, el);
-		if (onResetZoom) chart.root.addEventListener('dblclick', () => onResetZoom());
-		setupCalibrationClick(chart);
-	}
+		return { options, data };
+	});
 
-	let teardownCalClick: (() => void) | null = null;
+	// What the wrapper's instance is wired to once it exists: the double-click reset, the hit test
+	// on the calibration strip, and the reference the redraw effects above hold.
+	function attach(u: uPlot): () => void {
+		chart = u;
+		const onDoubleClick = () => onResetZoom?.();
+		if (onResetZoom) u.root.addEventListener('dblclick', onDoubleClick);
+		const detachCalClick = setupCalibrationClick(u);
+		return () => {
+			if (onResetZoom) u.root.removeEventListener('dblclick', onDoubleClick);
+			detachCalClick();
+			chart = null;
+		};
+	}
 
 	function calStripAt(u: uPlot, xCss: number, yCss: number): CalibrationMarker | null {
 		if (!visRef.current.calibrationMarkers || !onCalibrationClick) return null;
@@ -201,9 +206,8 @@
 		return calibrationAtTime(markersRef.current, u.posToVal(xCss, 'x'));
 	}
 
-	function setupCalibrationClick(u: uPlot) {
-		teardownCalClick?.();
-		if (!onCalibrationClick) return;
+	function setupCalibrationClick(u: uPlot): () => void {
+		if (!onCalibrationClick) return () => {};
 		const over = u.over;
 		let downX: number | null = null;
 		const onDown = (e: MouseEvent) => { downX = e.clientX; };
@@ -223,35 +227,13 @@
 		over.addEventListener('mousedown', onDown);
 		over.addEventListener('mousemove', onMove);
 		over.addEventListener('mouseup', onUp);
-		teardownCalClick = () => {
+		return () => {
 			over.removeEventListener('mousedown', onDown);
 			over.removeEventListener('mousemove', onMove);
 			over.removeEventListener('mouseup', onUp);
 		};
 	}
 
-	// Re-render whenever the data changes (incl. the live calibration preview). Touch every array so
-	// the effect tracks them, not just `times`.
-	$effect(() => {
-		void times; void raw; void calibrated; void preview; void rawMin; void rawMax; void calMin; void calMax; void windowBand;
-		void timezoneStore.zone; // re-render on a timezone-preference toggle (applies tzDate in render())
-		tick().then(render);
-	});
-
-	// A ResizeObserver renders/resizes when the container gets (or changes) a real width - covers
-	// charts mounted in initially-zero-width containers (e.g. a just-expanded table row) where a
-	// window-resize listener would never fire.
-	let ro: ResizeObserver | null = null;
-	onMount(() => {
-		ro = new ResizeObserver(() => {
-			const w = el?.getBoundingClientRect().width ?? 0;
-			if (w === 0) return;
-			if (chart) chart.setSize({ width: w, height });
-			else render();
-		});
-		if (el) ro.observe(el);
-	});
-	onDestroy(() => { teardownCalClick?.(); ro?.disconnect(); chart?.destroy(); });
 </script>
 
 <div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
@@ -261,8 +243,10 @@
 			<span class="text-xs text-brand-muted">No curve covers this range - readings are served uncorrected</span>
 		{/if}
 	</div>
-	<div class="px-1 py-1 relative">
-		<div bind:this={el} class="w-full" style="min-height:{height}px"></div>
+	<div class="px-1 py-1 relative" style="min-height:{height}px">
+		{#if plot}
+			<UPlotChart options={plot.options} data={plot.data} onCreate={attach} />
+		{/if}
 		{#if hoverInfo}
 			<div
 				class="absolute z-20 pointer-events-none"

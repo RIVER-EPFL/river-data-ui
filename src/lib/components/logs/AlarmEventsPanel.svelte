@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
-	import { api, type Site, type Parameter } from '$api/crud';
+	import { api, type Parameter } from '$api/crud';
 	import {
 		getAlarmEvents,
 		acknowledgeAlarm,
@@ -12,8 +11,10 @@
 	import { formatRelativeTime, formatDateTime } from '$lib/utils';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { alarmHref, severityLabel } from '$lib/alarms';
-	import PaginationControls from '$components/ui/PaginationControls.svelte';
 	import Button from '$components/ui/Button.svelte';
+	import SiteSelect from '$components/SiteSelect.svelte';
+	import CrudList from '$components/crud/CrudList.svelte';
+	import type { Column, PageRequest } from '$components/crud/CrudList.svelte';
 	import { formatMeasurement } from '$lib/format';
 
 	let {
@@ -37,17 +38,22 @@
 	let eventParamFilter = $state<string>(initialParameterId);
 	let eventStart = $state<string>('');
 	let eventEnd = $state<string>('');
-	let eventOffset = $state(0);
 
 	let events = $state<AlarmEvent[]>([]);
-	let eventsTotal = $state(0);
-	let eventsLoading = $state(true);
-	let eventsError = $state<string | null>(null);
+	let list = $state<ReturnType<typeof CrudList> | null>(null);
 
-	let sites = $state<Site[]>([]);
 	let paramMap = $state<Map<string, string>>(new Map());
 
-	const eventsPage = $derived(Math.floor(eventOffset / EVENTS_PAGE_SIZE) + 1);
+	const columns: Column[] = [
+		{ key: 'site_name', label: 'Site', sortable: false },
+		{ key: 'parameter_name', label: 'Parameter', sortable: false },
+		{ key: 'severity', label: 'Severity', sortable: false },
+		{ key: 'started_at', label: 'Started', sortable: false, class: 'text-right text-brand-muted' },
+		{ key: 'duration', label: 'Duration', sortable: false, class: 'text-right text-brand-muted' },
+		{ key: 'last_seen_at', label: 'Last seen', sortable: false, class: 'text-right text-brand-muted' },
+		{ key: 'status', label: 'Status', sortable: false },
+		{ key: 'last_value', label: 'Last value', sortable: false, class: 'text-right font-mono' },
+	];
 
 	function startIso(d: string): string | undefined {
 		return d ? `${d}T00:00:00Z` : undefined;
@@ -56,33 +62,20 @@
 		return d ? `${d}T23:59:59Z` : undefined;
 	}
 
-	async function loadEvents() {
-		eventsLoading = true;
-		eventsError = null;
-		try {
-			const result = await getAlarmEvents({
-				site_id: siteFilter || undefined,
-				severity: severityFilter,
-				status: statusFilter,
-				parameter_id: eventParamFilter || undefined,
-				start: startIso(eventStart),
-				end: endIso(eventEnd),
-				limit: EVENTS_PAGE_SIZE,
-				offset: eventOffset,
-			});
-			events = result.events;
-			eventsTotal = result.total;
-			eventCount = events.length;
-		} catch (e) {
-			eventsError = e instanceof Error ? e.message : 'Failed to load alarm events';
-		} finally {
-			eventsLoading = false;
-		}
-	}
-
-	function onFiltersChanged() {
-		eventOffset = 0;
-		loadEvents();
+	async function loadEvents({ page, perPage }: PageRequest) {
+		const result = await getAlarmEvents({
+			site_id: siteFilter || undefined,
+			severity: severityFilter,
+			status: statusFilter,
+			parameter_id: eventParamFilter || undefined,
+			start: startIso(eventStart),
+			end: endIso(eventEnd),
+			limit: perPage,
+			offset: (page - 1) * perPage,
+		});
+		events = result.events;
+		eventCount = result.events.length;
+		return { data: result.events, total: result.total };
 	}
 
 	function severityDot(n: number): string {
@@ -143,19 +136,19 @@
 	async function handleAcknowledge(eventId: string) {
 		try {
 			await acknowledgeAlarm(eventId);
-			await loadEvents();
 		} catch (e) {
-			eventsError = e instanceof Error ? e.message : 'Failed to acknowledge';
+			toastStore.error(e instanceof Error ? e.message : 'Failed to acknowledge');
 		}
+		list?.refresh();
 	}
 
 	async function handleUnacknowledge(eventId: string) {
 		try {
 			await unacknowledgeAlarm(eventId);
-			await loadEvents();
 		} catch (e) {
-			eventsError = e instanceof Error ? e.message : 'Failed to unacknowledge';
+			toastStore.error(e instanceof Error ? e.message : 'Failed to unacknowledge');
 		}
+		list?.refresh();
 	}
 
 	function formatDuration(from: string, to?: string | null): string {
@@ -171,158 +164,96 @@
 	}
 
 	onMount(async () => {
-		loadEvents();
 		try {
-			const [sitesResult, paramsResult] = await Promise.all([
-				api.sites.list({ perPage: 200 }),
-				api.parameters.list({ perPage: 500 }),
-			]);
-			sites = sitesResult.data;
+			const paramsResult = await api.parameters.list({ perPage: 500 });
 			paramMap = new Map(paramsResult.data.map((p: Parameter) => [p.id, p.name]));
 		} catch {
 			/* lookups are best-effort; tables fall back to ids/names from events */
 		}
 	});
+
+	const selectCls = 'px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm';
 </script>
 
-<div class="space-y-4">
-	<div class="flex flex-wrap items-center gap-2">
-		<select
-			bind:value={siteFilter}
-			onchange={onFiltersChanged}
-			class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
-		>
-			<option value="">All sites</option>
-			{#each sites as s}<option value={s.id}>{s.name}</option>{/each}
-		</select>
-		<select
-			bind:value={eventParamFilter}
-			onchange={onFiltersChanged}
-			class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
-		>
+<CrudList
+	bind:this={list}
+	load={loadEvents}
+	{columns}
+	title="Alarm events"
+	showHeader={false}
+	perPage={EVENTS_PAGE_SIZE}
+	emptyText="No alarm events"
+	actions={rowActions}
+	rowHref={(e: AlarmEvent) => alarmHref(e)}
+>
+	{#snippet filterBar({ reload }: { reload: () => void })}
+		<SiteSelect bind:value={siteFilter} onchange={reload} placeholder="All sites" />
+		<select bind:value={eventParamFilter} onchange={reload} class={selectCls}>
 			<option value="">All parameters</option>
 			{#each [...paramMap] as [id, name]}<option value={id}>{name}</option>{/each}
 		</select>
-		<select
-			bind:value={severityFilter}
-			onchange={onFiltersChanged}
-			class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
-		>
+		<select bind:value={severityFilter} onchange={reload} class={selectCls}>
 			<option value={undefined}>All severities</option>
 			<option value={1}>Warning</option>
 			<option value={2}>Alarm</option>
 		</select>
-		<select
-			bind:value={statusFilter}
-			onchange={onFiltersChanged}
-			class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
-		>
+		<select bind:value={statusFilter} onchange={reload} class={selectCls}>
 			<option value="all">All</option>
 			<option value="open">Open</option>
 			<option value="resolved">Resolved</option>
 		</select>
 		<label class="flex items-center gap-1 text-sm text-brand-muted">
 			From
-			<input
-				type="date"
-				bind:value={eventStart}
-				onchange={onFiltersChanged}
-				class="px-2 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
-			/>
+			<input type="date" bind:value={eventStart} onchange={reload} class="px-2 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" />
 		</label>
 		<label class="flex items-center gap-1 text-sm text-brand-muted">
 			To
-			<input
-				type="date"
-				bind:value={eventEnd}
-				onchange={onFiltersChanged}
-				class="px-2 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
-			/>
+			<input type="date" bind:value={eventEnd} onchange={reload} class="px-2 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" />
 		</label>
-	</div>
+	{/snippet}
 
-	{#if eventsError}
-		<p class="text-severity-alarm">{eventsError}</p>
-	{/if}
-
-	<div class="rounded-md border border-brand-divider bg-brand-surface overflow-x-auto">
-		<table class="w-full text-sm">
-			<thead>
-				<tr class="bg-brand-bg border-b border-brand-divider">
-					<th class="text-left px-4 py-2 font-semibold">Site</th>
-					<th class="text-left px-4 py-2 font-semibold">Parameter</th>
-					<th class="text-left px-4 py-2 font-semibold">Severity</th>
-					<th class="text-right px-4 py-2 font-semibold">Started</th>
-					<th class="text-right px-4 py-2 font-semibold">Duration</th>
-					<th class="text-right px-4 py-2 font-semibold">Last seen</th>
-					<th class="text-left px-4 py-2 font-semibold">Status</th>
-					<th class="text-right px-4 py-2 font-semibold">Last value</th>
-					<th class="px-4 py-2"></th>
-				</tr>
-			</thead>
-			<tbody>
-				{#if eventsLoading}
-					<tr><td colspan="9" class="px-4 py-8 text-center text-brand-muted">Loading…</td></tr>
-				{:else if events.length === 0}
-					<tr><td colspan="9" class="px-4 py-8 text-center text-brand-muted">No alarm events</td></tr>
-				{:else}
-					{#each events as event (event.id)}
-						{@const sev = event.max_severity ?? event.severity}
-						<tr onclick={() => goto(alarmHref(event))} title="Open this alarm period on the site charts" class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 cursor-pointer">
-							<td class="px-4 py-2">
-								<a href={alarmHref(event)} onclick={(e) => e.stopPropagation()} class="text-brand-primary font-semibold no-underline hover:underline">{event.site_name}</a>
-							</td>
-							<td class="px-4 py-2">{event.parameter_name}</td>
-							<td class="px-4 py-2">
-								<span class="inline-flex items-center gap-1.5">
-									<span class="inline-block w-2.5 h-2.5 rounded-full {severityDot(sev)}"></span>
-									{severityLabel(sev)}
-								</span>
-							</td>
-							<td class="px-4 py-2 text-right text-brand-muted" title={formatDateTime(event.started_at)}>{formatRelativeTime(event.started_at)}</td>
-							<td class="px-4 py-2 text-right text-brand-muted">{formatDuration(event.started_at, event.resolved_at)}</td>
-							<td class="px-4 py-2 text-right text-brand-muted" title={formatDateTime(event.last_seen_at)}>{formatRelativeTime(event.last_seen_at)}</td>
-							<td class="px-4 py-2">
-								{#if event.resolved_at}
-									<span class="text-severity-ok">Resolved <span class="text-brand-muted">{formatDateTime(event.resolved_at)}</span></span>
-								{:else}
-									<span class="text-severity-alarm">Open</span>
-									<span class="text-brand-muted">since {formatDateTime(event.started_at)}</span>
-									{#if event.acknowledged_at}
-										<span class="text-brand-muted ml-1" title={formatDateTime(event.acknowledged_at)}>ack'd</span>
-									{/if}
-								{/if}
-							</td>
-							<td class="px-4 py-2 text-right font-mono">
-								{formatMeasurement(event.last_value)}
-							</td>
-							<td class="px-4 py-2 text-right">
-								{#if !event.resolved_at && !event.acknowledged_at}
-									<Button
-										variant="ghost"
-										size="sm"
-										onclick={(e) => { e.stopPropagation(); handleAcknowledge(event.id); }}
-										class="text-brand-primary"
-									>Acknowledge</Button>
-								{:else if !event.resolved_at && event.acknowledged_at}
-									<Button
-										variant="ghost"
-										size="sm"
-										onclick={(e) => { e.stopPropagation(); handleUnacknowledge(event.id); }}
-									>Unacknowledge</Button>
-								{/if}
-							</td>
-						</tr>
-					{/each}
+	{#snippet cell({ column, row, text }: { column: Column; row: AlarmEvent; text: string })}
+		{#if column.key === 'severity'}
+			{@const sev = row.max_severity ?? row.severity}
+			<span class="inline-flex items-center gap-1.5">
+				<span class="inline-block w-2.5 h-2.5 rounded-full {severityDot(sev)}"></span>
+				{severityLabel(sev)}
+			</span>
+		{:else if column.key === 'started_at'}
+			<span title={formatDateTime(row.started_at)}>{formatRelativeTime(row.started_at)}</span>
+		{:else if column.key === 'duration'}
+			{formatDuration(row.started_at, row.resolved_at)}
+		{:else if column.key === 'last_seen_at'}
+			<span title={formatDateTime(row.last_seen_at)}>{formatRelativeTime(row.last_seen_at)}</span>
+		{:else if column.key === 'status'}
+			{#if row.resolved_at}
+				<span class="text-severity-ok">Resolved <span class="text-brand-muted">{formatDateTime(row.resolved_at)}</span></span>
+			{:else}
+				<span class="text-severity-alarm">Open</span>
+				<span class="text-brand-muted">since {formatDateTime(row.started_at)}</span>
+				{#if row.acknowledged_at}
+					<span class="text-brand-muted ml-1" title={formatDateTime(row.acknowledged_at)}>ack'd</span>
 				{/if}
-			</tbody>
-		</table>
-	</div>
+			{/if}
+		{:else if column.key === 'last_value'}
+			{formatMeasurement(row.last_value)}
+		{:else}
+			{text}
+		{/if}
+	{/snippet}
+</CrudList>
 
-	<PaginationControls
-		total={eventsTotal}
-		page={eventsPage}
-		perPage={EVENTS_PAGE_SIZE}
-		onPageChange={(p) => { eventOffset = (p - 1) * EVENTS_PAGE_SIZE; loadEvents(); }}
-	/>
-</div>
+{#snippet rowActions(event: AlarmEvent)}
+	<div class="text-right">
+		{#if !event.resolved_at && !event.acknowledged_at}
+			<Button
+				variant="ghost"
+				size="sm"
+				onclick={() => handleAcknowledge(event.id)}
+				class="text-brand-primary"
+			>Acknowledge</Button>
+		{:else if !event.resolved_at && event.acknowledged_at}
+			<Button variant="ghost" size="sm" onclick={() => handleUnacknowledge(event.id)}>Unacknowledge</Button>
+		{/if}
+	</div>
+{/snippet}

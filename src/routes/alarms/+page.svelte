@@ -7,6 +7,8 @@
 	import { api, type Site, type Parameter, type AlarmThreshold } from '$api/crud';
 	import { getActiveAlarms, getThresholds, type ResolvedThreshold } from '$api/service';
 	import Button from '$components/ui/Button.svelte';
+	import SiteSelect from '$components/SiteSelect.svelte';
+	import { siteRefs } from '$lib/siteRefs.svelte';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import ThresholdDialog from '$components/dialogs/ThresholdDialog.svelte';
 	import AlarmEventsPanel from '$components/logs/AlarmEventsPanel.svelte';
@@ -67,7 +69,6 @@
 	}
 
 	// ── Thresholds tab ──
-	let sites = $state<Site[]>([]);
 	let siteMap = $state<Map<string, string>>(new Map());
 	let paramMap = $state<Map<string, string>>(new Map());
 	let paramUnits = $state<Map<string, string | null>>(new Map());
@@ -81,7 +82,7 @@
 	let thresholdParamName = $state<string>('');
 
 	const thresholdParamOptions = $derived([...paramMap].map(([value, label]) => ({ value, label })));
-	const thresholdSiteOptions = $derived(sites.map((s) => ({ value: s.id, label: s.name })));
+	const thresholdSiteOptions = $derived(siteRefs.all.map((s) => ({ value: s.id, label: s.name })));
 
 	function openThresholdCreate() {
 		thresholdExisting = null;
@@ -143,12 +144,11 @@
 		loadThresholds();
 		loadActiveCounts();
 		try {
-			const [sitesResult, paramsResult] = await Promise.all([
-				api.sites.list({ perPage: 200 }),
+			const [siteRows, paramsResult] = await Promise.all([
+				siteRefs.ensure(),
 				api.parameters.list({ perPage: 500 }),
 			]);
-			sites = sitesResult.data;
-			siteMap = new Map(sitesResult.data.map((s: Site) => [s.id, s.name]));
+			siteMap = new Map(siteRows.map((s: Site) => [s.id, s.name]));
 			paramMap = new Map(paramsResult.data.map((p: Parameter) => [p.id, p.name]));
 			paramUnits = new Map(paramsResult.data.map((p: Parameter) => [p.id, p.default_units ?? null]));
 		} catch {
@@ -193,13 +193,7 @@
 	<!-- ── THRESHOLDS TAB ── -->
 	{:else if tab.key === 'thresholds'}
 		<div class="flex flex-wrap items-center gap-2">
-			<select
-				bind:value={thrSiteFilter}
-				class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
-			>
-				<option value="">All sites</option>
-				{#each sites as s}<option value={s.id}>{s.name}</option>{/each}
-			</select>
+			<SiteSelect bind:value={thrSiteFilter} placeholder="All sites" />
 			<select
 				bind:value={thrParamFilter}
 				class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"

@@ -11,7 +11,7 @@
 
 <script lang="ts">
 	import { base } from '$app/paths';
-	import { api, type Site, type SiteParameter, type Parameter, type Sensor, type StandardCurve } from '$api/crud';
+	import { api, type SiteParameter, type Parameter, type Sensor, type StandardCurve } from '$api/crud';
 	import { listAll } from '$api/paged';
 	import {
 		saveGrabSample,
@@ -39,6 +39,8 @@
 	import Dialog from '$components/ui/Dialog.svelte';
 	import LastUsedCurveNote from './LastUsedCurveNote.svelte';
 	import ParameterSelect from '$components/ParameterSelect.svelte';
+	import SiteSelect from '$components/SiteSelect.svelte';
+	import { siteRefs } from '$lib/siteRefs.svelte';
 
 	const BROWSER_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
 	const ZONE_OPTIONS =
@@ -237,7 +239,6 @@
 	});
 
 
-	let sites = $state<Site[]>([]);
 	let params = $state<Parameter[]>([]);
 	let siteParams = $state<SiteParameter[]>([]);
 	let loadingSite = $state(false);
@@ -442,10 +443,10 @@
 	// Every list is paged to completion: mapping an output to a parameter is a lookup by name over
 	// the whole catalog, and a single page silently stops matching once the table outgrows it.
 	async function loadSites() {
-		if (sites.length > 0) return;
+		if (params.length > 0) return;
 		try {
-			const [s, p, i] = await Promise.all([
-				listAll(api.sites, { perPage: 200, sort: ['name', 'ASC'] }),
+			const [, p, i] = await Promise.all([
+				siteRefs.ensure(),
 				listAll(api.parameters, { perPage: 500, sort: ['name', 'ASC'] }),
 				listAll(api.sensors, {
 					perPage: 500,
@@ -453,7 +454,6 @@
 					sort: ['name', 'ASC'],
 				}),
 			]);
-			sites = s;
 			params = p;
 			instruments = measuringInstruments(i);
 		} catch (e) {
@@ -562,7 +562,7 @@
 		paramChoices = { ...paramChoices, [rowId]: parameterId };
 	}
 
-	const selectedSiteName = $derived(sites.find((s) => s.id === selectedSiteId)?.name ?? null);
+	const selectedSiteName = $derived(siteRefs.name(selectedSiteId) || null);
 
 	function paramLabel(sp: SiteParameter): string {
 		const param = params.find((p) => p.id === sp.parameter_id);
@@ -775,7 +775,7 @@
 				<div class="rounded-md border border-brand-divider bg-brand-bg px-3 py-2">
 					<p class="text-xs uppercase tracking-wide text-brand-muted">Staged field visit</p>
 					<p class="text-sm font-medium">
-						{sites.find((s) => s.id === selectedSiteId)?.name ?? selectedSiteId}
+						{siteRefs.name(selectedSiteId)}
 						&middot; {contextTime ? formatDateTime(contextTime) : ''}
 					</p>
 					<p class="text-xs text-brand-muted">
@@ -787,17 +787,11 @@
 				<div class="grid grid-cols-2 gap-3">
 					<div class="flex flex-col gap-1">
 						<label for="srp-site" class="text-sm font-medium">Site <span class="text-severity-alarm">*</span></label>
-						<select
+						<SiteSelect
 							id="srp-site"
 							bind:value={selectedSiteId}
 							onchange={() => loadSiteParameters(selectedSiteId)}
-							class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
-						>
-							<option value=""> - Select site - </option>
-							{#each sites as s}
-								<option value={s.id}>{s.name}</option>
-							{/each}
-						</select>
+						/>
 					</div>
 					<div class="flex flex-col gap-1">
 						<label for="srp-time" class="text-sm font-medium">Timestamp <span class="text-severity-alarm">*</span></label>

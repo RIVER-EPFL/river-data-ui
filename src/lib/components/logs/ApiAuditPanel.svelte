@@ -34,7 +34,7 @@
 		detailOpen = true;
 	}
 
-	async function fetchPage({ page: p, perPage: pp }: { page: number; perPage: number }) {
+	async function loadPage({ page: p, perPage: pp }: { page: number; perPage: number }) {
 		const filter: Record<string, unknown> = {};
 		if (fToken) filter.token_id = fToken;
 		if (fMethod) filter.method = fMethod;
@@ -70,7 +70,7 @@
 </script>
 
 <EventPanel
-	{fetchPage}
+	load={loadPage}
 	{perPage}
 	colCount={6}
 	emptyText="No matching requests."

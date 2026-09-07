@@ -11,7 +11,7 @@
 	}
 
 	let {
-		fetchPage,
+		load,
 		perPage = 100,
 		colCount,
 		head,
@@ -27,7 +27,7 @@
 		detailActions,
 		rowClass,
 	}: {
-		fetchPage: (args: { page: number; perPage: number }) => Promise<{ data: T[]; total: number }>;
+		load: (args: { page: number; perPage: number }) => Promise<{ data: T[]; total: number }>;
 		perPage?: number;
 		colCount: number;
 		// Snippets declared with no params remain assignable; take the ctx only when needed
@@ -57,11 +57,11 @@
 
 	let pollTimer: ReturnType<typeof setInterval> | null = null;
 
-	async function load() {
+	async function fetchPage() {
 		loading = true;
 		error = '';
 		try {
-			const result = await fetchPage({ page: currentPage, perPage });
+			const result = await load({ page: currentPage, perPage });
 			items = result.data;
 			total = result.total;
 		} catch (e: unknown) {
@@ -76,12 +76,12 @@
 	// Filter changes reset to the first page; pagination keeps the current page.
 	export async function reload() {
 		currentPage = 1;
-		await load();
+		await fetchPage();
 	}
 
 	const ctx: DetailCtx = {
 		close: () => (detailOpen = false),
-		reload: load,
+		reload: fetchPage,
 	};
 
 	function handleRow(item: T) {
@@ -95,10 +95,10 @@
 	}
 
 	onMount(async () => {
-		await load();
+		await fetchPage();
 		if (pollWhile) {
 			pollTimer = setInterval(() => {
-				if (pollWhile(items)) load();
+				if (pollWhile(items)) fetchPage();
 			}, 5000);
 		}
 	});
@@ -149,7 +149,7 @@
 		{total}
 		page={currentPage}
 		{perPage}
-		onPageChange={(p) => { currentPage = p; load(); }}
+		onPageChange={(p) => { currentPage = p; fetchPage(); }}
 	/>
 </div>
 

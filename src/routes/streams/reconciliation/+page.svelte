@@ -16,7 +16,8 @@
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
-	import PaginationControls from '$components/ui/PaginationControls.svelte';
+	import CrudList from '$components/crud/CrudList.svelte';
+	import type { Column, PageRequest } from '$components/crud/CrudList.svelte';
 	import DuplicateSlotsPanel from '$components/streams/DuplicateSlotsPanel.svelte';
 	import { formatCount } from '$lib/format';
 
@@ -191,11 +192,23 @@
 	}
 
 	// ── Step 3 → 4: verification report and destructive delete ──
-	let mismatchPage = $state(1);
 	const MISMATCHES_PER_PAGE = 20;
-	const pagedMismatches = $derived(
-		mismatches.slice((mismatchPage - 1) * MISMATCHES_PER_PAGE, mismatchPage * MISMATCHES_PER_PAGE),
-	);
+	const MISMATCH_COLUMNS: Column[] = [
+		{ key: 'family', label: 'Family', sortable: false, class: 'font-mono text-xs' },
+		{ key: 'time', label: 'Instant', sortable: false, class: 'text-xs' },
+		{ key: 'old_value', label: 'Old value', sortable: false, class: 'text-right font-mono text-xs' },
+		{ key: 'new_value', label: 'New value', sortable: false, class: 'text-right font-mono text-xs' },
+		{ key: 'delta', label: 'Δ', sortable: false, class: 'text-right font-mono text-xs text-severity-warning-text' },
+	];
+
+	// The report's mismatches arrive whole on the job row, so the page is a slice of what is already
+	// in hand rather than a fetch.
+	function loadMismatches({ page, perPage }: PageRequest) {
+		return Promise.resolve({
+			data: mismatches.slice((page - 1) * perPage, page * perPage),
+			total: mismatches.length,
+		});
+	}
 
 	let deleteConfirmText = $state('');
 
@@ -413,34 +426,29 @@
 				{/if}
 
 				{#if mismatches.length > 0}
-					<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
-						<table class="w-full text-sm">
-							<thead><tr class="bg-brand-bg border-b border-brand-divider">
-								<th class="text-left px-4 py-2 font-semibold">Family</th>
-								<th class="text-left px-4 py-2 font-semibold">Instant</th>
-								<th class="text-right px-4 py-2 font-semibold">Old value</th>
-								<th class="text-right px-4 py-2 font-semibold">New value</th>
-								<th class="text-right px-4 py-2 font-semibold">Δ</th>
-							</tr></thead>
-							<tbody>
-								{#each pagedMismatches as m}
-									<tr class="border-b border-brand-divider last:border-b-0">
-										<td class="px-4 py-2 font-mono text-xs">{m.family}</td>
-										<td class="px-4 py-2 text-xs">{formatDateTime(m.time)}</td>
-										<td class="px-4 py-2 text-right font-mono text-xs">{fmtValue(m.old_value)}</td>
-										<td class="px-4 py-2 text-right font-mono text-xs">{fmtValue(m.new_value)}</td>
-										<td class="px-4 py-2 text-right font-mono text-xs text-severity-warning-text">{fmtValue(m.delta)}</td>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</div>
-					<PaginationControls
-						total={mismatches.length}
-						page={mismatchPage}
+					{#key mismatches}
+					<CrudList
+						load={loadMismatches}
+						columns={MISMATCH_COLUMNS}
+						title="Mismatches"
+						showHeader={false}
 						perPage={MISMATCHES_PER_PAGE}
-						onPageChange={(p) => (mismatchPage = p)}
-					/>
+					>
+						{#snippet cell({ column, row }: { column: Column; row: ReconMismatch })}
+							{#if column.key === 'time'}
+								{formatDateTime(row.time)}
+							{:else if column.key === 'family'}
+								{row.family}
+							{:else if column.key === 'old_value'}
+								{fmtValue(row.old_value)}
+							{:else if column.key === 'new_value'}
+								{fmtValue(row.new_value)}
+							{:else}
+								{fmtValue(row.delta)}
+							{/if}
+						{/snippet}
+					</CrudList>
+					{/key}
 				{/if}
 
 				<div class="flex gap-3">
