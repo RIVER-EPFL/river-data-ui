@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { formatMeasurement } from '$lib/format';
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
 	import { me } from '$auth/me.svelte';
@@ -232,7 +233,7 @@
 							<tr onclick={() => openThresholdRow(row)} class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 cursor-pointer">
 								<td class="px-4 py-2">{siteMap.get(row.site_id) ?? 'Unknown'}</td>
 								<td class="px-4 py-2 font-semibold">{paramMap.get(row.parameter_id) ?? 'Unknown'}</td>
-								<td class="px-4 py-2 text-right font-mono">{#if row.current_value != null}{row.current_value.toFixed(2)}{:else}<span class="text-brand-muted font-sans">None</span>{/if}</td>
+								<td class="px-4 py-2 text-right font-mono">{#if row.current_value != null}{formatMeasurement(row.current_value)}{:else}<span class="text-brand-muted font-sans">None</span>{/if}</td>
 								<td class="px-4 py-2 text-severity-warning">{#if warn}{warn}{:else}<span class="text-brand-muted">None</span>{/if}</td>
 								<td class="px-4 py-2 text-severity-alarm">{#if alarm}{alarm}{:else}<span class="text-brand-muted">None</span>{/if}</td>
 								<td class="px-4 py-2"><span class="px-2 py-0.5 text-xs font-medium rounded-full bg-brand-bg text-brand-muted">{SOURCE_LABEL[row.source]}</span></td>

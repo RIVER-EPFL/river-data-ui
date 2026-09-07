@@ -299,3 +299,42 @@ export function spotMarkersPlugin(specs: () => SpotSeriesSpec[]): uPlot.Plugin {
 		},
 	};
 }
+
+/**
+ * One point's statistics, assembled from the served sample row. Every fetch path that renders spot
+ * markers builds this same shape, so the field list lives here: a new statistic is added once.
+ */
+export function spotPointStats(
+	sample: {
+		mean?: number | null;
+		stdev?: number | null;
+		n?: number | null;
+		min?: number | null;
+		max?: number | null;
+		sd_estimator?: 'sample' | 'population' | null;
+		sd_estimator_source?: string | null;
+		replicates?: SampleReplicate[];
+		sample_id?: string;
+	} | null,
+	point: {
+		mean: number;
+		withdrawn?: boolean;
+		calibrationId?: string | null;
+		standardCurveId?: string | null;
+	},
+): SpotPointStats {
+	return {
+		withdrawn: point.withdrawn,
+		mean: point.mean,
+		stdev: sample?.stdev ?? null,
+		n: sample?.n ?? 1,
+		min: sample?.min ?? null,
+		max: sample?.max ?? null,
+		sdEstimator: sample?.sd_estimator ?? null,
+		sdEstimatorSource: sample?.sd_estimator_source ?? null,
+		replicates: sample?.replicates,
+		sampleId: sample?.sample_id,
+		calibrationId: point.calibrationId ?? null,
+		standardCurveId: point.standardCurveId ?? null,
+	};
+}

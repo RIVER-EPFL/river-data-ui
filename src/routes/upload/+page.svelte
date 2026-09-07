@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { downloadBlob } from '$lib/download';
 	import Papa from 'papaparse';
 	import { api, type Parameter, type Subproject, type SiteParameter } from '$api/crud';
 	import { templateRows, templateCsv } from '$lib/upload/template';
@@ -122,12 +123,7 @@
 						type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 					});
 		const slug = templateSite ? `-${templateSite.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}` : '';
-		const url = URL.createObjectURL(blob);
-		const a = document.createElement('a');
-		a.href = url;
-		a.download = `river-data-${entityType}${slug}-template.${format}`;
-		a.click();
-		URL.revokeObjectURL(url);
+		downloadBlob(blob, `river-data-${entityType}${slug}-template.${format}`);
 	}
 
 	// Parse a CSV timestamp deterministically: strings carrying an explicit zone are absolute;

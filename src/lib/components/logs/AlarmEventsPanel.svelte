@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { downloadBlob } from '$lib/download';
 	import { api, type Parameter } from '$api/crud';
 	import {
 		getAlarmEvents,
@@ -102,13 +103,10 @@
 			];
 		});
 		const csv = [header, ...rows].map((r) => r.map(escape).join(',')).join('\n');
-		const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-		const url = URL.createObjectURL(blob);
-		const a = document.createElement('a');
-		a.href = url;
-		a.download = `alarm-events-${new Date().toISOString().slice(0, 10)}.csv`;
-		a.click();
-		URL.revokeObjectURL(url);
+		downloadBlob(
+			new Blob([csv], { type: 'text/csv;charset=utf-8;' }),
+			`alarm-events-${new Date().toISOString().slice(0, 10)}.csv`,
+		);
 	}
 
 	async function handleRebuildEvents() {

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { base } from '$app/paths';
+	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
@@ -108,7 +109,6 @@
 	}
 
 	async function doRevoke(t: ApiToken) {
-		if (!confirm(`Revoke token "${t.name}"? It will stop working immediately.`)) return;
 		busy = t.id;
 		try {
 			await revokeToken(t.id);
@@ -135,11 +135,14 @@
 		}
 	}
 
-	async function doRotate(t: ApiToken) {
+	function rotateMessage(t: ApiToken): string {
 		const warning = isExpired(t)
-			? ` Note: rotating will NOT extend the expiry - the new secret stays expired until you change the expiry (use Re-enable or Edit).`
+			? ' Note: rotating will NOT extend the expiry - the new secret stays expired until you change the expiry (use Re-enable or Edit).'
 			: '';
-		if (!confirm(`Rotate token "${t.name}"? The current secret stops working immediately.${warning}`)) return;
+		return `Rotate token "${t.name}"? The current secret stops working immediately.${warning}`;
+	}
+
+	async function doRotate(t: ApiToken) {
 		busy = t.id;
 		try {
 			const updated = await rotateToken(t.id);
@@ -154,7 +157,6 @@
 	}
 
 	async function doDelete(t: ApiToken) {
-		if (!confirm(`Permanently delete token "${t.name}"? This removes its audit history.`)) return;
 		busy = t.id;
 		try {
 			await api.apiTokens.remove(t.id);
@@ -245,11 +247,29 @@
 									{#if isExpired(t)}
 										<button onclick={(e) => { e.stopPropagation(); reEnable(t); }} disabled={busy === t.id} title="Re-enable for 90 days" aria-label="Re-enable for 90 days" class={successBtn}>{@render iconClock()}</button>
 									{:else}
-										<button onclick={(e) => { e.stopPropagation(); doRevoke(t); }} disabled={busy === t.id} title="Revoke (disable, keep record)" aria-label="Revoke" class={warnBtn}>{@render iconRevoke()}</button>
+										<ConfirmPopover
+											message={`Revoke token "${t.name}"? It will stop working immediately.`}
+											confirmLabel="Revoke"
+											onconfirm={() => doRevoke(t)}
+										>
+											<button disabled={busy === t.id} title="Revoke (disable, keep record)" aria-label="Revoke" class={warnBtn}>{@render iconRevoke()}</button>
+										</ConfirmPopover>
 									{/if}
 								{/if}
-								<button onclick={(e) => { e.stopPropagation(); doRotate(t); }} disabled={busy === t.id} title="Rotate secret" aria-label="Rotate secret" class={neutralBtn}>{@render iconRotate()}</button>
-								<button onclick={(e) => { e.stopPropagation(); doDelete(t); }} disabled={busy === t.id} title="Delete permanently" aria-label="Delete permanently" class={dangerBtn}>{@render iconTrash()}</button>
+								<ConfirmPopover
+									message={rotateMessage(t)}
+									confirmLabel="Rotate"
+									onconfirm={() => doRotate(t)}
+								>
+									<button disabled={busy === t.id} title="Rotate secret" aria-label="Rotate secret" class={neutralBtn}>{@render iconRotate()}</button>
+								</ConfirmPopover>
+								<ConfirmPopover
+									message={`Permanently delete token "${t.name}"? This removes its audit history.`}
+									confirmLabel="Delete"
+									onconfirm={() => doDelete(t)}
+								>
+									<button disabled={busy === t.id} title="Delete permanently" aria-label="Delete permanently" class={dangerBtn}>{@render iconTrash()}</button>
+								</ConfirmPopover>
 							</div>
 						</td>
 					</tr>

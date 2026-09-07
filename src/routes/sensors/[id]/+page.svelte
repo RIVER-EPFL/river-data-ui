@@ -19,6 +19,8 @@
 	import AdoptSensorDialog from '$components/dialogs/AdoptSensorDialog.svelte';
 	import StandardCurvesTab from '$components/sensors/StandardCurvesTab.svelte';
 	import { createUrlTab } from '$lib/urlTab.svelte';
+	import ResolutionChips from '$components/charts/ResolutionChips.svelte';
+	import { autoResolution, formatWindowLabel } from '$lib/charts/multiSiteSeries';
 	import { getSensorReadings, getSensorDeploymentBands, type SensorReadingsResponse, type SensorDeploymentBand } from '$api/sensors';
 	import type { SensorIdentityBand, CalibrationMarker } from '$api/sensors';
 	import { GAP_THRESHOLDS } from '$lib/charts/uPlotTheme';
@@ -85,22 +87,11 @@
 	let fetchTimer: ReturnType<typeof setTimeout> | null = null;
 	let sliderRef = $state<{ setRange: (s: number, e: number) => void } | null>(null);
 
-	function autoResolution(startMs: number, endMs: number): 'raw' | 'hourly' | 'daily' {
-		const days = (endMs - startMs) / 86400000;
-		if (days <= 14) return 'raw';
-		if (days <= 120) return 'hourly';
-		return 'daily';
-	}
 	const chartResolution = $derived<'raw' | 'hourly' | 'daily'>(
 		resolutionOverride === 'auto' ? autoResolution(chartStart, chartEnd) : resolutionOverride,
 	);
 	const gapThreshold = $derived(GAP_THRESHOLDS[chartResolution] ?? 0);
-	const windowLabel = $derived.by(() => {
-		const days = (chartEnd - chartStart) / 86400000;
-		if (days < 1) return `${Math.round(days * 24)}h`;
-		if (days < 60) return `${Math.round(days)}d`;
-		return `${(days / 30).toFixed(1)}mo`;
-	});
+	const windowLabel = $derived(formatWindowLabel((chartEnd - chartStart) / 86400000));
 	const activeRange = $derived.by(() => {
 		const rangeMs: Record<string, number> = { '24h': 86400000, '7d': 604800000, '30d': 2592000000, '90d': 7776000000 };
 		const dur = chartEnd - chartStart;
@@ -386,14 +377,11 @@
 					<div class="w-px h-5 bg-brand-divider mx-1"></div>
 
 					<span class="text-xs text-brand-muted font-semibold uppercase tracking-wider">Resolution</span>
-					<div class="flex gap-0.5">
-						{#each [['auto', 'Auto'], ['raw', 'Raw'], ['hourly', 'Hourly'], ['daily', 'Daily']] as [val, label]}
-							<button
-								onclick={() => { resolutionOverride = val as typeof resolutionOverride; scheduleFetch(); }}
-								class="px-2 py-1 text-xs rounded cursor-pointer border-none {resolutionOverride === val ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
-							>{label}{resolutionOverride === 'auto' && val === 'auto' ? ` (${chartResolution})` : ''}</button>
-						{/each}
-					</div>
+					<ResolutionChips
+						bind:value={resolutionOverride}
+						effective={chartResolution}
+						onchange={scheduleFetch}
+					/>
 
 					<div class="w-px h-5 bg-brand-divider mx-1"></div>
 					<label class="flex items-center gap-1.5 cursor-pointer text-xs text-brand-muted" title="Colour the time axis by which site the sensor was deployed at">

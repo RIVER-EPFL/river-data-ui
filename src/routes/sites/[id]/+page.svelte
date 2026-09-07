@@ -5,12 +5,24 @@
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
-	import { api, type Site, type Project, type SiteParameter, type Parameter, type Sensor, type SensorDeployment, type SensorCalibration, type Note, type AlarmThreshold, type DerivedParameter, type Sample, type Annotation, type Subproject, type ReprocessingJob } from '$api/crud';
+	import { api, type Site, type Project, type SiteParameter, type Parameter, type Sensor, type SensorDeployment, type SensorCalibration, type Note, type AlarmThreshold, type DerivedParameter, type Sample, type Annotation, type Subproject } from '$api/crud';
 	import { GET, POST, PATCH } from '$api/client';
-	import { recomputeDerived, getThresholds, getActiveAlarms, listSiteVisits, getCollectionEventDetail, recomputeCollectionEvent, runEventAudit, runEventRecompute, pollJob, getSiteExportSummary, type ResolvedThreshold, type ActiveAlarm, type VisitRow, type VisitsResponse, type EventDetailResponse, type ExportSummary } from '$api/service';
+	import { recomputeDerived, getThresholds, getActiveAlarms, getSiteExportSummary, type ResolvedThreshold, type ActiveAlarm, type ExportSummary } from '$api/service';
 	import { getSiteSensorIdentity, type SensorIdentityResponse } from '$api/sensors';
-	import { groupBySlot } from '$lib/charts/sensorSplit';
-	import type { AggregatesParameter } from '$lib/api/types';
+	import {
+		annotationsByParameter,
+		continuousSeries,
+		max,
+		mean,
+		mergeOriginLabels,
+		min,
+		nullPct,
+		originLabelOf,
+		spotSeries,
+		stddev,
+		type SampleCurve,
+	} from '$lib/sites/chartSeries';
+	import type { AggregatesParameter, AggregatesResponse, ReadingsResponse } from '$lib/api/types';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { siteNavigator } from '$lib/stores/sites.svelte';
 	import { formatRelativeTime, formatDateTime, formatDate, toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
@@ -20,9 +32,10 @@
 	import Dialog from '$components/ui/Dialog.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import PaginationControls from '$components/ui/PaginationControls.svelte';
-	import { cellRecord, estimatorWord, visitCellMarker, visitCellStatistics, visitCounts } from '$lib/visits/cell';
-	import { cellRole } from '$lib/visits/role';
 	import SensorVsGrabPanel from '$components/sites/SensorVsGrabPanel.svelte';
+	import SiteVisitsTab from '$components/sites/SiteVisitsTab.svelte';
+	import SiteExportDialog from '$components/sites/SiteExportDialog.svelte';
+	import SiteStatusTab from '$components/sites/SiteStatusTab.svelte';
 	import { buildReadingsExportParams, exportColumns } from '$lib/sites/exportParams';
 	import { readPointParams, writePointParams, type PointRef } from '$lib/provenance/pointLink';
 	import Badge from '$components/ui/Badge.svelte';
@@ -42,7 +55,8 @@
 	import SharedChartTooltip from '$components/charts/SharedChartTooltip.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
 	import ResolutionChips from '$components/charts/ResolutionChips.svelte';
-	import type { SampleReplicate, SampleStat, StatusEventsResponse } from '$lib/api/types';
+	import { formatWindowLabel } from '$lib/charts/multiSiteSeries';
+	import type { SampleReplicate, SampleStat } from '$lib/api/types';
 	import { curveRefs } from '$lib/curveRefs.svelte';
 	import { formatEquation } from '$lib/standardCurves';
 	import { eventBus, INGEST_COALESCE_MS } from '$lib/stores/events.svelte';
@@ -196,19 +210,6 @@
 		return url.toString();
 	}
 
-	function originLabelOf(origins: { source_system: string }[] | undefined): string {
-		if (!origins?.length) return '';
-		const label = (s: string) =>
-			s === 'grab_sample'
-				? 'manual entry'
-				: s === 'csv' || s === 'csv_import'
-					? 'CSV import'
-					: s === 'api'
-						? 'API'
-						: `${s} sync`;
-		const systems = [...new Set(origins.map((o) => label(o.source_system)))];
-		return `via ${systems.join(' + ')}`;
-	}
 
 	function pinInspector(
 		sp: SiteParameter,
@@ -239,252 +240,7 @@
 		flagOpen = true;
 	}
 
-	function openVisitFlag(visitId: string, replicates: SampleReplicate[]) {
-		if (!visitCell || !visitDetail) return;
-		const parameterId = visitCell.parameterId;
-		flagTarget = {
-			parameterId,
-			parameterName: visitCell.parameterName,
-			timeIso: visitDetail.collected_at,
-			replicates,
-			onSaved: () => void Promise.all([openVisit(visitId, true, parameterId), loadVisits()]),
-		};
-		flagOpen = true;
-	}
 
-	// --- Visits: the portal's wide data row, one per (site, date) ---
-	let visits = $state<VisitRow[]>([]);
-	let visitColumns = $state<VisitsResponse['expected_parameters']>([]);
-	let visitsLoading = $state(false);
-	let visitsLoadedKey = '';
-	let expandedVisit = $state<string | null>(null);
-	let visitDetail = $state<EventDetailResponse | null>(null);
-	let visitDetailLoading = $state(false);
-	let visitBusy = $state<string | null>(null);
-	let visitCell = $state<{ parameterId: string; parameterName: string } | null>(null);
-
-	// The date range filter. Unset lists every visit at the site, which is the default: a
-	// station holds tens of visits, and the page devoted to them lists them all.
-	let visitsStart = $state<string | null>(null);
-	let visitsEnd = $state<string | null>(null);
-	let visitsDownloading = $state(false);
-
-	function visitsRange(): { start?: string; end?: string } {
-		return {
-			...(visitsStart ? { start: visitsStart } : {}),
-			...(visitsEnd ? { end: visitsEnd } : {}),
-		};
-	}
-
-	async function loadVisits() {
-		visitsLoading = true;
-		try {
-			const r = await listSiteVisits(siteId, visitsRange());
-			visits = r.visits;
-			visitColumns = r.expected_parameters;
-		} catch (e) {
-			toastStore.error(e instanceof Error ? `Failed to load visits: ${e.message}` : 'Failed to load visits');
-		} finally {
-			visitsLoading = false;
-		}
-	}
-
-	// The grid as displayed, one row per visit and one column per parameter code, named by site
-	// and date range the way the server names it. The Export dialog is the other file: readings
-	// in long format, one row per reading.
-	async function downloadVisitsCsv() {
-		if (visits.length === 0) return;
-		visitsDownloading = true;
-		try {
-			const { auth } = await import('$auth/keycloak.svelte');
-			await auth.ensureToken();
-			const params = new URLSearchParams({ format: 'csv', ...visitsRange() });
-			const response = await fetch(`/api/sites/${siteId}/visits?${params}`, {
-				headers: auth.token ? { Authorization: `Bearer ${auth.token}` } : undefined,
-			});
-			if (!response.ok) {
-				const detail = await response.text().catch(() => response.statusText);
-				throw new Error(`${response.status}: ${detail.slice(0, 200)}`);
-			}
-			const day = (iso: string) => iso.slice(0, 10);
-			const first = visitsStart ? day(visitsStart) : day(visits[visits.length - 1].collected_at);
-			const last = visitsEnd ? day(visitsEnd) : day(visits[0].collected_at);
-			const slug = (site?.name ?? 'site').replace(/[^A-Za-z0-9]/g, '_');
-			const a = document.createElement('a');
-			a.href = URL.createObjectURL(await response.blob());
-			a.download = `${slug}_visits_${first}_${last}.csv`;
-			a.click();
-			URL.revokeObjectURL(a.href);
-		} catch (e) {
-			toastStore.error(e instanceof Error ? `Download failed: ${e.message}` : 'Download failed');
-		} finally {
-			visitsDownloading = false;
-		}
-	}
-
-	async function openVisit(id: string, forceOpen = false, selectParameterId: string | null = null) {
-		if (expandedVisit === id && !forceOpen) {
-			expandedVisit = null;
-			visitDetail = null;
-			visitCell = null;
-			return;
-		}
-		expandedVisit = id;
-		visitCell = null;
-		visitDetail = null;
-		visitDetailLoading = true;
-		try {
-			visitDetail = await getCollectionEventDetail(id);
-			const selected = selectParameterId
-				? visitDetail.cells.find((c) => c.parameter_id === selectParameterId)
-				: null;
-			if (selected) visitCell = { parameterId: selected.parameter_id, parameterName: selected.parameter_name };
-			// A deep link can name a visit outside the current range; the range yields to it.
-			if (visitDetail && !visits.some((v) => v.id === id)) {
-				visitsStart = null;
-				visitsEnd = null;
-				visitsLoadedKey = '';
-				await loadVisits();
-			}
-		} catch {
-			toastStore.error('Failed to load the visit');
-		} finally {
-			visitDetailLoading = false;
-		}
-	}
-
-	// A cell of the wide table is the click target: it expands the visit and selects the parameter,
-	// so the record opens on what was clicked.
-	function openVisitCell(id: string, parameterId: string) {
-		if (expandedVisit === id && visitDetail) {
-			const c = visitDetail.cells.find((c) => c.parameter_id === parameterId);
-			visitCell = c ? { parameterId: c.parameter_id, parameterName: c.parameter_name } : null;
-			return;
-		}
-		void openVisit(id, true, parameterId);
-	}
-
-	/// How a cell's readings reached the store. Absent a tool run they were not necessarily typed
-	/// by a person: an import and a batch are different answers to that question.
-	function originLabel(origin: string | undefined): string {
-		switch (origin) {
-			case 'manual':
-				return 'hand-entered';
-			case 'csv':
-				return 'CSV import';
-			case 'api':
-				return 'API batch';
-			case 'sync':
-				return 'portal sync';
-			default:
-				return 'unknown origin';
-		}
-	}
-
-	/// What the run actually did, from the counts the job records. "Visit audited" and "Visit
-	/// audited" are the same sentence whether two stale findings opened or none did, so whether
-	/// anything was found had to be inferred by re-reading the grid.
-	const recomputeBadge: Record<string, { label: string; variant: 'muted' | 'accent' | 'alarm' | 'warning' }> = {
-		queued: { label: 'recompute queued', variant: 'muted' },
-		running: { label: 'recomputing', variant: 'accent' },
-		failed: { label: 'recompute failed', variant: 'alarm' },
-		stale: { label: 'stale output', variant: 'warning' },
-	};
-
-	function visitJobSummary(kind: 'recompute' | 'audit', job: ReprocessingJob): string {
-		const counts = (job.detail?.counts ?? {}) as Record<string, number>;
-		const parts =
-			kind === 'recompute'
-				? [
-						`${counts.tools_run ?? 0} tool${counts.tools_run === 1 ? '' : 's'} run`,
-						`${counts.readings_written ?? 0} written`,
-						...(counts.tools_skipped ? [`${counts.tools_skipped} skipped`] : []),
-					]
-				: [
-						`${counts.missing_findings ?? 0} missing`,
-						`${counts.stale_findings ?? 0} stale`,
-						...(counts.superseded ? [`${counts.superseded} closed`] : []),
-					];
-		const skipped = (job.detail?.scope as { skipped?: Array<{ tool?: string }> } | undefined)
-			?.skipped;
-		const named = skipped?.length
-			? ` (${skipped.map((sk) => sk.tool ?? '?').join(', ')})`
-			: '';
-		return `${kind === 'recompute' ? 'Recomputed' : 'Audited'}: ${parts.join(', ')}${named}`;
-	}
-
-	// The scoped apply: every visit at this site with an open finding, in one tracked job.
-	let staleApplyBusy = $state(false);
-	const staleVisitCount = $derived(visits.filter((v) => v.recompute === 'stale').length);
-	async function applyToStaleVisits() {
-		staleApplyBusy = true;
-		try {
-			const r = await runEventRecompute({ site_id: siteId, only_findings: true });
-			if (r.job_id) {
-				const job = await pollJob(r.job_id);
-				if (job.status === 'completed') {
-					const counts = (job.detail?.counts ?? {}) as Record<string, number>;
-					toastStore.success(
-						`Recomputed ${counts.events_recomputed ?? 0} visit${(counts.events_recomputed ?? 0) === 1 ? '' : 's'}: ${counts.tools_run ?? 0} run, ${counts.tools_unchanged ?? 0} unchanged, ${counts.findings_closed ?? 0} finding${(counts.findings_closed ?? 0) === 1 ? '' : 's'} closed`,
-					);
-				} else {
-					toastStore.error(job.error_message ?? 'The recompute job did not complete');
-				}
-			}
-			await loadVisits();
-			scheduleFetch();
-		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Failed to recompute the stale visits');
-		} finally {
-			staleApplyBusy = false;
-		}
-	}
-
-	// Recompute and audit are tracked jobs: enqueue, poll, then refresh the grid.
-	async function runVisitJob(id: string, kind: 'recompute' | 'audit') {
-		visitBusy = id;
-		try {
-			const r =
-				kind === 'recompute'
-					? await recomputeCollectionEvent(id)
-					: await runEventAudit({ collection_event_id: id });
-			if (r.job_id) {
-				const job = await pollJob(r.job_id);
-				if (job.status === 'completed') {
-					toastStore.success(visitJobSummary(kind, job));
-				} else {
-					toastStore.error(job.error_message ?? `The ${kind} job did not complete`);
-				}
-			}
-			await Promise.all([openVisit(id, true, visitCell?.parameterId ?? null), loadVisits()]);
-			if (kind === 'recompute') scheduleFetch();
-		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : `Failed to ${kind} the visit`);
-		} finally {
-			visitBusy = null;
-		}
-	}
-
-	$effect(() => {
-		if (activeKey !== 'visits' || !siteId) return;
-		const key = `${siteId}|${visitsStart ?? ''}|${visitsEnd ?? ''}`;
-		if (key === visitsLoadedKey) return;
-		visitsLoadedKey = key;
-		untrack(() => void loadVisits());
-	});
-
-	// A ?event= deep link expands its visit once the tab is active; with ?point= it opens that
-	// parameter's record too.
-	let consumedEventParam = '';
-	$effect(() => {
-		if (activeKey !== 'visits' || siteParameters.length === 0) return;
-		const ev = page.url.searchParams.get('event');
-		if (!ev || ev === consumedEventParam) return;
-		consumedEventParam = ev;
-		const point = page.url.searchParams.get('point');
-		const selectParam = siteParameters.find((s) => s.id === point)?.parameter_id ?? null;
-		untrack(() => void openVisit(ev, true, selectParam));
-	});
 
 	// Inline subproject move: the picker lists every subproject (Project - Subproject), so a site can
 	// be moved across projects too; the DB trigger re-syncs project_id from the chosen subproject.
@@ -694,37 +450,9 @@
 	const gapThreshold = $derived(GAP_THRESHOLDS[chartResolution] ?? 0);
 
 	const windowDuration = $derived((chartEnd - chartStart) / 86400000);
-	const windowLabel = $derived.by(() => {
-		const days = windowDuration;
-		if (days < 1) return `${Math.round(days * 24)}h`;
-		if (days < 60) return `${Math.round(days)}d`;
-		return `${(days / 30).toFixed(1)}mo`;
-	});
+	const windowLabel = $derived(formatWindowLabel(windowDuration));
 
 	// Shared data fetch - one request for all charts
-	interface ReadingsResponse {
-		times: string[];
-		parameters: Array<{
-			id: string;
-			parameter_id?: string;
-			name: string;
-			units: string | null;
-			values: (number | null)[];
-			flagged?: (boolean | null)[] | null;
-			flag_reasons?: (string | null)[] | null;
-			samples?: (import('$lib/api/types').SampleStat | null)[] | null;
-			calibration_ids?: (string | null)[] | null;
-			standard_curve_ids?: (string | null)[] | null;
-			origins?: { stream_id: string; source_system: string; source_key: string }[];
-			withdrawn?: (boolean | null)[] | null;
-			withdrawn_count?: number | null;
-		}>;
-	}
-	interface AggregatesResponse {
-		times: string[];
-		parameters: Array<{ id: string; name: string; units: string | null; avg: (number | null)[]; min: (number | null)[]; max: (number | null)[]; count: number[]; flagged_count?: number[]; sensor_id?: string | null }>;
-	}
-
 	let chartLoading = $state(false);
 	let chartDataMap = $state<Map<string, ChartData>>(new Map());
 	// Spot/grab samples per site_parameter id, drawn as discrete markers (Low/All frequency).
@@ -732,20 +460,7 @@
 	// Replicate mean±sd whisker stats per global parameter_id, keyed by epoch ms of collected_at.
 	let spotStatsMap = $state<Map<string, Map<number, SpotPointStats>>>(new Map());
 	// Standard curve behind each sample in the loaded window, keyed by sample id. Replicates of one
-	// sample may carry different curves, which is reported rather than reduced to the first one.
-	interface SampleCurve {
-		curveId: string | null;
-		mixed: boolean;
-		replicates: SampleReplicate[];
-	}
 	let sampleCurves = $state<Map<string, SampleCurve>>(new Map());
-
-	function sampleCurve(stat: SampleStat): SampleCurve {
-		const replicates = stat.replicates ?? [];
-		const ids = new Set(replicates.map((r) => r.standard_curve_id ?? null));
-		if (ids.size > 1) return { curveId: null, mixed: true, replicates };
-		return { curveId: [...ids][0] ?? null, mixed: false, replicates };
-	}
 	let annotationsByParam = $state<Map<string, Annotation[]>>(new Map());
 	let showSensorVectors = $state(false);
 	let showCalibrationMarkers = $state(false);
@@ -828,120 +543,23 @@
 			if (gen === fetchGeneration) sensorIdentity = identity;
 			if (gen !== fetchGeneration) return;
 
-			if (result && result.times?.length) {
-				const parsedTimes = result.times.map((t) => new Date(t).getTime() / 1000);
-				if (res === 'raw') {
-					for (const p of (result as ReadingsResponse).parameters ?? []) {
-						map.set(p.id, { times: parsedTimes, values: p.values, flags: p.flagged ?? null, flagReasons: p.flag_reasons ?? null });
-					}
-				} else {
-					// Split by instrument returns one entry per (slot, instrument), all sharing the
-					// slot's id: the first is the chart's own line and the rest ride beside it.
-					const splits = new Map<string, Array<{ label: string; values: (number | null)[] }>>();
-					const firsts = new Map<string, string>();
-					const slots = groupBySlot(
-						((result as AggregatesResponse).parameters ?? []) as AggregatesParameter[],
-						sensorSeriesLabel,
-					);
-					for (const [id, slot] of slots) {
-						const p = slot.primary;
-						const flags = p.flagged_count ? p.flagged_count.map((n) => n > 0) : null;
-						map.set(id, { times: parsedTimes, values: p.avg, mins: p.min, maxs: p.max, flags });
-						if (splitBySensor) {
-							splits.set(id, slot.extras);
-							firsts.set(id, slot.primaryLabel);
-						}
-					}
-					sensorSplitMap = splits;
-					firstSensorLabels = firsts;
-				}
+			const continuous = continuousSeries(result, res, splitBySensor, sensorSeriesLabel);
+			chartDataMap = continuous.map;
+			if (res !== 'raw' && result?.times?.length) {
+				sensorSplitMap = continuous.splits;
+				firstSensorLabels = continuous.firsts;
 			}
-			chartDataMap = map;
 
-			const smap = new Map<string, ChartData>();
-			if (spotResult && spotResult.times?.length) {
-				const spotTimes = spotResult.times.map((t) => new Date(t).getTime() / 1000);
-				for (const p of spotResult.parameters ?? []) {
-					smap.set(p.id, { times: spotTimes, values: p.values, flags: p.flagged ?? null, flagReasons: p.flag_reasons ?? null });
-				}
-			}
-			spotDataMap = smap;
+			const spot = spotSeries(spotResult);
+			spotDataMap = spot.map;
+			spotStatsMap = spot.stats;
+			withdrawnCounts = spot.withdrawnCounts;
+			sampleCurves = spot.curves;
+			curveRefs.ensureCalibrations(spot.calibrationIds);
+			curveRefs.ensureStandardCurves(spot.standardCurveIds);
 
-			const statsMap = new Map<string, Map<number, SpotPointStats>>();
-			const curveBySample = new Map<string, SampleCurve>();
-			const calibrationIds: (string | null)[] = [];
-			const standardCurveIds: (string | null)[] = [];
-			if (spotResult && spotResult.times?.length) {
-				const spotMs = spotResult.times.map((t) => new Date(t).getTime());
-				for (const p of spotResult.parameters ?? []) {
-					if (!p.parameter_id) continue;
-					const inner = statsMap.get(p.parameter_id) ?? new Map<number, SpotPointStats>();
-					spotMs.forEach((ms, i) => {
-						const s = p.samples?.[i] ?? null;
-						const mean = s?.mean ?? p.values[i];
-						if (mean == null) return;
-						// `?? null` rather than leaving these undefined: consumers read undefined as
-						// "the fetch did not ask for curves" and render no provenance at all, so
-						// coercing an absent reference to undefined would silently hide it instead of
-						// reporting None. This fetch does ask (include_curves above), so null here
-						// means the reading carries no curve of that kind.
-						const calibrationId = p.calibration_ids?.[i] ?? null;
-						const standardCurveId = p.standard_curve_ids?.[i] ?? null;
-						calibrationIds.push(calibrationId);
-						standardCurveIds.push(standardCurveId);
-						inner.set(ms, {
-							withdrawn: p.withdrawn?.[i] === true,
-							mean,
-							stdev: s?.stdev ?? null,
-							n: s?.n ?? 1,
-							min: s?.min ?? null,
-							max: s?.max ?? null,
-							sdEstimator: s?.sd_estimator ?? null,
-							sdEstimatorSource: s?.sd_estimator_source ?? null,
-							replicates: s?.replicates,
-							sampleId: s?.sample_id,
-							calibrationId,
-							standardCurveId,
-						});
-						if (s) {
-							curveBySample.set(s.sample_id, sampleCurve(s));
-							for (const rep of s.replicates ?? []) {
-								calibrationIds.push(rep.calibration_id ?? null);
-								standardCurveIds.push(rep.standard_curve_id ?? null);
-							}
-						}
-					});
-					if (inner.size > 0) statsMap.set(p.parameter_id, inner);
-				}
-			}
-			spotStatsMap = statsMap;
-			withdrawnCounts = new Map(
-				(spotResult?.parameters ?? [])
-					.filter((p) => p.parameter_id && (p.withdrawn_count ?? 0) > 0)
-					.map((p) => [p.parameter_id!, p.withdrawn_count ?? 0]),
-			);
-			sampleCurves = curveBySample;
-			curveRefs.ensureCalibrations(calibrationIds);
-			curveRefs.ensureStandardCurves(standardCurveIds);
-
-			// Merge series origin labels from whichever fetch carried them (aggregates never do).
-			const labels = new Map(originLabels);
-			for (const source of [result, spotResult]) {
-				if (!source || !('parameters' in source)) continue;
-				for (const p of (source as ReadingsResponse).parameters ?? []) {
-					const label = originLabelOf(p.origins);
-					if (label) labels.set(p.id, label);
-				}
-			}
-			originLabels = labels;
-
-			const annMap = new Map<string, Annotation[]>();
-			for (const a of anns) {
-				const list = annMap.get(a.parameter_id) ?? [];
-				list.push(a);
-				annMap.set(a.parameter_id, list);
-			}
-			annotationsByParam = annMap;
+			originLabels = mergeOriginLabels(originLabels, [result, spotResult]);
+			annotationsByParam = annotationsByParameter(anns);
 		} catch (e) {
 			if (gen === fetchGeneration) {
 				toastStore.error('Failed to load chart data');
@@ -993,86 +611,9 @@
 	let newNoteText = $state('');
 	let savingNote = $state(false);
 
-	// Export dialog
+	// The export dialog's own state lives in the component; the page owns only whether it is open.
 	let exportOpen = $state(false);
-	let exportStartMs = $state(Date.now() - 7 * 86400000);
-	let exportEndMs = $state(Date.now());
-	let exportFormat = $state<'csv' | 'json' | 'ndjson'>('csv');
-	let exportResolution = $state<'raw' | 'hourly' | 'daily'>('hourly');
-	let exportLoading = $state(false);
-	let exportSelectedParamIds = $state<string[]>([]);
-	let exportIncludeFlagged = $state(true);
-	let exportIncludeReplicates = $state(false);
-	let exportIncludeAnnotations = $state(false);
-	let exportIncludeAlarms = $state(false);
-	let exportSummary = $state<ExportSummary | null>(null);
 
-	// What the export range can carry beyond the plain series, narrowed to the selected
-	// parameters. Drives which options are enabled and the counts shown beside them.
-	const exportCounts = $derived.by(() => {
-		if (!exportSummary) return null;
-		const rows =
-			exportSelectedParamIds.length === 0
-				? exportSummary.per_parameter
-				: exportSummary.per_parameter.filter((p) => exportSelectedParamIds.includes(p.parameter_id));
-		const sum = (f: (p: ExportSummary['per_parameter'][number]) => number) =>
-			rows.reduce((s, p) => s + f(p), 0);
-		return {
-			annotation_count: sum((p) => p.annotation_count),
-			annotated_points: sum((p) => p.annotated_points),
-			flagged_readings: sum((p) => p.flagged_readings),
-			replicate_readings: sum((p) => p.replicate_readings),
-			alarm_readings: sum((p) => p.alarm_readings),
-		};
-	});
-
-	$effect(() => {
-		if (!exportOpen || !exportStartMs || !exportEndMs) return;
-		const start = new Date(exportStartMs).toISOString();
-		const end = new Date(exportEndMs).toISOString();
-		const t = setTimeout(async () => {
-			try {
-				exportSummary = await getSiteExportSummary(siteId, start, end);
-			} catch {
-				exportSummary = null;
-			}
-		}, 400);
-		return () => clearTimeout(t);
-	});
-	let exportMeasurementType = $state<'all' | 'continuous' | 'spot' | 'derived'>('all');
-
-	const exportStartStr = $derived(exportStartMs ? toDatetimeLocal(exportStartMs, timezoneStore.zone) : '');
-	const exportEndStr = $derived(exportEndMs ? toDatetimeLocal(exportEndMs, timezoneStore.zone) : '');
-
-	function onExportStartInput(e: Event) {
-		const val = (e.target as HTMLInputElement).value;
-		if (val) exportStartMs = new Date(fromDatetimeLocal(val, timezoneStore.zone)).getTime();
-	}
-	function onExportEndInput(e: Event) {
-		const val = (e.target as HTMLInputElement).value;
-		if (val) exportEndMs = new Date(fromDatetimeLocal(val, timezoneStore.zone)).getTime();
-	}
-
-	// Status events
-	const STATUS_PAGE_SIZE = 50;
-	let statusEvents = $state<StatusEventsResponse['events']>([]);
-	let statusTimeRange = $state<'24h' | '7d' | '30d'>('24h');
-	let statusLoading = $state(false);
-	let statusLoaded = $state(false);
-	let statusOffset = $state(0);
-	let statusTotal = $state(0);
-	let statusLifetimeTotal = $state<number | null>(null);
-	const statusPage = $derived(Math.floor(statusOffset / STATUS_PAGE_SIZE) + 1);
-	const statusRangeStart = $derived(
-		Date.now() - (statusTimeRange === '24h' ? 24 : statusTimeRange === '7d' ? 168 : 720) * 3600000,
-	);
-
-	$effect(() => {
-		if (activeKey === 'status' && site && !statusLoaded) {
-			statusLoaded = true;
-			loadStatusEvents();
-		}
-	});
 
 	const siteId = $derived(page.params.id!);
 
@@ -1101,8 +642,6 @@
 		error = null;
 		// Clear per-site state so the previous site's data can't linger while the new one loads.
 		site = null;
-		statusLoaded = false;
-		statusOffset = 0;
 		newDataAvailable = false;
 
 		const deepStart = page.url.searchParams.get('start');
@@ -1183,8 +722,6 @@
 					sliderMin = Math.min(sliderMin, chartStart);
 					sliderMax = Math.max(sliderMax, chartEnd);
 				}
-				exportStartMs = sliderMin;
-				exportEndMs = sliderMax;
 				const extents = new Map<string, SiteDetailParameter>();
 				for (const p of detailRes.parameters ?? []) extents.set(p.id, p);
 				paramExtents = extents;
@@ -1376,149 +913,7 @@
 		catch { toastStore.error('Failed to delete note'); }
 	}
 
-	// Status events
-	async function loadStatusEvents() {
-		statusLoading = true;
-		const hours = statusTimeRange === '24h' ? 24 : statusTimeRange === '7d' ? 168 : 720;
-		const start = new Date(Date.now() - hours * 3600000).toISOString();
-		try {
-			const result = await GET<StatusEventsResponse>(
-				`/api/sites/${siteId}/status_events`,
-				{ start, limit: STATUS_PAGE_SIZE, offset: statusOffset, order: 'desc' }
-			);
-			statusEvents = result.events ?? [];
-			statusTotal = result.total ?? 0;
-			if (statusLifetimeTotal === null) {
-				const all = await GET<StatusEventsResponse>(`/api/sites/${siteId}/status_events`, { limit: 1 });
-				statusLifetimeTotal = all.total ?? 0;
-			}
-		} catch (e) {
-			statusEvents = [];
-			statusTotal = 0;
-			toastStore.error(e instanceof Error ? `Failed to load status events: ${e.message}` : 'Failed to load status events');
-		}
-		finally { statusLoading = false; }
-	}
 
-	function statusEventParamName(parameterId: string): string {
-		return parameters.find((p) => p.id === parameterId)?.name ?? parameterId;
-	}
-
-	// Export opens on the range the charts are showing; the slider still offers the site's
-	// whole data period.
-	function openExport() {
-		exportStartMs = chartStart;
-		exportEndMs = chartEnd;
-		exportOpen = true;
-	}
-
-	// The header the file will carry, so the options are read as columns rather than as promises.
-	const exportColumnNames = $derived.by(() => {
-		const selected =
-			exportSelectedParamIds.length > 0
-				? exportSelectedParamIds
-				: siteParameters.filter((sp) => sp.entry_mode !== 'tool').map((sp) => sp.parameter_id);
-		const codes = selected.map((id) => paramCode(id)).filter((c) => c !== '');
-		return exportColumns(codes, {
-			startMs: exportStartMs,
-			endMs: exportEndMs,
-			parameterIds: exportSelectedParamIds,
-			format: exportFormat,
-			resolution: exportResolution,
-			includeFlagged: exportIncludeFlagged,
-			measurementType: exportMeasurementType,
-		});
-	});
-
-	// An option whose range holds nothing is shown disabled, never silently exported.
-	$effect(() => {
-		if (!exportCounts) return;
-		if (exportCounts.flagged_readings === 0) exportIncludeFlagged = false;
-		if (exportCounts.replicate_readings === 0) exportIncludeReplicates = false;
-		if (exportCounts.annotation_count === 0) exportIncludeAnnotations = false;
-		if (exportCounts.alarm_readings === 0) exportIncludeAlarms = false;
-	});
-
-	// Export
-	async function handleExport() {
-		if (!exportStartMs || !exportEndMs) return;
-		exportLoading = true;
-		try {
-			const { auth } = await import('$auth/keycloak.svelte');
-			await auth.ensureToken();
-			const download = async (url: string, filename: string) => {
-				const response = await fetch(url, {
-					headers: auth.token ? { Authorization: `Bearer ${auth.token}` } : undefined,
-				});
-				if (!response.ok) {
-					const detail = await response.text().catch(() => response.statusText);
-					throw new Error(`${response.status}: ${detail.slice(0, 200)}`);
-				}
-				const blob = await response.blob();
-				const a = document.createElement('a');
-				a.href = URL.createObjectURL(blob);
-				a.download = filename;
-				a.click();
-				URL.revokeObjectURL(a.href);
-			};
-			const rangeParams = () => {
-				const params = new URLSearchParams({
-					start: new Date(exportStartMs).toISOString(),
-					end: new Date(exportEndMs).toISOString(),
-				});
-				if (exportSelectedParamIds.length > 0) {
-					params.set('parameter_ids', exportSelectedParamIds.join(','));
-				}
-				return params;
-			};
-
-			const params = buildReadingsExportParams({
-				startMs: exportStartMs,
-				endMs: exportEndMs,
-				parameterIds: exportSelectedParamIds,
-				format: exportFormat,
-				resolution: exportResolution,
-				includeFlagged: exportIncludeFlagged,
-				measurementType: exportMeasurementType,
-			});
-			const path = exportResolution === 'raw'
-				? `/api/sites/${siteId}/readings`
-				: `/api/sites/${siteId}/aggregates/${exportResolution}`;
-			const name = site?.name ?? 'export';
-			await download(
-				`${path}?${params.toString()}`,
-				`${name}_${exportResolution}.${exportFormat === 'ndjson' ? 'ndjson' : exportFormat}`
-			);
-
-			if (exportIncludeReplicates && (exportCounts?.replicate_readings ?? 0) > 0) {
-				const repParams = rangeParams();
-				repParams.set('format', 'csv');
-				await download(
-					`/api/sites/${siteId}/export/replicates?${repParams.toString()}`,
-					`${name}_replicates.csv`
-				);
-			}
-			if (exportIncludeAnnotations && (exportCounts?.annotation_count ?? 0) > 0) {
-				const annParams = rangeParams();
-				annParams.set('format', 'csv');
-				await download(
-					`/api/sites/${siteId}/annotations?${annParams.toString()}`,
-					`${name}_annotations.csv`
-				);
-			}
-			if (exportIncludeAlarms && (exportCounts?.alarm_readings ?? 0) > 0) {
-				const alarmParams = rangeParams();
-				alarmParams.set('format', 'csv');
-				await download(
-					`/api/sites/${siteId}/alarms?${alarmParams.toString()}`,
-					`${name}_alarms.csv`
-				);
-			}
-			toastStore.success('Export downloaded');
-			exportOpen = false;
-		} catch (e) { toastStore.error(e instanceof Error ? `Export failed: ${e.message}` : 'Export failed'); }
-		finally { exportLoading = false; }
-	}
 
 	// Derived parameters
 	const siteParameterIds = $derived(new Set(siteParameters.map((sp) => sp.parameter_id)));
@@ -1647,31 +1042,6 @@
 		}
 	}
 
-	// Statistics helpers (inline)
-	function calcMean(vals: (number | null)[]): number | null {
-		const nums = vals.filter((v): v is number => v != null);
-		if (nums.length === 0) return null;
-		return nums.reduce((a, b) => a + b, 0) / nums.length;
-	}
-	function calcStddev(vals: (number | null)[]): number | null {
-		const nums = vals.filter((v): v is number => v != null);
-		if (nums.length < 2) return null;
-		const m = nums.reduce((a, b) => a + b, 0) / nums.length;
-		const variance = nums.reduce((a, b) => a + (b - m) ** 2, 0) / (nums.length - 1);
-		return Math.sqrt(variance);
-	}
-	function calcMin(vals: (number | null)[]): number | null {
-		const nums = vals.filter((v): v is number => v != null);
-		return nums.length > 0 ? Math.min(...nums) : null;
-	}
-	function calcMax(vals: (number | null)[]): number | null {
-		const nums = vals.filter((v): v is number => v != null);
-		return nums.length > 0 ? Math.max(...nums) : null;
-	}
-	function calcNullPct(vals: (number | null)[]): number {
-		if (vals.length === 0) return 0;
-		return (vals.filter((v) => v == null).length / vals.length) * 100;
-	}
 	function fmt(val: number | null, decimals = 2): string {
 		return formatMeasurement(val, decimals);
 	}
@@ -1699,11 +1069,11 @@
 				name: param.name,
 				units: sp.display_units ?? param.default_units ?? '',
 				count: vals.length,
-				mean: calcMean(vals),
-				min: calcMin(vals),
-				max: calcMax(vals),
-				stddev: calcStddev(vals),
-				nullPct: calcNullPct(vals),
+				mean: mean(vals),
+				min: min(vals),
+				max: max(vals),
+				stddev: stddev(vals),
+				nullPct: nullPct(vals),
 			});
 		}
 		return result;
@@ -1810,7 +1180,7 @@
 				</div>
 			</div>
 			<div class="flex gap-2">
-				<Button onclick={openExport}>Export</Button>
+				<Button onclick={() => (exportOpen = true)}>Export</Button>
 				<a href="{base}/sites/{site.id}/import" class="px-3 py-1.5 border border-brand-divider bg-brand-surface text-sm rounded-md no-underline text-brand-text hover:bg-brand-bg">Import CSV</a>
 				<a href="{base}/sites/{site.id}/edit" class="px-3 py-1.5 border border-brand-divider bg-brand-surface text-sm rounded-md no-underline text-brand-text hover:bg-brand-bg">Edit</a>
 			</div>
@@ -2401,8 +1771,8 @@
 										<td class="px-4 py-2 text-right font-mono">{formatMeasurement(s.mean, decimalsForParameter(s.parameter_id))}</td>
 										<td class="px-4 py-2 text-right font-mono">{formatMeasurement(s.stdev, decimalsForParameter(s.parameter_id))}</td>
 										<td class="px-4 py-2 text-right font-mono">{s.n}</td>
-										<td class="px-4 py-2 text-right font-mono">{s.min_value != null ? s.min_value.toFixed(3) : 'None'}</td>
-										<td class="px-4 py-2 text-right font-mono">{s.max_value != null ? s.max_value.toFixed(3) : 'None'}</td>
+										<td class="px-4 py-2 text-right font-mono">{formatMeasurement(s.min_value, decimalsForParameter(s.parameter_id))}</td>
+										<td class="px-4 py-2 text-right font-mono">{formatMeasurement(s.max_value, decimalsForParameter(s.parameter_id))}</td>
 										<td class="px-4 py-2 text-xs">
 											{#if !sampleCurves.has(s.id)}
 												<span class="text-brand-muted" title="Curve references load with the charts; this sample falls outside the selected time range.">Not loaded</span>
@@ -2454,364 +1824,22 @@
 
 		<!-- Visits tab: the portal's wide data row, one per field date -->
 		{:else if activeKey === 'visits'}
-			<div class="space-y-3">
-				<div class="flex flex-wrap items-end gap-3">
-					<div>
-						<label for="visits-start" class="text-xs text-brand-muted block mb-1">From</label>
-						<input
-							id="visits-start"
-							type="datetime-local"
-							value={visitsStart ? toDatetimeLocal(visitsStart) : ''}
-							onchange={(e) => { const v = e.currentTarget.value; visitsStart = v ? fromDatetimeLocal(v) : null; }}
-							class="px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm"
-						/>
-					</div>
-					<div>
-						<label for="visits-end" class="text-xs text-brand-muted block mb-1">To</label>
-						<input
-							id="visits-end"
-							type="datetime-local"
-							value={visitsEnd ? toDatetimeLocal(visitsEnd) : ''}
-							onchange={(e) => { const v = e.currentTarget.value; visitsEnd = v ? fromDatetimeLocal(v) : null; }}
-							class="px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm"
-						/>
-					</div>
-					{#if visitsStart || visitsEnd}
-						<Button size="sm" onclick={() => { visitsStart = null; visitsEnd = null; }}>All dates</Button>
-					{/if}
-					<span class="text-sm text-brand-muted">{visits.length} visit{visits.length === 1 ? '' : 's'}{visitsStart || visitsEnd ? ' in range' : ''}</span>
-					<span class="ml-auto flex items-center gap-1">
-						<Button
-							size="sm"
-							variant="secondary"
-							disabled={visitsDownloading || visits.length === 0}
-							onclick={downloadVisitsCsv}
-						>
-							{visitsDownloading ? 'Downloading…' : 'Download grid CSV'}
-						</Button>
-						<span
-							class="text-brand-muted cursor-help text-xs"
-							title="This grid as displayed: one row per visit, one column per parameter code, the served value in each cell. For the readings themselves in long format (one row per reading, replicates and flags included) use Export."
-						>(i)</span>
-					</span>
-				</div>
-				{#if visitsLoading && visits.length === 0}
-					<p class="text-sm text-brand-muted">Loading…</p>
-				{:else if visits.length === 0}
-					<p class="text-sm text-brand-muted">{visitsStart || visitsEnd ? 'No visits in this range.' : 'No visits recorded for this site.'}</p>
-				{:else}
-					{#if me.can('writeData')}
-						<div class="flex items-center gap-2">
-							<Button
-								size="sm"
-								variant="secondary"
-								disabled={staleApplyBusy}
-								title="Recompute every visit at this site with an open missing- or stale-output finding, in one tracked job. Unchanged calculations are skipped; the findings a run repairs close with it."
-								onclick={applyToStaleVisits}
-							>
-								{staleApplyBusy ? 'Recomputing…' : `Recompute stale visits${staleVisitCount > 0 ? ` (${staleVisitCount} listed)` : ''}`}
-							</Button>
-						</div>
-					{/if}
-					<div class="rounded-md border border-brand-divider bg-brand-surface overflow-x-auto">
-						<table class="w-full text-sm">
-							<thead>
-								<tr class="bg-brand-bg text-left text-xs text-brand-muted">
-									<th class="sticky left-0 z-10 bg-brand-bg px-4 py-2 font-medium">Date</th>
-									<th class="px-3 py-2 font-medium">Source</th>
-									<th class="px-3 py-2 font-medium">Filled</th>
-									{#each visitColumns as col (col.parameter_id)}
-										<th class="px-3 py-2 font-medium whitespace-nowrap" title={col.name}>
-											{col.code}{#if unitsForParameter(col.parameter_id)}<span class="font-normal text-brand-muted"> ({unitsForParameter(col.parameter_id)})</span>{/if}
-										</th>
-									{/each}
-								</tr>
-							</thead>
-							<tbody>
-								{#each visits as v (v.id)}
-									{@const cellsById = new Map(v.cells.map((c) => [c.parameter_id, c]))}
-									{@const extraCells = v.cells.filter(
-										(c) => !visitColumns.some((col) => col.parameter_id === c.parameter_id),
-									)}
-									<tr class="border-t border-brand-divider hover:bg-brand-bg/50 {expandedVisit === v.id ? 'bg-brand-bg/50' : ''}">
-										<td class="sticky left-0 z-10 bg-brand-surface px-4 py-2 whitespace-nowrap">
-											<button
-												type="button"
-												class="cursor-pointer border-none bg-transparent p-0 text-left text-inherit hover:underline"
-												aria-expanded={expandedVisit === v.id}
-												title={expandedVisit === v.id ? 'Collapse this visit' : 'Expand this visit'}
-												onclick={() => openVisit(v.id)}
-											>{formatDateTime(v.collected_at)}</button>
-											{#if v.findings_open > 0}
-												<Badge variant="warning">{v.findings_open} finding{v.findings_open === 1 ? '' : 's'}</Badge>
-											{/if}
-											{#if recomputeBadge[v.recompute]}
-												<Badge variant={recomputeBadge[v.recompute].variant}>{recomputeBadge[v.recompute].label}</Badge>
-											{/if}
-										</td>
-										<td class="px-3 py-2">
-											{#if v.source === 'portal_sync'}
-												<Badge variant="accent">portal</Badge>
-											{:else}
-												<span class="text-brand-muted">{v.created_by ?? 'manual'}</span>
-											{/if}
-										</td>
-										<td class="px-3 py-2 text-brand-muted whitespace-nowrap">{v.parameters_filled}/{visitColumns.length}</td>
-										{#each visitColumns as col (col.parameter_id)}
-											{@const cell = cellsById.get(col.parameter_id)}
-											<td
-												class="px-3 py-2 tabular-nums whitespace-nowrap
-													{cell?.finding === 'stale_output' ? 'bg-severity-warning-soft' : ''}
-													{cell?.withdrawn ? 'text-brand-muted line-through' : ''}
-													{cell?.flagged ? 'text-severity-warning' : ''}"
-											>
-												{#if !cell}
-													<span class="text-brand-muted">-</span>
-												{:else}
-													<button
-														type="button"
-														class="cursor-pointer border-none bg-transparent p-0 text-inherit hover:underline"
-														aria-pressed={expandedVisit === v.id && visitCell?.parameterId === col.parameter_id}
-														title={[visitCellStatistics(cell, col.decimal_places, col.units), `Open the record of ${col.name} at this visit`].filter(Boolean).join('\n')}
-														onclick={() => openVisitCell(v.id, col.parameter_id)}
-													>
-														{#if cell.finding === 'missing_output' && cell.value == null}
-															<Badge variant="warning">missing</Badge>
-														{:else if cell.value != null}
-															{@const marker = visitCellMarker(cell)}
-															{Number(cell.value.toPrecision(6))}
-															{#if (cell.n ?? 0) > 1}
-																<span class="text-[10px] text-brand-muted align-super">n{cell.n}</span>
-															{/if}
-															{#if marker}
-																<span class="text-severity-warning" title={marker.title}>{marker.text}</span>
-															{/if}
-														{:else}
-															<span class="text-brand-muted">-</span>
-														{/if}
-													</button>
-												{/if}
-											</td>
-										{/each}
-										{#each extraCells as cell (cell.parameter_id)}
-											<td class="px-3 py-2 tabular-nums whitespace-nowrap text-brand-muted">
-												{#if cell.value != null}
-													<button
-														type="button"
-														class="cursor-pointer border-none bg-transparent p-0 text-inherit hover:underline"
-														aria-pressed={expandedVisit === v.id && visitCell?.parameterId === cell.parameter_id}
-														title="Open the record of {paramName(cell.parameter_id)} at this visit"
-														onclick={() => openVisitCell(v.id, cell.parameter_id)}
-													>{Number(cell.value.toPrecision(6))}</button>
-												{:else}
-													-
-												{/if}
-											</td>
-										{/each}
-									</tr>
-									{#if expandedVisit === v.id}
-										<tr class="border-t border-brand-divider">
-											<td colspan={3 + visitColumns.length} class="bg-brand-bg/50 px-4 py-3">
-												{#if visitDetailLoading}
-													<p class="text-xs text-brand-muted">Loading…</p>
-												{:else if visitDetail}
-													{@const counts = visitCounts(visitDetail.cells)}
-													<div class="mb-2 flex items-center justify-between gap-2">
-														<div class="text-xs text-brand-muted">
-															<span class="font-mono text-brand-text">
-																{counts.parameters} parameter{counts.parameters === 1 ? '' : 's'} · {counts.replicates} replicate{counts.replicates === 1 ? '' : 's'} · {counts.flagged} flagged · {counts.withdrawn} withdrawn · {counts.findings} finding{counts.findings === 1 ? '' : 's'}
-															</span>
-															·
-															{visitDetail.source === 'portal_sync'
-																? 'Synced from the portal'
-																: `Entered manually${visitDetail.created_by ? ` by ${visitDetail.created_by}` : ''}`}
-															{#if visitDetail.notes}· {visitDetail.notes}{/if}
-															{#if recomputeBadge[visitDetail.recompute]}
-																<Badge variant={recomputeBadge[visitDetail.recompute].variant}>{recomputeBadge[visitDetail.recompute].label}</Badge>
-															{/if}
-														</div>
-														{#if me.can('writeData')}
-															<div class="flex gap-2">
-																<a
-																	class="rounded bg-brand-primary px-2 py-1 text-xs font-medium text-white hover:opacity-90"
-																	href="{base}/visits/{v.id}"
-																	onclick={(e) => e.stopPropagation()}>Open the grid</a
-																>
-																<Button
-																	size="sm"
-																	variant="secondary"
-																	disabled={visitBusy === v.id}
-																	onclick={(e) => { e.stopPropagation(); runVisitJob(v.id, 'recompute'); }}
-																>{visitBusy === v.id ? 'Working…' : 'Recompute tools'}</Button>
-																<Button
-																	size="sm"
-																	variant="ghost"
-																	disabled={visitBusy === v.id}
-																	onclick={(e) => { e.stopPropagation(); runVisitJob(v.id, 'audit'); }}
-																>Audit this visit</Button>
-															</div>
-														{/if}
-													</div>
-													<table class="w-full text-xs">
-														<thead class="text-brand-muted">
-															<tr>
-																<th class="py-1 pr-3 text-left font-medium">Parameter</th>
-																<th class="py-1 pr-3 text-left font-medium">Served</th>
-																<th class="py-1 pr-3 text-left font-medium">Replicates</th>
-																<th class="py-1 pr-3 text-left font-medium">Provenance</th>
-																<th class="py-1 text-left font-medium">Finding</th>
-															</tr>
-														</thead>
-														<tbody>
-															{#each visitDetail.cells as cell (cell.parameter_id + cell.stream_id)}
-																<tr
-																	class="border-t border-brand-divider/60 cursor-pointer hover:bg-brand-bg/60 {visitCell?.parameterId === cell.parameter_id ? 'bg-brand-bg' : ''}"
-																	aria-selected={visitCell?.parameterId === cell.parameter_id}
-																	onclick={() => (visitCell = { parameterId: cell.parameter_id, parameterName: cell.parameter_name })}
-																>
-																	<td class="py-1 pr-3">
-																		<button
-																			type="button"
-																			class="cursor-pointer border-none bg-transparent p-0 text-left text-inherit hover:underline"
-																			aria-pressed={visitCell?.parameterId === cell.parameter_id}
-																			onclick={() => (visitCell = { parameterId: cell.parameter_id, parameterName: cell.parameter_name })}
-																		>{cell.parameter_name}</button>
-																		{#if unitsForParameter(cell.parameter_id)}<span class="text-brand-muted">({unitsForParameter(cell.parameter_id)})</span>{/if}
-																		{#if cellRole(cell).title}
-																			<span
-																				class="ml-1.5 rounded px-1 text-[10px] {cellRole(cell).role === 'output'
-																					? 'bg-brand-accent/15 text-brand-accent-dark'
-																					: 'bg-brand-primary/10 text-brand-primary'}"
-																				title={cellRole(cell).title}
-																			>{cellRole(cell).role === 'output' ? cell.written_by : `→ ${(cell.read_by ?? []).join(', ')}`}</span>
-																		{/if}
-																	</td>
-																	<td class="py-1 pr-3 tabular-nums">
-																		{cell.served_value != null ? Number(cell.served_value.toPrecision(6)) : '-'}
-																		{#if cell.sample && cell.sample.n >= 2 && cell.sample.stdev != null}
-																			<span
-																				class="text-brand-muted"
-																				title={[
-																					`SD ${cell.sample.stdev} (${estimatorWord(cell.sample.sd_estimator)})`,
-																					cell.sample.sd_estimator_source === 'default'
-																						? 'divisor not declared for this parameter'
-																						: null,
-																					cell.sample.stdev_sample != null
-																						? `sample, n-1: ${cell.sample.stdev_sample}`
-																						: null,
-																					cell.sample.stdev_population != null
-																						? `population, n: ${cell.sample.stdev_population}`
-																						: null,
-																					cell.sample.median != null ? `median ${cell.sample.median}` : null,
-																					cell.sample.min != null && cell.sample.max != null
-																						? `range ${cell.sample.min} to ${cell.sample.max}`
-																						: null,
-																				]
-																					.filter(Boolean)
-																					.join('\n')}
-																			>±{Number(cell.sample.stdev.toPrecision(3))} ({estimatorWord(cell.sample.sd_estimator)}, n={cell.sample.n})</span>
-																		{/if}
-																	</td>
-																	<td class="py-1 pr-3 tabular-nums text-brand-muted">
-																		{cell.replicates
-																			.map((r) => `${Number((r.calibrated_value ?? r.raw_value).toPrecision(6))}${r.flagged ? '*' : ''}${r.withdrawn ? '†' : ''}`)
-																			.join(', ')}
-																	</td>
-																	<td class="py-1 pr-3">
-																		{#if cell.has_provenance}
-																			<Badge variant="ok">{cell.tool ?? 'tool run'}</Badge>
-																		{:else}
-																			<span class="text-brand-muted">{provenanceKindLabel(cell.provenance_kind) ?? originLabel(cell.origin)}</span>
-																		{/if}
-																	</td>
-																	<td class="py-1">
-																		{#if cell.finding}
-																			<Badge variant="warning">{cell.finding.kind === 'stale_output' ? 'stale' : 'missing'}</Badge>
-																		{:else}
-																			<span class="text-brand-muted">-</span>
-																		{/if}
-																	</td>
-																</tr>
-															{/each}
-														</tbody>
-													</table>
-													{#if visitDetail.cells.some((c) => c.replicates.some((r) => r.flagged || r.withdrawn))}
-														<p class="mt-1 text-[11px] text-brand-muted">* flagged · † withdrawn at source</p>
-													{/if}
-													{#if visitCell}
-														<PointInspector
-															siteId={siteId}
-															parameterId={visitCell.parameterId}
-															parameterName={visitCell.parameterName}
-															units={unitsForParameter(visitCell.parameterId)}
-															decimals={decimalsForParameter(visitCell.parameterId)}
-															timeIso={visitDetail.collected_at}
-															measurementType="spot"
-															preloaded={cellRecord(visitDetail, visitCell.parameterId)}
-															link={visitPointLink(v.id, visitCell.parameterId)}
-															onclose={() => (visitCell = null)}
-															onflag={(reps) => openVisitFlag(v.id, reps)}
-														/>
-													{/if}
-												{/if}
-											</td>
-										</tr>
-									{/if}
-								{/each}
-							</tbody>
-						</table>
-					</div>
-					{#if visits.some((v) => v.cells.some((c) => visitCellMarker(c)))}
-						<p class="text-[11px] text-brand-muted">* flagged · † withdrawn at source</p>
-					{/if}
-				{/if}
-			</div>
+			<SiteVisitsTab
+				{siteId}
+				siteName={site?.name ?? null}
+				{siteParameters}
+				active={activeKey === 'visits'}
+				{paramName}
+				{unitsForParameter}
+				{decimalsForParameter}
+				{visitPointLink}
+				onFlag={(t) => { flagTarget = t; flagOpen = true; }}
+				onDataChanged={scheduleFetch}
+			/>
 
 		<!-- Status tab (admin-only) -->
 		{:else if activeKey === 'status'}
-			<div class="space-y-3">
-				<div class="flex gap-1">
-					{#each ['24h', '7d', '30d'] as range}
-						<button
-							onclick={() => { statusTimeRange = range as typeof statusTimeRange; statusOffset = 0; loadStatusEvents(); }}
-							class="px-3 py-1 text-xs rounded-md cursor-pointer border-none {statusTimeRange === range ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted'}"
-						>{range}</button>
-					{/each}
-				</div>
-				{#if statusLoading}
-					<p class="text-sm text-brand-muted">Loading events…</p>
-				{:else if statusEvents.length === 0}
-					<div class="rounded-md border border-brand-divider bg-brand-surface p-4 text-sm text-brand-muted space-y-1">
-						<p class="font-medium text-brand-text">No status events since {formatDateTime(new Date(statusRangeStart))}.</p>
-						<p>{statusLifetimeTotal ?? '…'} stored for this site in total.</p>
-					</div>
-				{:else}
-					<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
-						<table class="w-full text-sm">
-							<thead><tr class="bg-brand-bg border-b border-brand-divider">
-								<th class="text-left px-4 py-2 font-semibold">Time</th>
-								<th class="text-left px-4 py-2 font-semibold">Parameter</th>
-								<th class="text-left px-4 py-2 font-semibold">Status</th>
-							</tr></thead>
-							<tbody>
-								{#each statusEvents as evt}
-									<tr class="border-b border-brand-divider last:border-b-0">
-										<td class="px-4 py-2 text-xs">{formatDateTime(evt.time)}</td>
-										<td class="px-4 py-2 text-xs">{statusEventParamName(evt.parameter_id)}</td>
-										<td class="px-4 py-2"><span class="px-2 py-0.5 text-xs rounded-full bg-brand-bg text-brand-muted">{evt.value}</span></td>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</div>
-					<PaginationControls
-						total={statusTotal}
-						page={statusPage}
-						perPage={STATUS_PAGE_SIZE}
-						onPageChange={(p) => { statusOffset = (p - 1) * STATUS_PAGE_SIZE; loadStatusEvents(); }}
-					/>
-				{/if}
-			</div>
+			<SiteStatusTab {siteId} active={activeKey === 'status'} {paramName} />
 
 		<!-- Notes tab -->
 		{:else if activeKey === 'notes'}
@@ -2850,127 +1878,18 @@
 	</Dialog>
 
 	<!-- Export Dialog -->
-	<Dialog bind:open={exportOpen} title="Export Data" maxWidth="sm">
-		{#snippet children()}
-			<div class="space-y-3">
-				<p class="text-xs text-brand-muted">
-					Readings in long format, one row per reading
-					<span class="cursor-help" title="Every reading in the range as its own row, with replicates, flags and sample statistics. For the one-row-per-visit grid with a column per parameter, use Download grid CSV on the Visits tab.">(i)</span>
-				</p>
-				<div class="rounded-md border border-brand-divider bg-brand-bg px-3 py-3 overflow-hidden">
-					<TimeRangeSlider
-						min={sliderMin}
-						max={sliderMax}
-						bind:start={exportStartMs}
-						bind:end={exportEndMs}
-					/>
-				</div>
-				<div class="grid grid-cols-2 gap-3">
-					<div>
-						<label for="exp-start" class="text-sm font-medium block mb-1">Start</label>
-						<input id="exp-start" type="datetime-local" value={exportStartStr} onchange={onExportStartInput} class="w-full px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm" />
-					</div>
-					<div>
-						<label for="exp-end" class="text-sm font-medium block mb-1">End</label>
-						<input id="exp-end" type="datetime-local" value={exportEndStr} onchange={onExportEndInput} class="w-full px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm" />
-					</div>
-				</div>
-				<div>
-					<label class="text-sm font-medium block mb-1">Parameters</label>
-					<div class="max-h-32 overflow-y-auto border border-brand-divider rounded-md p-2 space-y-1">
-						<label class="flex items-center gap-2 cursor-pointer text-xs text-brand-muted">
-							<input type="checkbox" checked={exportSelectedParamIds.length === 0} onchange={() => exportSelectedParamIds = []} /> All parameters
-						</label>
-						{#each siteParameters.filter((sp) => sp.entry_mode !== 'tool') as sp}
-							<label class="flex items-center gap-2 cursor-pointer text-xs">
-								<input type="checkbox" value={sp.parameter_id} bind:group={exportSelectedParamIds} /> {paramName(sp.parameter_id)}
-							</label>
-						{/each}
-					</div>
-				</div>
-				<div>
-					<label for="exp-res" class="text-sm font-medium block mb-1">Resolution</label>
-					<select id="exp-res" bind:value={exportResolution} class="w-full px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
-						<option value="raw">Raw</option>
-						<option value="hourly">Hourly</option>
-						<option value="daily">Daily</option>
-					</select>
-				</div>
-				{#if exportResolution === 'raw'}
-					<div>
-						<label for="exp-mt" class="text-sm font-medium block mb-1">Measurement type</label>
-						<select id="exp-mt" bind:value={exportMeasurementType} class="w-full px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
-							<option value="all">All (sensor + grab samples)</option>
-							<option value="continuous">Continuous (sensor only)</option>
-							<option value="spot">Spot (grab samples only)</option>
-							<option value="derived">Derived</option>
-						</select>
-					</div>
-				{/if}
-				<div class="flex flex-col gap-2">
-					{#if exportResolution === 'raw'}
-						<label class="flex items-start gap-2 text-sm {exportCounts?.flagged_readings === 0 ? 'opacity-50' : 'cursor-pointer'}">
-							<input type="checkbox" class="mt-0.5" bind:checked={exportIncludeFlagged} disabled={exportCounts?.flagged_readings === 0} />
-							<span>
-								Include flagged readings (with flag metadata)
-								{#if exportCounts}
-									<span class="block text-xs text-brand-muted">{exportCounts.flagged_readings} flagged readings in this range</span>
-								{/if}
-							</span>
-						</label>
-					{/if}
-					<label class="flex items-start gap-2 text-sm {exportCounts?.replicate_readings === 0 ? 'opacity-50' : 'cursor-pointer'}">
-						<input type="checkbox" class="mt-0.5" bind:checked={exportIncludeReplicates} disabled={exportCounts?.replicate_readings === 0} />
-						<span>
-							Also download replicates CSV
-							{#if exportCounts}
-								<span class="block text-xs text-brand-muted">{exportCounts.replicate_readings} replicate readings in this range; rows join on sample_id, or on parameter code and timestamp</span>
-							{/if}
-						</span>
-					</label>
-					<label class="flex items-start gap-2 text-sm {exportCounts?.annotation_count === 0 ? 'opacity-50' : 'cursor-pointer'}">
-						<input type="checkbox" class="mt-0.5" bind:checked={exportIncludeAnnotations} disabled={exportCounts?.annotation_count === 0} />
-						<span>
-							Also download annotations CSV
-							{#if exportCounts}
-								<span class="block text-xs text-brand-muted">{exportCounts.annotation_count} annotations covering {exportCounts.annotated_points} data points; rows join on parameter code and timestamp</span>
-							{/if}
-						</span>
-					</label>
-					<label class="flex items-start gap-2 text-sm {exportCounts?.alarm_readings === 0 ? 'opacity-50' : 'cursor-pointer'}">
-						<input type="checkbox" class="mt-0.5" bind:checked={exportIncludeAlarms} disabled={exportCounts?.alarm_readings === 0} />
-						<span>
-							Also download alarms CSV
-							{#if exportCounts}
-								<span class="block text-xs text-brand-muted">{exportCounts.alarm_readings} readings in warning or alarm; rows join on parameter and timestamp</span>
-							{/if}
-						</span>
-					</label>
-				</div>
-				<div>
-					<label class="text-sm font-medium block mb-1">Format</label>
-					<div class="flex gap-3">
-						{#each [['csv', 'CSV'], ['json', 'JSON'], ['ndjson', 'NDJSON']] as [val, label]}
-							<label class="flex items-center gap-1.5 cursor-pointer text-sm">
-								<input type="radio" bind:group={exportFormat} value={val} /> {label}
-							</label>
-						{/each}
-					</div>
-				</div>
-				{#if exportFormat !== 'json'}
-					<div>
-						<span class="text-sm font-medium block mb-1">Columns</span>
-						<p class="text-xs text-brand-muted break-all">{exportColumnNames.join(', ')}</p>
-						<p class="text-xs text-brand-muted mt-1">Value columns are the parameter code. A column is written only where the range holds the data it names.</p>
-					</div>
-				{/if}
-			</div>
-		{/snippet}
-		{#snippet actions()}
-			<Button onclick={() => exportOpen = false}>Cancel</Button>
-			<Button variant="primary" onclick={handleExport} disabled={exportLoading}>{exportLoading ? 'Exporting…' : 'Download'}</Button>
-		{/snippet}
-	</Dialog>
+	<SiteExportDialog
+		bind:open={exportOpen}
+		{siteId}
+		siteName={site?.name ?? null}
+		{siteParameters}
+		rangeStartMs={chartStart}
+		rangeEndMs={chartEnd}
+		sliderMinMs={sliderMin}
+		sliderMaxMs={sliderMax}
+		{paramName}
+		{paramCode}
+	/>
 
 	{#if site}
 		<ThresholdDialog

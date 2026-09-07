@@ -1,7 +1,7 @@
 import type uPlot from 'uplot';
 import { GET } from '$api/client';
 import type { ReadingsResponse, AggregatesResponse } from '$lib/api/types';
-import type { SpotPointStats } from './spotMarkers';
+import { spotPointStats, type SpotPointStats } from './spotMarkers';
 
 export type SeriesResolution = 'raw' | 'hourly' | 'daily';
 
@@ -70,19 +70,14 @@ export async function fetchSiteSeries(opts: {
 				stats = new Map();
 				series.samples.forEach((s, i) => {
 					if (!s || s.mean == null || times[i] == null) return;
-					stats!.set(times[i], {
-						mean: s.mean,
-						stdev: s.stdev ?? null,
-						n: s.n,
-						min: s.min ?? null,
-						max: s.max ?? null,
-						sdEstimator: s.sd_estimator ?? null,
-						sdEstimatorSource: s.sd_estimator_source ?? null,
-						replicates: s.replicates,
-						sampleId: s.sample_id,
-						calibrationId: series.calibration_ids?.[i] ?? null,
-						standardCurveId: series.standard_curve_ids?.[i] ?? null,
-					});
+					stats!.set(
+						times[i],
+						spotPointStats(s, {
+							mean: s.mean,
+							calibrationId: series.calibration_ids?.[i] ?? null,
+							standardCurveId: series.standard_curve_ids?.[i] ?? null,
+						}),
+					);
 				});
 			}
 		}
@@ -149,4 +144,11 @@ export function autoResolution(startMs: number, endMs: number): SeriesResolution
 	if (days <= 14) return 'raw';
 	if (days <= 120) return 'hourly';
 	return 'daily';
+}
+
+// A window's duration in days, as the compact label shown beside a chart's range.
+export function formatWindowLabel(days: number): string {
+	if (days < 1) return `${Math.round(days * 24)}h`;
+	if (days < 60) return `${Math.round(days)}d`;
+	return `${(days / 30).toFixed(1)}mo`;
 }

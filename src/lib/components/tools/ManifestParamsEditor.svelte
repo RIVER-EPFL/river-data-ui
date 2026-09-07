@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import { isToolParamCondition, type ToolParam } from '$api/service';
 	import Badge from '$components/ui/Badge.svelte';
 	import Button from '$components/ui/Button.svelte';
@@ -200,6 +201,13 @@
 		}
 	}
 
+	/// How many params a replicate letter spans, for the confirmation that precedes removing it.
+	function replicateSpan(letter: string): number {
+		let n = 0;
+		for (const f of view.families) if (f.byLetter.get(letter)) n += 1;
+		return n;
+	}
+
 	function removeReplicate(letter: string) {
 		const drop = new Set<number>();
 		for (const f of view.families) {
@@ -207,7 +215,6 @@
 			if (member) drop.add(member.index);
 		}
 		if (drop.size === 0) return;
-		if (!confirm(`Remove replicate ${letter} from ${drop.size} params?`)) return;
 		removeIndices(drop);
 	}
 
@@ -525,14 +532,13 @@
 		</td>
 		<td class="px-2 py-1.5 whitespace-nowrap text-right">
 			{@render moveButtons(rowPos, block)}
-			<Button
-				size="sm"
-				variant="ghost"
-				title="Remove every replicate of {f.base}"
-				onclick={() => {
-					if (confirm(`Remove ${f.members.length} params of ${f.base}?`)) removeIndices(new Set(block));
-				}}>&times;</Button
+			<ConfirmPopover
+				message={`Remove ${f.members.length} params of ${f.base}?`}
+				confirmLabel="Remove"
+				onconfirm={() => removeIndices(new Set(block))}
 			>
+				<Button size="sm" variant="ghost" title="Remove every replicate of {f.base}">&times;</Button>
+			</ConfirmPopover>
 		</td>
 	</tr>
 	{#if open}
@@ -611,13 +617,18 @@
 					class="inline-flex items-center gap-0.5 rounded-md border border-brand-divider px-1 font-mono"
 				>
 					{letter}
-					<button
-						type="button"
-						title="Remove replicate {letter} from every measurement"
-						aria-label="Remove replicate {letter} from every measurement"
-						class="text-brand-muted hover:text-severity-alarm-main"
-						onclick={() => removeReplicate(letter)}>&times;</button
+					<ConfirmPopover
+						message={`Remove replicate ${letter} from ${replicateSpan(letter)} params?`}
+						confirmLabel="Remove"
+						onconfirm={() => removeReplicate(letter)}
 					>
+						<button
+							type="button"
+							title="Remove replicate {letter} from every measurement"
+							aria-label="Remove replicate {letter} from every measurement"
+							class="text-brand-muted hover:text-severity-alarm-main"
+						>&times;</button>
+					</ConfirmPopover>
 				</span>
 			{/each}
 			<Button size="sm" onclick={addReplicate}>Add replicate</Button>

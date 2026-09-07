@@ -20,6 +20,16 @@
 	import { getList } from '$api/client';
 	import { resyncConfirmation, resyncServiceFor } from '$lib/sync/resync';
 	import { me } from '$auth/me.svelte';
+	import {
+		siteGroups as planSiteGroups,
+		instrumentGroups as planInstrumentGroups,
+		familySummary as planFamilySummary,
+		paramGroups as planParamGroups,
+		sdDecisions as planSdDecisions,
+		type InstrumentDecision,
+		type ParamGroup,
+		type SiteGroup,
+	} from '$lib/pairing/planGroups';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatRelativeTime, holdKindBreakdown } from '$lib/utils';
 	import { createUrlTab } from '$lib/urlTab.svelte';
@@ -39,6 +49,11 @@
 	import ReplicateAuditsPanel from '$components/logs/ReplicateAuditsPanel.svelte';
 	import InstrumentCurvesPanel from '$components/streams/InstrumentCurvesPanel.svelte';
 	import { formatCount } from '$lib/format';
+	import ConfirmStep from '$components/pairing/ConfirmStep.svelte';
+	import CurvesTab from '$components/pairing/CurvesTab.svelte';
+	import InstrumentsTab from '$components/pairing/InstrumentsTab.svelte';
+	import ParametersTab from '$components/pairing/ParametersTab.svelte';
+	import SitesTab from '$components/pairing/SitesTab.svelte';
 
 	// ── Stream list state ──
 	let streams = $state<DataStream[]>([]);
@@ -233,36 +248,7 @@
 		});
 	});
 
-	// ── Derived: group entries by site ──
-	interface SiteGroup {
-		siteName: string;
-		project: string;
-		entries: PairingPlanEntry[];
-		pairCount: number;
-		skipCount: number;
-		warningCount: number;
-	}
-
-	const siteGroups = $derived.by((): SiteGroup[] => {
-		const map = new Map<string, PairingPlanEntry[]>();
-		for (const e of planEntries) {
-			const key = e.site.name;
-			const arr = map.get(key);
-			if (arr) arr.push(e); else map.set(key, [e]);
-		}
-		const groups: SiteGroup[] = [];
-		for (const [siteName, entries] of map) {
-			groups.push({
-				siteName,
-				project: entries[0]?.project.name ?? '',
-				entries,
-				pairCount: entries.filter((e) => e.action === 'pair').length,
-				skipCount: entries.filter((e) => e.action === 'skip').length,
-				warningCount: entries.reduce((n, e) => n + e.warnings.length, 0),
-			});
-		}
-		return groups.sort((a, b) => a.siteName.localeCompare(b.siteName));
-	});
+	const siteGroups = $derived(planSiteGroups(planEntries));
 
 	const filteredGroups = $derived.by(() => {
 		let groups = siteGroups;
@@ -315,39 +301,7 @@
 		return { toPair, toSkip, total: planEntries.length, warnings, newSites: newSites.size, newParams: newParams.size, newProjects: newProjects.size };
 	});
 
-	// One curve column is one instrument across the whole source, so these are grouped by the
-	// instrument's identity, never by stream: 31 DOC streams are one decision.
-	interface InstrumentGroup {
-		key: string;
-		instrument: PlanInstrumentRef;
-		streamCount: number;
-		siteCount: number;
-		parameters: string[];
-		anchorStreamId: string;
-	}
-
-	const instrumentGroups = $derived.by((): InstrumentGroup[] => {
-		const map = new Map<string, { instrument: PlanInstrumentRef; streams: Set<string>; sites: Set<string>; params: Set<string>; anchor: string }>();
-		for (const e of planEntries) {
-			if (e.action !== 'pair' || !e.instrument) continue;
-			const key = e.instrument.curve_column ?? e.instrument.source_key ?? e.instrument.name;
-			let g = map.get(key);
-			if (!g) { g = { instrument: e.instrument, streams: new Set(), sites: new Set(), params: new Set(), anchor: e.stream_id }; map.set(key, g); }
-			g.streams.add(e.stream_id);
-			g.sites.add(e.site.name);
-			g.params.add(e.parameter.name);
-		}
-		return [...map.entries()]
-			.map(([key, g]) => ({
-				key,
-				instrument: g.instrument,
-				streamCount: g.streams.size,
-				siteCount: g.sites.size,
-				parameters: [...g.params].sort(),
-				anchorStreamId: g.anchor,
-			}))
-			.sort((a, b) => a.key.localeCompare(b.key));
-	});
+	const instrumentGroups = $derived(planInstrumentGroups(planEntries));
 
 	const unresolvedInstruments = $derived(
 		instrumentGroups.filter((g) => g.instrument.create && !g.instrument.confirmed),
@@ -359,18 +313,6 @@
 	// mirrored elsewhere. Which way the list is grouped comes from the server: a portal source
 	// groups by parameter or curve column, a source that identifies its hardware by serial reports
 	// devices instead, and those are not questions at all.
-	interface InstrumentDecision {
-		key: string;
-		scope: string;
-		name: string;
-		proposedName: string;
-		group: PlanInstrumentGroup | null;
-		parameters: string[];
-		siteCount: number;
-		streamCount: number;
-		anchorStreamId: string;
-	}
-
 	const instrumentDecisions = $derived.by((): InstrumentDecision[] => {
 		const rows: InstrumentDecision[] = [];
 		for (const u of planInstruments?.unassigned ?? []) {
@@ -498,36 +440,9 @@
 		}, 0);
 	}
 
-	// Replicate families among the entries that will pair: stream count and how many portal
-	// readings columns collapse into them.
-	const familySummary = $derived.by(() => {
-		let streams = 0;
-		let columns = 0;
-		for (const e of planEntries) {
-			if (e.action !== 'pair' || !e.replicates) continue;
-			streams += 1;
-			columns += e.replicates.member_columns.length;
-		}
-		return { streams, columns };
-	});
+	const familySummary = $derived(planFamilySummary(planEntries));
 
 	// ── Consolidated parameter view ──
-	interface ParamGroup {
-		name: string;
-		label: string | null;
-		originalName: string;
-		originalNames: string[];
-		groupKey: string | null;
-		units: string;
-		create: boolean;
-		siteCount: number;
-		streamIds: string[];
-		warnings: string[];
-		replicates: PlanReplicateSummary | null;
-		instrument: PlanInstrumentRef | null;
-		pairCount: number;
-	}
-
 	// One parameter row's status, read from the entries under it by the predicate the site rows
 	// and the filters use, so a row's summary cannot disagree with what expanding it shows.
 	function groupStatus(pg: ParamGroup) {
@@ -540,28 +455,7 @@
 		};
 	}
 
-	const paramGroups = $derived.by((): ParamGroup[] => {
-		// Keyed on name AND units so same-name parameters with different units get separate rows.
-		const map = new Map<string, { name: string; label: string | null; originalName: string; originalNames: Set<string>; groupKey: string | null; units: string; create: boolean; siteNames: Set<string>; streamIds: string[]; warnings: Set<string>; replicates: PlanReplicateSummary | null; instrument: PlanInstrumentRef | null }>();
-		for (const e of planEntries) {
-			const key = `${e.parameter.name}::${e.parameter.units}`;
-			let g = map.get(key);
-			if (!g) { g = { name: e.parameter.name, label: e.parameter.label ?? null, originalName: e.source_name ?? e.source_key, originalNames: new Set(), groupKey: e.parameter.group_key ?? null, units: e.parameter.units, create: e.parameter.create, siteNames: new Set(), streamIds: [], warnings: new Set(), replicates: e.replicates ?? null, instrument: e.instrument ?? null }; map.set(key, g); }
-			if (!g.label && e.parameter.label) g.label = e.parameter.label;
-			if (!g.replicates && e.replicates) g.replicates = e.replicates;
-			if (!g.instrument && e.instrument) g.instrument = e.instrument;
-			if (e.original_parameter_name) g.originalNames.add(e.original_parameter_name);
-			g.siteNames.add(e.site.name);
-			g.streamIds.push(e.stream_id);
-			for (const w of e.warnings) g.warnings.add(w.message);
-		}
-		const groups: ParamGroup[] = [];
-		for (const g of map.values()) {
-			const pairCount = planEntries.filter((e) => g.streamIds.includes(e.stream_id) && e.action === 'pair').length;
-			groups.push({ name: g.name, label: g.label, originalName: g.originalName, originalNames: [...g.originalNames], groupKey: g.groupKey, units: g.units, create: g.create, siteCount: g.siteNames.size, streamIds: g.streamIds, warnings: [...g.warnings], replicates: g.replicates, instrument: g.instrument, pairCount });
-		}
-		return groups.sort((a, b) => a.name.localeCompare(b.name) || a.units.localeCompare(b.units));
-	});
+	const paramGroups = $derived(planParamGroups(planEntries));
 
 	// The divisor question is asked by the row's own control, so its warning text is not repeated
 	// as prose next to it.
@@ -592,29 +486,7 @@
 		return [...map.values()];
 	});
 
-	// One row per parameter whose source ships its own sd column, with the declaration the whole
-	// group currently carries ('' = mixed or undeclared) and the audit evidence summed over its
-	// streams. Declaring here writes every entry of that parameter, so one choice settles all of
-	// its stations.
-	const sdDecisions = $derived.by(() => {
-		const map = new Map<string, { paramName: string; entries: PairingPlanEntry[]; declared: SdEstimator | ''; holds: number; population: number }>();
-		for (const e of planEntries) {
-			if (!e.replicates?.portal_sd_column) continue;
-			let g = map.get(e.parameter.name);
-			if (!g) {
-				g = { paramName: e.parameter.name, entries: [], declared: '', holds: 0, population: 0 };
-				map.set(e.parameter.name, g);
-			}
-			g.entries.push(e);
-			g.holds += e.sd_holds ?? 0;
-			g.population += e.sd_population_holds ?? 0;
-		}
-		for (const g of map.values()) {
-			const values = new Set(g.entries.map((e) => (e as { sd_estimator?: SdEstimator | null }).sd_estimator ?? ''));
-			g.declared = values.size === 1 ? [...values][0] : '';
-		}
-		return [...map.values()].sort((a, b) => a.paramName.localeCompare(b.paramName));
-	});
+	const sdDecisions = $derived(planSdDecisions(planEntries));
 	// Every family that has no declaration is put to the operator, plus any the audit disputes: the
 	// divisor is never inferred, so a family nothing disagrees with still has to be declared, and a
 	// disagreement the population divisor explains is the evidence shown beside the choice.
@@ -2185,907 +2057,149 @@
 				<!-- The one place an instrument is chosen. Parameters and Sites mirror what is
 				     decided here rather than offering a second editor over the same decision. -->
 				{#if reviewTab === 'instruments'}
-					<details class="text-xs text-brand-muted">
-						<summary class="cursor-pointer text-brand-primary">What an instrument, a serial and a curve are here</summary>
-						<div class="mt-1.5 space-y-1.5 max-w-4xl">
-							<p>
-								Every measurement is produced by an instrument, and this is where each of this
-								source's feeds gets one. A name is a label: identity is the source key, so renaming
-								an instrument later breaks nothing.
-							</p>
-							<p>
-								A device the source identifies by serial is not a decision: the serial is the
-								identity. Pairing attaches the device to its feeds and opens its deployment at the
-								site, one per parameter it serves.
-							</p>
-							<p>
-								A curve is fitted on one instrument, so a reading naming a curve must name that
-								instrument too. Without one, those readings are dropped at ingest rather than stored.
-							</p>
-						</div>
-					</details>
-
-					{#if planDevices.length > 0}
-						<div class="space-y-1">
-							<h3 class="text-sm font-semibold">Devices the source identifies by serial</h3>
-							<p class="text-xs text-brand-muted">Stationed at one site, so each is named for the slot it serves.</p>
-							<div class="rounded-md border border-brand-divider bg-brand-surface overflow-x-auto">
-								<table class="w-full text-sm">
-									<thead><tr class="bg-brand-bg border-b border-brand-divider">
-										<th class="text-left px-3 py-2 font-semibold">Site</th>
-										<th class="text-left px-3 py-2 font-semibold">Device</th>
-										<th class="text-left px-3 py-2 font-semibold">Channels</th>
-										<th class="text-left px-3 py-2 font-semibold">In the inventory</th>
-									</tr></thead>
-									<tbody>
-										{#each planDevices as d (`${d.site}:${d.serial}`)}
-											<tr class="border-b border-brand-divider last:border-b-0">
-												<td class="px-3 py-2">{d.site}</td>
-												<td class="px-3 py-2">
-													<span class="font-mono text-xs">{d.serial}</span>
-													{#if d.model}<span class="text-brand-muted text-xs ml-1">{d.model}</span>{/if}
-												</td>
-												<td class="px-3 py-2 text-xs text-brand-muted">
-													{d.parameters.join(', ')}
-													<span class="ml-1">({d.stream_count} stream{d.stream_count === 1 ? '' : 's'})</span>
-												</td>
-												<td class="px-3 py-2 text-xs">
-													{#if d.instrument_id}
-														<a href="{base}/sensors/{d.instrument_id}" class="text-brand-primary no-underline hover:underline">{d.instrument_name ?? d.serial}</a>
-													{:else}
-														<span class="text-brand-muted">created when the plan is applied</span>
-													{/if}
-												</td>
-											</tr>
-										{/each}
-									</tbody>
-								</table>
-							</div>
-						</div>
-					{/if}
-
-					{#if planInstruments == null}
-						<p class="text-sm text-brand-muted">Loading instruments…</p>
-					{:else if instrumentDecisions.length === 0}
-						<p class="text-sm text-brand-muted">
-							No feed in this plan needs a lab instrument chosen{planDevices.length > 0
-								? ': every one of them names a device.'
-								: '.'}
-						</p>
-					{:else}
-						<div class="flex flex-wrap items-baseline gap-2">
-							<h3 class="text-sm font-semibold">Lab instruments</h3>
-							<p class="w-full text-xs text-brand-muted order-last">One instrument per analyte, carried out to every station that measures it, so a row here covers all of them at once.</p>
-							{#if openInstrumentQuestions > 0}
-								<span class="text-xs text-severity-warning">
-									{openInstrumentQuestions} still to decide
-								</span>
-								<Button size="sm" disabled={acceptingSuggestions} onclick={acceptAllSuggestions} class="ml-auto">
-									{acceptingSuggestions ? 'Creating…' : 'Create all suggested'}
-								</Button>
-							{/if}
-						</div>
-						<div class="rounded-md border border-brand-divider bg-brand-surface overflow-x-auto">
-							<table class="w-full text-sm">
-								<thead><tr class="bg-brand-bg border-b border-brand-divider">
-									<th class="text-left px-3 py-2 font-semibold">Instrument</th>
-									<th class="text-left px-3 py-2 font-semibold w-[240px]">Map to</th>
-									<th class="text-left px-3 py-2 font-semibold">Covers</th>
-									<th class="text-left px-3 py-2 font-semibold">Curves</th>
-									<th class="text-left px-3 py-2 font-semibold">Status</th>
-								</tr></thead>
-								<tbody>
-									{#each instrumentDecisions as d (d.key)}
-										{@const asking = d.group === null || (d.group.create && !d.group.confirmed)}
-										<tr id={instrumentRowId(d.scope)} class="border-b border-brand-divider last:border-b-0 align-top {asking ? 'bg-severity-warning-soft' : ''}">
-											<td class="px-3 py-2">
-												{@render instrumentNameField(d.scope, d.anchorStreamId, d.proposedName, d.group)}
-												{#if d.group?.curve_column}
-													<div class="text-[11px] text-brand-muted mt-0.5">
-														<span class="font-mono">{d.group.curve_column}</span> names a curve per reading
-													</div>
-												{:else if d.group}
-													<div class="text-[11px] text-brand-muted mt-0.5">Corrected upstream; the curve is not re-applied</div>
-												{/if}
-											</td>
-											<td class="px-3 py-2">
-												<MappingSelect
-													value={instrumentValue(d)}
-													groups={instrumentOptions(d)}
-													noneLabel="no instrument"
-													customLabel="Custom name…"
-													status={instrumentStatus(d)}
-													ariaLabel="Instrument for {d.parameters.join(', ')}"
-													title="Attach an existing instrument, or create the one this plan proposes. Naming one always proposes it, so a choice here is reversible."
-													onchange={(v) => chooseInstrument(d, v)}
-												/>
-											</td>
-											<td class="px-3 py-2 text-xs text-brand-muted">
-												{d.parameters.join(', ')}
-												<div>
-													at {d.siteCount} station{d.siteCount === 1 ? '' : 's'},
-													{d.streamCount} feed{d.streamCount === 1 ? '' : 's'}
-												</div>
-											</td>
-											<td class="px-3 py-2 text-xs">
-												{#if d.group && d.group.curves.length > 0}
-													<ul class="list-none p-0 m-0 space-y-0.5">
-														{#each d.group.curves as c (c.id)}
-															<li class="font-mono text-[11px]">
-																{c.name ?? c.id}
-																<span class="text-brand-muted">y = {formatSignificant(c.slope)}x {c.intercept < 0 ? '−' : '+'} {formatSignificant(Math.abs(c.intercept))}</span>
-															</li>
-														{/each}
-													</ul>
-												{:else if d.group?.stamps_readings}
-													<span class="text-severity-warning">no curves registered</span>
-												{:else}
-													<span class="text-brand-muted">--</span>
-												{/if}
-											</td>
-											<td class="px-3 py-2 text-xs">
-												{#if d.group === null}
-													<Badge variant="warning" title="Nothing is attached, so these feeds have no instrument to attribute their readings to.">not chosen</Badge>
-												{:else if d.group.create && !d.group.confirmed}
-													<Badge variant="warning" title="A suggestion waiting on you. Accept it and the apply mints this instrument.">proposed</Badge>
-												{:else if d.group.create}
-													<Badge title="Not in the inventory yet; the apply mints it.">will be created</Badge>
-												{:else}
-													<Badge variant="ok" title="Already in the inventory; the apply attaches it to these feeds.">existing</Badge>
-												{/if}
-											</td>
-										</tr>
-									{/each}
-								</tbody>
-							</table>
-						</div>
-					{/if}
+					<InstrumentsTab
+						{planInstruments}
+						{planDevices}
+						{instrumentDecisions}
+						{openInstrumentQuestions}
+						{acceptingSuggestions}
+						{instrumentOptions}
+						{instrumentValue}
+						{instrumentStatus}
+						{instrumentRowId}
+						onchoose={chooseInstrument}
+						onacceptall={acceptAllSuggestions}
+						nameField={instrumentNameField}
+					/>
 
 				<!-- ── STANDARD CURVES TAB ── -->
 				{:else if reviewTab === 'curves'}
-					<details class="text-xs text-brand-muted">
-						<summary class="cursor-pointer text-brand-primary">What moving a curve does</summary>
-						<p class="mt-1.5 max-w-4xl">
-							A curve belongs to one instrument, so moving a curve here is what puts two columns of
-							one probe (acid and no-acid, say) onto the same instrument. The instrument each
-							parameter uses is chosen in Parameters.
-						</p>
-					</details>
-					{#if planInstruments == null}
-						<p class="text-sm text-brand-muted">Loading curves…</p>
-					{:else if planInstruments.curves.length === 0}
-						<p class="text-sm text-brand-muted">This source has replicated no standard curves.</p>
-					{:else}
-						<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
-							<table class="w-full text-sm">
-								<thead><tr class="bg-brand-bg border-b border-brand-divider">
-									<th class="text-left px-3 py-2 font-semibold">Curve</th>
-									<th class="text-left px-3 py-2 font-semibold">Equation</th>
-									<th class="text-left px-3 py-2 font-semibold">Source key</th>
-									<th class="text-right px-3 py-2 font-semibold">Readings corrected</th>
-									<th class="text-left px-3 py-2 font-semibold w-[260px]">Instrument</th>
-								</tr></thead>
-								<tbody>
-									{#each planInstruments.curves as c (c.id)}
-										<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50">
-											<td class="px-3 py-2">
-												{#if editingCurve === c.id}
-													<input
-														type="text"
-														bind:value={curveEditValue}
-														onkeydown={(e) => { if (e.key === 'Enter') commitCurveName(c.id, c.name); if (e.key === 'Escape') editingCurve = null; }}
-														onblur={() => commitCurveName(c.id, c.name)}
-														class="px-1 py-0.5 border border-brand-primary rounded text-sm bg-brand-surface w-56"
-														use:focusOnMount
-													/>
-												{:else}
-													<button
-														onclick={() => { editingCurve = c.id; curveEditValue = c.name ?? ''; }}
-														class="bg-transparent border-0 border-b border-dashed border-brand-muted cursor-pointer text-brand-text hover:text-brand-primary hover:border-brand-primary text-left"
-														title="Rename this standard curve"
-													>{c.name ?? c.id}</button>
-												{/if}
-											</td>
-											<td class="px-3 py-2 font-mono text-xs">
-												y = {formatSignificant(c.slope)}x {c.intercept < 0 ? '−' : '+'} {formatSignificant(Math.abs(c.intercept))}
-												{#if c.r_squared != null}<span class="text-brand-muted ml-1">R² {formatSignificant(c.r_squared)}</span>{/if}
-											</td>
-											<td class="px-3 py-2 font-mono text-xs text-brand-muted">{c.source_key ?? '--'}</td>
-											<td class="px-3 py-2 text-right text-xs {c.reading_count > 0 ? 'text-brand-text' : 'text-brand-muted'}">{formatCount(c.reading_count)}</td>
-											<td class="px-3 py-2">
-												<select
-													value={c.pending_source_key ? PLAN_INSTRUMENT_PREFIX + c.pending_source_key : c.sensor_id}
-													onchange={(e) => rehomeCurve(c, (e.target as HTMLSelectElement).value)}
-													class="px-2 py-1 rounded text-xs bg-brand-surface border max-w-[240px] {c.pending_source_key ? 'border-brand-primary' : 'border-brand-divider'}"
-													aria-label="Instrument for {c.name ?? c.id}"
-													title={c.reading_count > 0 ? `Moving this curve changes which instrument ${formatCount(c.reading_count)} corrected readings name` : 'Move this curve to another instrument'}
-												>
-													{#if !labInstruments.some((s) => s.id === c.sensor_id)}
-														<option value={c.sensor_id}>{c.instrument_name}</option>
-													{/if}
-													{#each labInstruments as s}
-														<option value={s.id}>{s.name ?? s.serial_number ?? s.id}</option>
-													{/each}
-													{#if plannedInstruments.length > 0}
-														<optgroup label="Created when this plan is applied">
-															{#each plannedInstruments as p (p.sourceKey)}
-																<option value={PLAN_INSTRUMENT_PREFIX + p.sourceKey}>{p.name}</option>
-															{/each}
-														</optgroup>
-													{/if}
-												</select>
-												{#if c.pending_source_key}
-													<div class="text-[11px] text-brand-muted mt-0.5">Moves on apply</div>
-												{/if}
-											</td>
-										</tr>
-									{/each}
-								</tbody>
-							</table>
-						</div>
-						<p class="text-xs text-brand-muted">
-							Moving a curve to an existing instrument happens now. Moving it to an instrument this
-							plan creates happens when the plan is applied, in the same step that creates it.
-						</p>
-					{/if}
+					<CurvesTab
+						{planInstruments}
+						{labInstruments}
+						{plannedInstruments}
+						planInstrumentPrefix={PLAN_INSTRUMENT_PREFIX}
+						bind:editing={editingCurve}
+						bind:editValue={curveEditValue}
+						oncommitname={commitCurveName}
+						onrehome={rehomeCurve}
+					/>
 
 				<!-- ── SITES TAB ── -->
 				{:else if reviewTab === 'sites'}
-					<input
-						type="text"
-						placeholder="Search sites…"
-						bind:value={siteSearch}
-						oninput={() => sitePage = 0}
-						class="w-full px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+					<SitesTab
+						{planEntries}
+						{siteGroups}
+						{filteredGroups}
+						{pagedGroups}
+						{existingSites}
+						{expandedSites}
+						{expandedReplicates}
+						{existingParams}
+						{paramGroups}
+						{sdDisputedByParam}
+						{siteMetadataMap}
+						bind:editingParam
+						bind:siteSearch
+						bind:sitePage
+						{totalSitePages}
+						bind:reviewFilter
+						bind:editingSite
+						bind:editValue
+						bind:customParamInput
+						{matchParam}
+						{newParamOption}
+						{parseNewParamOption}
+						{entryStatus}
+						{reviewState}
+						{reviewStateLabel}
+						{statusLabel}
+						{queueUpdate}
+						{setEntryAction}
+						{setEntryEstimator}
+						{setEntryAcknowledged}
+						{setSiteAction}
+						{toggleExpand}
+						{startEditSite}
+						{commitEditSite}
+						{renameSiteGlobal}
+						{mapSiteToExisting}
+						{goToParam}
+						{replicateChip}
+						{replicateRouting}
 					/>
-
-					<div class="flex items-center justify-between gap-3">
-						<div class="text-xs text-brand-muted">{filteredGroups.length} site{filteredGroups.length === 1 ? '' : 's'} ({planEntries.filter((e) => e.action === 'pair').length} streams to pair)</div>
-						<div class="flex gap-1">
-							{#each [['all', 'All'], ['pair', 'Will pair'], ['skip', 'Skipped'], ['needs_checking', 'Needs checking'], ['self_validated', 'Self-validated'], ['unmatched', 'Unmatched'], ['warnings', 'With warnings']] as [val, label]}
-								<button
-									onclick={() => { reviewFilter = val as typeof reviewFilter; sitePage = 0; }}
-									class="px-2 py-0.5 text-xs rounded cursor-pointer border-none {reviewFilter === val ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
-								>{label}</button>
-							{/each}
-						</div>
-					</div>
-
-					<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
-						{#each pagedGroups as group}
-							{@const allPair = group.pairCount === group.entries.length}
-							{@const allSkip = group.skipCount === group.entries.length}
-							{@const isExpanded = expandedSites.has(group.siteName)}
-							{@const siteMatched = existingSites.find((s) => s.name.toLowerCase() === group.siteName.toLowerCase())}
-							<div class="flex items-center border-b border-brand-divider hover:bg-brand-bg/50 {allSkip ? 'opacity-50' : ''}">
-								<button onclick={() => toggleExpand(group.siteName)} aria-label={isExpanded ? 'Collapse site group' : 'Expand site group'} class="px-3 py-2 bg-transparent border-none cursor-pointer text-brand-muted text-xs w-6">{isExpanded ? '▼' : '▶'}</button>
-								<div class="flex-1 py-2 min-w-0">
-									{#if editingSite === group.siteName}
-										<input type="text" bind:value={editValue} onkeydown={(e) => { if (e.key === 'Enter') commitEditSite(); if (e.key === 'Escape') editingSite = null; }} onblur={commitEditSite} class="px-1 py-0.5 border border-brand-primary rounded text-sm bg-brand-surface w-48" autofocus />
-									{:else}
-										<select
-											value={siteMatched ? `db:${siteMatched.id}` : `new:${group.siteName}`}
-											onchange={(e) => {
-												const val = (e.target as HTMLSelectElement).value;
-												if (val === '__custom__') { startEditSite(group.siteName); return; }
-												if (val.startsWith('db:')) {
-													const es = existingSites.find((s) => s.id === val.slice(3));
-													if (es) mapSiteToExisting(group.siteName, es);
-												} else if (val.startsWith('new:')) {
-													const newName = val.slice(4);
-													if (newName !== group.siteName) renameSiteGlobal(group.siteName, newName);
-												}
-											}}
-											class="px-1 py-0.5 rounded text-sm font-semibold bg-brand-surface border border-brand-divider max-w-[220px] {siteMatched ? 'border-severity-ok' : 'border-severity-warning'}"
-										>
-											<option value="__custom__">Custom name…</option>
-											{#if existingSites.length > 0}
-												<optgroup label="Existing sites">
-													{#each existingSites as es}
-														<option value="db:{es.id}">{es.name}</option>
-													{/each}
-												</optgroup>
-											{/if}
-											<optgroup label="Will be created">
-												{#each siteGroups.filter((g) => !existingSites.some((es) => es.name.toLowerCase() === g.siteName.toLowerCase())) as newS}
-													<option value="new:{newS.siteName}">+ {newS.siteName}</option>
-												{/each}
-											</optgroup>
-										</select>
-									{/if}
-									<span class="text-xs text-brand-muted ml-2">{group.entries.length} params</span>
-									{#if group.warningCount > 0}
-										<span
-											class="text-xs text-severity-warning ml-2"
-											title={group.entries.flatMap((en) => en.warnings.map((w) => w.message)).join(', ')}
-										>{group.warningCount} warn</span>
-									{/if}
-								</div>
-								<span class="text-xs text-brand-muted px-2">{group.project}</span>
-								<PairSkipToggle
-									value={allPair ? 'pair' : allSkip ? 'skip' : 'mixed'}
-									onchange={(a) => setSiteAction(group, a)}
-									title="Pair or skip every parameter at {group.siteName}"
-								/>
-							</div>
-							{#if isExpanded}
-								{@const meta = siteMetadataMap.get(group.siteName)}
-								{@const siteDevices = meta?.devices ?? []}
-								{#if meta && (meta.full_name || meta.catchment || meta.glacier_name || meta.latitude || meta.elevation || siteDevices.length > 0)}
-									<div class="pl-10 pr-2 py-2 border-b border-brand-divider bg-brand-primary/5 text-xs flex flex-wrap gap-x-5 gap-y-1 text-brand-muted">
-										{#if meta.full_name}<span><span class="font-medium text-brand-text">{meta.full_name}</span></span>{/if}
-										{#if meta.catchment}<span>Catchment: {meta.catchment}</span>{/if}
-										{#if meta.glacier_name}<span>Glacier: {meta.glacier_name}{meta.glacier_rgi ? ` (${meta.glacier_rgi})` : ''}</span>{/if}
-										{#if meta.location_type}<span>Location: {meta.location_type}</span>{/if}
-										{#if meta.latitude && meta.longitude}<span class="font-mono">{meta.latitude.toFixed(4)}, {meta.longitude.toFixed(4)}</span>{/if}
-										{#if meta.altitude_m ?? meta.elevation}<span>Elevation: {meta.altitude_m ?? meta.elevation}m</span>{/if}
-										{#each siteDevices as dev (dev.serial)}
-											<span>
-												Device: <span class="font-mono">{dev.serial}</span>{dev.model ? ` ${dev.model}` : ''}
-												({dev.streams} channel{dev.streams === 1 ? '' : 's'})
-											</span>
-										{/each}
-										{#if meta.sample_interval_sec}<span>Interval: {meta.sample_interval_sec}s</span>{/if}
-									</div>
-								{/if}
-								{#each group.entries as entry}
-								{@const entryMatched = matchParam(entry.parameter.name)}
-								{@const status = entryStatus(entry)}
-								{@const entryEditing = editingParam?.streamId === entry.stream_id}
-								{@const entryReplicates = entry.replicates}
-									<div class="flex items-center gap-2 pl-10 pr-2 py-1.5 border-b border-brand-divider bg-brand-bg/30 text-xs {entry.action === 'skip' ? 'opacity-50' : ''}">
-										<div class="flex-1 min-w-0 flex items-center gap-1.5">
-											{#if entryEditing}
-												{#if customParamInput !== null}
-													<input
-														type="text"
-														bind:value={customParamInput}
-														placeholder="New parameter name"
-														class="px-1 py-0.5 rounded text-xs bg-brand-surface border border-brand-primary max-w-[180px]"
-														autofocus
-														onkeydown={(e) => {
-															if (e.key === 'Enter' && customParamInput?.trim()) {
-																const name = customParamInput.trim();
-																entry.parameter.name = name;
-																entry.parameter.create = true;
-																planEntries = [...planEntries];
-																queueUpdate([{ stream_id: entry.stream_id, parameter_name: name }]);
-																customParamInput = null;
-																editingParam = null;
-															}
-															if (e.key === 'Escape') { customParamInput = null; editingParam = null; }
-														}}
-													/>
-													<button onclick={() => { customParamInput = null; }} class="text-[10px] text-brand-muted cursor-pointer bg-transparent border-none">cancel</button>
-												{:else}
-													<select
-														value={entryMatched ? `db:${entryMatched.id}` : newParamOption(entry.parameter.name, entry.parameter.units)}
-														onchange={(e) => {
-															const val = (e.target as HTMLSelectElement).value;
-															if (val === 'custom') {
-																customParamInput = '';
-																return;
-															}
-															editingParam = null;
-															if (val.startsWith('db:')) {
-																const ep = existingParams.find((p) => p.id === val.slice(3));
-																if (ep && ep.code !== entry.parameter.name) {
-																	entry.parameter.name = ep.code;
-																	entry.parameter.create = false;
-																	planEntries = [...planEntries];
-																	queueUpdate([{ stream_id: entry.stream_id, parameter_name: ep.code }]);
-																}
-															} else if (val.startsWith('new:')) {
-																const { name: newName, units: newUnits } = parseNewParamOption(val);
-																const unitsChanged = newUnits !== null && newUnits !== entry.parameter.units;
-																if (newName !== entry.parameter.name || unitsChanged) {
-																	entry.parameter.name = newName;
-																	entry.parameter.create = true;
-																	const update: PlanEntryUpdate = { stream_id: entry.stream_id, parameter_name: newName };
-																	if (unitsChanged) {
-																		entry.parameter.units = newUnits;
-																		update.parameter_units = newUnits as string;
-																	}
-																	planEntries = [...planEntries];
-																	queueUpdate([update]);
-																}
-															}
-														}}
-														class="px-1 py-0.5 rounded text-xs bg-brand-surface border border-brand-primary max-w-[220px]"
-														autofocus
-													>
-														<optgroup label="Existing">
-															{#each existingParams as ep}
-																<option value="db:{ep.id}">{ep.name} ({ep.default_units})</option>
-															{/each}
-														</optgroup>
-														<optgroup label="New">
-															{#each paramGroups.filter((p) => !matchParam(p.name)) as newP}
-																<option value={newParamOption(newP.name, newP.units)}>+ {newP.name} ({newP.units})</option>
-															{/each}
-														</optgroup>
-														<option value="custom">Custom name…</option>
-													</select>
-												{/if}
-											{:else}
-												<button
-													onclick={() => { editingParam = { site: group.siteName, streamId: entry.stream_id }; }}
-													class="text-left bg-transparent border-none cursor-pointer text-brand-text hover:text-brand-primary"
-													title="Change mapping for this site only"
-												>
-													{entry.parameter.name}
-													<span class="text-brand-muted">({entry.parameter.units})</span>
-												</button>
-												<span class="px-1 py-0 rounded text-[10px] {entryMatched ? 'bg-severity-ok-soft text-severity-ok' : 'bg-severity-warning-soft text-severity-warning'}">{entryMatched ? 'existing' : 'new'}</span>
-												<button
-													onclick={() => goToParam(entry.parameter.name)}
-													class="bg-transparent border-none cursor-pointer text-brand-muted hover:text-brand-primary text-[10px] ml-1"
-													title="Edit this parameter for all sites"
-												>edit all</button>
-											{/if}
-											{#if entryReplicates}
-												{@render replicateChip(entry.stream_id, entryReplicates, entry.stream_id)}
-											{/if}
-										</div>
-										<!-- Only where the divisor is still in question: a family nothing disputes
-										     carries the sample declaration silently. -->
-										{#if entryReplicates?.portal_sd_column && sdDisputedByParam.has(entry.parameter.name)}
-											{@const declared = (entry as { sd_estimator?: SdEstimator | null }).sd_estimator ?? ''}
-											<select
-												value={declared}
-												onchange={(e) => setEntryEstimator(entry, e.currentTarget.value as SdEstimator | '')}
-												aria-label="Standard deviation formula for {entry.parameter.name}"
-												title="Divisor for the sd computed from this family's replicates. The source ships its own {entryReplicates.portal_sd_column}; declare the one it used, or leave it undeclared and decide from the audit queue."
-												class="px-1.5 py-0.5 rounded border text-[10px] shrink-0 cursor-pointer bg-brand-surface {declared ? 'border-brand-divider text-brand-text' : 'border-severity-warning-border text-severity-warning-text'}"
-											>
-												<option value="">sd: not declared</option>
-												<option value="sample">sd: sample (n-1)</option>
-												<option value="population">sd: population (n)</option>
-											</select>
-										{/if}
-										<span
-											class="px-1.5 py-0.5 rounded text-[10px] shrink-0 {status.matched ? 'bg-severity-ok-soft text-severity-ok' : 'bg-brand-bg text-brand-muted'}"
-											title={status.matched
-												? 'The catalog already holds this project, site and parameter'
-												: `This plan creates: ${status.creates.join(', ') || 'nothing; the entry resolves to no slot'}`}
-										>{status.matched ? '✓ matched' : statusLabel(status)}</span>
-										<button
-											onclick={() => setEntryAcknowledged(entry, reviewState(entry) !== 'acknowledged')}
-											title={reviewState(entry) === 'acknowledged'
-												? 'Checked by hand. Click to take that back.'
-												: reviewState(entry) === 'self_validated'
-													? 'Everything resolved and nothing warned, so this entry waits on nobody. Click to mark it checked anyway.'
-													: 'Something did not resolve, or the entry warned. Click once you have looked at it.'}
-											class="px-1.5 py-0.5 rounded text-[10px] shrink-0 cursor-pointer border-none {reviewState(entry) === 'acknowledged'
-												? 'bg-severity-ok-soft text-severity-ok'
-												: reviewState(entry) === 'self_validated'
-													? 'bg-brand-bg text-brand-muted'
-													: 'bg-severity-warning-soft text-severity-warning-text'}"
-										>{reviewState(entry) === 'acknowledged' ? '✓ checked' : reviewStateLabel[reviewState(entry)]}</button>
-										{#if status.warnings > 0}
-											<span
-												class="text-xs text-severity-warning shrink-0"
-												title={entry.warnings.map((w) => w.message).join(', ')}
-											>{status.warnings} warn ({status.warningKinds.join(', ')})</span>
-										{/if}
-										<PairSkipToggle
-											size="sm"
-											value={entry.action === 'pair' ? 'pair' : 'skip'}
-											onchange={(a) => setEntryAction(entry, a)}
-											title="Pair or skip this stream"
-										/>
-									</div>
-									{#if entryReplicates && expandedReplicates.has(entry.stream_id)}
-										<div class="pl-12 pr-2 py-1.5 border-b border-brand-divider bg-brand-bg/30">
-											{@render replicateRouting(entryReplicates, entry.stream_id)}
-										</div>
-									{/if}
-								{/each}
-							{/if}
-						{/each}
-						{#if pagedGroups.length === 0}
-							<div class="px-4 py-8 text-center text-brand-muted text-sm">No sites match the current filter</div>
-						{/if}
-					</div>
-
-					{#if totalSitePages > 1}
-						<div class="flex items-center justify-between text-xs text-brand-muted">
-							<span>Page {sitePage + 1} of {totalSitePages}</span>
-							<div class="flex gap-1">
-								<Button size="sm" onclick={() => sitePage = Math.max(0, sitePage - 1)} disabled={sitePage === 0}>Prev</Button>
-								<Button size="sm" onclick={() => sitePage = Math.min(totalSitePages - 1, sitePage + 1)} disabled={sitePage >= totalSitePages - 1}>Next</Button>
-							</div>
-						</div>
-					{/if}
 
 				<!-- ── PARAMETERS TAB ── -->
 				{:else if reviewTab === 'parameters'}
-					<div class="flex flex-wrap items-baseline gap-2">
-						<p class="text-xs text-brand-muted">Map source parameters to existing DB parameters, rename, or change units. Changes apply across all {siteGroups.length} sites.</p>
-						{#if openInstrumentQuestions > 0}
-							<button
-								onclick={() => { reviewTab = 'instruments'; }}
-								class="ml-auto text-xs text-severity-warning bg-transparent border-none p-0 cursor-pointer underline-offset-2 hover:underline"
-							>{openInstrumentQuestions} instrument{openInstrumentQuestions === 1 ? '' : 's'} still to decide</button>
-						{/if}
-					</div>
-					<!-- One predicate per button, counted from the same predicate before it runs, and
-					     undone by its opposite. -->
-					<div class="flex flex-wrap items-center gap-2">
-						{#each bulkActions as b}
-							<Button
-								size="sm"
-								variant="secondary"
-								disabled={b.count === 0 || bulkRunning !== null}
-								onclick={() => runBulkAction(b)}
-								title={b.title}
-							>{bulkRunning === b.key ? 'Working…' : `${b.label} (${formatCount(b.count)})`}</Button>
-						{/each}
-					</div>
-					<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
-						<table class="w-full text-sm">
-							<thead><tr class="bg-brand-bg border-b border-brand-divider">
-								<th class="text-left px-3 py-2 font-semibold">Source name</th>
-								<th class="text-left px-3 py-2 font-semibold">Parameter name</th>
-								<th class="text-left px-3 py-2 font-semibold">Units</th>
-								<th class="text-left px-3 py-2 font-semibold w-[240px]">Map to</th>
-								<th class="text-left px-3 py-2 font-semibold w-[260px]">Instrument</th>
-								<th class="text-left px-3 py-2 font-semibold">Status</th>
-								<th class="text-right px-3 py-2 font-semibold">Sites</th>
-								<th class="text-right px-3 py-2 font-semibold">Everywhere</th>
-							</tr></thead>
-							<tbody>
-								{#each paramGroups as pg}
-									{@const matched = matchParam(pg.name)}
-									{@const sd = sdDisputedByParam.get(pg.name)}
-									{@const status = groupStatus(pg)}
-									<tr
-										id="param-row-{pg.name}"
-										class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 transition-shadow {sd ? (sd.declared ? 'bg-severity-ok-soft' : 'bg-severity-warning-soft') : ''}"
-									>
-										<td class="px-3 py-2 text-xs text-brand-muted font-mono max-w-[250px]">
-										{#if pg.originalNames.length > 1}
-											<button
-												onclick={() => {
-													const s = new Set(expandedParamGroups);
-													if (s.has(pg.name)) s.delete(pg.name); else s.add(pg.name);
-													expandedParamGroups = s;
-												}}
-												class="bg-transparent border-none cursor-pointer text-brand-muted hover:text-brand-primary text-xs p-0"
-												title="Expand to split individual sources"
-											>
-												{expandedParamGroups.has(pg.name) ? '▾' : '▸'} {pg.originalNames.length} sources
-											</button>
-											{#if expandedParamGroups.has(pg.name)}
-												<div class="mt-1 space-y-1 pl-2 border-l-2 border-brand-divider">
-													{#each pg.originalNames as src}
-														<div class="flex items-center gap-1">
-															<span class="font-mono text-[11px]">{src}</span>
-															{#if splitParamInput?.sourceName === src && splitParamInput?.groupName === pg.name}
-																<input
-																	type="text"
-																	bind:value={splitParamValue}
-																	placeholder="New parameter name"
-																	class="px-1 py-0.5 rounded text-[11px] bg-brand-surface border border-brand-primary w-28"
-																	autofocus
-																	onkeydown={(e) => {
-																		if (e.key === 'Enter') splitSourceToNewParam(src, splitParamValue);
-																		if (e.key === 'Escape') { splitParamInput = null; splitParamValue = ''; }
-																	}}
-																/>
-																<button onclick={() => { splitParamInput = null; splitParamValue = ''; }} class="text-[10px] text-brand-muted cursor-pointer bg-transparent border-none">cancel</button>
-															{:else}
-																<Button
-																	variant="ghost"
-																	size="sm"
-																	onclick={() => { splitParamInput = { groupName: pg.name, sourceName: src }; splitParamValue = src; }}
-																	class="text-[10px] text-brand-primary"
-																>split</Button>
-															{/if}
-														</div>
-													{/each}
-												</div>
-											{:else}
-												<div class="text-[10px] opacity-70 truncate">{pg.originalNames.join(', ')}</div>
-											{/if}
-										{:else}
-											{pg.originalNames[0] ?? pg.originalName}
-										{/if}
-									</td>
-										<td class="px-3 py-2">
-											{#if matched}
-												<span class="font-medium text-brand-text font-mono" title="Already exists in the database - edit via the Parameters page">{matched.code ?? matched.name}</span>
-											{:else if editingGlobalParam === pg.name}
-												<input type="text" bind:value={editValue} onkeydown={(e) => { if (e.key === 'Enter') commitEditGlobalParam(); if (e.key === 'Escape') editingGlobalParam = null; }} onblur={commitEditGlobalParam} class="px-1 py-0.5 border border-brand-primary rounded text-sm bg-brand-surface w-40" autofocus />
-											{:else}
-												<button onclick={() => startEditGlobalParam(pg.name)} class="bg-transparent border-0 border-b border-dashed border-brand-muted cursor-pointer text-brand-text hover:text-brand-primary hover:border-brand-primary text-left font-medium font-mono">{pg.name}</button>
-											{/if}
-											{#if matched}
-												{#if pg.label}
-													<div class="text-xs text-brand-muted mt-0.5">{pg.label}</div>
-												{/if}
-											{:else if editingLabel === pg.name}
-												<input
-													type="text"
-													bind:value={editLabelValue}
-													onkeydown={(e) => { if (e.key === 'Enter') commitEditLabel(); if (e.key === 'Escape') editingLabel = null; }}
-													onblur={commitEditLabel}
-													placeholder="Display label"
-													class="mt-0.5 px-1 py-0.5 border border-brand-primary rounded text-xs bg-brand-surface w-40"
-													use:focusOnMount
-												/>
-											{:else}
-												<button
-													onclick={() => startEditLabel(pg)}
-													class="block bg-transparent border-0 border-b border-dashed border-brand-muted cursor-pointer text-xs text-brand-muted hover:text-brand-primary hover:border-brand-primary mt-0.5 text-left"
-													title="Display label for the created parameter; the code stays the source column name"
-												>{pg.label ?? 'Add display label'}</button>
-											{/if}
-											{#if pg.replicates}
-												<div class="mt-1">
-													{@render replicateChip(`param:${pg.name}`, pg.replicates, pg.streamIds[0])}
-												</div>
-												{#if expandedReplicates.has(`param:${pg.name}`)}
-													<div class="mt-1 pl-2 border-l-2 border-brand-divider">
-														{@render replicateRouting(pg.replicates, pg.streamIds[0])}
-													</div>
-												{/if}
-											{/if}
-											{#if sd}
-												{@const unexplained = sd.holds - sd.population}
-												<div class="mt-1 flex items-center gap-2 text-[11px]">
-													<select
-														value={sd.declared}
-														onchange={(e) => setParamEstimator(sd, e.currentTarget.value as SdEstimator | '')}
-														aria-label="Standard deviation divisor for {pg.name}"
-														title="The divisor the sd computed from this family's replicates uses. The source ships its own; declare the one it used."
-														class="px-1 py-0.5 rounded border text-[11px] cursor-pointer bg-brand-surface {sd.declared ? 'border-brand-divider text-brand-text' : 'border-severity-warning-border text-severity-warning-text'}"
-													>
-														<option value="">sd: not declared</option>
-														<option value="sample">sd: sample (n-1)</option>
-														<option value="population">sd: population (n)</option>
-													</select>
-													<span class="text-brand-muted">writes {estimatorScopeLabel(sd.entries)}</span>
-													<span class="text-brand-muted">
-														{#if sd.population > 0}
-															<button
-																onclick={() => showDivisorHolds(sd, 'population_sd')}
-																class="bg-transparent border-none p-0 cursor-pointer text-brand-primary underline-offset-2 hover:underline"
-																title="Open these holds in the audit queue"
-															>{sd.population} incoming sd match population (n)</button>
-														{/if}
-														{#if unexplained > 0}
-															{sd.population > 0 ? ', ' : ''}
-															<button
-																onclick={() => showDivisorHolds(sd, 'not_population_sd')}
-																class="bg-transparent border-none p-0 cursor-pointer text-brand-primary underline-offset-2 hover:underline"
-																title="Open these holds in the audit queue"
-															>{unexplained} match neither</button>
-														{/if}
-														{#if sd.holds === 0}divisor differs between this parameter's streams{/if}
-													</span>
-												</div>
-											{/if}
-											{#if rowWarnings(pg).length > 0}
-												<div class="text-xs text-severity-warning mt-0.5">{rowWarnings(pg)[0]}</div>
-											{/if}
-										</td>
-										<td class="px-3 py-2 text-xs">
-											{#if matched}
-												<span class="text-brand-muted" title="Already exists in the database - edit via the Parameters page">{matched.default_units}</span>
-											{:else if editingGlobalUnits?.name === pg.name && editingGlobalUnits?.units === pg.units}
-												<input type="text" bind:value={editUnitsValue} onkeydown={(e) => { if (e.key === 'Enter') commitEditUnits(); if (e.key === 'Escape') editingGlobalUnits = null; }} onblur={commitEditUnits} class="px-1 py-0.5 border border-brand-primary rounded text-xs bg-brand-surface w-20" autofocus />
-											{:else}
-												<button onclick={() => startEditUnits(pg.name, pg.units)} class="bg-transparent border-0 border-b border-dashed border-brand-muted cursor-pointer text-brand-muted hover:text-brand-primary hover:border-brand-primary">{pg.units || '--'}</button>
-											{/if}
-										</td>
-										<td class="px-4 py-2">
-											<select
-												value={matched ? `db:${matched.id}` : newParamOption(pg.name, pg.units)}
-												onchange={(e) => {
-													const val = (e.target as HTMLSelectElement).value;
-													if (val.startsWith('db:')) {
-														const ep = existingParams.find((p) => p.id === val.slice(3));
-														if (ep) mapParamToExisting(pg.name, ep);
-													} else if (val.startsWith('new:')) {
-														const { name: newName, units: newUnits } = parseNewParamOption(val);
-														if (newName !== pg.name || (newUnits !== null && newUnits !== pg.units)) {
-															renameGlobalParam(pg.name, newName, newUnits ?? undefined);
-														}
-													}
-												}}
-												class="px-2 py-1 rounded text-xs bg-brand-surface w-full max-w-[220px] border border-brand-divider {matched ? 'border-severity-ok' : 'border-severity-warning'}"
-											>
-												<optgroup label="Existing parameters">
-													{#each existingParams as ep}
-														<option value="db:{ep.id}">{ep.name} ({ep.default_units})</option>
-													{/each}
-												</optgroup>
-												<optgroup label="Will be created">
-													{#each paramGroups.filter((p) => !matchParam(p.name)) as newP}
-														<option value={newParamOption(newP.name, newP.units)}>+ {newP.name} ({newP.units})</option>
-													{/each}
-												</optgroup>
-											</select>
-										</td>
-										<!-- A mirror of the decision, not a second editor: one instrument
-										     decision covers every site a parameter arrives at, and two
-										     controls over it are how they come to disagree. -->
-										<td class="px-4 py-2">
-											{#if instrumentByParameter.get(pg.name)}
-												{@const inst = instrumentByParameter.get(pg.name)!}
-												<button
-													onclick={() => goToInstrument(inst.scope)}
-													class="text-left bg-transparent border-0 border-b border-dashed border-brand-muted cursor-pointer hover:text-brand-primary hover:border-brand-primary {inst.group ? 'text-brand-text' : 'text-severity-warning italic'}"
-													title="Choose the instrument for this parameter"
-												>{inst.group?.name ?? inst.suggestion}</button>
-												<div class="text-[11px] text-brand-muted mt-0.5">
-													{#if !inst.group}not chosen yet
-													{:else if inst.group.create}will be created
-													{:else}existing instrument{/if}
-												</div>
-											{:else if deviceParameters.has(pg.name)}
-												{@const n = deviceSiteCount(pg.name)}
-												<button
-													onclick={() => { reviewTab = 'instruments'; }}
-													class="text-left bg-transparent border-0 border-b border-dashed border-brand-muted cursor-pointer text-brand-text hover:text-brand-primary hover:border-brand-primary"
-													title="This parameter's instrument is the device at each site"
-												>a device at {n} site{n === 1 ? '' : 's'}</button>
-												<div class="text-[11px] text-brand-muted mt-0.5">attached from its serial</div>
-											{:else}
-												<span class="text-xs text-brand-muted">--</span>
-											{/if}
-										</td>
-										<!-- Whether the parameter itself is known, and what the entries under
-										     it still create. The same status the site rows carry, summed. -->
-										<td class="px-4 py-2">
-											<span class="text-xs px-1.5 py-0.5 rounded {matched ? 'bg-severity-ok-soft text-severity-ok' : 'bg-severity-warning-soft text-severity-warning'}">{matched ? 'existing' : 'new'}</span>
-											{#if status.unmatched > 0}
-												<div class="text-[11px] text-brand-muted mt-0.5" title="Entries under this parameter whose project, site or parameter this plan would create">
-													{status.unmatched} of {status.total} unmatched
-												</div>
-											{:else}
-												<div class="text-[11px] text-severity-ok mt-0.5">all {status.total} matched</div>
-											{/if}
-											{#if status.warnings > 0}
-												<div class="text-[11px] text-severity-warning mt-0.5">{status.warnings} with warnings</div>
-											{/if}
-										</td>
-										<td class="px-4 py-2 text-right text-brand-muted">{pg.siteCount}</td>
-										<td class="px-4 py-2 text-right whitespace-nowrap">
-											<div class="inline-flex justify-end w-full">
-												<PairSkipToggle
-													value={pg.pairCount === pg.streamIds.length
-														? 'pair'
-														: pg.pairCount === 0
-															? 'skip'
-															: 'mixed'}
-													onchange={(a) => setParamGroupAction(pg, a)}
-													title="Pair or skip {pg.name} at every station"
-												/>
-											</div>
-										</td>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</div>
-
+					<ParametersTab
+						{paramGroups}
+						{existingParams}
+						siteCount={siteGroups.length}
+						{openInstrumentQuestions}
+						{bulkActions}
+						{bulkRunning}
+						{runBulkAction}
+						{deviceParameters}
+						{deviceSiteCount}
+						{instrumentByParameter}
+						{expandedParamGroups}
+						{expandedReplicates}
+						{groupStatus}
+						{rowWarnings}
+						{showDivisorHolds}
+						{setParamEstimator}
+						{goToInstrument}
+						{mapParamToExisting}
+						{renameGlobalParam}
+						{splitSourceToNewParam}
+						{startEditGlobalParam}
+						{commitEditGlobalParam}
+						{startEditUnits}
+						{commitEditUnits}
+						bind:editingGlobalParam
+						bind:editValue
+						bind:editingGlobalUnits
+						bind:editUnitsValue
+						bind:splitParamInput
+						bind:splitParamValue
+						{sdDisputedByParam}
+						{estimatorScopeLabel}
+						bind:editingLabel
+						bind:editLabelValue
+						{matchParam}
+						{newParamOption}
+						{parseNewParamOption}
+						{startEditLabel}
+						{commitEditLabel}
+						{setParamGroupAction}
+						ongoinstruments={() => { reviewTab = 'instruments'; }}
+						{replicateChip}
+						{replicateRouting}
+					/>
 				{/if}
 			</div>
 		</div>
 
 <!-- ════════════════════ CONFIRM ════════════════════ -->
 {:else if mode === 'confirm' && plan}
-	<div class="space-y-4 max-w-xl mx-auto">
-		<div class="flex items-center gap-3">
-			<Button variant="ghost" size="sm" onclick={() => setMode('review')} class="text-brand-primary">&larr; Back to review</Button>
-			<h2 class="text-xl font-semibold">Confirm Plan</h2>
-		</div>
-
-		{#if openInstrumentQuestions > 0}
-			<div class="rounded-md border border-severity-warning-border bg-severity-warning-soft p-3 text-sm text-severity-warning-text space-y-2">
-				<div class="font-semibold">
-					{openInstrumentQuestions} instrument{openInstrumentQuestions === 1 ? '' : 's'} still to decide
-				</div>
-				<p class="text-xs opacity-90">Apply refuses a plan holding a proposal nobody agreed to.</p>
-				<Button size="sm" onclick={() => { setMode('review'); reviewTab = 'instruments'; }}>
-					Open Instruments
-				</Button>
-			</div>
-		{/if}
-
-		<div class="rounded-md border border-brand-divider bg-brand-surface p-6 space-y-4">
-			<p class="text-sm">Applying this plan will:</p>
-			<div class="grid grid-cols-2 gap-3 text-sm">
-				<div class="p-3 bg-brand-bg rounded"><span class="text-brand-muted block text-xs">Pair streams</span><span class="text-lg font-semibold text-severity-ok">{formatCount(summary.toPair)}</span></div>
-				<div class="p-3 bg-brand-bg rounded"><span class="text-brand-muted block text-xs">Skip streams</span><span class="text-lg font-semibold">{formatCount(summary.toSkip)}</span></div>
-				<div class="p-3 bg-brand-bg rounded"><span class="text-brand-muted block text-xs">Create projects</span><span class="text-lg font-semibold">{summary.newProjects}</span></div>
-				<div class="p-3 bg-brand-bg rounded"><span class="text-brand-muted block text-xs">Create sites</span><span class="text-lg font-semibold">{summary.newSites}</span></div>
-				<div class="p-3 bg-brand-bg rounded"><span class="text-brand-muted block text-xs">Create parameters</span><span class="text-lg font-semibold">{summary.newParams}</span></div>
-				<div class="p-3 bg-brand-bg rounded"><span class="text-brand-muted block text-xs">Create instruments</span><span class="text-lg font-semibold">{plan.summary.instruments_to_create}</span></div>
-				{#if planDevices.length > 0}
-					<div class="p-3 bg-brand-bg rounded" title="Each device is attached to its feeds and deployed at its site, one deployment per parameter it serves">
-						<span class="text-brand-muted block text-xs">Attach devices</span>
-						<span class="text-lg font-semibold">{planDevices.length}</span>
-					</div>
-				{/if}
-				{#if summary.warnings > 0}
-					<div class="p-3 bg-severity-warning-soft rounded"><span class="text-severity-warning block text-xs">Warnings</span><span class="text-lg font-semibold text-severity-warning">{summary.warnings}</span></div>
-				{/if}
-			</div>
-
-			{#if familySummary.streams > 0}
-				<p class="text-xs text-brand-muted">
-					{familySummary.streams} of these streams are replicate families ({familySummary.columns}
-					readings columns collapse into them). Replicates are stored per instant at indices
-					0..n-1; the source's averages and standard deviations are audited, not stored.
-				</p>
-			{/if}
-			{#if undeclaredEstimatorFamilies.length > 0}
-				<div class="px-3 py-2 rounded-md bg-severity-warning-soft border border-severity-warning-border text-xs text-severity-warning-text space-y-1">
-					<p>
-						{undeclaredEstimatorEntries.length} replicate famil{undeclaredEstimatorEntries.length === 1 ? 'y' : 'ies'}
-						will be paired undeclared: their statistics use sample (n-1) meanwhile, and every
-						disagreement the population divisor (n) explains is held in the audit queue until you
-						declare one.
-					</p>
-					<ul class="space-y-0.5">
-						{#each undeclaredEstimatorFamilies.slice(0, 6) as fam (fam.paramName)}
-							<li>
-								<button
-									onclick={() => { setMode('review'); goToParam(fam.paramName); }}
-									class="bg-transparent border-none p-0 cursor-pointer font-semibold underline-offset-2 hover:underline text-severity-warning-text"
-								>{fam.paramName}</button>
-								<span class="text-brand-muted">
-									(source ships {fam.sdColumn}, {fam.sites} site{fam.sites === 1 ? '' : 's'})
-								</span>
-							</li>
-						{/each}
-						{#if undeclaredEstimatorFamilies.length > 6}
-							<li class="text-brand-muted">and {undeclaredEstimatorFamilies.length - 6} more</li>
-						{/if}
-					</ul>
-					<p class="text-brand-muted">Set the divisor in Review now, or leave it and decide from the audit queue.</p>
-				</div>
-			{/if}
-			<p class="text-xs text-brand-muted">Readings will be backfilled with site and parameter IDs. Continuous aggregates will refresh in the background. This operation can be reverted.</p>
-
-			<!-- What share of the plan has been looked at, beside the button that applies it. Each
-			     number opens the review filtered to exactly the entries it counts. -->
-			<div class="flex flex-wrap items-center gap-2 pt-1 text-xs">
-				<button
-					onclick={() => { reviewFilter = 'needs_checking'; reviewTab = 'sites'; sitePage = 0; setMode('review'); }}
-					title="Entries that did not resolve, or that carry a warning, and nobody has ticked"
-					class="px-2 py-1 rounded cursor-pointer border-none bg-severity-warning-soft text-severity-warning-text"
-				>{reviewProgress.needsCheckingPct}% need checking ({formatCount(reviewProgress.needs_checking)})</button>
-				<button
-					onclick={() => { reviewFilter = 'self_validated'; reviewTab = 'sites'; sitePage = 0; setMode('review'); }}
-					title="Everything resolved and nothing warned, so these wait on nobody. Worth looking over all the same."
-					class="px-2 py-1 rounded cursor-pointer border-none bg-brand-bg text-brand-muted hover:text-brand-text"
-				>{reviewProgress.selfValidatedPct}% self-validated ({formatCount(reviewProgress.self_validated)})</button>
-				{#if reviewProgress.acknowledged > 0}
-					<span class="px-2 py-1 rounded bg-severity-ok-soft text-severity-ok"
-					>{formatCount(reviewProgress.acknowledged)} checked by hand</span>
-				{/if}
-			</div>
-
-			{#if applying && applyJobId}
-				<p class="text-xs text-brand-muted">
-					Running as job <span class="font-mono">{applyJobId.slice(0, 8)}</span>, which carries on if
-					you leave this page: follow it on
-					<a href="{base}/system?tab=jobs" class="text-brand-primary no-underline hover:underline">System → Jobs</a>.
-				</p>
-			{/if}
-
-			<div class="flex gap-3 pt-2">
-				<Button onclick={() => setMode('review')} class="px-4 py-2">Back to Review</Button>
-				<Button variant="primary" onclick={applyPlan} disabled={applying} class="px-4 py-2 font-semibold">
-					{applying ? applyStatus || 'Applying…' : 'Apply Plan'}
-				</Button>
-			</div>
-		</div>
-	</div>
+	<ConfirmStep
+		{plan}
+		{summary}
+		{reviewProgress}
+		{familySummary}
+		planDeviceCount={planDevices.length}
+		{openInstrumentQuestions}
+		undeclaredEstimatorCount={undeclaredEstimatorEntries.length}
+		{undeclaredEstimatorFamilies}
+		{applying}
+		{applyJobId}
+		{applyStatus}
+		onback={() => setMode('review')}
+		onapply={applyPlan}
+		ongotoparam={goToParam}
+		ongotoinstruments={() => { setMode('review'); reviewTab = 'instruments'; }}
+		ongotosites={(filter) => { reviewFilter = filter; reviewTab = 'sites'; sitePage = 0; setMode('review'); }}
+	/>
 
 <!-- ════════════════════ RESULTS ════════════════════ -->
 {:else if mode === 'results' && applyResult}
