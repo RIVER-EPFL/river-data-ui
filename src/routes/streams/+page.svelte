@@ -25,6 +25,7 @@
 	import { createUrlTab } from '$lib/urlTab.svelte';
 	import { createDraftQueue } from '$lib/pairing/draftQueue';
 	import { entryStatus, estimatorScopeLabel, matchesFilter, reviewState, reviewStateLabel, statusLabel, type EntryFilter } from '$lib/pairing/entryStatus';
+	import { acceptedKeys, entriesSettledBy, objectDecisions, type ObjectDecision } from '$lib/pairing/objectDecisions';
 	import PairSkipToggle from '$components/ui/PairSkipToggle.svelte';
 	import MappingSelect, { type MappingGroup } from '$components/ui/MappingSelect.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
@@ -456,9 +457,11 @@
 		return '';
 	}
 
+	// What the apply will do, which is `create`, not whether a row happens to carry an id: existing
+	// means the inventory already holds it, new means this plan mints it.
 	function instrumentStatus(d: InstrumentDecision): 'existing' | 'new' | 'unset' {
-		if (d.group?.instrument_id) return 'existing';
-		return d.group ? 'new' : 'unset';
+		if (!d.group) return 'unset';
+		return d.group.create ? 'new' : 'existing';
 	}
 
 	// Every option is a transition: attach an existing instrument, propose a creation (which is
@@ -480,10 +483,14 @@
 		if (value.startsWith('new:')) void proposeInstrument(d.anchorStreamId, value.slice(4));
 	}
 
+	// An instrument scope carries the source's own key, which may hold spaces ("metalp:chla acid"),
+	// and an element id may not. One helper builds the id and reads it back, so they cannot drift.
+	const instrumentRowId = (scope: string) => `instrument-row-${scope.replace(/\s+/g, '-')}`;
+
 	function goToInstrument(scope: string) {
 		reviewTab = 'instruments';
 		setTimeout(() => {
-			const row = document.getElementById(`instrument-row-${scope}`);
+			const row = document.getElementById(instrumentRowId(scope));
 			if (!row) return;
 			row.scrollIntoView({ behavior: 'smooth', block: 'center' });
 			row.classList.add('flash-highlight');
@@ -1151,6 +1158,23 @@
 		entry.acknowledged = acknowledged;
 		planEntries = [...planEntries];
 		queueUpdate([{ stream_id: entry.stream_id, acknowledged }], { immediate: true });
+	}
+
+	// ── Object decisions ──
+	// A project, a site or a parameter this plan creates is one decision however many rows name it,
+	// so it is accepted once here and every row it was holding up reads as checked.
+	const planObjects = $derived(objectDecisions(planEntries));
+	const openObjects = $derived(planObjects.filter((d) => !d.accepted));
+
+	function acceptObject(decision: ObjectDecision) {
+		const settled = entriesSettledBy(planEntries, decision.key, acceptedKeys(planObjects));
+		if (settled.length === 0) return;
+		for (const e of settled) e.acknowledged = true;
+		planEntries = [...planEntries];
+		queueUpdate(
+			settled.map((e) => ({ stream_id: e.stream_id, acknowledged: true })),
+			{ immediate: true },
+		);
 	}
 
 	function setSiteAction(group: SiteGroup, action: 'pair' | 'skip') {
@@ -1924,6 +1948,12 @@
 												{formatCount(draft.summary.will_pair)} to pair,
 												{formatCount(draft.summary.will_skip)} to skip
 											</div>
+											{#if draft.uncovered_streams}
+												<div class="text-xs font-normal text-severity-warning pt-0.5">
+													{formatCount(draft.uncovered_streams)} stream{draft.uncovered_streams === 1 ? '' : 's'}
+													registered since are not in it; start over to include them.
+												</div>
+											{/if}
 										{/if}
 									</td>
 									<td class="px-4 py-3 text-right"><span class="text-severity-warning font-semibold">{formatCount(s.unpaired)}</span> <span class="text-brand-muted">unpaired</span></td>
@@ -2100,6 +2130,46 @@
 			</p>
 		{/each}
 
+		<!-- What this plan creates, as the objects it creates rather than the rows that name them:
+		     one project, a dozen sites and a handful of parameters stand behind a thousand rows,
+		     and accepting one here ticks every row it was holding up. -->
+		{#if planObjects.length > 0}
+			<div class="rounded-md border border-brand-divider bg-brand-surface p-3 space-y-2">
+				<div class="flex flex-wrap items-baseline gap-2">
+					<h3 class="text-sm font-semibold">What this plan creates</h3>
+					<span class="text-xs text-brand-muted">
+						{planObjects.length} object{planObjects.length === 1 ? '' : 's'} behind
+						{formatCount(reviewProgress.total)} row{reviewProgress.total === 1 ? '' : 's'},
+						{openObjects.length} still to accept
+					</span>
+				</div>
+				<ul class="list-none p-0 m-0 divide-y divide-brand-divider">
+					{#each planObjects as d (d.key)}
+						<li class="flex flex-wrap items-center gap-2 py-1.5 text-sm">
+							<span class="text-xs uppercase tracking-wide text-brand-muted w-20">{d.kind}</span>
+							<span class="font-medium">{d.name}</span>
+							<span class="text-xs text-brand-muted">
+								named by {formatCount(d.entryCount)} row{d.entryCount === 1 ? '' : 's'}
+							</span>
+							{#if d.accepted}
+								<Badge variant="ok" title="Accepted, and the rows it was holding up are ticked.">accepted</Badge>
+							{:else}
+								<Button
+									size="sm"
+									class="ml-auto"
+									disabled={d.settles === 0}
+									title={d.settles === 0
+										? 'The rows naming this one are waiting on another object or on a warning of their own.'
+										: `Create ${d.name} and tick the ${d.settles} row${d.settles === 1 ? '' : 's'} it was holding up.`}
+									onclick={() => acceptObject(d)}
+								>Accept{d.settles > 0 ? ` (${formatCount(d.settles)} rows)` : ''}</Button>
+							{/if}
+						</li>
+					{/each}
+				</ul>
+			</div>
+		{/if}
+
 		<div class="space-y-3">
 			<!-- View tabs -->
 			<div class="flex gap-1 border-b border-brand-divider pb-2">
@@ -2138,6 +2208,7 @@
 					{#if planDevices.length > 0}
 						<div class="space-y-1">
 							<h3 class="text-sm font-semibold">Devices the source identifies by serial</h3>
+							<p class="text-xs text-brand-muted">Stationed at one site, so each is named for the slot it serves.</p>
 							<div class="rounded-md border border-brand-divider bg-brand-surface overflow-x-auto">
 								<table class="w-full text-sm">
 									<thead><tr class="bg-brand-bg border-b border-brand-divider">
@@ -2184,6 +2255,7 @@
 					{:else}
 						<div class="flex flex-wrap items-baseline gap-2">
 							<h3 class="text-sm font-semibold">Lab instruments</h3>
+							<p class="w-full text-xs text-brand-muted order-last">One instrument per analyte, carried out to every station that measures it, so a row here covers all of them at once.</p>
 							{#if openInstrumentQuestions > 0}
 								<span class="text-xs text-severity-warning">
 									{openInstrumentQuestions} still to decide
@@ -2205,7 +2277,7 @@
 								<tbody>
 									{#each instrumentDecisions as d (d.key)}
 										{@const asking = d.group === null || (d.group.create && !d.group.confirmed)}
-										<tr id="instrument-row-{d.scope}" class="border-b border-brand-divider last:border-b-0 align-top {asking ? 'bg-severity-warning-soft' : ''}">
+										<tr id={instrumentRowId(d.scope)} class="border-b border-brand-divider last:border-b-0 align-top {asking ? 'bg-severity-warning-soft' : ''}">
 											<td class="px-3 py-2">
 												{@render instrumentNameField(d.scope, d.anchorStreamId, d.proposedName, d.group)}
 												{#if d.group?.curve_column}
@@ -2231,8 +2303,8 @@
 											<td class="px-3 py-2 text-xs text-brand-muted">
 												{d.parameters.join(', ')}
 												<div>
-													{d.streamCount} stream{d.streamCount === 1 ? '' : 's'} at
-													{d.siteCount} site{d.siteCount === 1 ? '' : 's'}
+													at {d.siteCount} station{d.siteCount === 1 ? '' : 's'},
+													{d.streamCount} feed{d.streamCount === 1 ? '' : 's'}
 												</div>
 											</td>
 											<td class="px-3 py-2 text-xs">
@@ -2253,13 +2325,13 @@
 											</td>
 											<td class="px-3 py-2 text-xs">
 												{#if d.group === null}
-													<Badge variant="warning">not chosen</Badge>
+													<Badge variant="warning" title="Nothing is attached, so these feeds have no instrument to attribute their readings to.">not chosen</Badge>
 												{:else if d.group.create && !d.group.confirmed}
-													<Badge variant="warning">proposed</Badge>
+													<Badge variant="warning" title="A suggestion waiting on you. Accept it and the apply mints this instrument.">proposed</Badge>
 												{:else if d.group.create}
-													<Badge>will be created</Badge>
+													<Badge title="Not in the inventory yet; the apply mints it.">will be created</Badge>
 												{:else}
-													<Badge variant="ok">existing</Badge>
+													<Badge variant="ok" title="Already in the inventory; the apply attaches it to these feeds.">existing</Badge>
 												{/if}
 											</td>
 										</tr>

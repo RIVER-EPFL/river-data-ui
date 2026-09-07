@@ -1,9 +1,11 @@
 <script lang="ts">
 	let {
 		variant = 'default',
+		title,
 		children,
 	}: {
 		variant?: 'default' | 'ok' | 'warning' | 'alarm' | 'muted' | 'accent';
+		title?: string;
 		children: import('svelte').Snippet;
 	} = $props();
 
@@ -17,6 +19,6 @@
 	};
 </script>
 
-<span class="inline-flex items-center whitespace-nowrap px-2 py-0.5 text-xs font-medium rounded-full {variants[variant]}">
+<span {title} class="inline-flex items-center whitespace-nowrap px-2 py-0.5 text-xs font-medium rounded-full {variants[variant]}">
 	{@render children()}
 </span>

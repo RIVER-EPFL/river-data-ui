@@ -238,7 +238,10 @@
 		{/each}
 	</select>
 	{#if selectedNeedsReview}
-		<Badge variant="warning">needs review</Badge>
+		<Badge
+			variant="warning"
+			title="Created by a sync or a tool save. Confirming asserts this parameter is measured at this site under these units."
+		>needs review</Badge>
 	{/if}
 
 	{#if showAdd}

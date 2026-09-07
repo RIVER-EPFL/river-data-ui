@@ -7,6 +7,7 @@
 	import Dialog from '$components/ui/Dialog.svelte';
 	import CrudList from '$components/crud/CrudList.svelte';
 	import type { Column, PageRequest } from '$components/crud/CrudList.svelte';
+	import Badge from '$components/ui/Badge.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import { formatThresholdRange, globalThresholdsByParameter } from '$lib/alarms';
 
@@ -209,7 +210,12 @@
 			{@const defId = derivedDefByOutput[row.id]}
 			<a href="{base}/parameters/{row.id}" class="text-brand-primary font-semibold no-underline hover:underline">{row.name}</a>
 			{#if row.needs_review}
-				<span title="Created mechanically; a manager confirms or merges it" class="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-severity-warning-soft text-severity-warning-text align-middle">needs review</span>
+				<span class="ml-1.5 align-middle">
+					<Badge
+						variant="warning"
+						title="Created by a sync or a tool save. Confirming asserts this is the analyte it names, and not a duplicate of one already in the catalog."
+					>needs review</Badge>
+				</span>
 				<span class="ml-1.5 align-middle inline-block">
 					<ConfirmParameterButton parameter={row} onconfirmed={applyConfirmed} />
 				</span>

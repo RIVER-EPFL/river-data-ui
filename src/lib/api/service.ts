@@ -1351,7 +1351,10 @@ export async function pollJob(
 
 // A plan without its entries. A CNET draft carries 1891 entries and a NOMIS one 29,400, so the
 // listing that answers "is there a draft to go back to" never asks for them.
-export type PairingPlanListing = Omit<PairingPlan, 'entries' | 'apply_result'>;
+export type PairingPlanListing = Omit<PairingPlan, 'entries' | 'apply_result'> & {
+	/** Streams unpaired now that the plan does not name; null on anything but a draft. */
+	uncovered_streams: number | null;
+};
 
 export const listPairingPlans = (params: { source_system?: string; status?: string } = {}) => {
 	const q = new URLSearchParams();
