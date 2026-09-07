@@ -2066,6 +2066,49 @@ export interface DuplicateSlot {
 export const getDuplicateSlots = () =>
 	GET<{ slots: DuplicateSlot[] }>(`${ADMIN}/sync/replicate_reconciliation/duplicate_slots`);
 
+/** A value the source changed after river-data stored it, awaiting a decision (Q84). */
+export interface ChangeProposal {
+	id: string;
+	stream_id: string;
+	source_system: string;
+	source_key: string;
+	site_id: string | null;
+	site_name: string | null;
+	parameter_id: string | null;
+	parameter_code: string | null;
+	time: string;
+	replicate_index: number;
+	stored_raw_value: number;
+	proposed_raw_value: number;
+	stored_standard_curve_id: string | null;
+	proposed_standard_curve_id: string | null;
+	status: 'pending' | 'accepted' | 'rejected';
+	first_seen_at: string;
+	last_seen_at: string;
+	decided_by: string | null;
+	decided_at: string | null;
+}
+
+export interface ProposalDecisionResult {
+	accepted: number;
+	rejected: number;
+	refused: [string, string][];
+}
+
+export const getChangeProposals = (params: { status?: string; stream_id?: string } = {}) =>
+	GET<ChangeProposal[]>(`${ADMIN}/sync/change_proposals`, { ...params });
+
+export const decideChangeProposals = (
+	ids: string[],
+	decision: 'accept' | 'reject',
+	reason?: string
+) =>
+	POST<ProposalDecisionResult>(`${ADMIN}/sync/change_proposals/decide`, {
+		ids,
+		decision,
+		...(reason ? { reason } : {}),
+	});
+
 export const startReconciliationDelete = (sourceSystem: string) =>
 	POST<{ job_id: string }>(`${ADMIN}/sync/replicate_reconciliation/delete`, {
 		source_system: sourceSystem,

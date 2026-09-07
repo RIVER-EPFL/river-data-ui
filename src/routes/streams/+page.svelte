@@ -48,6 +48,7 @@
 	import Button from '$components/ui/Button.svelte';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import ReplicateFamilyBadge from '$components/streams/ReplicateFamilyBadge.svelte';
+	import ChangeProposalsPanel from '$components/logs/ChangeProposalsPanel.svelte';
 	import ReplicateAuditsPanel from '$components/logs/ReplicateAuditsPanel.svelte';
 	import InstrumentCurvesPanel from '$components/streams/InstrumentCurvesPanel.svelte';
 	import { formatCount } from '$lib/format';
@@ -85,6 +86,9 @@
 	// Replicate-sync surfacing: withheld audit groups banner + reconciliation entry point
 	// (shown when any source still has legacy per-avg-column streams to migrate).
 	let pendingAudits = $state(0);
+	// Values the source has changed and nobody has ruled on. Counted beside the holds because the
+	// tab is one queue to the person working it.
+	let pendingProposals = $state(0);
 	// The queue carries six kinds; naming them keeps a fired brake from reading as a statistics
 	// disagreement without opening the tab.
 	let pendingByKind = $state<Record<string, number>>({});
@@ -93,9 +97,10 @@
 	// The audit surface is manager-only; below that level the page is the streams table alone.
 	const canAudit = $derived(me.can('manageSensors'));
 	const tab = createUrlTab({ keys: ['streams', 'audits', 'instruments'] });
+	const auditQueue = $derived(pendingAudits + pendingProposals);
 	const tabLabels = $derived(
 		canAudit
-			? ['Streams', pendingAudits > 0 ? `Audits (${pendingAudits})` : 'Audits', 'Instruments']
+			? ['Streams', auditQueue > 0 ? `Audits (${auditQueue})` : 'Audits', 'Instruments']
 			: ['Streams'],
 	);
 	let reconFamilyCount = $state(0);
@@ -1649,10 +1654,12 @@
 		{#if tab.key === 'audits' && canAudit}
 		<p class="text-sm text-brand-muted">
 			Review items raised by ingest: replicate statistics that disagree with what the source
-			states, a braked reconciliation pass, a curated row the source changed, a stripped curve
-			claim, and missing or stale tool outputs. Nothing is withheld, every reading is stored
-			and served either way; each item is queued here for a decision.
+			states, a braked reconciliation pass, a stripped curve claim, and missing or stale tool
+			outputs, plus the values the source has changed since river-data stored them. A changed
+			value waits for a decision; everything else is stored and served either way and queued
+			here for one.
 		</p>
+		<ChangeProposalsPanel onPendingChange={(n) => (pendingProposals = n)} />
 		<ReplicateAuditsPanel
 			initialView={auditViewParam(page.url.searchParams.get('view'))}
 			initialHoldId={page.url.searchParams.get('holds_id') ?? undefined}
