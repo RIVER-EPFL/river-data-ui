@@ -10,19 +10,19 @@ describe('thresholdPatch', () => {
 
 	it('writes every field on an edit, so a cleared threshold is cleared', () => {
 		expect(thresholdPatch('edit', blank)).toEqual({
-			default_warning_min: null,
-			default_warning_max: null,
-			default_alarm_min: null,
-			default_alarm_max: null,
+			warning_min: null,
+			warning_max: null,
+			alarm_min: null,
+			alarm_max: null,
 		});
 	});
 
 	it('carries one typed threshold on a create and leaves the rest null', () => {
 		expect(thresholdPatch('create', { ...blank, alarmMax: 12 })).toEqual({
-			default_warning_min: null,
-			default_warning_max: null,
-			default_alarm_min: null,
-			default_alarm_max: 12,
+			warning_min: null,
+			warning_max: null,
+			alarm_min: null,
+			alarm_max: 12,
 		});
 	});
 });

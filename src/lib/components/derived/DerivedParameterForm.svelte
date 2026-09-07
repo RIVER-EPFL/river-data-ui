@@ -4,6 +4,7 @@
 	import { base } from '$app/paths';
 	import {
 		api,
+		type AlarmThreshold,
 		type Constant,
 		type DerivedParameter,
 		type Parameter,
@@ -16,8 +17,8 @@
 	import VisualFormulaBuilder from '$lib/components/formula/VisualFormulaBuilder.svelte';
 	import LivePreview from '$lib/components/derived/LivePreview.svelte';
 
-	// The derived-parameter form in both modes. Thresholds live on the definition's output
-	// parameter, which a create only learns the id of after the after-create hook has made it.
+	// The derived-parameter form in both modes. The bounds live on the output parameter's global
+	// threshold row, and a create only learns that parameter's id after the after-create hook.
 	let { mode, defId = null }: { mode: 'create' | 'edit'; defId?: string | null } = $props();
 
 	let def = $state<DerivedParameter | null>(null);
@@ -36,6 +37,13 @@
 
 	let outputParameterId = $state<string | null>(null);
 	let thresholds = $state({ warningMin: '', warningMax: '', alarmMin: '', alarmMax: '' });
+	/** The output parameter's own bounds: its `alarm_thresholds` row with no site. */
+	let globalThreshold = $state<AlarmThreshold | null>(null);
+
+	async function loadGlobalThreshold(parameterId: string): Promise<AlarmThreshold | null> {
+		const res = await api.alarmThresholds.list({ perPage: 200, filter: { parameter_id: parameterId } });
+		return res.data.find((t) => t.site_id === null) ?? null;
+	}
 
 	const editing = untrack(() => mode === 'edit');
 	const backHref = $derived(editing ? `${base}/derived/${defId}` : `${base}/parameters?type=derived`);
@@ -91,12 +99,12 @@
 			description = d.description ?? '';
 			outputParameterId = d.output_parameter_id;
 			if (d.output_parameter_id) {
-				const op = await api.parameters.get(d.output_parameter_id);
+				globalThreshold = await loadGlobalThreshold(d.output_parameter_id);
 				thresholds = {
-					warningMin: fromNum(op.default_warning_min),
-					warningMax: fromNum(op.default_warning_max),
-					alarmMin: fromNum(op.default_alarm_min),
-					alarmMax: fromNum(op.default_alarm_max),
+					warningMin: fromNum(globalThreshold?.warning_min),
+					warningMax: fromNum(globalThreshold?.warning_max),
+					alarmMin: fromNum(globalThreshold?.alarm_min),
+					alarmMax: fromNum(globalThreshold?.alarm_max),
 				};
 			}
 		} finally {
@@ -110,7 +118,7 @@
 		try {
 			const values = { code, name: name || code, units, formula, description: description || undefined };
 			// The output parameter is created by an after-create hook, so a create re-fetches the
-			// definition to learn its id before it can write thresholds.
+			// definition to learn its id before it can write its bounds.
 			let outputId = outputParameterId;
 			if (editing && defId) {
 				await api.derivedParameters.update(defId, values);
@@ -121,7 +129,11 @@
 					(await api.derivedParameters.get(created.id)).output_parameter_id;
 			}
 			const patch = thresholdPatch(mode, thresholds);
-			if (patch && outputId) await api.parameters.update(outputId, patch);
+			if (patch && outputId) {
+				const existing = globalThreshold ?? (await loadGlobalThreshold(outputId));
+				if (existing) await api.alarmThresholds.update(existing.id, patch);
+				else await api.alarmThresholds.create({ parameter_id: outputId, ...patch });
+			}
 
 			toastStore.success(`Derived parameter ${editing ? 'updated' : 'created'}`);
 			goto(editing ? `${base}/derived/${defId}` : `${base}/derived`);
@@ -180,7 +192,7 @@
 		{#if !editing || outputParameterId}
 			<div class="max-w-2xl">
 				<h3 class="text-sm font-semibold mb-1">Alarm Thresholds</h3>
-				<p class="text-xs text-brand-muted mb-2">Computed readings are evaluated against these defaults unless a site-specific threshold overrides them. Optional.</p>
+				<p class="text-xs text-brand-muted mb-2">Computed readings are evaluated against these bounds unless a site-specific threshold overrides them. Optional.</p>
 				<div class="grid grid-cols-4 gap-3">
 					<div>
 						<label for="dp-wmin" class="text-sm text-brand-muted block mb-1">Warning Min</label>

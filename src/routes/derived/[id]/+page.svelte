@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
-	import { api, type DerivedParameter, type SiteParameter, type Site, type Parameter } from '$api/crud';
+	import { api, type AlarmThreshold, type DerivedParameter, type SiteParameter, type Site, type Parameter } from '$api/crud';
 	import { recomputeDerived } from '$api/service';
 	import { formatThresholdRange } from '$lib/alarms';
 	import { toastStore } from '$lib/stores/toast.svelte';
@@ -16,6 +16,8 @@
 	let sites = $state<Site[]>([]);
 	let params = $state<Parameter[]>([]);
 	let outputParam = $state<Parameter | null>(null);
+	/** The output parameter's own bounds: its threshold row with no site. */
+	let globalThreshold = $state<AlarmThreshold | null>(null);
 	let loading = $state(true);
 
 	const defId = page.params.id!;
@@ -35,6 +37,11 @@
 			if (d.output_parameter_id) {
 				outputParam = params.find((pp) => pp.id === d.output_parameter_id)
 					?? await api.parameters.get(d.output_parameter_id);
+				const thresholds = await api.alarmThresholds.list({
+					perPage: 200,
+					filter: { parameter_id: d.output_parameter_id },
+				});
+				globalThreshold = thresholds.data.find((t) => t.site_id === null) ?? null;
 			}
 		} finally { loading = false; }
 	});
@@ -94,8 +101,8 @@
 				<div><span class="text-sm text-brand-muted block">Units</span><p class="text-sm">{def.units}</p></div>
 			{/if}
 			{#if outputParam}
-				{@const warningRange = formatThresholdRange(outputParam.default_warning_min, outputParam.default_warning_max, def.units)}
-				{@const alarmRange = formatThresholdRange(outputParam.default_alarm_min, outputParam.default_alarm_max, def.units)}
+				{@const warningRange = formatThresholdRange(globalThreshold?.warning_min, globalThreshold?.warning_max, def.units)}
+				{@const alarmRange = formatThresholdRange(globalThreshold?.alarm_min, globalThreshold?.alarm_max, def.units)}
 				<div class="grid grid-cols-2 gap-3">
 					<div>
 						<span class="text-sm text-brand-muted block">Default Warning</span>

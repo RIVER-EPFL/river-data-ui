@@ -1,4 +1,5 @@
 import { base } from '$app/paths';
+import { api, type AlarmThreshold } from '$api/crud';
 
 export type Severity = 'ok' | 'warning' | 'alarm' | 'unknown';
 
@@ -73,6 +74,19 @@ export function severityBadgeVariant(s: Severity | number): 'alarm' | 'warning' 
  * and units are appended once ('5 – 10 mg/L'). Returns null when both bounds are null,
  * callers render their own muted 'None'.
  */
+/**
+ * The parameter's own bounds: its `alarm_thresholds` row with no site, which is what a site's own
+ * row falls back to. Keyed by parameter id, for a list that renders many of them.
+ */
+export async function globalThresholdsByParameter(): Promise<Record<string, AlarmThreshold>> {
+	const res = await api.alarmThresholds.list({ perPage: 500 });
+	const out: Record<string, AlarmThreshold> = {};
+	for (const t of res.data) {
+		if (t.site_id === null && t.parameter_id) out[t.parameter_id] = t;
+	}
+	return out;
+}
+
 export function formatThresholdRange(
 	min: number | null | undefined,
 	max: number | null | undefined,

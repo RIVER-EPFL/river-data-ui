@@ -20,9 +20,5 @@
 		] },
 		{ key: 'aliases', label: 'Aliases', type: 'tags', helperText: 'Alternative names that resolve to this parameter during CSV import and stream pairing' },
 		{ key: 'description', label: 'Description', type: 'textarea' },
-		{ key: 'default_warning_min', label: 'Warning Min', type: 'number', step: 'any', helperText: 'Below this value triggers a warning (severity 1)' },
-		{ key: 'default_warning_max', label: 'Warning Max', type: 'number', step: 'any', helperText: 'Above this value triggers a warning (severity 1)' },
-		{ key: 'default_alarm_min', label: 'Alarm Min', type: 'number', step: 'any', helperText: 'Below this value triggers an alarm (severity 2)' },
-		{ key: 'default_alarm_max', label: 'Alarm Max', type: 'number', step: 'any', helperText: 'Above this value triggers an alarm (severity 2)' },
 	]}
 />

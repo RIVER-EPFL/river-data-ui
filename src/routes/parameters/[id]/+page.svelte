@@ -3,7 +3,7 @@
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { api, type Parameter, type Site, type SiteParameter } from '$api/crud';
+	import { api, type AlarmThreshold, type Parameter, type Site, type SiteParameter } from '$api/crud';
 	import { formatThresholdRange } from '$lib/alarms';
 	import Badge from '$components/ui/Badge.svelte';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
@@ -16,16 +16,19 @@
 	let sites = $state<Site[]>([]);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
+	/** The parameter's own bounds: its threshold row with no site. */
+	let globalThreshold = $state<AlarmThreshold | null>(null);
 
 	const paramId = page.params.id!;
 
 	onMount(async () => {
 		try {
-			const [p, sp, s, defs] = await Promise.all([
+			const [p, sp, s, defs, thresholds] = await Promise.all([
 				api.parameters.get(paramId),
 				api.siteParameters.list({ perPage: 500, filter: { parameter_id: paramId, is_active: true } }),
 				api.sites.list({ perPage: 200 }),
 				api.derivedParameters.list({ perPage: 500 }),
+				api.alarmThresholds.list({ perPage: 200, filter: { parameter_id: paramId } }),
 			]);
 			// Output parameters of derived definitions are managed via the derived
 			// pages (formula builder, preview, recompute), send the user there.
@@ -37,6 +40,7 @@
 			param = p;
 			siteParams = sp.data;
 			sites = s.data;
+			globalThreshold = thresholds.data.find((t) => t.site_id === null) ?? null;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load parameter';
 		} finally { loading = false; }
@@ -56,10 +60,10 @@
 	);
 
 	const warningRange = $derived(
-		param ? formatThresholdRange(param.default_warning_min, param.default_warning_max, param.default_units) : null
+		param ? formatThresholdRange(globalThreshold?.warning_min, globalThreshold?.warning_max, param.default_units) : null
 	);
 	const alarmRange = $derived(
-		param ? formatThresholdRange(param.default_alarm_min, param.default_alarm_max, param.default_units) : null
+		param ? formatThresholdRange(globalThreshold?.alarm_min, globalThreshold?.alarm_max, param.default_units) : null
 	);
 </script>
 

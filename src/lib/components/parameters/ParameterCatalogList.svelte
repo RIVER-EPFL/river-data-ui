@@ -2,13 +2,13 @@
 	import { base } from '$app/paths';
 	import { untrack } from 'svelte';
 	import { page } from '$app/state';
-	import { api, type Parameter } from '$api/crud';
+	import { api, type AlarmThreshold, type Parameter } from '$api/crud';
 	import ConfirmParameterButton from '$components/parameters/ConfirmParameterButton.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import CrudList from '$components/crud/CrudList.svelte';
 	import type { Column, PageRequest } from '$components/crud/CrudList.svelte';
 	import Button from '$components/ui/Button.svelte';
-	import { formatThresholdRange } from '$lib/alarms';
+	import { formatThresholdRange, globalThresholdsByParameter } from '$lib/alarms';
 
 	type SiteRef = { id: string; name: string };
 
@@ -35,6 +35,7 @@
 
 	let sitesByParam = $state<Record<string, SiteRef[]>>({});
 	let derivedDefByOutput = $state<Record<string, string>>({}); // output_parameter_id → definition id
+	let globalThresholds = $state<Record<string, AlarmThreshold>>({}); // a parameter's own bounds
 
 	let sitesDialogOpen = $state(false);
 	let sitesDialogParam = $state<Parameter | null>(null);
@@ -70,13 +71,15 @@
 	// honest while a filter is on.
 	async function loadParameters({ page: p, perPage, sort }: PageRequest) {
 		if (parameters.length === 0) {
-			const [paramRes, spRes, siteRes, derivedRes] = await Promise.all([
+			const [paramRes, spRes, siteRes, derivedRes, thresholds] = await Promise.all([
 				api.parameters.list({ perPage: 500, sort: ['name', 'ASC'] }),
 				api.siteParameters.list({ perPage: 500 }),
 				api.sites.list({ perPage: 200 }),
 				api.derivedParameters.list({ perPage: 500 }),
+				globalThresholdsByParameter(),
 			]);
 			parameters = paramRes.data;
+			globalThresholds = thresholds;
 
 			const siteNames = new Map(siteRes.data.map((s) => [s.id, s.name]));
 			const byParam: Record<string, Map<string, string>> = {};
@@ -215,9 +218,10 @@
 				<a href="{base}/derived/{defId}" title="Formula-derived parameter - view its definition" class="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-brand-accent/15 text-brand-accent-dark align-middle no-underline hover:underline">derived</a>
 			{/if}
 		{:else if column.key === 'warning' || column.key === 'alarm'}
+			{@const t = globalThresholds[row.id]}
 			{@const range = column.key === 'warning'
-				? formatThresholdRange(row.default_warning_min, row.default_warning_max, row.default_units)
-				: formatThresholdRange(row.default_alarm_min, row.default_alarm_max, row.default_units)}
+				? formatThresholdRange(t?.warning_min, t?.warning_max, row.default_units)
+				: formatThresholdRange(t?.alarm_min, t?.alarm_max, row.default_units)}
 			{#if range}{range}{:else}<span class="text-brand-muted">None</span>{/if}
 		{:else if column.key === 'default_units'}
 			{row.default_units || 'None'}
