@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
 	import Papa from 'papaparse';
+	import { readVaisalaFile } from '$lib/upload/vaisalaHeader';
 	import { api, type Site, type SiteParameter, type Parameter, type ReprocessingJob } from '$api/crud';
 	import { GET, POST } from '$api/client';
 	import {
@@ -215,36 +216,18 @@
 		tzAutoLabel = '';
 		tzOffsetHours = 0;
 		try {
-			const rawBytes = await file.arrayBuffer();
-			let text: string;
-
-			// Vaisala TSV exports are UTF-16 LE with a timezone header line.
-			const u16 = new Uint8Array(rawBytes);
-			if (u16.length >= 2 && u16[0] === 0xff && u16[1] === 0xfe) {
-				text = new TextDecoder('utf-16le').decode(rawBytes);
-			} else {
-				text = new TextDecoder('utf-8').decode(rawBytes);
-			}
-
-			// Auto-detect timezone from Vaisala TSV header
-			const firstLine = text.split(/\r?\n/)[0];
-			const tzMatch = firstLine.match(/Time zone:.*\(UTC([+-]\d{2}):(\d{2})\)/i);
-			if (tzMatch) {
-				const hours = parseInt(tzMatch[1], 10);
-				const minutes = parseInt(tzMatch[2], 10);
-				tzOffsetHours = hours + (hours < 0 ? -1 : 1) * (minutes / 60);
+			const read = await readVaisalaFile(file);
+			if (read.timezone) {
 				tzAutoDetected = true;
-				tzAutoLabel = firstLine.match(/\(([^)]+)\)/)?.[1] ?? `UTC${tzOffsetHours >= 0 ? '+' : ''}${tzOffsetHours}`;
-				// Strip the timezone metadata line before parsing
-				text = text.split(/\r?\n/).slice(1).join('\n');
+				tzAutoLabel = read.timezone.label;
+				tzOffsetHours = read.timezone.offsetHours;
 			}
 
-			csvText = text;
-			const isTsv = file.name.endsWith('.tsv') || tzAutoDetected;
+			csvText = read.text;
 			const parsed = Papa.parse<Record<string, string>>(csvText, {
 				header: true,
 				skipEmptyLines: true,
-				delimiter: isTsv ? '\t' : undefined,
+				delimiter: read.tsv ? '\t' : undefined,
 				preview: 6,
 			});
 			if (parsed.errors.length > 0) {

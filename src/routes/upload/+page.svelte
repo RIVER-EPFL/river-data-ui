@@ -4,6 +4,7 @@
 	import { api, type Parameter, type Subproject, type SiteParameter } from '$api/crud';
 	import { templateRows, templateCsv } from '$lib/upload/template';
 	import { detectWideFile } from '$lib/upload/wideFile';
+	import { readVaisalaFile, type VaisalaFile } from '$lib/upload/vaisalaHeader';
 	import { buildXlsx } from '$lib/upload/xlsx';
 	import { POST } from '$api/client';
 	import { grabConflictGroups, type GrabExistingGroup } from '$api/service';
@@ -191,33 +192,6 @@
 		}
 	});
 
-	// --- Timezone auto-detection from file header ---
-	function detectTimezoneFromHeader(file: File): Promise<void> {
-		return new Promise((resolve) => {
-			tzAutoDetected = false;
-			tzAutoLabel = '';
-			tzOffsetHours = 0;
-
-			const reader = new FileReader();
-			reader.onload = () => {
-				const text = reader.result as string;
-				const firstLine = text.split(/\r?\n/)[0];
-				const match = firstLine.match(/Time zone:.*\(UTC([+-]\d{2}):(\d{2})\)/i);
-				if (match) {
-					const hours = parseInt(match[1], 10);
-					const minutes = parseInt(match[2], 10);
-					tzOffsetHours = hours + (hours < 0 ? -1 : 1) * (minutes / 60);
-					tzAutoDetected = true;
-					const sign = tzOffsetHours >= 0 ? '+' : '';
-					tzAutoLabel = firstLine.match(/\(([^)]+)\)/)?.[1] ?? `UTC${sign}${tzOffsetHours}`;
-				}
-				resolve();
-			};
-			reader.onerror = () => resolve();
-			reader.readAsText(file.slice(0, 512), 'utf-16le');
-		});
-	}
-
 	// --- CSV parsing ---
 	async function handleFileSelect(event: Event) {
 		const input = event.target as HTMLInputElement;
@@ -229,14 +203,27 @@
 		csvHeaders = [];
 		csvData = [];
 
-		if (file.name.endsWith('.tsv')) {
-			await detectTimezoneFromHeader(file);
+		tzAutoDetected = false;
+		tzAutoLabel = '';
+		tzOffsetHours = 0;
+
+		let read: VaisalaFile;
+		try {
+			read = await readVaisalaFile(file);
+		} catch (e) {
+			parseError = e instanceof Error ? e.message : 'Failed to read file';
+			return;
+		}
+		if (read.timezone) {
+			tzAutoDetected = true;
+			tzAutoLabel = read.timezone.label;
+			tzOffsetHours = read.timezone.offsetHours;
 		}
 
-		Papa.parse<Record<string, string>>(file, {
+		Papa.parse<Record<string, string>>(read.text, {
 			header: true,
 			skipEmptyLines: true,
-			delimiter: file.name.endsWith('.tsv') ? '\t' : undefined,
+			delimiter: read.tsv ? '\t' : undefined,
 			complete(results) {
 				if (results.errors.length > 0) {
 					parseError = results.errors.map((e) => e.message).join('; ');
@@ -277,9 +264,6 @@
 					const idx = lower.indexOf(g);
 					if (idx >= 0) { paramColumn = csvHeaders[idx]; mappingMode = 'column'; break; }
 				}
-			},
-			error(err) {
-				parseError = err.message;
 			},
 		});
 	}
