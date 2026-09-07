@@ -169,6 +169,8 @@ export interface SiteParameter {
 	decimal_places: number | null;
 	/** How this site fills the slot: 'manual' (typed by hand) or 'tool' (computed here). */
 	entry_mode: string;
+	/** The instrument that measures this slot; null is undeclared, and never inferred at a write. */
+	instrument_sensor_id: string | null;
 	is_active: boolean | null;
 	is_public: boolean;
 	/** Slot minted by a verified tool save; a manager confirms it from the site's Parameters tab. */
@@ -208,6 +210,10 @@ export interface Sensor {
 	current_site_id?: string | null;
 	current_site_name?: string | null;
 	last_reading_value?: number | null;
+	/** Standard curves fitted on this instrument: what a lab row states where a device states a site. */
+	curve_count?: number | null;
+	/** The newest reading any of those curves corrected. */
+	last_curve_use?: string | null;
 }
 
 export interface SensorCalibration {

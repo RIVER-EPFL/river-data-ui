@@ -8,6 +8,7 @@
 	import Dialog from '$components/ui/Dialog.svelte';
 	import SiteSelect from '$components/SiteSelect.svelte';
 	import { siteRefs } from '$lib/siteRefs.svelte';
+	import { measuringInstruments } from '$lib/instruments/kind';
 
 	// Two modes:
 	//  - 'site':   the site is fixed; pick a sensor to deploy here.
@@ -60,7 +61,8 @@
 			const filter: Record<string, unknown> = { is_active: true };
 			if (query.trim()) filter.q = query.trim();
 			const res = await api.sensors.list({ page: 1, perPage: 20, sort: ['name', 'ASC'], filter });
-			searchResults = res.data;
+			// A bookkeeping row cannot hold a deployment; the API refuses one, so it is not offered.
+			searchResults = measuringInstruments(res.data);
 		} finally {
 			searching = false;
 		}

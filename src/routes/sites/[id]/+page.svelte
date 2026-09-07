@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { SdEstimator } from '$lib/sdEstimator';
 	import { provenanceKindLabel } from '$lib/origin';
+	import { measuringInstruments } from '$lib/instruments/kind';
 	import { onMount, onDestroy, untrack } from 'svelte';
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
@@ -682,7 +683,8 @@
 			project = proj;
 			siteParameters = sp.data;
 			parameters = params.data;
-			sensors = sens.data;
+			// Only what something could have been measured on is offered as a slot's instrument.
+			sensors = measuringInstruments(sens.data);
 			deployments = deps.data;
 			calibrations = cals.data;
 			notes = n.data;
@@ -887,6 +889,26 @@
 	function openMergeSiteParameter(sp: SiteParameter) {
 		mergeSource = { id: sp.id, label: paramName(sp.parameter_id) };
 		mergeOpen = true;
+	}
+
+	// Which instrument measures a slot is declared here and nowhere else: an entered or calculated
+	// value takes it, instead of inheriting whichever instrument a chosen curve belonged to.
+	async function declareInstrument(sp: SiteParameter, sensorId: string) {
+		try {
+			await api.siteParameters.update(sp.id, { instrument_sensor_id: sensorId || null });
+			await reloadSiteParameters();
+			toastStore.success(
+				sensorId
+					? `${paramName(sp.parameter_id)} is measured by ${sensorName(sensorId)}`
+					: `${paramName(sp.parameter_id)} declares no instrument`,
+			);
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Could not declare the instrument');
+		}
+	}
+
+	function sensorName(sensorId: string): string {
+		return sensors.find((s) => s.id === sensorId)?.name ?? sensorId.slice(0, 8);
 	}
 
 	async function reloadSiteParameters() {
@@ -1514,6 +1536,7 @@
 						<th class="text-left px-4 py-2 font-semibold">Parameter</th>
 						<th class="text-left px-4 py-2 font-semibold">Units</th>
 						<th class="text-left px-4 py-2 font-semibold">Interval</th>
+						<th class="text-left px-4 py-2 font-semibold">Instrument</th>
 						<th class="text-left px-4 py-2 font-semibold">Warning</th>
 						<th class="text-left px-4 py-2 font-semibold">Alarm</th>
 						<th class="text-right px-4 py-2 font-semibold">Actions</th>
@@ -1534,6 +1557,20 @@
 								</td>
 								<td class="px-4 py-2 text-brand-muted">{paramUnits(sp)}</td>
 								<td class="px-4 py-2 text-brand-muted">{sp.sample_interval_sec ? `${sp.sample_interval_sec}s` : 'None'}</td>
+								<td class="px-4 py-2">
+									<select
+										class="rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
+										title="What measures this parameter here. A value entered or calculated at this site names it; undeclared leaves the entry channel's own marker."
+										aria-label="Instrument for {paramName(sp.parameter_id)}"
+										value={sp.instrument_sensor_id ?? ''}
+										onchange={(e) => declareInstrument(sp, e.currentTarget.value)}
+									>
+										<option value="">Undeclared</option>
+										{#each sensors as sensor}
+											<option value={sensor.id}>{sensor.name}</option>
+										{/each}
+									</select>
+								</td>
 								{#if disabled}
 									<td class="px-4 py-2 text-xs text-brand-muted italic" colspan="2">Disabled</td>
 								{:else}
@@ -1570,7 +1607,7 @@
 							</tr>
 						{/each}
 						{#if siteParameters.filter((sp) => sp.entry_mode !== 'tool').length === 0}
-							<tr><td colspan="7" class="px-4 py-6 text-center text-brand-muted">No parameters configured</td></tr>
+							<tr><td colspan="8" class="px-4 py-6 text-center text-brand-muted">No parameters configured</td></tr>
 						{/if}
 					</tbody>
 				</table>

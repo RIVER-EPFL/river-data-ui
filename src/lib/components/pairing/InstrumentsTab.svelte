@@ -16,6 +16,7 @@
 		planInstruments,
 		planDevices,
 		instrumentDecisions,
+		labInstruments,
 		openInstrumentQuestions,
 		acceptingSuggestions,
 		instrumentOptions,
@@ -24,6 +25,7 @@
 		instrumentRowId,
 		onchoose,
 		onattach,
+		onassign,
 		onacceptall,
 		nameField,
 	}: {
@@ -42,10 +44,46 @@
 		onchoose: (d: InstrumentDecision, value: string) => void;
 		/** Attach the named existing instrument, the other half of a name collision. */
 		onattach: (d: InstrumentDecision, instrumentId: string) => void;
+		/** Attach one instrument to every selected row, in one write. */
+		onassign: (rows: InstrumentDecision[], instrumentId: string) => void;
+		/** The lab instruments a bulk assignment can choose from. */
+		labInstruments: Array<{ id: string; name: string | null; serial_number: string | null }>;
 		onacceptall: () => void;
 		/** The inline name editor, shared with the Parameters tab, so it is defined once. */
 		nameField: Snippet<[string, string, string, PlanInstrumentGroup | null]>;
 	} = $props();
+
+	// Selection is by decision key, so a row that disappears between renders takes its tick with it
+	// rather than assigning an instrument to something the plan no longer holds.
+	let selected = $state(new Set<string>());
+	let assignTo = $state('');
+	const keys = $derived(new Set(instrumentDecisions.map((d) => d.key)));
+	const chosen = $derived(instrumentDecisions.filter((d) => selected.has(d.key)));
+	const allSelected = $derived(
+		instrumentDecisions.length > 0 && chosen.length === instrumentDecisions.length,
+	);
+
+	function toggle(key: string) {
+		const next = new Set([...selected].filter((k) => keys.has(k)));
+		if (next.has(key)) next.delete(key);
+		else next.add(key);
+		selected = next;
+	}
+
+	function toggleAll() {
+		selected = allSelected ? new Set() : new Set(instrumentDecisions.map((d) => d.key));
+	}
+
+	// The same write read the other way round: with an instrument chosen, this is the list of
+	// parameters it will serve, which is what the instrument's own view would show.
+	const covered = $derived(chosen.flatMap((d) => d.parameters));
+
+	function assign() {
+		if (!assignTo || chosen.length === 0) return;
+		onassign(chosen, assignTo);
+		selected = new Set();
+		assignTo = '';
+	}
 </script>
 
 	<details class="text-xs text-brand-muted">
@@ -128,9 +166,41 @@
 				</Button>
 			{/if}
 		</div>
+
+		{#if chosen.length > 0}
+			<div class="flex flex-wrap items-center gap-2 rounded-md border border-brand-divider bg-brand-bg p-2 text-xs">
+				<span class="font-semibold">{chosen.length} selected</span>
+				<label class="flex items-center gap-1">
+					<span class="text-brand-muted">Assign to</span>
+					<select
+						bind:value={assignTo}
+						aria-label="Instrument to assign to the selected parameters"
+						class="rounded border border-brand-divider bg-brand-surface px-1 py-0.5"
+					>
+						<option value="">an instrument…</option>
+						{#each labInstruments as s (s.id)}
+							<option value={s.id}>{s.name ?? s.serial_number ?? s.id}</option>
+						{/each}
+					</select>
+				</label>
+				<Button size="sm" disabled={!assignTo} onclick={assign}>Assign</Button>
+				<Button size="sm" variant="ghost" onclick={() => (selected = new Set())}>Clear</Button>
+				<span class="w-full text-brand-muted">
+					It will serve {covered.join(', ')}.
+				</span>
+			</div>
+		{/if}
 		<div class="rounded-md border border-brand-divider bg-brand-surface overflow-x-auto">
 			<table class="w-full text-sm">
 				<thead><tr class="bg-brand-bg border-b border-brand-divider">
+					<th class="px-3 py-2 w-8">
+						<input
+							type="checkbox"
+							checked={allSelected}
+							onchange={toggleAll}
+							aria-label="Select every instrument row"
+						/>
+					</th>
 					<th class="text-left px-3 py-2 font-semibold">Instrument</th>
 					<th class="text-left px-3 py-2 font-semibold w-[240px]">Map to</th>
 					<th class="text-left px-3 py-2 font-semibold">Covers</th>
@@ -141,6 +211,14 @@
 					{#each instrumentDecisions as d (d.key)}
 						{@const asking = d.group === null || (d.group.create && !d.group.confirmed)}
 						<tr id={instrumentRowId(d.scope)} class="border-b border-brand-divider last:border-b-0 align-top {asking ? 'bg-severity-warning-soft' : ''}">
+							<td class="px-3 py-2">
+								<input
+									type="checkbox"
+									checked={selected.has(d.key)}
+									onchange={() => toggle(d.key)}
+									aria-label="Select {d.parameters.join(', ')}"
+								/>
+							</td>
 							<td class="px-3 py-2">
 								{@render nameField(d.scope, d.anchorStreamId, d.proposedName, d.group)}
 								{#if d.group?.curve_column}

@@ -3073,6 +3073,8 @@ export interface PinResponse {
 	/** The set the pins were recorded under, which is what undoes them as one act. */
 	set_id: string;
 	rows_decided: number;
+	/** The instrument or calibration pinned to, which is the minted one when the split made it. */
+	target_id: string;
 	/** The slot reprocess jobs enqueued so the pinned rows' curves follow the pin. */
 	jobs: string[];
 }
@@ -3092,13 +3094,22 @@ export interface PinRollbackResponse {
 /** What happens to a standard curve the incoming instrument does not own (Q112). */
 export type CurveOnSplit = 'copy' | 'drop';
 
+/** The instrument a split mints for itself, in the same transaction as the pin. */
+export interface NewInstrument {
+	serial_number?: string;
+	name?: string;
+	manufacturer?: string;
+	model?: string;
+	kind?: 'device' | 'lab';
+}
+
 export const pinReadings = (
 	kind: PinKind,
-	target_id: string,
+	target: { target_id: string } | { new_instrument: NewInstrument },
 	selection: EditSelection,
 	reason?: string,
 	curves?: CurveOnSplit,
-) => POST<PinResponse>(`${SERVICE}/readings/pins`, { kind, target_id, selection, reason, curves });
+) => POST<PinResponse>(`${SERVICE}/readings/pins`, { kind, ...target, selection, reason, curves });
 
 export const rollbackPinSet = (setId: string) =>
 	POST<PinRollbackResponse>(`${SERVICE}/readings/pins/${setId}/rollback`, {});

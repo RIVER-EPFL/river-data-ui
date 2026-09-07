@@ -69,6 +69,36 @@ describe('PinReadingsDialog', () => {
 		expect(pinReadings.mock.calls.at(-1)?.[4]).toBe('copy');
 	});
 
+	it('mints the instrument with the pin when the readings belong to one the inventory lacks', async () => {
+		list.mockResolvedValue({ data: [{ id: 'a', name: 'Analyser B', kind: 'lab' }] });
+		const { container } = open();
+		await screen.findByText('Pin the window');
+		await fireEvent.change(await screen.findByLabelText('Instrument'), {
+			target: { value: 'new' },
+		});
+		expect(container.textContent).toContain('no calibration and no curve');
+		await fireEvent.input(await screen.findByLabelText('Name'), {
+			target: { value: 'Analyser C' },
+		});
+		await fireEvent.input(await screen.findByLabelText('From'), {
+			target: { value: '2026-07-01T00:00' },
+		});
+		await fireEvent.input(await screen.findByLabelText('To'), {
+			target: { value: '2026-07-31T00:00' },
+		});
+		pinReadings.mockResolvedValueOnce({
+			set_id: 's1',
+			target_id: 'minted',
+			rows_decided: 4,
+			jobs: [],
+		});
+		await fireEvent.click(screen.getByText('Pin the window'));
+		await screen.findByText('Roll the set back');
+		expect(pinReadings.mock.calls.at(-1)?.[1]).toEqual({
+			new_instrument: { name: 'Analyser C', serial_number: undefined, kind: 'lab' },
+		});
+	});
+
 	it('offers only instruments something was measured on', async () => {
 		list.mockResolvedValue({
 			data: [

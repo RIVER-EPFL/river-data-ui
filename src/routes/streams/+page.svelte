@@ -573,6 +573,18 @@
 		await loadPlanInstruments();
 	}
 
+	// One instrument over a selection: the same write the per-row picker makes, queued once per row
+	// and flushed together, so a hundred parameters onto three instruments is three actions rather
+	// than a hundred. Each row settles every entry sharing its key, as a single choice does.
+	async function assignInstrumentToRows(rows: InstrumentDecision[], instrumentId: string) {
+		if (rows.length === 0 || !instrumentId) return;
+		queueUpdate(
+			rows.map((d) => ({ stream_id: d.anchorStreamId, instrument_id: instrumentId })),
+		);
+		try { await flushUpdates(); } catch { /* the toast from the failed flush is the signal */ }
+		await loadPlanInstruments();
+	}
+
 	// Detach, the inverse of an attach: the streams keep pairing, they just carry no instrument.
 	async function detachInstrument(streamId: string) {
 		queueUpdate([{ stream_id: streamId, instrument_clear: true }]);
@@ -2098,6 +2110,8 @@
 						{instrumentRowId}
 						onchoose={chooseInstrument}
 						onattach={(d, id) => void repointInstrument(d.anchorStreamId, id)}
+						onassign={assignInstrumentToRows}
+						{labInstruments}
 						onacceptall={acceptAllSuggestions}
 						nameField={instrumentNameField}
 					/>

@@ -3,6 +3,7 @@
 		pinReadings,
 		rollbackPinSet,
 		type CurveOnSplit,
+		type NewInstrument,
 		type PinKind,
 		type PinResponse,
 	} from '$api/service';
@@ -31,7 +32,14 @@
 	} = $props();
 
 	let kind = $state<PinKind>('instrument');
+	// The sentinel the instrument list carries for an analyser the inventory does not hold yet.
+	// Minting it and pinning onto it are one call, so a split can never leave an instrument
+	// holding nothing.
+	const NEW_INSTRUMENT = 'new';
 	let targetId = $state('');
+	let newName = $state('');
+	let newSerial = $state('');
+	let newKind = $state<'device' | 'lab'>('lab');
 	let from = $state('');
 	let to = $state('');
 	let reason = $state('');
@@ -64,25 +72,41 @@
 		calibrations = cals.data;
 	}
 
+	const minting = $derived(kind === 'instrument' && targetId === NEW_INSTRUMENT);
+
 	const targets = $derived(
 		kind === 'instrument'
-			? instruments.map((s) => ({ value: s.id, label: s.name ?? s.serial_number ?? s.id }))
+			? [
+					...instruments.map((s) => ({ value: s.id, label: s.name ?? s.serial_number ?? s.id })),
+					{ value: NEW_INSTRUMENT, label: 'A new instrument…' },
+				]
 			: calibrations.map((c) => ({
 					value: c.id,
 					label: `${c.slope} × raw + ${c.intercept} from ${c.valid_from.slice(0, 10)}`,
 				})),
 	);
 
-	const ready = $derived(Boolean(targetId && from && to && from < to));
+	const ready = $derived(
+		Boolean(targetId && from && to && from < to && (!minting || newName || newSerial)),
+	);
 
 	async function pin() {
 		if (!ready) return;
 		busy = true;
 		error = '';
 		try {
+			const target = minting
+				? {
+						new_instrument: {
+							name: newName || undefined,
+							serial_number: newSerial || undefined,
+							kind: newKind,
+						} satisfies NewInstrument,
+					}
+				: { target_id: targetId };
 			done = await pinReadings(
 				kind,
-				targetId,
+				target,
 				{
 					site_id: siteId,
 					parameter_id: parameterId,
@@ -162,6 +186,29 @@
 					{/each}
 				</select>
 			</label>
+			{#if minting}
+				<div class="flex gap-2">
+					<label class="block">
+						<span class="block text-brand-muted mb-1">Name</span>
+						<input bind:value={newName} class="border border-brand-divider rounded px-2 py-1 bg-brand-surface" placeholder="Analyser B" />
+					</label>
+					<label class="block">
+						<span class="block text-brand-muted mb-1">Serial number</span>
+						<input bind:value={newSerial} class="border border-brand-divider rounded px-2 py-1 bg-brand-surface" placeholder="AB-9" />
+					</label>
+					<label class="block">
+						<span class="block text-brand-muted mb-1">Kind</span>
+						<select bind:value={newKind} class="border border-brand-divider rounded px-2 py-1 bg-brand-surface">
+							<option value="lab">Lab</option>
+							<option value="device">Field</option>
+						</select>
+					</label>
+				</div>
+				<p class="text-xs text-brand-muted">
+					The instrument is created by this action and only if the pin lands: it has no
+					deployment, no calibration and no curve until you give it one.
+				</p>
+			{/if}
 			<div class="flex gap-2">
 				<label class="block">
 					<span class="block text-brand-muted mb-1">From</span>

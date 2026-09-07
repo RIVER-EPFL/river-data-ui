@@ -33,3 +33,44 @@ export function measuringInstruments<T extends Pick<Sensor, 'kind' | 'is_lab_ins
 ): T[] {
 	return sensors.filter((s) => !isBookkeeping(s));
 }
+
+/// What an instrument's inventory row states where a device states its deployment. A lab
+/// instrument never has one, so "Undeployed" says nothing about it; the curves fitted on it and
+/// when one of them last corrected a reading are what say whether it is still in use.
+export interface InUseCell {
+	text: string;
+	title: string;
+}
+
+export function inUseCell(
+	sensor: Pick<Sensor, 'kind' | 'is_lab_instrument' | 'curve_count' | 'last_curve_use'>,
+	deployedFrom: string | null | undefined,
+	relative: (iso: string) => string
+): InUseCell {
+	const kind = kindOf(sensor);
+	if (kind === 'device') {
+		return deployedFrom
+			? { text: relative(deployedFrom), title: 'Deployed since this date' }
+			: { text: 'Undeployed', title: 'No open deployment: this instrument is at no site' };
+	}
+	if (isBookkeeping(sensor)) {
+		return {
+			text: '—',
+			title: 'A bookkeeping row, so a reading can name an instrument. Nothing was measured on it',
+		};
+	}
+	const curves = sensor.curve_count ?? 0;
+	if (sensor.last_curve_use) {
+		return {
+			text: relative(sensor.last_curve_use),
+			title: `Last reading corrected by one of its ${curves} curve${curves === 1 ? '' : 's'}`,
+		};
+	}
+	return {
+		text: curves > 0 ? 'Unused' : 'No curves',
+		title:
+			curves > 0
+				? `${curves} curve${curves === 1 ? '' : 's'} fitted, none used yet`
+				: 'No curve has been fitted on this instrument',
+	};
+}

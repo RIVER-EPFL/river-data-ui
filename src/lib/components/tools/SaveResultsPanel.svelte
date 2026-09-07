@@ -35,6 +35,7 @@
 	import { toDatetimeLocal, fromDatetimeLocal, formatDateTime } from '$lib/utils';
 	import { curveEquation, curveIdentity } from '$lib/standardCurves';
 	import { kindLabel, measuringInstruments } from '$lib/instruments/kind';
+	import { instrumentIsChoosable, readingInstrument } from '$lib/tools/rowInstrument';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import LastUsedCurveNote from './LastUsedCurveNote.svelte';
@@ -248,6 +249,10 @@
 	// pretending an identity curve was applied.
 	let instruments = $state<Sensor[]>([]);
 	let selectedSensorId = $state('');
+	// The instrument each row declares it was measured with, by row id. Empty means the row takes
+	// what its slot declares, which the server resolves (M111); a value here is the operator saying
+	// this measurement was made on something else.
+	let rowInstruments = $state<Record<string, string>>({});
 	let curves = $state<StandardCurve[]>([]);
 	let loadingCurves = $state(false);
 	let selectedCurveId = $state('');
@@ -357,6 +362,7 @@
 		selectedSiteId = contextSiteId ?? '';
 		siteParams = [];
 		selectedSensorId = '';
+		rowInstruments = {};
 		selectedCurveId = '';
 		curves = [];
 		collectedAt = contextTime
@@ -508,6 +514,18 @@
 		} finally {
 			loadingSite = false;
 		}
+	}
+
+	/// What the site says measures the parameter this row saves as, or empty where it declares none.
+	function slotInstrument(rowId: string): string {
+		const parameterId = paramChoices[rowId];
+		if (!parameterId) return '';
+		return siteParams.find((sp) => sp.parameter_id === parameterId)?.instrument_sensor_id ?? '';
+	}
+
+	/// Whether the row's instrument is the operator's to choose, from the row's own curve.
+	function rowInstrumentIsChoosable(row: { input?: string }): boolean {
+		return instrumentIsChoosable(row.input ? selectedCurveId : sentCurveId, selectedSensorId);
 	}
 
 	// Matching ignores case, spaces, underscores and hyphens so a result key still finds the catalog
@@ -669,17 +687,29 @@
 	function buildReadings(): GrabSampleReading[] {
 		const time = saveTime;
 		return includedRows.flatMap((r) =>
-			r.values.map((v) => ({
-				parameter_id: paramChoices[r.id],
-				time,
-				value: v.value,
-				replicate_index: v.index,
-				...(r.input ? { input: r.input } : { output: v.key }),
-				...(selectedSensorId ? { sensor_id: selectedSensorId } : {}),
-				...((r.input ? selectedCurveId : sentCurveId)
-					? { standard_curve_id: r.input ? selectedCurveId : sentCurveId }
-					: {}),
-			})),
+			r.values.map((v) => {
+				// The instrument travels with the curve it was fitted on, so it reaches only the
+				// rows that curve corrected; every other row takes what its slot declares measures
+				// it (M111), which the server resolves.
+				const curveId = r.input ? selectedCurveId : sentCurveId;
+				// The curve's instrument still wins where a curve applies; otherwise the operator's
+				// declaration for this row travels, and a row they left alone sends none so the
+				// server resolves the slot's (M128).
+				const sensorId = readingInstrument({
+					curveId,
+					curveInstrumentId: selectedSensorId,
+					declared: rowInstruments[r.id] ?? null,
+				});
+				return {
+					parameter_id: paramChoices[r.id],
+					time,
+					value: v.value,
+					replicate_index: v.index,
+					...(r.input ? { input: r.input } : { output: v.key }),
+					...(sensorId ? { sensor_id: sensorId } : {}),
+					...(curveId ? { standard_curve_id: curveId } : {}),
+				};
+			}),
 		);
 	}
 
@@ -881,6 +911,7 @@
 							<th class="px-1 py-1">Measurement</th>
 							<th class="px-1 py-1">Value</th>
 							<th class="px-1 py-1">Save as parameter</th>
+							<th class="px-1 py-1">Measured on</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -930,6 +961,34 @@
 											wantedUnits={row.units}
 											onCreated={(parameterId) => handleParameterCreated(row.id, parameterId)}
 										/>
+									{/if}
+								</td>
+								<td class="px-1 py-1.5 align-top">
+									{#if row.displayOnly}
+										<span class="text-xs text-brand-muted">—</span>
+									{:else if !rowInstrumentIsChoosable(row)}
+										<span class="text-xs text-brand-muted" title="A curve belongs to the instrument it was fitted on, so a corrected row is measured on that one.">
+											{instruments.find((i) => i.id === selectedSensorId)?.name ?? 'the curve\'s instrument'}
+										</span>
+									{:else}
+										<select
+											class="rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
+											aria-label="Instrument for {row.displayKey}"
+											disabled={!included[row.id]}
+											bind:value={
+												() => rowInstruments[row.id] ?? '',
+												(v) => (rowInstruments = { ...rowInstruments, [row.id]: v })
+											}
+										>
+											<option value="">
+												{slotInstrument(row.id)
+													? `${instruments.find((i) => i.id === slotInstrument(row.id))?.name ?? 'the slot'} (declared here)`
+													: 'Not declared'}
+											</option>
+											{#each instruments as instrument (instrument.id)}
+												<option value={instrument.id}>{instrumentLabel(instrument)}</option>
+											{/each}
+										</select>
 									{/if}
 								</td>
 							</tr>

@@ -13,7 +13,7 @@
 	import { me } from '$auth/me.svelte';
 	import { formatDate, formatRelativeTime } from '$lib/utils';
 	import { formatEquation } from '$lib/standardCurves';
-	import { isBookkeeping, kindLabel } from '$lib/instruments/kind';
+	import { inUseCell, isBookkeeping, kindLabel } from '$lib/instruments/kind';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
@@ -215,7 +215,7 @@
 		{ key: 'data_frequency', label: 'Frequency' },
 		{ key: 'manufacturer', label: 'Manufacturer', sortable: false, class: 'text-brand-muted' },
 		{ key: 'model', label: 'Model', sortable: false, class: 'text-brand-muted' },
-		{ key: 'deployed_at', label: 'Deployed At', sortable: false, class: 'text-brand-muted text-xs' },
+		{ key: 'deployed_at', label: 'In Use', sortable: false, class: 'text-brand-muted text-xs' },
 		{ key: 'curves', label: 'Curves', sortable: false },
 		{ key: 'is_active', label: 'Active', sortable: false },
 	];
@@ -387,7 +387,8 @@
 				{row.model ?? 'None'}
 			{:else if column.key === 'deployed_at'}
 				{@const dep = currentDeployment(row.id)}
-				{dep ? formatRelativeTime(dep.deployed_from) : 'Undeployed'}
+				{@const inUse = inUseCell(row, dep?.deployed_from, formatRelativeTime)}
+				<span title={inUse.title}>{inUse.text}</span>
 			{:else if column.key === 'curves'}
 				<div class="flex items-center gap-1.5">
 					<span class="text-brand-muted">{curveCountBySensor.get(row.id) ?? 0}</span>
