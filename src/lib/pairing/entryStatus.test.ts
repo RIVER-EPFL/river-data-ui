@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { PairingPlanEntry } from '$api/service';
-import { entryStatus, matchesFilter, statusLabel } from './entryStatus';
+import { entryStatus, matchesFilter, reviewState, statusLabel } from './entryStatus';
 
 function entry(over: Partial<PairingPlanEntry> = {}): PairingPlanEntry {
 	return {
@@ -96,5 +96,43 @@ describe('pairing entry status', () => {
 		expect([matched, unmatched, skipped, warned].filter((e) => matchesFilter(e, 'warnings'))).toEqual([warned]);
 		expect([matched, unmatched, skipped, warned].filter((e) => matchesFilter(e, 'skip'))).toEqual([skipped]);
 		expect([matched, unmatched, skipped, warned].filter((e) => matchesFilter(e, 'pair'))).toHaveLength(3);
+	});
+});
+
+describe('pairing review state', () => {
+	it('leaves a fully matched entry with no warning waiting on nobody', () => {
+		expect(reviewState(entry())).toBe('self_validated');
+	});
+
+	it('asks about an entry that did not resolve, or that warned', () => {
+		expect(reviewState(entry({ site: { id: null, name: 'New', create: true, latitude: null, longitude: null, altitude_m: null } }))).toBe(
+			'needs_checking',
+		);
+		expect(
+			reviewState(
+				entry({ warnings: [{ kind: 'units_mismatch', message: 'mm vs m' }] } as Partial<PairingPlanEntry>),
+			),
+		).toBe('needs_checking');
+	});
+
+	it('settles an entry once a person has ticked it, whatever its evidence said', () => {
+		expect(
+			reviewState(
+				entry({
+					acknowledged: true,
+					warnings: [{ kind: 'units_mismatch', message: 'mm vs m' }],
+				} as Partial<PairingPlanEntry>),
+			),
+		).toBe('acknowledged');
+	});
+
+	it('filters on the same predicate the badge reads', () => {
+		const warned = entry({
+			warnings: [{ kind: 'units_mismatch', message: 'mm vs m' }],
+		} as Partial<PairingPlanEntry>);
+		expect(matchesFilter(warned, 'needs_checking')).toBe(true);
+		expect(matchesFilter(warned, 'self_validated')).toBe(false);
+		expect(matchesFilter(entry(), 'self_validated')).toBe(true);
+		expect(matchesFilter(entry({ acknowledged: true }), 'needs_checking')).toBe(false);
 	});
 });

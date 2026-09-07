@@ -24,7 +24,7 @@
 	import { formatRelativeTime, holdKindBreakdown } from '$lib/utils';
 	import { createUrlTab } from '$lib/urlTab.svelte';
 	import { createDraftQueue } from '$lib/pairing/draftQueue';
-	import { entryStatus, matchesFilter, statusLabel, type EntryFilter } from '$lib/pairing/entryStatus';
+	import { entryStatus, matchesFilter, reviewState, reviewStateLabel, statusLabel, type EntryFilter } from '$lib/pairing/entryStatus';
 	import PairSkipToggle from '$components/ui/PairSkipToggle.svelte';
 	import MappingSelect, { type MappingGroup } from '$components/ui/MappingSelect.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
@@ -273,6 +273,21 @@
 			groups = groups.filter((g) => g.entries.some((e) => matchesFilter(e, reviewFilter)));
 		}
 		return groups;
+	});
+
+	// What share of the plan still wants a person, over the entries it would pair. Read from the
+	// entries so it follows an unsaved tick, and rounded the same way in both chips.
+	const reviewProgress = $derived.by(() => {
+		const pairing = planEntries.filter((e) => e.action === 'pair');
+		const counts = { needs_checking: 0, self_validated: 0, acknowledged: 0 };
+		for (const e of pairing) counts[reviewState(e)]++;
+		const pct = (n: number) => (pairing.length === 0 ? 0 : Math.round((n / pairing.length) * 100));
+		return {
+			total: pairing.length,
+			...counts,
+			needsCheckingPct: pct(counts.needs_checking),
+			selfValidatedPct: pct(counts.self_validated),
+		};
 	});
 
 	const pagedGroups = $derived(filteredGroups.slice(sitePage * sitesPerPage, (sitePage + 1) * sitesPerPage));
@@ -1123,6 +1138,15 @@
 		(entry as any).action = action;
 		planEntries = [...planEntries];
 		queueUpdate([{ stream_id: entry.stream_id, action }], { immediate: true });
+	}
+
+	// Deciding is not editing: this records that a person looked and agreed, and nothing else on
+	// the entry moves.
+	function setEntryAcknowledged(entry: PairingPlanEntry, acknowledged: boolean) {
+		if ((entry.acknowledged ?? false) === acknowledged) return;
+		(entry as any).acknowledged = acknowledged;
+		planEntries = [...planEntries];
+		queueUpdate([{ stream_id: entry.stream_id, acknowledged }], { immediate: true });
 	}
 
 	function setSiteAction(group: SiteGroup, action: 'pair' | 'skip') {
@@ -2344,7 +2368,7 @@
 					<div class="flex items-center justify-between gap-3">
 						<div class="text-xs text-brand-muted">{filteredGroups.length} site{filteredGroups.length === 1 ? '' : 's'} ({planEntries.filter((e) => e.action === 'pair').length} streams to pair)</div>
 						<div class="flex gap-1">
-							{#each [['all', 'All'], ['pair', 'Will pair'], ['skip', 'Skipped'], ['unmatched', 'Unmatched'], ['warnings', 'With warnings']] as [val, label]}
+							{#each [['all', 'All'], ['pair', 'Will pair'], ['skip', 'Skipped'], ['needs_checking', 'Needs checking'], ['self_validated', 'Self-validated'], ['unmatched', 'Unmatched'], ['warnings', 'With warnings']] as [val, label]}
 								<button
 									onclick={() => { reviewFilter = val as typeof reviewFilter; sitePage = 0; }}
 									class="px-2 py-0.5 text-xs rounded cursor-pointer border-none {reviewFilter === val ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
@@ -2551,6 +2575,19 @@
 												? 'The catalog already holds this project, site and parameter'
 												: `This plan creates: ${status.creates.join(', ') || 'nothing; the entry resolves to no slot'}`}
 										>{status.matched ? '✓ matched' : statusLabel(status)}</span>
+										<button
+											onclick={() => setEntryAcknowledged(entry, reviewState(entry) !== 'acknowledged')}
+											title={reviewState(entry) === 'acknowledged'
+												? 'Checked by hand. Click to take that back.'
+												: reviewState(entry) === 'self_validated'
+													? 'Everything resolved and nothing warned, so this entry waits on nobody. Click to mark it checked anyway.'
+													: 'Something did not resolve, or the entry warned. Click once you have looked at it.'}
+											class="px-1.5 py-0.5 rounded text-[10px] shrink-0 cursor-pointer border-none {reviewState(entry) === 'acknowledged'
+												? 'bg-severity-ok-soft text-severity-ok'
+												: reviewState(entry) === 'self_validated'
+													? 'bg-brand-bg text-brand-muted'
+													: 'bg-severity-warning-soft text-severity-warning-text'}"
+										>{reviewState(entry) === 'acknowledged' ? '✓ checked' : reviewStateLabel[reviewState(entry)]}</button>
 										{#if status.warnings > 0}
 											<span
 												class="text-xs text-severity-warning shrink-0"
@@ -2938,6 +2975,25 @@
 				</div>
 			{/if}
 			<p class="text-xs text-brand-muted">Readings will be backfilled with site and parameter IDs. Continuous aggregates will refresh in the background. This operation can be reverted.</p>
+
+			<!-- What share of the plan has been looked at, beside the button that applies it. Each
+			     number opens the review filtered to exactly the entries it counts. -->
+			<div class="flex flex-wrap items-center gap-2 pt-1 text-xs">
+				<button
+					onclick={() => { reviewFilter = 'needs_checking'; reviewTab = 'sites'; sitePage = 0; setMode('review'); }}
+					title="Entries that did not resolve, or that carry a warning, and nobody has ticked"
+					class="px-2 py-1 rounded cursor-pointer border-none bg-severity-warning-soft text-severity-warning-text"
+				>{reviewProgress.needsCheckingPct}% need checking ({formatCount(reviewProgress.needs_checking)})</button>
+				<button
+					onclick={() => { reviewFilter = 'self_validated'; reviewTab = 'sites'; sitePage = 0; setMode('review'); }}
+					title="Everything resolved and nothing warned, so these wait on nobody. Worth looking over all the same."
+					class="px-2 py-1 rounded cursor-pointer border-none bg-brand-bg text-brand-muted hover:text-brand-text"
+				>{reviewProgress.selfValidatedPct}% self-validated ({formatCount(reviewProgress.self_validated)})</button>
+				{#if reviewProgress.acknowledged > 0}
+					<span class="px-2 py-1 rounded bg-severity-ok-soft text-severity-ok"
+					>{formatCount(reviewProgress.acknowledged)} checked by hand</span>
+				{/if}
+			</div>
 
 			<div class="flex gap-3 pt-2">
 				<Button onclick={() => setMode('review')} class="px-4 py-2">Back to Review</Button>

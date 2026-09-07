@@ -1002,6 +1002,9 @@ export interface PairingPlanEntry {
 	// proposed for it.
 	device_serial?: string | null;
 	device_model?: string | null;
+	// A person looked at this entry and agreed with it. Set explicitly, never inferred from an
+	// edit: only entries that need checking wait on it.
+	acknowledged?: boolean;
 }
 
 // A catalog parameter an entry collides with, and what already depends on it. "Exists" alone does
@@ -1073,6 +1076,10 @@ export interface PairingPlanSummary {
 	unique_projects: number;
 	unique_sites: number;
 	unique_parameters: number;
+	// The three review states over the entries the plan would pair.
+	needs_checking: number;
+	self_validated: number;
+	acknowledged: number;
 }
 
 export interface PairingPlan {
@@ -1119,6 +1126,8 @@ export interface PlanEntryUpdate {
 	// Which divisor this slot publishes its replicate standard deviation with. An empty string
 	// clears the choice and leaves the slot undeclared.
 	sd_estimator?: SdEstimator | '';
+	// Record that a person looked at this entry and agreed with it, or take that back.
+	acknowledged?: boolean;
 }
 
 export const createPairingPlan = (sourceSystem: string) =>

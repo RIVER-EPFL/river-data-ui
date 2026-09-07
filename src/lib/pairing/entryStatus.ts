@@ -11,7 +11,35 @@ export interface EntryStatus {
 	action: 'pair' | 'skip';
 }
 
-export type EntryFilter = 'all' | 'pair' | 'skip' | 'unmatched' | 'warnings';
+export type EntryFilter =
+	| 'all'
+	| 'pair'
+	| 'skip'
+	| 'unmatched'
+	| 'warnings'
+	| 'needs_checking'
+	| 'self_validated';
+
+/**
+ * How much attention one entry still wants.
+ *
+ * A fully matched entry with no warning stands on its own evidence and waits on nobody; anything
+ * else waits on a person until it is ticked. Read from the entry rather than from the summary, so
+ * the row badge, the two percentages and the filters cannot disagree.
+ */
+export type ReviewState = 'self_validated' | 'needs_checking' | 'acknowledged';
+
+export function reviewState(entry: PairingPlanEntry): ReviewState {
+	if (entry.acknowledged) return 'acknowledged';
+	const status = entryStatus(entry);
+	return status.matched && status.warnings === 0 ? 'self_validated' : 'needs_checking';
+}
+
+export const reviewStateLabel: Record<ReviewState, string> = {
+	self_validated: 'Self-validated',
+	needs_checking: 'Needs checking',
+	acknowledged: 'Checked',
+};
 
 export function entryStatus(entry: PairingPlanEntry): EntryStatus {
 	const creates: EntryStatus['creates'] = [];
@@ -40,6 +68,10 @@ export function matchesFilter(entry: PairingPlanEntry, filter: EntryFilter): boo
 			return !status.matched;
 		case 'warnings':
 			return status.warnings > 0;
+		case 'needs_checking':
+			return reviewState(entry) === 'needs_checking';
+		case 'self_validated':
+			return reviewState(entry) === 'self_validated';
 		default:
 			return true;
 	}
