@@ -419,11 +419,10 @@
 			if (!res.sensor_id) return;
 			lastUsed = res;
 			if (selectedSensorId) return;
+			// The instrument is pre-filled because it is what lists the curves; the curve itself is
+			// not, because a curve is never inherited. The note offers it and the operator takes it.
 			selectedSensorId = res.sensor_id;
 			await loadCurves(res.sensor_id);
-			if (res.standard_curve_id && curves.some((c) => c.id === res.standard_curve_id)) {
-				selectedCurveId = res.standard_curve_id;
-			}
 		} catch {
 			lastUsed = null;
 		}
@@ -812,7 +811,13 @@
 			<div class="grid grid-cols-2 gap-3">
 				<div class="flex flex-col gap-1">
 					<label for="srp-instrument" class="text-sm font-medium">Measured on instrument</label>
-					<LastUsedCurveNote last={lastUsed} />
+					<LastUsedCurveNote
+						last={lastUsed}
+						canUse={!!lastUsed?.standard_curve_id &&
+							curves.some((c) => c.id === lastUsed?.standard_curve_id) &&
+							selectedCurveId !== lastUsed?.standard_curve_id}
+						onuse={() => (selectedCurveId = lastUsed?.standard_curve_id ?? '')}
+					/>
 					<select
 						id="srp-instrument"
 						bind:value={selectedSensorId}

@@ -2,6 +2,7 @@
 	import {
 		pinReadings,
 		rollbackPinSet,
+		type CurveOnSplit,
 		type PinKind,
 		type PinResponse,
 	} from '$api/service';
@@ -34,9 +35,14 @@
 	let from = $state('');
 	let to = $state('');
 	let reason = $state('');
+	let curves = $state<CurveOnSplit | undefined>(undefined);
 	let busy = $state(false);
 	let error = $state('');
 	let done = $state<PinResponse | null>(null);
+	// The server knows which of the selected readings carry a curve the incoming instrument does
+	// not own, and refuses until the operator says what happens to it (Q112). Its refusal is the
+	// are-you-sure step: the message is the question, and these are the two answers.
+	let curveQuestion = $state('');
 	let instruments = $state<Sensor[]>([]);
 	let calibrations = $state<SensorCalibration[]>([]);
 
@@ -44,6 +50,8 @@
 		if (!open) return;
 		error = '';
 		done = null;
+		curveQuestion = '';
+		curves = undefined;
 		void loadTargets();
 	});
 
@@ -82,13 +90,25 @@
 					to: fromDatetimeLocal(to),
 				},
 				reason || undefined,
+				curves,
 			);
+			curveQuestion = '';
 			toastStore.success(`${done.rows_decided} readings pinned`);
 		} catch (e) {
-			error = e instanceof Error ? e.message : String(e);
+			const message = e instanceof Error ? e.message : String(e);
+			if (!curves && message.includes('standard curve')) {
+				curveQuestion = message;
+			} else {
+				error = message;
+			}
 		} finally {
 			busy = false;
 		}
+	}
+
+	async function pinWith(choice: CurveOnSplit) {
+		curves = choice;
+		await pin();
 	}
 
 	async function undo() {
@@ -162,10 +182,29 @@
 				and the whole set is reversible from here.
 			</p>
 			{#if error}<ErrorNotice message={error} />{/if}
-			<div class="flex gap-2">
-				<Button variant="primary" loading={busy} disabled={!ready} onclick={pin}>Pin the window</Button>
-				<Button variant="ghost" onclick={() => (open = false)}>Cancel</Button>
-			</div>
+			{#if curveQuestion}
+				<div class="rounded-md border border-brand-divider bg-brand-bg p-3 text-xs space-y-2">
+					<p>{curveQuestion}</p>
+					<p class="text-brand-muted">
+						A standard curve belongs to one instrument. Copying it puts a copy on the incoming
+						instrument, naming the original, and the corrected values stand. Leaving it behind
+						recomputes each value from its base calibration alone.
+					</p>
+					<div class="flex gap-2">
+						<Button size="sm" variant="primary" loading={busy} onclick={() => pinWith('copy')}>
+							Copy the curves over
+						</Button>
+						<Button size="sm" loading={busy} onclick={() => pinWith('drop')}>
+							Leave them with no curve
+						</Button>
+					</div>
+				</div>
+			{:else}
+				<div class="flex gap-2">
+					<Button variant="primary" loading={busy} disabled={!ready} onclick={pin}>Pin the window</Button>
+					<Button variant="ghost" onclick={() => (open = false)}>Cancel</Button>
+				</div>
+			{/if}
 		{/if}
 	</div>
 </Dialog>

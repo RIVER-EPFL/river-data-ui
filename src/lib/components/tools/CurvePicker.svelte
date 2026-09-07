@@ -151,9 +151,10 @@
 		void loadInstruments();
 	});
 
-	// What the last grab at (site, parameter) was measured on and corrected with. Applied only
-	// while the picker is still empty, so a choice already made is never overwritten by a lookup
-	// that resolves later.
+	// What the last grab at (site, parameter) was measured on and corrected with. The instrument is
+	// filled in because it is what lists the curves; the curve is offered and never applied. A
+	// stored `standard_curve_id` exists only because a person picked that curve for that value, and
+	// no curve at all is a legitimate state, so a control nobody touched carries nothing.
 	let lastUsed = $state<LastUsedCurve | null>(null);
 	let lastUsedKey = '';
 	async function applyLastUsed(site: string, by: { parameterId: string | null; parameterCode: string | null }) {
@@ -163,13 +164,22 @@
 			if (!res.sensor_id || selectedInstrumentId || value.slope !== null) return;
 			selectedInstrumentId = res.sensor_id;
 			await loadCurves(res.sensor_id);
-			if (res.standard_curve_id && curves.some((c) => c.id === res.standard_curve_id)) {
-				selectedCurveId = res.standard_curve_id;
-				publish();
-			}
 		} catch {
 			lastUsed = null;
 		}
+	}
+
+	/** Take the curve the note names, which is the operator declaring it. */
+	async function useLastUsed() {
+		const curveId = lastUsed?.standard_curve_id;
+		if (!curveId) return;
+		if (lastUsed?.sensor_id && selectedInstrumentId !== lastUsed.sensor_id) {
+			selectedInstrumentId = lastUsed.sensor_id;
+			await loadCurves(lastUsed.sensor_id);
+		}
+		if (!curves.some((c) => c.id === curveId)) return;
+		selectedCurveId = curveId;
+		publish();
 	}
 	$effect(() => {
 		if (!siteId || (!parameterId && !parameterCode)) return;
@@ -214,7 +224,7 @@
 	</div>
 
 	{#if mode === 'stored'}
-		<LastUsedCurveNote last={lastUsed} />
+		<LastUsedCurveNote last={lastUsed} canUse={!!lastUsed?.standard_curve_id} onuse={useLastUsed} />
 		<select
 			bind:value={selectedInstrumentId}
 			onchange={() => loadCurves(selectedInstrumentId)}

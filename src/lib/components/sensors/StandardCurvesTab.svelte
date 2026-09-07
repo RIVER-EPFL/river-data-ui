@@ -17,6 +17,7 @@
 	import {
 		curveEquation,
 		curveLabel,
+		curveOrigin,
 		apiMessage,
 		emptyCurveForm,
 		parseCurveForm,
@@ -265,7 +266,7 @@
 			{#if column.key === 'name'}
 				{curveLabel(row)}
 			{:else if column.key === 'source'}
-				{row.source_key ?? row.source_system ?? 'manual'}
+				{curveOrigin(row)}
 			{:else if column.key === 'equation'}
 				{curveEquation(row)}
 			{:else if column.key === 'readings'}

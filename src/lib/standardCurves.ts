@@ -20,6 +20,16 @@ export function curveIdentity(curve: Pick<StandardCurve, 'id' | 'name' | 'fitted
 	return fitted && !label.includes(fitted) ? `${label} (fitted ${fitted})` : label;
 }
 
+/**
+ * Where a curve's coefficients came from, for the column that names it: the source's own key, the
+ * source system, the curve it was copied from, or a hand-entered curve.
+ */
+export function curveOrigin(
+	curve: Pick<StandardCurve, 'source_system' | 'source_key' | 'copied_from_id'>,
+): string {
+	return curve.source_key ?? curve.source_system ?? (curve.copied_from_id ? 'copy' : 'manual');
+}
+
 /** Renders "y = 2x + 1" / "y = 0.9x - 0.1"; a negative intercept becomes a subtraction. */
 export function formatEquation(slope: number, intercept: number): string {
 	const sign = intercept < 0 ? '-' : '+';

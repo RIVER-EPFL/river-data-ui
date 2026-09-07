@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const pinReadings = vi.fn();
@@ -41,6 +41,32 @@ describe('PinReadingsDialog', () => {
 		await screen.findByText('Pin the window');
 		expect(container.textContent).toContain('honours it instead of resolving the window');
 		expect(container.textContent).toContain('reversible from here');
+	});
+
+	it('asks what happens to a curve the incoming instrument does not own, and answers it', async () => {
+		list.mockResolvedValue({ data: [{ id: 'a', name: 'Analyser B', kind: 'device' }] });
+		pinReadings.mockRejectedValueOnce(
+			new Error('2 of the selected readings are corrected by 1 standard curve(s) the incoming instrument does not own'),
+		);
+		const { container } = open();
+		await screen.findByText('Pin the window');
+		await fireEvent.change(await screen.findByLabelText('Instrument'), { target: { value: 'a' } });
+		await fireEvent.input(await screen.findByLabelText('From'), {
+			target: { value: '2026-07-01T00:00' },
+		});
+		await fireEvent.input(await screen.findByLabelText('To'), {
+			target: { value: '2026-07-31T00:00' },
+		});
+		await fireEvent.click(screen.getByText('Pin the window'));
+
+		expect(await screen.findByText('Copy the curves over')).toBeTruthy();
+		expect(screen.getByText('Leave them with no curve')).toBeTruthy();
+		expect(container.textContent).toContain('belongs to one instrument');
+
+		pinReadings.mockResolvedValueOnce({ set_id: 's1', rows_decided: 2, jobs: ['j1'] });
+		await fireEvent.click(screen.getByText('Copy the curves over'));
+		await screen.findByText('Roll the set back');
+		expect(pinReadings.mock.calls.at(-1)?.[4]).toBe('copy');
 	});
 
 	it('offers only instruments something was measured on', async () => {

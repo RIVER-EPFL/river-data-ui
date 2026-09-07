@@ -254,6 +254,8 @@ export interface StandardCurve {
 	 *  overwritten on the next pass. */
 	source_system: string | null;
 	source_key: string | null;
+	/** The curve this one was copied from, stated by whoever made the copy. Frozen once stored. */
+	copied_from_id: string | null;
 }
 
 export interface SensorDeployment {

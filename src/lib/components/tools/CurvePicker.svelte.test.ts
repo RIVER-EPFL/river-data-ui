@@ -14,7 +14,8 @@ vi.mock('$api/crud', () => ({
 		},
 	},
 }));
-vi.mock('$api/service', () => ({ getLastUsedCurve: vi.fn().mockRejectedValue(new Error('none')) }));
+const lastUsedCurve = vi.fn().mockRejectedValue(new Error('none'));
+vi.mock('$api/service', () => ({ getLastUsedCurve: (...args: unknown[]) => lastUsedCurve(...args) }));
 vi.mock('$lib/stores/toast.svelte', () => ({ toastStore: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('$auth/me.svelte', () => ({ me: { can: () => true, data: { email: 'evan@example.org' } } }));
 
@@ -78,5 +79,61 @@ describe('CurvePicker', () => {
 		await vi.waitFor(() => expect(props.value.standardCurveId).toBe('curve-1'));
 		expect(props.value.slope).toBe(2);
 		expect(props.value.label).toBe('Plate 7');
+	});
+});
+
+describe('the last curve used at the slot', () => {
+	// A curve is never derived, defaulted or inherited: a stored `standard_curve_id` exists only
+	// because a person picked that curve for that value, and no curve at all is a legitimate state.
+	const curve = {
+		id: 'curve-9',
+		sensor_id: 'sensor-1',
+		name: 'Plate 3',
+		slope: 3,
+		intercept: 0.5,
+		r_squared: null,
+		notes: null,
+	};
+	const last = {
+		sensor_id: 'sensor-1',
+		sensor_name: 'Lab DOC',
+		standard_curve_id: 'curve-9',
+		curve_name: 'Plate 3',
+		curve_created_at: '2026-07-01T00:00:00Z',
+		method: 'the newest grab at this slot',
+	};
+
+	beforeEach(() => {
+		sensorsList.mockReset().mockResolvedValue({ data: [instrument], total: 1 });
+		curvesList.mockReset().mockResolvedValue({ data: [curve], total: 1 });
+		curvesCreate.mockReset();
+		lastUsedCurve.mockReset().mockResolvedValue(last);
+	});
+
+	it('is offered and not applied, so an untouched picker carries no curve', async () => {
+		const props = $state({
+			title: 'DOC curve',
+			value: emptyCurveSelection(),
+			siteId: 'site-1',
+			parameterId: 'p-doc',
+		});
+		render(CurvePicker, props);
+		await vi.waitFor(() => expect(screen.getByText(/Last used here/)).toBeTruthy());
+		await vi.waitFor(() => expect(curvesList).toHaveBeenCalled());
+		expect(props.value.standardCurveId).toBeNull();
+	});
+
+	it('is taken when the operator takes it, which is the pick', async () => {
+		const props = $state({
+			title: 'DOC curve',
+			value: emptyCurveSelection(),
+			siteId: 'site-1',
+			parameterId: 'p-doc',
+		});
+		render(CurvePicker, props);
+		const use = await screen.findByRole('button', { name: 'Use this curve' });
+		use.click();
+		await vi.waitFor(() => expect(props.value.standardCurveId).toBe('curve-9'));
+		expect(props.value.slope).toBe(3);
 	});
 });

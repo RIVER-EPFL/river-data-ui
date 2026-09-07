@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	composedCurve,
 	curveIdentity,
+	curveOrigin,
 	parseCurveForm,
 	uniqueCurveName,
 	type CurveForm,
@@ -72,6 +73,34 @@ describe('curveIdentity', () => {
 
 	it('falls back to the short id when nothing named the curve', () => {
 		expect(curveIdentity(curve({ name: null, fitted_on: null }))).toBe('Curve 0189d3f0');
+	});
+});
+
+describe('curveOrigin', () => {
+	const origin = (over: Partial<{ source_system: string | null; source_key: string | null; copied_from_id: string | null }> = {}) => ({
+		source_system: null,
+		source_key: null,
+		copied_from_id: null,
+		...over,
+	});
+
+	it('names the source key a replicated curve is identified by', () => {
+		expect(curveOrigin(origin({ source_system: 'cnet', source_key: 'standard_curves:17' }))).toBe(
+			'standard_curves:17',
+		);
+	});
+
+	it('falls back to the source system when the key is absent', () => {
+		expect(curveOrigin(origin({ source_system: 'cnet' }))).toBe('cnet');
+	});
+
+	// A copy holds no source provenance of its own, so without this it reads as hand-entered.
+	it('says a copy is a copy', () => {
+		expect(curveOrigin(origin({ copied_from_id: '0189d3f0-0000-4000-8000-000000000000' }))).toBe('copy');
+	});
+
+	it('says a hand-entered curve is manual', () => {
+		expect(curveOrigin(origin())).toBe('manual');
 	});
 });
 

@@ -98,8 +98,8 @@
 					slope: curve.slope,
 					intercept: curve.intercept,
 					r_squared: curve.r_squared,
-					// There is no lineage column, so provenance is recorded as text.
-					notes: `Copied from ${provenance} curve ${curve.id}${curve.notes ? ` · ${curve.notes}` : ''}`,
+					copied_from_id: curve.id,
+					notes: `Copied from ${provenance}${curve.notes ? ` · ${curve.notes}` : ''}`,
 					created_by: me.data?.email ?? null,
 				});
 				taken.add(name);

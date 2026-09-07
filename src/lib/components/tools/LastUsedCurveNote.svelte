@@ -4,7 +4,17 @@
 
 	// One line naming the instrument and curve the last grab at a slot recorded, with the tip
 	// explaining how the answer was decided.
-	let { last }: { last: LastUsedCurve | null } = $props();
+	let {
+		last,
+		canUse = false,
+		onuse,
+	}: {
+		last: LastUsedCurve | null;
+		/// Whether the curve named here can be taken for this save. It is offered, never applied:
+		/// a curve is declared by the operator, never inherited from the last visit.
+		canUse?: boolean;
+		onuse?: () => void;
+	} = $props();
 
 	function line(l: LastUsedCurve): string {
 		const instrument = l.sensor_name ?? l.sensor_id ?? 'unnamed instrument';
@@ -18,6 +28,13 @@
 {#if last}
 	<div class="flex items-center gap-1 text-xs text-brand-muted">
 		Last used here: {line(last)}
+		{#if canUse && onuse}
+			<button
+				type="button"
+				class="rounded border border-brand-divider px-1 text-[11px] text-brand-primary hover:underline"
+				onclick={onuse}
+			>Use this curve</button>
+		{/if}
 		<span class="group relative inline-block">
 			<button
 				type="button"

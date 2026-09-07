@@ -3089,12 +3089,16 @@ export interface PinRollbackResponse {
  * per-reading pins under `EDIT_METHODS` record one at a time; this is the same decision over a
  * selection, and `rollbackPinSet` is what undoes the whole of it.
  */
+/** What happens to a standard curve the incoming instrument does not own (Q112). */
+export type CurveOnSplit = 'copy' | 'drop';
+
 export const pinReadings = (
 	kind: PinKind,
 	target_id: string,
 	selection: EditSelection,
 	reason?: string,
-) => POST<PinResponse>(`${SERVICE}/readings/pins`, { kind, target_id, selection, reason });
+	curves?: CurveOnSplit,
+) => POST<PinResponse>(`${SERVICE}/readings/pins`, { kind, target_id, selection, reason, curves });
 
 export const rollbackPinSet = (setId: string) =>
 	POST<PinRollbackResponse>(`${SERVICE}/readings/pins/${setId}/rollback`, {});
