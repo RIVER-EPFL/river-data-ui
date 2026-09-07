@@ -13,7 +13,7 @@
 		(page.url.searchParams.get('tab') === 'derived' ? 'derived' : '');
 
 	// Legacy ?tab=derived deep links land on the catalog with the derived filter pre-applied.
-	const tab = createUrlTab({ keys: ['catalog', 'constants'], aliases: { derived: 'catalog' } });
+	const tab = createUrlTab({ keys: ['catalog', 'groups', 'constants'], aliases: { derived: 'catalog' } });
 </script>
 
 <svelte:head><title>Parameters | RIVER Data</title></svelte:head>
@@ -25,16 +25,33 @@
 			{#if tab.key === 'catalog'}
 				<a href="{base}/parameters/new" class="px-3 py-1.5 border border-brand-divider rounded-md no-underline text-sm font-semibold text-brand-text bg-brand-surface hover:bg-brand-bg">Create parameter</a>
 				<a href="{base}/derived/new" class="px-3 py-1.5 bg-brand-primary text-white rounded-md no-underline text-sm font-semibold hover:bg-brand-primary-dark">Create derived parameter</a>
+			{:else if tab.key === 'groups'}
+				<a href="{base}/parameters/groups/new" class="px-3 py-1.5 bg-brand-primary text-white rounded-md no-underline text-sm font-semibold hover:bg-brand-primary-dark">New group</a>
 			{:else}
 				<a href="{base}/constants/new" class="px-3 py-1.5 bg-brand-primary text-white rounded-md no-underline text-sm font-semibold hover:bg-brand-primary-dark">New constant</a>
 			{/if}
 		</div>
 	</div>
 
-	<Tabs tabs={['Catalog', 'Constants']} bind:active={tab.index} />
+	<Tabs tabs={['Catalog', 'Groups', 'Constants']} bind:active={tab.index} />
 
 	{#if tab.key === 'catalog'}
 		<ParameterCatalogList {initialType} />
+	{:else if tab.key === 'groups'}
+		<CrudList
+			client={api.parameterGroups}
+			title="Groups"
+			showHeader={false}
+			searchable
+			defaultSort={['ordinal', 'ASC']}
+			columns={[
+				{ key: 'ordinal', label: 'Order', sortable: true },
+				{ key: 'label', label: 'Label', sortable: true },
+				{ key: 'code', label: 'Code', sortable: true },
+				{ key: 'description', label: 'Description', class: 'text-brand-muted' },
+			]}
+			rowHref={(row) => `${base}/parameters/groups/${row.id}`}
+		/>
 	{:else}
 		<CrudList
 			client={api.constants}

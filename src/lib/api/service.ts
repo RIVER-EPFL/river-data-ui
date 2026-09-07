@@ -447,6 +447,39 @@ export const refreshAggregates = (full = false) =>
 export const invalidatePublicConfig = (code: string) =>
 	POST(`${ADMIN}/actions/invalidate_public_config/${code}`);
 
+// The group definition: the members a group renders, in the group's own order.
+export interface GroupDefinitionMember {
+	parameter_id: string;
+	code: string;
+	label: string;
+	units: string | null;
+	decimal_places: number | null;
+	description: string | null;
+	role: string;
+	ordinal: number;
+	section?: string;
+	replicates?: Record<string, unknown>;
+	statistics?: {
+		mean_label: string;
+		sd_label: string;
+		sd_estimator: string | null;
+		decimal_places: number | null;
+	};
+}
+
+export interface GroupDefinition {
+	id: string;
+	code: string;
+	label: string;
+	description: string | null;
+	ordinal: number;
+	members: GroupDefinitionMember[];
+	sections: string[];
+}
+
+export const getGroupDefinition = (groupId: string, siteId?: string) =>
+	GET<GroupDefinition>(`${SERVICE}/parameter_groups/${groupId}/definition`, { site_id: siteId });
+
 // Merge parameters
 export interface MergeParametersResponse {
 	sites_merged: number;

@@ -29,6 +29,8 @@ export const api = {
 	subprojects: crudClient<Subproject>('subprojects'),
 	sites: crudClient<Site>('sites'),
 	parameters: crudClient<Parameter>('parameters'),
+	parameterGroups: crudClient<ParameterGroup>('parameter_groups'),
+	parameterGroupMembers: crudClient<ParameterGroupMember>('parameter_group_members'),
 	siteParameters: crudClient<SiteParameter>('site_parameters'),
 	sensors: crudClient<Sensor>('sensors'),
 	sensorCalibrations: crudClient<SensorCalibration>('sensor_calibrations'),
@@ -128,6 +130,33 @@ export interface Parameter {
 	needs_review: boolean;
 	created_at: string;
 	updated_at: string;
+}
+
+/** A scientific category of parameters: the portal's categories, in their own order. */
+export interface ParameterGroup {
+	id: string;
+	code: string;
+	label: string;
+	description: string | null;
+	/** Where the group sits in the category order. */
+	ordinal: number;
+	created_at: string;
+}
+
+/** One parameter's membership of a group, carrying its role and the group's presentation overrides. */
+export interface ParameterGroupMember {
+	id: string;
+	group_id: string;
+	parameter_id: string;
+	ordinal: number;
+	/** 'measured', 'entry_only' or 'output'. */
+	role: string;
+	replicates: Record<string, unknown> | null;
+	label: string | null;
+	units: string | null;
+	decimal_places: number | null;
+	description: string | null;
+	created_at: string;
 }
 
 export interface SiteParameter {
