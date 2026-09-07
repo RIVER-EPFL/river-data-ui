@@ -15,7 +15,13 @@
 	import { shellBranch } from '$auth/shell';
 	import AlarmIndicator from '$components/AlarmIndicator.svelte';
 	import OperationsIndicator from '$components/OperationsIndicator.svelte';
-	import { getVersion, getNotificationsConfig, registerPushSubscription } from '$api/service';
+	import {
+		getVersion,
+		getNotificationsConfig,
+		registerPushSubscription,
+		getUnpairedSummary,
+		listReplicateAudits,
+	} from '$api/service';
 	import { syncSubscription, isWebPushSupported } from '$lib/push';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
 
@@ -52,8 +58,35 @@
 		}
 	});
 
+	// Streams arriving unpaired and holds waiting for a decision are only ever found by opening the
+	// page they live on, so the count comes to the nav entry that leads there.
+	const ATTENTION_POLL_MS = 60_000;
+	let streamsAttention = $state(0);
+	let attentionPolling = false;
+
+	async function loadStreamsAttention() {
+		try {
+			const [unpaired, holds] = await Promise.all([
+				getUnpairedSummary(),
+				listReplicateAudits({ page_size: 1 }),
+			]);
+			streamsAttention =
+				unpaired.reduce((total, row) => total + row.unpaired, 0) + holds.pending + holds.deferred;
+		} catch {
+			/* a failed count is not worth a message in the nav */
+		}
+	}
+
 	onMount(() => {
 		auth.init();
+	});
+
+	$effect(() => {
+		if (attentionPolling || !auth.authenticated || !me.can('admin')) return;
+		attentionPolling = true;
+		void loadStreamsAttention();
+		const timer = setInterval(() => void loadStreamsAttention(), ATTENTION_POLL_MS);
+		return () => clearInterval(timer);
 	});
 
 	// Resolve the caller's level + grants from /api/me once auth is ready; drives capability-gated nav.
@@ -69,7 +102,15 @@
 	// The client's IA: three groups gated by capability. A section renders only when at least one of
 	// its items is visible to the caller (see the template filter), so lower levels see a shorter menu.
 	// `also` lists sibling routes that should light the item (merged pages and their old redirect URLs).
-	type NavItem = { href: string; label: string; icon: string; minCap?: Capability; also?: string[] };
+	// `badge` names the count shown against the item, when one is loaded and non-zero.
+	type NavItem = {
+		href: string;
+		label: string;
+		icon: string;
+		minCap?: Capability;
+		also?: string[];
+		badge?: 'streamsAttention';
+	};
 	const navSections: { label: string; items: NavItem[] }[] = [
 		{
 			label: 'Data',
@@ -96,7 +137,7 @@
 				{ href: `${base}/projects`, label: 'Projects & Subprojects', icon: 'folder', minCap: 'admin' },
 				{ href: `${base}/users`, label: 'Users & Tokens', icon: 'users', minCap: 'admin', also: [`${base}/tokens`] },
 				{ href: `${base}/notifications`, label: 'Notifications', icon: 'mail', minCap: 'admin' },
-				{ href: `${base}/streams`, label: 'Data Streams', icon: 'rss', minCap: 'admin' },
+				{ href: `${base}/streams`, label: 'Data Streams', icon: 'rss', minCap: 'admin', badge: 'streamsAttention' },
 				{ href: `${base}/system`, label: 'System', icon: 'settings', minCap: 'admin', also: [`${base}/logs`, `${base}/jobs`, `${base}/schedules`] },
 			],
 		},
@@ -205,6 +246,14 @@
 							<NavIcon name={item.icon} />
 							{#if !sidebarCollapsed}
 								{item.label}
+							{/if}
+							{#if item.badge === 'streamsAttention' && streamsAttention > 0 && !sidebarCollapsed}
+								<span
+									class="ml-auto rounded-full bg-severity-warning-fill px-1.5 py-0.5 text-[0.625rem] font-bold leading-none text-white"
+									title="{streamsAttention} unpaired stream(s) and open hold(s) awaiting review"
+								>
+									{streamsAttention}
+								</span>
 							{/if}
 						</a>
 					{/each}

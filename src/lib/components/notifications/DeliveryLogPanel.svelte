@@ -17,6 +17,8 @@
 		'battery_forecast',
 		'sync_failure',
 		'sync_stale',
+		'streams_unpaired',
+		'holds_open',
 		'test',
 	];
 	const STATUSES = ['sent', 'failed', 'muted', 'undeliverable', 'skipped'];
