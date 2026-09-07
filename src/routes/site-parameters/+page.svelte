@@ -45,7 +45,7 @@
 		{ key: 'parameter_id', label: 'Parameter', render: (_, row) => paramMap.get(row.parameter_id) ?? 'None' },
 		{ key: 'display_units', label: 'Units' },
 		{ key: 'sample_interval_sec', label: 'Interval (s)' },
-		{ key: 'is_derived', label: 'Derived', render: (v) => v ? 'Yes' : '' },
+		{ key: 'entry_mode', label: 'Entry', render: (v) => v === 'tool' ? 'Tool' : 'Manual' },
 		{ key: 'is_active', label: 'Active', render: (v) => v === false ? 'No' : 'Yes' },
 		{ key: 'origin', label: 'Origin', sortable: false },
 	]}

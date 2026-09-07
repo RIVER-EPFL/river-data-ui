@@ -747,11 +747,17 @@
 				...(estimatorSelectable ? { sd_estimator: sdEstimator } : {}),
 				readings: buildReadings(),
 			});
-			toastStore.success(
+			const saved =
 				`Saved ${res.inserted} reading${res.inserted === 1 ? '' : 's'}` +
-					(res.samples_created ? ` (${res.samples_created} sample${res.samples_created === 1 ? '' : 's'})` : '') +
-					(res.replaced ? `, replaced ${res.replaced}` : ''),
-			);
+				(res.samples_created ? ` (${res.samples_created} sample${res.samples_created === 1 ? '' : 's'})` : '') +
+				(res.replaced ? `, replaced ${res.replaced}` : '');
+			if (res.kept_curated) {
+				toastStore.info(
+					`${saved}. ${res.kept_curated} curated value${res.kept_curated === 1 ? ' was' : 's were'} kept, so what you entered there was not written.`,
+				);
+			} else {
+				toastStore.success(saved);
+			}
 			conflictGroups = null;
 			open = false;
 			onsaved?.();

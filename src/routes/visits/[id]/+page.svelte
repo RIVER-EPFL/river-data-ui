@@ -96,7 +96,7 @@
 		]);
 		const byId = new Map(catalog.data.map((p) => [p.id, p]));
 		configured = slots.data
-			.filter((slot) => !slot.is_derived && byId.has(slot.parameter_id))
+			.filter((slot) => slot.entry_mode !== 'tool' && byId.has(slot.parameter_id))
 			.map((slot) => {
 				const parameter = byId.get(slot.parameter_id)!;
 				return {
@@ -236,6 +236,7 @@
 				await commitEdit(selection, decision, preview.preview_id);
 			}
 			const entries = writes.filter((w) => !w.corrects);
+			let kept = 0;
 			if (entries.length > 0) {
 				const readings = [];
 				for (const w of entries) {
@@ -252,9 +253,17 @@
 							: {}),
 					});
 				}
-				await saveGrabSample({ site_id: visit.site_id, mode: 'replace', readings });
+				kept = (await saveGrabSample({ site_id: visit.site_id, mode: 'replace', readings }))
+					.kept_curated;
 			}
-			toastStore.success(`${writes.length} value${writes.length === 1 ? '' : 's'} saved`);
+			const saved = `${writes.length} value${writes.length === 1 ? '' : 's'} saved`;
+			if (kept) {
+				toastStore.info(
+					`${saved}. ${kept} curated value${kept === 1 ? ' was' : 's were'} kept, so what you entered there was not written.`,
+				);
+			} else {
+				toastStore.success(saved);
+			}
 			confirmOpen = false;
 			await refresh();
 		} catch (e) {

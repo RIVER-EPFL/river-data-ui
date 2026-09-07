@@ -644,7 +644,7 @@
 		code?: string;
 		name?: string;
 		units?: string | null;
-		is_derived?: boolean;
+		entry_mode?: string;
 		sensor_type?: string | null;
 		data_start?: string | null;
 		data_end?: string | null;
@@ -1417,7 +1417,7 @@
 		const selected =
 			exportSelectedParamIds.length > 0
 				? exportSelectedParamIds
-				: siteParameters.filter((sp) => !sp.is_derived).map((sp) => sp.parameter_id);
+				: siteParameters.filter((sp) => sp.entry_mode !== 'tool').map((sp) => sp.parameter_id);
 		const codes = selected.map((id) => paramCode(id)).filter((c) => c !== '');
 		return exportColumns(codes, {
 			startMs: exportStartMs,
@@ -1522,19 +1522,21 @@
 
 	// Derived parameters
 	const siteParameterIds = $derived(new Set(siteParameters.map((sp) => sp.parameter_id)));
-	const assignedDerivedIds = $derived(new Set(
-		siteParameters.filter((sp) => sp.is_derived && sp.derived_definition_id).map((sp) => sp.derived_definition_id!)
+	// A computed slot names no definition: the one that fills it is the definition whose output is
+	// the slot's parameter.
+	const computedParameterIds = $derived(new Set(
+		siteParameters.filter((sp) => sp.entry_mode === 'tool').map((sp) => sp.parameter_id)
 	));
 
 	// Derived defs that are assigned to this site
 	const assignedDerivedDefs = $derived(
-		derivedDefs.filter((d) => assignedDerivedIds.has(d.id))
+		derivedDefs.filter((d) => !!d.output_parameter_id && computedParameterIds.has(d.output_parameter_id))
 	);
 
 	// Availability check for each unassigned derived def
 	const availableDerivedDefs = $derived(
 		derivedDefs
-			.filter((d) => !assignedDerivedIds.has(d.id))
+			.filter((d) => !assignedDerivedDefs.includes(d))
 			.map((d) => {
 				const sources = d.sources ?? [];
 				const present = sources.filter((s) => siteParameterIds.has(s.parameter_id));
@@ -1602,8 +1604,7 @@
 			await api.siteParameters.create({
 				site_id: siteId,
 				parameter_id: def.output_parameter_id,
-				is_derived: true,
-				derived_definition_id: def.id,
+				entry_mode: 'tool',
 				display_units: def.units || null,
 				name: def.name,
 				sensor_type: 'derived',
@@ -1977,7 +1978,7 @@
 							parameterCode={param.code}
 							units={sp.display_units ?? param.default_units}
 							decimals={sp.decimal_places}
-							isDerived={sp.is_derived ?? false}
+							isDerived={sp.entry_mode === 'tool'}
 							threshold={th}
 							annotations={annotationsByParam.get(sp.parameter_id) ?? []}
 							seriesIndex={i}
@@ -2104,7 +2105,7 @@
 			<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 				<div class="flex items-center justify-between px-4 py-3 bg-brand-bg border-b border-brand-divider">
 					<span class="text-sm font-semibold">
-						Parameters ({siteParameters.filter((sp) => !sp.is_derived).length})
+						Parameters ({siteParameters.filter((sp) => sp.entry_mode !== 'tool').length})
 						{#if siteParameters.some((sp) => sp.needs_review)}
 							<span class="ml-2 rounded bg-severity-warning-soft px-1.5 py-0.5 text-xs font-medium text-severity-warning-text" title="Added by a tool save, awaiting confirmation">
 								{siteParameters.filter((sp) => sp.needs_review).length} need review
@@ -2148,7 +2149,7 @@
 						<th class="text-right px-4 py-2 font-semibold">Actions</th>
 					</tr></thead>
 					<tbody>
-						{#each siteParameters.filter((sp) => !sp.is_derived) as sp}
+						{#each siteParameters.filter((sp) => sp.entry_mode !== 'tool') as sp}
 							{@const th = effectiveThreshold(sp.parameter_id)}
 							{@const disabled = th != null && isThresholdDisabled(th)}
 							{@const warn = th && !disabled ? formatThresholdRange(th.warning_min, th.warning_max, paramUnits(sp)) : null}
@@ -2198,7 +2199,7 @@
 								</td>
 							</tr>
 						{/each}
-						{#if siteParameters.filter((sp) => !sp.is_derived).length === 0}
+						{#if siteParameters.filter((sp) => sp.entry_mode !== 'tool').length === 0}
 							<tr><td colspan="7" class="px-4 py-6 text-center text-brand-muted">No parameters configured</td></tr>
 						{/if}
 					</tbody>
@@ -2252,7 +2253,7 @@
 							</tr></thead>
 							<tbody>
 								{#each assignedDerivedDefs as d}
-									{@const sp = siteParameters.find((s) => s.derived_definition_id === d.id)}
+									{@const sp = siteParameters.find((s) => s.parameter_id === d.output_parameter_id && s.entry_mode === 'tool')}
 									<tr class="border-b border-brand-divider last:border-b-0">
 										<td class="px-4 py-2 font-medium">
 											<a href="{base}/derived/{d.id}" class="text-brand-primary no-underline hover:underline">{d.name || d.code}</a>
@@ -2880,7 +2881,7 @@
 						<label class="flex items-center gap-2 cursor-pointer text-xs text-brand-muted">
 							<input type="checkbox" checked={exportSelectedParamIds.length === 0} onchange={() => exportSelectedParamIds = []} /> All parameters
 						</label>
-						{#each siteParameters.filter((sp) => !sp.is_derived) as sp}
+						{#each siteParameters.filter((sp) => sp.entry_mode !== 'tool') as sp}
 							<label class="flex items-center gap-2 cursor-pointer text-xs">
 								<input type="checkbox" value={sp.parameter_id} bind:group={exportSelectedParamIds} /> {paramName(sp.parameter_id)}
 							</label>
@@ -3006,7 +3007,7 @@
 			<MergeSiteParameterDialog
 				bind:open={mergeOpen}
 				source={mergeSource}
-				candidates={siteParameters.filter((s) => !s.is_derived).map((s) => ({ id: s.id, label: paramName(s.parameter_id) }))}
+				candidates={siteParameters.filter((s) => s.entry_mode !== 'tool').map((s) => ({ id: s.id, label: paramName(s.parameter_id) }))}
 				onsuccess={reloadSiteParameters}
 			/>
 		{/if}

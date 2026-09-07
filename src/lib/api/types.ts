@@ -8,7 +8,7 @@ export interface SampleReplicate {
 	standard_curve_id?: string | null;
 	flagged: boolean;
 	/** The source's claimed window no longer contains this replicate; it is outside `n`. */
-	withdrawn?: boolean;
+	withdrawn: boolean;
 }
 
 export interface SampleStat {
@@ -24,19 +24,24 @@ export interface SampleStat {
 	stdev_population?: number | null;
 	/** The divisor this group's `stdev` was computed with, and what chose it. A per-instant audit
 	 *  decision overrides the slot, so the group's own value is the one to print. */
-	sd_estimator?: 'sample' | 'population' | null;
-	sd_estimator_source?: string | null;
+	sd_estimator: 'sample' | 'population';
+	sd_estimator_source: string;
 	replicates: SampleReplicate[];
 }
 
 export interface ReadingsParameter {
 	// id is the site_parameter id; parameter_id is the global parameter id
 	id: string;
-	parameter_id?: string;
+	parameter_id: string;
+	/** Catalog `code`, the stable machine id and the CSV/NDJSON column key. */
+	code: string;
 	name: string;
 	display_name?: string;
-	type?: string;
+	type: string;
 	units: string | null;
+	/** `site_parameters.decimal_places` for the slot, null when it declares none. The values are
+	 *  served as stored, so this is what renders them at the declared precision. */
+	decimal_places?: number | null;
 	values: (number | null)[];
 	severities?: (number | null)[] | null;
 	flagged?: (boolean | null)[] | null;
@@ -48,6 +53,8 @@ export interface ReadingsParameter {
 	withdrawn?: (boolean | null)[] | null;
 	/** Spot instants in the window the source has taken back in full, served or not. */
 	withdrawn_count?: number | null;
+	/** Per-point cadence (continuous/spot/derived); present when include_measurement_type=true. */
+	measurement_types?: (string | null)[] | null;
 	// Per-point curve references, present when include_curves=true. A null entry means no curve of
 	// that kind was applied, which is why the two are reported separately rather than collapsed.
 	calibration_ids?: (string | null)[] | null;

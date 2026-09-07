@@ -188,7 +188,7 @@
 			tools = t;
 			const unitsById = new Map(params.data.map((p: Parameter) => [p.id, p.default_units]));
 			siteParamOptions = sp.data
-				.filter((p: SiteParameter) => !p.is_derived)
+				.filter((p: SiteParameter) => p.entry_mode !== 'tool')
 				.map((p: SiteParameter) => {
 					const units = unitsById.get(p.parameter_id) ?? '';
 					const name = p.name ?? '';

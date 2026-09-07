@@ -167,8 +167,8 @@ export interface SiteParameter {
 	channel_id: number | null;
 	sample_interval_sec: number | null;
 	decimal_places: number | null;
-	is_derived: boolean | null;
-	derived_definition_id: string | null;
+	/** How this site fills the slot: 'manual' (typed by hand) or 'tool' (computed here). */
+	entry_mode: string;
 	is_active: boolean | null;
 	is_public: boolean;
 	/** Slot minted by a verified tool save; a manager confirms it from the site's Parameters tab. */

@@ -24,16 +24,23 @@
 
 	onMount(async () => {
 		try {
-			const [d, sp, s, p] = await Promise.all([
+			const [d, s, p] = await Promise.all([
 				api.derivedParameters.get(defId),
-				api.siteParameters.list({ perPage: 200, filter: { derived_definition_id: defId } }),
 				api.sites.list({ perPage: 200 }),
 				api.parameters.list({ perPage: 200 }),
 			]);
 			def = d;
-			assignedSiteParams = sp.data;
 			sites = s.data;
 			params = p.data;
+			// The slots this definition fills are the ones holding its output parameter whose site
+			// declares them computed. A slot carries no reference to the definition.
+			if (d.output_parameter_id) {
+				const sp = await api.siteParameters.list({
+					perPage: 200,
+					filter: { parameter_id: d.output_parameter_id, entry_mode: 'tool' },
+				});
+				assignedSiteParams = sp.data;
+			}
 			if (d.output_parameter_id) {
 				outputParam = params.find((pp) => pp.id === d.output_parameter_id)
 					?? await api.parameters.get(d.output_parameter_id);

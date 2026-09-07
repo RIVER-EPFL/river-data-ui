@@ -2697,6 +2697,9 @@ export interface GrabSampleResponse {
 	created_sample_ids: string[];
 	dry_run: boolean;
 	replaced: number;
+	/** Curated rows `mode: replace` left in place: flagged, withdrawn, or carrying a curve the
+	 *  request did not supply. The value entered at that replicate index was not written. */
+	kept_curated: number;
 	preview: GrabPreviewRow[];
 	existing_groups: GrabExistingGroup[];
 	/** Reported on dry_run too: the calculations this save re-runs and the columns that move. */

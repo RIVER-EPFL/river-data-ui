@@ -603,7 +603,7 @@
 															<td class="px-8 py-1.5 font-mono text-xs">{paramCode(sp.parameter_id)}</td>
 															<td class="px-4 py-1.5">
 																{paramName(sp.parameter_id)}
-																{#if sp.is_derived}
+																{#if sp.entry_mode === 'tool'}
 																	<span class="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-brand-accent/15 text-brand-accent-dark align-middle">derived</span>
 																{/if}
 															</td>
