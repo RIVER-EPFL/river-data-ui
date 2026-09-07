@@ -51,6 +51,8 @@ export const getNotificationsConfig = () =>
 
 // Self-service notification preferences (the caller's own, bound to their JWT sub server-side).
 export interface MySubscriptionScope {
+	/** Which notifications the row answers for. Absent reads as `alarms`, as it does server-side. */
+	kind_group?: 'alarms' | 'sync';
 	project_id?: string;
 	site_id?: string;
 	parameter_id?: string;

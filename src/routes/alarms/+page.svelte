@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
+	import { me } from '$auth/me.svelte';
 	import { createUrlTab } from '$lib/urlTab.svelte';
 	import { api, type Site, type Parameter, type AlarmThreshold } from '$api/crud';
 	import { getActiveAlarms, getThresholds, type ResolvedThreshold } from '$api/service';
@@ -9,6 +10,7 @@
 	import Tabs from '$components/ui/Tabs.svelte';
 	import ThresholdDialog from '$components/dialogs/ThresholdDialog.svelte';
 	import AlarmEventsPanel from '$components/logs/AlarmEventsPanel.svelte';
+	import NotificationHealthNotice from '$components/notifications/NotificationHealthNotice.svelte';
 	import { formatThresholdRange } from '$lib/alarms';
 
 	const TABS = ['Log', 'Thresholds'];
@@ -174,6 +176,9 @@
 	</div>
 
 	<Tabs tabs={TABS} bind:active={tab.index} />
+
+	<!-- An alarm that reached nobody says so where the alarms are read. -->
+	<NotificationHealthNotice enabled={me.can('admin')} />
 
 	<!-- ── LOG TAB ── -->
 	{#if tab.key === 'log'}

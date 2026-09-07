@@ -30,6 +30,12 @@
 		subscriptionToPayload,
 		showLocalTestNotification,
 	} from '$lib/push';
+	import {
+		groupSubscribed,
+		subscriptionRows,
+		type NotificationGroupId,
+	} from '$lib/notifications/groups';
+	import NotificationGroups from '$components/notifications/NotificationGroups.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
@@ -52,6 +58,10 @@
 	let testOutcome = $state<string | null>(null);
 
 	let mutedSites = $state<Set<string>>(new Set());
+	let subscribedGroups = $state<Record<NotificationGroupId, boolean>>({
+		alarms: true,
+		sync: false,
+	});
 
 	const sitesByProject = $derived.by(() => {
 		const m = new Map<string, Site[]>();
@@ -63,10 +73,18 @@
 		return m;
 	});
 
+	function deriveGroups(n: MyNotifications): Record<NotificationGroupId, boolean> {
+		return {
+			alarms: groupSubscribed(n.subscriptions, 'alarms'),
+			sync: groupSubscribed(n.subscriptions, 'sync'),
+		};
+	}
+
 	function deriveMuted(n: MyNotifications) {
 		const siteOverride = new Map<string, boolean>();
 		const projectOverride = new Map<string, boolean>();
 		for (const s of n.subscriptions) {
+			if ((s.kind_group ?? 'alarms') !== 'alarms') continue;
 			if (s.site_id && !s.parameter_id) siteOverride.set(s.site_id, s.enabled);
 			else if (s.project_id && !s.site_id) projectOverride.set(s.project_id, s.enabled);
 		}
@@ -94,6 +112,7 @@
 			projects = p.data;
 			sites = s.data;
 			mutedSites = deriveMuted(n);
+			subscribedGroups = deriveGroups(n);
 
 			if (pushSupported) {
 				const sub = await getSubscription();
@@ -285,9 +304,9 @@
 	async function saveSubscriptions() {
 		busy = true;
 		try {
-			const overrides = [...mutedSites].map((site_id) => ({ site_id, enabled: false }));
-			me = await setMySubscriptions(overrides);
+			me = await setMySubscriptions(subscriptionRows(subscribedGroups, mutedSites));
 			mutedSites = deriveMuted(me);
+			subscribedGroups = deriveGroups(me);
 			toastStore.success('Subscriptions saved');
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Save failed');
@@ -476,18 +495,29 @@
 			<!-- Subscriptions -->
 			<div class="border border-brand-divider rounded-lg p-4">
 				<div class="flex items-center justify-between mb-1">
-					<div class="font-medium text-brand-text">Which sites alert you</div>
+					<div class="font-medium text-brand-text">What alerts you</div>
 					<Button size="sm" disabled={busy} onclick={saveSubscriptions}>Save</Button>
 				</div>
 				<p class="text-sm text-brand-text-muted mb-3">
-					You receive alerts for every site by default. Uncheck the ones you don't want.
+					Choose the alerts you want, then the sites they cover.
 				</p>
 
-				{#if projects.length === 0}
-					<p class="text-sm text-brand-text-muted">No sites available.</p>
-				{:else}
-					<div class="space-y-3">
-						{#each projects as project (project.id)}
+				<NotificationGroups bind:subscribed={subscribedGroups} {scopes} />
+			</div>
+		</section>
+	{/if}
+</div>
+
+{#snippet scopes(group: NotificationGroupId)}
+	{#if group === 'alarms'}
+		{#if projects.length === 0}
+			<p class="text-sm text-brand-text-muted">No sites available.</p>
+		{:else}
+			<p class="text-sm text-brand-text-muted mb-2">
+				Every site alerts you by default. Uncheck the ones you don't want.
+			</p>
+			<div class="space-y-3">
+				{#each projects as project (project.id)}
 							{@const projectSites = sitesByProject.get(project.id) ?? []}
 							{#if projectSites.length > 0}
 								{@const allOn = projectSites.every((s) => !mutedSites.has(s.id))}
@@ -516,10 +546,8 @@
 									</div>
 								</div>
 							{/if}
-						{/each}
-					</div>
-				{/if}
+		{/each}
 			</div>
-		</section>
+		{/if}
 	{/if}
-</div>
+{/snippet}

@@ -48,6 +48,7 @@
 	import JobsPanel from '$components/logs/JobsPanel.svelte';
 	import ApiAuditPanel from '$components/logs/ApiAuditPanel.svelte';
 	import SyncEventsPanel from '$components/logs/SyncEventsPanel.svelte';
+	import NotificationHealthNotice from '$components/notifications/NotificationHealthNotice.svelte';
 
 	// Local-only mode and the Administrator role both hold the admin capability. The API-audit /
 	// sync-events panels and schedule edits need admin; non-admins see a notice rather than failing
@@ -542,7 +543,8 @@
 	<Tabs tabs={tabLabels} bind:active={tab.index} />
 
 	{#if tab.key === 'status'}
-		<!-- Status: sync services -->
+		<!-- Status: sync services, and whether an alarm raised here would reach anyone -->
+		<NotificationHealthNotice enabled={isAdmin} />
 		{#if statusLoading}
 			<p class="text-brand-muted">Loading…</p>
 		{:else}
