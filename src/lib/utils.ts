@@ -246,6 +246,7 @@ export function holdKindLabel(kind: string): string {
 		case 'brake_fired': return 'brake fired';
 		case 'missing_output': return 'missing output';
 		case 'stale_output': return 'stale output';
+		case 'skipped_output': return 'skipped step';
 		case 'curve_claim_stripped': return 'curve stripped';
 		default: return kind.replace(/_/g, ' ');
 	}

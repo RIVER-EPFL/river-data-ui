@@ -336,6 +336,7 @@
 		brake_fired: holdKindLabel('brake_fired'),
 		missing_output: holdKindLabel('missing_output'),
 		stale_output: holdKindLabel('stale_output'),
+		skipped_output: holdKindLabel('skipped_output'),
 		curve_claim_stripped: holdKindLabel('curve_claim_stripped'),
 	};
 	const KIND_STYLE: Record<HoldKind, string> = {
@@ -344,6 +345,7 @@
 		brake_fired: 'bg-severity-alarm-soft text-severity-alarm',
 		missing_output: 'bg-severity-warning-soft text-severity-warning-text',
 		stale_output: 'bg-severity-warning-soft text-severity-warning-text',
+		skipped_output: 'bg-severity-warning-soft text-severity-warning-text',
 		curve_claim_stripped: 'bg-severity-warning-soft text-severity-warning-text',
 	};
 	const KIND_TIP: Record<HoldKind, string> = {
@@ -357,6 +359,8 @@
 			"The tool's declared inputs exist at this visit but its output was never saved.",
 		stale_output:
 			'The stored output disagrees with a recompute under the same pinned script version, typically after an upstream correction.',
+		skipped_output:
+			'A calculation did not run at this visit and its output is absent. The reason it stopped, an input that did not resolve or a script that raised, is recorded on the finding. The repair is a recompute once the cause is fixed.',
 		curve_claim_stripped:
 			"The source named a standard curve this reading cannot carry (fitted on a different instrument, or not a spot measurement). The values were stored uncorrected; the claim is recorded here. Fix the curve's instrument or the stream's, then re-sync to apply the correction.",
 	};
@@ -1285,7 +1289,7 @@
 			>
 				<Button variant="primary" disabled={acknowledging}>Acknowledge</Button>
 			</ConfirmPopover>
-		{:else if hold.status === 'pending' && (hold.kind === 'missing_output' || hold.kind === 'stale_output')}
+		{:else if hold.status === 'pending' && (hold.kind === 'missing_output' || hold.kind === 'stale_output' || hold.kind === 'skipped_output')}
 			{#if hold.site_id}
 				<ConfirmPopover
 					message="Recompute this visit? Every calculation whose inputs resolve there runs again and its outputs are rewritten; this finding closes if the run rewrites {hold.parameter_code ?? 'the output'}. Unchanged calculations are skipped."

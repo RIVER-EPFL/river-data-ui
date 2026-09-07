@@ -162,6 +162,7 @@
 		brake_fired: 'Reconciliation brake',
 		missing_output: 'Missing tool output',
 		stale_output: 'Stale tool output',
+		skipped_output: 'Calculation did not run',
 		curve_claim_stripped: 'Curve claim stripped',
 	};
 

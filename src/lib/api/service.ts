@@ -1426,6 +1426,7 @@ export type HoldKind =
 	| 'brake_fired'
 	| 'missing_output'
 	| 'stale_output'
+	| 'skipped_output'
 	| 'curve_claim_stripped';
 
 export interface ReplicateAuditHold {
@@ -1824,7 +1825,7 @@ export interface VisitCell {
 	/** Which divisor produced `stdev`, and what chose it ('default' is the fallback having applied). */
 	sd_estimator?: SdEstimator;
 	sd_estimator_source?: string;
-	finding?: 'missing_output' | 'stale_output' | string;
+	finding?: 'missing_output' | 'stale_output' | 'skipped_output' | string;
 	/** Open findings on this cell, when more than one. */
 	finding_count?: number;
 }

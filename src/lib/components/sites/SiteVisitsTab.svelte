@@ -182,6 +182,18 @@
 		void openVisit(id, true, parameterId);
 	}
 
+	/// The badge on a cell the audit or the executor has an open finding about.
+	function findingBadge(kind: string): string {
+		switch (kind) {
+			case 'stale_output':
+				return 'stale';
+			case 'skipped_output':
+				return 'skipped';
+			default:
+				return 'missing';
+		}
+	}
+
 	/// How a cell's readings reached the store. Absent a tool run they were not necessarily typed
 	/// by a person: an import and a batch are different answers to that question.
 	function originLabel(origin: string | undefined): string {
@@ -412,7 +424,7 @@
 											{@const cell = cellsById.get(col.parameter_id)}
 											<td
 												class="px-3 py-2 tabular-nums whitespace-nowrap
-													{cell?.finding === 'stale_output' ? 'bg-severity-warning-soft' : ''}
+													{cell?.finding === 'stale_output' || cell?.finding === 'skipped_output' ? 'bg-severity-warning-soft' : ''}
 													{cell?.withdrawn ? 'text-brand-muted line-through' : ''}
 													{cell?.flagged ? 'text-severity-warning' : ''}"
 											>
@@ -577,7 +589,7 @@
 																	</td>
 																	<td class="py-1">
 																		{#if cell.finding}
-																			<Badge variant="warning">{cell.finding.kind === 'stale_output' ? 'stale' : 'missing'}</Badge>
+																			<Badge variant="warning">{findingBadge(cell.finding.kind)}</Badge>
 																		{:else}
 																			<span class="text-brand-muted">-</span>
 																		{/if}
