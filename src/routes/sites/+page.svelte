@@ -13,6 +13,9 @@
 	import { me } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
+	import OriginBadge from '$components/crud/OriginBadge.svelte';
+	import OriginFilter from '$components/crud/OriginFilter.svelte';
+	import { originFilter, type Origin } from '$lib/origin';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import { formatCount } from '$lib/format';
 
@@ -26,6 +29,7 @@
 	let sortField = $state<string>('name');
 	let sortOrder = $state<'ASC' | 'DESC'>('ASC');
 	let searchFilter = $state('');
+	let origin = $state<Origin>('any');
 
 	// Historical-attribution backfill candidates, indexed by site.
 	let backfillBySite = $state<Map<string, BackfillSiteSummary>>(new Map());
@@ -102,7 +106,7 @@
 		loading = true;
 		error = null;
 		try {
-			const filter: Record<string, unknown> = {};
+			const filter: Record<string, unknown> = { ...originFilter(origin, 'discovered_at') };
 			if (searchFilter) filter.q = searchFilter;
 
 			const [result, projectResult, subprojectResult] = await Promise.all([
@@ -200,14 +204,16 @@
 		</div>
 	</div>
 
-	<!-- Search -->
-	<input
-		type="text"
-		placeholder="Search sites…"
-		bind:value={searchFilter}
-		oninput={() => { currentPage = 1; load(); }}
-		class="w-full max-w-sm px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
-	/>
+	<div class="flex flex-wrap items-center gap-2">
+		<input
+			type="text"
+			placeholder="Search sites…"
+			bind:value={searchFilter}
+			oninput={() => { currentPage = 1; load(); }}
+			class="w-full max-w-sm px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+		/>
+		<OriginFilter bind:value={origin} onchange={() => { currentPage = 1; load(); }} />
+	</div>
 
 	<!-- Table -->
 	<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
@@ -246,6 +252,7 @@
 								<a href="{base}/sites/{site.id}" class="text-brand-primary font-semibold no-underline hover:underline">
 									{site.name}
 								</a>
+								<span class="ml-1.5 align-middle inline-block"><OriginBadge discoveredAt={site.discovered_at} /></span>
 							</td>
 							<td class="px-4 py-2 text-brand-muted">{projectName(site.project_id)}</td>
 							<td class="px-4 py-2 text-brand-muted">{subprojectName(site.subproject_id)}</td>

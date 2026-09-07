@@ -9,6 +9,8 @@
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import CrudList from '$components/crud/CrudList.svelte';
+	import OriginFilter from '$components/crud/OriginFilter.svelte';
+	import { originFilter, type Origin } from '$lib/origin';
 	import type { Column, PageRequest } from '$components/crud/CrudList.svelte';
 	import CopyStandardCurvesDialog from '$components/dialogs/CopyStandardCurvesDialog.svelte';
 	import NewStandardCurveForm from './NewStandardCurveForm.svelte';
@@ -40,6 +42,11 @@
 	let copyOpen = $state(false);
 	let usage = $state<Record<string, SensorCurveUsage>>({});
 	let list = $state<ReturnType<typeof CrudList> | null>(null);
+	let origin = $state<Origin>('any');
+	// The source systems these curves were replicated from, which is what the filter can offer.
+	const curveSources = $derived([
+		...new Set(curves.map((c) => c.source_system).filter((s): s is string => !!s)),
+	]);
 
 	const canWrite = $derived(me.can('writeFieldMetadata'));
 	const existingNames = $derived(curves.map((c) => c.name).filter((n): n is string => !!n));
@@ -62,7 +69,7 @@
 		const res = await api.standardCurves.list({
 			page,
 			perPage,
-			filter: { sensor_id: sensorId },
+			filter: { sensor_id: sensorId, ...originFilter(origin, 'source_system') },
 			sort: ['created_at', 'DESC'],
 		});
 		curves = res.data;
@@ -233,6 +240,10 @@
 		actionsLabel="Actions"
 		rowClass={(c: StandardCurve) => (c.id === focusCurveId ? 'bg-brand-primary/5' : '')}
 	>
+		{#snippet filterBar({ reload }: { reload: () => void })}
+			<OriginFilter bind:value={origin} sources={curveSources} onchange={reload} />
+		{/snippet}
+
 		{#snippet empty()}
 			{#if !createOpen}
 				<div class="rounded-md border border-brand-divider bg-brand-surface px-4 py-8 text-center space-y-3">

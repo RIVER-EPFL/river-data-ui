@@ -7,6 +7,7 @@
 		retagSensorFrequency,
 		getCalibrationCandidates,
 		backfillCalibrations,
+		getUnpairedSummary,
 		type CalibrationBackfillCandidate,
 	} from '$api/service';
 	import { me } from '$auth/me.svelte';
@@ -19,6 +20,9 @@
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import CountList from '$components/ui/CountList.svelte';
 	import CrudList from '$components/crud/CrudList.svelte';
+	import OriginBadge from '$components/crud/OriginBadge.svelte';
+	import OriginFilter from '$components/crud/OriginFilter.svelte';
+	import { originFilter, type Origin } from '$lib/origin';
 	import type { Column, PageRequest } from '$components/crud/CrudList.svelte';
 	import { formatCount } from '$lib/format';
 
@@ -29,6 +33,9 @@
 	let list = $state<ReturnType<typeof CrudList> | null>(null);
 	let searchQuery = $state('');
 	let filterActive = $state<'' | 'true' | 'false'>('');
+	let origin = $state<Origin>('any');
+	// The source systems that exist, so the origin filter offers the ones a row can actually name.
+	let sourceSystems = $state<string[]>([]);
 	let quickFilter = $state<'' | 'undeployed' | 'no_curves'>('');
 	// The Field/Lab chip is deep-linkable (?type=lab|field) so the old /instruments URL forwards here.
 	const initialType = page.url.searchParams.get('type');
@@ -58,7 +65,7 @@
 	const perPage = 25;
 
 	async function loadSensors({ page: p, perPage: pp, sort }: PageRequest) {
-		const filter: Record<string, unknown> = {};
+		const filter: Record<string, unknown> = { ...originFilter(origin, 'source_system') };
 		if (searchQuery) filter.q = searchQuery;
 		if (filterActive) filter.is_active = filterActive === 'true';
 		if (filterMode === 'field') filter.kind = 'device';
@@ -237,6 +244,11 @@
 		}
 		void loadCurveCounts();
 		void loadCalBackfill();
+		try {
+			sourceSystems = (await getUnpairedSummary()).map((r) => r.source_system);
+		} catch {
+			sourceSystems = [];
+		}
 	});
 </script>
 
@@ -284,6 +296,7 @@
 			<option value="true">Active</option>
 			<option value="false">Inactive</option>
 		</select>
+		<OriginFilter bind:value={origin} sources={sourceSystems} onchange={() => list?.reload()} />
 		<select bind:value={quickFilter} onchange={() => list?.refresh()} title="Applied within the current page"
 			class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm">
 			<option value="">No quick filter</option>
@@ -364,9 +377,7 @@
 				{row.name ?? 'None'}
 			{:else if column.key === 'kind'}
 				<Badge variant={isBookkeeping(row) ? 'default' : row.is_lab_instrument === true ? 'accent' : 'default'}>{kindLabel(row)}</Badge>
-				{#if row.source_system}
-					<Badge variant="muted">from {row.source_system}</Badge>
-				{/if}
+				<OriginBadge sourceSystem={row.source_system} />
 			{:else if column.key === 'data_frequency'}
 				{@const isLow = row.data_frequency === 'low'}
 				<Badge variant={isLow ? 'accent' : 'muted'}>{isLow ? 'Low' : 'High'}</Badge>

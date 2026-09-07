@@ -112,6 +112,8 @@ export interface Site {
 	altitude_m: number | null;
 	public_code: string | null;
 	created_at: string;
+	/** Stamped when a sync minted the site; null means it was entered by hand. */
+	discovered_at: string | null;
 }
 
 export interface Parameter {
@@ -174,6 +176,8 @@ export interface SiteParameter {
 	/** 'sample' | 'population' | null (undeclared). Changed only through the declare endpoint. */
 	sd_estimator: string | null;
 	created_at: string;
+	/** Stamped when a sync minted the slot; null means it was entered by hand. */
+	discovered_at: string | null;
 }
 
 export interface Sensor {
