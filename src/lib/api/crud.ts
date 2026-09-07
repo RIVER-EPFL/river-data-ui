@@ -230,6 +230,11 @@ export interface SensorCalibration {
 	notes: string | null;
 	created_at: string;
 	updated_at: string;
+	/** When the curve was taken out of circulation: it is never resolved for a reading again and
+	 *  never bounds another curve's window. The row and the readings it corrected stay. */
+	retired_at: string | null;
+	retired_by: string | null;
+	retired_reason: string | null;
 }
 
 /**
@@ -262,6 +267,11 @@ export interface StandardCurve {
 	source_key: string | null;
 	/** The curve this one was copied from, stated by whoever made the copy. Frozen once stored. */
 	copied_from_id: string | null;
+	/** When the lab took the curve out of circulation. It is no longer offered for a new
+	 *  measurement; the readings it corrected keep it and their values. */
+	retired_at: string | null;
+	retired_by: string | null;
+	retired_reason: string | null;
 }
 
 export interface SensorDeployment {

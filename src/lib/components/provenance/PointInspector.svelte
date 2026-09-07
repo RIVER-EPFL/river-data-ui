@@ -386,6 +386,9 @@
 			<span>{formatEquation(r.calibration.slope, r.calibration.intercept)}</span>
 		{/if}
 		<span class="text-xs text-brand-muted">{calibrationWindow(r.calibration)}</span>
+		{#if r.calibration.retired_at}
+			<span class="text-xs text-brand-muted" title="This curve was retired. The value it produced stands; no new measurement resolves it.">Retired {formatDateTime(r.calibration.retired_at)}</span>
+		{/if}
 	{:else}
 		{NO_VALUE}
 	{/if}
@@ -400,6 +403,9 @@
 			>{curveLabel({ id: r.standard_curve.id, name: r.standard_curve.name ?? null })}</a
 		>
 		<span class="text-xs text-brand-muted">{formatEquation(r.standard_curve.slope, r.standard_curve.intercept)}</span>
+		{#if r.standard_curve.retired_at}
+			<span class="text-xs text-brand-muted" title="The lab retired this curve. The value it produced stands; it is no longer offered for a new measurement.">Retired {formatDateTime(r.standard_curve.retired_at)}</span>
+		{/if}
 	{:else}
 		{NO_VALUE}
 	{/if}

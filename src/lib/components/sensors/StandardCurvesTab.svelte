@@ -1,6 +1,11 @@
 <script lang="ts">
 	import { api, type StandardCurve } from '$api/crud';
-	import { getSensorCurveUsage, type SensorCurveUsage } from '$api/service';
+	import {
+		getSensorCurveUsage,
+		retireStandardCurve,
+		unretireStandardCurve,
+		type SensorCurveUsage,
+	} from '$api/service';
 	import { ApiError } from '$api/client';
 	import { me } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
@@ -187,6 +192,34 @@
 		}
 	}
 
+	// ─── Retire, which is how a curve leaves circulation ───
+	// A used curve cannot be deleted and must not stay in the picker forever: retiring it takes it
+	// out of the picker and changes no stored value, because a standard curve is named by the
+	// reading rather than resolved by time.
+	async function retire(curve: StandardCurve) {
+		try {
+			await retireStandardCurve(curve.id);
+			toastStore.success(
+				`Curve retired. ${usedCount(curve)} reading${usedCount(curve) === 1 ? '' : 's'} keep it and their values.`,
+			);
+			rowError = null;
+			list?.refresh();
+		} catch (e) {
+			rowError = { id: curve.id, message: apiMessage(e), seed: null };
+		}
+	}
+
+	async function unretire(curve: StandardCurve) {
+		try {
+			await unretireStandardCurve(curve.id);
+			toastStore.success('Curve is offered again');
+			rowError = null;
+			list?.refresh();
+		} catch (e) {
+			rowError = { id: curve.id, message: apiMessage(e), seed: null };
+		}
+	}
+
 	function correctedCopyFrom(curve: StandardCurve) {
 		const seed = rowError?.seed ?? undefined;
 		editingId = null;
@@ -265,6 +298,12 @@
 		{#snippet cell({ column, row, text }: { column: Column; row: StandardCurve; text: string })}
 			{#if column.key === 'name'}
 				{curveLabel(row)}
+				{#if row.retired_at}
+					<span
+						class="ml-2 rounded bg-brand-bg px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-brand-muted"
+						title={`Retired ${formatDateTime(row.retired_at)}${row.retired_reason ? `: ${row.retired_reason}` : ''}. It is no longer offered for a new measurement.`}
+					>Retired</span>
+				{/if}
 			{:else if column.key === 'source'}
 				{curveOrigin(row)}
 			{:else if column.key === 'equation'}
@@ -330,6 +369,23 @@
 	<div class="flex gap-3">
 		<Button variant="ghost" size="sm" class="text-brand-primary" onclick={() => openDuplicate(curve)}>Duplicate</Button>
 		<Button variant="ghost" size="sm" class="text-brand-primary" disabled={!!curve.source_system} title={curve.source_system ? `Replicated from ${curve.source_system}; the next sync cycle re-asserts its coefficients, so an edit here would not survive. Correct it in the portal.` : frozenTitle(curve)} onclick={() => (editingId === curve.id ? (editingId = null) : startEdit(curve))}>{editingId === curve.id ? 'Close' : 'Edit'}</Button>
+		{#if curve.retired_at}
+			<ConfirmPopover
+				message="Offer this curve again? It returns to the picker for new measurements. Nothing stored changes."
+				confirmLabel="Unretire"
+				onconfirm={() => unretire(curve)}
+			>
+				<Button variant="ghost" size="sm" class="text-brand-primary">Unretire</Button>
+			</ConfirmPopover>
+		{:else}
+			<ConfirmPopover
+				message={`Retire this curve? It stops being offered for new measurements. The ${usedCount(curve)} reading${usedCount(curve) === 1 ? '' : 's'} corrected with it keep it and keep their values, the row and its provenance stay, and retiring is reversible.`}
+				confirmLabel="Retire"
+				onconfirm={() => retire(curve)}
+			>
+				<Button variant="ghost" size="sm" class="text-brand-primary">Retire</Button>
+			</ConfirmPopover>
+		{/if}
 		{#if usedCount(curve) > 0}
 			<Button variant="ghost" size="sm" class="text-severity-alarm" disabled title={frozenTitle(curve)}>Delete</Button>
 		{:else}

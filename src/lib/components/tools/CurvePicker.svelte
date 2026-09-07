@@ -139,7 +139,9 @@
 				filter: { sensor_id: sensorId },
 				sort: ['fitted_on', 'DESC'],
 			});
-			curves = res.data;
+			// A retired curve is out of circulation: the lab has finished with it, so it is not
+			// offered for a new measurement. The readings already corrected with it keep it.
+			curves = res.data.filter((c) => !c.retired_at);
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Failed to load standard curves');
 		} finally {

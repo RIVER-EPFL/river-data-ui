@@ -882,6 +882,51 @@ export interface SensorCurveUsage {
 export const getSensorCurveUsage = (sensorId: string) =>
 	GET<{ sensor_id: string; usage: SensorCurveUsage[] }>(`${SERVICE}/sensors/${sensorId}/curve_usage`);
 
+// Retiring a curve. A calibration's retirement moves the readings it corrected onto whatever else
+// covers them, so the action states what it will do before it runs; a standard curve's changes no
+// stored value and only takes it out of the picker. Both are reversible.
+export interface CalibrationRetirement {
+	calibration_id: string;
+	sensor_id: string;
+	retired_at: string | null;
+	set_id: string | null;
+	readings: number;
+	repointed: number;
+	uncorrected: number;
+	pinned: number;
+	dry_run: boolean;
+}
+
+export const previewCalibrationRetirement = (calibrationId: string) =>
+	POST<CalibrationRetirement>(`${SERVICE}/sensor_calibrations/${calibrationId}/retire`, {
+		dry_run: true,
+	});
+
+export const retireCalibration = (calibrationId: string, reason?: string) =>
+	POST<CalibrationRetirement>(`${SERVICE}/sensor_calibrations/${calibrationId}/retire`, {
+		...(reason ? { reason } : {}),
+	});
+
+export const unretireCalibration = (calibrationId: string) =>
+	POST<{ calibration_id: string; sensor_id: string; set_id: string | null; restored: number }>(
+		`${SERVICE}/sensor_calibrations/${calibrationId}/unretire`,
+		{},
+	);
+
+export interface StandardCurveRetirement {
+	standard_curve_id: string;
+	retired_at: string | null;
+	readings: number;
+}
+
+export const retireStandardCurve = (curveId: string, reason?: string) =>
+	POST<StandardCurveRetirement>(`${SERVICE}/standard_curves/${curveId}/retire`, {
+		...(reason ? { reason } : {}),
+	});
+
+export const unretireStandardCurve = (curveId: string) =>
+	POST<StandardCurveRetirement>(`${SERVICE}/standard_curves/${curveId}/unretire`, {});
+
 // Sync
 export interface SyncService {
 	id: string;
@@ -1705,6 +1750,9 @@ export interface ProvenanceCalibrationRef {
 	intercept: number;
 	valid_from: string;
 	valid_until?: string;
+	/** Set when the curve has been retired: the reading keeps the value it produced, and no new
+	 *  measurement resolves it. */
+	retired_at?: string;
 }
 
 export interface ProvenanceCurveRef {
@@ -1714,6 +1762,8 @@ export interface ProvenanceCurveRef {
 	name?: string;
 	slope: number;
 	intercept: number;
+	/** Set when the lab has taken the curve out of circulation. The value stands. */
+	retired_at?: string;
 }
 
 export interface ProvenanceReading {

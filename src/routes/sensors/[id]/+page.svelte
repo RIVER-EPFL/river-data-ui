@@ -3,7 +3,7 @@
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
 	import { api, type Sensor, type SensorCalibration, type SensorDeployment, type Site, type Parameter } from '$api/crud';
-	import { recalibrateCalibration, rollbackDeployment, reprocessSensor, retagSensorFrequency, getCalibrationCandidates } from '$api/service';
+	import { recalibrateCalibration, rollbackDeployment, reprocessSensor, retagSensorFrequency, getCalibrationCandidates, previewCalibrationRetirement, retireCalibration, unretireCalibration, type CalibrationRetirement } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatDateTime, formatDate, toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
 	import { formatEquation } from '$lib/standardCurves';
@@ -12,6 +12,7 @@
 	import Tabs from '$components/ui/Tabs.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
+	import Dialog from '$components/ui/Dialog.svelte';
 	import DeployMoveSensorDialog from '$components/dialogs/DeployMoveSensorDialog.svelte';
 	import SensorSeriesChart from '$components/charts/SensorSeriesChart.svelte';
 	import CalibrationWindowEditor from '$components/charts/CalibrationWindowEditor.svelte';
@@ -160,6 +161,51 @@
 			sort: ['deployed_from', 'DESC'],
 		});
 		deployments = deps.data;
+	}
+
+	// ─── Retiring a curve ───
+	// A curve that corrected readings is retired rather than deleted (Q107): its readings move onto
+	// whatever else covers them and the row stays. The consequence is read from the same endpoint
+	// the action uses, so the sentence and the act cannot disagree.
+	let retiring = $state<CalibrationRetirement | null>(null);
+	let retireBusy = $state(false);
+
+	async function openRetire(calibrationId: string) {
+		retiring = null;
+		try {
+			retiring = await previewCalibrationRetirement(calibrationId);
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Could not read what retiring would do');
+		}
+	}
+
+	async function confirmRetire() {
+		if (!retiring) return;
+		retireBusy = true;
+		try {
+			const done = await retireCalibration(retiring.calibration_id);
+			toastStore.success(
+				`Curve retired. ${done.repointed} reading${done.repointed === 1 ? '' : 's'} moved onto another curve, ${done.uncorrected} left uncorrected.`,
+			);
+			retiring = null;
+			await reloadCalibrations();
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Retiring failed');
+		} finally {
+			retireBusy = false;
+		}
+	}
+
+	async function handleUnretire(calibrationId: string) {
+		try {
+			const done = await unretireCalibration(calibrationId);
+			toastStore.success(
+				`Curve is in circulation again; ${done.restored} decision${done.restored === 1 ? '' : 's'} inverted.`,
+			);
+			await reloadCalibrations();
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Unretiring failed');
+		}
 	}
 
 	async function reloadCalibrations() {
@@ -550,7 +596,12 @@
 					<tbody>
 						{#each calibrations as cal}
 							<tr class="border-b border-brand-divider last:border-b-0">
-								<td class="px-4 py-2 text-xs">{formatDateTime(cal.valid_from)}</td>
+								<td class="px-4 py-2 text-xs">
+									{formatDateTime(cal.valid_from)}
+									{#if cal.retired_at}
+										<span class="ml-2 rounded bg-brand-bg px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-brand-muted" title={`Retired ${formatDateTime(cal.retired_at)}${cal.retired_reason ? `: ${cal.retired_reason}` : ''}. It covers nothing and is never resolved again.`}>Retired</span>
+									{/if}
+								</td>
 								<td class="px-4 py-2 text-xs text-brand-muted">{cal.valid_until ? formatDateTime(cal.valid_until) : 'None'}</td>
 								<td class="px-4 py-2 font-mono text-xs">{cal.slope}</td>
 								<td class="px-4 py-2 font-mono text-xs">{cal.intercept}</td>
@@ -558,6 +609,11 @@
 								<td class="px-4 py-2 space-x-3">
 									<Button variant="ghost" size="sm" class="text-brand-primary" onclick={() => editingCalId = editingCalId === cal.id ? null : cal.id}>{editingCalId === cal.id ? 'Close' : 'Edit window'}</Button>
 									<Button variant="ghost" size="sm" class="text-brand-primary" onclick={() => handleRecalibrate(cal.id)}>Reprocess</Button>
+									{#if cal.retired_at}
+										<Button variant="ghost" size="sm" class="text-brand-primary" onclick={() => handleUnretire(cal.id)}>Unretire</Button>
+									{:else}
+										<Button variant="ghost" size="sm" class="text-severity-alarm" onclick={() => openRetire(cal.id)}>Retire</Button>
+									{/if}
 								</td>
 							</tr>
 							{#if editingCalId === cal.id}
@@ -596,4 +652,33 @@
 	{#if sensor}
 		<AdoptSensorDialog bind:open={adoptOpen} {sensor} {sites} {parameters} onsuccess={reloadDeployments} />
 	{/if}
+{/if}
+
+{#if retiring}
+	<Dialog open title="Retire this curve?">
+		<div class="space-y-3 text-sm">
+			<p>
+				<strong>{retiring.readings}</strong> reading{retiring.readings === 1 ? ' is' : 's are'} corrected
+				with this curve.
+			</p>
+			<ul class="list-disc pl-5 text-brand-muted space-y-1">
+				<li>{retiring.repointed} move onto whichever remaining curve covers them, value recomputed.</li>
+				<li>{retiring.uncorrected} end up with no correction, because no other curve covers them.</li>
+				{#if retiring.pinned > 0}
+					<li>{retiring.pinned} pinned to this curve by hand keep it, and it keeps them.</li>
+				{/if}
+			</ul>
+			<p class="text-xs text-brand-muted">
+				The curve, its coefficients and its provenance stay. It stops being resolved for any reading
+				and stops bounding its neighbours' windows. Reversible: unretiring puts every reading back on
+				it at the value it produced.
+			</p>
+			<div class="flex justify-end gap-2">
+				<Button variant="ghost" onclick={() => (retiring = null)}>Cancel</Button>
+				<Button variant="primary" disabled={retireBusy} onclick={confirmRetire}>
+					{retireBusy ? 'Retiring…' : 'Retire'}
+				</Button>
+			</div>
+		</div>
+	</Dialog>
 {/if}
