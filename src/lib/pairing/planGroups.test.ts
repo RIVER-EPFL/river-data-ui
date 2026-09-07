@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { PairingPlanEntry } from '$api/service';
 import {
+	creations,
 	familySummary,
 	instrumentGroups,
 	paramGroups,
@@ -164,5 +165,77 @@ describe('sdDecisions', () => {
 
 	it('ignores a family whose source ships no sd column', () => {
 		expect(sdDecisions([entry({ replicates: { member_columns: ['a'] } as never })])).toEqual([]);
+	});
+});
+
+describe('creations', () => {
+	const site = (name: string, over: Record<string, unknown> = {}) => ({
+		id: null,
+		name,
+		create: true,
+		latitude: 46.25,
+		longitude: 7.75,
+		altitude_m: 1,
+		...over,
+	});
+
+	it('lists a site once however many feeds name it, and carries its attributes', () => {
+		const made = creations([
+			entry({ stream_id: 'a', site: site('WrongElevation') as never }),
+			entry({ stream_id: 'b', site: site('WrongElevation') as never }),
+		]);
+		expect(made.sites).toEqual([
+			{
+				name: 'WrongElevation',
+				latitude: 46.25,
+				longitude: 7.75,
+				altitudeM: 1,
+				anchorStreamId: 'a',
+				streamCount: 2,
+			},
+		]);
+	});
+
+	it('leaves out what the plan resolved to something that already exists', () => {
+		const made = creations([
+			entry({ site: site('Known', { create: false, id: 's1' }) as never }),
+			entry({ stream_id: 'b', parameter: { ...entry().parameter, create: false } }),
+		]);
+		expect(made.sites).toEqual([]);
+		expect(made.parameters).toEqual([]);
+		expect(made.projects).toEqual([]);
+	});
+
+	it('leaves out entries the plan will skip', () => {
+		const made = creations([
+			entry({ action: 'skip', site: site('Skipped') as never }),
+		]);
+		expect(made.sites).toEqual([]);
+	});
+
+	it('counts a parameter once per name and units, over the sites it lands at', () => {
+		const param = (units: string) => ({ ...entry().parameter, create: true, units });
+		const made = creations([
+			entry({ stream_id: 'a', parameter: param('mm') }),
+			entry({ stream_id: 'b', parameter: param('mm'), site: site('Saxon') as never }),
+			entry({ stream_id: 'c', parameter: param('m') }),
+		]);
+		expect(made.parameters).toEqual([
+			{ name: 'Depth', units: 'm', siteCount: 1 },
+			{ name: 'Depth', units: 'mm', siteCount: 2 },
+		]);
+	});
+
+	it('lists an instrument once per instrument, not once per entry', () => {
+		const proposal = { id: null, name: 'DOC', source_key: 'cnet:DOC', create: true } as never;
+		const made = creations([
+			entry({ stream_id: 'a', instrument: proposal }),
+			entry({ stream_id: 'b', instrument: proposal }),
+			entry({
+				stream_id: 'c',
+				instrument: { id: 'existing', name: 'Probe', source_key: 'cnet:P', create: false } as never,
+			}),
+		]);
+		expect(made.instruments).toEqual(['DOC']);
 	});
 });

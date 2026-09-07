@@ -23,6 +23,7 @@
 		instrumentStatus,
 		instrumentRowId,
 		onchoose,
+		onattach,
 		onacceptall,
 		nameField,
 	}: {
@@ -39,6 +40,8 @@
 		/** The row's DOM id, so a question elsewhere in the wizard can scroll to it. */
 		instrumentRowId: (scope: string) => string;
 		onchoose: (d: InstrumentDecision, value: string) => void;
+		/** Attach the named existing instrument, the other half of a name collision. */
+		onattach: (d: InstrumentDecision, instrumentId: string) => void;
 		onacceptall: () => void;
 		/** The inline name editor, shared with the Parameters tab, so it is defined once. */
 		nameField: Snippet<[string, string, string, PlanInstrumentGroup | null]>;
@@ -146,6 +149,38 @@
 									</div>
 								{:else if d.group}
 									<div class="text-[11px] text-brand-muted mt-0.5">Corrected upstream; the curve is not re-applied</div>
+								{/if}
+								{#if d.nameConflict}
+									<div class="mt-1.5 rounded border border-severity-warning-border bg-severity-warning-soft p-2 text-[11px] text-severity-warning-text space-y-1.5">
+										<div>
+											<span class="font-semibold">{d.nameConflict.name}</span> already exists{d
+												.nameConflict.source_system
+												? ` (from ${d.nameConflict.source_system})`
+												: ''}.
+											{#if d.nameConflict.has_readings}
+												<strong>It already holds readings</strong>, and attaching adds these to them.
+											{:else}
+												It holds no readings yet.
+											{/if}
+										</div>
+										<div class="flex flex-wrap gap-1.5">
+											<Button
+												size="sm"
+												onclick={() => onattach(d, d.nameConflict!.id)}
+												title="These feeds' readings are added to the instrument that already carries this name"
+											>
+												Attach to it
+											</Button>
+											<Button
+												size="sm"
+												variant="ghost"
+												onclick={() => onchoose(d, `new:${d.proposedName}`)}
+												title="A second instrument is created under the same name; the two are told apart by their source"
+											>
+												Create a second one
+											</Button>
+										</div>
+									</div>
 								{/if}
 							</td>
 							<td class="px-3 py-2">

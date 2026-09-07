@@ -27,7 +27,9 @@
 		paramGroups as planParamGroups,
 		sdDecisions as planSdDecisions,
 		type InstrumentDecision,
+		creations,
 		type ParamGroup,
+		type SiteCreation,
 		type SiteGroup,
 	} from '$lib/pairing/planGroups';
 	import { toastStore } from '$lib/stores/toast.svelte';
@@ -321,6 +323,7 @@
 				scope: u.scope,
 				name: u.suggested_name,
 				proposedName: u.suggested_name,
+				nameConflict: u.name_conflict ?? null,
 				group: null,
 				parameters: [u.parameter],
 				siteCount: u.site_count,
@@ -335,6 +338,7 @@
 				scope: g.scope ?? g.parameters[0] ?? g.name,
 				name: g.name,
 				proposedName: g.proposed_name ?? g.name,
+				nameConflict: g.name_conflict ?? null,
 				group: g,
 				parameters: g.parameters,
 				siteCount: g.site_count,
@@ -441,6 +445,22 @@
 	}
 
 	const familySummary = $derived(planFamilySummary(planEntries));
+
+	// What the apply will create, as rows. A site is created once and everything measured there
+	// inherits where it is, so a wrong coordinate is corrected before the apply, not after.
+	const created = $derived(creations(planEntries));
+
+	function correctSiteAttribute(
+		site: SiteCreation,
+		field: 'latitude' | 'longitude' | 'altitudeM',
+		value: number | null,
+	) {
+		const key = { latitude: 'site_latitude', longitude: 'site_longitude', altitudeM: 'site_altitude_m' }[field];
+		queueUpdate([{ stream_id: site.anchorStreamId, [key]: value }]);
+		void flushUpdates().catch(() => {
+			/* the toast from the failed flush is the signal */
+		});
+	}
 
 	// ── Consolidated parameter view ──
 	// One parameter row's status, read from the entries under it by the predicate the site rows
@@ -634,7 +654,16 @@
 	// The suggestions as a set: one click rather than one per parameter, the same decision either
 	// way since each carries its own suggested name.
 	async function acceptAllSuggestions() {
-		const rows = planInstruments?.unassigned ?? [];
+		// A suggestion whose name an instrument already carries is a decision, not a suggestion:
+		// accepting it in bulk is how a second `DOC` gets created without anyone reading the row.
+		const all = planInstruments?.unassigned ?? [];
+		const rows = all.filter((u) => !u.name_conflict);
+		const held = all.length - rows.length;
+		if (held > 0) {
+			toastStore.info(
+				`${held} suggestion${held === 1 ? '' : 's'} left for you: the name is already an instrument, so attaching or creating a second one is your call.`,
+			);
+		}
 		if (rows.length === 0) return;
 		acceptingSuggestions = true;
 		try {
@@ -2068,6 +2097,7 @@
 						{instrumentStatus}
 						{instrumentRowId}
 						onchoose={chooseInstrument}
+						onattach={(d, id) => void repointInstrument(d.anchorStreamId, id)}
 						onacceptall={acceptAllSuggestions}
 						nameField={instrumentNameField}
 					/>
@@ -2185,6 +2215,8 @@
 	<ConfirmStep
 		{plan}
 		{summary}
+		{created}
+		onsiteattribute={correctSiteAttribute}
 		{reviewProgress}
 		{familySummary}
 		planDeviceCount={planDevices.length}

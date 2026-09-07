@@ -1147,6 +1147,11 @@ export interface PlanEntryUpdate {
 	action?: string;
 	project_name?: string;
 	site_name?: string;
+	// Where the apply will put a site it creates. Ignored once the entry resolves to a site that
+	// exists: that site's own page owns its attributes. Null clears the value.
+	site_latitude?: number | null;
+	site_longitude?: number | null;
+	site_altitude_m?: number | null;
 	parameter_name?: string;
 	parameter_units?: string;
 	// Display label for a parameter the plan will create; ignored for matched existing parameters.
@@ -1211,6 +1216,17 @@ export interface PlanInstrumentGroup {
 	curves: PlanCurveRef[];
 	// What this decision proposed creating, kept through an attach so the picker can offer it back.
 	proposed_name?: string | null;
+	name_conflict?: InstrumentNameConflict | null;
+}
+
+/** An instrument already carrying a proposed name, so the proposal is a choice rather than a
+ *  suggestion: attach to it, or create a second one beside it. */
+export interface InstrumentNameConflict {
+	id: string;
+	name: string;
+	source_system: string | null;
+	/** True when it already holds readings; attaching adds to them. */
+	has_readings: boolean;
 }
 
 export interface PlanUnassignedParameter {
@@ -1222,6 +1238,7 @@ export interface PlanUnassignedParameter {
 	// The name an instrument for this parameter would get. Accepting it creates the instrument;
 	// nothing is minted from a suggestion alone.
 	suggested_name: string;
+	name_conflict?: InstrumentNameConflict | null;
 }
 
 // A standard curve the source replicated, and the instrument it is currently fitted on.

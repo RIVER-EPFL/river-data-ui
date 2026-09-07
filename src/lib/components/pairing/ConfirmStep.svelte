@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { base } from '$app/paths';
 	import type { PairingPlan } from '$api/service';
+	import type { Creations, SiteCreation } from '$lib/pairing/planGroups';
 	import Button from '$components/ui/Button.svelte';
 	import { formatCount } from '$lib/format';
 
@@ -13,6 +14,8 @@
 		familySummary,
 		planDeviceCount,
 		openInstrumentQuestions,
+		created,
+		onsiteattribute,
 		undeclaredEstimatorCount,
 		undeclaredEstimatorFamilies,
 		applying,
@@ -47,6 +50,14 @@
 		familySummary: { streams: number; columns: number };
 		planDeviceCount: number;
 		openInstrumentQuestions: number;
+		/** What the apply will create, as rows: a count says how many, only these say which. */
+		created: Creations;
+		/** Correct one attribute of a site the apply has not created yet. */
+		onsiteattribute: (
+			site: SiteCreation,
+			field: 'latitude' | 'longitude' | 'altitudeM',
+			value: number | null,
+		) => void;
 		/** Parameters whose divisor nobody declared; the apply leaves them undeclared. */
 		undeclaredEstimatorCount: number;
 		undeclaredEstimatorFamilies: Array<{ paramName: string; sdColumn: string; sites: number }>;
@@ -62,6 +73,43 @@
 		ongotosites: (filter: 'needs_checking' | 'self_validated') => void;
 	} = $props();
 </script>
+
+{#snippet countCard(label: string, count: number, rows: string[])}
+	<div class="p-3 bg-brand-bg rounded">
+		<span class="text-brand-muted block text-xs">{label}</span>
+		{#if rows.length > 0}
+			<details>
+				<summary class="cursor-pointer list-none">
+					<span class="text-lg font-semibold text-brand-primary">{count}</span>
+					<span class="text-[11px] text-brand-muted ml-1">which?</span>
+				</summary>
+				<ul class="mt-1 space-y-0.5 text-xs list-none p-0 max-h-40 overflow-y-auto">
+					{#each rows as row (row)}
+						<li class="text-brand-muted">{row}</li>
+					{/each}
+				</ul>
+			</details>
+		{:else}
+			<span class="text-lg font-semibold">{count}</span>
+		{/if}
+	</div>
+{/snippet}
+
+{#snippet coordinate(site: SiteCreation, field: 'latitude' | 'longitude' | 'altitudeM', value: number | null)}
+	<td class="py-1 pr-2">
+		<input
+			type="number"
+			step="any"
+			class="w-24 rounded border border-brand-divider bg-brand-surface px-1 py-0.5 text-xs"
+			aria-label="{field === 'altitudeM' ? 'Elevation' : field} for {site.name}"
+			{value}
+			onchange={(e) => {
+				const raw = (e.currentTarget as HTMLInputElement).value.trim();
+				onsiteattribute(site, field, raw === '' ? null : Number(raw));
+			}}
+		/>
+	</td>
+{/snippet}
 
 <div class="space-y-4 max-w-xl mx-auto">
 	<div class="flex items-center gap-3">
@@ -86,10 +134,14 @@
 		<div class="grid grid-cols-2 gap-3 text-sm">
 			<div class="p-3 bg-brand-bg rounded"><span class="text-brand-muted block text-xs">Pair streams</span><span class="text-lg font-semibold text-severity-ok">{formatCount(summary.toPair)}</span></div>
 			<div class="p-3 bg-brand-bg rounded"><span class="text-brand-muted block text-xs">Skip streams</span><span class="text-lg font-semibold">{formatCount(summary.toSkip)}</span></div>
-			<div class="p-3 bg-brand-bg rounded"><span class="text-brand-muted block text-xs">Create projects</span><span class="text-lg font-semibold">{summary.newProjects}</span></div>
-			<div class="p-3 bg-brand-bg rounded"><span class="text-brand-muted block text-xs">Create sites</span><span class="text-lg font-semibold">{summary.newSites}</span></div>
-			<div class="p-3 bg-brand-bg rounded"><span class="text-brand-muted block text-xs">Create parameters</span><span class="text-lg font-semibold">{summary.newParams}</span></div>
-			<div class="p-3 bg-brand-bg rounded"><span class="text-brand-muted block text-xs">Create instruments</span><span class="text-lg font-semibold">{plan.summary.instruments_to_create}</span></div>
+			{@render countCard('Create projects', summary.newProjects, created.projects)}
+			{@render countCard('Create sites', summary.newSites, created.sites.map((s) => s.name))}
+			{@render countCard(
+				'Create parameters',
+				summary.newParams,
+				created.parameters.map((p) => (p.units ? `${p.name} (${p.units})` : p.name)),
+			)}
+			{@render countCard('Create instruments', plan.summary.instruments_to_create, created.instruments)}
 			{#if planDeviceCount > 0}
 				<div class="p-3 bg-brand-bg rounded" title="Each device is attached to its feeds and deployed at its site, one deployment per parameter it serves">
 					<span class="text-brand-muted block text-xs">Attach devices</span>
@@ -100,6 +152,38 @@
 				<div class="p-3 bg-severity-warning-soft rounded"><span class="text-severity-warning block text-xs">Warnings</span><span class="text-lg font-semibold text-severity-warning">{summary.warnings}</span></div>
 			{/if}
 		</div>
+
+		{#if created.sites.length > 0}
+			<details class="rounded-md border border-brand-divider bg-brand-bg p-3 text-xs">
+				<summary class="cursor-pointer text-brand-primary">
+					Check the {created.sites.length === 1 ? 'site' : `${created.sites.length} sites`} before they are created
+				</summary>
+				<p class="text-brand-muted mt-2">
+					A site is created once, and everything measured there inherits where it is. A value the
+					source recorded wrong is corrected here; leaving a field blank creates the site without it.
+				</p>
+				<table class="w-full mt-2">
+					<thead><tr class="text-brand-muted text-left">
+						<th class="py-1 pr-2 font-semibold">Site</th>
+						<th class="py-1 pr-2 font-semibold">Latitude</th>
+						<th class="py-1 pr-2 font-semibold">Longitude</th>
+						<th class="py-1 pr-2 font-semibold">Elevation (m)</th>
+						<th class="py-1 font-semibold">Feeds</th>
+					</tr></thead>
+					<tbody>
+						{#each created.sites as site (site.name)}
+							<tr class="border-t border-brand-divider">
+								<td class="py-1 pr-2">{site.name}</td>
+								{@render coordinate(site, 'latitude', site.latitude)}
+								{@render coordinate(site, 'longitude', site.longitude)}
+								{@render coordinate(site, 'altitudeM', site.altitudeM)}
+								<td class="py-1 text-brand-muted">{site.streamCount}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</details>
+		{/if}
 
 		{#if familySummary.streams > 0}
 			<p class="text-xs text-brand-muted">
@@ -166,9 +250,23 @@
 
 		<div class="flex gap-3 pt-2">
 			<Button onclick={() => onback()} class="px-4 py-2">Back to Review</Button>
-			<Button variant="primary" onclick={onapply} disabled={applying} class="px-4 py-2 font-semibold">
+			<Button
+				variant="primary"
+				onclick={onapply}
+				disabled={applying || openInstrumentQuestions > 0}
+				title={openInstrumentQuestions > 0
+					? `${openInstrumentQuestions} instrument${openInstrumentQuestions === 1 ? '' : 's'} still to decide; every parameter is paired with one`
+					: undefined}
+				class="px-4 py-2 font-semibold"
+			>
 				{applying ? applyStatus || 'Applying…' : 'Apply Plan'}
 			</Button>
+			{#if openInstrumentQuestions > 0}
+				<p class="self-center text-xs text-severity-warning-text">
+					Decide the {openInstrumentQuestions === 1 ? 'instrument' : 'instruments'} above first: a parameter is
+					paired with the instrument that measures it.
+				</p>
+			{/if}
 		</div>
 	</div>
 </div>

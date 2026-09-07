@@ -1,4 +1,5 @@
 import type {
+	InstrumentNameConflict,
 	PairingPlanEntry,
 	PlanInstrumentGroup,
 	PlanInstrumentRef,
@@ -21,6 +22,8 @@ export interface InstrumentDecision {
 	siteCount: number;
 	streamCount: number;
 	anchorStreamId: string;
+	/** An instrument already carrying the proposed name, when the proposal collides with one. */
+	nameConflict: InstrumentNameConflict | null;
 }
 
 export interface SiteGroup {
@@ -236,4 +239,91 @@ export function sdDecisions(entries: PairingPlanEntry[]): SdDecision[] {
 		g.declared = values.size === 1 ? [...values][0] : '';
 	}
 	return [...map.values()].sort((a, b) => a.paramName.localeCompare(b.paramName));
+}
+
+/// What the apply will create, as rows rather than as counts. A count says how many; only the rows
+/// say which, and a site is created once, so its attributes are corrected here or not at all.
+
+export interface SiteCreation {
+	name: string;
+	latitude: number | null;
+	longitude: number | null;
+	altitudeM: number | null;
+	/** A stream to address the edit to; every entry naming this site moves with it. */
+	anchorStreamId: string;
+	streamCount: number;
+}
+
+export interface ParameterCreation {
+	name: string;
+	units: string;
+	siteCount: number;
+}
+
+export interface Creations {
+	projects: string[];
+	sites: SiteCreation[];
+	parameters: ParameterCreation[];
+	/** Instrument names the apply mints, one per instrument rather than per entry. */
+	instruments: string[];
+}
+
+/** Every entity the plan's pairing entries would create, deduplicated the way the apply mints it. */
+export function creations(entries: PairingPlanEntry[]): Creations {
+	const pairing = entries.filter((e) => e.action === 'pair');
+
+	const projects = [...new Set(pairing.filter((e) => e.project.create).map((e) => e.project.name))];
+
+	const sites = new Map<string, SiteCreation>();
+	for (const e of pairing) {
+		if (!e.site.create) continue;
+		const key = e.site.name.toLowerCase();
+		const seen = sites.get(key);
+		if (seen) {
+			seen.streamCount += 1;
+			continue;
+		}
+		sites.set(key, {
+			name: e.site.name,
+			latitude: e.site.latitude,
+			longitude: e.site.longitude,
+			altitudeM: e.site.altitude_m,
+			anchorStreamId: e.stream_id,
+			streamCount: 1,
+		});
+	}
+
+	const parameters = new Map<string, ParameterCreation & { sites: Set<string> }>();
+	for (const e of pairing) {
+		if (!e.parameter.create) continue;
+		const key = `${e.parameter.name}::${e.parameter.units}`;
+		const seen =
+			parameters.get(key) ??
+			parameters
+				.set(key, {
+					name: e.parameter.name,
+					units: e.parameter.units,
+					siteCount: 0,
+					sites: new Set(),
+				})
+				.get(key)!;
+		seen.sites.add(e.site.name);
+		seen.siteCount = seen.sites.size;
+	}
+
+	const instruments = new Map<string, string>();
+	for (const e of pairing) {
+		const i = e.instrument;
+		if (!i?.create || i.id) continue;
+		instruments.set(i.source_key || i.name, i.name);
+	}
+
+	return {
+		projects: projects.sort((a, b) => a.localeCompare(b)),
+		sites: [...sites.values()].sort((a, b) => a.name.localeCompare(b.name)),
+		parameters: [...parameters.values()]
+			.map(({ name, units, siteCount }) => ({ name, units, siteCount }))
+			.sort((a, b) => a.name.localeCompare(b.name) || a.units.localeCompare(b.units)),
+		instruments: [...new Set(instruments.values())].sort((a, b) => a.localeCompare(b)),
+	};
 }
