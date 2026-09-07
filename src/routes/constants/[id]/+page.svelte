@@ -2,10 +2,24 @@
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
 	import CrudForm from '$components/crud/CrudForm.svelte';
+	import ConstantConsequence from '$components/constants/ConstantConsequence.svelte';
 	import { api } from '$api/crud';
+
+	let name = $state('');
+
+	$effect(() => {
+		const id = page.params.id;
+		if (!id) return;
+		api.constants
+			.get(id)
+			.then((c) => (name = c.name))
+			.catch(() => (name = ''));
+	});
 </script>
 
 <svelte:head><title>Edit Constant | RIVER Data</title></svelte:head>
+
+<ConstantConsequence {name} />
 
 <CrudForm
 	client={api.constants}
