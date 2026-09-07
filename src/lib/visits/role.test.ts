@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cellRole, editConsequence } from './role';
+import { cellRole, cellWritable, editConsequence } from './role';
 
 describe('cellRole', () => {
 	it('leaves a plain measurement unmarked, so the marked cells stand out', () => {
@@ -36,5 +36,32 @@ describe('editConsequence', () => {
 		expect(text).toContain('2 calculations');
 		expect(text).toContain('DOM Indices rewrites SUVA');
 		expect(text).toContain('DOC runs again');
+	});
+});
+
+describe('cellWritable', () => {
+	it('lets a river member and above type into any cell', () => {
+		for (const level of [2, 3, 4]) {
+			expect(cellWritable(level, null).writable).toBe(true);
+			expect(cellWritable(level, 120).writable).toBe(true);
+		}
+	});
+
+	it('lets an intern enter a measurement but not change a stored one', () => {
+		expect(cellWritable(1, null).writable).toBe(true);
+		const stored = cellWritable(1, 120);
+		expect(stored.writable).toBe(false);
+		expect(stored.reason).toContain("manager's to change");
+	});
+
+	it('treats a zero as a stored value, not an empty cell', () => {
+		expect(cellWritable(1, 0).writable).toBe(false);
+	});
+
+	it('gives an account with no level nothing to type into', () => {
+		expect(cellWritable(0, null)).toEqual({
+			writable: false,
+			reason: 'Your account holds no level that may enter data.',
+		});
 	});
 });

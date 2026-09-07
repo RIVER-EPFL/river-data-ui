@@ -1,4 +1,4 @@
-import type { EventCell, EventDetailResponse } from '$api/service';
+import type { EventCell, EventDetailResponse, ProvenanceRecord } from '$api/service';
 import { cellRole, type CellRole } from './role';
 
 // The visit as a grid (M50, oriented by I18): one row per parameter, replicate columns beside the
@@ -34,9 +34,25 @@ export interface GridRow {
 		sd_estimator?: string;
 		sd_estimator_source?: string;
 	} | null;
-	/** The curve the stored replicates were corrected with, shown beside the row. */
+	/** The curve the stored replicates were corrected with, shown beside the row, read-only. */
 	standardCurveId?: string;
+	/** The instrument the row was measured with. Declared per row, defaulting to what the slot
+	 *  declares measures this parameter here, and carried onto every value the row enters. */
+	sensorId?: string;
 	streamId: string;
+	/** The assembled record of what produced this value, as the detail already serves it. */
+	record?: ProvenanceRecord;
+	hasProvenance: boolean;
+	/** The row's own recorded origin (`tool_run`, `chain`, `csv_import`, ...). */
+	provenanceKind?: string;
+	/** The tool that wrote it, when a run did. */
+	tool?: string;
+	/** How the readings reached the store: manual, csv, api or sync. */
+	origin?: string;
+	sourceSystem?: string;
+	sourceKey?: string;
+	/** An open audit finding on this cell, by kind. */
+	finding?: string;
 }
 
 /** A parameter the site is configured for, as the add-parameter control offers it. */
@@ -56,11 +72,10 @@ export function addableParameters(
 }
 
 /**
- * A row for a parameter measured at this visit but never stored here: empty cells as wide as the
- * grid, with no stream behind it. The grab write path mints the slot's channel on save.
+ * A row for a parameter measured at this visit but never stored here: no replicates yet, and no
+ * stream behind it. The grab write path mints the slot's channel on save.
  */
 export function addParameterRow(rows: GridRow[], parameter: ConfiguredParameter): GridRow[] {
-	const width = columnCount(rows);
 	return [
 		...rows,
 		{
@@ -71,16 +86,67 @@ export function addParameterRow(rows: GridRow[], parameter: ConfiguredParameter)
 			roleTitle: null,
 			roleClass: '',
 			readBy: [],
-			replicates: Array.from({ length: width }, emptyCell),
+			replicates: [],
 			stats: null,
 			streamId: '',
+			hasProvenance: false,
 		},
 	];
 }
 
-/** The replicate columns the grid draws: the widest row, and never fewer than one. */
+/** The replicates the widest row holds, and never fewer than one. */
 export function columnCount(rows: GridRow[]): number {
 	return Math.max(1, ...rows.map((r) => r.replicates.length));
+}
+
+/**
+ * The replicate columns the header draws: one past the widest row, because every row carries one
+ * empty cell after its own replicates as the place a further repeat is typed.
+ *
+ * Rows keep their own widths. A parameter measured once does not draw the four empty inputs its
+ * neighbour's five replicates would otherwise impose on it, and tabbing across it crosses one cell
+ * rather than five.
+ */
+export function headerCount(rows: GridRow[]): number {
+	return columnCount(rows) + 1;
+}
+
+/** Whether the grid draws an input at this position: a row's own replicates, plus one. */
+export function isEditable(row: GridRow, column: number): boolean {
+	return !row.writtenBy && column <= row.replicates.length;
+}
+
+/**
+ * Set one cell, growing that row alone to reach it. A row is as wide as the repeats it holds, so
+ * typing into its trailing cell is what adds a replicate, and no other row is touched.
+ */
+export function setCellValue(
+	rows: GridRow[],
+	rowIndex: number,
+	column: number,
+	value: number | null,
+): GridRow[] {
+	return rows.map((row, index) => {
+		if (index !== rowIndex || row.writtenBy) return row;
+		const replicates = row.replicates.map((c) => ({ ...c }));
+		while (replicates.length <= column) replicates.push(emptyCell());
+		replicates[column].value = value;
+		return { ...row, replicates: trimTrailingGaps(replicates) };
+	});
+}
+
+/**
+ * Drop empty cells off the end of a row, so a value typed and then cleared leaves the row the
+ * width it was. A gap between two measured repeats is kept: the index is a position.
+ */
+function trimTrailingGaps(replicates: GridCell[]): GridCell[] {
+	const kept = replicates.slice();
+	while (kept.length > 0) {
+		const last = kept[kept.length - 1];
+		if (last.value !== null || last.stored !== null) break;
+		kept.pop();
+	}
+	return kept;
 }
 
 function emptyCell(): GridCell {
@@ -99,10 +165,11 @@ function rowOf(cell: EventCell): GridRow {
 			withdrawn: r.withdrawn,
 		};
 	}
-	const curve = cell.replicates
-		.slice()
-		.sort((a, b) => a.replicate_index - b.replicate_index)
-		.find((r) => r.standard_curve_id)?.standard_curve_id;
+	const ordered = cell.replicates.slice().sort((a, b) => a.replicate_index - b.replicate_index);
+	const curve = ordered.find((r) => r.standard_curve_id)?.standard_curve_id;
+	// What the stored values already name wins over the slot's current declaration, so re-entering
+	// a value does not re-attribute the row to a probe that did not measure it.
+	const sensor = ordered.find((r) => r.sensor_id)?.sensor_id;
 	return {
 		parameterId: cell.parameter_id,
 		parameterCode: cell.parameter_code,
@@ -125,7 +192,16 @@ function rowOf(cell: EventCell): GridRow {
 				}
 			: null,
 		standardCurveId: curve,
+		sensorId: sensor,
 		streamId: cell.stream_id,
+		record: cell.record ?? undefined,
+		hasProvenance: cell.has_provenance,
+		provenanceKind: cell.provenance_kind,
+		tool: cell.tool,
+		origin: cell.origin,
+		sourceSystem: cell.source_system,
+		sourceKey: cell.source_key,
+		finding: cell.finding?.kind,
 	};
 }
 
@@ -161,13 +237,12 @@ export function applyPaste(
 	const lines = block.replace(/\r\n?/g, '\n').replace(/\n+$/, '').split('\n');
 	const cells = lines.map((line) => line.split('\t'));
 	const widest = cells.reduce((m, line) => Math.max(m, line.length), 0);
-	const next = withColumns(rows, Math.max(columnCount(rows), atColumn + widest)).map((r) => ({
-		...r,
-		replicates: r.replicates.map((c) => ({ ...c })),
-	}));
+	const next = rows.map((r) => ({ ...r, replicates: r.replicates.map((c) => ({ ...c })) }));
 	cells.forEach((line, dy) => {
 		const row = next[atRow + dy];
 		if (!row || row.writtenBy) return;
+		// Only the rows the block covers grow, and each to the width of its own line.
+		while (row.replicates.length < atColumn + line.length) row.replicates.push(emptyCell());
 		line.forEach((raw, dx) => {
 			const cell = row.replicates[atColumn + dx];
 			if (!cell) return;
@@ -179,6 +254,7 @@ export function applyPaste(
 			const parsed = Number(text);
 			cell.value = Number.isNaN(parsed) ? cell.value : parsed;
 		});
+		row.replicates = trimTrailingGaps(row.replicates);
 	});
 	return next;
 }
@@ -191,8 +267,8 @@ export interface PendingWrite {
 	value: number;
 	/** True when a reading is stored at the key, so the write is a correction, not an entry. */
 	corrects: boolean;
-	/** The lab curve the row is read against, carried onto every value it enters. */
-	standardCurveId: string | null;
+	/** The instrument the row declares it was measured with, null where nothing declares one. */
+	sensorId: string | null;
 }
 
 /**
@@ -211,7 +287,39 @@ export function pendingWrites(rows: GridRow[]): PendingWrite[] {
 				replicateIndex: index,
 				value: cell.value,
 				corrects: cell.stored !== null,
-				standardCurveId: row.standardCurveId ?? null,
+				sensorId: row.sensorId ?? null,
+			});
+		});
+	}
+	return out;
+}
+
+/**
+ * The whole replicate group a save posts for each row it enters a new value into.
+ *
+ * `POST /grab_samples {mode: "replace"}` rewrites every group the request names, so a request
+ * carrying only the cells that moved deletes the replicates it did not carry. The group the grid
+ * shows is what the store must hold afterwards, so every value on the row travels, corrected cells
+ * included: those are written by the decision path first, and repeating them here is what keeps
+ * them out of the replace's way.
+ */
+export function entryGroups(rows: GridRow[]): PendingWrite[] {
+	const out: PendingWrite[] = [];
+	for (const row of rows) {
+		if (row.writtenBy) continue;
+		const entering = row.replicates.some(
+			(cell) => cell.value !== null && cell.value !== cell.stored && cell.stored === null,
+		);
+		if (!entering) continue;
+		row.replicates.forEach((cell, index) => {
+			if (cell.value === null) return;
+			out.push({
+				parameterId: row.parameterId,
+				streamId: row.streamId,
+				replicateIndex: index,
+				value: cell.value,
+				corrects: cell.stored !== null,
+				sensorId: row.sensorId ?? null,
 			});
 		});
 	}
@@ -231,7 +339,7 @@ export function clearedCells(rows: GridRow[]): PendingWrite[] {
 				replicateIndex: index,
 				value: cell.stored,
 				corrects: true,
-				standardCurveId: row.standardCurveId ?? null,
+				sensorId: row.sensorId ?? null,
 			});
 		});
 	}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { cellRecord, visitCellMarker, visitCellStatistics, visitCounts } from './cell';
+import { cellRecord, recordMarkerTitle, visitCellMarker, visitCellStatistics, visitCounts } from './cell';
 import type { EventCell, EventCellReplicate, EventDetailResponse, VisitCell } from '$api/service';
+import type { GridRow } from './grid';
 
 function cell(over: Partial<VisitCell>): VisitCell {
 	return {
@@ -155,5 +156,46 @@ describe('visitCellStatistics', () => {
 			cell({ n: 2, stdev: 1, sd_estimator: 'sample', sd_estimator_source: 'default' })
 		);
 		expect(line).toContain('divisor not declared');
+	});
+});
+
+describe('recordMarkerTitle', () => {
+	const row = (over: Partial<GridRow>): GridRow =>
+		({
+			parameterId: 'p',
+			parameterCode: 'DOC_ppb',
+			parameterName: 'DOC',
+			role: 'plain',
+			roleTitle: null,
+			roleClass: '',
+			readBy: [],
+			replicates: [],
+			stats: null,
+			streamId: 's',
+			hasProvenance: true,
+			...over,
+		}) as GridRow;
+
+	it('names the tool that wrote the value ahead of the coarser origin', () => {
+		expect(recordMarkerTitle(row({ tool: 'doc', provenanceKind: 'tool_run', origin: 'manual' }))).toBe(
+			'What produced this value (written by doc)'
+		);
+	});
+
+	it('falls back to the row\'s own kind, then to the stream\'s origin', () => {
+		expect(recordMarkerTitle(row({ provenanceKind: 'csv_import', origin: 'csv' }))).toBe(
+			'What produced this value (csv import)'
+		);
+		expect(recordMarkerTitle(row({ origin: 'sync' }))).toBe('What produced this value (sync)');
+	});
+
+	it('carries an open finding, which is the reason to look', () => {
+		expect(recordMarkerTitle(row({ tool: 'doc', finding: 'stale_output' }))).toBe(
+			'What produced this value (written by doc, open finding: stale output)'
+		);
+	});
+
+	it('promises only the record when nothing about the origin is known', () => {
+		expect(recordMarkerTitle(row({}))).toBe('What produced this value');
 	});
 });

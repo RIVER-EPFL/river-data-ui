@@ -16,27 +16,31 @@
 		addableParameters,
 		applyPaste,
 		clearedCells,
-		columnCount,
+		entryGroups,
 		gridFromVisit,
 		pendingWrites,
 		stagedVisitFrom,
 		touchedParameters,
-		withColumns,
+		headerCount,
+		isEditable,
+		setCellValue,
 		type ConfiguredParameter,
 		type GridRow,
 	} from '$lib/visits/grid';
-	import { api } from '$api/crud';
+	import { at, covers, isGridKey, move, type Selection } from '$lib/visits/keys';
+	import { push, undo, type History } from '$lib/visits/history';
+	import { api, type Sensor } from '$api/crud';
 	import { goto } from '$app/navigation';
 	import { stagedVisit } from '$lib/stores/visit.svelte';
-	import CurvePicker, {
-		emptyCurveSelection,
-		type CurveSelection,
-	} from '$components/tools/CurvePicker.svelte';
-	import { editConsequence } from '$lib/visits/role';
+	import { curveRefs } from '$lib/curveRefs.svelte';
+	import { me } from '$auth/me.svelte';
+	import { cellRecord, recordMarkerTitle } from '$lib/visits/cell';
+	import { cellWritable, editConsequence } from '$lib/visits/role';
 	import { formatDateTime } from '$lib/utils';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
+	import PointInspector from '$components/provenance/PointInspector.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 
 	// The visit as the portal's Database grid, filtered to one date (M50, orientation from I18):
@@ -46,29 +50,33 @@
 
 	let detail = $state<EventDetailResponse | null>(null);
 	let rows = $state<GridRow[]>([]);
+	let sensors = $state<Sensor[]>([]);
+	/** What each slot declares measures it (M111), the default a row takes. */
+	let slotInstruments = $state<Record<string, string>>({});
 	let loading = $state(true);
 	let error = $state('');
 	let saving = $state(false);
 	let confirmOpen = $state(false);
 	let consequence = $state<string | null>(null);
 	let calculations = $state<CalculationImpact[]>([]);
-	let focused = $state<{ row: number; column: number } | null>(null);
+	let focused = $state<Selection | null>(null);
+	// What the grid held before each edit, so one mistyped cell costs the cell and not the block.
+	let history = $state<History<GridRow[]>>([]);
 	let configured = $state<ConfiguredParameter[]>([]);
 	let chosenParameter = $state('');
-	// The row whose curve is being picked, and the picker's own state while the dialog is open.
-	let curveRow = $state<number | null>(null);
-	let curveOpen = $state(false);
-	let curveSelection = $state<CurveSelection>(emptyCurveSelection());
 	// The visit's retraction: what withdrawing it would cover, and the set that undoes it.
 	let withdrawOpen = $state(false);
 	let withdrawing = $state(false);
 	let withdrawPreviewId = $state('');
 	let withdrawRows = $state(0);
 	let withdrawnSetId = $state('');
-	// Which instrument each curve belongs to: a reading naming a curve names its instrument too.
-	let curveSensors = $state<Record<string, string>>({});
+	// The row whose record is open under the grid. The detail already carries it, so nothing is
+	// fetched: the marker hands PointInspector what the cell was drawn from.
+	let inspecting = $state<GridRow | null>(null);
+	// How each slot serves its values, for the record's own columns.
+	let slotDisplay = $state<Record<string, { units?: string; decimals?: number }>>({});
 
-	const width = $derived(columnCount(rows));
+	const width = $derived(headerCount(rows));
 	const addable = $derived(addableParameters(rows, configured));
 	const writes = $derived(pendingWrites(rows));
 	const cleared = $derived(clearedCells(rows));
@@ -80,7 +88,10 @@
 		getCollectionEventDetail(id)
 			.then((d) => {
 				detail = d;
-				rows = withColumns(gridFromVisit(d), columnCount(gridFromVisit(d)));
+				rows = gridFromVisit(d);
+				// The Curve column names what corrected the stored values, so the rows' curves
+				// are resolved for their labels.
+				curveRefs.ensureStandardCurves(rows.map((r) => r.standardCurveId));
 				error = '';
 			})
 			.then(() => loadConfigured(detail!.site_id))
@@ -90,11 +101,28 @@
 
 	/** The site's configured parameters, so a visit can take a value it has never held before. */
 	async function loadConfigured(siteId: string) {
-		const [slots, catalog] = await Promise.all([
+		const [slots, catalog, instruments] = await Promise.all([
 			api.siteParameters.list({ perPage: 500, filter: { site_id: siteId } }),
 			api.parameters.list({ perPage: 1000, sort: ['code', 'ASC'] }),
+			api.sensors.list({ perPage: 200, sort: ['name', 'ASC'] }),
 		]);
+		sensors = instruments.data;
+		// What each slot declares measures it, which is what a row with nothing stored takes.
+		slotInstruments = Object.fromEntries(
+			slots.data
+				.filter((slot) => slot.instrument_sensor_id)
+				.map((slot) => [slot.parameter_id, slot.instrument_sensor_id as string]),
+		);
+		rows = rows.map((r) =>
+			r.sensorId ? r : { ...r, sensorId: slotInstruments[r.parameterId] },
+		);
 		const byId = new Map(catalog.data.map((p) => [p.id, p]));
+		slotDisplay = Object.fromEntries(
+			slots.data.map((slot) => [
+				slot.parameter_id,
+				{ units: slot.display_units ?? undefined, decimals: slot.decimal_places ?? undefined },
+			]),
+		);
 		configured = slots.data
 			.filter((slot) => slot.entry_mode !== 'tool' && byId.has(slot.parameter_id))
 			.map((slot) => {
@@ -125,72 +153,65 @@
 	function addParameter() {
 		const parameter = addable.find((p) => p.parameterId === chosenParameter);
 		if (!parameter) return;
+		remember();
 		rows = addParameterRow(rows, parameter);
 		chosenParameter = '';
 	}
 
-	function openCurvePicker(rowIndex: number) {
-		curveRow = rowIndex;
-		curveOpen = true;
-		const curveId = rows[rowIndex].standardCurveId ?? null;
-		curveSelection = curveId
-			? { standardCurveId: curveId, sensorId: curveSensors[curveId] ?? null, slope: null, intercept: null, label: null }
-			: emptyCurveSelection();
+	// Record what the grid holds before changing it. Every edit replaces `rows` wholesale, so the
+	// value being replaced is the snapshot.
+	function remember() {
+		history = push(history, rows);
 	}
 
-	function applyCurve() {
-		const rowIndex = curveRow;
-		if (rowIndex === null) return;
-		const curveId = curveSelection.standardCurveId;
-		if (curveId && curveSelection.sensorId) {
-			curveSensors = { ...curveSensors, [curveId]: curveSelection.sensorId };
-		}
-		rows = rows.map((r, i) => (i === rowIndex ? { ...r, standardCurveId: curveId ?? undefined } : r));
-		curveOpen = false;
+	function undoEdit() {
+		const previous = undo(history);
+		if (!previous) return;
+		history = previous.history;
+		rows = previous.value;
 	}
 
-	/** The instrument a curve belongs to, from the picker's own answer or the stored curve. */
-	async function sensorForCurve(curveId: string): Promise<string> {
-		const known = curveSensors[curveId];
-		if (known) return known;
-		const curve = await api.standardCurves.get(curveId);
-		curveSensors = { ...curveSensors, [curveId]: curve.sensor_id };
-		return curve.sensor_id;
+	function declareRowInstrument(rowIndex: number, sensorId: string) {
+		rows = rows.map((r, i) => (i === rowIndex ? { ...r, sensorId: sensorId || undefined } : r));
 	}
 
 	function setCell(rowIndex: number, column: number, raw: string) {
 		const text = raw.trim();
 		const parsed = text === '' ? null : Number(text);
 		if (parsed !== null && Number.isNaN(parsed)) return;
-		const next = rows.map((r) => ({ ...r, replicates: r.replicates.map((c) => ({ ...c })) }));
-		next[rowIndex].replicates[column].value = parsed;
-		rows = next;
+		remember();
+		rows = setCellValue(rows, rowIndex, column, parsed);
+	}
+
+	// Move the keyboard between cells rather than inside one. The destination input is focused by
+	// the id the markup gives it, which is what makes the roving focus a real focus.
+	function onCellKey(event: KeyboardEvent, rowIndex: number, column: number) {
+		if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+			event.preventDefault();
+			undoEdit();
+			return;
+		}
+		if (!isGridKey(event.key)) return;
+		const from = focused ?? at(rowIndex, column);
+		const next = move({ ...from, row: rowIndex, column }, event.key, { rows: rows.length, columns: width }, event.shiftKey);
+		if (!next) return;
+		event.preventDefault();
+		focused = next;
+		document.getElementById(`cell-${next.row}-${next.column}`)?.focus();
 	}
 
 	function onPaste(event: ClipboardEvent, rowIndex: number, column: number) {
 		const text = event.clipboardData?.getData('text/plain') ?? '';
 		if (!text.includes('\t') && !text.includes('\n')) return;
 		event.preventDefault();
+		remember();
 		rows = applyPaste(rows, rowIndex, column, text);
 	}
 
-	function addReplicate() {
-		rows = withColumns(rows, width + 1);
-	}
-
-	function removeReplicate() {
-		if (width <= 1) return;
-		// A column holding a stored reading is not dropped by a layout gesture: withdrawing a
-		// measurement is a decision, taken on the reading.
-		if (rows.some((r) => r.replicates[width - 1]?.stored !== null)) {
-			toastStore.error('That column holds stored readings; withdraw them from the point record.');
-			return;
-		}
-		rows = withColumns(rows, width - 1);
-	}
-
 	function reset() {
-		if (detail) rows = withColumns(gridFromVisit(detail), width);
+		if (!detail) return;
+		remember();
+		rows = gridFromVisit(detail);
 	}
 
 	/** What saving would recompute, read before the write rather than discovered after it. */
@@ -235,7 +256,8 @@
 				const preview = await previewEdit(selection, decision);
 				await commitEdit(selection, decision, preview.preview_id);
 			}
-			const entries = writes.filter((w) => !w.corrects);
+			// The whole group, not only the new cells: a replace rewrites what the request names.
+			const entries = entryGroups(rows);
 			let kept = 0;
 			if (entries.length > 0) {
 				const readings = [];
@@ -245,12 +267,7 @@
 						value: w.value,
 						time: visit.collected_at,
 						replicate_index: w.replicateIndex,
-						...(w.standardCurveId
-							? {
-									standard_curve_id: w.standardCurveId,
-									sensor_id: await sensorForCurve(w.standardCurveId),
-								}
-							: {}),
+						...(w.sensorId ? { sensor_id: w.sensorId } : {}),
 					});
 				}
 				kept = (await saveGrabSample({ site_id: visit.site_id, mode: 'replace', readings }))
@@ -277,7 +294,7 @@
 	async function refresh() {
 		const fresh = await getCollectionEventDetail(eventId);
 		detail = fresh;
-		rows = withColumns(gridFromVisit(fresh), columnCount(gridFromVisit(fresh)));
+		rows = gridFromVisit(fresh);
 	}
 
 	async function askToWithdraw() {
@@ -363,11 +380,10 @@
 		</div>
 
 		<div class="flex flex-wrap items-center gap-2 text-sm">
-			<Button size="sm" onclick={addReplicate}>Add replicate column</Button>
-			<Button size="sm" onclick={removeReplicate}>Remove replicate column</Button>
 			<span class="text-brand-muted">
-				Paste a spreadsheet block into any cell: it fills rightward and downward, and a blank
-				cell stays a gap.
+				A row is as wide as the repeats it holds: type into the empty cell after the last one to
+				add a repeat to that parameter alone. Paste a spreadsheet block into any cell and it
+				fills rightward and downward, where a blank cell stays a gap.
 			</span>
 		</div>
 
@@ -394,6 +410,7 @@
 				<thead>
 					<tr class="text-left text-xs uppercase tracking-wide text-gray-500">
 						<th class="px-2 py-1">Parameter</th>
+						<th class="px-2 py-1">Instrument</th>
 						<th class="px-2 py-1">Curve</th>
 						{#each Array.from({ length: width }, (_, i) => i) as column (column)}
 							<th class="px-2 py-1">Rep {column + 1}</th>
@@ -414,6 +431,17 @@
 								title={row.roleTitle ?? undefined}
 							>
 								{row.parameterName}
+								{#if row.record}
+									<button
+										type="button"
+										class="ml-1 rounded px-1 text-xs text-brand-primary hover:underline"
+										title={recordMarkerTitle(row)}
+										aria-label="What produced {row.parameterName}"
+										data-testid="provenance-marker"
+										onclick={() =>
+											(inspecting = inspecting?.parameterId === row.parameterId ? null : row)}
+									>&#9432;</button>
+								{/if}
 								{#if row.writtenBy}
 									<button
 										type="button"
@@ -427,26 +455,64 @@
 								{#if row.writtenBy}
 									<span class="text-brand-muted">—</span>
 								{:else}
-									<button
-										type="button"
-										class="text-brand-primary hover:underline"
-										onclick={() => openCurvePicker(rowIndex)}
-									>{row.standardCurveId ? 'Curve set' : 'Set curve'}</button>
+									<select
+										class="rounded border border-transparent bg-transparent px-1 py-0.5 text-xs hover:border-brand-divider"
+										title="What measured this row. It defaults to what the site declares for this parameter and is stored on every value the row enters."
+										aria-label="Instrument for {row.parameterName}"
+										value={row.sensorId ?? ''}
+										onchange={(e) => declareRowInstrument(rowIndex, e.currentTarget.value)}
+									>
+										<option value="">Undeclared</option>
+										{#each sensors as sensor}
+											<option value={sensor.id}>{sensor.name ?? sensor.serial_number ?? sensor.id.slice(0, 8)}</option>
+										{/each}
+									</select>
 								{/if}
 							</td>
-							{#each row.replicates as cell, column (column)}
+							<td class="px-2 py-1">
+								{#if row.standardCurveId}
+									{@const sensorId = curveRefs.standardCurveSensorId(row.standardCurveId)}
+									{#if sensorId}
+										<a
+											class="text-brand-primary hover:underline"
+											href="{base}/sensors/{sensorId}?tab=curves"
+											title="The curve the stored values were corrected with. A curve is chosen in the tool that computes with it, never here."
+										>{curveRefs.standardCurveLabel(row.standardCurveId)}</a>
+									{:else}
+										<span title="The curve the stored values were corrected with. A curve is chosen in the tool that computes with it, never here."
+											>{curveRefs.standardCurveLabel(row.standardCurveId)}</span>
+									{/if}
+								{:else}
+									<span class="text-brand-muted">—</span>
+								{/if}
+							</td>
+							{#each Array.from({ length: width }, (_, i) => i) as column (column)}
+								{@const cell = row.replicates[column]}
+								{@const entry = cellWritable(me.level, cell?.stored ?? null)}
 								<td class="px-1 py-1">
 									{#if row.writtenBy}
-										<span class="px-1 text-brand-muted">{cell.value ?? '—'}</span>
+										<span class="px-1 text-brand-muted">{cell?.value ?? '—'}</span>
+									{:else if !isEditable(row, column)}
+										<span class="px-1"></span>
+									{:else if !entry.writable}
+										<span class="px-1 text-brand-muted" title={entry.reason ?? undefined}
+											>{cell?.value ?? '—'}</span
+										>
 									{:else}
 										<input
-											class="w-20 rounded border px-1 py-0.5 {cell.value !== cell.stored
+											id="cell-{rowIndex}-{column}"
+											data-testid="grid-cell-{rowIndex}-{column}"
+											class="w-20 rounded border px-1 py-0.5 {cell && cell.value !== cell.stored
 												? 'border-brand-primary'
 												: 'border-transparent'}"
-											class:line-through={cell.withdrawn}
-											value={cell.value ?? ''}
-											title={cell.flagged ? 'Flagged: excluded from the statistics' : undefined}
-											onfocus={() => (focused = { row: rowIndex, column })}
+											class:line-through={cell?.withdrawn}
+											class:bg-brand-bg={focused
+												? covers(focused, rowIndex, column)
+												: false}
+											value={cell?.value ?? ''}
+											title={cell?.flagged ? 'Flagged: excluded from the statistics' : undefined}
+											onfocus={() => (focused = at(rowIndex, column))}
+											onkeydown={(e) => onCellKey(e, rowIndex, column)}
 											onpaste={(e) => onPaste(e, rowIndex, column)}
 											oninput={(e) => setCell(rowIndex, column, e.currentTarget.value)}
 										/>
@@ -464,15 +530,47 @@
 							<td class="px-2 py-1 text-brand-muted">{fmt(row.stats?.min)}</td>
 							<td class="px-2 py-1 text-brand-muted">{fmt(row.stats?.max)}</td>
 						</tr>
+						{#if inspecting?.parameterId === row.parameterId && detail}
+							<tr class="border-t border-gray-100 dark:border-gray-800">
+								<td colspan={width + 8} class="px-2 py-2">
+									<PointInspector
+										siteId={detail.site_id}
+										parameterId={row.parameterId}
+										parameterName={row.parameterName}
+										units={slotDisplay[row.parameterId]?.units ?? null}
+										decimals={slotDisplay[row.parameterId]?.decimals ?? null}
+										timeIso={detail.collected_at}
+										measurementType="spot"
+										preloaded={cellRecord(detail, row.parameterId)}
+										onclose={() => (inspecting = null)}
+									/>
+								</td>
+							</tr>
+						{/if}
 					{/each}
 				</tbody>
 			</table>
 		</div>
 
+		{#if me.level > 0 && me.level < 2}
+			<p class="text-sm text-brand-muted">
+				You may enter measurements here. A cell that already holds a value is a manager's to
+				change, so it is shown rather than offered, and what you save is marked unverified until
+				a manager rules on it.
+			</p>
+		{:else if me.level === 0}
+			<p class="text-sm text-brand-muted">
+				Your account holds no level that may enter data, so this visit is read-only.
+			</p>
+		{/if}
+
 		<div class="flex flex-wrap items-center gap-3">
 			<Button variant="primary" disabled={writes.length === 0} onclick={askToSave}>
 				Save {writes.length || ''} {writes.length === 1 ? 'value' : 'values'}
 			</Button>
+			<Button disabled={history.length === 0} onclick={undoEdit} title="Undo the last edit (Ctrl+Z)"
+				>Undo</Button
+			>
 			<Button disabled={writes.length === 0} onclick={reset}>Reset</Button>
 			<Button variant="danger" onclick={askToWithdraw}>Withdraw this visit</Button>
 			{#if withdrawnSetId}
@@ -529,25 +627,3 @@
 	{/snippet}
 </Dialog>
 
-<Dialog bind:open={curveOpen} title="The curve this row was read against">
-	<div class="space-y-2 text-sm">
-		<p class="text-brand-muted">
-			A curve applies to the values entered here, on top of the calibration the API resolves for
-			the instrument. It does not re-correct a reading the visit already holds: that is a decision
-			taken on the point record.
-		</p>
-		{#if curveRow !== null && detail && rows[curveRow]}
-			<CurvePicker
-				title={rows[curveRow].parameterName}
-				bind:value={curveSelection}
-				siteId={detail.site_id}
-				parameterId={rows[curveRow].parameterId}
-				parameterCode={rows[curveRow].parameterCode}
-			/>
-		{/if}
-	</div>
-	{#snippet actions()}
-		<Button onclick={() => (curveOpen = false)}>Cancel</Button>
-		<Button variant="primary" onclick={applyCurve}>Use this curve</Button>
-	{/snippet}
-</Dialog>

@@ -1,4 +1,5 @@
 import type { EventCell, EventDetailResponse, ProvenanceRecord, ProvenanceResponse, VisitCell } from '$api/service';
+import type { GridRow } from './grid';
 
 export interface CellMarker {
 	text: string;
@@ -95,4 +96,17 @@ export function cellRecord(detail: EventDetailResponse, parameterId: string): Pr
 		duplicate_slot: records.length > 1,
 		records,
 	};
+}
+
+/**
+ * What the record marker promises before it is opened: who wrote the value, and how. The marker
+ * itself is drawn wherever the row carries a record, so this says only what opening it will show.
+ */
+export function recordMarkerTitle(row: GridRow): string {
+	const parts: string[] = [];
+	if (row.tool) parts.push(`written by ${row.tool}`);
+	else if (row.provenanceKind) parts.push(row.provenanceKind.replace(/_/g, ' '));
+	else if (row.origin) parts.push(row.origin);
+	if (row.finding) parts.push(`open finding: ${row.finding.replace(/_/g, ' ')}`);
+	return parts.length ? `What produced this value (${parts.join(', ')})` : 'What produced this value';
 }

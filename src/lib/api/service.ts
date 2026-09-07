@@ -1887,6 +1887,8 @@ export interface EventCellReplicate {
 	withdrawn_at?: string;
 	calibration_id?: string;
 	standard_curve_id?: string;
+	/** The instrument the replicate names, which the grid offers back as the row's declaration. */
+	sensor_id?: string;
 }
 
 export interface EventCell {

@@ -57,3 +57,30 @@ export function editConsequence(
 		calculations.length === 1 ? '' : 's'
 	} at this visit: ${lines.join('; ')}.`;
 }
+
+/**
+ * Whether the person signed in may type into one cell, and why not when they may not.
+ *
+ * An intern enters measurements and does not change stored ones (Q21): the API admits their save
+ * through `enter_field_data` and refuses a replace in the handler, so the grid marks the cells they
+ * cannot save rather than letting them type into all of them and returning a 403 afterwards. The
+ * server stays the authority; this is the affordance.
+ */
+export function cellWritable(
+	level: number,
+	stored: number | null
+): { writable: boolean; reason: string | null } {
+	if (level >= RIVER_LEVEL) return { writable: true, reason: null };
+	if (level < INTERN_LEVEL) {
+		return { writable: false, reason: 'Your account holds no level that may enter data.' };
+	}
+	if (stored === null) return { writable: true, reason: null };
+	return {
+		writable: false,
+		reason: 'An intern enters measurements; a stored value is a manager\'s to change.',
+	};
+}
+
+/** The access levels this rule turns on, matching the API's `Role::level()`. */
+const INTERN_LEVEL = 1;
+const RIVER_LEVEL = 2;
