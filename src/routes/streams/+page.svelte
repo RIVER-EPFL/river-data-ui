@@ -24,7 +24,7 @@
 	import { formatRelativeTime, holdKindBreakdown } from '$lib/utils';
 	import { createUrlTab } from '$lib/urlTab.svelte';
 	import { createDraftQueue } from '$lib/pairing/draftQueue';
-	import { entryStatus, matchesFilter, reviewState, reviewStateLabel, statusLabel, type EntryFilter } from '$lib/pairing/entryStatus';
+	import { entryStatus, estimatorScopeLabel, matchesFilter, reviewState, reviewStateLabel, statusLabel, type EntryFilter } from '$lib/pairing/entryStatus';
 	import PairSkipToggle from '$components/ui/PairSkipToggle.svelte';
 	import MappingSelect, { type MappingGroup } from '$components/ui/MappingSelect.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
@@ -2771,6 +2771,7 @@
 														<option value="sample">sd: sample (n-1)</option>
 														<option value="population">sd: population (n)</option>
 													</select>
+													<span class="text-brand-muted">writes {estimatorScopeLabel(sd.entries)}</span>
 													<span class="text-brand-muted">
 														{#if sd.population > 0}
 															<button

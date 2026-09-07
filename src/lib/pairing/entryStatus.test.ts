@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import type { PairingPlanEntry } from '$api/service';
-import { entryStatus, matchesFilter, reviewState, statusLabel } from './entryStatus';
+import {
+	entryStatus,
+	estimatorScopeLabel,
+	matchesFilter,
+	reviewState,
+	statusLabel,
+} from './entryStatus';
 
 function entry(over: Partial<PairingPlanEntry> = {}): PairingPlanEntry {
 	return {
@@ -134,5 +140,22 @@ describe('pairing review state', () => {
 		expect(matchesFilter(warned, 'self_validated')).toBe(false);
 		expect(matchesFilter(entry(), 'self_validated')).toBe(true);
 		expect(matchesFilter(entry({ acknowledged: true }), 'needs_checking')).toBe(false);
+	});
+});
+
+describe('divisor declaration scope', () => {
+	it('counts the entries one declaration will write', () => {
+		expect(estimatorScopeLabel([entry()])).toBe('1 stream');
+	});
+
+	it('names the stations when the analyte is reported at more than one', () => {
+		const entries = ['FP1', 'FP2', 'FP3'].map((name) =>
+			entry({ site: { id: name, name, create: false, latitude: null, longitude: null, altitude_m: null } }),
+		);
+		expect(estimatorScopeLabel(entries)).toBe('3 streams at 3 sites');
+	});
+
+	it('says only the stream count when every entry is at one station', () => {
+		expect(estimatorScopeLabel([entry(), entry()])).toBe('2 streams');
 	});
 });
