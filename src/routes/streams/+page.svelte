@@ -7,7 +7,7 @@
 	import { api, type DataStream, type SiteParameter, type Site, type Parameter } from '$api/crud';
 	import {
 		pairStream, unpairStream, getStreamStats, listStreamReceipts, retagStreams, createPairingPlan, updatePairingPlan,
-		applyPairingPlan, revertPairingPlan, pollJob, jobWaitLabel, getUnpairedSummary, getPlanSiteMetadata,
+		applyPairingPlan, revertPairingPlan, pollJob, getUnpairedSummary, getPlanSiteMetadata,
 		replicateSpec, getPendingAuditSummary, getReconciliationCandidates, getStreamPreview, declareSdEstimator,
 		getPlanInstruments, listPairingPlans, supersedePairingPlan, getPairingPlan, bulkUpdatePairingPlan,
 		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type SdEstimator, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
@@ -53,6 +53,7 @@
 	import InstrumentCurvesPanel from '$components/streams/InstrumentCurvesPanel.svelte';
 	import { formatCount } from '$lib/format';
 	import ConfirmStep from '$components/pairing/ConfirmStep.svelte';
+	import ApplyResults from '$components/pairing/ApplyResults.svelte';
 	import CurvesTab from '$components/pairing/CurvesTab.svelte';
 	import InstrumentsTab from '$components/pairing/InstrumentsTab.svelte';
 	import ParametersTab from '$components/pairing/ParametersTab.svelte';
@@ -194,10 +195,11 @@
 	let applyResult = $state<PairingPlanApplyResult | null>(null);
 	let planLoading = $state(false);
 	let applying = $state(false);
-	// What the apply is doing right now, read from the job row on every poll: a retrying run says
-	// which attempt it is on and why the last one stopped, rather than reading as a queued one.
-	let applyStatus = $state('');
 	let applyJobId = $state('');
+	// The plan this session started applying, so its row says so while the job runs.
+	let applyingPlanId = $state('');
+	// Plans already applied, per source system: the way back to the counts of a run nobody watched.
+	let appliedPlans = $state<PairingPlanListing[]>([]);
 	let reverting = $state(false);
 	let saving = $state(false);
 
@@ -369,6 +371,13 @@
 	const openInstrumentQuestions = $derived(
 		instrumentDecisions.filter((d) => d.group === null || (d.group.create && !d.group.confirmed))
 			.length,
+	);
+	// The apply is refused while any of these is open, one step later. Say so here, where they can
+	// still be answered, rather than only on the screen that stops.
+	const instrumentsTabLabel = $derived(
+		openInstrumentQuestions > 0
+			? `Instruments (${openInstrumentQuestions} to decide)`
+			: `Instruments (${instrumentDecisions.length + planDevices.length})`,
 	);
 
 	// Every creation this plan proposes, offered on every row, so two parameters can converge on
@@ -1343,17 +1352,21 @@
 	let openDrafts = $state<PairingPlanListing[]>([]);
 	const draftFor = (sourceSystem: string) =>
 		openDrafts.find((d) => d.source_system === sourceSystem);
+	const appliedFor = (sourceSystem: string) =>
+		appliedPlans.find((p) => p.source_system === sourceSystem);
 
 	async function enterSourceSelect() {
 		setMode('source-select');
 		planLoading = true;
 		try {
-			const [summary, drafts] = await Promise.all([
+			const [summary, drafts, applied] = await Promise.all([
 				getUnpairedSummary(),
 				listPairingPlans({ status: 'draft' }).catch(() => [] as PairingPlanListing[]),
+				listPairingPlans({ status: 'applied' }).catch(() => [] as PairingPlanListing[]),
 			]);
 			unpairedSummary = summary;
 			openDrafts = drafts;
+			appliedPlans = applied;
 		}
 		catch (e) { toastStore.error(`Failed to load unpaired summary: ${e instanceof Error ? e.message : e}`); setMode('list'); }
 		finally { planLoading = false; }
@@ -1462,6 +1475,9 @@
 		await createPlan(draft.source_system);
 	}
 
+	// The apply is a job, so the wizard starts it and lets go (Q88): the operations panel carries
+	// its progress, and the counts are read afterwards from the plan, by URL, whether or not this
+	// tab is still open.
 	async function applyPlan() {
 		if (!plan) return;
 		try {
@@ -1471,14 +1487,38 @@
 			return;
 		}
 		applying = true;
+		const planId = plan.id;
 		try {
 			const { job_id } = await applyPairingPlan(plan.id, plan.version);
 			applyJobId = job_id;
-			const job = await pollJob(job_id, { onTick: (j) => (applyStatus = jobWaitLabel(j)) });
-			applyResult = (job.detail?.counts ?? null) as PairingPlanApplyResult | null;
-			setMode('results');
+			applyingPlanId = planId;
+			toastStore.success('Applying the plan. Its progress is in the operations panel; the counts appear here when it finishes.');
+			plan = null; planEntries = []; applyResult = null;
+			setMode('list'); load();
 		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Failed to apply plan'); }
-		finally { applying = false; applyStatus = ''; }
+		finally { applying = false; }
+	}
+
+	/// The results of an apply that has already run, read from the plan the job wrote them to.
+	async function openResults(planId: string) {
+		planLoading = true;
+		try {
+			const applied = await getPairingPlan(planId);
+			applyResult = (applied.apply_result ?? null) as PairingPlanApplyResult | null;
+			plan = applied;
+			if (!applyResult) {
+				toastStore.info('That plan has not finished applying; its progress is in the operations panel.');
+				setMode('list');
+				return;
+			}
+			const url = new URL(page.url);
+			url.searchParams.set('step', 'results');
+			url.searchParams.set('plan', planId);
+			goto(url.toString(), { replaceState: true, noScroll: true });
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Failed to load the plan');
+			setMode('list');
+		} finally { planLoading = false; }
 	}
 
 	async function revertPlan() {
@@ -1539,6 +1579,10 @@
 		const resumeId = page.url.searchParams.get('plan');
 		if (mode === 'review' && resumeId && !plan) await resumePlan(resumeId);
 		else if (mode === 'review' && !resumeId) setMode('list');
+		// The same for ?step=results&plan=<id>: the counts belong to the plan, not to the call
+		// that started the job, so they survive the tab that started it.
+		else if (mode === 'results' && resumeId && !applyResult) await openResults(resumeId);
+		else if (mode === 'results' && !resumeId) setMode('list');
 	});
 </script>
 
@@ -1892,6 +1936,12 @@
 										{:else}
 											<Button size="sm" onclick={(e) => { e.stopPropagation(); createPlan(s.source_system); }}>Discover</Button>
 										{/if}
+										{#if appliedFor(s.source_system)}
+											{@const done = appliedFor(s.source_system)}
+											<Button size="sm" variant="ghost" onclick={(e) => { e.stopPropagation(); openResults(done!.id); }}>
+												{done!.id === applyingPlanId ? 'Applying…' : 'Results'}
+											</Button>
+										{/if}
 									</td>
 								</tr>
 							{/each}
@@ -1925,8 +1975,20 @@
 					</span>
 				{/if}
 			</div>
-			<Button variant="primary" onclick={() => setMode('confirm')} disabled={summary.toPair === 0} class="px-4 font-semibold">
-				Apply {formatCount(summary.toPair)} pairings &rarr;
+			<Button
+				variant="primary"
+				onclick={() => setMode('confirm')}
+				disabled={summary.toPair === 0}
+				title={openInstrumentQuestions > 0
+					? `${openInstrumentQuestions} instrument${openInstrumentQuestions === 1 ? '' : 's'} still to decide; the apply is refused until each is answered`
+					: undefined}
+				class="px-4 font-semibold"
+			>
+				{#if openInstrumentQuestions > 0}
+					{formatCount(openInstrumentQuestions)} to decide &rarr;
+				{:else}
+					Apply {formatCount(summary.toPair)} pairings &rarr;
+				{/if}
 			</Button>
 		</div>
 
@@ -2093,7 +2155,7 @@
 		<div class="space-y-3">
 			<!-- View tabs -->
 			<div class="flex gap-1 border-b border-brand-divider pb-2">
-				{#each [['parameters', `Parameters (${paramGroups.length})`], ['sites', `Sites (${siteGroups.length})`], ['instruments', `Instruments (${instrumentDecisions.length + planDevices.length})`], ['curves', `Standard curves (${planInstruments?.curves.length ?? 0})`]] as [t, label]}
+				{#each [['parameters', `Parameters (${paramGroups.length})`], ['sites', `Sites (${siteGroups.length})`], ['instruments', instrumentsTabLabel], ['curves', `Standard curves (${planInstruments?.curves.length ?? 0})`]] as [t, label]}
 					<button
 						onclick={() => reviewTab = t as typeof reviewTab}
 						class="px-3 py-1 text-sm rounded-t cursor-pointer border-none {reviewTab === t ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
@@ -2246,7 +2308,6 @@
 		{undeclaredEstimatorFamilies}
 		{applying}
 		{applyJobId}
-		{applyStatus}
 		onback={() => setMode('review')}
 		onapply={applyPlan}
 		ongotoparam={goToParam}
@@ -2256,30 +2317,12 @@
 
 <!-- ════════════════════ RESULTS ════════════════════ -->
 {:else if mode === 'results' && applyResult}
-	<div class="space-y-4 max-w-xl mx-auto">
-		<h2 class="text-xl font-semibold">Plan Applied</h2>
-
-		<div class="rounded-md border border-severity-ok bg-severity-ok-soft p-6 space-y-4">
-			<div class="grid grid-cols-2 gap-3 text-sm">
-				<div><span class="text-brand-muted block text-xs">Projects created</span><span class="text-lg font-semibold">{applyResult.projects_created}</span></div>
-				<div><span class="text-brand-muted block text-xs">Sites created</span><span class="text-lg font-semibold">{applyResult.sites_created}</span></div>
-				<div><span class="text-brand-muted block text-xs">Parameters created</span><span class="text-lg font-semibold">{applyResult.parameters_created}</span></div>
-				<div><span class="text-brand-muted block text-xs">Site-parameters created</span><span class="text-lg font-semibold">{applyResult.site_parameters_created}</span></div>
-				<div><span class="text-brand-muted block text-xs">Instruments created</span><span class="text-lg font-semibold">{applyResult.instruments_created}</span></div>
-				<div><span class="text-brand-muted block text-xs">Streams paired</span><span class="text-lg font-semibold text-severity-ok">{formatCount(applyResult.streams_paired)}</span></div>
-				<div><span class="text-brand-muted block text-xs">Readings backfilled</span><span class="text-lg font-semibold">{formatCount(applyResult.readings_backfilled)}</span></div>
-			</div>
-		</div>
-
-		<div class="flex gap-3">
-			<Button variant="primary" onclick={exitWizard} class="px-4 py-2 font-semibold">Done</Button>
-			<ConfirmPopover message="Revert this plan? All pairings will be undone. Projects, sites, and parameters created by the plan are kept." confirmLabel="Revert" onconfirm={revertPlan}>
-				<button disabled={reverting} class="px-4 py-2 border border-severity-alarm text-severity-alarm rounded-md text-sm cursor-pointer bg-transparent disabled:opacity-50">
-					{reverting ? 'Reverting…' : 'Revert Plan'}
-				</button>
-			</ConfirmPopover>
-		</div>
-	</div>
+	<ApplyResults
+		result={applyResult}
+		{reverting}
+		ondone={exitWizard}
+		onrevert={revertPlan}
+	/>
 {/if}
 
 <!-- ── Dialogs (always available) ── -->

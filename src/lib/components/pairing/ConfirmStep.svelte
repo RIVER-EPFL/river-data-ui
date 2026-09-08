@@ -20,7 +20,6 @@
 		undeclaredEstimatorFamilies,
 		applying,
 		applyJobId,
-		applyStatus,
 		onback,
 		onapply,
 		ongotoparam,
@@ -64,7 +63,6 @@
 		applying: boolean;
 		/** The tracked job the apply runs as, once it has one. */
 		applyJobId: string | null;
-		applyStatus: string;
 		onback: () => void;
 		onapply: () => void;
 		ongotoparam: (paramName: string) => void;
@@ -259,7 +257,7 @@
 					: undefined}
 				class="px-4 py-2 font-semibold"
 			>
-				{applying ? applyStatus || 'Applying…' : 'Apply Plan'}
+				{applying ? 'Applying…' : 'Apply Plan'}
 			</Button>
 			{#if openInstrumentQuestions > 0}
 				<p class="self-center text-xs text-severity-warning-text">

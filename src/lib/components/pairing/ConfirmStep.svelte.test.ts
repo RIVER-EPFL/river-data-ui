@@ -41,7 +41,6 @@ function mount(openInstrumentQuestions: number, over: Record<string, unknown> = 
 			undeclaredEstimatorFamilies: [],
 			applying: false,
 			applyJobId: null,
-			applyStatus: '',
 			onback: vi.fn(),
 			onapply: vi.fn(),
 			ongotoparam: vi.fn(),
