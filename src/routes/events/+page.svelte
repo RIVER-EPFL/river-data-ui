@@ -23,7 +23,7 @@
 			order,
 			...(siteFilter ? { site_id: siteFilter } : {}),
 		});
-		return { data: r.visits, total: r.total };
+		return { data: r.items, total: r.total };
 	}
 
 	function toggleSort(column: VisitListSort, reload: () => Promise<void>) {

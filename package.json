@@ -10,7 +10,8 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "test": "svelte-kit sync && vitest run",
     "test:watch": "svelte-kit sync && vitest",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "api-types": "openapi-typescript src/lib/api/openapi.json -o src/lib/api/schema.d.ts"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.0",
@@ -50,6 +51,7 @@
     "@types/nouislider": "^15.0.0",
     "@types/papaparse": "^5.5.2",
     "jsdom": "^30.0.1",
+    "openapi-typescript": "^7.13.0",
     "svelte": "^5.20.0",
     "svelte-check": "^4.1.0",
     "tailwindcss": "^4.1.0",

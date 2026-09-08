@@ -1,5 +1,6 @@
 import { ApiError, GET, POST, PATCH, PUT, DELETE } from './client';
 import type { ApiToken, DataStream, JobLogLine, ReprocessingJob } from './crud';
+import type { components } from './schema';
 
 // Single unified API tier. The `ADMIN` and `SERVICE` constants alias the same path,
 // retained as documentation hints about which Keycloak role/token scope each endpoint
@@ -60,11 +61,7 @@ export interface MySubscriptionScope {
 	enabled: boolean;
 }
 
-export interface MyNotifications {
-	webPushEnabled: boolean;
-	pushSubscriptionCount: number;
-	subscriptions: MySubscriptionScope[];
-}
+export type MyNotifications = components['schemas']['MyNotifications'];
 
 export const getMyNotifications = () => GET<MyNotifications>(`${SERVICE}/notifications/me`);
 
@@ -126,22 +123,11 @@ export const scheduleMyPing = (seconds: number = 10) =>
 	POST<{ seconds: number }>(`${SERVICE}/notifications/me/push/ping`, { seconds });
 
 // Admin notification oversight.
-export interface ChannelHealth {
-	name: string;
-	available: boolean;
-	healthy: boolean | null;
-	detail: string | null;
-	checkedAt: string | null;
-}
+/** The API's `ChannelHealth`. */
+export type ChannelHealth = components['schemas']['ChannelHealth'];
 
-export interface NotificationHealth {
-	channels: ChannelHealth[];
-	/** No channel resolves from config, so every notification is stamped undeliverable. */
-	noChannelConfigured: boolean;
-	/** Deliveries in the last 24 hours that reached nobody. */
-	undeliverable24h: number;
-	failed24h: number;
-}
+/** The API's `NotificationHealth`. */
+export type NotificationHealth = components['schemas']['NotificationHealth'];
 
 export const getNotificationsHealth = () =>
 	GET<NotificationHealth>(`${ADMIN}/notifications/health`);
@@ -168,36 +154,19 @@ export interface NotificationSubscriber {
 export const getNotificationSubscribers = () =>
 	GET<NotificationSubscriber[]>(`${ADMIN}/notifications/subscribers`);
 
-/** One (channel, recipient) attempt of a message. */
-export interface DeliveryRecipient {
-	channel: string;
-	recipient: string;
-	status: string;
-	error: string | null;
-	createdAt: string;
-}
+/** The API's `DeliveryRecipient`. */
+export type DeliveryRecipient = components['schemas']['DeliveryRecipient'];
 
-export interface DeliveryMessage {
-	alarmEventId: string | null;
-	kind: string;
-	at: string;
-	siteName: string | null;
-	parameterName: string | null;
-	counts: {
-		total: number;
-		sent: number;
-		failed: number;
-		muted: number;
-		undeliverable: number;
-		skipped: number;
-	};
-	recipients: DeliveryRecipient[];
-}
+/** The API's `DeliveryMessage`. */
+export type DeliveryMessage = components['schemas']['DeliveryMessage'];
 
-export interface DeliveryLogPage {
-	messages: DeliveryMessage[];
-	/** Messages matching the filter, not rows. */
+/** One page of rows and nothing else, the shape a list answers in when it carries no subject. */
+export interface Page<T> {
+	items: T[];
+	/** Rows matching the filter, not rows on this page. */
 	total: number;
+	page: number;
+	page_size: number;
 }
 
 export const getNotificationDeliveries = (params: {
@@ -211,7 +180,7 @@ export const getNotificationDeliveries = (params: {
 		if (v !== undefined && v !== '') q.set(k, String(v));
 	}
 	const qs = q.toString();
-	return GET<DeliveryLogPage>(`${ADMIN}/notifications/deliveries${qs ? `?${qs}` : ''}`);
+	return GET<Page<DeliveryMessage>>(`${ADMIN}/notifications/deliveries${qs ? `?${qs}` : ''}`);
 };
 
 // Alarms
@@ -241,16 +210,9 @@ export interface ActiveAlarm {
 	max_severity?: number | null;
 }
 
-export interface AcknowledgedAlarmResponse {
-	event_id: string;
-	acknowledged_at: string;
-	acknowledged_by: string;
-}
+export type AcknowledgedAlarmResponse = components['schemas']['AcknowledgedAlarmResponse'];
 
-export interface ActiveAlarmsResponse {
-	alarms: ActiveAlarm[];
-	total: number;
-}
+export type ActiveAlarmsResponse = components['schemas']['ActiveAlarmsResponse'];
 
 export interface AlarmSummaryResponse {
 	total: number;
@@ -278,16 +240,15 @@ export interface AlarmEvent {
 	last_seen_at: string;
 	value_at_start: number;
 	last_value: number;
-	resolved_at: string | null;
-	resolved_value: number | null;
-	acknowledged_at: string | null;
-	acknowledged_by: string | null;
+	/** The four the API omits rather than sends as null, so an unresolved event carries no key
+	 * for them at all. Every reader here already tests them truthily. */
+	resolved_at?: string;
+	resolved_value?: number;
+	acknowledged_at?: string;
+	acknowledged_by?: string;
 }
 
-export interface AlarmEventsResponse {
-	events: AlarmEvent[];
-	total: number;
-}
+export type AlarmEventsResponse = components['schemas']['AlarmEventsResponse'];
 
 export const getActiveAlarms = () => GET<ActiveAlarmsResponse>(`${ADMIN}/alarms/active`);
 export const getAlarmSummary = () => GET<AlarmSummaryResponse>(`${ADMIN}/alarms/summary`);
@@ -406,21 +367,9 @@ export const pairStream = (streamId: string, siteParameterId: string) =>
 export const unpairStream = (streamId: string) =>
 	POST<UnpairStreamResult>(`${SERVICE}/streams/${streamId}/unpair`);
 
-export interface PreviewReplicate {
-	replicate_index: number;
-	column: string | null;
-	value: number | null;
-	is_flagged: boolean;
-	withdrawn: boolean;
-}
+export type PreviewReplicate = components['schemas']['PreviewReplicate'];
 
-export interface PreviewInstant {
-	time: string;
-	replicates: PreviewReplicate[];
-	mean: number | null;
-	sd: number | null;
-	n: number;
-}
+export type PreviewInstant = components['schemas']['PreviewInstant'];
 
 export interface StreamPreview {
 	stream_id: string;
@@ -496,13 +445,7 @@ export const getGroupDefinition = (groupId: string, siteId?: string) =>
 	GET<GroupDefinition>(`${SERVICE}/parameter_groups/${groupId}/definition`, { site_id: siteId });
 
 // Merge parameters
-export interface MergeParametersResponse {
-	sites_merged: number;
-	sites_reassigned: number;
-	readings_moved: number;
-	streams_updated: number;
-	source_deleted: boolean;
-}
+export type MergeParametersResponse = components['schemas']['MergeParametersResponse'];
 
 // Runs as a tracked job server-side; we poll it and surface the counts so callers keep their shape.
 export async function mergeParameters(
@@ -519,13 +462,7 @@ export async function mergeParameters(
 }
 
 // Merge site parameters (same site)
-export interface MergeSiteParametersResponse {
-	merged_readings: number;
-	merged_status_events: number;
-	streams_updated: number;
-	deployments_moved: number;
-	source_deleted: boolean;
-}
+export type MergeSiteParametersResponse = components['schemas']['MergeSiteParametersResponse'];
 
 export async function mergeSiteParameters(
 	sourceSiteParameterId: string,
@@ -552,27 +489,13 @@ export const reprocessAll = () =>
 export const reconcileAlarms = () =>
 	POST<{ job_id: string; status: string }>(`${SERVICE}/actions/reconcile_alarms`, {});
 
-export interface AdoptSuggestion {
-	now: string;
-	end_of_last_deployment: string | null;
-	first_reading: string | null;
-}
+export type AdoptSuggestion = components['schemas']['AdoptSuggestion'];
 
 // Suggested deploy dates for a sensor: now, the end of its last deployment, and its first reading.
 export const getAdoptSuggestions = (sensorId: string) =>
 	GET<AdoptSuggestion>(`${SERVICE}/sensors/${sensorId}/adopt_suggestions`);
 
-export interface AdoptResponse {
-	deployment_id: string;
-	sensor_id: string;
-	site_id: string;
-	parameter_id: string;
-	site_parameter_id: string;
-	site_parameter_created: boolean;
-	deployed_from: string;
-	deployed_until: string | null;
-	job_id: string;
-}
+export type AdoptResponse = components['schemas']['AdoptResponse'];
 
 /**
  * Deploy a sensor onto a site slot. Does in one transaction what a bare `sensor_deployments`
@@ -590,35 +513,12 @@ export const adoptSensor = (
 	},
 ) => POST<AdoptResponse>(`${SERVICE}/sensors/${sensorId}/adopt`, body);
 
-export interface SwapResponse {
-	ended_deployment_id: string | null;
-	started_deployment_id: string;
-	site_id: string;
-	parameter_id: string;
-	at: string;
-	outgoing_job_id: string | null;
-	incoming_job_id: string;
-}
+export type SwapResponse = components['schemas']['SwapResponse'];
 
 // End the outgoing instrument's deployment and start the incoming one's at the same instant.
-export interface SensorVsGrabRow {
-	time: string;
-	grab_value: number | null;
-	grab_sd: number | null;
-	grab_n: number;
-	sensor_avg: number | null;
-	sensor_sd: number | null;
-	sensor_n: number;
-	difference: number | null;
-}
+export type SensorVsGrabRow = components['schemas']['SensorVsGrabRow'];
 
-export interface SensorVsGrabResponse {
-	site: { id: string; name: string };
-	parameter_id: string;
-	window_start_hours: number;
-	window_end_hours: number;
-	rows: SensorVsGrabRow[];
-}
+export type SensorVsGrabResponse = components['schemas']['SensorVsGrabResponse'];
 
 // Each grab value against the continuous average over a window after it, the portals' comparison.
 export const getSensorVsGrab = (
@@ -686,57 +586,23 @@ export const cancelJob = (jobId: string) =>
 	POST<{ status: string }>(`${SERVICE}/reprocessing_jobs/${jobId}/cancel`, {});
 
 // Bulk historical attribution: list open deployments with claimable pre-deployment history.
-export interface BackfillCandidate {
-	deployment_id: string;
-	sensor_id: string;
-	site_id: string;
-	parameter_id: string;
-	deployed_from: string;
-	target_from: string;
-	claimable_count: number;
-}
-export interface BackfillSiteSummary {
-	site_id: string;
-	deployments: number;
-	claimable_count: number;
-}
-export interface BackfillCandidatesResponse {
-	candidates: BackfillCandidate[];
-	by_site: BackfillSiteSummary[];
-	total_candidates: number;
-	total_claimable: number;
-}
+export type BackfillCandidate = components['schemas']['BackfillCandidate'];
+export type BackfillSiteSummary = components['schemas']['BackfillSiteSummary'];
+export type BackfillCandidatesResponse = components['schemas']['BackfillCandidatesResponse'];
 export const getBackfillCandidates = () =>
 	GET<BackfillCandidatesResponse>(`${SERVICE}/actions/backfill_candidates`);
 
-export interface BackfillAttributionResponse {
-	job_id: string;
-	status: string;
-	deployments_updated: number;
-	estimated_readings: number;
-}
+export type BackfillAttributionResponse = components['schemas']['BackfillAttributionResponse'];
 // Backdate the matching open deployments + window-reprocess so historical orphans get attributed.
 export const backfillAttribution = (body: { all?: boolean; site_id?: string; deployment_ids?: string[] }) =>
 	POST<BackfillAttributionResponse>(`${SERVICE}/actions/backfill_attribution`, body);
 
 // Readings a calibration window covers that were never stamped with it. A reprocess resolves them
 // against the curves that already exist; nothing is created.
-export interface CalibrationBackfillCandidate {
-	sensor_id: string;
-	uncalibrated_count: number;
-	target_from: string;
-	earliest_calibration_from: string | null;
-}
+export type CalibrationBackfillCandidate = components['schemas']['CalibrationBackfillCandidate'];
 // Readings whose calibrated_value differs from raw_value while naming neither a calibration nor a
 // standard curve. Reported only - the stored number is somebody's measurement.
-export interface OrphanedCorrection {
-	sensor_id: string | null;
-	site_id: string | null;
-	parameter_id: string | null;
-	count: number;
-	first_time: string;
-	last_time: string;
-}
+export type OrphanedCorrection = components['schemas']['OrphanedCorrection'];
 export interface CalibrationBackfillCandidatesResponse {
 	candidates: CalibrationBackfillCandidate[];
 	total_candidates: number;
@@ -747,22 +613,12 @@ export interface CalibrationBackfillCandidatesResponse {
 export const getCalibrationCandidates = () =>
 	GET<CalibrationBackfillCandidatesResponse>(`${SERVICE}/actions/calibration_candidates`);
 
-export interface BackfillCalibrationsResponse {
-	job_id: string;
-	status: string;
-	sensors_updated: number;
-	estimated_readings: number;
-}
+export type BackfillCalibrationsResponse = components['schemas']['BackfillCalibrationsResponse'];
 export const backfillCalibrations = (body: { all?: boolean; sensor_id?: string; sensor_ids?: string[] }) =>
 	POST<BackfillCalibrationsResponse>(`${SERVICE}/actions/backfill_calibrations`, body);
 
 // Derived preview
-export interface PreviewDerivedRequest {
-	formula: string;
-	site_id: string;
-	start: string;
-	end: string;
-}
+export type PreviewDerivedRequest = components['schemas']['PreviewDerivedRequest'];
 
 export interface PreviewDerivedResponse {
 	site: { id: string; name: string };
@@ -802,28 +658,9 @@ export const getSiteExportSummary = (siteId: string, start: string, end: string)
 	GET<ExportSummary>(`${SERVICE}/sites/${siteId}/export/summary`, { start, end });
 
 // Instruments overview: every instrument owning curves or feeding streams, with usage.
-export interface CurveOverview {
-	id: string;
-	name: string | null;
-	slope: number;
-	intercept: number;
-	r_squared: number | null;
-	source_system: string | null;
-	source_key: string | null;
-	created_at: string | null;
-	reading_count: number;
-	first_used: string | null;
-	last_used: string | null;
-}
+export type CurveOverview = components['schemas']['CurveOverview'];
 
-export interface InstrumentStreamRef {
-	id: string;
-	source_system: string;
-	source_key: string;
-	measurement_type: string | null;
-	site_name: string | null;
-	parameter_code: string | null;
-}
+export type InstrumentStreamRef = components['schemas']['InstrumentStreamRef'];
 
 export interface InstrumentOverview {
 	id: string;
@@ -841,41 +678,16 @@ export interface InstrumentOverview {
 export const getInstrumentsOverview = () =>
 	GET<{ instruments: InstrumentOverview[] }>(`${SERVICE}/instruments/overview`);
 
-export interface CurveUsagePoint {
-	time: string;
-	replicate_index: number;
-	raw_value: number;
-	calibrated_value: number | null;
-	is_flagged: boolean;
-	site_name: string | null;
-	parameter_code: string | null;
-}
+export type CurveUsagePoint = components['schemas']['CurveUsagePoint'];
 
-export interface CurveUsageResponse {
-	curve_id: string;
-	sensor_id: string;
-	slope: number;
-	intercept: number;
-	reading_count: number;
-	points: CurveUsagePoint[];
-}
+export type CurveUsageResponse = components['schemas']['CurveUsageResponse'];
 
 export const getCurveUsage = (curveId: string) =>
 	GET<CurveUsageResponse>(`${SERVICE}/standard_curves/${curveId}/usage`);
 
 // The instrument and standard curve the newest grab at a site and parameter recorded; every
 // field but `method` is null when no grab there names either.
-export interface LastUsedCurve {
-	site_id: string;
-	parameter_id: string;
-	sensor_id: string | null;
-	sensor_name: string | null;
-	standard_curve_id: string | null;
-	curve_name: string | null;
-	curve_created_at: string | null;
-	used_at: string | null;
-	method: string;
-}
+export type LastUsedCurve = components['schemas']['LastUsedCurveResponse'];
 
 export const getLastUsedCurve = (
 	siteId: string,
@@ -887,12 +699,7 @@ export const getLastUsedCurve = (
 	);
 
 // One instrument's curve usage, the figures the overview reports without reading every instrument.
-export interface SensorCurveUsage {
-	curve_id: string;
-	reading_count: number;
-	first_used: string | null;
-	last_used: string | null;
-}
+export type SensorCurveUsage = components['schemas']['SensorCurveUsage'];
 
 export const getSensorCurveUsage = (sensorId: string) =>
 	GET<{ sensor_id: string; usage: SensorCurveUsage[] }>(`${SERVICE}/sensors/${sensorId}/curve_usage`);
@@ -1122,12 +929,7 @@ export interface PlanWarning {
 	source_units: string | null;
 }
 
-export interface PlanCurveRef {
-	id: string;
-	name: string | null;
-	slope: number;
-	intercept: number;
-}
+export type PlanCurveRef = components['schemas']['PlanCurveRef'];
 
 export interface PlanInstrumentRef {
 	// The source column naming a curve per reading, e.g. `doc_std_curve_id`. Null when the
@@ -1279,27 +1081,11 @@ export interface PlanInstrumentGroup {
 	name_conflict?: InstrumentNameConflict | null;
 }
 
-/** An instrument already carrying a proposed name, so the proposal is a choice rather than a
- *  suggestion: attach to it, or create a second one beside it. */
-export interface InstrumentNameConflict {
-	id: string;
-	name: string;
-	source_system: string | null;
-	/** True when it already holds readings; attaching adds to them. */
-	has_readings: boolean;
-}
+export type InstrumentNameConflict = components['schemas']['InstrumentNameConflict'];
 
-export interface PlanUnassignedParameter {
-	scope: string;
-	parameter: string;
-	stream_count: number;
-	site_count: number;
-	anchor_stream_id: string;
-	// The name an instrument for this parameter would get. Accepting it creates the instrument;
-	// nothing is minted from a suggestion alone.
-	suggested_name: string;
-	name_conflict?: InstrumentNameConflict | null;
-}
+/** Hand-written: `InstrumentNameConflict` derives both Serialize and Deserialize, so P63's
+ * rule left its `source_system` optional where the wire always carries the key. */
+export type PlanUnassignedParameter = components['schemas']['PlanUnassignedParameter'];
 
 // A standard curve the source replicated, and the instrument it is currently fitted on.
 export interface PlanCurveAssignment {
@@ -1634,38 +1420,14 @@ export const resolveReplicateAudit = (
 
 // One slot serving replicate statistics under no declared sd estimator. `population_signature_holds`
 // is the evidence the operator rules on: holds whose disagreement is exactly the divisor.
-export interface UndeclaredEstimatorSlot {
-	site_id: string;
-	parameter_id: string;
-	site_name: string;
-	parameter_name: string;
-	parameter_code: string;
-	site_parameter_id: string;
-	undeclared_samples: number;
-	// Whether a stream feeding the slot ships a precomputed sd column.
-	source_reports_sd: boolean;
-	streams: Array<{ stream_id: string; source_system: string | null; source_key: string | null }>;
-	open_holds: number;
-	population_signature_holds: number;
-}
+export type UndeclaredEstimatorSlot = components['schemas']['UndeclaredEstimatorSlot'];
 
-export interface UndeclaredEstimatorsResponse {
-	total_slots: number;
-	total_undeclared_samples: number;
-	total_population_signature_holds: number;
-	slots: UndeclaredEstimatorSlot[];
-}
+export type UndeclaredEstimatorsResponse = components['schemas']['UndeclaredEstimatorsResponse'];
 
 export const listUndeclaredSdEstimators = () =>
 	GET<UndeclaredEstimatorsResponse>(`${ADMIN}/actions/undeclared_sd_estimators`);
 
-export interface DeclareSdEstimatorResponse {
-	site_parameter_id: string;
-	estimator: SdEstimator | null;
-	previous: SdEstimator | null;
-	samples_affected: number;
-	job_id?: string;
-}
+export type DeclareSdEstimatorResponse = components['schemas']['DeclareSdEstimatorResponse'];
 
 // The one path for changing a slot's declaration: writes the column and enqueues the tracked
 // retag recomputing the slot's stored samples. The CRUD update excludes the field.
@@ -1675,14 +1437,7 @@ export const declareSdEstimator = (siteParameterId: string, estimator: SdEstimat
 		{ estimator },
 	);
 
-export interface RetagSdEstimatorResponse {
-	estimator: SdEstimator;
-	samples_affected: number;
-	// Samples carrying an estimator chosen for that one instant: inside samples_affected with
-	// override_instants, skipped without.
-	instant_decisions: number;
-	job_id?: string;
-}
+export type RetagSdEstimatorResponse = components['schemas']['RetagSdEstimatorResponse'];
 
 // The sd_estimator_retag job's own options: bring stored samples into line with a declaration
 // the slot already carries, optionally over a window, optionally overriding instant decisions.
@@ -1959,13 +1714,6 @@ export interface VisitListRow {
 	recompute: 'current' | 'queued' | 'running' | 'failed' | 'stale' | string;
 }
 
-export interface VisitListResponse {
-	total: number;
-	page: number;
-	page_size: number;
-	visits: VisitListRow[];
-}
-
 export type VisitListSort = 'collected_at' | 'parameters_filled' | 'findings_open' | 'site_name';
 
 export const listVisits = (
@@ -1978,7 +1726,7 @@ export const listVisits = (
 		sort?: VisitListSort;
 		order?: 'asc' | 'desc';
 	} = {},
-) => GET<VisitListResponse>(`${SERVICE}/visits`, { ...opts });
+) => GET<Page<VisitListRow>>(`${SERVICE}/visits`, { ...opts });
 
 export interface EventCellReplicate {
 	replicate_index: number;
@@ -2108,25 +1856,9 @@ export const startReplicateReconciliation = (sourceSystem: string, dryRun = fals
 		...(dryRun ? { dry_run: true } : {}),
 	});
 
-export interface DuplicateSlotStream {
-	stream_id: string;
-	source_system: string;
-	source_key: string;
-	readings: number;
-	first_reading: string | null;
-	last_reading: string | null;
-}
+export type DuplicateSlotStream = components['schemas']['DuplicateSlotStream'];
 
-/** A (site, parameter) slot where two streams carry the same instant. */
-export interface DuplicateSlot {
-	site_id: string;
-	site_name: string;
-	parameter_id: string;
-	parameter_name: string;
-	site_parameter_id: string;
-	streams: DuplicateSlotStream[];
-	duplicated_instants: number;
-}
+export type DuplicateSlot = components['schemas']['DuplicateSlot'];
 
 export const getDuplicateSlots = () =>
 	GET<{ slots: DuplicateSlot[] }>(`${ADMIN}/sync/replicate_reconciliation/duplicate_slots`);
@@ -2180,10 +1912,7 @@ export const startReconciliationDelete = (sourceSystem: string) =>
 	});
 
 // Roles
-export interface KeycloakRole {
-	id: string;
-	name: string;
-}
+export type KeycloakRole = components['schemas']['KeycloakRole'];
 
 export const listRoles = () => GET<KeycloakRole[]>(`${ADMIN}/roles`);
 export const assignUserRoles = (userId: string, roles: string[]) =>
@@ -2191,29 +1920,15 @@ export const assignUserRoles = (userId: string, roles: string[]) =>
 
 // Project visibility grants: which projects a non-admin user may see and act in. Keyed by the
 // user's Keycloak id (== `sub`). PUT replaces the whole set.
-export interface GrantedProject {
-	project_id: string;
-	name: string;
-}
+export type GrantedProject = components['schemas']['GrantedProject'];
 export const getUserGrants = (userId: string) =>
 	GET<GrantedProject[]>(`${ADMIN}/users/${userId}/grants`);
 
 // The caller's visible sites as a project → subproject → site tree, grant-scoped server-side.
 // Drives the sidebar site navigator. Keycloak-only, like `/api/me`.
-export interface NavigatorSite {
-	id: string;
-	name: string;
-}
-export interface NavigatorSubproject {
-	id: string | null;
-	name: string;
-	sites: NavigatorSite[];
-}
-export interface NavigatorProject {
-	project_id: string;
-	name: string;
-	subprojects: NavigatorSubproject[];
-}
+export type NavigatorSite = components['schemas']['NavigatorSite'];
+export type NavigatorSubproject = components['schemas']['NavigatorSubproject'];
+export type NavigatorProject = components['schemas']['NavigatorProject'];
 export const getMySites = () => GET<NavigatorProject[]>(`${ADMIN}/me/sites`);
 export const setUserGrants = (userId: string, projectIds: string[]) =>
 	PUT(`${ADMIN}/users/${userId}/grants`, { project_ids: projectIds });
@@ -2311,22 +2026,7 @@ export interface ToolParam {
 /** Which half of an output's declaration the server found the catalog row by. */
 export type ToolParameterResolvedBy = 'id' | 'code';
 
-/**
- * The catalog parameter an output saves to, resolved server-side against the database serving the
- * request. A client reads this instead of matching codes against whatever slice of the catalog it
- * happens to hold.
- */
-export interface ResolvedParameter {
-	id: string;
-	code: string;
-	name: string;
-	default_units: string | null;
-	/** True for a catalog entry created mechanically rather than by a person. */
-	needs_review: boolean;
-	resolved_by: ToolParameterResolvedBy;
-	/** True when `parameter_id` names no catalog row and the code resolved instead. */
-	dangling_parameter_id: boolean;
-}
+export type ResolvedParameter = components['schemas']['ResolvedParameter'];
 
 export interface ToolOutput {
 	key: string;
@@ -2446,15 +2146,7 @@ export interface ToolEventInput {
 	parameter_code: string;
 }
 
-export interface ToolVersionRef {
-	/** Null for a draft run: no stored version produced those numbers. */
-	script_version_id: string | null;
-	version_no: number | null;
-	content_hash: string;
-	/** Null when the runner did not answer with its runtime identity. */
-	runner_image: string | null;
-	r_version: string | null;
-}
+export type ToolVersionRef = components['schemas']['ToolVersionRef'];
 
 /** A curve as the runner received it. `standard_curve_id` is set when it came from the catalog. */
 export interface ToolResolvedCurve {
@@ -2830,10 +2522,7 @@ export interface GrabExistingGroup {
 	replicates: GrabExistingReplicate[];
 }
 
-export interface ImpactParameter {
-	parameter_id: string;
-	parameter_code: string;
-}
+export type ImpactParameter = components['schemas']['ImpactParameter'];
 
 /** One calculation a save feeds, and the output parameters it rewrites at the visit. */
 export interface CalculationImpact {
@@ -2863,10 +2552,7 @@ export const saveGrabSample = (req: GrabSampleRequest) =>
 
 // --- Seasonal check (the portal's Check gate) --------------------------------------------------
 
-export interface SeasonalCheckValue {
-	parameter_id: string;
-	value: number;
-}
+export type SeasonalCheckValue = components['schemas']['SeasonalCheckValue'];
 
 export type SeasonalClass =
 	| 'no_history'
@@ -2876,42 +2562,13 @@ export type SeasonalClass =
 	| 'above_q90'
 	| 'above_max';
 
-export interface SeasonalFinding {
-	parameter_id: string;
-	value: number;
-	class: SeasonalClass;
-	warning: boolean;
-	n: number;
-	min: number | null;
-	q10: number | null;
-	q90: number | null;
-	max: number | null;
-	/** Pooled historical values (capped) for the distribution plot. */
-	distribution: number[];
-}
+export type SeasonalFinding = components['schemas']['SeasonalFinding'];
 
-export interface SeasonalClassDescription {
-	class: SeasonalClass;
-	meaning: string;
-	warning: boolean;
-}
+export type SeasonalClassDescription = components['schemas']['SeasonalClassDescription'];
 
-/** What the check computed, built by the API beside the query it describes. */
-export interface SeasonalMethod {
-	window_months: number;
-	window: string;
-	pooled: string;
-	value: string;
-	statistics: string;
-	classes: SeasonalClassDescription[];
-}
+export type SeasonalMethod = components['schemas']['SeasonalMethod'];
 
-export interface SeasonalCheckResponse {
-	check_id: string;
-	findings: SeasonalFinding[];
-	warnings: number;
-	method: SeasonalMethod;
-}
+export type SeasonalCheckResponse = components['schemas']['SeasonalCheckResponse'];
 
 /**
  * Screen entered values against the site's seasonal distribution (entry month ±2 across all
@@ -2936,14 +2593,7 @@ export function grabConflictGroups(e: unknown): GrabExistingGroup[] | null {
 export type OverlapPolicy = 'skip_if_running' | 'allow_concurrent';
 export type CatchupPolicy = 'run_once' | 'skip';
 
-export interface TunableSpec {
-	key: string;
-	kind: { type: 'integer' | 'boolean' | 'duration' | 'enum'; options?: string[] };
-	min: number | null;
-	max: number | null;
-	default: unknown;
-	help: string;
-}
+export type TunableSpec = components['schemas']['TunableSpec'];
 
 export interface Schedule {
 	job_name: string;
@@ -2975,10 +2625,7 @@ export interface ScheduleUpdate {
 	tunables?: Record<string, unknown>;
 }
 
-export interface RunNowResponse {
-	job_id: string | null;
-	enqueued: boolean;
-}
+export type RunNowResponse = components['schemas']['RunNowResponse'];
 
 export const listSchedules = () => GET<Schedule[]>(`${ADMIN}/schedules`);
 
@@ -2994,27 +2641,7 @@ export const runScheduleNow = (jobName: string) =>
 export const getScheduleAudit = (jobName: string) =>
 	GET<ScheduleAuditEntry[]>(`${ADMIN}/schedules/${encodeURIComponent(jobName)}/audit`);
 
-/** One parameter's period statistics over a range: the portal's `getStats` rows, server-computed. */
-export interface ParameterStatistics {
-	parameter_id: string;
-	code: string;
-	name: string;
-	units?: string | null;
-	decimal_places?: number | null;
-	/** Instants in the range, whether or not each carries a value. */
-	time_points: number;
-	/** Instants carrying a value: what every statistic below is computed over. */
-	n: number;
-	/** `time_points` less `n`, the portal's NA's row. */
-	nulls: number;
-	median?: number | null;
-	mean?: number | null;
-	/** Both divisors travel: a period sd belongs to no slot's declaration, so neither is the answer. */
-	stdev_sample?: number | null;
-	stdev_population?: number | null;
-	min?: number | null;
-	max?: number | null;
-}
+export type ParameterStatistics = components['schemas']['ParameterStatistics'];
 
 export interface SiteStatisticsResponse {
 	site: { id: string; name: string };
@@ -3042,23 +2669,9 @@ export interface CalculationImpact {
 	outputs: { parameter_id: string; parameter_code: string }[];
 }
 
-/** Where one calculation slot's data lives, and where the stored values came from. */
-export interface SlotCoverage {
-	parameter_id: string;
-	parameter_code: string;
-	/** Zero is the state that matters: a calculation input no site has configured. */
-	sites_configured: number;
-	reading_count: number;
-	first_reading?: string;
-	last_reading?: string;
-	source_systems: string[];
-	run_sources: string[];
-}
+export type SlotCoverage = components['schemas']['SlotCoverage'];
 
-export interface ClosureResponse {
-	calculations: CalculationImpact[];
-	coverage?: SlotCoverage[];
-}
+export type ClosureResponse = components['schemas']['ClosureResponse'];
 
 export const getCalculationClosure = (params: {
 	parameter_ids?: string;
@@ -3216,28 +2829,9 @@ export const getReadingDecisions = (key: {
 	replicate_index?: number;
 }) => GET<ReadingDecision[]>(`${SERVICE}/readings/decisions`, { ...key });
 
-/** One thing that happened to a value, in the one shape every record answers `/readings/ledger` in. */
-export interface LedgerEntry {
-	at: string;
-	/** Which record it came from: decision, ingest, hold, tool_run, job, job_log, change or alarm. */
-	source: string;
-	severity: 'error' | 'warning' | 'info';
-	actor?: string | null;
-	what: string;
-	old?: Record<string, unknown> | null;
-	new?: Record<string, unknown> | null;
-	/** The row this entry is, so a reader can open it where it lives. */
-	id: string;
-}
+export type LedgerEntry = components['schemas']['LedgerEntry'];
 
-export interface LedgerResponse {
-	time: string;
-	site_id?: string | null;
-	parameter_id?: string | null;
-	entries: LedgerEntry[];
-	/** The window held more than `limit`. */
-	truncated: boolean;
-}
+export type LedgerResponse = components['schemas']['LedgerResponse'];
 
 /** Everything that happened to one measured instant, newest first, filtered by severity. */
 export const getReadingLedger = (key: {
@@ -3250,14 +2844,7 @@ export const getReadingLedger = (key: {
 	limit?: number;
 }) => GET<LedgerResponse>(`${SERVICE}/readings/ledger`, { ...key });
 
-export interface ChangeEntry {
-	changed_at: string;
-	changed_by?: string | null;
-	/** What happened, as the writer named it: `site_parameter_update`, `member_insert`, and so on. */
-	change: string;
-	old_value?: Record<string, unknown> | null;
-	new_value?: Record<string, unknown> | null;
-}
+export type ChangeEntry = components['schemas']['ChangeEntry'];
 
 /** The change trail of one subject, newest first. An unknown subject is an empty list. */
 export const getChangeAudit = (subject: string) =>

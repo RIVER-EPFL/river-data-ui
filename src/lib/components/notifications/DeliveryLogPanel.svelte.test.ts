@@ -36,7 +36,7 @@ const muted = {
 };
 
 function open(messages = [muted, alarm], total = 2) {
-	getNotificationDeliveries.mockResolvedValue({ messages, total });
+	getNotificationDeliveries.mockResolvedValue({ items: messages, total, page: 1, page_size: 25 });
 	return render(DeliveryLogPanel, {});
 }
 

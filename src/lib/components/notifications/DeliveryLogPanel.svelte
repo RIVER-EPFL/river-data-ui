@@ -65,7 +65,7 @@
 			kind: kind || undefined,
 			status: status || undefined,
 		});
-		return { data: r.messages, total: r.total };
+		return { data: r.items, total: r.total };
 	}
 
 	function toggle(m: DeliveryMessage) {

@@ -21,6 +21,11 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # The API's document is copied in beside the types generated from it, so a route change that
+      # has not been carried over here fails rather than reaching a call site as a stale type.
+      - run: npm run api-types
+      - name: Fail on stale generated types
+        run: git diff --exit-code -- src/lib/api/schema.d.ts
       - run: npm run check
       - run: npm test
 
