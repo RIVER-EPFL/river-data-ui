@@ -51,8 +51,9 @@ export const getNotificationsConfig = () =>
 
 // Self-service notification preferences (the caller's own, bound to their JWT sub server-side).
 export interface MySubscriptionScope {
-	/** Which notifications the row answers for. Absent reads as `alarms`, as it does server-side. */
-	kind_group?: 'alarms' | 'sync';
+	/** The channel the row answers for, which is the notification kind. Absent reads as
+	 * `alarm_opened`, as it does server-side. */
+	channel?: string;
 	project_id?: string;
 	site_id?: string;
 	parameter_id?: string;
@@ -66,6 +67,21 @@ export interface MyNotifications {
 }
 
 export const getMyNotifications = () => GET<MyNotifications>(`${SERVICE}/notifications/me`);
+
+/** One channel as the settings page shows it: what it sends, and how often it has sent it. */
+export interface NotificationChannelView {
+	kind: string;
+	label: string;
+	description: string;
+	onByDefault: boolean;
+	subscribed: boolean;
+	sent1d: number;
+	sent7d: number;
+	sent30d: number;
+}
+
+export const getNotificationChannels = () =>
+	GET<NotificationChannelView[]>(`${SERVICE}/notifications/channels`);
 
 export const updateMyNotifications = (body: { web_push_enabled?: boolean }) =>
 	PATCH<MyNotifications>(`${SERVICE}/notifications/me`, body);
@@ -145,7 +161,6 @@ export const testSend = (body: { channel: string; recipient: string }) =>
 export interface NotificationSubscriber {
 	keycloakSub: string;
 	webPushEnabled: boolean;
-	isActive: boolean;
 	pushSubscriptionCount: number;
 	subscriptionOverrides: number;
 }

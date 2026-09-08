@@ -5,6 +5,7 @@
 	import {
 		getNotificationsConfig,
 		getMyNotifications,
+		getNotificationChannels,
 		updateMyNotifications,
 		setMySubscriptions,
 		registerPushSubscription,
@@ -14,6 +15,7 @@
 		scheduleMyPing,
 		type NotificationsConfig,
 		type MyNotifications,
+		type NotificationChannelView,
 		type PushSubscriptionRow,
 		type PushAttempt,
 	} from '$api/service';
@@ -31,11 +33,11 @@
 		showLocalTestNotification,
 	} from '$lib/push';
 	import {
-		groupSubscribed,
+		SITE_SCOPED_CHANNELS,
+		channelSubscribed,
 		subscriptionRows,
-		type NotificationGroupId,
-	} from '$lib/notifications/groups';
-	import NotificationGroups from '$components/notifications/NotificationGroups.svelte';
+	} from '$lib/notifications/channels';
+	import NotificationChannels from '$components/notifications/NotificationChannels.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
@@ -58,10 +60,8 @@
 	let testOutcome = $state<string | null>(null);
 
 	let mutedSites = $state<Set<string>>(new Set());
-	let subscribedGroups = $state<Record<NotificationGroupId, boolean>>({
-		alarms: true,
-		sync: false,
-	});
+	let channels = $state<NotificationChannelView[]>([]);
+	let subscribedChannels = $state<Record<string, boolean>>({});
 
 	const sitesByProject = $derived.by(() => {
 		const m = new Map<string, Site[]>();
@@ -73,18 +73,17 @@
 		return m;
 	});
 
-	function deriveGroups(n: MyNotifications): Record<NotificationGroupId, boolean> {
-		return {
-			alarms: groupSubscribed(n.subscriptions, 'alarms'),
-			sync: groupSubscribed(n.subscriptions, 'sync'),
-		};
+	function deriveChannels(n: MyNotifications): Record<string, boolean> {
+		return Object.fromEntries(
+			channels.map((c) => [c.kind, channelSubscribed(n.subscriptions, c.kind, c.onByDefault)])
+		);
 	}
 
 	function deriveMuted(n: MyNotifications) {
 		const siteOverride = new Map<string, boolean>();
 		const projectOverride = new Map<string, boolean>();
 		for (const s of n.subscriptions) {
-			if ((s.kind_group ?? 'alarms') !== 'alarms') continue;
+			if (!SITE_SCOPED_CHANNELS.includes(s.channel ?? 'alarm_opened')) continue;
 			if (s.site_id && !s.parameter_id) siteOverride.set(s.site_id, s.enabled);
 			else if (s.project_id && !s.site_id) projectOverride.set(s.project_id, s.enabled);
 		}
@@ -103,16 +102,18 @@
 
 		try {
 			caps = await getNotificationsConfig();
-			const [n, p, s] = await Promise.all([
+			const [n, c, p, s] = await Promise.all([
 				getMyNotifications(),
+				getNotificationChannels(),
 				api.projects.list({ perPage: 500 }),
 				api.sites.list({ perPage: 1000 }),
 			]);
 			me = n;
+			channels = c;
 			projects = p.data;
 			sites = s.data;
 			mutedSites = deriveMuted(n);
-			subscribedGroups = deriveGroups(n);
+			subscribedChannels = deriveChannels(n);
 
 			if (pushSupported) {
 				const sub = await getSubscription();
@@ -304,9 +305,11 @@
 	async function saveSubscriptions() {
 		busy = true;
 		try {
-			me = await setMySubscriptions(subscriptionRows(subscribedGroups, mutedSites));
+			me = await setMySubscriptions(
+				subscriptionRows(channels, subscribedChannels, mutedSites)
+			);
 			mutedSites = deriveMuted(me);
-			subscribedGroups = deriveGroups(me);
+			subscribedChannels = deriveChannels(me);
 			toastStore.success('Subscriptions saved');
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Save failed');
@@ -502,14 +505,14 @@
 					Choose the alerts you want, then the sites they cover.
 				</p>
 
-				<NotificationGroups bind:subscribed={subscribedGroups} {scopes} />
+				<NotificationChannels {channels} bind:subscribed={subscribedChannels} {scopes} />
 			</div>
 		</section>
 	{/if}
 </div>
 
-{#snippet scopes(group: NotificationGroupId)}
-	{#if group === 'alarms'}
+{#snippet scopes(kind: string)}
+	{#if kind === 'alarm_opened'}
 		{#if projects.length === 0}
 			<p class="text-sm text-brand-text-muted">No sites available.</p>
 		{:else}

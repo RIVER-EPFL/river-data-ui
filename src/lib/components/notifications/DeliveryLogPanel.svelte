@@ -19,6 +19,7 @@
 		'sync_stale',
 		'streams_unpaired',
 		'holds_open',
+		'job_failed',
 		'test',
 	];
 	const STATUSES = ['sent', 'failed', 'muted', 'undeliverable', 'skipped'];
