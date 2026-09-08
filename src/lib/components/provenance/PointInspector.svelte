@@ -10,8 +10,10 @@
 		type StreamReceipt,
 		type HoldKind,
 		getReadingDecisions,
+		getReadingLedger,
 		rollbackEdit,
 		rollbackEditSet,
+		type LedgerEntry,
 		type ReadingDecision,
 	} from '$api/service';
 	import type { SampleReplicate } from '$api/types';
@@ -73,25 +75,61 @@
 	let error = $state('');
 	let resp = $state<ProvenanceResponse | null>(null);
 	let showToolRun = $state<Set<number>>(new Set());
-	// The decision history of one record, fetched on demand: it is the audit trail, not part of
-	// the value, so it is not on the critical path of reading the record.
-	let showDecisions = $state<Set<number>>(new Set());
+	// The history of one record, fetched on demand: it is the audit trail, not part of the value,
+	// so it is not on the critical path of reading the record. The ledger is the timeline; the
+	// decisions read beside it is what says which of its entries an operator may still undo.
+	let showHistory = $state<Set<number>>(new Set());
+	let history = $state<Record<number, LedgerEntry[]>>({});
 	let decisions = $state<Record<number, ReadingDecision[]>>({});
-	let decisionsError = $state<Record<number, string>>({});
+	let historyError = $state<Record<number, string>>({});
+	let severity = $state<'all' | 'error' | 'warning'>('all');
 	let rollingBack = $state<string | null>(null);
 	let editOpen = $state(false);
 	let editSelection = $state<{ keys: { stream_id: string; time: string }[] } | null>(null);
 
-	async function toggleDecisions(i: number, rec: ProvenanceRecord) {
-		const next = new Set(showDecisions);
+	async function toggleHistory(i: number, rec: ProvenanceRecord) {
+		const next = new Set(showHistory);
 		if (next.has(i)) {
 			next.delete(i);
-			showDecisions = next;
+			showHistory = next;
 			return;
 		}
 		next.add(i);
-		showDecisions = next;
-		await loadDecisions(i, rec);
+		showHistory = next;
+		await loadHistory(i, rec);
+	}
+
+	// The severity is the one filter, and the endpoint applies it, so changing it re-reads every
+	// record already open rather than hiding rows it already holds.
+	async function filterBy(level: 'all' | 'error' | 'warning') {
+		severity = level;
+		for (const i of showHistory) {
+			const rec = resp?.records[i];
+			if (rec) await loadHistory(i, rec);
+		}
+	}
+
+	/** The decision behind a ledger entry, where the entry is one: only that arm can be undone. */
+	function decisionFor(i: number, entry: LedgerEntry): DecisionEntry | undefined {
+		if (entry.source !== 'decision') return undefined;
+		return timelineEntries(decisions[i] ?? []).find((e) => e.head.id === entry.id);
+	}
+
+	/** Where an entry lives, for the records that have a page of their own. */
+	function entryHref(rec: ProvenanceRecord, entry: LedgerEntry): string | null {
+		switch (entry.source) {
+			case 'job':
+			case 'job_log':
+				return `${base}/system?tab=jobs`;
+			case 'hold':
+				return `${base}/streams?tab=audits`;
+			case 'ingest':
+				return `${base}/streams?q=${encodeURIComponent(rec.origin.source_key)}`;
+			case 'alarm':
+				return `${base}/alarms`;
+			default:
+				return null;
+		}
 	}
 
 	function cellText(v: unknown): string {
@@ -106,16 +144,22 @@
 		return `One act over ${rows}`;
 	}
 
-	async function loadDecisions(i: number, rec: ProvenanceRecord) {
+	async function loadHistory(i: number, rec: ProvenanceRecord) {
 		try {
+			const ledger = await getReadingLedger({
+				stream_id: rec.origin.stream_id,
+				time: timeIso,
+				...(severity === 'all' ? {} : { severity }),
+			});
+			history = { ...history, [i]: ledger.entries };
 			decisions = {
 				...decisions,
 				[i]: await getReadingDecisions({ stream_id: rec.origin.stream_id, time: timeIso }),
 			};
-			decisionsError = { ...decisionsError, [i]: '' };
+			historyError = { ...historyError, [i]: '' };
 		} catch (e) {
-			decisionsError = {
-				...decisionsError,
+			historyError = {
+				...historyError,
 				[i]: e instanceof Error ? e.message : String(e),
 			};
 		}
@@ -133,11 +177,11 @@
 				await rollbackEdit(d.id);
 			}
 			toastStore.success(`${decisionLabel(d.kind)} rolled back`);
-			await loadDecisions(i, rec);
+			await loadHistory(i, rec);
 			await load();
 		} catch (e) {
-			decisionsError = {
-				...decisionsError,
+			historyError = {
+				...historyError,
 				[i]: e instanceof Error ? e.message : String(e),
 			};
 		} finally {
@@ -345,7 +389,7 @@
 		const key = `${siteId}|${parameterId}|${timeIso}|${measurementType ?? ''}|${revision}`;
 		void key;
 		showToolRun = new Set();
-		showDecisions = new Set();
+		showHistory = new Set();
 		error = '';
 		void load();
 	});
@@ -608,45 +652,70 @@
 					>
 					<button
 						class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline"
-						onclick={() => toggleDecisions(i, rec)}
-						>{showDecisions.has(i) ? 'Hide decisions' : 'Show decisions'}</button
+						onclick={() => toggleHistory(i, rec)}
+						>{showHistory.has(i) ? 'Hide history' : 'Show history'}</button
 					>
 				</div>
-				{#if showDecisions.has(i)}
+				{#if showHistory.has(i)}
 					<div class="mt-2 text-xs">
-						{#if decisionsError[i]}
-							<ErrorNotice message={decisionsError[i]} />
-						{:else if (decisions[i] ?? []).length === 0}
+						<div class="mb-1 flex items-center gap-2 text-gray-500">
+							<span>History</span>
+							{#each [['all', 'Everything'], ['warning', 'Warnings'], ['error', 'Failures']] as [level, label] (level)}
+								<button
+									class="cursor-pointer border-none bg-transparent p-0 hover:underline"
+									class:font-medium={severity === level}
+									class:text-brand-primary={severity === level}
+									onclick={() => filterBy(level as 'all' | 'error' | 'warning')}>{label}</button
+								>
+							{/each}
+						</div>
+						{#if historyError[i]}
+							<ErrorNotice message={historyError[i]} />
+						{:else if (history[i] ?? []).length === 0}
 							<p class="text-gray-500">
-								Nobody has decided anything about this reading: it stands as it arrived.
+								Nothing has happened to this reading: it stands as it arrived.
 							</p>
 						{:else}
 							<ul class="space-y-1">
-								{#each timelineEntries(decisions[i] ?? []) as e (e.head.id)}
+								{#each history[i] ?? [] as entry (entry.source + entry.id + entry.at)}
+									{@const decision = decisionFor(i, entry)}
+									{@const href = entryHref(rec, entry)}
 									<li class="flex flex-wrap items-baseline gap-x-2">
-										<span class="font-medium">{decisionLabel(e.head.kind)}</span>
-										{#if e.members.length > 1}
-											<span class="text-gray-500" title={memberRows(e)}
-												>{formatCount(e.members.length)} readings</span
+										<span class="font-medium">
+											{decision ? decisionLabel(decision.head.kind) : entry.what}
+										</span>
+										{#if decision && decision.members.length > 1}
+											<span class="text-gray-500" title={memberRows(decision)}
+												>{formatCount(decision.members.length)} readings</span
+											>
+										{/if}
+										{#if entry.severity !== 'info'}
+											<Badge variant={entry.severity === 'error' ? 'alarm' : 'warning'}
+												>{entry.severity}</Badge
 											>
 										{/if}
 										<span class="text-gray-500">
-											{formatDateTime(e.head.at)} · {e.head.actor} · {e.head.origin}
+											{formatDateTime(entry.at)}{entry.actor ? ` · ${entry.actor}` : ''} · {entry.source}
 										</span>
-										{#each changedFields(e.head) as c (c.field)}
+										{#each decision ? changedFields(decision.head) : [] as c (c.field)}
 											<span class="text-gray-500">
 												{fieldLabel(c.field)}
 												{cellText(c.from)} → {cellText(c.to)}
 											</span>
 										{/each}
-										{#if e.head.reason}<span class="text-gray-500">“{e.head.reason}”</span>{/if}
-										{#if e.head.rolled_back_by}
+										{#if decision?.head.reason}
+											<span class="text-gray-500">“{decision.head.reason}”</span>
+										{/if}
+										{#if href}
+											<a class="text-brand-primary hover:underline" {href}>Open</a>
+										{/if}
+										{#if decision?.head.rolled_back_by}
 											<span class="text-gray-400">rolled back</span>
-										{:else if undoable(e.head)}
+										{:else if decision && undoable(decision.head)}
 											<button
 												class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline disabled:opacity-50"
-												disabled={rollingBack === e.head.id}
-												onclick={() => rollBack(i, rec, e)}>Roll back</button
+												disabled={rollingBack === decision.head.id}
+												onclick={() => rollBack(i, rec, decision)}>Roll back</button
 											>
 										{/if}
 									</li>

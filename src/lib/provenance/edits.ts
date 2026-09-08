@@ -31,6 +31,14 @@ export const EDIT_METHODS: Record<EditOptionKind, EditMethod> = {
 		reversible: true,
 		requires: 'admin',
 	},
+	return: {
+		label: 'Return to the calculation',
+		changes:
+			'Gives this output slot back to its calculation and restores the value the calculation last produced.',
+		leaves: 'The corrections made while it was detached stay in the record, rolled back rather than erased.',
+		reversible: true,
+		requires: 'admin',
+	},
 	value_correction: {
 		label: 'Correct the value',
 		changes:
@@ -125,11 +133,15 @@ export function isRoute(kind: EditOptionKind): boolean {
 }
 
 /** The route a selection takes, from what the rows say. Mixed selections are named as such. */
-export function selectionRoute(rows: InspectedRow[]): 'tool' | 'manual' | 'mixed' | 'empty' {
+export function selectionRoute(
+	rows: InspectedRow[],
+): 'tool' | 'detached' | 'manual' | 'mixed' | 'empty' {
 	if (rows.length === 0) return 'empty';
-	const tool = rows.filter((r) => r.provenance.has_tool_run).length;
+	const detached = rows.filter((r) => r.provenance.slot_detached).length;
+	const tool = rows.filter((r) => r.provenance.has_tool_run && !r.provenance.slot_detached).length;
+	if (detached === rows.length) return 'detached';
 	if (tool === rows.length) return 'tool';
-	if (tool === 0) return 'manual';
+	if (tool + detached === 0) return 'manual';
 	return 'mixed';
 }
 

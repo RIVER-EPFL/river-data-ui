@@ -19,6 +19,7 @@ const LABELS: Record<string, string> = {
 	chain: 'Calculated by a chain run',
 	detach: 'Detached from its calculation',
 	return: 'Returned to its calculation',
+	formula_transition: 'Recomputed under a new formula version',
 	rollback: 'Rolled back',
 };
 
@@ -46,6 +47,7 @@ const FIELD_LABELS: Record<string, string> = {
 	site_id: 'Site',
 	parameter_id: 'Parameter',
 	run_id: 'Tool run',
+	derived_version_id: 'Formula version',
 };
 
 export function fieldLabel(field: string): string {

@@ -25,6 +25,7 @@ function row(options: EditOptionKind[], hasToolRun = false, runId?: string): Ins
 		raw_value: 10,
 		provenance: {
 			has_tool_run: hasToolRun,
+			slot_detached: false,
 			classification: 'manual',
 			has_standard_curve: false,
 			has_calibration: false,

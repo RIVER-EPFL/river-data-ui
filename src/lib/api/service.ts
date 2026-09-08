@@ -3057,6 +3057,7 @@ export const getCalculationClosure = (params: {
 export type EditOptionKind =
 	| 'reopen_run'
 	| 'detach'
+	| 'return'
 	| 'value_correction'
 	| 'curve'
 	| 'edit_deployment'
@@ -3070,6 +3071,7 @@ export type EditOptionKind =
 
 export interface EditRowProvenance {
 	has_tool_run: boolean;
+	slot_detached: boolean;
 	classification: string;
 	has_standard_curve: boolean;
 	has_calibration: boolean;
@@ -3198,6 +3200,40 @@ export const getReadingDecisions = (key: {
 	time: string;
 	replicate_index?: number;
 }) => GET<ReadingDecision[]>(`${SERVICE}/readings/decisions`, { ...key });
+
+/** One thing that happened to a value, in the one shape every record answers `/readings/ledger` in. */
+export interface LedgerEntry {
+	at: string;
+	/** Which record it came from: decision, ingest, hold, tool_run, job, job_log, change or alarm. */
+	source: string;
+	severity: 'error' | 'warning' | 'info';
+	actor?: string | null;
+	what: string;
+	old?: Record<string, unknown> | null;
+	new?: Record<string, unknown> | null;
+	/** The row this entry is, so a reader can open it where it lives. */
+	id: string;
+}
+
+export interface LedgerResponse {
+	time: string;
+	site_id?: string | null;
+	parameter_id?: string | null;
+	entries: LedgerEntry[];
+	/** The window held more than `limit`. */
+	truncated: boolean;
+}
+
+/** Everything that happened to one measured instant, newest first, filtered by severity. */
+export const getReadingLedger = (key: {
+	time: string;
+	stream_id?: string;
+	site_id?: string;
+	parameter_id?: string;
+	measurement_type?: string;
+	severity?: string;
+	limit?: number;
+}) => GET<LedgerResponse>(`${SERVICE}/readings/ledger`, { ...key });
 
 export interface ChangeEntry {
 	changed_at: string;

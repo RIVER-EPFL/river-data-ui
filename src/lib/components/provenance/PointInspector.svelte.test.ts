@@ -6,12 +6,19 @@ import { formatDateTime } from '$lib/utils';
 
 const getReadingProvenance = vi.fn();
 const getReadingDecisions = vi.fn();
+const getReadingLedger = vi.fn();
 vi.mock('$api/service', () => ({
 	getReadingProvenance: (q: unknown) => getReadingProvenance(q),
 	getReadingDecisions: (q: unknown) => getReadingDecisions(q),
+	getReadingLedger: (q: unknown) => getReadingLedger(q),
 	rollbackEdit: vi.fn(),
 	rollbackEditSet: vi.fn(),
 }));
+
+/** The ledger arm of a decision the panel also reads through `/readings/decisions`. */
+function decisionEntry(id: string, what: string, at: string) {
+	return { id, source: 'decision', severity: 'info', actor: 'lab', what, at };
+}
 
 const PointInspector = (await import('./PointInspector.svelte')).default;
 
@@ -108,6 +115,14 @@ describe('PointInspector', () => {
 	});
 
 	it('offers Roll back only where the API says the kind can be rolled back', async () => {
+		getReadingLedger.mockResolvedValue({
+			time: '2026-07-14T09:00:00Z',
+			entries: [
+				decisionEntry('d1', 'value_correction', '2026-08-02T11:00:00Z'),
+				decisionEntry('d2', 'chain', '2026-08-01T11:00:00Z'),
+			],
+			truncated: false,
+		});
 		getReadingDecisions.mockResolvedValue([
 			{
 				id: 'd1',
@@ -136,12 +151,44 @@ describe('PointInspector', () => {
 		]);
 		const { container } = open(handEntered());
 		await screen.findByText('8.005');
-		(await screen.findByText('Show decisions')).click();
+		(await screen.findByText('Show history')).click();
 		await screen.findByText('Value corrected');
 		expect(screen.getByText('Calculated by a chain run')).toBeTruthy();
 		expect(screen.getAllByText('Roll back')).toHaveLength(1);
 		// The change itself, which the record held and the panel used not to show.
 		expect(container.textContent).toContain('8.005 → 11');
+	});
+
+	it('reads one history from every record that holds part of it, filtered by severity', async () => {
+		getReadingDecisions.mockResolvedValue([]);
+		getReadingLedger.mockImplementation((q: { severity?: string }) => {
+			const entries = [
+				{
+					id: 'job-1',
+					source: 'job',
+					severity: 'error',
+					what: 'reprocess failed',
+					at: '2026-08-03T10:00:00Z',
+				},
+				{
+					id: 'hold-1',
+					source: 'hold',
+					severity: 'warning',
+					what: 'replicate_stats (pending)',
+					at: '2026-08-02T10:00:00Z',
+				},
+			].filter((e) => !q.severity || e.severity === q.severity);
+			return Promise.resolve({ time: '2026-07-14T09:00:00Z', entries, truncated: false });
+		});
+		open(handEntered());
+		await screen.findByText('8.005');
+		(await screen.findByText('Show history')).click();
+		expect(await screen.findByText('reprocess failed')).toBeTruthy();
+		expect(screen.getByText('replicate_stats (pending)')).toBeTruthy();
+
+		(await screen.findByText('Failures')).click();
+		await vi.waitFor(() => expect(screen.queryByText('replicate_stats (pending)')).toBeNull());
+		expect(screen.getByText('reprocess failed')).toBeTruthy();
 	});
 
 	it('writes an absent value as a plain hyphen and never an em dash', async () => {

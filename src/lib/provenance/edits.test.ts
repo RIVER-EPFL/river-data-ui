@@ -12,7 +12,7 @@ import {
 	selectionRoute,
 } from './edits';
 
-function row(options: EditOptionKind[], hasToolRun = false): InspectedRow {
+function row(options: EditOptionKind[], hasToolRun = false, detached = false): InspectedRow {
 	return {
 		stream_id: 'stream',
 		time: '2026-07-14T09:00:00Z',
@@ -20,6 +20,7 @@ function row(options: EditOptionKind[], hasToolRun = false): InspectedRow {
 		raw_value: 1,
 		provenance: {
 			has_tool_run: hasToolRun,
+			slot_detached: detached,
 			classification: 'manual',
 			has_standard_curve: false,
 			has_calibration: false,
@@ -65,6 +66,13 @@ describe('the route a selection takes', () => {
 		expect(selectionRoute([row(['reopen_run'], true)])).toBe('tool');
 		expect(selectionRoute([row(['value_correction'])])).toBe('manual');
 		expect(selectionRoute([row(['reopen_run'], true), row(['value_correction'])])).toBe('mixed');
+	});
+
+	it('is detached where the slot is off its calculation, whatever produced the value', () => {
+		expect(selectionRoute([row(['return', 'value_correction'], true, true)])).toBe('detached');
+		expect(selectionRoute([row(['return', 'value_correction'], true, true), row(['reopen_run'], true)])).toBe(
+			'mixed',
+		);
 	});
 
 	it('offers only what every selected row permits', () => {

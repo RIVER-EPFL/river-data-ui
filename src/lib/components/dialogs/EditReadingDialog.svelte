@@ -171,6 +171,10 @@
 					A calculation produced {rows.length === 1 ? 'this value' : 'these values'}, so
 					{rows.length === 1 ? 'it is' : 'they are'} corrected by reopening the run rather than
 					typed over here.
+				{:else if route === 'detached'}
+					{rows.length === 1 ? 'This slot is' : 'These slots are'} off the calculation, so
+					{rows.length === 1 ? 'the value is' : 'the values are'} corrected here until
+					{rows.length === 1 ? 'it is' : 'they are'} returned.
 				{:else if route === 'mixed'}
 					This selection mixes calculated values with entered ones, so only what every reading
 					allows is offered.
