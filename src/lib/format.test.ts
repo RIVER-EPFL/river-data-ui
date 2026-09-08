@@ -11,6 +11,9 @@ describe('formatMeasurement', () => {
 	it('keeps the small values a two-decimal default rounded away when nothing is declared', () => {
 		expect(formatMeasurement(0.0031, null)).toBe('0.0031');
 		expect(formatMeasurement(412.6987)).toBe('412.699');
+		// A slot nobody has declared for is not rounded to a precision nobody chose (Q128): a
+		// single-precision 100.8 reads as what was measured, not as 100.80.
+		expect(formatMeasurement(100.8000030517578, null)).toBe('100.8');
 	});
 
 	it('writes an absent or unusable value as the one placeholder', () => {

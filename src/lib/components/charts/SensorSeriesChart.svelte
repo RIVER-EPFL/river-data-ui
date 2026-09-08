@@ -3,6 +3,7 @@
 	import UPlotChart, { type ChartOptions } from './UPlotChart.svelte';
 	import { makeSeries, makeAxis, makeGaps, uPlotTheme, tzDateOption } from '$lib/charts/uPlotTheme';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
+	import { formatInstant } from '$lib/utils';
 	import { formatEquation } from '$lib/standardCurves';
 	import {
 		sensorVectorBandPlugin, calibrationMarkerPlugin, calibrationWindowBandPlugin,
@@ -91,10 +92,7 @@
 		const band = showSensorVectors ? bandAtTime(bandsRef.current, tsSec) : null;
 		const cal = showCalibrationMarkers ? calibrationAtTime(markersRef.current, tsSec) : null;
 		return {
-			time: new Date(tsSec * 1000).toLocaleString('en-US', {
-				month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit',
-				timeZone: timezoneStore.zone, timeZoneName: 'short',
-			}),
+			time: formatInstant(tsSec * 1000),
 			raw: fmtNum(raw[hover.idx]),
 			calibrated: hasCalibrated ? fmtNum(calibrated[hover.idx]) : null,
 			preview: hasPreview ? fmtNum(preview![hover.idx]) : null,

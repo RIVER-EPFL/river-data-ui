@@ -129,7 +129,7 @@
 		{ key: 'parameter_id', label: 'Parameter', type: 'select', required: true, options: paramOptions, disabled: true },
 		{ key: 'display_units', label: 'Display Units', helperText: 'Overrides the parameter default units for this site' },
 		{ key: 'sample_interval_sec', label: 'Sample Interval (seconds)', type: 'number', helperText: 'Expected interval between readings in seconds' },
-		{ key: 'decimal_places', label: 'Decimal Places', type: 'number', helperText: 'Number of decimal places for display' },
+		{ key: 'decimal_places', label: 'Decimal Places', type: 'number', helperText: 'How many decimal places this slot is shown and published at, on screen and through the public API. Stored readings keep their full precision either way.' },
 		{ key: 'channel_id', label: 'Channel ID', type: 'number', helperText: 'External channel identifier from the data source' },
 		{ key: 'sensor_type', label: 'Sensor Type', helperText: 'Measurement type label' },
 		{ key: 'is_active', label: 'Active', type: 'boolean', helperText: 'Inactive site-parameters are hidden from data views' },

@@ -157,6 +157,16 @@ describe('visitCellStatistics', () => {
 		);
 		expect(line).toContain('divisor not declared');
 	});
+
+	it('renders an undeclared slot the way every other surface does, not as the stored double', () => {
+		const line = visitCellStatistics(
+			cell({ n: 3, stdev: 0.1 + 0.2, median: 2.5, min: 1, max: 3 }),
+			null,
+			'mg/L'
+		);
+		expect(line).toContain('SD 0.3 mg/L');
+		expect(line).not.toContain('0.30000000000000004');
+	});
 });
 
 describe('recordMarkerTitle', () => {

@@ -1643,6 +1643,12 @@
 						</tbody>
 					</table>
 				</div>
+				<p class="text-brand-muted pt-0.5">
+					s uses the {preview.sd_estimator === 'population' ? 'population (n)' : 'sample (n-1)'} divisor,
+					{preview.sd_estimator_source === 'default'
+						? 'the fallback: nothing has declared one for this slot'
+						: `declared by the ${preview.sd_estimator_source}`}.
+				</p>
 			</div>
 		{/if}
 	</div>

@@ -8,6 +8,7 @@
 	import { curveRefs } from '$lib/curveRefs.svelte';
 	import { formatEquation } from '$lib/standardCurves';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
+	import { formatInstant } from '$lib/utils';
 	import { formatMeasurement } from '$lib/format';
 	import { spotSampleLine } from '$lib/charts/spotSummary';
 
@@ -172,22 +173,14 @@
 	const timeLabel = $derived.by(() => {
 		const ts = cursorTimeSec;
 		if (ts == null) return '';
-		return new Date(ts * 1000).toLocaleString('en-US', {
-			month: 'short', day: 'numeric', year: 'numeric',
-			hour: '2-digit', minute: '2-digit',
-			timeZone: timezoneStore.zone, timeZoneName: 'short',
-		});
+		return formatInstant(ts * 1000);
 	});
 
 	// When showing local time, also surface the underlying UTC instant on hover.
 	const utcLabel = $derived.by(() => {
 		const ts = cursorTimeSec;
 		if (ts == null || timezoneStore.mode === 'utc') return '';
-		return new Date(ts * 1000).toLocaleString('en-US', {
-			month: 'short', day: 'numeric', year: 'numeric',
-			hour: '2-digit', minute: '2-digit',
-			timeZone: 'UTC', timeZoneName: 'short',
-		});
+		return formatInstant(ts * 1000, { utc: true });
 	});
 
 	const position = $derived.by(() => {

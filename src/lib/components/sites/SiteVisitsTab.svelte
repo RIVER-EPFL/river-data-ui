@@ -22,6 +22,7 @@
 	import type { SampleReplicate } from '$lib/api/types';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatDateTime, toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
+	import { formatMeasurement } from '$lib/format';
 	import { cellRecord, estimatorWord, visitCellMarker, visitCellStatistics, visitCounts } from '$lib/visits/cell';
 	import { cellRole } from '$lib/visits/role';
 	import Button from '$components/ui/Button.svelte';
@@ -442,7 +443,7 @@
 															<Badge variant="warning">missing</Badge>
 														{:else if cell.value != null}
 															{@const marker = visitCellMarker(cell)}
-															{Number(cell.value.toPrecision(6))}
+															{formatMeasurement(cell.value, col.decimal_places)}
 															{#if (cell.n ?? 0) > 1}
 																<span class="text-[10px] text-brand-muted align-super">n{cell.n}</span>
 															{/if}
@@ -465,7 +466,7 @@
 														aria-pressed={expandedVisit === v.id && visitCell?.parameterId === cell.parameter_id}
 														title="Open the record of {paramName(cell.parameter_id)} at this visit"
 														onclick={() => openVisitCell(v.id, cell.parameter_id)}
-													>{Number(cell.value.toPrecision(6))}</button>
+													>{formatMeasurement(cell.value, decimalsForParameter(cell.parameter_id))}</button>
 												{:else}
 													-
 												{/if}
@@ -550,7 +551,7 @@
 																		{/if}
 																	</td>
 																	<td class="py-1 pr-3 tabular-nums">
-																		{cell.served_value != null ? Number(cell.served_value.toPrecision(6)) : '-'}
+																		{formatMeasurement(cell.served_value, decimalsForParameter(cell.parameter_id))}
 																		{#if cell.sample && cell.sample.n >= 2 && cell.sample.stdev != null}
 																			<span
 																				class="text-brand-muted"
@@ -572,12 +573,12 @@
 																				]
 																					.filter(Boolean)
 																					.join('\n')}
-																			>±{Number(cell.sample.stdev.toPrecision(3))} ({estimatorWord(cell.sample.sd_estimator)}, n={cell.sample.n})</span>
+																			>±{formatMeasurement(cell.sample.stdev, decimalsForParameter(cell.parameter_id))} ({estimatorWord(cell.sample.sd_estimator)}, n={cell.sample.n})</span>
 																		{/if}
 																	</td>
 																	<td class="py-1 pr-3 tabular-nums text-brand-muted">
 																		{cell.replicates
-																			.map((r) => `${Number((r.calibrated_value ?? r.raw_value).toPrecision(6))}${r.flagged ? '*' : ''}${r.withdrawn ? '†' : ''}`)
+																			.map((r) => `${formatMeasurement(r.calibrated_value ?? r.raw_value, decimalsForParameter(cell.parameter_id))}${r.flagged ? '*' : ''}${r.withdrawn ? '†' : ''}`)
 																			.join(', ')}
 																	</td>
 																	<td class="py-1 pr-3">

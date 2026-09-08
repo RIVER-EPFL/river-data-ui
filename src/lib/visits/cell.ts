@@ -1,4 +1,5 @@
 import type { EventCell, EventDetailResponse, ProvenanceRecord, ProvenanceResponse, VisitCell } from '$api/service';
+import { formatMeasurement } from '$lib/format';
 import type { GridRow } from './grid';
 
 export interface CellMarker {
@@ -37,7 +38,7 @@ export function visitCellStatistics(
 ): string | null {
 	if (cell.n == null || cell.n < 1) return null;
 	const fmt = (v: number | null | undefined) =>
-		v == null ? null : typeof decimals === 'number' ? v.toFixed(decimals) : String(v);
+		v == null ? null : formatMeasurement(v, decimals);
 	const unit = units ? ` ${units}` : '';
 	const parts = [`n = ${cell.n}`];
 	const sd = fmt(cell.stdev);

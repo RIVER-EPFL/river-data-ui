@@ -34,6 +34,23 @@ export function formatDateTime(date: string | Date): string {
 	});
 }
 
+/**
+ * A chart tooltip's instant, from epoch milliseconds: the same fields and the same browser locale
+ * as `formatDateTime`, so a time in a tooltip reads as the time in the table beside it. `utc`
+ * labels the underlying UTC instant whatever the preference says.
+ */
+export function formatInstant(ms: number, opts: { utc?: boolean } = {}): string {
+	return new Date(ms).toLocaleString(undefined, {
+		year: 'numeric',
+		month: 'short',
+		day: 'numeric',
+		hour: '2-digit',
+		minute: '2-digit',
+		timeZone: opts.utc ? 'UTC' : timezoneStore.zone,
+		timeZoneName: 'short',
+	});
+}
+
 /** Date-only companion to formatDateTime, e.g. 'Dec 15, 2024'. Follows the tz preference. */
 export function formatDate(date: string | Date): string {
 	return new Date(date).toLocaleDateString(undefined, {

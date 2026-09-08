@@ -374,6 +374,10 @@ export type PreviewInstant = components['schemas']['PreviewInstant'];
 export interface StreamPreview {
 	stream_id: string;
 	source_key: string;
+	/** The divisor the standard deviations were computed under: 'sample' or 'population'. */
+	sd_estimator: string;
+	/** What chose it: 'stream', 'slot', or 'default' for the undeclared fallback. */
+	sd_estimator_source: string;
 	instants: PreviewInstant[];
 }
 

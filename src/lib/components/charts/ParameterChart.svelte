@@ -28,7 +28,7 @@
 	import { spotMarkerColors, seriesColor } from '$lib/charts/legend';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
-	import { formatDateTime } from '$lib/utils';
+	import { formatDateTime, formatInstant } from '$lib/utils';
 
 	export interface ChartData {
 		times: number[];
@@ -904,11 +904,12 @@
 		const zone = timezoneStore.zone;
 		const start = new Date(a.start_time);
 		const end = new Date(a.end_time);
-		const sameDay = start.toLocaleDateString('en-US', { timeZone: zone }) === end.toLocaleDateString('en-US', { timeZone: zone });
-		const fmt = (d: Date) => d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: zone, timeZoneName: 'short' });
+		const sameDay =
+			start.toLocaleDateString(undefined, { timeZone: zone }) ===
+			end.toLocaleDateString(undefined, { timeZone: zone });
 		return sameDay
-			? `${fmt(start)} – ${end.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: zone })}`
-			: `${fmt(start)} → ${fmt(end)}`;
+			? `${formatInstant(start.getTime())} – ${end.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', timeZone: zone })}`
+			: `${formatInstant(start.getTime())} → ${formatInstant(end.getTime())}`;
 	}
 
 	function handleResize() {
