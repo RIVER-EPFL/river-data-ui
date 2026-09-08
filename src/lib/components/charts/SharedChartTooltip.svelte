@@ -217,6 +217,7 @@
 
 {#if visible && rows.length > 0}
 	<div
+		data-testid="chart-tooltip"
 		class="fixed z-50 pointer-events-none"
 		style="left:{position.left}px;top:{position.top}px;background:{uPlotTheme.tooltipBg};padding:6px 10px;border-radius:{uPlotTheme.tooltipRadius}px;white-space:nowrap;min-width:180px;max-width:380px"
 	>

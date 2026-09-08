@@ -18,7 +18,8 @@ export default defineConfig({
 		host: '0.0.0.0',
 		proxy: {
 			'/api': {
-				target: 'http://river-data-api:3000',
+				// Inside compose the API is a service name; a host-side dev server overrides it.
+				target: process.env.VITE_API_PROXY_TARGET || 'http://river-data-api:3000',
 				changeOrigin: true,
 			},
 		},

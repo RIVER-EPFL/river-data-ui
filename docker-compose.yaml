@@ -374,8 +374,25 @@ services:
       - "5444:5432"
     tmpfs:
       - /var/lib/postgresql/data
-    # Suppress materialization/refresh chatter; remove for debugging
-    command: ["postgres", "-c", "log_min_messages=fatal", "-c", "log_statement=none"]
+    # log_min_messages: `error` and no lower, so materialization and refresh chatter stays out of
+    # the log while a deadlock or a constraint the suite hit is in it. At `fatal` a deadlock in a
+    # test run left no trace anywhere. A change here reaches the server only on a recreate, which
+    # wipes every database on it and every run in flight, so it waits for an idle fleet. It is
+    # never itself a reason to recreate: for one database now, `ALTER DATABASE <db> SET
+    # log_min_messages = 'error'` beats this and needs no restart.
+    # max_connections: every agent working the audit queue runs its own database on this one
+    # server, each suite holding a 25-connection pool, so the Postgres default of 100 is spent by
+    # the fourth of them and the runs over the ceiling fail in unrelated tests.
+    command:
+      [
+        "postgres",
+        "-c",
+        "log_min_messages=error",
+        "-c",
+        "log_statement=none",
+        "-c",
+        "max_connections=200",
+      ]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -393,11 +410,10 @@ services:
       - DATABASE_URL=postgresql://postgres:psql@river-db-test-db:5432/river_test
       - RUST_LOG=${LOG_LEVEL:-warn}
       - TOOLS_RUNNER_URL=http://river-tools-r/ocpu
-      # The runner is on the tools network, so a skipped runner test is a failure, not a pass.
-      - REQUIRE_TOOLS_RUNNER=1
-      # Keycloak-gated tests (tests/common/keycloak.rs) run against the dev Keycloak; they
-      # self-skip when it is unreachable.
       - TEST_KEYCLOAK_URL=http://river-db-keycloak:8080/
+      # The runner and Keycloak are both on the compose networks, so this run covers every gated
+      # test and an unreachable service is a failure, not a skip.
+      - TEST_PROFILE=all
       # An async fn's state machine is as large as the locals live across its suspension points,
       # and nested async fns compose by inclusion, so the sizes add along the call chain. An
       # unoptimised `e2e` test that builds the router and then makes many sequential requests
@@ -406,6 +422,8 @@ services:
       - RUST_MIN_STACK=16777216
     depends_on:
       river-db-test-db:
+        condition: service_healthy
+      river-db-keycloak:
         condition: service_healthy
     entrypoint: ["bacon", "--headless", "test-integration"]
     volumes:

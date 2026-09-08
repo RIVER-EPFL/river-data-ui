@@ -1288,7 +1288,7 @@
 							Live
 						</button>
 
-						<span class="text-xs text-brand-muted ml-auto font-mono">
+						<span data-testid="chart-window-label" class="text-xs text-brand-muted ml-auto font-mono">
 							{windowLabel} · {formatDate(new Date(chartStart))} - {formatDate(new Date(chartEnd))}
 						</span>
 					</div>
