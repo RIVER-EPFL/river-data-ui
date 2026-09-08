@@ -47,27 +47,19 @@ export const EDIT_METHODS: Record<EditOptionKind, EditMethod> = {
 		reversible: true,
 		requires: 'manage_sensors',
 	},
-	calibration_pin: {
-		label: 'Pin the calibration',
-		changes:
-			'Holds this reading to one calibration, which every later reprocess honours instead of resolving the window.',
-		leaves: 'The raw measurement and the instrument are unchanged.',
-		reversible: true,
-		requires: 'manage_sensors',
-	},
-	instrument_pin: {
-		label: 'Pin the instrument',
-		changes:
-			'Says which instrument measured this reading, which every later reprocess honours instead of resolving the deployment.',
-		leaves: 'The value is unchanged until the pinned instrument’s own calibration is applied.',
-		reversible: true,
-		requires: 'manage_sensors',
-	},
 	edit_deployment: {
 		label: 'Edit the deployment',
 		changes:
 			'The instrument here comes from the deployment history, so the fix belongs on the deployment: split it, or move its dates.',
 		leaves: 'Nothing on this reading changes until the deployment does.',
+		reversible: true,
+		requires: 'manage_sensors',
+	},
+	edit_calibration: {
+		label: 'Edit the calibration',
+		changes:
+			'The corrected value here comes from the calibration window covering it, so the fix belongs on the window: correct its coefficients, or move its dates.',
+		leaves: 'Nothing on this reading changes until the calibration does.',
 		reversible: true,
 		requires: 'manage_sensors',
 	},
@@ -124,7 +116,7 @@ export function needsValue(kind: EditOptionKind): boolean {
 }
 
 export function needsTarget(kind: EditOptionKind): boolean {
-	return kind === 'curve' || kind === 'calibration_pin' || kind === 'instrument_pin';
+	return kind === 'curve';
 }
 
 /** Options that are a route somewhere else rather than a decision this dialog commits. */

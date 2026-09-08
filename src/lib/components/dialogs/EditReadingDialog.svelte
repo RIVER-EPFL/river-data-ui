@@ -198,7 +198,7 @@
 
 			{#if chosen === 'reopen_run' && toolRunId}
 				<Button variant="primary" onclick={reopen}>Open the calculation</Button>
-			{:else if chosen === 'edit_deployment'}
+			{:else if chosen === 'edit_deployment' || chosen === 'edit_calibration'}
 				<p class="text-sm text-gray-500">{method?.leaves}</p>
 			{:else if chosen}
 				{#if needsValue(chosen)}
@@ -214,7 +214,7 @@
 				{/if}
 				{#if needsTarget(chosen)}
 					<label class="block text-sm">
-						{chosen === 'curve' ? 'Standard curve' : chosen === 'calibration_pin' ? 'Calibration' : 'Instrument'}
+						Standard curve
 						<input class="mt-1 w-full rounded border px-2 py-1" bind:value={targetId} />
 					</label>
 				{/if}

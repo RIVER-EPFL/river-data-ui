@@ -9,7 +9,6 @@
 	import Button from '$components/ui/Button.svelte';
 	import type { Field } from '$components/crud/CrudForm.svelte';
 	import ChangeTrail from '$components/audit/ChangeTrail.svelte';
-	import PinReadingsDialog from '$components/dialogs/PinReadingsDialog.svelte';
 
 	let siteOptions = $state<Array<{ value: string; label: string }>>([]);
 	let paramOptions = $state<Array<{ value: string; label: string }>>([]);
@@ -25,10 +24,6 @@
 	let overrideInstants = $state(false);
 	let previewSeq = 0;
 	// The slot the pin dialog acts over: its site and parameter, and a name to say so.
-	let slotSiteId = $state('');
-	let slotParameterId = $state('');
-	let slotName = $state('this parameter');
-	let pinOpen = $state(false);
 
 	onMount(async () => {
 		const [sites, params, slot] = await Promise.all([
@@ -40,9 +35,6 @@
 		paramOptions = params.data.map((p) => ({ value: p.id, label: p.name }));
 		declared = ((slot as { sd_estimator?: SdEstimator | null }).sd_estimator ?? '') as SdEstimator | '';
 		chosen = declared;
-		slotSiteId = slot.site_id;
-		slotParameterId = slot.parameter_id;
-		slotName = params.data.find((p) => p.id === slot.parameter_id)?.name ?? slot.name ?? 'this parameter';
 	});
 
 	// The retag's dry run is the preview: the same count the declaration's job will act on,
@@ -208,14 +200,5 @@
 </div>
 
 <div class="mt-4 space-y-2">
-	{#if slotSiteId && slotParameterId}
-		<Button size="sm" onclick={() => (pinOpen = true)}>Pin a window of readings</Button>
-		<PinReadingsDialog
-			bind:open={pinOpen}
-			siteId={slotSiteId}
-			parameterId={slotParameterId}
-			parameterName={slotName}
-		/>
-	{/if}
 	<ChangeTrail subject={`site_parameter:${page.params.id}`} title="What has been done to this slot" />
 </div>

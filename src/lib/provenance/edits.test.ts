@@ -46,10 +46,16 @@ describe('edit methods', () => {
 		for (const kind of ['flag', 'withdraw', 'curve', 'verify'] as EditOptionKind[]) {
 			expect(needsValue(kind), kind).toBe(false);
 		}
-		for (const kind of ['curve', 'calibration_pin', 'instrument_pin'] as EditOptionKind[]) {
-			expect(needsTarget(kind), kind).toBe(true);
+		expect(needsTarget('curve')).toBe(true);
+		// Attribution is corrected on the record that decides it, so no edit names an instrument
+		// or a calibration to stamp on the row (Q117).
+		for (const kind of [
+			'value_correction',
+			'edit_deployment',
+			'edit_calibration',
+		] as EditOptionKind[]) {
+			expect(needsTarget(kind), kind).toBe(false);
 		}
-		expect(needsTarget('value_correction')).toBe(false);
 	});
 });
 
