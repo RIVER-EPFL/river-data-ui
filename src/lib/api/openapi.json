@@ -3777,6 +3777,76 @@
         ],
         "type": "string"
       },
+      "CurationDriftResponse": {
+        "properties": {
+          "rows": {
+            "description": "The first `limit` of them, newest first, so a person can open one.",
+            "items": {
+              "$ref": "#/components/schemas/CurationDriftRow"
+            },
+            "type": "array"
+          },
+          "total": {
+            "description": "Every disagreeing reading, not only the ones listed below.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "rows"
+        ],
+        "type": "object"
+      },
+      "CurationDriftRow": {
+        "description": "One reading whose curation columns are not the fold of its live decisions.",
+        "properties": {
+          "folded": {
+            "description": "What the reading's live decisions fold to. A column absent from it is one no decision\nasserts, which is not a disagreement.",
+            "type": "object"
+          },
+          "parameter_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "replicate_index": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "site_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stored": {
+            "description": "The curation columns the reading holds.",
+            "type": "object"
+          },
+          "stream_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "time": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stream_id",
+          "time",
+          "replicate_index",
+          "site_id",
+          "parameter_id",
+          "stored",
+          "folded"
+        ],
+        "type": "object"
+      },
       "CurveApplication": {
         "properties": {
           "equation": {
@@ -21543,6 +21613,41 @@
           }
         },
         "summary": "Compute and upsert derived parameter values for the given (site, timestamp) pairs,\ntracked as a `reprocessing_jobs` row (`readings_updated` = computed count). Runs derived\nformula evaluation against source readings, then refreshes aggregates. Returns the job id\nimmediately. Requires `write_data`.",
+        "tags": [
+          "actions"
+        ]
+      }
+    },
+    "/api/actions/curation_drift": {
+      "get": {
+        "description": "The columns are the projection of the record, written by the same trigger in the writer's\ntransaction, so a disagreement means something wrote a column without recording the decision,\nor a decision failed to project. Read-only: which side is wrong is itself a decision, a\nrollback or a fresh decision, so nothing here picks one.",
+        "operationId": "curation_drift",
+        "parameters": [
+          {
+            "description": "How many rows to list, default 50, max 500",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurationDriftResponse"
+                }
+              }
+            },
+            "description": "Readings that disagree with their decision record"
+          }
+        },
+        "summary": "Readings whose curation columns disagree with the decisions recorded against them.",
         "tags": [
           "actions"
         ]

@@ -1427,6 +1427,14 @@ export type UndeclaredEstimatorsResponse = components['schemas']['UndeclaredEsti
 export const listUndeclaredSdEstimators = () =>
 	GET<UndeclaredEstimatorsResponse>(`${ADMIN}/actions/undeclared_sd_estimators`);
 
+export type CurationDriftResponse = components['schemas']['CurationDriftResponse'];
+export type CurationDriftRow = components['schemas']['CurationDriftRow'];
+
+// Readings whose curation columns are not the fold of the decisions recorded against them.
+// Read-only: which side is wrong is itself a decision.
+export const getCurationDrift = (limit?: number) =>
+	GET<CurationDriftResponse>(`${ADMIN}/actions/curation_drift${limit ? `?limit=${limit}` : ''}`);
+
 export type DeclareSdEstimatorResponse = components['schemas']['DeclareSdEstimatorResponse'];
 
 // The one path for changing a slot's declaration: writes the column and enqueues the tracked

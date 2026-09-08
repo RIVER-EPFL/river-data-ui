@@ -115,6 +115,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/actions/curation_drift": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Readings whose curation columns disagree with the decisions recorded against them.
+         * @description The columns are the projection of the record, written by the same trigger in the writer's
+         *     transaction, so a disagreement means something wrote a column without recording the decision,
+         *     or a decision failed to project. Read-only: which side is wrong is itself a decision, a
+         *     rollback or a fresh decision, so nothing here picks one.
+         */
+        get: operations["curation_drift"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/actions/derived_parameters/{id}/recompute": {
         parameters: {
             query?: never;
@@ -8401,6 +8424,35 @@ export interface components {
          * @enum {string}
          */
         CsvValueState: "raw" | "corrected";
+        CurationDriftResponse: {
+            /** @description The first `limit` of them, newest first, so a person can open one. */
+            rows: components["schemas"]["CurationDriftRow"][];
+            /**
+             * Format: int64
+             * @description Every disagreeing reading, not only the ones listed below.
+             */
+            total: number;
+        };
+        /** @description One reading whose curation columns are not the fold of its live decisions. */
+        CurationDriftRow: {
+            /**
+             * @description What the reading's live decisions fold to. A column absent from it is one no decision
+             *     asserts, which is not a disagreement.
+             */
+            folded: Record<string, never>;
+            /** Format: uuid */
+            parameter_id: string | null;
+            /** Format: int32 */
+            replicate_index: number;
+            /** Format: uuid */
+            site_id: string | null;
+            /** @description The curation columns the reading holds. */
+            stored: Record<string, never>;
+            /** Format: uuid */
+            stream_id: string;
+            /** Format: date-time */
+            time: string;
+        };
         CurveApplication: {
             equation: string;
             /** Format: uuid */
@@ -15175,6 +15227,29 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    curation_drift: {
+        parameters: {
+            query?: {
+                /** @description How many rows to list, default 50, max 500 */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Readings that disagree with their decision record */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CurationDriftResponse"];
+                };
             };
         };
     };
