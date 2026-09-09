@@ -83,8 +83,8 @@
 	let operating = $state<string | null>(null);
 
 	// The two installation-wide operations: re-derive every slot from the deployment and
-	// calibration timelines, and reconcile the persisted alarm events against what the readings
-	// now imply. Both run as tracked jobs, so the toast names the job rather than the effect.
+	// calibration timelines, which runs as a tracked job, and reconcile the persisted alarm events
+	// against what the readings now imply, which runs here and answers with what it changed.
 	async function runOperation(key: 'backdate' | 'alarms') {
 		operating = key;
 		try {
@@ -93,7 +93,9 @@
 				toastStore.success(`Backdating ${formatCount(res.slots)} slot(s), job ${res.job_id.slice(0, 8)}`);
 			} else {
 				const res = await reconcileAlarms();
-				toastStore.success(`Reconciling alarm events, job ${res.job_id.slice(0, 8)}`);
+				toastStore.success(
+					`Alarm events reconciled: ${formatCount(res.opened)} opened, ${formatCount(res.updated)} updated, ${formatCount(res.resolved)} resolved`,
+				);
 			}
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'The operation was refused');

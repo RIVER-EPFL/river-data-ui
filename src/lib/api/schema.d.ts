@@ -390,13 +390,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Re-derive `sensor_id`/`deployment_id`/`site_id`/`calibrated_value` for ALL historical readings
-         *     from the current deployment + calibration timelines, across every `(site, parameter)` slot that
-         *     has a deployment. Use after correcting deployment/calibration windows in bulk (the backdate of
-         *     historical attribution). Each slot is reprocessed via the decompression-safe
-         *     `reprocess_site_parameter_readings`; runs as one tracked job. Requires `write_data`.
-         */
         post: operations["reprocess_all"];
         delete?: never;
         options?: never;
@@ -413,10 +406,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Bring stored samples into line with their slot's declared sd estimator, with the job's own
-         *     options exposed: a window, a stream scope, and `override_instants`.
-         */
         post: operations["retag_sd_estimator"];
         delete?: never;
         options?: never;
@@ -1730,10 +1719,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Stream-based status event ingestion (non-numeric device states like "low_battery").
-         *     Hypertable inserts keyed by stream_id. Requires `write_data`.
-         */
         post: operations["ingest_status_events"];
         delete?: never;
         options?: never;
@@ -2957,10 +2942,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Batch insert readings keyed by (site_id, parameter_id). Auto-creates "api" streams when
-         *     a (site, parameter) pair has none. 10MB body limit. Requires `write_data`.
-         */
         post: operations["insert_batch_readings"];
         delete?: never;
         options?: never;
@@ -3627,10 +3608,25 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * `GET /api/schedules`, every recurring-Service schedule, ordered by `job_name`. Requires
-         *     `read_metadata`.
+         * Get all schedules
+         * @description Retrieves all schedules.
+         *
+         *     This resource manages schedule items
+         *
+         *     Additional sortable columns:
+         *     - job_name
+         *     - enabled
+         *     - next_run_at
+         *     - interval_seconds
+         *     - last_enqueued_at
+         *     - updated_at
+         *     - created_at.
+         *
+         *     Additional filterable columns:
+         *     - job_name
+         *     - enabled.
          */
-        get: operations["list_schedules"];
+        get: operations["get_all_schedules"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3639,28 +3635,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/schedules/{job_name}": {
+    "/api/schedules/batch": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** `GET /api/schedules/{job_name}`, one schedule. 404 if unknown. Requires `read_metadata`. */
-        get: operations["get_schedule"];
+        get?: never;
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
         head?: never;
         /**
-         * `PATCH /api/schedules/{job_name}`, edit cadence/policies/tunables. 404 unknown row; 400 on a
-         *     bad interval, unknown policy, or rejected tunables. Applies only provided fields, recomputes
-         *     `next_run_at` when the interval changes or a disabled schedule is enabled, stamps the actor, and
-         *     writes a `change_audit` row. Requires `write_metadata` (+ non-scoped token). Returns the
-         *     updated [`ScheduleView`].
+         * Update many schedules
+         * @description Updates multiple schedules in a batch. Limited to 100 items per request.
+         *
+         *     Use `?partial=true` for partial success mode (commits successful items even if some fail).
+         *
+         *     This resource manages schedule items
          */
-        patch: operations["update_schedule"];
+        patch: operations["update_many_schedules"];
+        trace?: never;
+    };
+    "/api/schedules/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one schedule
+         * @description Retrieves one schedule by its ID.
+         *
+         *     This resource manages schedule items
+         */
+        get: operations["get_one_schedule"];
+        /**
+         * Update one schedule
+         * @description Updates one schedule by its ID.
+         *
+         *     This resource manages schedule items
+         */
+        put: operations["update_one_schedule"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/schedules/{job_name}/audit": {
@@ -4243,7 +4267,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Suggested deploy dates for a sensor: now, the end of its last deployment, and its first reading. */
         get: operations["adopt_suggestions"];
         put?: never;
         post?: never;
@@ -4658,11 +4681,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * What an export of this site and range can carry beyond the plain series: annotation, flagged,
-         *     replicate and alarm counts, per parameter. The export dialog enables each option from these
-         *     numbers and shows them beside it.
-         */
         get: operations["get_site_export_summary"];
         put?: never;
         post?: never;
@@ -5021,7 +5039,9 @@ export interface paths {
         put?: never;
         /**
          * Upsert a data stream by (source_system, source_key). Used by sync microservices on
-         *     discovery to register streams before pairing. Requires `write_metadata`.
+         *     discovery to register streams before pairing. Requires `write_metadata`. `metadata` may be
+         *     omitted and defaults to an empty object, which the schema, taken from the client's own struct,
+         *     does not say.
          */
         post: operations["register_stream"];
         delete?: never;
@@ -6184,6 +6204,7 @@ export interface paths {
          *     Additional filterable columns:
          *     - client_id
          *     - service_type
+         *     - source_system
          *     - service_id
          *     - revoked.
          */
@@ -6296,6 +6317,7 @@ export interface paths {
          *
          *     Additional filterable columns:
          *     - service_type
+         *     - source_system
          *     - instance_id
          *     - status
          *     - paused
@@ -6922,10 +6944,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * List the projects a user is granted, with names. Administrators are unrestricted (they are never
-         *     granted rows); this reflects only the stored grant set. Requires `require_admin`.
-         */
         get: operations["list_user_grants"];
         /** effect within one request. Requires `require_admin`. */
         put: operations["set_user_grants"];
@@ -7267,45 +7285,45 @@ export interface components {
         };
         AlarmThresholdList: {
             /** Format: double */
-            alarm_max?: number | null;
+            alarm_max: number | null;
             /** Format: double */
-            alarm_min?: number | null;
+            alarm_min: number | null;
             /** Format: date-time */
-            created_at?: string | null;
-            description?: string | null;
+            created_at: string | null;
+            description: string | null;
             /** Format: uuid */
             id: string;
             /** Format: uuid */
             parameter_id: string;
             /** Format: uuid */
-            site_id?: string | null;
+            site_id: string | null;
             /** Format: date-time */
-            updated_at?: string | null;
+            updated_at: string | null;
             /** Format: double */
-            warning_max?: number | null;
+            warning_max: number | null;
             /** Format: double */
-            warning_min?: number | null;
+            warning_min: number | null;
         };
         AlarmThresholdResponse: {
             /** Format: double */
-            alarm_max?: number | null;
+            alarm_max: number | null;
             /** Format: double */
-            alarm_min?: number | null;
+            alarm_min: number | null;
             /** Format: date-time */
-            created_at?: string | null;
-            description?: string | null;
+            created_at: string | null;
+            description: string | null;
             /** Format: uuid */
             id: string;
             /** Format: uuid */
             parameter_id: string;
             /** Format: uuid */
-            site_id?: string | null;
+            site_id: string | null;
             /** Format: date-time */
-            updated_at?: string | null;
+            updated_at: string | null;
             /** Format: double */
-            warning_max?: number | null;
+            warning_max: number | null;
             /** Format: double */
-            warning_min?: number | null;
+            warning_min: number | null;
         };
         AlarmThresholdUpdate: {
             /** Format: double */
@@ -7349,11 +7367,11 @@ export interface components {
              *     only by that resolution and cleared by its reopen, so a CRUD caller cannot dress an
              *     annotation up as an audit decision. An admin may still delete the row itself.
              */
-            audit_hold_id?: string | null;
+            audit_hold_id: string | null;
             category: string;
             /** Format: date-time */
-            created_at?: string | null;
-            created_by?: string | null;
+            created_at: string | null;
+            created_by: string | null;
             /** Format: date-time */
             end_time: string;
             /** Format: uuid */
@@ -7362,19 +7380,19 @@ export interface components {
             parameter_id: string;
             /** Format: uuid */
             site_id: string;
-            source_key?: string | null;
+            source_key: string | null;
             /**
              * @description Where a source-authored annotation came from, written only by `/annotations/register` so a
              *     CRUD caller cannot claim sync provenance. NULL on hand-entered annotations.
              */
-            source_system?: string | null;
+            source_system: string | null;
             /**
              * Format: uuid
              * @description The standard curve a source-side correction was made with, written only by
              *     `/annotations/register`. Once set, the annotation's curve and text are frozen: the record
              *     of what produced a value does not follow a later edit of the curve.
              */
-            standard_curve_id?: string | null;
+            standard_curve_id: string | null;
             /** Format: date-time */
             start_time: string;
             text: string;
@@ -7392,30 +7410,6 @@ export interface components {
             start_time: string;
             text: string;
         };
-        AnnotationItem: {
-            category: string;
-            /**
-             * @description The annotation's identity within the source; the upsert key is
-             *     (source_system, source_key).
-             */
-            source_key: string;
-            /**
-             * Format: uuid
-             * @description The standard curve the source applied to produce the annotated value, when it did.
-             */
-            standard_curve_id?: string | null;
-            /**
-             * Format: uuid
-             * @description The stream whose pairing resolves the annotation's site and parameter.
-             */
-            stream_id: string;
-            text: string;
-            /**
-             * Format: date-time
-             * @description The instant the annotation covers, stored as a point (start_time == end_time).
-             */
-            time: string;
-        };
         AnnotationList: {
             /**
              * Format: uuid
@@ -7423,11 +7417,11 @@ export interface components {
              *     only by that resolution and cleared by its reopen, so a CRUD caller cannot dress an
              *     annotation up as an audit decision. An admin may still delete the row itself.
              */
-            audit_hold_id?: string | null;
+            audit_hold_id: string | null;
             category: string;
             /** Format: date-time */
-            created_at?: string | null;
-            created_by?: string | null;
+            created_at: string | null;
+            created_by: string | null;
             /** Format: date-time */
             end_time: string;
             /** Format: uuid */
@@ -7436,19 +7430,19 @@ export interface components {
             parameter_id: string;
             /** Format: uuid */
             site_id: string;
-            source_key?: string | null;
+            source_key: string | null;
             /**
              * @description Where a source-authored annotation came from, written only by `/annotations/register` so a
              *     CRUD caller cannot claim sync provenance. NULL on hand-entered annotations.
              */
-            source_system?: string | null;
+            source_system: string | null;
             /**
              * Format: uuid
              * @description The standard curve a source-side correction was made with, written only by
              *     `/annotations/register`. Once set, the annotation's curve and text are frozen: the record
              *     of what produced a value does not follow a later edit of the curve.
              */
-            standard_curve_id?: string | null;
+            standard_curve_id: string | null;
             /** Format: date-time */
             start_time: string;
             text: string;
@@ -7470,11 +7464,11 @@ export interface components {
              *     only by that resolution and cleared by its reopen, so a CRUD caller cannot dress an
              *     annotation up as an audit decision. An admin may still delete the row itself.
              */
-            audit_hold_id?: string | null;
+            audit_hold_id: string | null;
             category: string;
             /** Format: date-time */
-            created_at?: string | null;
-            created_by?: string | null;
+            created_at: string | null;
+            created_by: string | null;
             /** Format: date-time */
             end_time: string;
             /** Format: uuid */
@@ -7483,19 +7477,19 @@ export interface components {
             parameter_id: string;
             /** Format: uuid */
             site_id: string;
-            source_key?: string | null;
+            source_key: string | null;
             /**
              * @description Where a source-authored annotation came from, written only by `/annotations/register` so a
              *     CRUD caller cannot claim sync provenance. NULL on hand-entered annotations.
              */
-            source_system?: string | null;
+            source_system: string | null;
             /**
              * Format: uuid
              * @description The standard curve a source-side correction was made with, written only by
              *     `/annotations/register`. Once set, the annotation's curve and text are frozen: the record
              *     of what produced a value does not follow a later edit of the curve.
              */
-            standard_curve_id?: string | null;
+            standard_curve_id: string | null;
             /** Format: date-time */
             start_time: string;
             text: string;
@@ -7513,28 +7507,57 @@ export interface components {
             start_time?: string | null;
             text?: string | null;
         };
+        /**
+         * @description One source-authored annotation to register. `source_key` identifies the
+         *     annotation within the source system; registration is idempotent per
+         *     (source_system, source_key), so a full-content pass re-asserting the same
+         *     key updates in place rather than duplicating.
+         *
+         *     The API resolves the site and parameter from the stream's pairing; an
+         *     annotation on an unpaired stream is reported back as `unpaired` and is
+         *     re-asserted on a later cycle once the stream is paired.
+         */
+        AnnotationUpsert: {
+            category: string;
+            source_key: string;
+            /**
+             * Format: uuid
+             * @description The standard curve the source applied to produce the annotated value. The API freezes an
+             *     annotation's curve and text once stored with one, reporting later edits as `frozen`.
+             */
+            standard_curve_id?: string | null;
+            /** Format: uuid */
+            stream_id: string;
+            text: string;
+            /**
+             * Format: date-time
+             * @description The instant the annotation covers; the API stores it as a point
+             *     annotation (start_time == end_time).
+             */
+            time: string;
+        };
         ApiToken: {
             /** Format: date-time */
-            created_at?: string | null;
-            created_by?: string | null;
+            created_at: string | null;
+            created_by: string | null;
             /** @description Per-key allocation label, which external client/logger this key was issued to. */
-            description?: string | null;
+            description: string | null;
             /** Format: date-time */
-            expires_at?: string | null;
+            expires_at: string | null;
             /** Format: uuid */
             id: string;
             is_active: boolean;
             /** Format: date-time */
-            last_used_at?: string | null;
+            last_used_at: string | null;
             name: string;
             permissions: unknown;
             /** Format: uuid */
-            project_scope?: string | null;
+            project_scope: string | null;
             /**
              * Format: int32
              * @description Optional per-token request ceiling (requests/second). NULL = unlimited.
              */
-            rate_limit_per_second?: number | null;
+            rate_limit_per_second: number | null;
             token?: string | null;
             /** @description Argon2id PHC hash of the token secret. Excluded from create/update (set on mint). */
             token_hash: string;
@@ -7550,7 +7573,7 @@ export interface components {
             method: string;
             path: string;
             /** Format: uuid */
-            project_scope?: string | null;
+            project_scope: string | null;
             /** Format: int32 */
             status_code: number;
             /** Format: uuid */
@@ -7564,7 +7587,7 @@ export interface components {
             method: string;
             path: string;
             /** Format: uuid */
-            project_scope?: string | null;
+            project_scope: string | null;
             /** Format: int32 */
             status_code: number;
             /** Format: uuid */
@@ -7586,26 +7609,26 @@ export interface components {
         };
         ApiTokenList: {
             /** Format: date-time */
-            created_at?: string | null;
-            created_by?: string | null;
+            created_at: string | null;
+            created_by: string | null;
             /** @description Per-key allocation label, which external client/logger this key was issued to. */
-            description?: string | null;
+            description: string | null;
             /** Format: date-time */
-            expires_at?: string | null;
+            expires_at: string | null;
             /** Format: uuid */
             id: string;
             is_active: boolean;
             /** Format: date-time */
-            last_used_at?: string | null;
+            last_used_at: string | null;
             name: string;
             permissions: unknown;
             /** Format: uuid */
-            project_scope?: string | null;
+            project_scope: string | null;
             /**
              * Format: int32
              * @description Optional per-token request ceiling (requests/second). NULL = unlimited.
              */
-            rate_limit_per_second?: number | null;
+            rate_limit_per_second: number | null;
             /** @description The one-time secret, populated only in the create/rotate response. Never stored. */
             token?: string | null;
             /** @description Non-secret indexed lookup key (`rvd_<token_prefix>_<secret>`); set on mint. */
@@ -7613,26 +7636,26 @@ export interface components {
         };
         ApiTokenResponse: {
             /** Format: date-time */
-            created_at?: string | null;
-            created_by?: string | null;
+            created_at: string | null;
+            created_by: string | null;
             /** @description Per-key allocation label, which external client/logger this key was issued to. */
-            description?: string | null;
+            description: string | null;
             /** Format: date-time */
-            expires_at?: string | null;
+            expires_at: string | null;
             /** Format: uuid */
             id: string;
             is_active: boolean;
             /** Format: date-time */
-            last_used_at?: string | null;
+            last_used_at: string | null;
             name: string;
             permissions: unknown;
             /** Format: uuid */
-            project_scope?: string | null;
+            project_scope: string | null;
             /**
              * Format: int32
              * @description Optional per-token request ceiling (requests/second). NULL = unlimited.
              */
-            rate_limit_per_second?: number | null;
+            rate_limit_per_second: number | null;
             /** @description The one-time secret, populated only in the create/rotate response. Never stored. */
             token?: string | null;
             /** @description Argon2id PHC hash of the token secret. Excluded from create/update (set on mint). */
@@ -7688,6 +7711,29 @@ export interface components {
             group_id: string;
             /** Format: uuid */
             site_id: string;
+        };
+        ApplyResult: {
+            /**
+             * Format: int32
+             * @description Standard curves moved onto instruments this apply minted.
+             */
+            curves_assigned: number;
+            /** Format: int32 */
+            instruments_created: number;
+            /** Format: int32 */
+            parameters_created: number;
+            /** Format: int32 */
+            projects_created: number;
+            /** Format: int64 */
+            readings_backfilled: number;
+            /** Format: int32 */
+            site_parameters_created: number;
+            /** Format: int32 */
+            sites_created: number;
+            /** Format: int32 */
+            streams_paired: number;
+            /** Format: int32 */
+            streams_skipped: number;
         };
         AssignRolesRequest: {
             roles: string[];
@@ -7853,13 +7899,13 @@ export interface components {
         CalculationFormulaList: {
             code: string;
             /** Format: date-time */
-            created_at?: string | null;
+            created_at: string | null;
             /**
              * @description The curve slot this formula corrects with (M106). Its coefficients reach the formula as
              *     `curve_slope` and `curve_intercept`, so two outputs of one calculation may take two curves.
              */
-            curve_slot?: string | null;
-            description?: string | null;
+            curve_slot: string | null;
+            description: string | null;
             formula: string;
             /** Format: uuid */
             id: string;
@@ -7870,32 +7916,32 @@ export interface components {
              */
             ordinal: number;
             /** Format: uuid */
-            output_parameter_id?: string | null;
+            output_parameter_id: string | null;
             /**
              * @description The variable whose replicate vector this formula evaluates over (M107), one reading per
              *     index under its output parameter. NULL is a formula producing one number. The output's
              *     replicate identity is the named input's, so nothing here assigns a column position.
              */
-            per_replicate?: string | null;
+            per_replicate: string | null;
             sources: components["schemas"]["DerivedParameterSourceList"][];
             /**
              * Format: uuid
              * @description The calculation this formula belongs to (M67). NULL is a standalone derived parameter, the
              *     per-reading continuous kind the derived job and janitor serve.
              */
-            tool_script_id?: string | null;
+            tool_script_id: string | null;
             units: string;
         };
         CalculationFormulaResponse: {
             code: string;
             /** Format: date-time */
-            created_at?: string | null;
+            created_at: string | null;
             /**
              * @description The curve slot this formula corrects with (M106). Its coefficients reach the formula as
              *     `curve_slope` and `curve_intercept`, so two outputs of one calculation may take two curves.
              */
-            curve_slot?: string | null;
-            description?: string | null;
+            curve_slot: string | null;
+            description: string | null;
             formula: string;
             /** Format: uuid */
             id: string;
@@ -7906,20 +7952,20 @@ export interface components {
              */
             ordinal: number;
             /** Format: uuid */
-            output_parameter_id?: string | null;
+            output_parameter_id: string | null;
             /**
              * @description The variable whose replicate vector this formula evaluates over (M107), one reading per
              *     index under its output parameter. NULL is a formula producing one number. The output's
              *     replicate identity is the named input's, so nothing here assigns a column position.
              */
-            per_replicate?: string | null;
+            per_replicate: string | null;
             sources: components["schemas"]["DerivedParameterSource"][];
             /**
              * Format: uuid
              * @description The calculation this formula belongs to (M67). NULL is a standalone derived parameter, the
              *     per-reading continuous kind the derived job and janitor serve.
              */
-            tool_script_id?: string | null;
+            tool_script_id: string | null;
             units: string;
         };
         CalculationFormulaUpdate: {
@@ -8219,10 +8265,10 @@ export interface components {
             collected_at: string;
             /** Format: date-time */
             created_at: string;
-            created_by?: string | null;
+            created_by: string | null;
             /** Format: uuid */
             id: string;
-            notes?: string | null;
+            notes: string | null;
             /** Format: uuid */
             site_id: string;
             /**
@@ -8231,17 +8277,17 @@ export interface components {
              */
             source: string;
             /** Format: date-time */
-            updated_at?: string | null;
+            updated_at: string | null;
         };
         CollectionEventResponse: {
             /** Format: date-time */
             collected_at: string;
             /** Format: date-time */
             created_at: string;
-            created_by?: string | null;
+            created_by: string | null;
             /** Format: uuid */
             id: string;
-            notes?: string | null;
+            notes: string | null;
             /** Format: uuid */
             site_id: string;
             /**
@@ -8250,7 +8296,7 @@ export interface components {
              */
             source: string;
             /** Format: date-time */
-            updated_at?: string | null;
+            updated_at: string | null;
         };
         CollectionEventUpdate: {
             /** Format: date-time */
@@ -8261,15 +8307,19 @@ export interface components {
             site_id?: string | null;
         };
         /**
-         * @description One source column's permanent replicate index. The mapping is append-only: a column keeps its
-         *     index for the life of the stream, a new column appends after the highest index ever assigned,
-         *     and a column the source stops sending is retired with its index never reused.
+         * @description One source column's pinned replicate index, as the API's register response
+         *     reports it (and as stream metadata persists it under
+         *     `replicates.assignments`). Sync services assign each value's
+         *     `replicate_index` by looking its source column up here.
          */
         ColumnAssignment: {
             column: string;
             /** Format: int32 */
             index: number;
-            /** @description The source no longer sends this column. Its readings keep the index; nothing new lands on it. */
+            /**
+             * @description The source no longer sends this column. The index stays reserved and
+             *     remains the column's identity should it reappear.
+             */
             retired?: boolean;
         };
         CommandUpdateRequest: {
@@ -8295,7 +8345,9 @@ export interface components {
             n?: number;
             notes?: string;
             /** @description The server-built tool-run blob stored on the reading, verbatim. */
-            provenance?: unknown;
+            provenance?: {
+                [key: string]: unknown;
+            };
             /** @description The run's minting path: 'interactive' | 'csv_import' | 'chain'. */
             run_source?: string;
             /**
@@ -8321,6 +8373,17 @@ export interface components {
         ComputeDerivedRequest: {
             site_timestamps: components["schemas"]["SiteTimestamps"][];
         };
+        /** @description What a computation request enqueues: the job, and how many instants it covers. */
+        ComputeDerivedResponse: {
+            /**
+             * Format: uuid
+             * @description The row enqueued, or null where an identical job was already queued.
+             */
+            job_id: string | null;
+            /** @description `queued`, always. */
+            status: string;
+            total_timestamps: number;
+        };
         /**
          * @description How to handle readings that collide with an existing (stream_id, time, replicate_index).
          * @enum {string}
@@ -8336,22 +8399,22 @@ export interface components {
         ConstantList: {
             /** Format: date-time */
             created_at: string;
-            description?: string | null;
+            description: string | null;
             /** Format: uuid */
             id: string;
             name: string;
-            units?: string | null;
+            units: string | null;
             /** Format: double */
             value: number;
         };
         ConstantResponse: {
             /** Format: date-time */
             created_at: string;
-            description?: string | null;
+            description: string | null;
             /** Format: uuid */
             id: string;
             name: string;
-            units?: string | null;
+            units: string | null;
             /** Format: double */
             value: number;
         };
@@ -8364,6 +8427,11 @@ export interface components {
         };
         CreateCredentialRequest: {
             service_type: string;
+            /**
+             * @description The source system a service on this credential speaks for, e.g. "metalp". Its registrations
+             *     are written under it, so it is declared here rather than sent with each call.
+             */
+            source_system?: string | null;
         };
         CreateCredentialResponse: {
             client_id: string;
@@ -8395,11 +8463,15 @@ export interface components {
         };
         CreateVersionRequest: {
             entry_function?: string | null;
-            manifest: Record<string, never>;
+            manifest: {
+                [key: string]: unknown;
+            };
             /** @description Short free text: what changed in this version and why. */
             note?: string | null;
             script: string;
-            test_cases?: Record<string, never>;
+            test_cases?: {
+                [key: string]: unknown;
+            };
         };
         CreateVersionResponse: {
             /**
@@ -8408,6 +8480,13 @@ export interface components {
              */
             lint: components["schemas"]["LintFinding"][];
             version: components["schemas"]["ToolScriptVersion"];
+        };
+        /** @description The row a sync service's event create wrote. */
+        CreatedSyncEventResponse: {
+            id: string;
+            /** Format: uuid */
+            service_id: string;
+            status: string;
         };
         CredentialResponse: {
             client_id: string;
@@ -8418,6 +8497,7 @@ export interface components {
             /** Format: uuid */
             service_id: string | null;
             service_type: string;
+            source_system: string | null;
         };
         /**
          * @description What the file's numbers are, deciding whether the import may claim a correction.
@@ -8506,6 +8586,11 @@ export interface components {
             /** Format: double */
             slope: number;
         };
+        /** @description One curve as the stored run records it: the slot it filled, and the curve itself. */
+        CurveSnapshot: {
+            curve: components["schemas"]["ResolvedCurve"];
+            name: string;
+        };
         /** @description One reading a standard curve corrected. */
         CurveUsagePoint: {
             /** Format: double */
@@ -8546,27 +8631,27 @@ export interface components {
             id: string;
             is_active: boolean;
             /** Format: date-time */
-            last_data_time?: string | null;
+            last_data_time: string | null;
             /** @description Content digest of the last cleanly-applied windowed pass, as the sync client claimed it. */
-            last_window_digest?: string | null;
+            last_window_digest: string | null;
             /**
              * @description Stream-level default for readings.measurement_type ('continuous' | 'spot' | 'derived').
              *     NULL defers to the owning sensor's data_frequency, then falls back to 'continuous'.
              */
-            measurement_type?: string | null;
+            measurement_type: string | null;
             metadata: unknown;
             /** Format: date-time */
-            paired_at?: string | null;
+            paired_at: string | null;
             /** Format: uuid */
-            pairing_plan_id?: string | null;
-            replicates?: components["schemas"]["ColumnAssignment"][] | null;
+            pairing_plan_id: string | null;
+            replicates: components["schemas"]["ColumnAssignment"][] | null;
             /** Format: uuid */
-            sensor_id?: string | null;
+            sensor_id: string | null;
             /** Format: uuid */
-            site_parameter_id?: string | null;
+            site_parameter_id: string | null;
             source_key: string;
-            source_name?: string | null;
-            source_path?: string | null;
+            source_name: string | null;
+            source_path: string | null;
             source_system: string;
             /** Format: date-time */
             updated_at: string;
@@ -8597,33 +8682,33 @@ export interface components {
             id: string;
             is_active: boolean;
             /** Format: date-time */
-            last_data_time?: string | null;
+            last_data_time: string | null;
             /** @description Content digest of the last cleanly-applied windowed pass, as the sync client claimed it. */
-            last_window_digest?: string | null;
+            last_window_digest: string | null;
             /**
              * @description Stream-level default for readings.measurement_type ('continuous' | 'spot' | 'derived').
              *     NULL defers to the owning sensor's data_frequency, then falls back to 'continuous'.
              */
-            measurement_type?: string | null;
+            measurement_type: string | null;
             metadata: unknown;
             /** Format: date-time */
-            paired_at?: string | null;
+            paired_at: string | null;
             /** Format: uuid */
-            pairing_plan_id?: string | null;
+            pairing_plan_id: string | null;
             /**
              * @description The authoritative replicate column-to-index mapping, ordered by index, when this stream
              *     declares a replicate family. Sync services assign each value's `replicate_index` from it;
              *     a retired entry keeps its index reserved for the readings already stored under it. Derived
              *     from `metadata.replicates`, never written on its own.
              */
-            replicates?: components["schemas"]["ColumnAssignment"][] | null;
+            replicates: components["schemas"]["ColumnAssignment"][] | null;
             /** Format: uuid */
-            sensor_id?: string | null;
+            sensor_id: string | null;
             /** Format: uuid */
-            site_parameter_id?: string | null;
+            site_parameter_id: string | null;
             source_key: string;
-            source_name?: string | null;
-            source_path?: string | null;
+            source_name: string | null;
+            source_path: string | null;
             source_system: string;
             /** Format: date-time */
             updated_at: string;
@@ -8637,33 +8722,33 @@ export interface components {
             id: string;
             is_active: boolean;
             /** Format: date-time */
-            last_data_time?: string | null;
+            last_data_time: string | null;
             /** @description Content digest of the last cleanly-applied windowed pass, as the sync client claimed it. */
-            last_window_digest?: string | null;
+            last_window_digest: string | null;
             /**
              * @description Stream-level default for readings.measurement_type ('continuous' | 'spot' | 'derived').
              *     NULL defers to the owning sensor's data_frequency, then falls back to 'continuous'.
              */
-            measurement_type?: string | null;
+            measurement_type: string | null;
             metadata: unknown;
             /** Format: date-time */
-            paired_at?: string | null;
+            paired_at: string | null;
             /** Format: uuid */
-            pairing_plan_id?: string | null;
+            pairing_plan_id: string | null;
             /**
              * @description The authoritative replicate column-to-index mapping, ordered by index, when this stream
              *     declares a replicate family. Sync services assign each value's `replicate_index` from it;
              *     a retired entry keeps its index reserved for the readings already stored under it. Derived
              *     from `metadata.replicates`, never written on its own.
              */
-            replicates?: components["schemas"]["ColumnAssignment"][] | null;
+            replicates: components["schemas"]["ColumnAssignment"][] | null;
             /** Format: uuid */
-            sensor_id?: string | null;
+            sensor_id: string | null;
             /** Format: uuid */
-            site_parameter_id?: string | null;
+            site_parameter_id: string | null;
             source_key: string;
-            source_name?: string | null;
-            source_path?: string | null;
+            source_name: string | null;
+            source_path: string | null;
             source_system: string;
             /** Format: date-time */
             updated_at: string;
@@ -8713,8 +8798,12 @@ export interface components {
              */
             job_id: string | null;
             kind: components["schemas"]["Kind"];
-            new: Record<string, never>;
-            old: Record<string, never>;
+            new: {
+                [key: string]: unknown;
+            };
+            old: {
+                [key: string]: unknown;
+            };
             origin: components["schemas"]["Origin"];
             reason: string | null;
             /** Format: int32 */
@@ -8794,7 +8883,10 @@ export interface components {
         DefinitionMember: {
             /** @description The catalog code; the stable machine identity and the CSV column header. */
             code: string;
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description The places the slot declares, NULL where it declares none (Q128).
+             */
             decimal_places: number | null;
             description: string | null;
             /** @description The group's label over the catalog's name. */
@@ -8803,7 +8895,9 @@ export interface components {
             ordinal: number;
             /** Format: uuid */
             parameter_id: string;
-            replicates?: unknown;
+            replicates?: {
+                [key: string]: unknown;
+            };
             role: string;
             /**
              * @description Display hint: the manifest section the group's calculation renders this field under. It
@@ -8870,7 +8964,7 @@ export interface components {
         };
         DerivedParameterSource: {
             /** Format: date-time */
-            created_at?: string | null;
+            created_at: string | null;
             /** Format: uuid */
             derived_definition_id: string;
             /** Format: uuid */
@@ -8880,12 +8974,12 @@ export interface components {
              * @description The catalog parameter read into the variable. NULL on a site source, which names a column
              *     of the site's own row instead; a row carries exactly one of the two (DB CHECK).
              */
-            parameter_id?: string | null;
+            parameter_id: string | null;
             /**
              * @description The column of `sites` read into the variable, for a property of the station rather than a
              *     measurement taken at the visit. NULL on a parameter source.
              */
-            site_property?: string | null;
+            site_property: string | null;
             variable_name: string;
         };
         DerivedParameterSourceCreate: {
@@ -8898,7 +8992,7 @@ export interface components {
         };
         DerivedParameterSourceList: {
             /** Format: date-time */
-            created_at?: string | null;
+            created_at: string | null;
             /** Format: uuid */
             derived_definition_id: string;
             /** Format: uuid */
@@ -8908,17 +9002,17 @@ export interface components {
              * @description The catalog parameter read into the variable. NULL on a site source, which names a column
              *     of the site's own row instead; a row carries exactly one of the two (DB CHECK).
              */
-            parameter_id?: string | null;
+            parameter_id: string | null;
             /**
              * @description The column of `sites` read into the variable, for a property of the station rather than a
              *     measurement taken at the visit. NULL on a parameter source.
              */
-            site_property?: string | null;
+            site_property: string | null;
             variable_name: string;
         };
         DerivedParameterSourceResponse: {
             /** Format: date-time */
-            created_at?: string | null;
+            created_at: string | null;
             /** Format: uuid */
             derived_definition_id: string;
             /** Format: uuid */
@@ -8928,12 +9022,12 @@ export interface components {
              * @description The catalog parameter read into the variable. NULL on a site source, which names a column
              *     of the site's own row instead; a row carries exactly one of the two (DB CHECK).
              */
-            parameter_id?: string | null;
+            parameter_id: string | null;
             /**
              * @description The column of `sites` read into the variable, for a property of the station rather than a
              *     measurement taken at the visit. NULL on a parameter source.
              */
-            site_property?: string | null;
+            site_property: string | null;
             variable_name: string;
         };
         DerivedParameterSourceUpdate: {
@@ -8969,14 +9063,20 @@ export interface components {
              * @description Constant values in place of the catalog. As in a stored test case, an override must name
              *     every constant the manifest declares; omit the field to read the catalog.
              */
-            constants?: Record<string, never>;
+            constants?: {
+                [key: string]: number;
+            } | null;
             entry_function?: string | null;
             /**
              * @description The calculate request body this draft is run with: the manifest's params, plus its curve
              *     slots given either as a `standard_curve_id` or as literal coefficients.
              */
-            inputs?: Record<string, never>;
-            manifest: Record<string, never>;
+            inputs?: {
+                [key: string]: unknown;
+            };
+            manifest: {
+                [key: string]: unknown;
+            };
             script: string;
         };
         DraftRunResponse: (null | components["schemas"]["DraftRunResults"]) & {
@@ -8999,11 +9099,16 @@ export interface components {
         };
         /** @description What the script produced, present only when the run reached the end. */
         DraftRunResults: {
-            constants: Record<string, never>;
-            curves: Record<string, never>[];
+            /** @description The constant values the server resolved and passed to the runner, by name. */
+            constants: {
+                [key: string]: number;
+            };
+            curves: components["schemas"]["CurveSnapshot"][];
             inputs_ignored: string[];
             inputs_used: string[];
-            results: Record<string, never>;
+            results: {
+                [key: string]: unknown;
+            };
         };
         DuplicateSlot: {
             /**
@@ -9228,6 +9333,23 @@ export interface components {
             replicates: components["schemas"]["ExistingReplicate"][];
             /** Format: date-time */
             time: string;
+        };
+        /**
+         * @description A catalog parameter a plan entry collides with, and what already depends on it. "Exists" on its
+         *     own does not say where or whether anything uses it, which is the question an operator has to
+         *     answer to resolve a units conflict.
+         */
+        ExistingParamRef: {
+            category: string;
+            code: string;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: int64 */
+            reading_count: number;
+            /** Format: int64 */
+            site_parameter_count: number;
+            units: string;
         };
         ExistingReplicate: {
             /** Format: double */
@@ -9459,8 +9581,11 @@ export interface components {
              * @description Curated rows on the grab stream that `mode: replace` left in place: flagged, withdrawn, or
              *     carrying a standard curve the request did not supply. Each group with one raises a
              *     `source_modified` hold, and the value entered at that replicate index is not written.
+             *
+             *     `serde(default)` reads a response body recorded before the field existed; every save
+             *     answers with it, which is what `schema(required)` says.
              */
-            kept_curated?: number;
+            kept_curated: number;
             /**
              * @description What each reading stores: the measured value, the curves that apply and the value they
              *     produce together, computed by the code the write itself uses.
@@ -9480,23 +9605,21 @@ export interface components {
             /** Format: uuid */
             project_id: string;
         };
-        /** @description One replicate group's expectation, as the portal stored it. */
+        /**
+         * @description Portal-precomputed mean/sd for one replicate group, sent alongside the
+         *     group's readings so the API can compare server-side.
+         */
         GroupAudit: {
-            /**
-             * Format: double
-             * @description The portal's precomputed mean for this instant. NULL portal cell = None: nothing to check.
-             */
+            /** Format: double */
             expected_mean?: number | null;
             /**
              * Format: int64
-             * @description The count of non-null replicate cells in the portal row. A count mismatch is a hold reason
-             *     even when mean and sd agree: a dropped replicate can leave both inside tolerance.
+             * @description Count of non-null replicate cells the portal row carries for this
+             *     instant; the API re-counts after admission, so a divergence surfaces
+             *     as an n-mismatch hold.
              */
             expected_n?: number | null;
-            /**
-             * Format: double
-             * @description The portal's precomputed standard deviation (sample, n-1).
-             */
+            /** Format: double */
             expected_sd?: number | null;
             /** Format: date-time */
             time: string;
@@ -9598,11 +9721,7 @@ export interface components {
             relative_delta: number;
             /** @description The decision record: latest action plus prior actions under `history`. */
             resolution: Record<string, never>;
-            /**
-             * @description The divisor `computed.sd` was computed under, 'sample' or 'population'. Recorded on the
-             *     hold; a hold that predates the record reads the slot's declaration, else 'sample'.
-             */
-            sd_estimator: string | null;
+            sd_estimator: null | components["schemas"]["SdEstimator"];
             /**
              * Format: double
              * @description `|Δsd|` over the same mean-magnitude denominator as `mean_relative_delta`.
@@ -9853,8 +9972,8 @@ export interface components {
             /** Format: uuid */
             deployment_id?: string | null;
             /**
-             * @description Per-reading override ('continuous' | 'spot' | 'derived'). Omit to resolve from the
-             *     stream's measurement_type, then the owning sensor's data_frequency.
+             * @description Per-reading override ('continuous' | 'spot' | 'derived'). None resolves server-side from
+             *     the stream default, then the owning sensor's data_frequency.
              */
             measurement_type?: string | null;
             /** Format: double */
@@ -9865,11 +9984,7 @@ export interface components {
             sensor_id?: string | null;
             /**
              * Format: uuid
-             * @description The lab standard curve that corrects this reading, for sync services replaying portal
-             *     measurements that carried one. Held to the grab rules: the reading must be a spot
-             *     measurement on the instrument the curve was fitted on, and the stored value is recomputed
-             *     from the curve's coefficients. An inadmissible claim is stripped: the reading is stored
-             *     uncorrected and a `curve_claim_stripped` hold records the claim for review.
+             * @description Standard curve the source applied to this reading.
              */
             standard_curve_id?: string | null;
             /** Format: date-time */
@@ -9942,7 +10057,11 @@ export interface components {
             withdrawn?: number;
         };
         IngestStatusEvent: {
-            /** Format: uuid */
+            /**
+             * Format: uuid
+             * @description The instrument the status describes, when the source knows it. None leaves the event
+             *     attributed to the stream alone.
+             */
             sensor_id?: string | null;
             /** Format: date-time */
             time: string;
@@ -9982,7 +10101,9 @@ export interface components {
              * @description A manifest to set the inspection against. Supplying one adds `reconciliation` to the
              *     response; nothing here reads or writes a stored manifest.
              */
-            manifest?: Record<string, never>;
+            manifest?: {
+                [key: string]: unknown;
+            };
             script: string;
         };
         InspectScriptResponse: components["schemas"]["ScriptInspection"] & {
@@ -10050,6 +10171,12 @@ export interface components {
         InstrumentsOverviewResponse: {
             instruments: components["schemas"]["InstrumentOverview"][];
         };
+        /** @description What an invalidation answers with: the project whose cache was dropped. */
+        InvalidatedConfigResponse: {
+            code: string;
+            /** @description `invalidated`, always. */
+            status: string;
+        };
         IssueCommandRequest: {
             command: string;
             payload: Record<string, never>;
@@ -10084,7 +10211,7 @@ export interface components {
             username: string | null;
         };
         /** @enum {string} */
-        Kind: "flag" | "unflag" | "withdraw" | "reassert" | "curve" | "calibration_pin" | "instrument_pin" | "slot_move" | "value_correction" | "unverified_entry" | "verify" | "reject" | "chain" | "detach" | "return" | "curve_retire" | "formula_transition" | "curve_recompose" | "derived_computed" | "rollback";
+        Kind: "flag" | "unflag" | "withdraw" | "reassert" | "curve" | "calibration_pin" | "instrument_pin" | "slot_move" | "value_correction" | "unverified_entry" | "verify" | "reject" | "chain" | "detach" | "return" | "curve_retire" | "formula_transition" | "curve_recompose" | "derived_computed" | "reprocess" | "rollback";
         /**
          * @description The instrument and standard curve the newest grab at a site and parameter recorded. Every
          *     field but `method` is null when no grab there names either.
@@ -10384,7 +10511,11 @@ export interface components {
          *     computes over its replicates. Read-only wherever they render, since nothing writes them.
          */
         MemberStatistics: {
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description The places the slot declares, NULL where it declares none. Never inferred: the formatter
+             *     that renders the number owns the fallback (Q128).
+             */
             decimal_places: number | null;
             mean_label: string;
             /** @description The divisor the slot declares, NULL where it declares none. Never inferred. */
@@ -10427,8 +10558,13 @@ export interface components {
         };
         /** @description One replicate as the preview reports it: before and after. */
         MovedRow: {
-            after: unknown;
-            before: unknown;
+            after: {
+                [key: string]: unknown;
+            };
+            /** @description The columns this row moves, keyed by column name. */
+            before: {
+                [key: string]: unknown;
+            };
             /** Format: int32 */
             replicate_index: number;
             /** Format: uuid */
@@ -10438,8 +10574,13 @@ export interface components {
         };
         /** @description One group's statistics, before and after. */
         MovedSample: {
-            after: unknown;
-            before: unknown;
+            after: {
+                [key: string]: unknown;
+            };
+            /** @description The statistics this group moves, keyed by column name. */
+            before: {
+                [key: string]: unknown;
+            };
             /** Format: uuid */
             sample_id: string;
         };
@@ -10477,31 +10618,26 @@ export interface components {
             text: string;
             verified?: boolean | null;
         };
-        NoteItem: {
-            /** @description The source's own station name. Resolved case-insensitively against existing sites. */
-            site_name: string;
-            /**
-             * @description The note's identity within the source, e.g. "notes:1"; the upsert key is
-             *     (source_system, source_key).
-             */
-            source_key: string;
-            text: string;
-            verified?: boolean;
-        };
+        /**
+         * @description One source-authored site note. The note's fields are `river_data_core::models::NoteUpsert`,
+         *     which the sync services build from; `verified` has always been optional on this route and core
+         *     declares it required, so an omitted flag is filled in before the body is read.
+         */
+        NoteItem: components["schemas"]["NoteUpsert"];
         NoteList: {
             /** Format: date-time */
             created_at: string;
-            created_by?: string | null;
+            created_by: string | null;
             /** Format: uuid */
             id: string;
             /** Format: uuid */
             site_id: string;
-            source_key?: string | null;
+            source_key: string | null;
             /**
              * @description Where a source-authored note came from, written only by `/notes/register` so a CRUD caller
              *     cannot claim sync provenance. NULL on hand-entered notes.
              */
-            source_system?: string | null;
+            source_system: string | null;
             text: string;
             /** Format: date-time */
             updated_at: string;
@@ -10520,17 +10656,17 @@ export interface components {
         NoteResponse: {
             /** Format: date-time */
             created_at: string;
-            created_by?: string | null;
+            created_by: string | null;
             /** Format: uuid */
             id: string;
             /** Format: uuid */
             site_id: string;
-            source_key?: string | null;
+            source_key: string | null;
             /**
              * @description Where a source-authored note came from, written only by `/notes/register` so a CRUD caller
              *     cannot claim sync provenance. NULL on hand-entered notes.
              */
-            source_system?: string | null;
+            source_system: string | null;
             text: string;
             /** Format: date-time */
             updated_at: string;
@@ -10542,6 +10678,22 @@ export interface components {
             site_id?: string | null;
             text?: string | null;
             verified?: boolean | null;
+        };
+        /**
+         * @description One source-authored site note to register. `source_key` identifies the note
+         *     within the source system; registration is idempotent per
+         *     (source_system, source_key).
+         *
+         *     `site_name` is the source's own station name, which the API resolves against
+         *     sites that already exist. A note mints nothing: one naming a station
+         *     river-data has never seen is reported `unresolved` and is re-asserted on a
+         *     later cycle, once pairing has created the site.
+         */
+        NoteUpsert: {
+            site_name: string;
+            source_key: string;
+            text: string;
+            verified: boolean;
         };
         NotificationHealth: {
             channels: components["schemas"]["ChannelHealth"][];
@@ -10571,11 +10723,11 @@ export interface components {
         };
         NotificationLogList: {
             /** Format: uuid */
-            alarm_event_id?: string | null;
+            alarm_event_id: string | null;
             channel: string;
             /** Format: date-time */
             created_at: string;
-            error?: string | null;
+            error: string | null;
             /** Format: uuid */
             id: string;
             kind: string;
@@ -10584,11 +10736,11 @@ export interface components {
         };
         NotificationLogResponse: {
             /** Format: uuid */
-            alarm_event_id?: string | null;
+            alarm_event_id: string | null;
             channel: string;
             /** Format: date-time */
             created_at: string;
-            error?: string | null;
+            error: string | null;
             /** Format: uuid */
             id: string;
             kind: string;
@@ -10616,9 +10768,9 @@ export interface components {
         NotificationMuteList: {
             /** Format: date-time */
             created_at: string;
-            created_by?: string | null;
+            created_by: string | null;
             /** Format: date-time */
-            expires_at?: string | null;
+            expires_at: string | null;
             /** Format: uuid */
             id: string;
             /** Format: uuid */
@@ -10629,9 +10781,9 @@ export interface components {
         NotificationMuteResponse: {
             /** Format: date-time */
             created_at: string;
-            created_by?: string | null;
+            created_by: string | null;
             /** Format: date-time */
-            expires_at?: string | null;
+            expires_at: string | null;
             /** Format: uuid */
             id: string;
             /** Format: uuid */
@@ -10834,22 +10986,22 @@ export interface components {
         };
         PairingPlan: {
             /** Format: date-time */
-            applied_at?: string | null;
-            apply_result?: unknown;
+            applied_at: string | null;
+            apply_result: null | components["schemas"]["ApplyResult"];
             /** Format: date-time */
             created_at: string;
-            created_by?: string | null;
+            created_by: string | null;
             /**
              * @description Curves the review assigned to instruments this plan creates, `[{curve_id,
              *     instrument_source_key}]`, moved in the apply transaction that mints them.
              */
-            curve_assignments: unknown;
-            entries: unknown;
+            curve_assignments: components["schemas"]["PlanCurveIntents"];
+            entries: components["schemas"]["PlanEntries"];
             /** Format: uuid */
             id: string;
             source_system: string;
             status: string;
-            summary: unknown;
+            summary: components["schemas"]["PlanSummary"];
             /**
              * Format: int32
              * @description Bumped by every edit. A PATCH or an apply names the version it read, so a second writer
@@ -10859,29 +11011,29 @@ export interface components {
         };
         PairingPlanCreate: {
             created_by?: string | null;
-            entries: unknown;
+            entries: components["schemas"]["PlanEntries"];
             source_system: string;
             status?: string | null;
-            summary: unknown;
+            summary: components["schemas"]["PlanSummary"];
         };
         PairingPlanList: {
             /** Format: date-time */
-            applied_at?: string | null;
-            apply_result?: unknown;
+            applied_at: string | null;
+            apply_result: null | components["schemas"]["ApplyResult"];
             /** Format: date-time */
             created_at: string;
-            created_by?: string | null;
+            created_by: string | null;
             /**
              * @description Curves the review assigned to instruments this plan creates, `[{curve_id,
              *     instrument_source_key}]`, moved in the apply transaction that mints them.
              */
-            curve_assignments: unknown;
-            entries: unknown;
+            curve_assignments: components["schemas"]["PlanCurveIntents"];
+            entries: components["schemas"]["PlanEntries"];
             /** Format: uuid */
             id: string;
             source_system: string;
             status: string;
-            summary: unknown;
+            summary: components["schemas"]["PlanSummary"];
             /**
              * Format: int32
              * @description Bumped by every edit. A PATCH or an apply names the version it read, so a second writer
@@ -10891,22 +11043,22 @@ export interface components {
         };
         PairingPlanResponse: {
             /** Format: date-time */
-            applied_at?: string | null;
-            apply_result?: unknown;
+            applied_at: string | null;
+            apply_result: null | components["schemas"]["ApplyResult"];
             /** Format: date-time */
             created_at: string;
-            created_by?: string | null;
+            created_by: string | null;
             /**
              * @description Curves the review assigned to instruments this plan creates, `[{curve_id,
              *     instrument_source_key}]`, moved in the apply transaction that mints them.
              */
-            curve_assignments: unknown;
-            entries: unknown;
+            curve_assignments: components["schemas"]["PlanCurveIntents"];
+            entries: components["schemas"]["PlanEntries"];
             /** Format: uuid */
             id: string;
             source_system: string;
             status: string;
-            summary: unknown;
+            summary: components["schemas"]["PlanSummary"];
             /**
              * Format: int32
              * @description Bumped by every edit. A PATCH or an apply names the version it read, so a second writer
@@ -10928,7 +11080,7 @@ export interface components {
             id: string;
             source_system: string;
             status: string;
-            summary: unknown;
+            summary: components["schemas"]["PlanSummary"];
             /**
              * Format: int64
              * @description Streams of this source that are unpaired now and not in the plan, so a draft built while a
@@ -10939,10 +11091,10 @@ export interface components {
         };
         PairingPlanUpdate: {
             created_by?: string | null;
-            entries?: unknown;
+            entries?: null | components["schemas"]["PlanEntries"];
             source_system?: string | null;
             status?: string | null;
-            summary?: unknown;
+            summary?: null | components["schemas"]["PlanSummary"];
         };
         /**
          * @description `{"param": "mode", "equals": "full_pipeline"}` or
@@ -10965,9 +11117,9 @@ export interface components {
             category: string;
             code: string;
             /** Format: date-time */
-            created_at?: string | null;
+            created_at: string | null;
             default_units: string;
-            description?: string | null;
+            description: string | null;
             /** Format: uuid */
             id: string;
             name: string;
@@ -11125,7 +11277,7 @@ export interface components {
             code: string;
             /** Format: date-time */
             created_at: string;
-            description?: string | null;
+            description: string | null;
             /** Format: uuid */
             id: string;
             label: string;
@@ -11151,7 +11303,7 @@ export interface components {
         ParameterGroupMemberList: {
             /** Format: date-time */
             created_at: string;
-            description?: string | null;
+            description: string | null;
             /** Format: uuid */
             group_id: string;
             /** Format: uuid */
@@ -11160,24 +11312,24 @@ export interface components {
              * @description Per-group presentation overrides. NULL means the catalog parameter's own. Decimal places
              *     are not among them: they are declared per slot, never per group (Q120).
              */
-            label?: string | null;
+            label: string | null;
             /** Format: int32 */
             ordinal: number;
             /** Format: uuid */
             parameter_id: string;
             /** @description The replicate spec for a member entered several times at one visit. */
-            replicates?: unknown;
+            replicates: unknown;
             /**
              * @description `measured`, `entry_only` or `output`, held by a DB CHECK and by
              *     [`super::rules::Role`].
              */
             role: string;
-            units?: string | null;
+            units: string | null;
         };
         ParameterGroupMemberResponse: {
             /** Format: date-time */
             created_at: string;
-            description?: string | null;
+            description: string | null;
             /** Format: uuid */
             group_id: string;
             /** Format: uuid */
@@ -11186,19 +11338,19 @@ export interface components {
              * @description Per-group presentation overrides. NULL means the catalog parameter's own. Decimal places
              *     are not among them: they are declared per slot, never per group (Q120).
              */
-            label?: string | null;
+            label: string | null;
             /** Format: int32 */
             ordinal: number;
             /** Format: uuid */
             parameter_id: string;
             /** @description The replicate spec for a member entered several times at one visit. */
-            replicates?: unknown;
+            replicates: unknown;
             /**
              * @description `measured`, `entry_only` or `output`, held by a DB CHECK and by
              *     [`super::rules::Role`].
              */
             role: string;
-            units?: string | null;
+            units: string | null;
         };
         ParameterGroupMemberUpdate: {
             description?: string | null;
@@ -11217,7 +11369,7 @@ export interface components {
             code: string;
             /** Format: date-time */
             created_at: string;
-            description?: string | null;
+            description: string | null;
             /** Format: uuid */
             id: string;
             label: string;
@@ -11239,9 +11391,9 @@ export interface components {
             category: string;
             code: string;
             /** Format: date-time */
-            created_at?: string | null;
+            created_at: string | null;
             default_units: string;
-            description?: string | null;
+            description: string | null;
             /** Format: uuid */
             id: string;
             name: string;
@@ -11446,6 +11598,17 @@ export interface components {
             source_key: string | null;
         };
         /**
+         * @description A standard curve the review assigned to an instrument the plan creates, keyed by the
+         *     instrument's `source_key` because the row does not exist until the apply mints it.
+         */
+        PlanCurveIntent: {
+            /** Format: uuid */
+            curve_id: string;
+            instrument_source_key: string;
+        };
+        /** @description The assigned curves as the column holds them. */
+        PlanCurveIntents: components["schemas"]["PlanCurveIntent"][];
+        /**
          * @description One of an instrument's standard curves, carried so the review can show what a save would
          *     correct with.
          */
@@ -11482,6 +11645,74 @@ export interface components {
             serial: string;
             site: string;
             stream_count: number;
+        };
+        PlanEntityRef: {
+            create: boolean;
+            /** Format: uuid */
+            id: string | null;
+            name: string;
+        };
+        /**
+         * @description The plan's entry list as the column holds it, so the row carries the entries themselves rather
+         *     than a JSON document nothing describes.
+         */
+        PlanEntries: components["schemas"]["PlanEntry"][];
+        PlanEntry: {
+            /**
+             * @description A person has looked at this entry and agreed with it. Set explicitly, never inferred from
+             *     an edit: an operator who toggles a parameter group to skip and back has decided nothing.
+             *     Only [`ReviewState::NeedsChecking`] entries wait on it; a fully matched entry with no
+             *     warning is self-validated and needs no tick.
+             */
+            acknowledged: boolean;
+            action: string;
+            confidence: string;
+            /**
+             * Format: int32
+             * @description The decimal places the source declared for this stream, written onto the slot on apply
+             *     where the slot declares none. An operator's declaration on the slot is never overwritten.
+             */
+            decimal_places?: number | null;
+            /** @description The device model, where the source reports one. Naming only. */
+            device_model?: string | null;
+            /**
+             * @description The device serial the source names for this feed, where it names one. Information the plan
+             *     displays; never the instrument's identity.
+             */
+            device_serial?: string | null;
+            instrument?: null | components["schemas"]["PlanInstrumentRef"];
+            /**
+             * @description Whether the source reports this feed as a device. That, not the presence of a serial, is
+             *     what makes a feed field-shaped: its instrument is minted from the feed's own provenance
+             *     when the stream is paired, so the plan proposes no lab instrument for it. A source may
+             *     describe a device and report no serial for it, which is why the two are separate.
+             */
+            is_device: boolean;
+            original_parameter_name?: string | null;
+            parameter: components["schemas"]["PlanParamRef"];
+            project: components["schemas"]["PlanEntityRef"];
+            replicates?: null | components["schemas"]["PlanReplicates"];
+            /**
+             * @description The divisor this slot will publish its replicate standard deviation with, chosen in the
+             *     review. Applied to the `site_parameters` row when the plan is applied; left unset, the slot
+             *     stays undeclared and its audit disagreements are held for a decision instead.
+             */
+            sd_estimator?: string | null;
+            /**
+             * Format: int64
+             * @description The evidence for that choice: open replicate-statistics holds on this stream, and how many
+             *     of them match the population signature. Written at plan creation so the review shows what
+             *     the incoming data reports rather than only that a question exists.
+             */
+            sd_holds: number;
+            /** Format: int64 */
+            sd_population_holds: number;
+            site: components["schemas"]["PlanSiteRef"];
+            source_key: string;
+            source_name: string | null;
+            /** Format: uuid */
+            stream_id: string;
+            warnings: components["schemas"]["PlanWarning"][];
         };
         /**
          * @description One instrument decision in a pairing plan: the instrument, what it covers, and the curves it
@@ -11525,6 +11756,53 @@ export interface components {
             stamps_readings: boolean;
             stream_count: number;
         };
+        /** @description The instrument a plan entry's curve references resolve to, and how that was decided. */
+        PlanInstrumentRef: {
+            /** @description A creation an operator has agreed to. Apply refuses a plan holding an unconfirmed one. */
+            confirmed: boolean;
+            create: boolean;
+            /**
+             * @description The source column naming a curve per reading, e.g. `doc_std_curve_id`. Absent when the
+             *     instrument came from the stream and no column names a curve (the chla families, corrected
+             *     upstream).
+             */
+            curve_column: string | null;
+            curves: components["schemas"]["PlanCurveRef"][];
+            /**
+             * Format: uuid
+             * @description The resolved instrument, or None when one has to be created.
+             */
+            id: string | null;
+            name: string;
+            /**
+             * @description An instrument that already carries the proposed name. Creating a second one under it is
+             *     allowed, and so is attaching to this one, but neither may happen by default: readings
+             *     joining an instrument that already holds data is not something a plan decides on its own.
+             */
+            name_conflict?: components["schemas"]["InstrumentNameConflict"];
+            /**
+             * @description The name this decision proposes creating, kept whatever else the entry resolves to. An
+             *     operator who attaches an existing instrument by mistake has the proposal to go back to;
+             *     without it, the only record of what the plan suggested is gone the moment it is overwritten.
+             */
+            proposed_name?: string | null;
+            /**
+             * @description `stream` (already attributed), `curve_label` (matched against the source's own curve
+             *     labels), `manual` (repointed in the review), or `placeholder` (nothing matched).
+             */
+            resolved_by: string;
+            /**
+             * @description `(source_system, source_key)` is an instrument's identity, so a later rename cannot break
+             *     the mapping.
+             */
+            source_key: string;
+            /**
+             * @description True when each reading stores a `standard_curve_id` (the family's own calculation names
+             *     the curve, members are raw). False when the curve was applied upstream and only the
+             *     instrument is attributed, where stamping would correct the value a second time.
+             */
+            stamps_readings: boolean;
+        };
         PlanInstrumentsResponse: {
             curves: components["schemas"]["PlanCurveAssignment"][];
             devices: components["schemas"]["PlanDeviceGroup"][];
@@ -11540,6 +11818,29 @@ export interface components {
              */
             job_id: string | null;
             status: string;
+        };
+        PlanParamRef: {
+            create: boolean;
+            group_key?: string | null;
+            /** Format: uuid */
+            id: string | null;
+            /**
+             * @description Human-readable label carried alongside; becomes `parameters.name` when the apply creates
+             *     the parameter, while `name` becomes its `code`.
+             */
+            label?: string | null;
+            /** @description The parameter identity: the source's own column name (matches what the portal DB shows). */
+            name: string;
+            original_names: string[];
+            units: string;
+        };
+        /** @description Replicate-family summary carried on a plan entry, from the stream's registered spec. */
+        PlanReplicates: {
+            curve_ref_column: string | null;
+            member_columns: string[];
+            n: number;
+            portal_mean_column: string | null;
+            portal_sd_column: string | null;
         };
         /**
          * @description One logger a site's streams name, counted per site: a site instrumented with two loggers has
@@ -11572,11 +11873,47 @@ export interface components {
             sample_interval_sec: number | null;
             site_name: string;
         };
+        PlanSiteRef: {
+            /** Format: double */
+            altitude_m: number | null;
+            create: boolean;
+            /** Format: uuid */
+            id: string | null;
+            /** Format: double */
+            latitude: number | null;
+            /** Format: double */
+            longitude: number | null;
+            name: string;
+        };
         /** @description A plan whose status this request moved, with no job behind it. */
         PlanStatusChanged: {
             /** Format: uuid */
             id: string;
             status: string;
+        };
+        PlanSummary: {
+            acknowledged: number;
+            /**
+             * @description Distinct lab instruments the apply would create, and how many of those an operator has
+             *     not yet agreed to. Apply refuses while the second is non-zero.
+             */
+            instruments_to_create: number;
+            instruments_unconfirmed: number;
+            /**
+             * @description The three review states over the entries the plan would pair, so the review can say what
+             *     share of the plan waits on a person and what share stands on its own evidence.
+             */
+            needs_checking: number;
+            parameters_to_create: number;
+            projects_to_create: number;
+            self_validated: number;
+            sites_to_create: number;
+            total_streams: number;
+            unique_parameters: number;
+            unique_projects: number;
+            unique_sites: number;
+            will_pair: number;
+            will_skip: number;
         };
         /**
          * @description The source parameters this plan pairs that no instrument covers, so an operator can attach one
@@ -11600,6 +11937,20 @@ export interface components {
              *     suggestion alone.
              */
             suggested_name: string;
+        };
+        /**
+         * @description Something the review has to decide about, carried as data rather than a sentence so the UI can
+         *     offer the resolutions instead of only naming the problem. `message` is the rendered form, kept
+         *     so a warning always reads as something even where the structure is not used.
+         */
+        PlanWarning: {
+            existing?: null | components["schemas"]["ExistingParamRef"];
+            /** @description `units_mismatch` | `empty_name`. */
+            kind: string;
+            message: string;
+            parameter?: string | null;
+            /** @description The units this source declares, against `existing.units`. */
+            source_units?: string | null;
         };
         PreviewDelta: {
             /** Format: double */
@@ -11651,7 +12002,7 @@ export interface components {
         };
         PreviewResponse: {
             /** @description The calculations the touched parameters feed, in the order the chain would run them. */
-            calculations: Record<string, never>[];
+            calculations: components["schemas"]["CalculationImpact"][];
             /** @description Everything the preview does not compute, named rather than left to be assumed. */
             not_previewed: string[];
             /** Format: uuid */
@@ -11673,7 +12024,7 @@ export interface components {
             /** Format: double */
             sd: number | null;
             /** @description 'sample' (divisor n-1) or 'population' (divisor n). */
-            sd_estimator: string;
+            sd_estimator: components["schemas"]["SdEstimator"];
         };
         ProjectCreate: {
             data_source?: string | null;
@@ -11688,20 +12039,20 @@ export interface components {
         };
         ProjectList: {
             /** Format: date-time */
-            created_at?: string | null;
-            data_source?: string | null;
-            description?: string | null;
+            created_at: string | null;
+            data_source: string | null;
+            description: string | null;
             /** Format: date-time */
-            discovered_at?: string | null;
+            discovered_at: string | null;
             /** Format: uuid */
             id: string;
             is_public: boolean;
             name: string;
-            public_api_description?: string | null;
-            public_api_title?: string | null;
-            public_api_version?: string | null;
-            public_code?: string | null;
-            public_contact_email?: string | null;
+            public_api_description: string | null;
+            public_api_title: string | null;
+            public_api_version: string | null;
+            public_code: string | null;
+            public_contact_email: string | null;
         };
         /** @description Brief project reference for embedding in responses */
         ProjectRef: {
@@ -11794,6 +12145,20 @@ export interface components {
             time: string;
             /** @description The slot's unit when it declares one, the catalog default otherwise. */
             units?: string;
+        };
+        /**
+         * @description What a route that enqueues one job answers with: the row it enqueued, and the state that row is
+         *     in when the response is written.
+         */
+        QueuedJobResponse: {
+            /**
+             * Format: uuid
+             * @description The row enqueued, or null where an identical job was already queued under the same dedupe
+             *     key and this request added none.
+             */
+            job_id: string | null;
+            /** @description `queued`, always. */
+            status: string;
         };
         ReadingFacet: {
             /** Format: double */
@@ -11930,6 +12295,11 @@ export interface components {
              */
             start?: string | null;
         };
+        /** @description The job a recalculation enqueued. */
+        RecalculateResponse: {
+            /** Format: uuid */
+            job_id: string;
+        };
         ReceiptRow: {
             /** Format: date-time */
             at: string;
@@ -11987,12 +12357,18 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
+        /** @description What one reconciliation pass changed. */
+        ReconcileAlarmsResponse: {
+            opened: number;
+            resolved: number;
+            updated: number;
+        };
         RefreshAggregatesRequest: {
             /** @description If true, refresh ALL continuous aggregates (slow). If false, incremental refresh. */
             full?: boolean;
         };
         RegisterAnnotationsRequest: {
-            annotations: components["schemas"]["AnnotationItem"][];
+            annotations: components["schemas"]["AnnotationUpsert"][];
             /** @description The sync source the annotations come from, e.g. "cnet". */
             source_system: string;
         };
@@ -12013,29 +12389,13 @@ export interface components {
             p256dh: string;
             user_agent?: string | null;
         };
-        RegisterSensorRequest: {
-            /**
-             * @description 'high' or 'low'. Read as a cadence declaration when a stream classifies its readings, so
-             *     leave it 'high' unless the source knows the instrument logs at grab cadence.
-             */
-            data_frequency?: string;
-            /** @description False for a field instrument, true for one that corrects a grab in the lab. */
-            is_lab_instrument?: boolean;
-            manufacturer?: string | null;
-            metadata?: unknown;
-            model?: string | null;
-            name: string;
-            notes?: string | null;
-            /**
-             * @description The lab's own serial for the instrument. Claimed only when no other instrument holds it;
-             *     see [`serial_to_claim`].
-             */
-            serial_number?: string | null;
-            /**
-             * @description The instrument's identity within that source, e.g. "sensor_inventory:62". Stable across
-             *     re-registration; the upsert key is (source_system, source_key).
-             */
-            source_key: string;
+        /**
+         * @description One instrument from a source's own register. The instrument's own fields are
+         *     `river_data_core::models::SensorUpsert`, which the sync services build from; the API adds the
+         *     source the caller is speaking for, and supplies the `is_lab_instrument` default this route has
+         *     always accepted an omitted flag under.
+         */
+        RegisterSensorRequest: components["schemas"]["SensorUpsert"] & {
             /** @description The sync source the instrument comes from, e.g. "metalp". */
             source_system: string;
         };
@@ -12055,32 +12415,12 @@ export interface components {
              */
             serial_claimed_by: string | null;
         };
-        RegisterStandardCurveRequest: {
-            /**
-             * Format: date
-             * @description The date the source fitted the curve. Absent leaves the row on its creation date.
-             */
-            fitted_on?: string | null;
-            /**
-             * @description The lab instrument family the curve was fitted for, e.g. "DOC corr". A lab-instrument
-             *     sensor is found or created per (source_system, instrument_label) and the curve attaches to
-             *     it; readings claiming the curve must resolve to the same instrument.
-             */
-            instrument_label: string;
-            /** Format: double */
-            intercept: number;
-            /** @description Human label for the curve, e.g. the portal's date + parameter. Falls back to source_key. */
-            name?: string | null;
-            notes?: string | null;
-            /** Format: double */
-            r_squared?: number | null;
-            /** Format: double */
-            slope: number;
-            /**
-             * @description The curve's identity within that source, e.g. "standard_curves:17". Stable across
-             *     re-registration; the upsert key is (source_system, source_key).
-             */
-            source_key: string;
+        /**
+         * @description One portal standard curve to register. The curve's own fields are
+         *     `river_data_core::models::StandardCurveUpsert`, which the sync services build from, so a field
+         *     the sender gains cannot be dropped here; the API adds the source the caller is speaking for.
+         */
+        RegisterStandardCurveRequest: components["schemas"]["StandardCurveUpsert"] & {
             /** @description The sync source the curve comes from, e.g. "cnet". */
             source_system: string;
         };
@@ -12098,23 +12438,17 @@ export interface components {
         RegisterStreamRequest: {
             /**
              * Format: int32
-             * @description The decimal places the source stores or presents this channel at (0 to 10). Stored under
-             *     `metadata.decimal_places`; pairing writes it onto the slot where none is declared, and the
-             *     public API expresses the slot's values at it. Omit to declare nothing.
+             * @description The source's decimal places for this channel (0 to 10). None declares nothing.
              */
             decimal_places?: number | null;
-            /**
-             * @description Stream-level default for readings.measurement_type ('continuous' | 'spot' | 'derived').
-             *     Omit to defer to the owning sensor's data_frequency.
-             */
+            /** @description Stream-level classification declared at discovery. None never clears an operator-set value. */
             measurement_type?: string | null;
-            metadata?: Record<string, never>;
+            metadata: unknown;
             replicates?: null | components["schemas"]["ReplicateSpec"];
             /**
              * Format: uuid
-             * @description The instrument that produces this feed. Omit when the caller does not know it: the sensor
-             *     is then resolved from the metadata serial at import or pairing time. Declaring it is what
-             *     stops pairing minting a second, serial-less instrument alongside the real one.
+             * @description Owning sensor. Required for curve-carrying streams: the API admits a
+             *     reading's curve claim only when reading-sensor == curve-sensor.
              */
             sensor_id?: string | null;
             source_key: string;
@@ -12124,9 +12458,15 @@ export interface components {
         };
         ReloadResponse: {
             /** @description The calculate body that reproduces the run: its stored inputs plus the calculation context. */
-            body: Record<string, never>;
-            constants: Record<string, never>;
-            curves: Record<string, never>[];
+            body: {
+                [key: string]: unknown;
+            };
+            constants: {
+                [key: string]: unknown;
+            };
+            curves: {
+                [key: string]: unknown;
+            }[];
             tool: string;
         };
         /** @description One replicate behind a grab-sample point. */
@@ -12179,39 +12519,25 @@ export interface components {
             value: number | null;
             withdrawn: boolean;
         };
+        /**
+         * @description Replicate-family declaration on a stream registration. The API pins each
+         *     column's replicate_index server-side (append-only across re-registrations)
+         *     and returns the authoritative mapping as [`ColumnAssignment`]s on the
+         *     register response; `source_columns` order is provenance, not the index.
+         *     The API requires at least two unique columns and `measurement_type: "spot"`
+         *     on the request.
+         */
         ReplicateSpec: {
-            /**
-             * @description The authoritative column-to-index mapping, authored by the register path (never by the
-             *     caller) via [`pin_assignments`]. Readings carry these indexes for life, so re-registration
-             *     preserves them: see [`ColumnAssignment`].
-             */
-            assignments?: components["schemas"]["ColumnAssignment"][];
-            /**
-             * @description How the portal derives its mean from the members, as declared by its calculation registry
-             *     (e.g. `calcMean`, `calcDOCavg`). Recorded for provenance and for the audit's semantics.
-             */
             calc?: string | null;
-            /**
-             * @description The portal column holding the per-row standard-curve reference, when the family's values
-             *     are corrected through one (e.g. `doc_std_curve_id`).
-             */
             curve_ref_column?: string | null;
-            /** @description The portal's precomputed mean column. Audited at sync time, never a stream. */
             portal_mean_column?: string | null;
-            /** @description The portal's precomputed standard-deviation column. Audited, never a stream. */
             portal_sd_column?: string | null;
             /**
-             * @description Which divisor this source computes its standard deviation with: `sample` (n-1) or
-             *     `population` (n). Absent means the source has not said, which is the honest answer for the
-             *     portals that used both over the years; the slot's declaration then decides, and absent that
-             *     the samples are recorded undeclared and their audit disagreements are held for a decision.
-             *     Nothing infers this from the data.
+             * @description The sd divisor the source's own sd column uses ('sample' | 'population'),
+             *     when the source declares one. Never inferred; None leaves the slot's
+             *     declaration (or the audit gate) to decide.
              */
             sd_estimator?: string | null;
-            /**
-             * @description Source columns as the source currently declares them. Ordering is provenance only: the
-             *     authoritative column-to-index mapping is `assignments`, pinned at registration.
-             */
             source_columns: string[];
         };
         ReplicatesResponse: {
@@ -12236,12 +12562,12 @@ export interface components {
             /** @description Classification driving UI grouping/filtering: operator | metadata | maintenance. */
             category: string;
             /** Format: date-time */
-            completed_at?: string | null;
+            completed_at: string | null;
             /** Format: date-time */
             created_at: string;
             /** @description Structured per-job summary + provenance (scope, time range, counts, source, samples). */
             detail: unknown;
-            error_message?: string | null;
+            error_message: string | null;
             /** Format: uuid */
             id: string;
             /** @description What the run was asked to do, the object `worker::enqueue` stored and a rerun replays. */
@@ -12250,27 +12576,27 @@ export interface components {
              * Format: uuid
              * @description Originating job for a cascade (e.g. a derived recompute spawned by a reprocess).
              */
-            parent_job_id?: string | null;
+            parent_job_id: string | null;
             /** Format: int32 */
-            progress?: number | null;
+            progress: number | null;
             /** Format: int32 */
-            readings_updated?: number | null;
+            readings_updated: number | null;
             /** @description Whether `POST /reprocessing_jobs/{id}/rerun` accepts this row, from the registry's policy. */
             rerunnable: boolean;
             /** Format: int32 */
             retry_count: number;
             /** Format: uuid */
-            sensor_id?: string | null;
+            sensor_id: string | null;
             /**
              * Format: uuid
              * @description Scope promoted from `detail` so the jobs list can filter by site.
              */
-            site_id?: string | null;
+            site_id: string | null;
             status: string;
             /** Format: int32 */
-            total?: number | null;
+            total: number | null;
             /** Format: uuid */
-            trigger_id?: string | null;
+            trigger_id: string | null;
             trigger_type: string;
         };
         ReprocessingJobResponse: {
@@ -12279,12 +12605,12 @@ export interface components {
             /** @description Classification driving UI grouping/filtering: operator | metadata | maintenance. */
             category: string;
             /** Format: date-time */
-            completed_at?: string | null;
+            completed_at: string | null;
             /** Format: date-time */
             created_at: string;
             /** @description Structured per-job summary + provenance (scope, time range, counts, source, samples). */
             detail: unknown;
-            error_message?: string | null;
+            error_message: string | null;
             /** Format: uuid */
             id: string;
             /** @description What the run was asked to do, the object `worker::enqueue` stored and a rerun replays. */
@@ -12293,27 +12619,27 @@ export interface components {
              * Format: uuid
              * @description Originating job for a cascade (e.g. a derived recompute spawned by a reprocess).
              */
-            parent_job_id?: string | null;
+            parent_job_id: string | null;
             /** Format: int32 */
-            progress?: number | null;
+            progress: number | null;
             /** Format: int32 */
-            readings_updated?: number | null;
+            readings_updated: number | null;
             /** @description Whether `POST /reprocessing_jobs/{id}/rerun` accepts this row, from the registry's policy. */
             rerunnable: boolean;
             /** Format: int32 */
             retry_count: number;
             /** Format: uuid */
-            sensor_id?: string | null;
+            sensor_id: string | null;
             /**
              * Format: uuid
              * @description Scope promoted from `detail` so the jobs list can filter by site.
              */
-            site_id?: string | null;
+            site_id: string | null;
             status: string;
             /** Format: int32 */
-            total?: number | null;
+            total: number | null;
             /** Format: uuid */
-            trigger_id?: string | null;
+            trigger_id: string | null;
             trigger_type: string;
         };
         ReprocessingJobUpdate: Record<string, never>;
@@ -12370,6 +12696,19 @@ export interface components {
          * @enum {string}
          */
         ResolvedBy: "id" | "code";
+        /**
+         * @description A curve as the runner receives it: coefficients plus, when it came from the catalog, the
+         *     identity that resolves them.
+         */
+        ResolvedCurve: {
+            /** Format: double */
+            intercept: number;
+            label: string | null;
+            /** Format: double */
+            slope: number;
+            /** Format: uuid */
+            standard_curve_id: string | null;
+        };
         /**
          * @description The catalog parameter an output is saved to, resolved server-side. Serving this is what lets a
          *     caller stop matching strings against a page of the catalog it happens to have fetched.
@@ -12546,6 +12885,11 @@ export interface components {
              */
             uncorrected: number;
         };
+        /** @description What a revocation answers with. */
+        RevokedResponse: {
+            /** @description `true`, always: the row is revoked by the time the response is written. */
+            revoked: boolean;
+        };
         /** @description A role assignment that took effect. The roles themselves are read back through the user. */
         RolesAssigned: {
             success: boolean;
@@ -12628,17 +12972,17 @@ export interface components {
             /** Format: date-time */
             collected_at: string;
             /** Format: date-time */
-            created_at?: string | null;
+            created_at: string | null;
             /** Format: uuid */
             id: string;
             /** Format: double */
-            max_value?: number | null;
+            max_value: number | null;
             /** Format: double */
-            mean?: number | null;
+            mean: number | null;
             /** Format: double */
-            median?: number | null;
+            median: number | null;
             /** Format: double */
-            min_value?: number | null;
+            min_value: number | null;
             /** Format: int32 */
             n: number;
             /** Format: uuid */
@@ -12648,13 +12992,13 @@ export interface components {
             /** Format: uuid */
             site_id: string;
             /** Format: double */
-            stdev?: number | null;
+            stdev: number | null;
             /** Format: double */
-            stdev_population?: number | null;
+            stdev_population: number | null;
             /** Format: double */
-            stdev_sample?: number | null;
+            stdev_sample: number | null;
             /** Format: date-time */
-            updated_at?: string | null;
+            updated_at: string | null;
         };
         SamplePreviewRequest: {
             /** @description The divisor to compute the proposed sd under; absent keeps the group's current one. */
@@ -12692,17 +13036,17 @@ export interface components {
             /** Format: date-time */
             collected_at: string;
             /** Format: date-time */
-            created_at?: string | null;
+            created_at: string | null;
             /** Format: uuid */
             id: string;
             /** Format: double */
-            max_value?: number | null;
+            max_value: number | null;
             /** Format: double */
-            mean?: number | null;
+            mean: number | null;
             /** Format: double */
-            median?: number | null;
+            median: number | null;
             /** Format: double */
-            min_value?: number | null;
+            min_value: number | null;
             /** Format: int32 */
             n: number;
             /** Format: uuid */
@@ -12712,13 +13056,13 @@ export interface components {
             /** Format: uuid */
             site_id: string;
             /** Format: double */
-            stdev?: number | null;
+            stdev: number | null;
             /** Format: double */
-            stdev_population?: number | null;
+            stdev_population: number | null;
             /** Format: double */
-            stdev_sample?: number | null;
+            stdev_sample: number | null;
             /** Format: date-time */
-            updated_at?: string | null;
+            updated_at: string | null;
         };
         /** @description Sample statistics and replicate values behind one served grab point. */
         SampleStatOut: {
@@ -12750,29 +13094,79 @@ export interface components {
             stdev_sample?: number;
         };
         SampleUpdate: Record<string, never>;
-        /**
-         * @description One schedule row as the API exposes it. `running` is computed per-request from the live job
-         *     queue, not stored. Field names/types are the UI contract.
-         */
-        ScheduleView: {
+        ScheduleList: {
             catchup_policy: string | null;
+            /** Format: date-time */
+            created_at: string;
             enabled: boolean;
+            /** Format: uuid */
+            id: string;
             /** Format: int64 */
             interval_seconds: number | null;
+            /** @description The registered job this schedule drives, and the id every route addresses it by. */
             job_name: string;
             /** Format: date-time */
             last_enqueued_at: string | null;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description The next slot the scheduler will fire, maintained by the scheduler and by an edit that
+             *     brings the grid forward.
+             */
             next_run_at: string | null;
             overlap_policy: string | null;
-            /** @description Whether a non-terminal job of this `job_name` is in flight (queued/pending/running/retrying). */
+            /** @description Whether a job of this name is in flight. Per request, never stored. */
             running: boolean;
             tunables: unknown;
-            /** @description What this job accepts under `tunables`, from its own declaration. Empty means none. */
+            /**
+             * @description What this job accepts under `tunables`, from its own declaration, as the form reads it.
+             *     `[]` means none. It is the job's own declaration, not a stored column.
+             */
             tunables_schema: components["schemas"]["TunableSpec"][];
             /** Format: date-time */
             updated_at: string;
+            /** @description Who made the last edit, from the request that made it. */
             updated_by: string | null;
+        };
+        ScheduleResponse: {
+            catchup_policy: string | null;
+            /** Format: date-time */
+            created_at: string;
+            enabled: boolean;
+            /** Format: uuid */
+            id: string;
+            /** Format: int64 */
+            interval_seconds: number | null;
+            /** @description The registered job this schedule drives, and the id every route addresses it by. */
+            job_name: string;
+            /** Format: date-time */
+            last_enqueued_at: string | null;
+            /**
+             * Format: date-time
+             * @description The next slot the scheduler will fire, maintained by the scheduler and by an edit that
+             *     brings the grid forward.
+             */
+            next_run_at: string | null;
+            overlap_policy: string | null;
+            /** @description Whether a job of this name is in flight. Per request, never stored. */
+            running: boolean;
+            tunables: unknown;
+            /**
+             * @description What this job accepts under `tunables`, from its own declaration, as the form reads it.
+             *     `[]` means none. It is the job's own declaration, not a stored column.
+             */
+            tunables_schema: components["schemas"]["TunableSpec"][];
+            /** Format: date-time */
+            updated_at: string;
+            /** @description Who made the last edit, from the request that made it. */
+            updated_by: string | null;
+        };
+        ScheduleUpdate: {
+            catchup_policy?: string | null;
+            enabled?: boolean | null;
+            /** Format: int64 */
+            interval_seconds?: number | null;
+            overlap_policy?: string | null;
+            tunables?: unknown;
         };
         /** @description One screened cell of a wide file: which row and column it came from, and where it sits. */
         ScreenedCell: {
@@ -12823,6 +13217,15 @@ export interface components {
              */
             script_functions_used: string[];
         };
+        /**
+         * @description The two values an estimator field carries, for the document.
+         *
+         *     The estimator itself travels as a string, because it is a column value the whole ingest path
+         *     compares against [`SAMPLE`] and [`POPULATION`]. This names the pair so a schema field declares
+         *     what it may hold rather than "a string", and a generated client reads the two.
+         * @enum {string}
+         */
+        SdEstimator: "sample" | "population";
         SearchResponse: {
             query: string;
             results: components["schemas"]["SearchResults"];
@@ -12976,32 +13379,32 @@ export interface components {
         };
         SensorCalibrationList: {
             /** Format: date-time */
-            created_at?: string | null;
+            created_at: string | null;
             /** Format: uuid */
             id: string;
             /** Format: double */
             intercept: number;
             /** @description Human label for the curve, an alternative to picking it by date in the editor. */
-            name?: string | null;
-            notes?: string | null;
+            name: string | null;
+            notes: string | null;
             /**
              * Format: uuid
              * @description Per-channel parameter (multi-parameter instruments get one curve per channel); NULL applies
              *     the curve to every channel.
              */
-            parameter_id?: string | null;
-            performed_by?: string | null;
+            parameter_id: string | null;
+            performed_by: string | null;
             /** Format: double */
-            r_squared?: number | null;
+            r_squared: number | null;
             /**
              * Format: date-time
              * @description When the curve was taken out of circulation (M146). A retired curve is never resolved for a
              *     reading again and never bounds another curve's window; the row, its coefficients and the
              *     readings it corrected stay. Written by the retire routes, never through CRUD.
              */
-            retired_at?: string | null;
-            retired_by?: string | null;
-            retired_reason?: string | null;
+            retired_at: string | null;
+            retired_by: string | null;
+            retired_reason: string | null;
             /** Format: uuid */
             sensor_id: string;
             /** Format: double */
@@ -13015,7 +13418,7 @@ export interface components {
              *     it uncovered: readings there keep the calibration they were stamped with, because reprocess
              *     only rewrites a reading a curve covers.
              */
-            valid_until?: string | null;
+            valid_until: string | null;
             /**
              * @description True when `valid_until` was set by an operator rather than by the window chain. Provenance,
              *     not data: no client sets it, `before_update` maintains it from what the update carried.
@@ -13024,32 +13427,32 @@ export interface components {
         };
         SensorCalibrationResponse: {
             /** Format: date-time */
-            created_at?: string | null;
+            created_at: string | null;
             /** Format: uuid */
             id: string;
             /** Format: double */
             intercept: number;
             /** @description Human label for the curve, an alternative to picking it by date in the editor. */
-            name?: string | null;
-            notes?: string | null;
+            name: string | null;
+            notes: string | null;
             /**
              * Format: uuid
              * @description Per-channel parameter (multi-parameter instruments get one curve per channel); NULL applies
              *     the curve to every channel.
              */
-            parameter_id?: string | null;
-            performed_by?: string | null;
+            parameter_id: string | null;
+            performed_by: string | null;
             /** Format: double */
-            r_squared?: number | null;
+            r_squared: number | null;
             /**
              * Format: date-time
              * @description When the curve was taken out of circulation (M146). A retired curve is never resolved for a
              *     reading again and never bounds another curve's window; the row, its coefficients and the
              *     readings it corrected stay. Written by the retire routes, never through CRUD.
              */
-            retired_at?: string | null;
-            retired_by?: string | null;
-            retired_reason?: string | null;
+            retired_at: string | null;
+            retired_by: string | null;
+            retired_reason: string | null;
             /** Format: uuid */
             sensor_id: string;
             /** Format: double */
@@ -13063,7 +13466,7 @@ export interface components {
              *     it uncovered: readings there keep the calibration they were stamped with, because reprocess
              *     only rewrites a reading a curve covers.
              */
-            valid_until?: string | null;
+            valid_until: string | null;
             /**
              * @description True when `valid_until` was set by an operator rather than by the window chain. Provenance,
              *     not data: no client sets it, `before_update` maintains it from what the update carried.
@@ -13122,15 +13525,15 @@ export interface components {
         };
         SensorDeployment: {
             /** Format: date-time */
-            created_at?: string | null;
+            created_at: string | null;
             /** Format: date-time */
             deployed_from: string;
             /** Format: date-time */
-            deployed_until?: string | null;
+            deployed_until: string | null;
             deployment_type: string;
             /** Format: uuid */
             id: string;
-            notes?: string | null;
+            notes: string | null;
             /**
              * Format: uuid
              * @description The parameter this deployment binds the sensor to at the site. Authored at create time (a
@@ -13178,15 +13581,15 @@ export interface components {
         };
         SensorDeploymentList: {
             /** Format: date-time */
-            created_at?: string | null;
+            created_at: string | null;
             /** Format: date-time */
             deployed_from: string;
             /** Format: date-time */
-            deployed_until?: string | null;
+            deployed_until: string | null;
             deployment_type: string;
             /** Format: uuid */
             id: string;
-            notes?: string | null;
+            notes: string | null;
             /**
              * Format: uuid
              * @description The parameter this deployment binds the sensor to at the site. Authored at create time (a
@@ -13204,15 +13607,15 @@ export interface components {
         };
         SensorDeploymentResponse: {
             /** Format: date-time */
-            created_at?: string | null;
+            created_at: string | null;
             /** Format: date-time */
             deployed_from: string;
             /** Format: date-time */
-            deployed_until?: string | null;
+            deployed_until: string | null;
             deployment_type: string;
             /** Format: uuid */
             id: string;
-            notes?: string | null;
+            notes: string | null;
             /**
              * Format: uuid
              * @description The parameter this deployment binds the sensor to at the site. Authored at create time (a
@@ -13257,17 +13660,17 @@ export interface components {
         };
         SensorList: {
             /** Format: date-time */
-            created_at?: string | null;
+            created_at: string | null;
             /** Format: uuid */
-            current_site_id?: string | null;
-            current_site_name?: string | null;
+            current_site_id: string | null;
+            current_site_name: string | null;
             /**
              * Format: int64
              * @description Standard curves fitted on this instrument. A lab instrument's row states this where a
              *     device's states its site: a titrator has no deployment and the Site column is empty for it
              *     however long it has been in use.
              */
-            curve_count?: number | null;
+            curve_count: number | null;
             /**
              * @description Cadence classification: 'high' (field stream → continuous readings) or 'low'
              *     (lab/campaign → spot readings). Resolved at ingest for streams owned by this sensor.
@@ -13275,8 +13678,8 @@ export interface components {
             data_frequency: string;
             /** Format: uuid */
             id: string;
-            is_active?: boolean | null;
-            is_lab_instrument?: boolean | null;
+            is_active: boolean | null;
+            is_lab_instrument: boolean | null;
             /**
              * @description What this row is: `device` (a physical instrument), `lab` (a portal curve label),
              *     `source_parameter` (a source's instrument for one parameter across every station) or
@@ -13285,34 +13688,34 @@ export interface components {
              */
             kind: string;
             /** Format: date-time */
-            last_calibration_at?: string | null;
+            last_calibration_at: string | null;
             /**
              * Format: date-time
              * @description The newest reading any of those curves corrected: whether the instrument is still in use.
              */
-            last_curve_use?: string | null;
+            last_curve_use: string | null;
             /** Format: date-time */
-            last_reading_at?: string | null;
+            last_reading_at: string | null;
             /** Format: double */
-            last_reading_value?: number | null;
-            manufacturer?: string | null;
-            metadata?: unknown;
-            model?: string | null;
-            name?: string | null;
-            notes?: string | null;
+            last_reading_value: number | null;
+            manufacturer: string | null;
+            metadata: unknown;
+            model: string | null;
+            name: string | null;
+            notes: string | null;
             /** Format: int64 */
-            reading_count?: number | null;
-            serial_number?: string | null;
+            reading_count: number | null;
+            serial_number: string | null;
             /**
              * @description The instrument's identity within its source (e.g. "cnet:DOC corr"); the lookup key
              *     together with `source_system`.
              */
-            source_key?: string | null;
+            source_key: string | null;
             /**
              * @description Sync provenance: the source a replicated lab instrument came from (e.g. "cnet"). NULL on
              *     devices registered by serial. Written only by the sync paths, never through CRUD.
              */
-            source_system?: string | null;
+            source_system: string | null;
         };
         /**
          * @description Columnar raw + calibrated series for one channel of a sensor, aligned to `times`.
@@ -13363,17 +13766,17 @@ export interface components {
         };
         SensorResponse: {
             /** Format: date-time */
-            created_at?: string | null;
+            created_at: string | null;
             /** Format: uuid */
-            current_site_id?: string | null;
-            current_site_name?: string | null;
+            current_site_id: string | null;
+            current_site_name: string | null;
             /**
              * Format: int64
              * @description Standard curves fitted on this instrument. A lab instrument's row states this where a
              *     device's states its site: a titrator has no deployment and the Site column is empty for it
              *     however long it has been in use.
              */
-            curve_count?: number | null;
+            curve_count: number | null;
             /**
              * @description Cadence classification: 'high' (field stream → continuous readings) or 'low'
              *     (lab/campaign → spot readings). Resolved at ingest for streams owned by this sensor.
@@ -13382,8 +13785,8 @@ export interface components {
             deployments: components["schemas"]["SensorDeployment"][];
             /** Format: uuid */
             id: string;
-            is_active?: boolean | null;
-            is_lab_instrument?: boolean | null;
+            is_active: boolean | null;
+            is_lab_instrument: boolean | null;
             /**
              * @description What this row is: `device` (a physical instrument), `lab` (a portal curve label),
              *     `source_parameter` (a source's instrument for one parameter across every station) or
@@ -13392,34 +13795,34 @@ export interface components {
              */
             kind: string;
             /** Format: date-time */
-            last_calibration_at?: string | null;
+            last_calibration_at: string | null;
             /**
              * Format: date-time
              * @description The newest reading any of those curves corrected: whether the instrument is still in use.
              */
-            last_curve_use?: string | null;
+            last_curve_use: string | null;
             /** Format: date-time */
-            last_reading_at?: string | null;
+            last_reading_at: string | null;
             /** Format: double */
-            last_reading_value?: number | null;
-            manufacturer?: string | null;
-            metadata?: unknown;
-            model?: string | null;
-            name?: string | null;
-            notes?: string | null;
+            last_reading_value: number | null;
+            manufacturer: string | null;
+            metadata: unknown;
+            model: string | null;
+            name: string | null;
+            notes: string | null;
             /** Format: int64 */
-            reading_count?: number | null;
-            serial_number?: string | null;
+            reading_count: number | null;
+            serial_number: string | null;
             /**
              * @description The instrument's identity within its source (e.g. "cnet:DOC corr"); the lookup key
              *     together with `source_system`.
              */
-            source_key?: string | null;
+            source_key: string | null;
             /**
              * @description Sync provenance: the source a replicated lab instrument came from (e.g. "cnet"). NULL on
              *     devices registered by serial. Written only by the sync paths, never through CRUD.
              */
-            source_system?: string | null;
+            source_system: string | null;
         };
         SensorResult: {
             /** Format: uuid */
@@ -13438,6 +13841,36 @@ export interface components {
             name?: string | null;
             notes?: string | null;
             serial_number?: string | null;
+        };
+        /**
+         * @description One instrument from a source's own register, to introduce into river-data.
+         *
+         *     For a source whose instruments do not each have a stream: every other instrument is minted as a
+         *     side effect of registering the stream that names it, and a portal's instrument register has no
+         *     streams to mint from. Registration is idempotent per (source_system, source_key), and a row the
+         *     API already holds under that key is never rewritten.
+         */
+        SensorUpsert: {
+            /**
+             * @description The cadence the instrument logs at ('high' | 'low'), read as a declaration when a stream
+             *     classifies its readings. None leaves the API's default of 'high'.
+             */
+            data_frequency?: string | null;
+            /** @description True for an instrument that corrects a grab in the lab rather than standing in a river. */
+            is_lab_instrument: boolean;
+            manufacturer?: string | null;
+            /** @description Whatever the source knows that river-data has no column for. */
+            metadata?: unknown;
+            model?: string | null;
+            name: string;
+            notes?: string | null;
+            /**
+             * @description The lab's own serial. The API claims it only when no other instrument holds it, and says
+             *     which one does when it declines.
+             */
+            serial_number?: string | null;
+            /** @description The instrument's identity within the source, e.g. "sensor_inventory:62". */
+            source_key: string;
         };
         SensorVsGrabResponse: {
             /** Format: uuid */
@@ -13557,32 +13990,32 @@ export interface components {
         };
         SiteList: {
             /** Format: double */
-            altitude_m?: number | null;
+            altitude_m: number | null;
             /** Format: date-time */
-            created_at?: string | null;
+            created_at: string | null;
             /**
              * Format: date-time
              * @description Stamped by every sync path that mints a site, and by nothing else, so it is what says a
              *     row arrived from a source rather than by hand.
              */
-            discovered_at?: string | null;
+            discovered_at: string | null;
             /** Format: uuid */
             id: string;
             /** Format: double */
-            latitude?: number | null;
+            latitude: number | null;
             /** Format: double */
-            longitude?: number | null;
+            longitude: number | null;
             /**
              * @description The MeteoSwiss SMN station abbreviation (`MOB`, `SIO`, ...) supplying this site's
              *     barometric pressure. Null means the site takes no pressure series.
              */
-            meteoswiss_station_abbr?: string | null;
+            meteoswiss_station_abbr: string | null;
             name: string;
             /** Format: uuid */
-            project_id?: string | null;
-            public_code?: string | null;
+            project_id: string | null;
+            public_code: string | null;
             /** Format: uuid */
-            subproject_id?: string | null;
+            subproject_id: string | null;
         };
         SiteParameterCreate: {
             /** Format: int32 */
@@ -13614,27 +14047,27 @@ export interface components {
         };
         SiteParameterList: {
             /** Format: int32 */
-            channel_id?: number | null;
+            channel_id: number | null;
             /** Format: date-time */
-            created_at?: string | null;
+            created_at: string | null;
             /**
              * Format: int32
              * @description Display precision, carried to the client by [`super::descriptor::SlotDescriptor`]. The API
              *     serves full precision and the client formats, so a change here never rewrites a value.
              */
-            decimal_places?: number | null;
+            decimal_places: number | null;
             /**
              * Format: date-time
              * @description Stamped by every sync path that mints a slot, and by nothing else, so it is what says a
              *     row arrived from a source rather than by hand.
              */
-            discovered_at?: string | null;
+            discovered_at: string | null;
             /**
              * @description Site-level units override. NULL means "no override": every endpoint serving this slot
              *     resolves units through [`super::descriptor::SlotDescriptor`], which falls back to the
              *     catalog `default_units`.
              */
-            display_units?: string | null;
+            display_units: string | null;
             /**
              * @description How this site fills the slot: 'manual' (a person types the value) or 'tool' (a
              *     calculation computes it here). The declaration is per site, so one site may measure a
@@ -13650,9 +14083,9 @@ export interface components {
              *     NULL is undeclared: a value entered there takes the entry channel's own instrument, which
              *     is a marker for a slot nobody has declared and not a statement about what measured it.
              */
-            instrument_sensor_id?: string | null;
-            is_active?: boolean | null;
-            is_public?: boolean | null;
+            instrument_sensor_id: string | null;
+            is_active: boolean | null;
+            is_public: boolean | null;
             name: string;
             /**
              * @description Carried by slots a tool save minted before Q98 made the site parameters the declaration;
@@ -13664,7 +14097,7 @@ export interface components {
             /** Format: uuid */
             parameter_id: string;
             /** Format: int32 */
-            sample_interval_sec?: number | null;
+            sample_interval_sec: number | null;
             /**
              * @description How this slot's replicate standard deviation is defined: 'sample' (divisor n-1) or
              *     'population' (divisor n). NULL is UNDECLARED, not a synonym for 'sample': the sources use
@@ -13673,7 +14106,7 @@ export interface components {
              *     Excluded from update: a declaration change must recompute the slot's stored samples, so it
              *     goes through `POST /site_parameters/{id}/declare_sd_estimator`, which enqueues the retag.
              */
-            sd_estimator?: string | null;
+            sd_estimator: string | null;
             sensor_type: string;
             /** Format: uuid */
             site_id: string;
@@ -13681,48 +14114,48 @@ export interface components {
              * Format: double
              * @description Stored and returned by the CRUD endpoint; no server-side reader.
              */
-            units_max?: number | null;
+            units_max: number | null;
             /**
              * Format: double
              * @description Stored and returned by the CRUD endpoint; no server-side reader.
              */
-            units_min?: number | null;
+            units_min: number | null;
             /**
              * @description Stored and returned by the CRUD endpoint; no server-side reader. Kept because existing
              *     rows carry values.
              */
-            units_name?: string | null;
+            units_name: string | null;
             /** Format: date-time */
-            updated_at?: string | null;
+            updated_at: string | null;
             /**
              * @description Stored and returned by the CRUD endpoint; no server-side reader. Derived-formula variables
              *     bind through `derived_parameter_sources.variable_name`, never through this column.
              */
-            variable_mappings?: unknown;
+            variable_mappings: unknown;
         };
         SiteParameterResponse: {
             /** Format: int32 */
-            channel_id?: number | null;
+            channel_id: number | null;
             /** Format: date-time */
-            created_at?: string | null;
+            created_at: string | null;
             /**
              * Format: int32
              * @description Display precision, carried to the client by [`super::descriptor::SlotDescriptor`]. The API
              *     serves full precision and the client formats, so a change here never rewrites a value.
              */
-            decimal_places?: number | null;
+            decimal_places: number | null;
             /**
              * Format: date-time
              * @description Stamped by every sync path that mints a slot, and by nothing else, so it is what says a
              *     row arrived from a source rather than by hand.
              */
-            discovered_at?: string | null;
+            discovered_at: string | null;
             /**
              * @description Site-level units override. NULL means "no override": every endpoint serving this slot
              *     resolves units through [`super::descriptor::SlotDescriptor`], which falls back to the
              *     catalog `default_units`.
              */
-            display_units?: string | null;
+            display_units: string | null;
             /**
              * @description How this site fills the slot: 'manual' (a person types the value) or 'tool' (a
              *     calculation computes it here). The declaration is per site, so one site may measure a
@@ -13738,9 +14171,9 @@ export interface components {
              *     NULL is undeclared: a value entered there takes the entry channel's own instrument, which
              *     is a marker for a slot nobody has declared and not a statement about what measured it.
              */
-            instrument_sensor_id?: string | null;
-            is_active?: boolean | null;
-            is_public?: boolean | null;
+            instrument_sensor_id: string | null;
+            is_active: boolean | null;
+            is_public: boolean | null;
             name: string;
             /**
              * @description Carried by slots a tool save minted before Q98 made the site parameters the declaration;
@@ -13752,7 +14185,7 @@ export interface components {
             /** Format: uuid */
             parameter_id: string;
             /** Format: int32 */
-            sample_interval_sec?: number | null;
+            sample_interval_sec: number | null;
             /**
              * @description How this slot's replicate standard deviation is defined: 'sample' (divisor n-1) or
              *     'population' (divisor n). NULL is UNDECLARED, not a synonym for 'sample': the sources use
@@ -13761,7 +14194,7 @@ export interface components {
              *     Excluded from update: a declaration change must recompute the slot's stored samples, so it
              *     goes through `POST /site_parameters/{id}/declare_sd_estimator`, which enqueues the retag.
              */
-            sd_estimator?: string | null;
+            sd_estimator: string | null;
             sensor_type: string;
             /** Format: uuid */
             site_id: string;
@@ -13769,24 +14202,24 @@ export interface components {
              * Format: double
              * @description Stored and returned by the CRUD endpoint; no server-side reader.
              */
-            units_max?: number | null;
+            units_max: number | null;
             /**
              * Format: double
              * @description Stored and returned by the CRUD endpoint; no server-side reader.
              */
-            units_min?: number | null;
+            units_min: number | null;
             /**
              * @description Stored and returned by the CRUD endpoint; no server-side reader. Kept because existing
              *     rows carry values.
              */
-            units_name?: string | null;
+            units_name: string | null;
             /** Format: date-time */
-            updated_at?: string | null;
+            updated_at: string | null;
             /**
              * @description Stored and returned by the CRUD endpoint; no server-side reader. Derived-formula variables
              *     bind through `derived_parameter_sources.variable_name`, never through this column.
              */
-            variable_mappings?: unknown;
+            variable_mappings: unknown;
         };
         SiteParameterUpdate: {
             /** Format: int32 */
@@ -13897,21 +14330,30 @@ export interface components {
             units: string;
             values: (number | null)[];
         };
+        /**
+         * @description A completeness claim over one stream: the readings sent alongside are the COMPLETE content of
+         *     the source for this stream over `[from, to)`, read from `source_rows_read` source rows. The
+         *     server diffs stored content against the payload and converges (new / changed / withdrawn);
+         *     without a window the request is a bare append, exactly the old semantics.
+         */
         SourceWindow: {
             /**
-             * @description The client's digest of this payload's source-asserted content. Opaque: persisted on the
-             *     stream when the pass applies cleanly, echoed on the stream list, and never computed
-             *     server-side. The client skips its next pass when its content digests to the same value.
+             * @description Digest of the canonical payload, stamped by the driver before send. The server persists
+             *     it on a cleanly-applied pass and echoes it on the stream list, so the next cycle can skip
+             *     re-sending unchanged content. Opaque to the server; never computed server-side.
              */
             content_digest?: string | null;
-            /** @description Instants the backend saw but could not decode; stored rows at these keys are retained. */
+            /**
+             * @description Instants the backend saw but could not carry (cell decode failures). The server retains
+             *     stored rows at these keys rather than withdrawing them.
+             */
             dropped_times?: string[];
             /** Format: date-time */
             from: string;
             /**
              * Format: int64
-             * @description Source rows scanned to produce the payload. Guards the honesty checks: an empty payload
-             *     over a window the store holds readings for is refused, never read as a deletion.
+             * @description Source rows scanned to produce the payload. An empty payload over a window the store holds
+             *     readings for is refused server-side, so a decode failure cannot read as a source deletion.
              */
             source_rows_read: number;
             /** Format: date-time */
@@ -13961,41 +14403,41 @@ export interface components {
              *     readings onto another instrument (Q112), or the copy dialog. NULL on a curve that was fitted
              *     rather than copied, and frozen once stored.
              */
-            copied_from_id?: string | null;
+            copied_from_id: string | null;
             /** Format: date-time */
             created_at: string;
             /**
              * @description Who fitted the curve, supplied by the caller as on notes, annotations, samples and pairing
              *     plans. Writable, otherwise the column could never hold anything.
              */
-            created_by?: string | null;
+            created_by: string | null;
             /**
              * Format: date
              * @description The date the curve was fitted, which is how the lab identifies one. Defaults to the row's
              *     own creation date when nothing supplies it.
              */
-            fitted_on?: string | null;
+            fitted_on: string | null;
             /** Format: uuid */
             id: string;
             /** Format: double */
             intercept: number;
             /** @description Human label the operator picks the curve by, for example the plate it was fitted from. */
-            name?: string | null;
-            notes?: string | null;
+            name: string | null;
+            notes: string | null;
             /**
              * Format: double
              * @description Fit quality reported by whatever produced the curve; recorded, never used in arithmetic.
              */
-            r_squared?: number | null;
+            r_squared: number | null;
             /**
              * Format: date-time
              * @description When the lab took the curve out of circulation (M147). It is no longer offered for a new
              *     measurement; the readings it corrected keep it and keep their values. Written by the retire
              *     routes, never through CRUD.
              */
-            retired_at?: string | null;
-            retired_by?: string | null;
-            retired_reason?: string | null;
+            retired_at: string | null;
+            retired_by: string | null;
+            retired_reason: string | null;
             /** Format: uuid */
             sensor_id: string;
             /** Format: double */
@@ -14004,12 +14446,12 @@ export interface components {
              * @description The curve's identity within its source (e.g. "standard_curves:17"); the upsert key of
              *     `/standard_curves/register` together with `source_system`.
              */
-            source_key?: string | null;
+            source_key: string | null;
             /**
              * @description Sync provenance: the source a replicated curve came from (e.g. "cnet"). NULL on
              *     hand-entered curves. Written only by `/standard_curves/register`, never through CRUD.
              */
-            source_system?: string | null;
+            source_system: string | null;
         };
         StandardCurveResponse: {
             /**
@@ -14018,41 +14460,41 @@ export interface components {
              *     readings onto another instrument (Q112), or the copy dialog. NULL on a curve that was fitted
              *     rather than copied, and frozen once stored.
              */
-            copied_from_id?: string | null;
+            copied_from_id: string | null;
             /** Format: date-time */
             created_at: string;
             /**
              * @description Who fitted the curve, supplied by the caller as on notes, annotations, samples and pairing
              *     plans. Writable, otherwise the column could never hold anything.
              */
-            created_by?: string | null;
+            created_by: string | null;
             /**
              * Format: date
              * @description The date the curve was fitted, which is how the lab identifies one. Defaults to the row's
              *     own creation date when nothing supplies it.
              */
-            fitted_on?: string | null;
+            fitted_on: string | null;
             /** Format: uuid */
             id: string;
             /** Format: double */
             intercept: number;
             /** @description Human label the operator picks the curve by, for example the plate it was fitted from. */
-            name?: string | null;
-            notes?: string | null;
+            name: string | null;
+            notes: string | null;
             /**
              * Format: double
              * @description Fit quality reported by whatever produced the curve; recorded, never used in arithmetic.
              */
-            r_squared?: number | null;
+            r_squared: number | null;
             /**
              * Format: date-time
              * @description When the lab took the curve out of circulation (M147). It is no longer offered for a new
              *     measurement; the readings it corrected keep it and keep their values. Written by the retire
              *     routes, never through CRUD.
              */
-            retired_at?: string | null;
-            retired_by?: string | null;
-            retired_reason?: string | null;
+            retired_at: string | null;
+            retired_by: string | null;
+            retired_reason: string | null;
             /** Format: uuid */
             sensor_id: string;
             /** Format: double */
@@ -14061,12 +14503,12 @@ export interface components {
              * @description The curve's identity within its source (e.g. "standard_curves:17"); the upsert key of
              *     `/standard_curves/register` together with `source_system`.
              */
-            source_key?: string | null;
+            source_key: string | null;
             /**
              * @description Sync provenance: the source a replicated curve came from (e.g. "cnet"). NULL on
              *     hand-entered curves. Written only by `/standard_curves/register`, never through CRUD.
              */
-            source_system?: string | null;
+            source_system: string | null;
         };
         StandardCurveUpdate: {
             created_by?: string | null;
@@ -14082,6 +14524,33 @@ export interface components {
             sensor_id?: string | null;
             /** Format: double */
             slope?: number | null;
+        };
+        /**
+         * @description One portal standard curve to register. `source_key` identifies the curve
+         *     within the source system; registration is idempotent per (source_system,
+         *     source_key).
+         */
+        StandardCurveUpsert: {
+            /**
+             * Format: date
+             * @description The date the source fitted the curve, which is how the lab identifies one.
+             */
+            fitted_on?: string | null;
+            /**
+             * @description The portal curve's parameter label; the API finds-or-creates one lab
+             *     instrument per (source_system, instrument_label).
+             */
+            instrument_label: string;
+            /** Format: double */
+            intercept: number;
+            name?: string | null;
+            /** @description Whatever the source records about the fit. */
+            notes?: string | null;
+            /** Format: double */
+            r_squared?: number | null;
+            /** Format: double */
+            slope: number;
+            source_key: string;
         };
         StartReconciliationRequest: {
             dry_run?: boolean;
@@ -14144,7 +14613,7 @@ export interface components {
              * @description The divisor the standard deviations below were computed under, resolved the way the write
              *     path resolves it: the stream's spec, then the slot's declaration, else the fallback.
              */
-            sd_estimator: string;
+            sd_estimator: components["schemas"]["SdEstimator"];
             /** @description What chose it: 'stream', 'slot', or 'default' for the undeclared fallback. */
             sd_estimator_source: string;
             source_key: string;
@@ -14184,7 +14653,7 @@ export interface components {
         SubprojectList: {
             /** Format: date-time */
             created_at: string;
-            description?: string | null;
+            description: string | null;
             /** Format: uuid */
             id: string;
             name: string;
@@ -14194,7 +14663,7 @@ export interface components {
         SubprojectResponse: {
             /** Format: date-time */
             created_at: string;
-            description?: string | null;
+            description: string | null;
             /** Format: uuid */
             id: string;
             name: string;
@@ -14281,18 +14750,18 @@ export interface components {
         };
         SyncCommandList: {
             /** Format: date-time */
-            acknowledged_at?: string | null;
+            acknowledged_at: string | null;
             command: string;
             /** Format: date-time */
-            completed_at?: string | null;
+            completed_at: string | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
             expires_at: string;
             /** Format: uuid */
             id: string;
-            payload?: unknown;
-            result?: unknown;
+            payload: unknown;
+            result: unknown;
             /** Format: uuid */
             service_id: string;
             status: string;
@@ -14305,8 +14774,13 @@ export interface components {
             expires_at: string;
             /** Format: uuid */
             id: string;
-            payload: Record<string, never>;
-            result: Record<string, never>;
+            payload: {
+                [key: string]: unknown;
+            } | null;
+            /** @description What the service reported back, shaped by the command it answers. */
+            result: {
+                [key: string]: unknown;
+            } | null;
             /** Format: uuid */
             service_id: string;
             status: string;
@@ -14349,16 +14823,16 @@ export interface components {
         };
         SyncEventList: {
             /** Format: uuid */
-            command_id?: string | null;
+            command_id: string | null;
             /** Format: date-time */
-            completed_at?: string | null;
+            completed_at: string | null;
             /** Format: int64 */
-            duration_ms?: number | null;
-            errors?: unknown;
+            duration_ms: number | null;
+            errors: unknown;
             event_type: string;
             /** Format: uuid */
             id: string;
-            log?: unknown;
+            log: unknown;
             /**
              * Format: int64
              * @description Readings the cycle sent that ingest admission dropped.
@@ -14380,11 +14854,13 @@ export interface components {
             completed_at: string | null;
             /** Format: int64 */
             duration_ms: number | null;
-            errors: Record<string, never>;
+            /** @description The messages the pass reported, in order. */
+            errors: string[] | null;
             event_type: string;
             /** Format: uuid */
             id: string;
-            log: Record<string, never>;
+            /** @description The lines the pass logged, in order. */
+            log: string[] | null;
             /** Format: int64 */
             readings_skipped: number;
             /** Format: int64 */
@@ -14433,6 +14909,7 @@ export interface components {
             /** Format: uuid */
             service_id?: string | null;
             service_type: string;
+            source_system?: string | null;
         };
         SyncServiceCredentialList: {
             client_id: string;
@@ -14443,8 +14920,15 @@ export interface components {
             id: string;
             revoked: boolean;
             /** Format: uuid */
-            service_id?: string | null;
+            service_id: string | null;
             service_type: string;
+            /**
+             * @description The source system a service enrolled on this credential speaks for, e.g. "metalp". It is
+             *     the provenance its registrations are written under; `service_type` is the kind of service,
+             *     which for the three portals is one value. NULL on a credential minted before it was
+             *     declared.
+             */
+            source_system: string | null;
         };
         SyncServiceCredentialResponse: {
             client_id: string;
@@ -14455,8 +14939,15 @@ export interface components {
             id: string;
             revoked: boolean;
             /** Format: uuid */
-            service_id?: string | null;
+            service_id: string | null;
             service_type: string;
+            /**
+             * @description The source system a service enrolled on this credential speaks for, e.g. "metalp". It is
+             *     the provenance its registrations are written under; `service_type` is the kind of service,
+             *     which for the three portals is one value. NULL on a credential minted before it was
+             *     declared.
+             */
+            source_system: string | null;
         };
         SyncServiceCredentialUpdate: {
             client_id?: string | null;
@@ -14464,11 +14955,12 @@ export interface components {
             /** Format: uuid */
             service_id?: string | null;
             service_type?: string | null;
+            source_system?: string | null;
         };
         SyncServiceList: {
             /** Format: date-time */
             created_at: string;
-            current_operation?: string | null;
+            current_operation: string | null;
             /**
              * @description Whether the weekly `sync_full_reassert` queues a `trigger_full_sync` for this service.
              *     Set through `PATCH /sync/services/{id}`.
@@ -14477,13 +14969,18 @@ export interface components {
             /** Format: uuid */
             id: string;
             instance_id: string;
-            last_error?: string | null;
+            last_error: string | null;
             /** Format: date-time */
-            last_heartbeat?: string | null;
+            last_heartbeat: string | null;
             /** Format: date-time */
-            last_sync_completed_at?: string | null;
+            last_sync_completed_at: string | null;
             paused: boolean;
             service_type: string;
+            /**
+             * @description Copied from the credential at enrolment: the source system this service's registrations are
+             *     written under. Not a CRUD field, it belongs to the credential.
+             */
+            source_system: string | null;
             status: string;
             /**
              * Format: int32
@@ -14491,7 +14988,7 @@ export interface components {
              *     `SYNC_INTERVAL_SECONDS`. Set through `PATCH /sync/services/{id}`, which enforces the
              *     minimum the runner floors at; generic CRUD must not write it around that check.
              */
-            sync_interval_secs?: number | null;
+            sync_interval_secs: number | null;
             /** Format: date-time */
             updated_at: string;
         };
@@ -14514,6 +15011,11 @@ export interface components {
             last_sync_completed_at: string | null;
             paused: boolean;
             service_type: string;
+            /**
+             * @description The source system this service's registrations are written under; null where the credential
+             *     it enrolled on declares none.
+             */
+            source_system: string | null;
             status: string;
             /**
              * Format: int32
@@ -14545,6 +15047,33 @@ export interface components {
             allSent: boolean;
             channel: string;
             results: components["schemas"]["TestResult"][];
+        };
+        /**
+         * @description The tiers a resolved threshold can come from: the slot's own `alarm_thresholds` row, else the
+         *     parameter's. Named for the document; the column itself travels as the string the SQL builds.
+         * @enum {string}
+         */
+        ThresholdSource: "site" | "global";
+        /** @description One resolved threshold plus the slot's latest reading value, for the UI thresholds table. */
+        ThresholdWithValue: {
+            /** Format: double */
+            alarm_max: number | null;
+            /** Format: double */
+            alarm_min: number | null;
+            /**
+             * Format: double
+             * @description Latest reading (last 30 days) for this slot, or null if none, display only.
+             */
+            current_value: number | null;
+            /** Format: uuid */
+            parameter_id: string;
+            /** Format: uuid */
+            site_id: string;
+            source: components["schemas"]["ThresholdSource"];
+            /** Format: double */
+            warning_max: number | null;
+            /** Format: double */
+            warning_min: number | null;
         };
         /** @description One recorded use of an API token from the forensic audit log. */
         TokenUsageEntry: {
@@ -14591,18 +15120,27 @@ export interface components {
              *     the previous number standing, so these name the stored values a save must clear.
              */
             cleared?: string[];
-            /** @description The constant values the server resolved and passed to the runner, by name. */
-            constants: Record<string, never>;
+            /**
+             * @description The constant values the server resolved and passed to the runner, by name.
+             *     The constant values the server resolved and passed to the runner, by name.
+             */
+            constants: {
+                [key: string]: number;
+            };
             /** @description The curves the server resolved, as the runner received them. */
-            curves: Record<string, never>[];
+            curves: components["schemas"]["CurveSnapshot"][];
             /**
              * @description Same-event parameter values resolved at `(site_id, collected_at)`, as
              *     `{param, parameter_code, parameter_id, value}`.
              */
-            event_inputs?: Record<string, never>[];
+            event_inputs?: {
+                [key: string]: unknown;
+            }[];
             inputs_ignored: string[];
             inputs_used: string[];
-            results: Record<string, never>;
+            results: {
+                [key: string]: unknown;
+            };
             /**
              * Format: uuid
              * @description The stored `tool_runs` row for this calculation. A grab save names it as `tool_run_id`
@@ -14610,12 +15148,16 @@ export interface components {
              */
             run_id: string;
             /** @description Station properties resolved from the site named by `site_id`, as `{property, param, value}`. */
-            site_inputs?: Record<string, never>[];
+            site_inputs?: {
+                [key: string]: unknown;
+            }[];
             /**
              * @description Formulas that did not run and why, as `{output, reason}`. An unresolved input costs its
              *     own output and no other, so the rest of the calculation is in `results`.
              */
-            skipped?: Record<string, never>[];
+            skipped?: {
+                [key: string]: unknown;
+            }[];
             tool: string;
             /**
              * @description The exact script version and runtime that produced these numbers; goes into the
@@ -14629,13 +15171,13 @@ export interface components {
              * @description The version `/tools` executes. Moved by activation, which also writes the audit row, so it
              *     is not editable here.
              */
-            active_version_id?: string | null;
+            active_version_id: string | null;
             /** Format: int32 */
-            active_version_no?: number | null;
+            active_version_no: number | null;
             /** Format: date-time */
             created_at: string;
-            created_by?: string | null;
-            description?: string | null;
+            created_by: string | null;
+            description: string | null;
             /**
              * @description Whether the tool is part of the calculation set: fired at visits by the chain, audited,
              *     and listed on the Tools page. Off, it can still be run by name.
@@ -14655,7 +15197,7 @@ export interface components {
              * Format: uuid
              * @description The parameter group this calculation reads and writes. One calculation per group (Q43).
              */
-            parameter_group_id?: string | null;
+            parameter_group_id: string | null;
             /** Format: date-time */
             updated_at: string;
             /** Format: int64 */
@@ -14668,17 +15210,17 @@ export interface components {
              * @description The version `/tools` executes. Moved by activation, which also writes the audit row, so it
              *     is not editable here.
              */
-            active_version_id?: string | null;
+            active_version_id: string | null;
             /**
              * Format: int32
              * @description `version_no` of `active_version_id`, so a reader does not have to fetch the version to say
              *     which one is live.
              */
-            active_version_no?: number | null;
+            active_version_no: number | null;
             /** Format: date-time */
             created_at: string;
-            created_by?: string | null;
-            description?: string | null;
+            created_by: string | null;
+            description: string | null;
             /**
              * @description Whether the tool is part of the calculation set: fired at visits by the chain, audited,
              *     and listed on the Tools page. Off, it can still be run by name.
@@ -14698,7 +15240,7 @@ export interface components {
              * Format: uuid
              * @description The parameter group this calculation reads and writes. One calculation per group (Q43).
              */
-            parameter_group_id?: string | null;
+            parameter_group_id: string | null;
             /** Format: date-time */
             updated_at: string;
             /** Format: int64 */
@@ -14709,13 +15251,13 @@ export interface components {
             content_hash: string;
             /** Format: date-time */
             created_at: string;
-            created_by?: string | null;
+            created_by: string | null;
             entry_function: string;
             /** Format: uuid */
             id: string;
             manifest: unknown;
             /** @description What changed in this version and why, as its author wrote it. */
-            note?: string | null;
+            note: string | null;
             /** @description The R source. Heavy, and a version list is a history rather than a reader. */
             script: string;
             test_cases: unknown;
@@ -14726,7 +15268,7 @@ export interface components {
              * @description When the stored cases last passed against the runner. A version goes live only on a pass
              *     taken at activation time, so this is a record, never a permission.
              */
-            validated_at?: string | null;
+            validated_at: string | null;
             /** Format: int32 */
             version_no: number;
         };
@@ -14736,12 +15278,12 @@ export interface components {
             content_hash: string;
             /** Format: date-time */
             created_at: string;
-            created_by?: string | null;
+            created_by: string | null;
             entry_function: string;
             /** Format: uuid */
             id: string;
             /** @description What changed in this version and why, as its author wrote it. */
-            note?: string | null;
+            note: string | null;
             /** Format: uuid */
             tool_script_id: string;
             /**
@@ -14749,7 +15291,7 @@ export interface components {
              * @description When the stored cases last passed against the runner. A version goes live only on a pass
              *     taken at activation time, so this is a record, never a permission.
              */
-            validated_at?: string | null;
+            validated_at: string | null;
             /** Format: int32 */
             version_no: number;
         };
@@ -14886,15 +15428,6 @@ export interface components {
         UpdatePrefsRequest: {
             web_push_enabled?: boolean | null;
         };
-        /** @description PATCH body, every field optional; absent fields are left unchanged. */
-        UpdateScheduleRequest: {
-            catchup_policy?: string | null;
-            enabled?: boolean | null;
-            /** Format: int64 */
-            interval_seconds?: number | null;
-            overlap_policy?: string | null;
-            tunables?: unknown;
-        };
         UpdateScriptRequest: {
             description?: string | null;
             /**
@@ -14927,8 +15460,10 @@ export interface components {
         UpdateSyncEventRequest: {
             /** Format: int64 */
             duration_ms?: number | null;
-            errors: Record<string, never>;
-            log: Record<string, never>;
+            /** @description The messages the pass reported, in order. */
+            errors?: string[] | null;
+            /** @description The lines the pass logged, in order. */
+            log?: string[] | null;
             /**
              * Format: int64
              * @description Connectors on river-data-core 0.5.0 do not send this; absent leaves the stored count alone.
@@ -14939,6 +15474,11 @@ export interface components {
             status?: string | null;
             /** Format: int64 */
             status_events_synced?: number | null;
+        };
+        /** @description What an update to a sync service's own row answers with. */
+        UpdatedResponse: {
+            /** @description `true`, always: the row is written by the time the response is written. */
+            updated: boolean;
         };
         ValidateResponse: {
             cases: components["schemas"]["CaseResult"][];
@@ -15214,12 +15754,14 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Computation triggered; returns job_id, status 'pending', total_timestamps */
+            /** @description Computation triggered */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ComputeDerivedResponse"];
+                };
             };
             /** @description A named site is outside the caller's projects, or no site was named */
             403: {
@@ -15265,12 +15807,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Background recompute job triggered with job_id */
+            /** @description Background recompute job triggered */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["QueuedJobResponse"];
+                };
             };
             /** @description Derived parameter definition not found */
             404: {
@@ -15360,7 +15904,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["InvalidatedConfigResponse"];
+                };
             };
         };
     };
@@ -15498,12 +16044,14 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Rebuild triggered; returns job_id and status 'pending' */
+            /** @description Rebuild triggered */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["QueuedJobResponse"];
+                };
             };
             /** @description The named site is outside the caller's projects, or no site was named */
             403: {
@@ -15528,7 +16076,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ReconcileAlarmsResponse"];
+                };
             };
         };
     };
@@ -15545,12 +16095,14 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Refresh triggered; returns job_id and status 'pending' */
+            /** @description Refresh triggered */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["QueuedJobResponse"];
+                };
             };
         };
     };
@@ -15567,12 +16119,14 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Reprocessing triggered; returns job_id and status 'pending' */
+            /** @description Reprocessing triggered */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["QueuedJobResponse"];
+                };
             };
             /** @description The sensor is deployed only outside the caller's projects */
             403: {
@@ -15702,7 +16256,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["RecalculateResponse"];
+                };
             };
             /** @description Calibration not found */
             404: {
@@ -16312,7 +16868,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ThresholdWithValue"][];
+                };
             };
         };
     };
@@ -25537,49 +26095,84 @@ export interface operations {
             };
         };
     };
-    list_schedules: {
+    get_all_schedules: {
         parameters: {
-            query?: never;
+            query?: {
+                /**
+                 * @description JSON-encoded filter for querying resources.
+                 *
+                 *     This parameter supports various filtering options:
+                 *     - Free text search: `{"q": "search text"}`
+                 *     - Filtering by a single ID: `{"id": "550e8400-e29b-41d4-a716-446655440000"}`
+                 *     - Filtering by multiple IDs: `{"id": ["550e8400-e29b-41d4-a716-446655440000", "550e8400-e29b-41d4-a716-446655440001"]}`
+                 *     - Filtering on other columns: `{"name": "example"}`
+                 * @example {
+                 *       "id": "550e8400-e29b-41d4-a716-446655440000",
+                 *       "name": "example",
+                 *       "q": "search text"
+                 *     }
+                 */
+                filter?: string;
+                /**
+                 * @description Range for pagination in the format "[start, end]".
+                 *
+                 *     Example: `[0,9]`
+                 * @example [0,9]
+                 */
+                range?: string;
+                /**
+                 * @description Page number for standard REST pagination (1-based).
+                 *
+                 *     Example: `1`
+                 * @example 1
+                 */
+                page?: number;
+                /**
+                 * @description Number of items per page for standard REST pagination.
+                 *
+                 *     Example: `10`
+                 * @example 10
+                 */
+                per_page?: number;
+                /**
+                 * @description Sort order for the results in the format `["column", "order"]`.
+                 *
+                 *     Example: `["id", "ASC"]`
+                 * @example ["id", "ASC"]
+                 */
+                sort?: string;
+                /**
+                 * @description Sort column for standard REST format.
+                 *
+                 *     Example: `title`
+                 * @example title
+                 */
+                sort_by?: string;
+                /**
+                 * @description Sort order for standard REST format (ASC or DESC).
+                 *
+                 *     Example: `ASC`
+                 * @example ASC
+                 */
+                order?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Every recurring job's schedule */
+            /** @description List of resources */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ScheduleView"][];
+                    "application/json": components["schemas"]["ScheduleList"][];
                 };
             };
-        };
-    };
-    get_schedule: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Registered job name */
-                job_name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The schedule */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ScheduleView"];
-                };
-            };
-            /** @description No schedule of that name */
-            404: {
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -25587,44 +26180,167 @@ export interface operations {
             };
         };
     };
-    update_schedule: {
+    update_many_schedules: {
         parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Registered job name */
-                job_name: string;
+            query?: {
+                /**
+                 * @description Enable partial success mode for batch operations.
+                 *
+                 *     When `true`, the operation processes each item independently instead of
+                 *     using all-or-nothing semantics. Items that succeed are committed even if
+                 *     other items fail.
+                 *
+                 *     Default: `false` (all-or-nothing)
+                 * @example false
+                 */
+                partial?: boolean;
             };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UpdateScheduleRequest"];
+                "application/json": components["schemas"]["BatchUpdateRequest"][];
             };
         };
         responses: {
-            /** @description The updated schedule */
+            /** @description Resources updated successfully */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ScheduleView"];
+                    "application/json": components["schemas"]["ScheduleResponse"][];
                 };
             };
-            /** @description Bad interval, unknown policy, or rejected tunables */
+            /** @description Partial success - some items updated, some failed */
+            207: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad request - batch size exceeded or validation failed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            /** @description One or more resources not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Duplicate record */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+        };
+    };
+    get_one_schedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Resource identifier */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The requested resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleResponse"];
+                };
+            };
+            /** @description Bad request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description No schedule of that name */
+            /** @description Resource not found */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    update_one_schedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Resource identifier */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduleUpdate"];
+            };
+        };
+        responses: {
+            /** @description Resource updated successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleResponse"];
+                };
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Duplicate record */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
             };
         };
     };
@@ -30477,7 +31193,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["UpdatedResponse"];
+                };
             };
             /** @description Invalid status value */
             400: {
@@ -30570,7 +31288,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["RevokedResponse"];
+                };
             };
             /** @description Credential not found */
             404: {
@@ -30655,12 +31375,14 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Event created; id and status returned */
+            /** @description Event created */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["CreatedSyncEventResponse"];
+                };
             };
             /** @description Invalid event_type or status */
             400: {
@@ -30706,7 +31428,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["UpdatedResponse"];
+                };
             };
             /** @description Invalid session token */
             401: {
@@ -31483,7 +32207,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["RevokedResponse"];
+                };
             };
         };
     };

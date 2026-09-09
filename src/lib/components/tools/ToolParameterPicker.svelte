@@ -24,8 +24,8 @@
 		onSelect = null,
 		onCreated = null,
 	}: {
-		parameterId: string | null;
-		code: string | null;
+		parameterId: string | null | undefined;
+		code: string | null | undefined;
 		catalog?: Parameter[];
 		/** What this output's declaration resolves to, resolved once by the host. */
 		resolution: ParameterResolution;

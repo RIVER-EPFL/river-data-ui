@@ -113,7 +113,7 @@
 		id: string;
 		displayKey: string;
 		label: string | null;
-		units: string | null;
+		units: string | null | undefined;
 		/** `index` is the replicate slot the value is stored at; see `replicateIndex`. */
 		values: { key: string; value: number; index: number }[];
 		replicateGroup: boolean;
@@ -121,7 +121,7 @@
 		displayOnly: boolean;
 		/** The parameter the server resolved this output to, null when it resolves to nothing. */
 		resolvedParameterId: string | null;
-		suggestedCode: string | null;
+		suggestedCode: string | null | undefined;
 		defaultInclude: boolean;
 		/** Set on a row of entered replicates: the `replicates` input they were typed into. */
 		input?: string;
@@ -140,7 +140,7 @@
 	 * summarises another output, per replicate or not: a replicated measurement is stored at the
 	 * replicate level and its summaries are derived by the database.
 	 */
-	const displayOnlyOutput = (o: ToolOutput) => o.aggregate_of !== null || !linkedParameter(o);
+	const displayOnlyOutput = (o: ToolOutput) => o.aggregate_of != null || !linkedParameter(o);
 
 	const LETTER_A = 'A'.charCodeAt(0);
 

@@ -93,7 +93,7 @@ function conditionHolds(
 	const actual = inputs[cond.param];
 	if (actual === undefined || actual === null) return false;
 	if (cond.equals !== undefined) return actual === cond.equals;
-	if (cond.any_of !== undefined) return cond.any_of.some((v) => v === actual);
+	if (cond.any_of != null) return cond.any_of.some((v) => v === actual);
 	return false;
 }
 

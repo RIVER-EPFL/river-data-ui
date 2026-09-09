@@ -117,7 +117,7 @@ describe('opening a tool on a visit that already holds values', () => {
 
 	it('puts a scalar the tool reads from the visit on screen as the visit serves it', () => {
 		const t = tool({
-			params: [param({ name: 'temp', kind: 'number', parameter_code: null, curve: null })],
+			params: [param({ name: 'temp', kind: 'number', parameter_code: undefined, curve: undefined })],
 			event_inputs: [{ param: 'temp', parameter_code: 'WaterTemp' }],
 		});
 		const cells = [cell({ parameter_code: 'WaterTemp', served_value: 7.5 })];

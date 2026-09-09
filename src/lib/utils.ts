@@ -142,8 +142,8 @@ export function formatDurationMs(ms: number | null): string {
 }
 
 /** Human-friendly cadence for a recurring schedule, e.g. 90 → "every 90s", 300 → "every 5m". */
-export function formatInterval(seconds: number): string {
-	if (!Number.isFinite(seconds) || seconds <= 0) return '-';
+export function formatInterval(seconds: number | null): string {
+	if (seconds === null || !Number.isFinite(seconds) || seconds <= 0) return '-';
 	if (seconds % 86400 === 0) return `every ${seconds / 86400}d`;
 	if (seconds % 3600 === 0) return `every ${seconds / 3600}h`;
 	if (seconds % 60 === 0) return `every ${seconds / 60}m`;

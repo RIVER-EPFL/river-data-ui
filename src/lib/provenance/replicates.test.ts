@@ -18,14 +18,15 @@ describe('replicatesOf', () => {
 			record([
 				{
 					replicate_index: 0,
+					unverified: false,
 					raw_value: 41.2,
 					calibrated_value: 42.1,
 					is_flagged: false,
 					calibration: { id: 'cal-1', slope: 1, intercept: 0, valid_from: '2026-01-01T00:00:00Z' },
 					standard_curve: { id: 'curve-9', sensor_id: 'lab', slope: 2, intercept: 1 },
 				},
-				{ replicate_index: 1, raw_value: 41.4, is_flagged: true, flag_reason: 'outlier' },
-				{ replicate_index: 2, raw_value: 62, is_flagged: false, withdrawn_at: '2026-07-15T04:00:00Z' },
+				{ replicate_index: 1, unverified: false, raw_value: 41.4, is_flagged: true, flag_reason: 'outlier' },
+				{ replicate_index: 2, unverified: false, raw_value: 62, is_flagged: false, withdrawn_at: '2026-07-15T04:00:00Z' },
 			]),
 		);
 		expect(reps).toEqual([
@@ -62,8 +63,8 @@ describe('replicatesOf', () => {
 	it('orders by replicate index whatever order the record lists them in', () => {
 		const reps = replicatesOf(
 			record([
-				{ replicate_index: 2, raw_value: 3, is_flagged: false },
-				{ replicate_index: 0, raw_value: 1, is_flagged: false },
+				{ replicate_index: 2, unverified: false, raw_value: 3, is_flagged: false },
+				{ replicate_index: 0, unverified: false, raw_value: 1, is_flagged: false },
 			]),
 		);
 		expect(reps.map((r) => r.replicate_index)).toEqual([0, 2]);

@@ -49,7 +49,10 @@
 		return accessRoles(user.roles).length > 0;
 	}
 
+	// The directory row's id is what every grant is addressed by; a row without one is not a
+	// user this can act on, which is why the document leaves it nullable.
 	async function addUser(user: DirectoryUser) {
+		if (!user.id) return;
 		addingId = user.id;
 		try {
 			await assignUserRoles(user.id, [...user.roles, grantRole]);

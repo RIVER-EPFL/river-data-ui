@@ -8,7 +8,7 @@
 	import { goto } from '$app/navigation';
 	import { api, type Site, type Project, type SiteParameter, type Parameter, type Sensor, type SensorDeployment, type SensorCalibration, type Note, type AlarmThreshold, type DerivedParameter, type Sample, type Annotation, type Subproject } from '$api/crud';
 	import { GET, POST, PATCH } from '$api/client';
-	import { recomputeDerived, getThresholds, getActiveAlarms, getSiteExportSummary, type ResolvedThreshold, type ActiveAlarm, type ExportSummary } from '$api/service';
+	import { recomputeDerived, getThresholds, getActiveAlarms, getSiteExportSummary, type ThresholdWithValue, type ActiveAlarm, type ExportSummary } from '$api/service';
 	import { getSiteSensorIdentity, type SensorIdentityResponse } from '$api/sensors';
 	import {
 		annotationsByParameter,
@@ -360,7 +360,7 @@
 	// Effective thresholds come from the backend's single resolver (GET /api/alarms/thresholds). The
 	// UI no longer re-implements the 3-tier resolution. Keyed by parameter_id (this page is one site).
 	// `thresholds` (raw rows) is still loaded for the editor's override/reset lookups.
-	let resolvedThresholds = $state<Map<string, ResolvedThreshold>>(new Map());
+	let resolvedThresholds = $state<Map<string, ThresholdWithValue>>(new Map());
 
 	function effectiveThreshold(parameterId: string): AlarmThreshold | undefined {
 		const r = resolvedThresholds.get(parameterId);

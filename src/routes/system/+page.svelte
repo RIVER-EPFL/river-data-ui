@@ -263,7 +263,9 @@
 				await new Promise((resolve) => setTimeout(resolve, AUDIT_POLL_MS));
 				const current = await getSyncCommand(command.id);
 				if (current.status === 'completed') {
-					sourceAuditReport[svc.id] = current.result as SourceAuditReport;
+					// The command result is whatever the command it answers reports, so the shape is
+					// this caller's knowledge rather than the document's.
+					sourceAuditReport[svc.id] = current.result as unknown as SourceAuditReport;
 					return;
 				}
 				if (current.status === 'failed' || current.status === 'expired') {
@@ -343,14 +345,17 @@
 		return { intervalAmount: seconds, intervalUnit: 's' };
 	}
 
+	// A schedule's interval and policies are nullable, and the scheduler reads an unset or unknown
+	// policy as its own default, so the form shows what the server would act on.
 	function draftFrom(s: Schedule): Draft {
-		const { intervalAmount, intervalUnit } = splitInterval(s.interval_seconds);
+		const { intervalAmount, intervalUnit } = splitInterval(s.interval_seconds ?? 0);
 		return {
 			enabled: s.enabled,
 			intervalAmount,
 			intervalUnit,
-			overlap_policy: s.overlap_policy,
-			catchup_policy: s.catchup_policy,
+			overlap_policy:
+				s.overlap_policy === 'allow_concurrent' ? 'allow_concurrent' : 'skip_if_running',
+			catchup_policy: s.catchup_policy === 'skip' ? 'skip' : 'run_once',
 			tunables: { ...(s.tunables ?? {}) },
 		};
 	}

@@ -5,6 +5,8 @@ import type { SyncService } from '$api/service';
 const NOW = Date.parse('2026-09-04T12:00:00Z');
 
 function service(over: Partial<SyncService>): SyncService {
+	// The spread of a `Partial` widens every key it might carry, so the merge is asserted rather
+	// than inferred; the defaults below are the whole shape.
 	return {
 		id: 'svc',
 		service_type: 'vaisala',
@@ -17,10 +19,11 @@ function service(over: Partial<SyncService>): SyncService {
 		last_heartbeat: '2026-09-04T11:59:00Z',
 		last_sync_completed_at: null,
 		last_error: null,
+		health: 'healthy',
 		created_at: '2026-01-01T00:00:00Z',
 		updated_at: '2026-01-01T00:00:00Z',
 		...over,
-	};
+	} as SyncService;
 }
 
 describe('serviceReachable', () => {

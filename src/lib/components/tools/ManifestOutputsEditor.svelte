@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { ToolOutput } from '$api/service';
+	import type { ManifestOutput } from '$api/service';
 	import type { Parameter } from '$api/crud';
 	import Button from '$components/ui/Button.svelte';
 	import ToolParameterPicker from './ToolParameterPicker.svelte';
@@ -22,7 +22,7 @@
 		onTouch,
 		onCatalogChanged = null,
 	}: {
-		outputs: ToolOutput[];
+		outputs: ManifestOutput[];
 		/**
 		 * Per row: the author chose "not stored". Held by the host because the manifest cannot carry
 		 * it. A row that names no catalog parameter is not stored whatever this flag says; the flag
@@ -47,7 +47,7 @@
 	// Set while the author is deliberately typing units that differ from the linked parameter's.
 	let unitsOverride = $state<boolean[]>([]);
 
-	function storageOf(o: ToolOutput, i: number): OutputStorage {
+	function storageOf(o: ManifestOutput, i: number): OutputStorage {
 		if (notStored[i]) return 'not_stored';
 		return o.per_replicate ? 'replicates' : 'single';
 	}
@@ -253,7 +253,7 @@
 								value={o.sd_estimator ?? ''}
 								onchange={(e) =>
 									(outputs[i].sd_estimator =
-										(e.currentTarget.value || null) as ToolOutput['sd_estimator'])}
+										(e.currentTarget.value || null) as ManifestOutput['sd_estimator'])}
 								title="Which divisor the saved replicates' standard deviation uses. Leave it to the parameter unless this tool genuinely reports one convention."
 								class="{control} w-full"
 							>

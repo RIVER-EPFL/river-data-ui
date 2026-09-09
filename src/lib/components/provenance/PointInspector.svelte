@@ -7,8 +7,7 @@
 		type ProvenanceReading,
 		type ProvenanceCalibrationRef,
 		type ProvenanceCalculation,
-		type StreamReceipt,
-		type HoldKind,
+		type ReceiptSummary,
 		getReadingDecisions,
 		getReadingLedger,
 		rollbackEdit,
@@ -202,7 +201,8 @@
 		derived: 'Computed',
 	};
 
-	const HOLD_LABEL: Record<HoldKind, string> = {
+	// The server may name a kind this build does not know, so the lookup falls back to it.
+	const HOLD_LABEL: Record<string, string> = {
 		replicate_stats: 'Statistics disagreement',
 		source_modified: 'Source modified curated data',
 		brake_fired: 'Reconciliation brake',
@@ -269,7 +269,7 @@
 		return `${label}, ${d.site_name ?? 'site'} ${formatDateTime(d.deployed_from)} to ${until}`;
 	}
 
-	function receiptText(rc: StreamReceipt): string {
+	function receiptText(rc: ReceiptSummary): string {
 		const counts = [
 			`${formatCount(rc.submitted)} submitted`,
 			`${formatCount(rc.new_rows)} new`,

@@ -6,7 +6,7 @@
 	import { me } from '$auth/me.svelte';
 	import { createUrlTab } from '$lib/urlTab.svelte';
 	import { api, type Site, type Parameter, type AlarmThreshold } from '$api/crud';
-	import { getActiveAlarms, getThresholds, type ResolvedThreshold } from '$api/service';
+	import { getActiveAlarms, getThresholds, type ThresholdWithValue } from '$api/service';
 	import Button from '$components/ui/Button.svelte';
 	import SiteSelect from '$components/SiteSelect.svelte';
 	import { siteRefs } from '$lib/siteRefs.svelte';
@@ -32,7 +32,7 @@
 	let initialSeverity = $state(severityFromString(page.url.searchParams.get('severity')));
 	let initialParameterId = $state(page.url.searchParams.get('parameter_id') ?? '');
 
-	function openLogFor(row: ResolvedThreshold) {
+	function openLogFor(row: ThresholdWithValue) {
 		initialSiteId = row.site_id;
 		initialParameterId = row.parameter_id;
 		initialSeverity = undefined;
@@ -93,16 +93,16 @@
 		thresholdDialogOpen = true;
 	}
 
-	// Effective (resolved) thresholds per sensor - from the backend's single 3-tier definition, so
+	// Effective (resolved) thresholds per sensor - from the backend's single definition of the two
+	// tiers, so
 	// parameter-default thresholds show even with no override row. `rawThresholds` is the underlying
 	// alarm_thresholds rows, used to find the override row when editing/resetting.
-	let effectiveRows = $state<ResolvedThreshold[]>([]);
+	let effectiveRows = $state<ThresholdWithValue[]>([]);
 	let rawThresholds = $state<AlarmThreshold[]>([]);
 
-	const SOURCE_LABEL: Record<ResolvedThreshold['source'], string> = {
+	const SOURCE_LABEL: Record<ThresholdWithValue['source'], string> = {
 		site: 'Site override',
 		global: 'Global',
-		default: 'Parameter default',
 	};
 
 	const filteredThresholds = $derived(
@@ -130,7 +130,7 @@
 		}
 	}
 
-	function openThresholdRow(row: ResolvedThreshold) {
+	function openThresholdRow(row: ThresholdWithValue) {
 		// Edit the underlying site override if one exists; otherwise open create for this slot.
 		thresholdExisting =
 			rawThresholds.find((t) => t.parameter_id === row.parameter_id && t.site_id === row.site_id) ??

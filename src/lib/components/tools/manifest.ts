@@ -1,11 +1,13 @@
 // Manifest authoring model. The wire manifest leaves every list optional, which makes a form
-// binding to it full of null checks; the builder shape below fills them in and `toWireManifest`
-// converts back at the edges (load, inspect, save).
+// binding to it full of null checks; the builder shape below fills the lists in and
+// `toWireManifest` converts back at the edges (load, inspect, save). The entries in those lists
+// are the wire types themselves: `ManifestParam` and `ManifestOutput` as an author declares them,
+// not `ToolOutput`, which is the same declaration plus the parameter `GET /tools` resolves it to.
 import type {
+	ManifestOutput,
 	ToolCurveSlot,
 	ToolEventInput,
 	ToolManifest,
-	ToolOutput,
 	ToolParam,
 	ToolSection,
 	ToolSiteInput,
@@ -35,7 +37,7 @@ export interface BuilderManifest {
 	/** Empty string rather than null, so an input can bind straight to it. */
 	description: string;
 	params: ToolParam[];
-	outputs: ToolOutput[];
+	outputs: ManifestOutput[];
 	constants: string[];
 	curves: ToolCurveSlot[];
 	match_keywords: string[];
@@ -51,8 +53,9 @@ function str(value: unknown, fallback = ''): string {
 	return typeof value === 'string' ? value : fallback;
 }
 
-function optStr(value: unknown): string | null {
-	return typeof value === 'string' && value !== '' ? value : null;
+/** The wire omits an absent optional rather than sending it null, so the builder holds the same. */
+function optStr(value: unknown): string | undefined {
+	return typeof value === 'string' && value !== '' ? value : undefined;
 }
 
 function bool(value: unknown): boolean {
@@ -94,7 +97,7 @@ export function fromManifest(raw: unknown): BuilderManifest {
 				name: str(o.name),
 				label: str(o.label),
 				kind: str(o.kind, 'number'),
-				units: optStr(o.units),
+				units: optStr(o.units) ?? null,
 				required: bool(o.required),
 				default: o.default ?? null,
 				when: (o.when ?? null) as ToolParam['when'],
@@ -104,7 +107,7 @@ export function fromManifest(raw: unknown): BuilderManifest {
 				description: optStr(o.description),
 				section: optStr(o.section),
 				parameter_code: optStr(o.parameter_code),
-				suggested: typeof o.suggested === 'number' ? o.suggested : null,
+				suggested: typeof o.suggested === 'number' ? o.suggested : undefined,
 				curve: optStr(o.curve),
 			};
 		}),
@@ -116,10 +119,10 @@ export function fromManifest(raw: unknown): BuilderManifest {
 				units: optStr(o.units),
 				per_replicate: bool(o.per_replicate),
 				aggregate_of: optStr(o.aggregate_of),
-				aggregate: optStr(o.aggregate) as ToolOutput['aggregate'],
+				aggregate: optStr(o.aggregate) as ManifestOutput['aggregate'],
 				parameter_id: optStr(o.parameter_id),
 				suggested_parameter_code: optStr(o.suggested_parameter_code),
-				sd_estimator: optStr(o.sd_estimator) as ToolOutput['sd_estimator'],
+				sd_estimator: optStr(o.sd_estimator) as ManifestOutput['sd_estimator'],
 			};
 		}),
 		constants: arr(m.constants).filter((c): c is string => typeof c === 'string'),
@@ -278,7 +281,7 @@ export function blankParam(name = '', kind = 'number'): ToolParam {
 	};
 }
 
-export function blankOutput(key = '', per_replicate = false): ToolOutput {
+export function blankOutput(key = '', per_replicate = false): ManifestOutput {
 	return {
 		key: withRepSuffix(key, per_replicate),
 		label: key ? humanize(key) : '',
@@ -304,18 +307,18 @@ export type OutputStorage = 'replicates' | 'single' | 'not_stored';
  * value as display-only) and names the summary source where there is one, which a diagnostic that
  * summarises nothing does not have.
  */
-export function outputStorage(o: ToolOutput): OutputStorage {
+export function outputStorage(o: ManifestOutput): OutputStorage {
 	if (!hasParameterLink(o) || o.aggregate_of) return 'not_stored';
 	return o.per_replicate ? 'replicates' : 'single';
 }
 
 /** True when an output is saved to the catalog. */
-export function isStored(o: ToolOutput): boolean {
+export function isStored(o: ManifestOutput): boolean {
 	return outputStorage(o) !== 'not_stored';
 }
 
 /** Whether an output names a catalog parameter by either half of the declaration. */
-export function hasParameterLink(o: ToolOutput): boolean {
+export function hasParameterLink(o: ManifestOutput): boolean {
 	return !!o.parameter_id || !!o.suggested_parameter_code;
 }
 
@@ -335,7 +338,7 @@ export interface ParameterResolution {
 }
 
 export function resolveOutputParameter(
-	o: ToolOutput,
+	o: ManifestOutput,
 	byId: Map<string, Parameter>,
 	byCode: Map<string, Parameter>,
 ): ParameterResolution {
@@ -355,7 +358,7 @@ export function resolveOutputParameter(
 }
 
 /** Units compare on trimmed case, so `uM` and `um ` are the same unit rather than a mismatch. */
-export function sameUnits(a: string | null, b: string | null): boolean {
+export function sameUnits(a: string | null | undefined, b: string | null | undefined): boolean {
 	return (a ?? '').trim().toLowerCase() === (b ?? '').trim().toLowerCase();
 }
 

@@ -1,4 +1,4 @@
-import { ApiError, GET, POST, PATCH, PUT, DELETE } from './client';
+import { ApiError, GET, POST, PATCH, PUT, DELETE, getList } from './client';
 import type { ApiToken, DataStream, JobLogLine, ReprocessingJob } from './crud';
 import type { components } from './schema';
 
@@ -9,30 +9,13 @@ const ADMIN = '/api';
 const SERVICE = '/api';
 
 // Search
-export interface SearchResponse {
-	query: string;
-	results: {
-		sites: Array<{ id: string; name: string }>;
-		sensors: Array<{ id: string; serial_number: string | null; name: string | null }>;
-		parameters: Array<{ id: string; code: string; name: string }>;
-		projects: Array<{ id: string; name: string }>;
-	};
-	total: number;
-}
+export type SearchResponse = components['schemas']['SearchResponse'];
 
 export const search = (query: string) =>
 	GET<SearchResponse>(`${ADMIN}/search`, { q: query });
 
 // Build/version metadata of the running API (authenticated; requires read_metadata).
-export interface ApiVersion {
-	name: string;
-	version: string;
-	commit: string;
-	built_at: string;
-	// The public serving contract this build implements; what a project's docs advertise when it
-	// pins no public_api_version of its own.
-	public_api_contract: string;
-}
+export type ApiVersion = components['schemas']['VersionInfo'];
 
 export const getVersion = () => GET<ApiVersion>(`${SERVICE}/version`);
 
@@ -43,6 +26,8 @@ export const getJobLogs = (jobId: string, afterSeq?: number) =>
 	);
 
 // Notifications: Web Push capability (env-gated).
+// The Web Push capability the config endpoint answers with, which is served outside the private
+// API's document.
 export interface NotificationsConfig {
 	webPush: { available: boolean; vapidPublicKey?: string };
 }
@@ -51,31 +36,14 @@ export const getNotificationsConfig = () =>
 	GET<NotificationsConfig>(`${SERVICE}/config/notifications`);
 
 // Self-service notification preferences (the caller's own, bound to their JWT sub server-side).
-export interface MySubscriptionScope {
-	/** The channel the row answers for, which is the notification kind. Absent reads as
-	 * `alarm_opened`, as it does server-side. */
-	channel?: string;
-	project_id?: string;
-	site_id?: string;
-	parameter_id?: string;
-	enabled: boolean;
-}
+export type MySubscriptionScope = components['schemas']['SubscriptionScope'];
 
 export type MyNotifications = components['schemas']['MyNotifications'];
 
 export const getMyNotifications = () => GET<MyNotifications>(`${SERVICE}/notifications/me`);
 
 /** One channel as the settings page shows it: what it sends, and how often it has sent it. */
-export interface NotificationChannelView {
-	kind: string;
-	label: string;
-	description: string;
-	onByDefault: boolean;
-	subscribed: boolean;
-	sent1d: number;
-	sent7d: number;
-	sent30d: number;
-}
+export type NotificationChannelView = components['schemas']['ChannelView'];
 
 export const getNotificationChannels = () =>
 	GET<NotificationChannelView[]>(`${SERVICE}/notifications/channels`);
@@ -86,6 +54,8 @@ export const updateMyNotifications = (body: { web_push_enabled?: boolean }) =>
 export const setMySubscriptions = (subscriptions: MySubscriptionScope[]) =>
 	PUT<MyNotifications>(`${SERVICE}/notifications/me/subscriptions`, { subscriptions });
 
+// The push subscription rows the me-routes answer with; the document describes the register
+// request, not the stored row.
 export interface PushSubscriptionRow {
 	id: string;
 	endpoint: string;
@@ -107,6 +77,7 @@ export const getMyPushSubscriptions = () =>
 export const deletePushSubscription = (endpoint: string) =>
 	DELETE<void>(`${SERVICE}/notifications/me/push`, { endpoint });
 
+// One delivery attempt as the health panel reads it, assembled here from the delivery log.
 export interface PushAttempt {
 	id: string;
 	endpointTail: string;
@@ -135,21 +106,12 @@ export const getNotificationsHealth = () =>
 export const refreshNotificationsHealth = () =>
 	POST<NotificationHealth>(`${ADMIN}/notifications/health/refresh`, {});
 
-export interface TestSendResult {
-	channel: string;
-	results: Array<{ recipient: string; status: 'sent' | 'failed'; error: string | null }>;
-	allSent: boolean;
-}
+export type TestSendResult = components['schemas']['TestSendResponse'];
 
 export const testSend = (body: { channel: string; recipient: string }) =>
 	POST<TestSendResult>(`${ADMIN}/notifications/test-send`, body);
 
-export interface NotificationSubscriber {
-	keycloakSub: string;
-	webPushEnabled: boolean;
-	pushSubscriptionCount: number;
-	subscriptionOverrides: number;
-}
+export type NotificationSubscriber = components['schemas']['SubscriberRow'];
 
 export const getNotificationSubscribers = () =>
 	GET<NotificationSubscriber[]>(`${ADMIN}/notifications/subscribers`);
@@ -184,92 +146,28 @@ export const getNotificationDeliveries = (params: {
 };
 
 // Alarms
-export interface ActiveAlarm {
-	site_id: string;
-	site_name: string;
-	parameter_id: string;
-	parameter_name: string;
-	current_value: number;
-	threshold: {
-		warning_min: number | null;
-		warning_max: number | null;
-		alarm_min: number | null;
-		alarm_max: number | null;
-	};
-	severity: number;
-	since: string;
-	/** When the breach started (from persisted alarm event). */
-	started_at?: string | null;
-	/** Persisted alarm-event id; present once the sweeper has recorded this breach. */
-	event_id?: string;
-	/** True when the open event has been acknowledged. */
-	acknowledged: boolean;
-	acknowledged_at?: string | null;
-	acknowledged_by?: string | null;
-	/** Highest severity seen while this event has been open (1=warning, 2=alarm). */
-	max_severity?: number | null;
-}
+export type ActiveAlarm = components['schemas']['ActiveAlarm'];
 
 export type AcknowledgedAlarmResponse = components['schemas']['AcknowledgedAlarmResponse'];
 
 export type ActiveAlarmsResponse = components['schemas']['ActiveAlarmsResponse'];
 
-export interface AlarmSummaryResponse {
-	total: number;
-	by_severity: { warning: number; alarm: number };
-	by_site: Array<{
-		site_id: string;
-		site_name: string;
-		warning_count: number;
-		alarm_count: number;
-		latest_reading_time?: string | null;
-		last_warning_at?: string | null;
-		last_alarm_at?: string | null;
-	}>;
-}
+export type AlarmSummaryResponse = components['schemas']['AlarmSummaryResponse'];
 
-export interface AlarmEvent {
-	id: string;
-	site_id: string;
-	site_name: string;
-	parameter_id: string;
-	parameter_name: string;
-	severity: number;
-	max_severity: number;
-	started_at: string;
-	last_seen_at: string;
-	value_at_start: number;
-	last_value: number;
-	/** The four the API omits rather than sends as null, so an unresolved event carries no key
-	 * for them at all. Every reader here already tests them truthily. */
-	resolved_at?: string;
-	resolved_value?: number;
-	acknowledged_at?: string;
-	acknowledged_by?: string;
-}
+export type AlarmEvent = components['schemas']['AlarmEventResponse'];
 
 export type AlarmEventsResponse = components['schemas']['AlarmEventsResponse'];
 
 export const getActiveAlarms = () => GET<ActiveAlarmsResponse>(`${ADMIN}/alarms/active`);
 export const getAlarmSummary = () => GET<AlarmSummaryResponse>(`${ADMIN}/alarms/summary`);
 
-/** A threshold resolved per (site, parameter) by the backend's one 3-tier definition. */
-export interface ResolvedThreshold {
-	site_id: string;
-	parameter_id: string;
-	warning_min: number | null;
-	warning_max: number | null;
-	alarm_min: number | null;
-	alarm_max: number | null;
-	/** Which tier supplied it: a site override, a global row, or the parameter default. */
-	source: 'site' | 'global' | 'default';
-	/** Latest reading (last 30 days) for this slot, or null if none. Display only. */
-	current_value: number | null;
-}
+/** A threshold resolved per (site, parameter) by the backend's one definition of the two tiers,
+ *  with the slot's latest value beside it. */
+export type ThresholdWithValue = components['schemas']['ThresholdWithValue'];
 
 /** The effective threshold per active sensor (site_parameter). The UI never re-resolves the tiers. */
 export const getThresholds = (opts?: { site_id?: string; parameter_id?: string }) =>
-	GET<ResolvedThreshold[]>(`${ADMIN}/alarms/thresholds`, opts);
+	GET<ThresholdWithValue[]>(`${ADMIN}/alarms/thresholds`, opts);
 
 export const getAlarmEvents = (opts?: {
 	site_id?: string;
@@ -309,41 +207,18 @@ export const getAuditStatusCodes = () =>
 	);
 
 // Streams
-export interface StreamStats {
-	stream_id: string;
-	reading_count: number;
-	// Rows stamped withdrawn by windowed reconciliation (included in reading_count).
-	withdrawn_count: number;
-	min_time: string | null;
-	max_time: string | null;
-	latest_value: number | null;
-}
+export type StreamStats = components['schemas']['StreamStatsResponse'];
 
 export const getStreamStats = (streamId: string) =>
 	GET<StreamStats>(`${SERVICE}/streams/${streamId}/stats`);
 
-// One windowed-ingest pass over a stream: what was submitted and what the diff did.
-export interface StreamReceipt {
-	id: string;
-	at: string;
-	window_from: string | null;
-	window_to: string | null;
-	submitted: number;
-	new_rows: number;
-	changed: number;
-	unchanged: number;
-	retained: number;
-	rejected_total: number;
-	dropped: number;
-	withdrawn: number;
-	braked: boolean;
-}
+// One windowed-ingest pass over a stream: what was submitted and what the diff did. The ledger
+// carries the whole row; the provenance record's origin carries the summary, which is the same
+// counts without the funnel's `retained` and `dropped`.
+export type StreamReceipt = components['schemas']['ReceiptRow'];
+export type ReceiptSummary = components['schemas']['ReceiptSummary'];
 
-export interface StreamReceiptsResponse {
-	stream_id: string;
-	total: number;
-	receipts: StreamReceipt[];
-}
+export type StreamReceiptsResponse = components['schemas']['ReceiptsResponse'];
 
 export const listStreamReceipts = (streamId: string, page = 1, pageSize = 50) =>
 	GET<StreamReceiptsResponse>(`${SERVICE}/streams/${streamId}/receipts`, {
@@ -352,14 +227,10 @@ export const listStreamReceipts = (streamId: string, page = 1, pageSize = 50) =>
 	});
 
 /** Readings the pairing backfilled attribution onto. */
-export interface PairStreamResult {
-	backfilled: number;
-}
+export type PairStreamResult = components['schemas']['PairStreamResponse'];
 
 /** Readings the unpairing stripped attribution from. */
-export interface UnpairStreamResult {
-	cleared: number;
-}
+export type UnpairStreamResult = components['schemas']['UnpairStreamResponse'];
 
 export const pairStream = (streamId: string, siteParameterId: string) =>
 	POST<PairStreamResult>(`${SERVICE}/streams/${streamId}/pair`, { site_parameter_id: siteParameterId });
@@ -371,24 +242,13 @@ export type PreviewReplicate = components['schemas']['PreviewReplicate'];
 
 export type PreviewInstant = components['schemas']['PreviewInstant'];
 
-export interface StreamPreview {
-	stream_id: string;
-	source_key: string;
-	/** The divisor the standard deviations were computed under: 'sample' or 'population'. */
-	sd_estimator: string;
-	/** What chose it: 'stream', 'slot', or 'default' for the undeclared fallback. */
-	sd_estimator_source: string;
-	instants: PreviewInstant[];
-}
+export type StreamPreview = components['schemas']['StreamPreviewResponse'];
 
 /** The stream's most recent instants as the replicate rows pairing will serve them as. */
 export const getStreamPreview = (streamId: string, limit = 3) =>
 	GET<StreamPreview>(`${ADMIN}/streams/${streamId}/preview?limit=${limit}`);
 
-export interface ImportStreamResponse {
-	sensor_id: string;
-	attributed: number;
-}
+export type ImportStreamResponse = components['schemas']['ImportStreamResponse'];
 
 /** Import a stream's device into the sensor inventory (creates the sensor and stamps its existing
  *  readings) WITHOUT pairing it to a site. Separate from pairing/adopt. No curve is created: the
@@ -396,9 +256,15 @@ export interface ImportStreamResponse {
 export const importStream = (streamId: string) =>
 	POST<ImportStreamResponse>(`${SERVICE}/streams/${streamId}/import`, {});
 
-// Actions
+// Actions. A route that enqueues one job answers with the row it enqueued.
+export type QueuedJobResponse = components['schemas']['QueuedJobResponse'];
+export type RecalculateResponse = components['schemas']['RecalculateResponse'];
+export type ReconcileAlarmsResponse = components['schemas']['ReconcileAlarmsResponse'];
+export type InvalidatedConfigResponse = components['schemas']['InvalidatedConfigResponse'];
+export type ReprocessAllResponse = components['schemas']['ReprocessAllResponse'];
+
 export const recalibrateCalibration = (id: string) =>
-	POST(`${ADMIN}/actions/sensor_calibrations/${id}/recalculate`);
+	POST<RecalculateResponse>(`${ADMIN}/actions/sensor_calibrations/${id}/recalculate`);
 
 export const rollbackDeployment = (deploymentId: string) =>
 	POST<{ status: string; readings_reassigned: number; previous_deployment_id: string | null }>(
@@ -407,43 +273,18 @@ export const rollbackDeployment = (deploymentId: string) =>
 	);
 
 export const recomputeDerived = (id: string) =>
-	POST(`${ADMIN}/actions/derived_parameters/${id}/recompute`);
+	POST<QueuedJobResponse>(`${ADMIN}/actions/derived_parameters/${id}/recompute`);
 
 export const refreshAggregates = (full = false) =>
-	POST(`${SERVICE}/actions/refresh_aggregates`, { full });
+	POST<QueuedJobResponse>(`${SERVICE}/actions/refresh_aggregates`, { full });
 
 export const invalidatePublicConfig = (code: string) =>
-	POST(`${ADMIN}/actions/invalidate_public_config/${code}`);
+	POST<InvalidatedConfigResponse>(`${ADMIN}/actions/invalidate_public_config/${code}`);
 
 // The group definition: the members a group renders, in the group's own order.
-export interface GroupDefinitionMember {
-	parameter_id: string;
-	code: string;
-	label: string;
-	units: string | null;
-	decimal_places: number | null;
-	description: string | null;
-	role: string;
-	ordinal: number;
-	section?: string;
-	replicates?: Record<string, unknown>;
-	statistics?: {
-		mean_label: string;
-		sd_label: string;
-		sd_estimator: string | null;
-		decimal_places: number | null;
-	};
-}
+export type GroupDefinitionMember = components['schemas']['DefinitionMember'];
 
-export interface GroupDefinition {
-	id: string;
-	code: string;
-	label: string;
-	description: string | null;
-	ordinal: number;
-	members: GroupDefinitionMember[];
-	sections: string[];
-}
+export type GroupDefinition = components['schemas']['GroupDefinition'];
 
 export const getGroupDefinition = (groupId: string, siteId?: string) =>
 	GET<GroupDefinition>(`${SERVICE}/parameter_groups/${groupId}/definition`, { site_id: siteId });
@@ -483,15 +324,14 @@ export async function mergeSiteParameters(
 
 // Reprocess a sensor's readings (re-derive calibration/deployment by time window)
 export const reprocessSensor = (sensorId: string) =>
-	POST<{ job_id: string; status: string }>(`${SERVICE}/actions/reprocess`, { sensor_id: sensorId });
+	POST<QueuedJobResponse>(`${SERVICE}/actions/reprocess`, { sensor_id: sensorId });
 
 // Backdate: re-derive every (site, parameter) slot from the deployment and calibration timelines.
-export const reprocessAll = () =>
-	POST<{ job_id: string; status: string; slots: number }>(`${SERVICE}/actions/reprocess_all`, {});
+export const reprocessAll = () => POST<ReprocessAllResponse>(`${SERVICE}/actions/reprocess_all`, {});
 
 // Reconcile persisted alarm events against the breach set the readings currently imply.
 export const reconcileAlarms = () =>
-	POST<{ job_id: string; status: string }>(`${SERVICE}/actions/reconcile_alarms`, {});
+	POST<ReconcileAlarmsResponse>(`${SERVICE}/actions/reconcile_alarms`, {});
 
 export type AdoptSuggestion = components['schemas']['AdoptSuggestion'];
 
@@ -607,13 +447,8 @@ export type CalibrationBackfillCandidate = components['schemas']['CalibrationBac
 // Readings whose calibrated_value differs from raw_value while naming neither a calibration nor a
 // standard curve. Reported only - the stored number is somebody's measurement.
 export type OrphanedCorrection = components['schemas']['OrphanedCorrection'];
-export interface CalibrationBackfillCandidatesResponse {
-	candidates: CalibrationBackfillCandidate[];
-	total_candidates: number;
-	total_uncalibrated: number;
-	orphaned_corrections: OrphanedCorrection[];
-	total_orphaned_corrections: number;
-}
+export type CalibrationBackfillCandidatesResponse =
+	components['schemas']['CalibrationBackfillCandidatesResponse'];
 export const getCalibrationCandidates = () =>
 	GET<CalibrationBackfillCandidatesResponse>(`${SERVICE}/actions/calibration_candidates`);
 
@@ -624,39 +459,13 @@ export const backfillCalibrations = (body: { all?: boolean; sensor_id?: string; 
 // Derived preview
 export type PreviewDerivedRequest = components['schemas']['PreviewDerivedRequest'];
 
-export interface PreviewDerivedResponse {
-	site: { id: string; name: string };
-	times: string[];
-	source_parameters: Array<{ name: string; units: string; values: (number | null)[] }>;
-	derived: {
-		name: string;
-		formula: string;
-		values: (number | null)[];
-		errors: (string | null)[];
-	};
-}
+export type PreviewDerivedResponse = components['schemas']['PreviewDerivedResponse'];
 
 export const previewDerived = (params: PreviewDerivedRequest) =>
 	POST<PreviewDerivedResponse>(`${ADMIN}/actions/preview_derived`, params);
 
 // Export summary: what a site export of this range can carry beyond the plain series.
-export interface ExportSummary {
-	annotation_count: number;
-	annotated_points: number;
-	flagged_readings: number;
-	replicate_readings: number;
-	// Readings breaching a warning or alarm bound over the range.
-	alarm_readings: number;
-	per_parameter: {
-		parameter_id: string;
-		code: string;
-		annotation_count: number;
-		annotated_points: number;
-		flagged_readings: number;
-		replicate_readings: number;
-		alarm_readings: number;
-	}[];
-}
+export type ExportSummary = components['schemas']['ExportSummaryResponse'];
 
 export const getSiteExportSummary = (siteId: string, start: string, end: string) =>
 	GET<ExportSummary>(`${SERVICE}/sites/${siteId}/export/summary`, { start, end });
@@ -666,18 +475,7 @@ export type CurveOverview = components['schemas']['CurveOverview'];
 
 export type InstrumentStreamRef = components['schemas']['InstrumentStreamRef'];
 
-export interface InstrumentOverview {
-	id: string;
-	name: string | null;
-	serial_number: string | null;
-	manufacturer: string | null;
-	model: string | null;
-	is_lab_instrument: boolean;
-	source_system: string | null;
-	source_key: string | null;
-	curves: CurveOverview[];
-	streams: InstrumentStreamRef[];
-}
+export type InstrumentOverview = components['schemas']['InstrumentOverview'];
 
 export const getInstrumentsOverview = () =>
 	GET<{ instruments: InstrumentOverview[] }>(`${SERVICE}/instruments/overview`);
@@ -711,17 +509,7 @@ export const getSensorCurveUsage = (sensorId: string) =>
 // Retiring a curve. A calibration's retirement moves the readings it corrected onto whatever else
 // covers them, so the action states what it will do before it runs; a standard curve's changes no
 // stored value and only takes it out of the picker. Both are reversible.
-export interface CalibrationRetirement {
-	calibration_id: string;
-	sensor_id: string;
-	retired_at: string | null;
-	set_id: string | null;
-	readings: number;
-	repointed: number;
-	uncorrected: number;
-	pinned: number;
-	dry_run: boolean;
-}
+export type CalibrationRetirement = components['schemas']['RetireResponse'];
 
 export const previewCalibrationRetirement = (calibrationId: string) =>
 	POST<CalibrationRetirement>(`${SERVICE}/sensor_calibrations/${calibrationId}/retire`, {
@@ -739,11 +527,7 @@ export const unretireCalibration = (calibrationId: string) =>
 		{},
 	);
 
-export interface StandardCurveRetirement {
-	standard_curve_id: string;
-	retired_at: string | null;
-	readings: number;
-}
+export type StandardCurveRetirement = components['schemas']['RetireCurveResponse'];
 
 export const retireStandardCurve = (curveId: string, reason?: string) =>
 	POST<StandardCurveRetirement>(`${SERVICE}/standard_curves/${curveId}/retire`, {
@@ -754,41 +538,15 @@ export const unretireStandardCurve = (curveId: string) =>
 	POST<StandardCurveRetirement>(`${SERVICE}/standard_curves/${curveId}/unretire`, {});
 
 // Sync
-export interface SyncService {
-	id: string;
-	service_type: string;
-	instance_id: string;
-	status: string;
-	current_operation: string | null;
-	paused: boolean;
-	// Operator-set cadence in seconds; null means the service’s own SYNC_INTERVAL_SECONDS.
-	sync_interval_secs: number | null;
-	// Whether the weekly full re-assert queues a trigger_full_sync for this service.
-	full_reassert_enabled: boolean;
-	last_heartbeat: string | null;
-	last_sync_completed_at: string | null;
-	last_error: string | null;
-	health?: string;
-	created_at: string;
-	updated_at: string;
-}
+export type SyncService = components['schemas']['SyncServiceResponse'];
 
-export interface SyncCommand {
-	id: string;
-	service_id: string;
-	command: string;
-	payload: object | null;
-	status: 'pending' | 'acknowledged' | 'completed' | 'failed' | 'expired';
-	result: object | null;
-	created_at: string;
-	expires_at: string;
-	acknowledged_at: string | null;
-	completed_at: string | null;
-}
+export type SyncCommand = components['schemas']['SyncCommandResponse'];
 
 /// The `source_audit` command's result: everything a source holds against everything registered
 /// here, per group. Per-cycle reconciliation only ever sees registered streams, so a channel the
 /// connector declined and a group with no stream are outside every window and named on no receipt.
+// Hand-written on purpose: this is a sync command's `result`, which is whatever the command it
+// answers reports, so the document can only say "an object".
 export interface SourceAuditReport {
 	source_system: string;
 	totals: {
@@ -818,31 +576,9 @@ export interface SourceAuditReport {
 	};
 }
 
-export interface SyncEvent {
-	id: string;
-	service_id: string;
-	command_id: string | null;
-	event_type: 'scheduled' | 'triggered' | 'full_sync';
-	status: 'running' | 'completed' | 'partial' | 'failed';
-	readings_synced: number;
-	status_events_synced: number;
-	errors: string[] | null;
-	log: string[] | null;
-	started_at: string;
-	completed_at: string | null;
-	duration_ms: number | null;
-}
+export type SyncEvent = components['schemas']['SyncEventResponse'];
 
-export interface SyncServiceCredential {
-	id: string;
-	client_id: string;
-	service_type: string;
-	// The source system a service enrolling on this credential speaks for; null where undeclared.
-	source_system: string | null;
-	service_id: string | null;
-	revoked: boolean;
-	created_at: string;
-}
+export type SyncServiceCredential = components['schemas']['CredentialResponse'];
 
 export const issueSyncCommand = (serviceId: string, command: string, payload?: object) =>
 	POST<SyncCommand>(`${ADMIN}/sync/services/${serviceId}/commands`, { command, payload });
@@ -862,155 +598,36 @@ export const createServiceCredential = (serviceType: string, sourceSystem?: stri
 		source_system: sourceSystem || null,
 	});
 
+export type RevokedResponse = components['schemas']['RevokedResponse'];
+
 export const revokeSyncService = (credentialId: string) =>
-	POST(`${ADMIN}/sync/credentials/${credentialId}/revoke`);
+	POST<RevokedResponse>(`${ADMIN}/sync/credentials/${credentialId}/revoke`);
 
 // Pairing plans
-export interface PairingPlanEntry {
-	stream_id: string;
-	source_key: string;
-	source_name: string | null;
-	action: string;
-	project: { id: string | null; name: string; create: boolean };
-	site: {
-		id: string | null;
-		name: string;
-		create: boolean;
-		latitude: number | null;
-		longitude: number | null;
-		altitude_m: number | null;
-	};
-	parameter: {
-		id: string | null;
-		name: string;
-		label: string | null;
-		create: boolean;
-		units: string;
-		group_key: string | null;
-		original_names: string[];
-	};
-	confidence: string;
-	warnings: PlanWarning[];
-	original_parameter_name: string | null;
-	// Present when the stream is a replicate family: what is being paired is the group of
-	// member columns, not the portal's average.
-	replicates: PlanReplicateSummary | null;
-	// The lab instrument this stream's standard curves belong to. A curve is fitted on one
-	// instrument, so a reading naming a curve must name that instrument too; a stream that will
-	// carry curve references and resolves to none has those readings dropped at ingest.
-	instrument: PlanInstrumentRef | null;
-	// The divisor this slot will publish its replicate standard deviation with, chosen here.
-	// Left unset the slot stays undeclared and its audit disagreements are held for a decision.
-	sd_estimator?: SdEstimator | null;
-	// Evidence for that choice: open replicate-statistics holds on this stream, and how many of
-	// them match the population signature.
-	sd_holds?: number;
-	sd_population_holds?: number;
-	// The device serial the source names for this feed. A feed with one is field-shaped: its
-	// instrument is that device, attached when the stream is paired, and no lab instrument is
-	// proposed for it.
-	device_serial?: string | null;
-	device_model?: string | null;
-	// A person looked at this entry and agreed with it. Set explicitly, never inferred from an
-	// edit: only entries that need checking wait on it.
-	acknowledged?: boolean;
-}
+export type PairingPlanEntry = components['schemas']['PlanEntry'];
 
 // A catalog parameter an entry collides with, and what already depends on it. "Exists" alone does
 // not say where or whether anything uses it, which is what decides a units conflict.
-export interface ExistingParamRef {
-	id: string;
-	code: string;
-	name: string;
-	units: string;
-	category: string;
-	site_parameter_count: number;
-	reading_count: number;
-}
+export type ExistingParamRef = components['schemas']['ExistingParamRef'];
 
-export interface PlanWarning {
-	kind: 'units_mismatch' | 'empty_name' | 'sd_estimator_undeclared' | string;
-	message: string;
-	parameter: string | null;
-	existing: ExistingParamRef | null;
-	source_units: string | null;
-}
+export type PlanWarning = components['schemas']['PlanWarning'];
 
 export type PlanCurveRef = components['schemas']['PlanCurveRef'];
 
-export interface PlanInstrumentRef {
-	// The source column naming a curve per reading, e.g. `doc_std_curve_id`. Null when the
-	// instrument came from the stream and no column names a curve.
-	curve_column: string | null;
-	id: string | null;
-	name: string;
-	source_key: string;
-	// How it was decided: already on the stream, matched against the source's curve labels,
-	// repointed by hand, or proposed because nothing matched.
-	resolved_by: 'stream' | 'curve_label' | 'manual' | 'placeholder' | string;
-	create: boolean;
-	confirmed: boolean;
-	// True when each reading stores a standard_curve_id. False when the curve was applied
-	// upstream and only the instrument is attributed, where stamping would correct twice.
-	stamps_readings: boolean;
-	curves: PlanCurveRef[];
-	// The name this decision proposes creating, kept whatever else the entry resolves to, so an
-	// instrument attached by mistake can be returned to the plan's own proposal.
-	proposed_name?: string | null;
-}
+export type PlanInstrumentRef = components['schemas']['PlanInstrumentRef'];
 
 // Replicate-family summary on a plan entry: how the portal's columns route into one stream.
-export interface PlanReplicateSummary {
-	n: number;
-	member_columns: string[];
-	curve_ref_column: string | null;
-	portal_mean_column: string | null;
-	portal_sd_column: string | null;
-}
+export type PlanReplicateSummary = components['schemas']['PlanReplicates'];
 
-export interface PairingPlanSummary {
-	total_streams: number;
-	will_pair: number;
-	will_skip: number;
-	projects_to_create: number;
-	sites_to_create: number;
-	parameters_to_create: number;
-	instruments_to_create: number;
-	instruments_unconfirmed: number;
-	unique_projects: number;
-	unique_sites: number;
-	unique_parameters: number;
-	// The three review states over the entries the plan would pair.
-	needs_checking: number;
-	self_validated: number;
-	acknowledged: number;
-}
+/** The counts a plan's review reads, as the API's `PlanSummary`. */
+export type PairingPlanSummary = components['schemas']['PlanSummary'];
 
-export interface PairingPlan {
-	id: string;
-	source_system: string;
-	status: string;
-	// Bumped by every edit; a write names the version it read.
-	version: number;
-	created_by: string | null;
-	summary: PairingPlanSummary;
-	entries: PairingPlanEntry[];
-	created_at: string;
-	applied_at: string | null;
-	apply_result: PairingPlanApplyResult | null;
-}
+export type PairingPlan = components['schemas']['PairingPlan'];
 
-export interface PairingPlanApplyResult {
-	projects_created: number;
-	sites_created: number;
-	parameters_created: number;
-	site_parameters_created: number;
-	streams_paired: number;
-	instruments_created: number;
-	curves_assigned?: number;
-	readings_backfilled: number;
-}
+export type PairingPlanApplyResult = components['schemas']['ApplyResult'];
 
+// Hand-written on purpose: the plan PATCH body is deserialized by a private request struct the
+// document does not describe, and it is not the stored `PlanEntry`.
 export interface PlanEntryUpdate {
 	stream_id: string;
 	action?: string;
@@ -1045,48 +662,14 @@ export const createPairingPlan = (sourceSystem: string) =>
 export const getPairingPlan = (id: string) =>
 	GET<PairingPlan>(`${ADMIN}/sync/pairing-plans/${id}`);
 
-export interface SiteMetadata {
-	site_name: string;
-	latitude: number | null;
-	longitude: number | null;
-	altitude_m: number | null;
-	glacier_name: string | null;
-	glacier_rgi: string | null;
-	location_type: string | null;
-	catchment: string | null;
-	full_name: string | null;
-	elevation: number | null;
-	// Every device the site's feeds name. A site instrumented with two loggers has two, and
-	// reporting one of them would name channels that belong to the other.
-	devices: { serial: string; model: string | null; streams: number }[];
-	channel_id: string | null;
-	sample_interval_sec: number | null;
-}
+export type SiteMetadata = components['schemas']['PlanSiteMetadata'];
 
 export const getPlanSiteMetadata = (planId: string) =>
 	GET<SiteMetadata[]>(`${ADMIN}/sync/pairing-plans/${planId}/site-metadata`);
 
 // One instrument decision in a plan: what it covers and the curves it owns. Only instruments the
 // plan binds are listed; the rest of the inventory is reachable through the picker.
-export interface PlanInstrumentGroup {
-	scope: string | null;
-	instrument_id: string | null;
-	name: string;
-	source_key: string;
-	resolved_by: 'stream' | 'curve_label' | 'manual' | 'placeholder' | string;
-	create: boolean;
-	confirmed: boolean;
-	stamps_readings: boolean;
-	curve_column: string | null;
-	stream_count: number;
-	parameters: string[];
-	site_count: number;
-	anchor_stream_id: string | null;
-	curves: PlanCurveRef[];
-	// What this decision proposed creating, kept through an attach so the picker can offer it back.
-	proposed_name?: string | null;
-	name_conflict?: InstrumentNameConflict | null;
-}
+export type PlanInstrumentGroup = components['schemas']['PlanInstrumentGroup'];
 
 export type InstrumentNameConflict = components['schemas']['InstrumentNameConflict'];
 
@@ -1095,24 +678,12 @@ export type InstrumentNameConflict = components['schemas']['InstrumentNameConfli
 export type PlanUnassignedParameter = components['schemas']['PlanUnassignedParameter'];
 
 // A standard curve the source replicated, and the instrument it is currently fitted on.
-export interface PlanCurveAssignment {
-	id: string;
-	name: string | null;
-	slope: number;
-	intercept: number;
-	r_squared: number | null;
-	source_key: string | null;
-	sensor_id: string;
-	instrument_name: string;
-	reading_count: number;
-	// The instrument this plan will move the curve onto when applied, and its proposed name.
-	// Null when no assignment is pending.
-	pending_source_key: string | null;
-	pending_instrument_name: string | null;
-}
+export type PlanCurveAssignment = components['schemas']['PlanCurveAssignment'];
 
 // A curve assigned to an instrument the plan will create; the move happens on apply. A null
 // source key clears the assignment.
+// Hand-written on purpose: the assignment a review sends, where a null `instrument_source_key`
+// clears one. The stored `PlanCurveIntent` always names an instrument.
 export interface PlanCurveUpdate {
 	curve_id: string;
 	instrument_source_key: string | null;
@@ -1121,23 +692,9 @@ export interface PlanCurveUpdate {
 // One physical device the plan's feeds name, and the channels it serves at one site. Not a
 // decision: the serial is the identity, and pairing attaches it and opens the site slot's
 // deployment.
-export interface PlanDeviceGroup {
-	site: string;
-	serial: string;
-	model: string | null;
-	instrument_id: string | null;
-	instrument_name: string | null;
-	parameters: string[];
-	stream_count: number;
-	anchor_stream_id: string;
-}
+export type PlanDeviceGroup = components['schemas']['PlanDeviceGroup'];
 
-export interface PlanInstruments {
-	groups: PlanInstrumentGroup[];
-	unassigned: PlanUnassignedParameter[];
-	devices: PlanDeviceGroup[];
-	curves: PlanCurveAssignment[];
-}
+export type PlanInstruments = components['schemas']['PlanInstrumentsResponse'];
 
 export const getPlanInstruments = (planId: string) =>
 	GET<PlanInstruments>(`${ADMIN}/sync/pairing-plans/${planId}/instruments`);
@@ -1247,13 +804,7 @@ export const getUnpairedSummary = () =>
 // source_columns; a column with no value at an instant leaves that index absent, so a group can
 // lack index 0) and the portal's precomputed avg/sd columns, which are audited at sync time
 // rather than stored.
-export interface ReplicateSpec {
-	source_columns: string[];
-	portal_mean_column?: string;
-	portal_sd_column?: string;
-	curve_ref_column?: string;
-	calc?: string;
-}
+export type ReplicateSpec = components['schemas']['ReplicateSpec'];
 
 /** The replicate-family spec carried in a stream's metadata, or null for ordinary streams. */
 export function replicateSpec(stream: DataStream): ReplicateSpec | null {
@@ -1265,7 +816,7 @@ export function replicateSpec(stream: DataStream): ReplicateSpec | null {
 }
 
 // One stored value with the replicate index it is stored at, which is the source's column
-// position and the only handle a flag can name.
+// position and the only handle a flag can name. Hand-written with the hold that carries it.
 export interface ReplicateAuditValue {
 	index: number;
 	value: number;
@@ -1282,6 +833,8 @@ export type HoldKind =
 	| 'skipped_output'
 	| 'curve_claim_stripped';
 
+// Hand-written on purpose: `expected`, `computed`, `delta` and `resolution` are free JSON on the
+// hold row, so the document says "an object" and this is the shape the panel actually reads.
 export interface ReplicateAuditHold {
 	id: string;
 	// null on event-audit findings, which are keyed on (site, parameter, instant) instead.
@@ -1344,6 +897,7 @@ export interface ReplicateAuditHold {
 	sd_relative_delta: number;
 }
 
+// Hand-written with the hold above, which it carries.
 export interface ReplicateAuditListResponse {
 	holds: ReplicateAuditHold[];
 	total: number;
@@ -1384,10 +938,7 @@ export const listReplicateAudits = (
 // `skipped_undeclared_estimator` counts holds deliberately left pending: their disagreement is
 // the population-divisor signature on a parameter that has not declared which formula it
 // publishes, so accepting would record that decision without anyone having made it.
-export interface AcknowledgeResult {
-	acknowledged: number;
-	skipped_undeclared_estimator?: number;
-}
+export type AcknowledgeResult = components['schemas']['AcknowledgeResponse'];
 
 export const acknowledgeReplicateAudit = (id: string) =>
 	POST<AcknowledgeResult>(`${ADMIN}/sync/replicate_audit_holds/${id}/acknowledge`, {});
@@ -1403,14 +954,9 @@ export const acknowledgeReplicateAuditsBulk = (req: {
 }) => POST<AcknowledgeResult>(`${ADMIN}/sync/replicate_audit_holds/acknowledge_bulk`, req);
 
 // Which divisor a replicate group's standard deviation uses: 'sample' is n-1, 'population' is n.
-export type SdEstimator = 'sample' | 'population';
+export type SdEstimator = components['schemas']['SdEstimator'];
 
-export interface ResolveHoldResult {
-	status: string;
-	// 'estimator' mode, slot scope: the tracked sd_estimator_retag recomputing the slot's samples.
-	job_id?: string | null;
-	samples_affected?: number | null;
-}
+export type ResolveHoldResult = components['schemas']['ResolveHoldResponse'];
 
 // Resolve a pending hold. 'ours' records that the recomputed statistics stand. 'flag' flags the
 // named replicate indexes; the sample's mean/sd/n recompute immediately from the rest.
@@ -1467,39 +1013,9 @@ export const retagSdEstimator = (body: {
 	dry_run?: boolean;
 }) => POST<RetagSdEstimatorResponse>(`${ADMIN}/actions/retag_sd_estimator`, body);
 
-export interface SamplePreviewStats {
-	n: number;
-	mean: number | null;
-	sd: number | null;
-	sd_estimator: SdEstimator;
-}
+export type SamplePreviewStats = components['schemas']['PreviewStats'];
 
-export interface SamplePreviewResponse {
-	current: SamplePreviewStats;
-	proposed: SamplePreviewStats;
-	delta: { n: number; mean: number | null; sd: number | null };
-	replicates: Array<{
-		index: number;
-		value: number;
-		flagged: boolean;
-		withdrawn: boolean;
-		included_now: boolean;
-		included_after: boolean;
-	}>;
-	// Present when the request named a hold: whether the proposed statistics meet its recorded
-	// expectation under the audit tolerances.
-	hold?: {
-		hold_id: string;
-		expected_mean: number | null;
-		expected_sd: number | null;
-		expected_n: number | null;
-		meets_now: boolean;
-		meets_after: boolean;
-		mean_agrees: boolean;
-		sd_agrees: boolean;
-		n_agrees: boolean;
-	};
-}
+export type SamplePreviewResponse = components['schemas']['SamplePreviewResponse'];
 
 // What a replicate group's statistics become without the replicates about to be flagged, with
 // the ones about to be restored, or under the other divisor. Writes nothing.
@@ -1529,120 +1045,24 @@ export const getPendingAuditSummary = async (): Promise<{ pending: number; byKin
 
 // Provenance: the assembled record of one measured instant.
 
-export interface ProvenanceCalibrationRef {
-	id: string;
-	slope: number;
-	intercept: number;
-	valid_from: string;
-	valid_until?: string;
-	/** Set when the curve has been retired: the reading keeps the value it produced, and no new
-	 *  measurement resolves it. */
-	retired_at?: string;
-}
+export type ProvenanceCalibrationRef = components['schemas']['CalibrationRef'];
 
-export interface ProvenanceCurveRef {
-	id: string;
-	// The lab instrument the curve belongs to, which is where its record lives.
-	sensor_id: string;
-	name?: string;
-	slope: number;
-	intercept: number;
-	/** Set when the lab has taken the curve out of circulation. The value stands. */
-	retired_at?: string;
-}
+export type ProvenanceCurveRef = components['schemas']['CurveRef'];
 
-export interface ProvenanceReading {
-	replicate_index: number;
-	raw_value: number;
-	calibrated_value?: number;
-	measurement_type?: string;
-	is_flagged: boolean;
-	flag_reason?: string;
-	withdrawn_at?: string;
-	withdrawn_reason?: string;
-	/// When the row first existed. Nothing moves it.
-	ingested_at?: string;
-	/// When the value the row currently serves arrived: its latest live correction, else its first
-	/// arrival.
-	value_arrived_at?: string;
-	/// Where the value came from: a stored blob's kind, or the one the row's stream proves.
-	provenance_kind?: string;
-	calibration?: ProvenanceCalibrationRef;
-	standard_curve?: ProvenanceCurveRef;
-}
+export type ProvenanceReading = components['schemas']['ReadingFacet'];
 
-export interface ProvenanceOrigin {
-	stream_id: string;
-	source_system: string;
-	source_key: string;
-	source_name?: string;
-	classification: 'sync' | 'manual' | 'csv' | 'api' | 'derived';
-	paired_at?: string;
-	ingested_at?: string;
-	value_arrived_at?: string;
-	receipt?: StreamReceipt;
-}
+export type ProvenanceOrigin = components['schemas']['OriginInfo'];
 
-export interface ProvenanceChain {
-	sensor?: {
-		id: string;
-		serial_number?: string;
-		name?: string;
-		manufacturer?: string;
-		model?: string;
-	};
-	deployment?: {
-		id: string;
-		site_id: string;
-		site_name?: string;
-		deployed_from: string;
-		deployed_until?: string;
-	};
-}
+export type ProvenanceChain = components['schemas']['ChainInfo'];
 
 // The formula behind a derived value: the definition, and the version the value was made with.
 // A value stored before versioning names no version, so no formula is reported for it: today's
 // text is not what produced it.
-export interface ProvenanceCalculation {
-	definition_id: string;
-	code: string;
-	name: string;
-	version_id?: string;
-	version_no?: number;
-	formula?: string;
-	content_hash?: string;
-	active_version_no?: number;
-}
+export type ProvenanceCalculation = components['schemas']['CalculationInfo'];
 
-export interface ProvenanceRecord {
-	origin: ProvenanceOrigin;
-	readings: ProvenanceReading[];
-	chain: ProvenanceChain;
-	event?: { id: string; collected_at: string; source: string; created_by?: string };
-	computation?: {
-		// The statistics row, present when the instant carries two or more replicates.
-		sample_id?: string;
-		created_by?: string;
-		label?: string;
-		notes?: string;
-		provenance?: Record<string, unknown>;
-		run_source?: 'interactive' | 'csv_import' | 'chain' | string;
-		// Which divisor this group's served standard deviation uses, and what chose it. A source
-		// of 'default' means nothing declared one. Absent on a single measurement.
-		sd_estimator?: SdEstimator;
-		sd_estimator_source?: 'default' | 'slot' | 'sample' | 'stream' | 'tool';
-	};
-	calculation?: ProvenanceCalculation;
-	holds: { id: string; kind: HoldKind; status: string; created_at: string }[];
-}
+export type ProvenanceRecord = components['schemas']['ProvenanceRecord'];
 
-export interface ProvenanceResponse {
-	time: string;
-	site_id: string | null;
-	parameter_id: string | null;
-	duplicate_slot: boolean;
-	records: ProvenanceRecord[];
-}
+export type ProvenanceResponse = components['schemas']['ProvenanceResponse'];
 
 // Either { stream_id } or { site_id, parameter_id }, plus the exact reading timestamp.
 export const getReadingProvenance = (key: {
@@ -1655,59 +1075,11 @@ export const getReadingProvenance = (key: {
 
 // Visits: the portal's wide data row per (site, date).
 
-export interface VisitCell {
-	parameter_id: string;
-	value?: number;
-	// Every replicate in the group is flagged / withdrawn.
-	flagged: boolean;
-	withdrawn: boolean;
-	// Replicates stored, flagged and withdrawn: a partly curated group serves a mean the
-	// exclusions moved, and the counts are what says so.
-	n_total: number;
-	n_flagged: number;
-	n_withdrawn: number;
-	/** The group's statistics. `n` counts what the mean stands on: `n_total` less the exclusions. */
-	n?: number;
-	stdev?: number;
-	median?: number;
-	min?: number;
-	max?: number;
-	/** Which divisor produced `stdev`, and what chose it ('default' is the fallback having applied). */
-	sd_estimator?: SdEstimator;
-	sd_estimator_source?: string;
-	finding?: 'missing_output' | 'stale_output' | 'skipped_output' | string;
-	/** Open findings on this cell, when more than one. */
-	finding_count?: number;
-}
+export type VisitCell = components['schemas']['VisitCell'];
 
-export interface VisitRow {
-	id: string;
-	collected_at: string;
-	source: 'manual' | 'portal_sync' | string;
-	created_by: string | null;
-	notes: string | null;
-	parameters_filled: number;
-	findings_open: number;
-	/** The visit's recompute state as the API derives it from its latest job and open findings. */
-	recompute: 'current' | 'queued' | 'running' | 'failed' | 'stale' | string;
-	cells: VisitCell[];
-}
+export type VisitRow = components['schemas']['VisitRow'];
 
-export interface VisitsResponse {
-	site_id: string;
-	total: number;
-	page: number;
-	page_size: number;
-	// The grid's column set: parameters with spot readings at the site, ordered by code.
-	expected_parameters: {
-		parameter_id: string;
-		code: string;
-		name: string;
-		units?: string | null;
-		decimal_places?: number | null;
-	}[];
-	visits: VisitRow[];
-}
+export type VisitsResponse = components['schemas']['VisitsResponse'];
 
 export const listSiteVisits = (
 	siteId: string,
@@ -1716,18 +1088,7 @@ export const listSiteVisits = (
 
 // The cross-site visits list: the counts without the cells, sortable server-side.
 
-export interface VisitListRow {
-	id: string;
-	site_id: string;
-	site_name: string;
-	collected_at: string;
-	source: 'manual' | 'portal_sync' | string;
-	created_by: string | null;
-	notes: string | null;
-	parameters_filled: number;
-	findings_open: number;
-	recompute: 'current' | 'queued' | 'running' | 'failed' | 'stale' | string;
-}
+export type VisitListRow = components['schemas']['VisitListRow'];
 
 export type VisitListSort = 'collected_at' | 'parameters_filled' | 'findings_open' | 'site_name';
 
@@ -1743,83 +1104,16 @@ export const listVisits = (
 	} = {},
 ) => GET<Page<VisitListRow>>(`${SERVICE}/visits`, { ...opts });
 
-export interface EventCellReplicate {
-	replicate_index: number;
-	raw_value: number;
-	calibrated_value?: number;
-	flagged: boolean;
-	flag_reason?: string;
-	withdrawn: boolean;
-	withdrawn_at?: string;
-	calibration_id?: string;
-	standard_curve_id?: string;
-	/** The instrument the replicate names, which the grid offers back as the row's declaration. */
-	sensor_id?: string;
-}
+export type EventCellReplicate = components['schemas']['CellReplicate'];
 
-export interface EventCell {
-	parameter_id: string;
-	parameter_code: string;
-	parameter_name: string;
-	stream_id: string;
-	/** Which feed these replicates came in on; two streams can serve one slot at one instant. */
-	source_system?: string;
-	source_key?: string;
-	served_value?: number;
-	sample?: {
-		sample_id: string;
-		mean?: number;
-		/** The sd under the declared divisor; both are served so the other stays readable. */
-		stdev?: number;
-		stdev_sample?: number;
-		stdev_population?: number;
-		median?: number;
-		min?: number;
-		max?: number;
-		n: number;
-		sd_estimator?: SdEstimator;
-		sd_estimator_source?: string;
-	};
-	/** How the readings reached the store: manual, csv, api or sync. */
-	origin: string;
-	has_provenance: boolean;
-	/// The row's own recorded origin, narrower than `origin`, which reads the stream alone.
-	provenance_kind?: string;
-	tool?: string;
-	replicates: EventCellReplicate[];
-	/** Calculations that read this parameter: what this value feeds, by tool name. */
-	read_by?: string[];
-	/** The calculation that writes this parameter, when one does: the value is computed, not measured. */
-	written_by?: string;
-	/** The instant's assembled record for this stream, so the point record needs no second fetch. */
-	record?: ProvenanceRecord;
-	finding?: { id: string; kind: HoldKind; tool?: string; status: string };
-}
+export type EventCell = components['schemas']['EventCell'];
 
-export interface EventDetailResponse {
-	id: string;
-	site_id: string;
-	collected_at: string;
-	source: string;
-	created_by?: string;
-	notes?: string;
-	recompute: 'current' | 'queued' | 'running' | 'failed' | 'stale' | string;
-	cells: EventCell[];
-}
+export type EventDetailResponse = components['schemas']['EventDetailResponse'];
 
 export const getCollectionEventDetail = (id: string) =>
 	GET<EventDetailResponse>(`${SERVICE}/collection_events/${id}/detail`);
 
-export interface StagedEvent {
-	id: string;
-	site_id: string;
-	collected_at: string;
-	source: string;
-	created_by?: string;
-	notes?: string;
-	/** False when the visit already stood at this instant. */
-	created: boolean;
-}
+export type StagedEvent = components['schemas']['StagedEvent'];
 
 /** Stage a field visit, or adopt the one already standing at that (site, instant). */
 export const stageCollectionEvent = (req: { site_id: string; collected_at: string; notes?: string }) =>
@@ -1842,23 +1136,9 @@ export const runEventRecompute = (req: {
 // Replicate reconciliation: migrate readings from legacy per-`_avg`-column streams onto their
 // replicate-family streams (tracked job, migrate + verify, never deletes), then a separate
 // re-verify + delete pass for the obsolete avg streams.
-export interface ReconciliationFamily {
-	family_stream_id: string;
-	family_source_key: string;
-	old_stream_id: string;
-	old_source_key: string;
-	site_parameter_id: string | null;
-	migrated: boolean;
-	old_readings: number;
-	// Old-stream instants the family stream has no readings for. Zero = ready for cutover.
-	missing_instants: number;
-	ready: boolean;
-}
+export type ReconciliationFamily = components['schemas']['FamilyCandidate'];
 
-export interface ReconciliationCandidatesResponse {
-	families: ReconciliationFamily[];
-	total_old_streams: number;
-}
+export type ReconciliationCandidatesResponse = components['schemas']['CandidatesResponse'];
 
 export const getReconciliationCandidates = (sourceSystem: string) =>
 	GET<ReconciliationCandidatesResponse>(`${ADMIN}/sync/replicate_reconciliation/candidates`, {
@@ -1879,33 +1159,9 @@ export const getDuplicateSlots = () =>
 	GET<{ slots: DuplicateSlot[] }>(`${ADMIN}/sync/replicate_reconciliation/duplicate_slots`);
 
 /** A value the source changed after river-data stored it, awaiting a decision (Q84). */
-export interface ChangeProposal {
-	id: string;
-	stream_id: string;
-	source_system: string;
-	source_key: string;
-	site_id: string | null;
-	site_name: string | null;
-	parameter_id: string | null;
-	parameter_code: string | null;
-	time: string;
-	replicate_index: number;
-	stored_raw_value: number;
-	proposed_raw_value: number;
-	stored_standard_curve_id: string | null;
-	proposed_standard_curve_id: string | null;
-	status: 'pending' | 'accepted' | 'rejected';
-	first_seen_at: string;
-	last_seen_at: string;
-	decided_by: string | null;
-	decided_at: string | null;
-}
+export type ChangeProposal = components['schemas']['Proposal'];
 
-export interface ProposalDecisionResult {
-	accepted: number;
-	rejected: number;
-	refused: [string, string][];
-}
+export type ProposalDecisionResult = components['schemas']['DecideResponse'];
 
 export const getChangeProposals = (params: { status?: string; stream_id?: string } = {}) =>
 	GET<ChangeProposal[]>(`${ADMIN}/sync/change_proposals`, { ...params });
@@ -1950,15 +1206,7 @@ export const setUserGrants = (userId: string, projectIds: string[]) =>
 
 // Realm directory search (LDAP-federated in production, covers all EPFL accounts).
 // Each result includes the user's current realm roles.
-export interface DirectoryUser {
-	id: string;
-	username: string;
-	email: string | null;
-	firstName: string | null;
-	lastName: string | null;
-	enabled: boolean;
-	roles: string[];
-}
+export type DirectoryUser = components['schemas']['KeycloakUser'];
 
 export const searchDirectoryUsers = (q: string) =>
 	GET<DirectoryUser[]>(`${ADMIN}/users/search`, { q });
@@ -1970,149 +1218,56 @@ export const searchDirectoryUsers = (q: string) =>
  * The object form of a param's `when`: a condition on another param's value, carrying either
  * `equals` or `any_of`. This is the form the server enforces requiredness through.
  */
-export interface ToolParamCondition {
-	param: string;
-	equals?: unknown;
-	any_of?: unknown[];
-}
+export type ToolParamCondition = components['schemas']['ParamCondition'];
 
 /** A plain string is an advisory note and gates nothing; the object form is a condition. */
-export type ToolParamWhen = string | ToolParamCondition;
+export type ToolParamWhen = components['schemas']['ParamWhen'];
 
 export function isToolParamCondition(when: ToolParamWhen | null): when is ToolParamCondition {
 	return typeof when === 'object' && when !== null;
 }
 
 /** One column of a structured param, as the manifest declares it. */
-export interface ToolStructField {
-	name: string;
-	label: string;
-	units: string | null;
-	required: boolean;
-	/** Numbers the field holds; above 1 it is a list, entered as that many inputs. */
-	values: number;
-	/** False for a column typed on the bench to feed a computed one, and never sent. */
-	send: boolean;
-	/** `[minuend, subtrahend]`, both naming fields of the same structure. */
-	computed: { subtract: [string, string] } | null;
-}
+export type ToolStructField = components['schemas']['ManifestField'];
 
 /**
  * What a structured param's value holds. `object` is one object of fields, `rows` an array of
  * them, `lists` an object of number lists keyed by field name.
  */
-export interface ToolStructure {
-	layout: 'object' | 'rows' | 'lists';
-	fields: ToolStructField[];
-	rows: number;
-	max_rows: number | null;
-	row_labels: 'letters' | 'numbers';
-	values: number;
-	value_labels: string[];
-	/** True where the tool reads more column spellings than the form offers. */
-	additional_fields: boolean;
-}
+export type ToolStructure = components['schemas']['ManifestStructure'];
 
-export interface ToolParam {
-	name: string;
-	label: string;
-	kind: string;
-	units: string | null;
-	required: boolean;
-	default: unknown;
-	/** Null when the param is unconditional; see `ToolParamWhen` for the two forms. */
-	when: ToolParamWhen | null;
-	/** Absent on a scalar param, and on a structured one whose columns nothing declares. */
-	structure?: ToolStructure | null;
-	/** Help text shown beside the field. */
-	description?: string | null;
-	/** Key of the manifest section the field renders under. */
-	section?: string | null;
-	/** `replicates` only: the catalog parameter the entered replicates are readings of. */
-	parameter_code?: string | null;
-	/** `replicates` only: rows the form opens with; never a limit. */
-	suggested?: number | null;
-	/** `replicates` only: the curve slot whose chosen curve corrects the stored replicates. */
-	curve?: string | null;
-	/** The catalog parameter `parameter_code` resolves to, served by `GET /tools`. */
-	parameter?: ResolvedParameter | null;
-}
+export type ToolParam = components['schemas']['ManifestParam'];
 
 /** Which half of an output's declaration the server found the catalog row by. */
 export type ToolParameterResolvedBy = 'id' | 'code';
 
 export type ResolvedParameter = components['schemas']['ResolvedParameter'];
 
-export interface ToolOutput {
-	key: string;
-	label: string;
-	units: string | null;
-	/** Result keys arrive suffixed per replicate ({base}_{rep}). */
-	per_replicate: boolean;
-	/** Set on avg/sd rows computed from another output; display-only, never saved. */
-	aggregate_of: string | null;
-	/**
-	 * 'mean' or 'sd': the engine computes this output over the curve-applied values of the
-	 * replicates param `aggregate_of` names, honoring the declared divisor; the script never
-	 * computes it.
-	 */
-	aggregate?: 'mean' | 'sd' | null;
-	/** The catalog parameter this output saves to. Authoritative over the code when both are set. */
-	parameter_id: string | null;
-	/**
-	 * The portable half of the same link: an id means nothing in another database, so the seeded
-	 * manifests carry only this and the server stamps it whenever an output names an id alone.
-	 */
-	suggested_parameter_code: string | null;
-	/**
-	 * Which divisor the samples saved from this output use for their standard deviation.
-	 * 'sample' or 'population' fix it and the operator never sees it; 'selectable' offers the
-	 * choice on the tool page; null takes the parameter's own declaration, which is the usual
-	 * case.
-	 */
-	sd_estimator?: SdEstimator | 'selectable' | null;
-	/** Served by `GET /tools`, absent from a manifest an author is editing. */
-	parameter?: ResolvedParameter | null;
-}
+/** One output as a manifest declares it, which is what an author edits. */
+export type ManifestOutput = components['schemas']['ManifestOutput'];
 
-export interface ToolCurveSlot {
-	name: string;
-	label: string;
-	required: boolean;
-	description?: string | null;
-}
+/** The same output as `GET /tools` serves it: the declaration plus the parameter it resolves to. */
+export type ToolOutput = components['schemas']['ToolOutput'];
+
+export type ToolCurveSlot = components['schemas']['ManifestCurve'];
 
 /**
  * A version's manifest: the tool's whole interface. Every list is optional on the wire (the
  * server defaults each to empty), so a manifest under construction is a valid one.
  */
-export interface ToolManifest {
-	label: string;
-	description?: string | null;
-	params?: ToolParam[];
-	outputs?: ToolOutput[];
-	/** Bare constant names; the server resolves their values from the constants table. */
-	constants?: string[];
-	curves?: ToolCurveSlot[];
-	sections?: ToolSection[];
-	site_inputs?: ToolSiteInput[];
-	event_inputs?: ToolEventInput[];
-	qc?: Record<string, unknown> | null;
-	match_keywords?: string[];
-}
+export type ToolManifest = components['schemas']['Manifest'];
 
 /** A titled group of fields on the entry form. */
-export interface ToolSection {
-	key: string;
-	label: string;
-	description?: string | null;
-}
+export type ToolSection = components['schemas']['ManifestSection'];
 
 /**
  * One stored test case. `curves` are merged into the request body alongside `inputs`, `expected`
  * is compared key by key within the tolerance, and `absent` names keys the result must not carry.
  * `constants` makes a case reproducible whatever the constants table holds; without it the case
  * reads the catalog.
+ *
+ * Hand-written on purpose: a stored case set is free JSON on the version row, which the document
+ * describes as an object.
  */
 export interface ToolTestCase {
 	name?: string;
@@ -2123,77 +1278,28 @@ export interface ToolTestCase {
 	constants?: Record<string, number>;
 }
 
+// The case set as the version row stores it, hand-written with the case above.
 export interface ToolTestCases {
 	/** Relative, applied as tol * max(|expected|, 1). Defaults to 1e-9. */
 	tolerance?: number;
 	cases?: ToolTestCase[];
 }
 
-export interface ToolDescriptor {
-	name: string;
-	label: string;
-	description: string | null;
-	endpoint: string;
-	params: ToolParam[];
-	outputs: ToolOutput[];
-	constants: string[];
-	curves: ToolCurveSlot[];
-	/** Site properties resolved from the site row at calculate time (fill-if-missing). */
-	site_inputs?: ToolSiteInput[];
-	/** Same-event parameter reads resolved at (site_id, collected_at) (fill-if-missing). */
-	event_inputs?: ToolEventInput[];
-	/** QC declarations (replicate pooling, check exclusions), as authored. */
-	qc?: Record<string, unknown>;
-	sections?: ToolSection[];
-	match_keywords: string[];
-	script_version_id: string;
-	version_no: number;
-}
+export type ToolDescriptor = components['schemas']['ToolDescriptor'];
 
-export interface ToolSiteInput {
-	property: string;
-	param?: string | null;
-	required: boolean;
-}
+export type ToolSiteInput = components['schemas']['ManifestSiteInput'];
 
-export interface ToolEventInput {
-	param: string;
-	parameter_code: string;
-}
+export type ToolEventInput = components['schemas']['ManifestEventInput'];
 
 export type ToolVersionRef = components['schemas']['ToolVersionRef'];
 
 /** A curve as the runner received it. `standard_curve_id` is set when it came from the catalog. */
-export interface ToolResolvedCurve {
-	slope: number;
-	intercept: number;
-	standard_curve_id: string | null;
-	label: string | null;
-}
+export type ToolResolvedCurve = components['schemas']['ResolvedCurve'];
 
 /** One entry of the `curves` snapshot: the manifest slot name and the curve resolved into it. */
-export interface ToolCurveSnapshot {
-	name: string;
-	curve: ToolResolvedCurve;
-}
+export type ToolCurveSnapshot = components['schemas']['CurveSnapshot'];
 
-export interface ToolCalculateResponse {
-	tool: string;
-	results: Record<string, unknown>;
-	inputs_used: string[];
-	inputs_ignored: string[];
-	/** The constant values the server resolved, by name. Empty when the manifest declares none. */
-	constants: Record<string, number>;
-	/** Empty when no curve slot was filled. */
-	curves: ToolCurveSnapshot[];
-	tool_version: ToolVersionRef;
-	/** Site properties resolved from the site row, as {property, param, value}. */
-	site_inputs?: { property: string; param: string; value: number }[];
-	/** Same-event values resolved at (site_id, collected_at). */
-	event_inputs?: { param: string; parameter_code: string; parameter_id: string; value: number }[];
-	/** The stored tool_runs row for this calculation; pass as `tool_run_id` when saving. */
-	run_id: string;
-}
+export type ToolCalculateResponse = components['schemas']['ToolResult'];
 
 export const listTools = () => GET<ToolDescriptor[]>(`${SERVICE}/tools`);
 
@@ -2202,78 +1308,23 @@ export const calculateTool = (name: string, body: Record<string, unknown>) =>
 
 // Tool script authoring (admin-only). Versions are immutable; activation flips the pointer and
 // activating an older version is the rollback.
-export interface ToolScriptSummary {
-	id: string;
-	name: string;
-	label: string;
-	description: string | null;
-	active_version_id: string | null;
-	active_version_no: number | null;
-	version_count: number;
-	/** Part of the calculation set: fired at visits, audited and listed. Off, it runs only by name. */
-	enabled: boolean;
-	/** Which engine its versions carry: an R script, or a set of formulas. */
-	engine: 'script' | 'formula';
-	/** The group whose members it reads and writes. One calculation per group. */
-	parameter_group_id: string | null;
-	updated_at: string;
-}
+export type ToolScriptSummary = components['schemas']['ToolScriptList'];
 
-export interface ToolVersionSummary {
-	id: string;
-	version_no: number;
-	content_hash: string;
-	entry_function: string;
-	/** What changed in this version and why, as its author wrote it. */
-	note: string | null;
-	created_by: string | null;
-	created_at: string;
-	validated_at: string | null;
-	active: boolean;
-}
+export type ToolVersionSummary = components['schemas']['ToolScriptVersionList'];
 
 export interface ToolScriptDetail extends ToolScriptSummary {
 	versions: ToolVersionSummary[];
 }
 
-export interface ToolVersionDetail {
-	id: string;
-	version_no: number;
-	script: string;
-	entry_function: string;
-	manifest: Record<string, unknown>;
-	test_cases: Record<string, unknown>;
-	content_hash: string;
-	note: string | null;
-	created_by: string | null;
-	created_at: string;
-	validated_at: string | null;
-}
+export type ToolVersionDetail = components['schemas']['ToolScriptVersion'];
 
-export interface ToolLintFinding {
-	line: number;
-	message: string;
-}
+export type ToolLintFinding = components['schemas']['LintFinding'];
 
-export interface ToolCaseResult {
-	name: string;
-	passed: boolean;
-	failures: string[];
-	error: string | null;
-}
+export type ToolCaseResult = components['schemas']['CaseResult'];
 
-export interface ToolValidateResponse {
-	passed: boolean;
-	cases: ToolCaseResult[];
-	validated_at: string | null;
-}
+export type ToolValidateResponse = components['schemas']['ValidateResponse'];
 
-export interface ToolActivationRecord {
-	from_version_no: number | null;
-	to_version_no: number;
-	activated_by: string | null;
-	activated_at: string;
-}
+export type ToolActivationRecord = components['schemas']['ActivationRecord'];
 
 export const listToolScripts = () => GET<ToolScriptSummary[]>(`${ADMIN}/tool_scripts`);
 
@@ -2327,17 +1378,10 @@ export const listToolActivations = (id: string) =>
 // half-written script is safe to inspect and a syntax error is a 200 with `parse_ok: false`.
 
 /** `line`/`column` are absent when R's message carries no position. */
-export interface ToolParseError {
-	message: string;
-	line: number | null;
-	column: number | null;
-}
+export type ToolParseError = components['schemas']['ParseError'];
 
 /** A detection the parse tree cannot complete. `expressions` is empty when `any` is false. */
-export interface ToolDynamicFlag {
-	any: boolean;
-	expressions: string[];
-}
+export type ToolDynamicFlag = components['schemas']['DynamicFlag'];
 
 /**
  * Every list is a floor rather than a complete set: keys assembled at run time (a replicate
@@ -2345,43 +1389,14 @@ export interface ToolDynamicFlag {
  * true, `outputs` is short by an unknown amount and a manifest declaring more is not thereby
  * wrong; `dynamic_reads.any` says the same about `inputs`, `constants` and `curves`.
  */
-export interface ToolScriptInspection {
-	parse_ok: boolean;
-	/** Null when the script parses. */
-	parse_error: ToolParseError | null;
-	entry: string;
-	entry_found: boolean;
-	/** The entry function's formals in declaration order; the runner calls them positionally. */
-	entry_args: string[];
-	inputs: string[];
-	constants: string[];
-	curves: string[];
-	outputs: string[];
-	dynamic_outputs: ToolDynamicFlag;
-	dynamic_reads: ToolDynamicFlag;
-	functions_defined: string[];
-	functions_called: string[];
-	/** The script's own top-level functions the entry function calls. */
-	script_functions_used: string[];
-	libraries: string[];
-	namespaces: string[];
-}
+export type ToolScriptInspection = components['schemas']['ScriptInspection'];
 
 /**
  * What the script reads set against what the manifest declares. A comparison only: it proposes no
  * manifest. Each list may be empty. When `reads_complete` is false every `unread_*` entry is
  * possible rather than certain, and when `outputs_complete` is false the same holds for outputs.
  */
-export interface ToolManifestReconciliation {
-	undeclared_inputs: string[];
-	undeclared_constants: string[];
-	undeclared_curves: string[];
-	unread_params: string[];
-	unread_constants: string[];
-	unread_curves: string[];
-	reads_complete: boolean;
-	outputs_complete: boolean;
-}
+export type ToolManifestReconciliation = components['schemas']['ManifestReconciliation'];
 
 export interface ToolInspectResponse extends ToolScriptInspection {
 	/** Null when the request carried no manifest. */
@@ -2397,47 +1412,19 @@ export const inspectToolScript = (body: {
 // Draft run: unsaved editor content through the same manifest validation, constant resolution and
 // curve resolution as a real calculate. Writes nothing.
 
-export interface ToolDraftRunRequest {
-	script: string;
-	entry_function?: string;
-	manifest: ToolManifest;
-	/** The calculate body: the manifest's params, plus its curve slots as fields of the same body. */
-	inputs?: Record<string, unknown>;
-	/** An override must name every constant the manifest declares; omit it to read the catalog. */
-	constants?: Record<string, number>;
-}
+export type ToolDraftRunRequest = components['schemas']['DraftRunRequest'];
 
 /** Where a draft run ended, and therefore where the editor renders it. */
 export type ToolDraftFailureKind = 'body_refused' | 'script_error' | 'runner_unavailable';
 
-export interface ToolDraftFailure {
-	kind: ToolDraftFailureKind;
-	message: string;
-	/** The R call that raised; null for the two non-script kinds. */
-	call: string | null;
-	traceback: string[];
-}
+export type ToolDraftFailure = components['schemas']['DraftRunFailure'];
 
 /**
  * A draft run answers 200 whether or not the script ran: a refused body, a raised script and an
  * absent runner are findings about the draft, so they arrive next to the lint findings rather than
  * discarding them.
  */
-export interface ToolDraftRunResponse {
-	ran: boolean;
-	/** Present only when `ran`. */
-	results?: Record<string, unknown>;
-	inputs_used?: string[];
-	inputs_ignored?: string[];
-	constants?: Record<string, number>;
-	curves?: ToolCurveSnapshot[];
-	/** Present only when the run ended without results. */
-	failure?: ToolDraftFailure | null;
-	/** The version fields are null here: nothing about a draft is stored. */
-	tool_version: ToolVersionRef;
-	/** Findings do not stop a draft from running; the version create still refuses to store them. */
-	lint: ToolLintFinding[];
-}
+export type ToolDraftRunResponse = components['schemas']['DraftRunResponse'];
 
 export const draftRunToolScript = (body: ToolDraftRunRequest) =>
 	POST<ToolDraftRunResponse>(`${ADMIN}/tool_scripts/draft_run`, body);
@@ -2454,113 +1441,24 @@ export function toolLintFindings(e: unknown): ToolLintFinding[] | null {
 }
 
 // Grab samples
-export interface GrabSampleReading {
-	parameter_id: string;
-	time: string;
-	value: number;
-	replicate_index?: number;
-	sensor_id?: string;
-	/**
-	 * The named output of the referenced tool run this reading stores. Required on every reading
-	 * when the request carries `tool_run_id`, refused otherwise.
-	 */
-	output?: string;
-	/**
-	 * The named `replicates` input of the referenced tool run this reading stores, raw, at
-	 * `replicate_index`. A curve the run applied is recorded here as `standard_curve_id` and
-	 * applied by the database, never a second time.
-	 */
-	input?: string;
-	/**
-	 * A `standard_curves` row on the same instrument as `sensor_id`, applied on top of the base
-	 * calibration the API resolves from that instrument's windows at `time`. Sending a curve from
-	 * another instrument, or one without `sensor_id`, is refused. Omit it when the value has
-	 * already been curve-corrected upstream, otherwise the correction is applied twice.
-	 */
-	standard_curve_id?: string;
-}
+export type GrabSampleReading = components['schemas']['GrabSampleReading'];
 
-export interface GrabSampleRequest {
-	site_id: string;
-	created_by?: string;
-	// Stamped onto the samples rows the request creates or reuses.
-	label?: string;
-	notes?: string;
-	// Without 'replace', writing to an existing replicate group is refused with 409 and the
-	// existing groups in the error detail; 'replace' overwrites them.
-	mode?: 'replace';
-	// Computes everything (preview and existing_groups included) and writes nothing.
-	dry_run?: boolean;
-	// The tool run (calculate response `run_id`) these readings came from. The server builds the
-	// provenance blob from its stored run row; every reading must then name the run output it
-	// stores and carry that output's value.
-	tool_run_id?: string;
-	// A seasonal check (from seasonalCheck) covering exactly these (parameter, value) pairs. The
-	// server refuses a save whose values the named check did not screen.
-	check_id?: string;
-	// The divisor the samples this save creates compute their standard deviation with, sent only
-	// when the operator chose one for a `selectable` output. A manifest that fixes an estimator is
-	// read server-side from the run, never repeated here.
-	sd_estimator?: SdEstimator;
-	readings: GrabSampleReading[];
-}
+export type GrabSampleRequest = components['schemas']['GrabSampleRequest'];
 
-export interface GrabPreviewCurve {
-	id: string;
-	name: string | null;
-	slope: number;
-	intercept: number;
-	equation: string;
-}
+export type GrabPreviewCurve = components['schemas']['CurveApplication'];
 
-export interface GrabPreviewRow {
-	parameter_id: string;
-	time: string;
-	replicate_index: number;
-	raw_value: number;
-	base_calibration?: GrabPreviewCurve | null;
-	standard_curve?: GrabPreviewCurve | null;
-	composed_equation?: string | null;
-	calibrated_value?: number | null;
-}
+export type GrabPreviewRow = components['schemas']['GrabPreview'];
 
-export interface GrabExistingReplicate {
-	replicate_index: number;
-	raw_value: number;
-	calibrated_value: number | null;
-	standard_curve_id: string | null;
-}
+export type GrabExistingReplicate = components['schemas']['ExistingReplicate'];
 
-export interface GrabExistingGroup {
-	parameter_id: string;
-	time: string;
-	replicates: GrabExistingReplicate[];
-}
+export type GrabExistingGroup = components['schemas']['ExistingGroup'];
 
 export type ImpactParameter = components['schemas']['ImpactParameter'];
 
 /** One calculation a save feeds, and the output parameters it rewrites at the visit. */
-export interface CalculationImpact {
-	tool: string;
-	label: string;
-	reads: ImpactParameter[];
-	outputs: ImpactParameter[];
-}
+export type CalculationImpact = components['schemas']['CalculationImpact'];
 
-export interface GrabSampleResponse {
-	inserted: number;
-	samples_created: number;
-	created_sample_ids: string[];
-	dry_run: boolean;
-	replaced: number;
-	/** Curated rows `mode: replace` left in place: flagged, withdrawn, or carrying a curve the
-	 *  request did not supply. The value entered at that replicate index was not written. */
-	kept_curated: number;
-	preview: GrabPreviewRow[];
-	existing_groups: GrabExistingGroup[];
-	/** Reported on dry_run too: the calculations this save re-runs and the columns that move. */
-	calculations: CalculationImpact[];
-}
+export type GrabSampleResponse = components['schemas']['GrabSampleResponse'];
 
 export const saveGrabSample = (req: GrabSampleRequest) =>
 	POST<GrabSampleResponse>(`${SERVICE}/grab_samples`, req);
@@ -2609,46 +1507,27 @@ export type OverlapPolicy = 'skip_if_running' | 'allow_concurrent';
 export type CatchupPolicy = 'run_once' | 'skip';
 
 export type TunableSpec = components['schemas']['TunableSpec'];
+export type Schedule = components['schemas']['ScheduleResponse'];
 
-export interface Schedule {
-	job_name: string;
-	enabled: boolean;
-	interval_seconds: number;
-	next_run_at: string | null;
-	last_enqueued_at: string | null;
-	overlap_policy: OverlapPolicy;
-	catchup_policy: CatchupPolicy;
-	tunables: Record<string, unknown>;
-	tunables_schema: TunableSpec[];
-	updated_by: string | null;
-	updated_at: string;
-	running: boolean;
-}
+export type ScheduleAuditEntry = components['schemas']['ChangeEntry'];
 
-export interface ScheduleAuditEntry {
-	changed_at: string;
-	changed_by: string | null;
-	old_value: Record<string, unknown>;
-	new_value: Record<string, unknown>;
-}
-
-export interface ScheduleUpdate {
-	enabled?: boolean;
-	interval_seconds?: number;
-	overlap_policy?: OverlapPolicy;
-	catchup_policy?: CatchupPolicy;
-	tunables?: Record<string, unknown>;
-}
+export type ScheduleUpdate = components['schemas']['ScheduleUpdate'];
 
 export type RunNowResponse = components['schemas']['RunNowResponse'];
 
-export const listSchedules = () => GET<Schedule[]>(`${ADMIN}/schedules`);
+// The schedules entity mounts read and update only: a row per registered job is inserted at boot,
+// so a create or a delete has no meaning. A deployment carries one row per job, so the whole list
+// is one page.
+export const listSchedules = () =>
+	getList<Schedule>(`${ADMIN}/schedules`, { perPage: 200, sort: ['job_name', 'ASC'] }).then(
+		(r) => r.data,
+	);
 
 export const getSchedule = (jobName: string) =>
 	GET<Schedule>(`${ADMIN}/schedules/${encodeURIComponent(jobName)}`);
 
 export const updateSchedule = (jobName: string, body: ScheduleUpdate) =>
-	PATCH<Schedule>(`${ADMIN}/schedules/${encodeURIComponent(jobName)}`, body);
+	PUT<Schedule>(`${ADMIN}/schedules/${encodeURIComponent(jobName)}`, body);
 
 export const runScheduleNow = (jobName: string) =>
 	POST<RunNowResponse>(`${ADMIN}/schedules/${encodeURIComponent(jobName)}/run_now`);
@@ -2658,13 +1537,7 @@ export const getScheduleAudit = (jobName: string) =>
 
 export type ParameterStatistics = components['schemas']['ParameterStatistics'];
 
-export interface SiteStatisticsResponse {
-	site: { id: string; name: string };
-	start: string;
-	end?: string | null;
-	measurement_type: 'continuous' | 'spot';
-	parameters: ParameterStatistics[];
-}
+export type SiteStatisticsResponse = components['schemas']['StatisticsResponse'];
 
 export const getSiteStatistics = (
 	siteId: string,
@@ -2677,12 +1550,6 @@ export const getSiteStatistics = (
 ) => GET<SiteStatisticsResponse>(`${ADMIN}/sites/${siteId}/statistics`, params);
 
 /** One calculation a set of parameters feeds, and the outputs it rewrites. */
-export interface CalculationImpact {
-	tool: string;
-	label: string;
-	reads: { parameter_id: string; parameter_code: string }[];
-	outputs: { parameter_id: string; parameter_code: string }[];
-}
 
 export type SlotCoverage = components['schemas']['SlotCoverage'];
 
@@ -2712,81 +1579,22 @@ export type EditOptionKind =
 	| 'verify'
 	| 'reject';
 
-export interface EditRowProvenance {
-	has_tool_run: boolean;
-	slot_detached: boolean;
-	classification: string;
-	has_standard_curve: boolean;
-	has_calibration: boolean;
-	has_deployment: boolean;
-	is_flagged: boolean;
-	withdrawn: boolean;
-	unverified: boolean;
-}
+export type EditRowProvenance = components['schemas']['RowProvenance'];
 
-export interface InspectedRow {
-	stream_id: string;
-	time: string;
-	replicate_index: number;
-	raw_value: number;
-	provenance: EditRowProvenance;
-	options: EditOptionKind[];
-	tool_run_id?: string;
-}
+export type InspectedRow = components['schemas']['InspectedRow'];
 
 /** A stream, a slot and window, or explicit keys. Naming nothing is refused. */
-export interface EditSelection {
-	stream_id?: string;
-	collection_event_id?: string;
-	site_id?: string;
-	parameter_id?: string;
-	from?: string;
-	to?: string;
-	/** `value` corrects that key alone, so a block of cells is one decision rather than one each. */
-	keys?: {
-		stream_id: string;
-		time: string;
-		replicate_index?: number | null;
-		value?: number;
-	}[];
-}
+export type EditSelection = components['schemas']['Selection'];
 
-export interface EditDecisionBody {
-	kind: EditOptionKind;
-	value?: number;
-	target_id?: string;
-	reason?: string;
-}
+export type EditDecisionBody = components['schemas']['EditDecision'];
 
-export interface MovedRow {
-	stream_id: string;
-	time: string;
-	replicate_index: number;
-	before: Record<string, unknown>;
-	after: Record<string, unknown>;
-}
+export type MovedRow = components['schemas']['MovedRow'];
 
-export interface MovedSample {
-	sample_id: string;
-	before: Record<string, unknown>;
-	after: Record<string, unknown>;
-}
+export type MovedSample = components['schemas']['MovedSample'];
 
-export interface EditPreviewResponse {
-	preview_id: string;
-	rows: MovedRow[];
-	samples: MovedSample[];
-	calculations: CalculationImpact[];
-	/** What the preview does not compute, named rather than left to be assumed. */
-	not_previewed: string[];
-}
+export type EditPreviewResponse = components['schemas']['PreviewResponse'];
 
-export interface EditCommitResponse {
-	rows_decided: number;
-	decision_ids: string[];
-	/** The set the decisions were recorded under, which is what undoes them as one act. */
-	set_id: string;
-}
+export type EditCommitResponse = components['schemas']['EditResponse'];
 
 export const inspectEdits = (selection: EditSelection) =>
 	POST<{ rows: InspectedRow[] }>(`${SERVICE}/readings/edits/inspect`, { selection });
@@ -2809,34 +1617,12 @@ export const rollbackEditSet = (setId: string) =>
 		{},
 	);
 
-export interface ToolRunReload {
-	tool: string;
-	body: Record<string, unknown>;
-	constants: Record<string, unknown>;
-	curves: Record<string, unknown>[];
-}
+export type ToolRunReload = components['schemas']['ReloadResponse'];
 
 export const reloadToolRun = (runId: string) =>
 	GET<ToolRunReload>(`${SERVICE}/tool_runs/${runId}/reload`);
 
-export interface ReadingDecision {
-	id: string;
-	stream_id: string;
-	time: string;
-	replicate_index?: number | null;
-	kind: string;
-	old: Record<string, unknown>;
-	new: Record<string, unknown>;
-	actor: string;
-	at: string;
-	reason?: string;
-	origin: string;
-	supersedes?: string | null;
-	rolled_back_by?: string | null;
-	set_id?: string | null;
-	/** Whether the rollback endpoint accepts this kind; absent on an API that predates the field. */
-	reversible?: boolean;
-}
+export type ReadingDecision = components['schemas']['DecisionRow'];
 
 export const getReadingDecisions = (key: {
 	stream_id: string;

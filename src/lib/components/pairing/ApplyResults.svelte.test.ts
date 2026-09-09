@@ -16,6 +16,7 @@ const stored = {
 	streams_paired: 1891,
 	readings_backfilled: 2_400_000,
 	curves_assigned: 0,
+	streams_skipped: 0,
 };
 
 describe('ApplyResults', () => {

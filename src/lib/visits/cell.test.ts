@@ -105,7 +105,7 @@ function eventCell(parameterId: string, streamId: string, record: EventCell['rec
 function recordFor(streamId: string): NonNullable<EventCell['record']> {
 	return {
 		origin: { stream_id: streamId, source_system: 'grab_sample', source_key: 'k', classification: 'manual' },
-		readings: [{ replicate_index: 0, raw_value: 1, is_flagged: false }],
+		readings: [{ replicate_index: 0, unverified: false, raw_value: 1, is_flagged: false }],
 		chain: {},
 		holds: [],
 	};
