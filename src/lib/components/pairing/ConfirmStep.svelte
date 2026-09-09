@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { base } from '$app/paths';
 	import type { PairingPlan } from '$api/service';
-	import type { Creations, SiteCreation } from '$lib/pairing/planGroups';
+	import type { Creations, InstrumentBinding, SiteCreation } from '$lib/pairing/planGroups';
 	import Button from '$components/ui/Button.svelte';
 	import { formatCount } from '$lib/format';
 
@@ -12,7 +12,7 @@
 		summary,
 		reviewProgress,
 		familySummary,
-		planDeviceCount,
+		instruments,
 		openInstrumentQuestions,
 		created,
 		onsiteattribute,
@@ -47,7 +47,8 @@
 			selfValidatedPct: number;
 		};
 		familySummary: { streams: number; columns: number };
-		planDeviceCount: number;
+		/** Every instrument the plan binds, minted at registration or created by the apply. */
+		instruments: InstrumentBinding[];
 		openInstrumentQuestions: number;
 		/** What the apply will create, as rows: a count says how many, only these say which. */
 		created: Creations;
@@ -139,11 +140,38 @@
 				summary.newParams,
 				created.parameters.map((p) => (p.units ? `${p.name} (${p.units})` : p.name)),
 			)}
-			{@render countCard('Create instruments', plan.summary.instruments_to_create, created.instruments)}
-			{#if planDeviceCount > 0}
-				<div class="p-3 bg-brand-bg rounded" title="Each device is attached to its feeds and deployed at its site, one deployment per parameter it serves">
-					<span class="text-brand-muted block text-xs">Attach devices</span>
-					<span class="text-lg font-semibold">{planDeviceCount}</span>
+			<!-- The source's own categories. A group is created once and every column of its
+			     category is placed in it, at the position the registry gives. -->
+			{#if created.groups.length > 0}
+				{@render countCard(
+					'Create parameter groups',
+					created.groups.length,
+					created.groups.map(
+						(g) => `${g.label} · ${g.members.length} parameter${g.members.length === 1 ? '' : 's'}`,
+					),
+				)}
+			{/if}
+			{#if instruments.length > 0}
+				<div class="p-3 bg-brand-bg rounded" title="Each instrument is attached to its feeds and deployed at its site, one deployment per parameter it serves">
+					<span class="text-brand-muted block text-xs">Instruments</span>
+					<details>
+						<summary class="cursor-pointer list-none">
+							<span class="text-lg font-semibold text-brand-primary">{formatCount(instruments.length)}</span>
+							<span class="text-[11px] text-brand-muted ml-1">which?</span>
+						</summary>
+						<ul class="mt-1 space-y-0.5 text-xs list-none p-0 max-h-40 overflow-y-auto">
+							{#each instruments as i (i.name)}
+								<li class="text-brand-muted">
+									{i.name}
+									<span class="opacity-75">
+										&middot; {i.parameters.join(', ')} at {i.siteCount} site{i.siteCount === 1 ? '' : 's'}
+									</span>
+									{#if i.create}<span class="text-brand-primary">&middot; created by this apply</span>{/if}
+									{#if i.defaulted}<span class="text-brand-primary">&middot; named at registration, not a device</span>{/if}
+								</li>
+							{/each}
+						</ul>
+					</details>
 				</div>
 			{/if}
 			{#if summary.warnings > 0}

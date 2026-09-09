@@ -25,6 +25,8 @@
 		['Parameters created', String(result.parameters_created)],
 		['Site-parameters created', String(result.site_parameters_created)],
 		['Instruments created', String(result.instruments_created)],
+		['Parameter groups created', String(result.groups_created ?? 0)],
+		['Parameters placed in a group', String(result.group_members_created ?? 0)],
 		['Streams paired', formatCount(result.streams_paired)],
 		['Readings backfilled', formatCount(result.readings_backfilled)],
 	]);

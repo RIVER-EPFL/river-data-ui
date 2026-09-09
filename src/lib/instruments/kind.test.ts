@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { inUseCell, kindOf, kindLabel, isBookkeeping, measuringInstruments } from './kind';
+import {
+	inUseCell,
+	kindOf,
+	kindLabel,
+	isBookkeeping,
+	measuringInstruments,
+	provenanceOf,
+} from './kind';
 
 const sensor = (kind: string | undefined, is_lab_instrument = false) =>
 	({ kind, is_lab_instrument }) as never;
@@ -67,5 +74,36 @@ describe('inUseCell', () => {
 			'No curves'
 		);
 		expect(inUseCell(row({ is_lab_instrument: false }), null, relative).text).toBe('Undeployed');
+	});
+});
+
+describe('instrument provenance', () => {
+	const row = (over: Record<string, unknown> = {}) =>
+		({ source_key: null, metadata: null, ...over }) as never;
+
+	it('reports the register key that tells two same-named rows apart', () => {
+		expect(provenanceOf(row({ source_key: 'sensor_inventory:87' })).key).toBe(
+			'sensor_inventory:87',
+		);
+	});
+
+	it('takes the portal register dates the inventory supplies', () => {
+		const p = provenanceOf(
+			row({
+				source_key: 'sensor_inventory:87',
+				metadata: { installation_date: '2021-06-14', in_field: true },
+			}),
+		);
+		expect(p.installed).toBe('2021-06-14');
+		expect(p.inField).toBe(true);
+	});
+
+	it('says nothing where the source said nothing', () => {
+		expect(provenanceOf(row())).toEqual({ key: null, installed: null, inField: null });
+		expect(provenanceOf(row({ metadata: { installation_date: null, in_field: null } }))).toEqual({
+			key: null,
+			installed: null,
+			inField: null,
+		});
 	});
 });

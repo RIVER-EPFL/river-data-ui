@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import type { PairingPlanEntry } from '$api/service';
+import type { Parameter } from '$api/crud';
 import {
 	creations,
 	familySummary,
+	instrumentBindings,
 	instrumentGroups,
+	parameterIndex,
 	paramGroups,
 	sdDecisions,
 	siteGroups,
@@ -225,17 +228,149 @@ describe('creations', () => {
 			{ name: 'Depth', units: 'mm', siteCount: 2 },
 		]);
 	});
+});
 
-	it('lists an instrument once per instrument, not once per entry', () => {
-		const proposal = { id: null, name: 'DOC', source_key: 'cnet:DOC', create: true } as never;
-		const made = creations([
-			entry({ stream_id: 'a', instrument: proposal }),
-			entry({ stream_id: 'b', instrument: proposal }),
+describe('instrumentBindings', () => {
+	const bound = (over: Record<string, unknown> = {}) =>
+		({
+			id: 'sensor-doc',
+			name: 'DOC',
+			source_key: 'cnet:DOC',
+			create: false,
+			defaulted: false,
+			...over,
+		}) as never;
+
+	it('counts an instrument once however many streams and sites it serves', () => {
+		const rows = instrumentBindings([
+			entry({ stream_id: 'a', instrument: bound() }),
 			entry({
-				stream_id: 'c',
-				instrument: { id: 'existing', name: 'Probe', source_key: 'cnet:P', create: false } as never,
+				stream_id: 'b',
+				instrument: bound(),
+				site: { ...entry().site, name: 'Saxon' },
 			}),
 		]);
-		expect(made.instruments).toEqual(['DOC']);
+		expect(rows).toEqual([
+			{
+				name: 'DOC',
+				streamCount: 2,
+				siteCount: 2,
+				parameters: ['Depth'],
+				create: false,
+				defaulted: false,
+			},
+		]);
+	});
+
+	it('keeps the instruments that already exist, not only the ones the apply mints', () => {
+		const rows = instrumentBindings([
+			entry({ stream_id: 'a', instrument: bound() }),
+			entry({
+				stream_id: 'b',
+				instrument: bound({ id: null, name: 'TSS', source_key: 'cnet:TSS', create: true }),
+			}),
+		]);
+		expect(rows.map((r) => [r.name, r.create])).toEqual([
+			['DOC', false],
+			['TSS', true],
+		]);
+	});
+
+	it('carries the registration default through, so the review can single it out', () => {
+		const rows = instrumentBindings([
+			entry({ instrument: bound({ defaulted: true }) }),
+		]);
+		expect(rows[0].defaulted).toBe(true);
+	});
+
+	it('leaves out skipped entries and entries with no instrument', () => {
+		expect(
+			instrumentBindings([
+				entry({ stream_id: 'a', action: 'skip', instrument: bound() }),
+				entry({ stream_id: 'b', instrument: null }),
+			]),
+		).toEqual([]);
+	});
+
+	it('resolves a catalog parameter by code, name or alias, first claim keeping the name', () => {
+		const params = [
+			{ id: 'a', code: 'DOC', name: 'Dissolved organic carbon', aliases: ['doc_ppb'] },
+			{ id: 'b', code: 'doc_ppb', name: 'Second claimant', aliases: [] },
+		] as unknown as Parameter[];
+		const index = parameterIndex(params);
+		expect(index.get('doc')?.id).toBe('a');
+		expect(index.get('dissolved organic carbon')?.id).toBe('a');
+		expect(index.get('doc_ppb')?.id).toBe('a');
+		expect(index.get('unknown')).toBeUndefined();
+	});
+
+	it('reports the precision a group declares, and says so when its streams disagree', () => {
+		const withPlaces = (places: number | null, over: Partial<PairingPlanEntry> = {}) =>
+			entry({ decimal_places: places, ...over } as Partial<PairingPlanEntry>);
+		expect(paramGroups([withPlaces(2), withPlaces(2)])[0]).toMatchObject({
+			decimalPlaces: 2,
+			decimalPlacesMixed: false,
+		});
+		expect(paramGroups([withPlaces(2), withPlaces(4)])[0]).toMatchObject({
+			decimalPlaces: null,
+			decimalPlacesMixed: true,
+		});
+		expect(paramGroups([withPlaces(null)])[0]).toMatchObject({
+			decimalPlaces: null,
+			decimalPlacesMixed: false,
+		});
+	});
+
+	it('collects a group once behind every column of its category, in the registry order', () => {
+		const withGroup = (param: string, ordinal: number) =>
+			entry({
+				parameter: {
+					id: null,
+					name: param,
+					label: null,
+					create: true,
+					units: '-',
+					group_key: null,
+					group: {
+						id: null,
+						code: 'field_data',
+						label: 'Field data',
+						ordinal,
+						role: 'measured',
+						description: null,
+						create: true,
+					},
+					original_names: [],
+				},
+			} as Partial<PairingPlanEntry>);
+		const made = creations([withGroup('Field_BP', 8), withGroup('WTW_pH_1', 3)]);
+		expect(made.groups).toEqual([
+			{ code: 'field_data', label: 'Field data', members: ['WTW_pH_1', 'Field_BP'] },
+		]);
+	});
+
+	it('proposes no group for a source that declares none, or one that already exists', () => {
+		expect(creations([entry()]).groups).toEqual([]);
+		const existing = entry({
+			parameter: {
+				id: null,
+				name: 'Depth',
+				label: null,
+				create: true,
+				units: 'mm',
+				group_key: null,
+				group: {
+					id: 'group-1',
+					code: 'field_data',
+					label: 'Field data',
+					ordinal: 1,
+					role: 'measured',
+					description: null,
+					create: false,
+				},
+				original_names: [],
+			},
+		} as Partial<PairingPlanEntry>);
+		expect(creations([existing]).groups).toEqual([]);
 	});
 });

@@ -56,6 +56,8 @@
 		goToParam,
 		replicateChip,
 		replicateRouting,
+		valuesChip,
+		streamPreview,
 	}: {
 		planEntries: PairingPlanEntry[];
 		siteGroups: SiteGroup[];
@@ -103,6 +105,9 @@
 		/** The replicate marks, shared with the Parameters tab, so they are defined once. */
 		replicateChip: Snippet<[string, PlanReplicateSummary, string]>;
 		replicateRouting: Snippet<[PlanReplicateSummary, string]>;
+		/** The preview handle and body a row without a replicate family carries instead. */
+		valuesChip: Snippet<[string]>;
+		streamPreview: Snippet<[string]>;
 	} = $props();
 </script>
 
@@ -132,7 +137,10 @@
 			{@const allSkip = group.skipCount === group.entries.length}
 			{@const isExpanded = expandedSites.has(group.siteName)}
 			{@const siteMatched = existingSites.find((s) => s.name.toLowerCase() === group.siteName.toLowerCase())}
-			<div class="flex items-center border-b border-brand-divider hover:bg-brand-bg/50 {allSkip ? 'opacity-50' : ''}">
+			<div
+				id="site-row-{group.siteName}"
+				class="flex items-center border-b border-brand-divider hover:bg-brand-bg/50 {allSkip ? 'opacity-50' : ''}"
+			>
 				<button onclick={() => toggleExpand(group.siteName)} aria-label={isExpanded ? 'Collapse site group' : 'Expand site group'} class="px-3 py-2 bg-transparent border-none cursor-pointer text-brand-muted text-xs w-6">{isExpanded ? '▼' : '▶'}</button>
 				<div class="flex-1 py-2 min-w-0">
 					{#if editingSite === group.siteName}
@@ -300,6 +308,8 @@
 							{/if}
 							{#if entryReplicates}
 								{@render replicateChip(entry.stream_id, entryReplicates, entry.stream_id)}
+							{:else}
+								{@render valuesChip(entry.stream_id)}
 							{/if}
 						</div>
 						<!-- Only where the divisor is still in question: a family nothing disputes
@@ -350,9 +360,13 @@
 							title="Pair or skip this stream"
 						/>
 					</div>
-					{#if entryReplicates && expandedReplicates.has(entry.stream_id)}
+					{#if expandedReplicates.has(entry.stream_id)}
 						<div class="pl-12 pr-2 py-1.5 border-b border-brand-divider bg-brand-bg/30">
-							{@render replicateRouting(entryReplicates, entry.stream_id)}
+							{#if entryReplicates}
+								{@render replicateRouting(entryReplicates, entry.stream_id)}
+							{:else}
+								{@render streamPreview(entry.stream_id)}
+							{/if}
 						</div>
 					{/if}
 				{/each}

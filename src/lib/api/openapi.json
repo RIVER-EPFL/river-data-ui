@@ -1893,6 +1893,17 @@
             "minimum": 0,
             "type": "integer"
           },
+          "group_members_created": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "groups_created": {
+            "description": "Parameter groups the source's registry named that the database did not hold, and the\nmemberships placed in them.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
           "instruments_created": {
             "format": "int32",
             "minimum": 0,
@@ -1943,6 +1954,8 @@
           "streams_skipped",
           "instruments_created",
           "curves_assigned",
+          "groups_created",
+          "group_members_created",
           "readings_backfilled"
         ],
         "type": "object"
@@ -10687,6 +10700,10 @@
       },
       "PairingPlan": {
         "properties": {
+          "accepted_objects": {
+            "$ref": "#/components/schemas/PlanAcceptedObjects",
+            "description": "The objects the review has accepted, `[{key, accepted_by, accepted_at}]`. One decision\nbehind however many rows name it, so it is recorded here and not read back off the rows."
+          },
           "applied_at": {
             "format": "date-time",
             "type": [
@@ -10748,6 +10765,7 @@
           "summary",
           "entries",
           "curve_assignments",
+          "accepted_objects",
           "version",
           "created_at",
           "applied_at",
@@ -10788,6 +10806,10 @@
       },
       "PairingPlanList": {
         "properties": {
+          "accepted_objects": {
+            "$ref": "#/components/schemas/PlanAcceptedObjects",
+            "description": "The objects the review has accepted, `[{key, accepted_by, accepted_at}]`. One decision\nbehind however many rows name it, so it is recorded here and not read back off the rows."
+          },
           "applied_at": {
             "format": "date-time",
             "type": [
@@ -10849,6 +10871,7 @@
           "summary",
           "entries",
           "curve_assignments",
+          "accepted_objects",
           "version",
           "created_at",
           "applied_at",
@@ -10858,6 +10881,10 @@
       },
       "PairingPlanResponse": {
         "properties": {
+          "accepted_objects": {
+            "$ref": "#/components/schemas/PlanAcceptedObjects",
+            "description": "The objects the review has accepted, `[{key, accepted_by, accepted_at}]`. One decision\nbehind however many rows name it, so it is recorded here and not read back off the rows."
+          },
           "applied_at": {
             "format": "date-time",
             "type": [
@@ -10919,6 +10946,7 @@
           "summary",
           "entries",
           "curve_assignments",
+          "accepted_objects",
           "version",
           "created_at",
           "applied_at",
@@ -12299,6 +12327,37 @@
         },
         "type": "object"
       },
+      "PlanAcceptedObject": {
+        "description": "A project, site or parameter the review agreed to, keyed `{kind}:{name}` the way the card\nnames it. Recorded because it is one decision behind many rows, and no row can carry it.",
+        "properties": {
+          "accepted_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "accepted_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "accepted_by",
+          "accepted_at"
+        ],
+        "type": "object"
+      },
+      "PlanAcceptedObjects": {
+        "description": "The objects the review has accepted, as the column holds them.",
+        "items": {
+          "$ref": "#/components/schemas/PlanAcceptedObject"
+        },
+        "type": "array"
+      },
       "PlanCurveAssignment": {
         "description": "One standard curve the source has replicated, and the instrument it is currently fitted on.\nRe-homing is a curve-level decision, so the curves are listed in their own right rather than\nonly inside the instrument that happens to own them.",
         "properties": {
@@ -12775,6 +12834,53 @@
         ],
         "type": "object"
       },
+      "PlanGroupRef": {
+        "description": "The parameter group a column belongs to, as the source's own registry places it.\n\nA group is one decision behind every column of its category, so the plan carries it on each\nentry and the apply creates it once. `ordinal` is the member's position within the group, which\nis the registry's own order.",
+        "properties": {
+          "code": {
+            "description": "The group's stable code, slugged from the label the source gives it.",
+            "type": "string"
+          },
+          "create": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "ordinal": {
+            "description": "The member's position within the group.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "role": {
+            "description": "`measured` | `entry_only` | `output`, as the source's calculations make it.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "label",
+          "ordinal",
+          "role",
+          "description",
+          "create"
+        ],
+        "type": "object"
+      },
       "PlanInstrumentGroup": {
         "description": "One instrument decision in a pairing plan: the instrument, what it covers, and the curves it\nowns. Only instruments the plan actually binds are listed; the rest of the inventory is\nreachable through the picker, so this stays a list of decisions rather than a catalog.",
         "properties": {
@@ -12900,6 +13006,10 @@
             },
             "type": "array"
           },
+          "defaulted": {
+            "description": "The instrument row was minted by stream registration rather than named by the source or an\noperator (`sensors.metadata.minted_from_stream`). It is the one a review may want to\nreplace with the real device.",
+            "type": "boolean"
+          },
           "id": {
             "description": "The resolved instrument, or None when one has to be created.",
             "format": "uuid",
@@ -12942,6 +13052,7 @@
           "source_key",
           "resolved_by",
           "create",
+          "defaulted",
           "confirmed",
           "stamps_readings",
           "curves"
@@ -13004,10 +13115,37 @@
         ],
         "type": "object"
       },
+      "PlanObjectUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted": {
+            "type": "boolean"
+          },
+          "key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "accepted"
+        ],
+        "type": "object"
+      },
       "PlanParamRef": {
         "properties": {
           "create": {
             "type": "boolean"
+          },
+          "group": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PlanGroupRef",
+                "description": "The parameter group the source's registry places this column in, resolved against the\ngroups that already exist. Absent where the source declares no category."
+              }
+            ]
           },
           "group_key": {
             "type": [
@@ -13048,6 +13186,7 @@
           "name",
           "create",
           "units",
+          "group",
           "original_names"
         ],
         "type": "object"
@@ -13288,6 +13427,11 @@
             "minimum": 0,
             "type": "integer"
           },
+          "groups_to_create": {
+            "description": "Distinct parameter groups the source's registry names that the database does not hold.",
+            "minimum": 0,
+            "type": "integer"
+          },
           "instruments_to_create": {
             "description": "Distinct lab instruments the apply would create, and how many of those an operator has\nnot yet agreed to. Apply refuses while the second is non-zero.",
             "minimum": 0,
@@ -13353,6 +13497,7 @@
           "projects_to_create",
           "sites_to_create",
           "parameters_to_create",
+          "groups_to_create",
           "instruments_to_create",
           "instruments_unconfirmed",
           "unique_projects",
@@ -23024,6 +23169,13 @@
             "description": "The version the client read. The write is refused if the plan has moved on since.",
             "format": "int32",
             "type": "integer"
+          },
+          "objects": {
+            "description": "Objects the review has accepted or taken back, `{kind}:{name}` as the card names them.",
+            "items": {
+              "$ref": "#/components/schemas/PlanObjectUpdate"
+            },
+            "type": "array"
           },
           "updates": {
             "items": {

@@ -659,6 +659,10 @@ export type PlanCurveAssignment = components['schemas']['PlanCurveAssignment'];
 // an instrument.
 export type PlanCurveUpdate = components['schemas']['PlanCurveUpdate'];
 
+// One object decision the review takes: a project, site or parameter the plan creates, keyed the
+// way the card names it.
+export type PlanObjectUpdate = components['schemas']['PlanObjectUpdate'];
+
 // One physical device the plan's feeds name, and the channels it serves at one site. Not a
 // decision: the serial is the identity, and pairing attaches it and opens the site slot's
 // deployment.
@@ -676,11 +680,13 @@ export const updatePairingPlan = (
 	expectedVersion: number,
 	updates: PlanEntryUpdate[],
 	curves: PlanCurveUpdate[] = [],
+	objects: PlanObjectUpdate[] = [],
 ) =>
 	PATCH<PairingPlan>(`${ADMIN}/sync/pairing-plans/${id}`, {
 		expected_version: expectedVersion,
 		updates,
 		curves,
+		objects,
 	});
 
 // A plan-wide decision: the server selects on the predicate and applies the action, so the round

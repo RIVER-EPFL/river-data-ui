@@ -6,6 +6,7 @@
 	import { recalibrateCalibration, rollbackDeployment, reprocessSensor, retagSensorFrequency, getCalibrationCandidates, previewCalibrationRetirement, retireCalibration, unretireCalibration, type CalibrationRetirement } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatDateTime, formatDate, toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
+	import { provenanceOf } from '$lib/instruments/kind';
 	import { formatEquation } from '$lib/standardCurves';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import Button from '$components/ui/Button.svelte';
@@ -28,6 +29,7 @@
 	import { formatCount } from '$lib/format';
 
 	let sensor = $state<Sensor | null>(null);
+	const provenance = $derived(provenanceOf(sensor ?? { source_key: null, metadata: null }));
 	let calibrations = $state<SensorCalibration[]>([]);
 	let deployments = $state<SensorDeployment[]>([]);
 	let sites = $state<Site[]>([]);
@@ -479,6 +481,20 @@
 					<div><span class="text-brand-muted block">Name</span>{sensor.name ?? 'None'}</div>
 					<div><span class="text-brand-muted block">Manufacturer</span>{sensor.manufacturer ?? 'None'}</div>
 					<div><span class="text-brand-muted block">Model</span>{sensor.model ?? 'None'}</div>
+					{#if provenance.key}
+						<div>
+							<span class="text-brand-muted block" title="The key its source knows this row by, and what tells two rows of the same name apart">Source key</span>
+							<span class="font-mono text-xs">{provenance.key}</span>
+						</div>
+					{/if}
+					{#if provenance.installed || provenance.inField !== null}
+						<div>
+							<span class="text-brand-muted block">Its register says</span>
+							{#if provenance.installed}installed {formatDate(provenance.installed)}{/if}
+							{#if provenance.installed && provenance.inField !== null}, {/if}
+							{#if provenance.inField !== null}{provenance.inField ? 'in the field' : 'not in the field'}{/if}
+						</div>
+					{/if}
 				</div>
 				{#if sensor.notes}
 					<div><span class="text-sm text-brand-muted block">Notes</span><p class="text-sm">{sensor.notes}</p></div>

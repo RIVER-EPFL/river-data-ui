@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import type { PairingPlanEntry } from '$api/service';
-import { acceptedKeys, entriesSettledBy, objectDecisions, objectKeys } from './objectDecisions';
+import {
+	acceptHint,
+	acceptedKeys,
+	entriesSettledBy,
+	objectDecisions,
+	objectKeys,
+} from './objectDecisions';
 
 function entry(over: Partial<PairingPlanEntry> = {}): PairingPlanEntry {
 	return {
@@ -57,6 +63,13 @@ describe('pairing object decisions', () => {
 		expect(entriesSettledBy(entries, 'site:FP1', new Set(['project:CNET']))).toEqual(entries);
 	});
 
+	it('never refuses an accept for want of a row to tick', () => {
+		const [project] = objectDecisions([site('FP1'), site('FP2')]);
+		expect(project?.settles).toBe(0);
+		expect(acceptHint(project!)).toContain('Record CNET as accepted');
+		expect(acceptHint({ ...project!, accepted: true })).toContain('take that back');
+	});
+
 	it('leaves a row carrying its own warning to be read, whatever is accepted', () => {
 		const warned = site('FP1', {
 			warnings: [{ kind: 'units_mismatch', message: 'mm vs m' }],
@@ -64,14 +77,41 @@ describe('pairing object decisions', () => {
 		expect(entriesSettledBy([warned], 'site:FP1', new Set(['project:CNET']))).toEqual([]);
 	});
 
-	it('reads an object as accepted once the rows it alone held are ticked', () => {
-		const entries = [
-			entry({ project: { id: 'p', name: 'CNET', create: false }, acknowledged: true } as Partial<PairingPlanEntry>),
-			entry({ project: { id: 'p', name: 'CNET', create: false } }),
-		];
+	it('reads an object as accepted from the plan, not from the rows it settles', () => {
+		const entries = [entry({ project: { id: 'p', name: 'CNET', create: false } })];
 		expect(acceptedKeys(objectDecisions(entries))).toEqual(new Set());
-		entries[1]!.acknowledged = true;
-		expect(acceptedKeys(objectDecisions(entries))).toEqual(new Set(['site:FP1']));
+		expect(acceptedKeys(objectDecisions(entries, ['site:FP1']))).toEqual(new Set(['site:FP1']));
+	});
+
+	it('offers every object of a first import, where each row creates all three', () => {
+		const entries = ['FP1', 'FP2'].flatMap((s) =>
+			['DOC', 'Depth'].map((p) =>
+				site(s, { parameter: { id: null, name: p, label: null, create: true, units: 'ppb', group_key: null, group: null, original_names: [] } } as Partial<PairingPlanEntry>),
+			),
+		);
+		const decisions = objectDecisions(entries);
+		expect(decisions).toHaveLength(5);
+		expect(decisions.every((d) => !d.accepted)).toBe(true);
+
+		// Accepting in any order records the decision; the rows tick when their last object lands.
+		const accepted = new Set<string>();
+		for (const key of ['project:CNET', 'site:FP1', 'parameter:DOC']) {
+			expect(entriesSettledBy(entries, key, accepted)).toHaveLength(
+				key === 'parameter:DOC' ? 1 : 0,
+			);
+			accepted.add(key);
+		}
+		expect(objectDecisions(entries, accepted).filter((d) => d.accepted)).toHaveLength(3);
+	});
+
+	it('offers Accept as the decision it is, never as the creation the apply makes', () => {
+		const [one] = objectDecisions([site('FP1', { project: { id: 'p', name: 'CNET', create: false } })]);
+		expect(acceptHint(one!)).toBe('Record FP1 as accepted, and tick the 1 row it completes.');
+		const [two] = objectDecisions([
+			site('FP1', { project: { id: 'p', name: 'CNET', create: false } }),
+			site('FP1', { project: { id: 'p', name: 'CNET', create: false } }),
+		]);
+		expect(acceptHint(two!)).toBe('Record FP1 as accepted, and tick the 2 rows it completes.');
 	});
 
 	it('counts skipped rows against no decision', () => {

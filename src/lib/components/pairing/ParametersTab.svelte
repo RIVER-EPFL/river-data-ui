@@ -1,3 +1,8 @@
+<script module lang="ts">
+	/** Rows one page of the table holds, shared so a caller can turn to the page a row is on. */
+	export const PARAM_ROWS_PER_PAGE = 25;
+</script>
+
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 
@@ -77,6 +82,7 @@
 		ongoinstruments,
 		replicateChip,
 		replicateRouting,
+		paramPage = $bindable(0),
 	}: {
 		paramGroups: ParamGroup[];
 		/** How many sites the plan covers, which is the scope a change here applies over. */
@@ -133,11 +139,25 @@
 		/** The replicate marks, shared with the Sites tab, so they are defined once. */
 		replicateChip: Snippet<[string, PlanReplicateSummary, string]>;
 		replicateRouting: Snippet<[PlanReplicateSummary, string]>;
+		/** The page of parameter rows on show, held by the page so it can turn to a row. */
+		paramPage: number;
 	} = $props();
 
 	function focusOnMount(node: HTMLInputElement) {
 		node.focus();
 	}
+
+	// The Map-to dropdown offers the same two lists on every row, so the list of parameters this
+	// plan would create is built once rather than filtered per row against the whole catalog.
+	const createdGroups = $derived(paramGroups.filter((p) => !matchParam(p.name)));
+
+	// A hundred rows each carrying a catalog-sized dropdown is tens of thousands of options in one
+	// paint, so the rows are paged the way the Sites tab pages its own.
+	const totalPages = $derived(Math.max(1, Math.ceil(paramGroups.length / PARAM_ROWS_PER_PAGE)));
+	const page = $derived(Math.min(paramPage, totalPages - 1));
+	const pagedGroups = $derived(
+		paramGroups.slice(page * PARAM_ROWS_PER_PAGE, (page + 1) * PARAM_ROWS_PER_PAGE),
+	);
 </script>
 
 	<div class="flex flex-wrap items-baseline gap-2">
@@ -168,6 +188,7 @@
 				<th class="text-left px-3 py-2 font-semibold">Source name</th>
 				<th class="text-left px-3 py-2 font-semibold">Parameter name</th>
 				<th class="text-left px-3 py-2 font-semibold">Units</th>
+				<th class="text-left px-3 py-2 font-semibold">Decimals</th>
 				<th class="text-left px-3 py-2 font-semibold w-[240px]">Map to</th>
 				<th class="text-left px-3 py-2 font-semibold w-[260px]">Instrument</th>
 				<th class="text-left px-3 py-2 font-semibold">Status</th>
@@ -175,7 +196,7 @@
 				<th class="text-right px-3 py-2 font-semibold">Everywhere</th>
 			</tr></thead>
 			<tbody>
-				{#each paramGroups as pg}
+				{#each pagedGroups as pg}
 					{@const matched = matchParam(pg.name)}
 					{@const sd = sdDisputedByParam.get(pg.name)}
 					{@const status = groupStatus(pg)}
@@ -319,6 +340,17 @@
 								<button onclick={() => startEditUnits(pg.name, pg.units)} class="bg-transparent border-0 border-b border-dashed border-brand-muted cursor-pointer text-brand-muted hover:text-brand-primary hover:border-brand-primary">{pg.units || '--'}</button>
 							{/if}
 						</td>
+						<!-- The precision the apply writes onto a slot that declares none, which is what
+						     every published value of it is then expressed at. -->
+						<td class="px-3 py-2 text-xs">
+							{#if pg.decimalPlacesMixed}
+								<span class="text-severity-warning" title="This parameter's streams declare different precisions; each slot takes its own.">mixed</span>
+							{:else if pg.decimalPlaces !== null}
+								<span title="Declared by the source. Written onto a slot that declares none; an operator's declaration is never overwritten.">{pg.decimalPlaces}</span>
+							{:else}
+								<span class="text-brand-muted" title="The source declares no precision, so the slot publishes values as stored.">as stored</span>
+							{/if}
+						</td>
 						<td class="px-4 py-2">
 							<select
 								value={matched ? `db:${matched.id}` : newParamOption(pg.name, pg.units)}
@@ -342,7 +374,7 @@
 									{/each}
 								</optgroup>
 								<optgroup label="Will be created">
-									{#each paramGroups.filter((p) => !matchParam(p.name)) as newP}
+									{#each createdGroups as newP}
 										<option value={newParamOption(newP.name, newP.units)}>+ {newP.name} ({newP.units})</option>
 									{/each}
 								</optgroup>
@@ -410,3 +442,13 @@
 			</tbody>
 		</table>
 	</div>
+
+	{#if totalPages > 1}
+		<div class="flex items-center justify-between text-xs text-brand-muted">
+			<span>Page {page + 1} of {totalPages}, {formatCount(paramGroups.length)} parameters</span>
+			<div class="flex gap-1">
+				<Button size="sm" onclick={() => paramPage = Math.max(0, page - 1)} disabled={page === 0}>Prev</Button>
+				<Button size="sm" onclick={() => paramPage = Math.min(totalPages - 1, page + 1)} disabled={page >= totalPages - 1}>Next</Button>
+			</div>
+		</div>
+	{/if}

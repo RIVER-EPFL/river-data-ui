@@ -34,6 +34,15 @@ export function formatDateTime(date: string | Date): string {
 	});
 }
 
+/** Just the time of day, in the zone the preference names: for a mark that is read the same minute. */
+export function formatClockTime(date: string | Date): string {
+	return new Date(date).toLocaleTimeString(undefined, {
+		hour: '2-digit',
+		minute: '2-digit',
+		timeZone: timezoneStore.zone,
+	});
+}
+
 /**
  * A chart tooltip's instant, from epoch milliseconds: the same fields and the same browser locale
  * as `formatDateTime`, so a time in a tooltip reads as the time in the table beside it. `utc`

@@ -7719,6 +7719,14 @@ export interface components {
              */
             curves_assigned: number;
             /** Format: int32 */
+            group_members_created: number;
+            /**
+             * Format: int32
+             * @description Parameter groups the source's registry named that the database did not hold, and the
+             *     memberships placed in them.
+             */
+            groups_created: number;
+            /** Format: int32 */
             instruments_created: number;
             /** Format: int32 */
             parameters_created: number;
@@ -11045,6 +11053,11 @@ export interface components {
             stream: components["schemas"]["DataStream"];
         };
         PairingPlan: {
+            /**
+             * @description The objects the review has accepted, `[{key, accepted_by, accepted_at}]`. One decision
+             *     behind however many rows name it, so it is recorded here and not read back off the rows.
+             */
+            accepted_objects: components["schemas"]["PlanAcceptedObjects"];
             /** Format: date-time */
             applied_at: string | null;
             apply_result: null | components["schemas"]["ApplyResult"];
@@ -11077,6 +11090,11 @@ export interface components {
             summary: components["schemas"]["PlanSummary"];
         };
         PairingPlanList: {
+            /**
+             * @description The objects the review has accepted, `[{key, accepted_by, accepted_at}]`. One decision
+             *     behind however many rows name it, so it is recorded here and not read back off the rows.
+             */
+            accepted_objects: components["schemas"]["PlanAcceptedObjects"];
             /** Format: date-time */
             applied_at: string | null;
             apply_result: null | components["schemas"]["ApplyResult"];
@@ -11102,6 +11120,11 @@ export interface components {
             version: number;
         };
         PairingPlanResponse: {
+            /**
+             * @description The objects the review has accepted, `[{key, accepted_by, accepted_at}]`. One decision
+             *     behind however many rows name it, so it is recorded here and not read back off the rows.
+             */
+            accepted_objects: components["schemas"]["PlanAcceptedObjects"];
             /** Format: date-time */
             applied_at: string | null;
             apply_result: null | components["schemas"]["ApplyResult"];
@@ -11626,6 +11649,18 @@ export interface components {
             seconds?: number;
         };
         /**
+         * @description A project, site or parameter the review agreed to, keyed `{kind}:{name}` the way the card
+         *     names it. Recorded because it is one decision behind many rows, and no row can carry it.
+         */
+        PlanAcceptedObject: {
+            /** Format: date-time */
+            accepted_at: string;
+            accepted_by: string | null;
+            key: string;
+        };
+        /** @description The objects the review has accepted, as the column holds them. */
+        PlanAcceptedObjects: components["schemas"]["PlanAcceptedObject"][];
+        /**
          * @description One standard curve the source has replicated, and the instrument it is currently fitted on.
          *     Re-homing is a curve-level decision, so the curves are listed in their own right rather than
          *     only inside the instrument that happens to own them.
@@ -11838,6 +11873,29 @@ export interface components {
             stream_id: string;
         };
         /**
+         * @description The parameter group a column belongs to, as the source's own registry places it.
+         *
+         *     A group is one decision behind every column of its category, so the plan carries it on each
+         *     entry and the apply creates it once. `ordinal` is the member's position within the group, which
+         *     is the registry's own order.
+         */
+        PlanGroupRef: {
+            /** @description The group's stable code, slugged from the label the source gives it. */
+            code: string;
+            create: boolean;
+            description: string | null;
+            /** Format: uuid */
+            id: string | null;
+            label: string;
+            /**
+             * Format: int32
+             * @description The member's position within the group.
+             */
+            ordinal: number;
+            /** @description `measured` | `entry_only` | `output`, as the source's calculations make it. */
+            role: string;
+        };
+        /**
          * @description One instrument decision in a pairing plan: the instrument, what it covers, and the curves it
          *     owns. Only instruments the plan actually binds are listed; the rest of the inventory is
          *     reachable through the picker, so this stays a list of decisions rather than a catalog.
@@ -11892,6 +11950,12 @@ export interface components {
             curve_column: string | null;
             curves: components["schemas"]["PlanCurveRef"][];
             /**
+             * @description The instrument row was minted by stream registration rather than named by the source or an
+             *     operator (`sensors.metadata.minted_from_stream`). It is the one a review may want to
+             *     replace with the real device.
+             */
+            defaulted: boolean;
+            /**
              * Format: uuid
              * @description The resolved instrument, or None when one has to be created.
              */
@@ -11942,8 +12006,13 @@ export interface components {
             job_id: string | null;
             status: string;
         };
+        PlanObjectUpdate: {
+            accepted: boolean;
+            key: string;
+        };
         PlanParamRef: {
             create: boolean;
+            group: null | components["schemas"]["PlanGroupRef"];
             group_key?: string | null;
             /** Format: uuid */
             id: string | null;
@@ -12016,6 +12085,8 @@ export interface components {
         };
         PlanSummary: {
             acknowledged: number;
+            /** @description Distinct parameter groups the source's registry names that the database does not hold. */
+            groups_to_create: number;
             /**
              * @description Distinct lab instruments the apply would create, and how many of those an operator has
              *     not yet agreed to. Apply refuses while the second is non-zero.
@@ -15560,6 +15631,8 @@ export interface components {
              * @description The version the client read. The write is refused if the plan has moved on since.
              */
             expected_version: number;
+            /** @description Objects the review has accepted or taken back, `{kind}:{name}` as the card names them. */
+            objects?: components["schemas"]["PlanObjectUpdate"][];
             updates?: components["schemas"]["PlanEntryUpdate"][];
         };
         UpdatePrefsRequest: {

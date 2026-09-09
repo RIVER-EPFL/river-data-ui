@@ -10,7 +10,7 @@
 		applyPairingPlan, revertPairingPlan, pollJob, getUnpairedSummary, getPlanSiteMetadata,
 		replicateSpec, getPendingAuditSummary, getReconciliationCandidates, getStreamPreview, declareSdEstimator,
 		getPlanInstruments, listPairingPlans, supersedePairingPlan, getPairingPlan, bulkUpdatePairingPlan,
-		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type SdEstimator, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
+		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type PlanObjectUpdate, type SdEstimator, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
 		type PlanReplicateSummary, type StreamReceipt, type PlanWarning, type PlanInstrumentRef,
 		type PlanInstruments, type PlanInstrumentGroup, type PlanDeviceGroup, type PlanCurveAssignment,
 		type PairingPlanListing,
@@ -26,6 +26,8 @@
 		familySummary as planFamilySummary,
 		paramGroups as planParamGroups,
 		sdDecisions as planSdDecisions,
+		parameterIndex,
+		instrumentBindings as planInstrumentBindings,
 		type InstrumentDecision,
 		creations,
 		type ParamGroup,
@@ -37,14 +39,19 @@
 	import { createUrlTab } from '$lib/urlTab.svelte';
 	import { createDraftQueue } from '$lib/pairing/draftQueue';
 	import { entryStatus, estimatorScopeLabel, matchesFilter, reviewState, reviewStateLabel, statusLabel, type EntryFilter } from '$lib/pairing/entryStatus';
-	import { acceptedKeys, entriesSettledBy, objectDecisions, type ObjectDecision } from '$lib/pairing/objectDecisions';
+	import {
+		acceptHint,
+		entriesSettledBy,
+		objectDecisions,
+		type ObjectDecision,
+	} from '$lib/pairing/objectDecisions';
 	import PairSkipToggle from '$components/ui/PairSkipToggle.svelte';
 	import MappingSelect, { type MappingGroup } from '$components/ui/MappingSelect.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import ImportSensorDialog from '$components/streams/ImportSensorDialog.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import Badge from '$components/ui/Badge.svelte';
-	import { formatDateTime, formatSignificant } from '$lib/utils';
+	import { formatClockTime, formatDateTime, formatSignificant } from '$lib/utils';
 	import Button from '$components/ui/Button.svelte';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import ReplicateFamilyBadge from '$components/streams/ReplicateFamilyBadge.svelte';
@@ -56,7 +63,7 @@
 	import ApplyResults from '$components/pairing/ApplyResults.svelte';
 	import CurvesTab from '$components/pairing/CurvesTab.svelte';
 	import InstrumentsTab from '$components/pairing/InstrumentsTab.svelte';
-	import ParametersTab from '$components/pairing/ParametersTab.svelte';
+	import ParametersTab, { PARAM_ROWS_PER_PAGE } from '$components/pairing/ParametersTab.svelte';
 	import SitesTab from '$components/pairing/SitesTab.svelte';
 
 	// ── Stream list state ──
@@ -202,6 +209,11 @@
 	let appliedPlans = $state<PairingPlanListing[]>([]);
 	let reverting = $state(false);
 	let saving = $state(false);
+	// What the header reports about the draft: the last batch that reached the server, and whether
+	// one was refused. A refusal is dropped from the queue, so without this the count returns to
+	// zero and the page reads as saved.
+	let lastSavedAt = $state<Date | null>(null);
+	let saveRefused = $state(false);
 
 	// ── Plan review controls ──
 	// The review's own position is in the URL, so a reload lands on the same tab, page and filter
@@ -218,6 +230,8 @@
 	let expandedParamGroups = $state<Set<string>>(new Set());
 	let splitParamInput = $state<{ groupName: string; sourceName: string } | null>(null);
 	let splitParamValue = $state('');
+	// The page of parameter rows on show, held here so goToParam can turn to the row it wants.
+	let paramPage = $state(0);
 	let sitePage = $state(Math.max(0, Number(reviewParam('page') ?? '1') - 1) || 0);
 	const sitesPerPage = 50;
 	// Parameters first: it is the cross-site editor, and every decision in the plan (naming, units,
@@ -311,6 +325,7 @@
 	});
 
 	const instrumentGroups = $derived(planInstrumentGroups(planEntries));
+	const instrumentBindings = $derived(planInstrumentBindings(planEntries));
 
 	const unresolvedInstruments = $derived(
 		instrumentGroups.filter((g) => g.instrument.create && !g.instrument.confirmed),
@@ -447,15 +462,21 @@
 	// and an element id may not. One helper builds the id and reads it back, so they cannot drift.
 	const instrumentRowId = (scope: string) => `instrument-row-${scope.replace(/\s+/g, '-')}`;
 
-	function goToInstrument(scope: string) {
-		reviewTab = 'instruments';
+	// Show a row the reader was sent to: the tab is switched first, so the scroll waits a tick for
+	// it to render.
+	function flashTo(id: string) {
 		setTimeout(() => {
-			const row = document.getElementById(instrumentRowId(scope));
+			const row = document.getElementById(id);
 			if (!row) return;
 			row.scrollIntoView({ behavior: 'smooth', block: 'center' });
 			row.classList.add('flash-highlight');
 			setTimeout(() => row.classList.remove('flash-highlight'), 1600);
 		}, 0);
+	}
+
+	function goToInstrument(scope: string) {
+		reviewTab = 'instruments';
+		flashTo(instrumentRowId(scope));
 	}
 
 	const familySummary = $derived(planFamilySummary(planEntries));
@@ -768,13 +789,27 @@
 
 	function goToParam(paramName: string) {
 		reviewTab = 'parameters';
-		setTimeout(() => {
-			const row = document.getElementById(`param-row-${paramName}`);
-			if (!row) return;
-			row.scrollIntoView({ behavior: 'smooth', block: 'center' });
-			row.classList.add('flash-highlight');
-			setTimeout(() => row.classList.remove('flash-highlight'), 1600);
-		}, 0);
+		const at = paramGroups.findIndex((pg) => pg.name === paramName);
+		if (at >= 0) paramPage = Math.floor(at / PARAM_ROWS_PER_PAGE);
+		flashTo(`param-row-${paramName}`);
+	}
+
+	// A site named on the object card: the filter and search are cleared first, since a site the
+	// reader asked for must not be hidden by a filter they set for something else.
+	function goToSite(siteName: string) {
+		reviewTab = 'sites';
+		siteSearch = '';
+		reviewFilter = 'all';
+		const at = siteGroups.findIndex((g) => g.siteName === siteName);
+		if (at >= 0) sitePage = Math.floor(at / sitesPerPage);
+		expandedSites = new Set(expandedSites).add(siteName);
+		flashTo(`site-row-${siteName}`);
+	}
+
+	/// Where an object on the card lives. A project has no tab of its own: it is the plan.
+	function goToObject(decision: ObjectDecision) {
+		if (decision.kind === 'site') goToSite(decision.name);
+		else if (decision.kind === 'parameter') goToParam(decision.name);
 	}
 
 	// A parameter that does not exist yet is created once per name, so entries converging onto it
@@ -974,13 +1009,21 @@
 	let editGeneration = 0;
 	let unsavedCount = $state(0);
 
-	const draftQueue = createDraftQueue<PlanEntryUpdate>({
+	const draftQueue = createDraftQueue<PlanEntryUpdate | PlanObjectUpdate>({
 		send: async (batch) => {
 			if (!plan) return;
 			const generation = editGeneration;
 			saving = true;
 			try {
-				const updated = await updatePairingPlan(plan.id, plan.version, batch);
+				const entryUpdates = batch.filter((u): u is PlanEntryUpdate => 'stream_id' in u);
+				const objectUpdates = batch.filter((u): u is PlanObjectUpdate => 'key' in u);
+				const updated = await updatePairingPlan(
+					plan.id,
+					plan.version,
+					entryUpdates,
+					[],
+					objectUpdates,
+				);
 				if (editGeneration === generation) {
 					plan = updated;
 					planEntries = [...updated.entries];
@@ -1009,7 +1052,11 @@
 		},
 		statusOf: (e) => (e instanceof ApiError ? e.status : undefined),
 		onPendingChange: (n) => { unsavedCount = n; },
-		onRefused: (e) => toastStore.error(`Change not applied: ${e instanceof Error ? e.message : e}`),
+		onSaved: () => { lastSavedAt = new Date(); saveRefused = false; },
+		onRefused: (e) => {
+			saveRefused = true;
+			toastStore.error(`Change not applied: ${e instanceof Error ? e.message : e}`);
+		},
 		onRetryScheduled: (attempt, delay) =>
 			toastStore.error(`Could not save; retrying in ${Math.round(delay / 1000)}s (attempt ${attempt})`),
 	});
@@ -1024,6 +1071,13 @@
 	}
 
 	// A decision is one PATCH: only text edits wait for the debounce.
+	// An object decision is one PATCH of its own: it is a click, and the card must say it landed.
+	function queueObject(key: string, accepted: boolean) {
+		objectOverlay = new Map(objectOverlay).set(key, accepted);
+		editGeneration++;
+		draftQueue.enqueue([{ key, accepted }], { immediate: true });
+	}
+
 	function queueUpdate(updates: PlanEntryUpdate[], opts?: { immediate?: boolean }) {
 		editGeneration++;
 		draftQueue.enqueue(updates, opts);
@@ -1090,18 +1144,37 @@
 	// ── Object decisions ──
 	// A project, a site or a parameter this plan creates is one decision however many rows name it,
 	// so it is accepted once here and every row it was holding up reads as checked.
-	const planObjects = $derived(objectDecisions(planEntries));
+	// The plan records which objects the review accepted; the overlay is this session's clicks
+	// before their PATCH has come back.
+	let objectOverlay = $state<Map<string, boolean>>(new Map());
+	const acceptedObjectKeys = $derived.by(() => {
+		const keys = new Set((plan?.accepted_objects ?? []).map((a) => a.key));
+		for (const [key, accepted] of objectOverlay) {
+			if (accepted) keys.add(key);
+			else keys.delete(key);
+		}
+		return keys;
+	});
+	const planObjects = $derived(objectDecisions(planEntries, acceptedObjectKeys));
 	const openObjects = $derived(planObjects.filter((d) => !d.accepted));
 
+	// Accepting an object records the decision; the rows it completes are ticked with it, and a row
+	// naming an object nobody has accepted yet waits for that one.
 	function acceptObject(decision: ObjectDecision) {
-		const settled = entriesSettledBy(planEntries, decision.key, acceptedKeys(planObjects));
-		if (settled.length === 0) return;
+		if (decision.accepted) {
+			queueObject(decision.key, false);
+			return;
+		}
+		const settled = entriesSettledBy(planEntries, decision.key, acceptedObjectKeys);
 		for (const e of settled) e.acknowledged = true;
 		planEntries = [...planEntries];
-		queueUpdate(
-			settled.map((e) => ({ stream_id: e.stream_id, acknowledged: true })),
-			{ immediate: true },
-		);
+		queueObject(decision.key, true);
+		if (settled.length > 0) {
+			queueUpdate(
+				settled.map((e) => ({ stream_id: e.stream_id, acknowledged: true })),
+				{ immediate: true },
+			);
+		}
 	}
 
 	function setSiteAction(group: SiteGroup, action: 'pair' | 'skip') {
@@ -1380,15 +1453,14 @@
 	let siteMetadataMap = $state<Map<string, SiteMetadata>>(new Map());
 
 	// Case-insensitive match against code, name, and aliases (mirrors server-side matching).
+	// A hundred parameter rows each ask the catalog the same question, and several ask it per row,
+	// so the catalog is indexed once instead of scanned per question.
+	const paramIndex = $derived(parameterIndex(existingParams));
+
 	function matchParam(name: string): Parameter | undefined {
 		const q = name.trim().toLowerCase();
 		if (!q) return undefined;
-		return existingParams.find(
-			(p) =>
-				p.code.toLowerCase() === q ||
-				p.name.toLowerCase() === q ||
-				(p.aliases ?? []).some((a) => a.toLowerCase() === q),
-		);
+		return paramIndex.get(q);
 	}
 
 	// Deferred audit holds for the plan's source: discrepancies recorded on unpaired streams that
@@ -1427,11 +1499,15 @@
 			existingSites = sites;
 			expandedSites = new Set();
 			expandedReplicates = new Set();
+			lastSavedAt = null;
+			saveRefused = false;
+			objectOverlay = new Map();
 			// A resumed review keeps the position the URL carries; a new plan starts at the top.
 			if (!resuming) {
 				siteSearch = '';
 				reviewFilter = 'all';
 				sitePage = 0;
+				paramPage = 0;
 			}
 			applyResult = null;
 			void loadPlanDeferred(loaded.source_system);
@@ -1473,6 +1549,18 @@
 		}
 		planLoading = false;
 		await createPlan(draft.source_system);
+	}
+
+	// Discard is the draft's own, not the wizard's: leaving the wizard saves, so the only place a
+	// decision can actually be thrown away is the row that holds it.
+	async function discardPlan(draft: PairingPlanListing) {
+		try {
+			await supersedePairingPlan(draft.id);
+			openDrafts = openDrafts.filter((d) => d.id !== draft.id);
+			toastStore.success('Draft discarded');
+		} catch (e) {
+			toastStore.error(`Failed to discard the draft: ${e instanceof Error ? e.message : e}`);
+		}
 	}
 
 	// The apply is a job, so the wizard starts it and lets go (Q88): the operations panel carries
@@ -1594,8 +1682,16 @@
 	>⧉ {rep.n} replicates {expandedReplicates.has(key) ? '▾' : '▸'}</button>
 {/snippet}
 
+<!-- The preview's own handle, for a row with no replicate family to carry one. -->
+{#snippet valuesChip(streamId: string)}
+	<button
+		onclick={(e) => { e.stopPropagation(); toggleReplicateExpand(streamId, streamId); }}
+		class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-brand-bg text-brand-muted border border-brand-divider cursor-pointer text-[10px] whitespace-nowrap"
+		title="The most recent readings this stream holds"
+	>values {expandedReplicates.has(streamId) ? '▾' : '▸'}</button>
+{/snippet}
+
 {#snippet replicateRouting(rep: PlanReplicateSummary, streamId: string)}
-	{@const preview = previews.get(streamId)}
 	<div class="space-y-0.5 text-[11px]">
 		{#each rep.member_columns as col, i}
 			<div class="font-mono">{col} → replicate {i}</div>
@@ -1610,6 +1706,15 @@
 		</p>
 
 		<!-- The same routing with this stream's own values in it. -->
+		{@render streamPreview(streamId)}
+	</div>
+{/snippet}
+
+<!-- What the stream actually holds, for a row deciding whether to create a site or a parameter
+     for it. The same values whether or not the column is a replicate family. -->
+{#snippet streamPreview(streamId: string)}
+	{@const preview = previews.get(streamId)}
+	<div class="text-[11px]">
 		{#if preview === 'loading'}
 			<p class="text-brand-muted pt-1">Loading recent readings…</p>
 		{:else if preview === 'failed'}
@@ -1939,6 +2044,14 @@
 											>
 												<Button size="sm" variant="ghost">Start over</Button>
 											</ConfirmPopover>
+											<ConfirmPopover
+												message="Discard this draft? Its decisions are lost and its streams stay unpaired."
+												confirmLabel="Discard"
+												confirmVariant="alarm"
+												onconfirm={() => discardPlan(draft)}
+											>
+												<Button size="sm" variant="ghost">Discard</Button>
+											</ConfirmPopover>
 										{:else}
 											<Button size="sm" onclick={(e) => { e.stopPropagation(); createPlan(s.source_system); }}>Discover</Button>
 										{/if}
@@ -1972,12 +2085,20 @@
 		<!-- Header -->
 		<div class="flex items-center justify-between">
 			<div class="flex items-center gap-3">
-				<Button variant="ghost" size="sm" onclick={exitWizard} class="text-brand-primary">&larr; Discard</Button>
+				<Button variant="ghost" size="sm" onclick={exitWizard} class="text-brand-primary" title="The draft keeps every decision taken; discard it from its row on the streams list.">&larr; Save and close</Button>
 				<h2 class="text-xl font-semibold">Review Plan: {plan.source_system}</h2>
 				{#if saving}<span class="text-xs text-brand-muted">Saving…</span>
 				{:else if unsavedCount > 0}
 					<span class="text-xs text-severity-warning" title="Decisions taken but not yet saved to the draft">
 						{formatCount(unsavedCount)} unsaved
+					</span>
+				{:else if saveRefused}
+					<span class="text-xs text-severity-alarm" title="The server refused the last change; it is not in the draft.">
+						not saved
+					</span>
+				{:else if lastSavedAt}
+					<span class="text-xs text-severity-ok" title="Every decision taken is in the draft on the server.">
+						Saved at {formatClockTime(lastSavedAt)}
 					</span>
 				{/if}
 			</div>
@@ -2135,23 +2256,27 @@
 					{#each planObjects as d (d.key)}
 						<li class="flex flex-wrap items-center gap-2 py-1.5 text-sm">
 							<span class="text-xs uppercase tracking-wide text-brand-muted w-20">{d.kind}</span>
-							<span class="font-medium">{d.name}</span>
+							{#if d.kind === 'project'}
+								<span class="font-medium">{d.name}</span>
+							{:else}
+								<button
+									onclick={() => goToObject(d)}
+									class="font-medium bg-transparent border-0 border-b border-dashed border-brand-muted cursor-pointer text-brand-text hover:text-brand-primary hover:border-brand-primary p-0"
+									title="Open {d.name} on the {d.kind === 'site' ? 'Sites' : 'Parameters'} tab"
+								>{d.name}</button>
+							{/if}
 							<span class="text-xs text-brand-muted">
 								named by {formatCount(d.entryCount)} row{d.entryCount === 1 ? '' : 's'}
 							</span>
-							{#if d.accepted}
-								<Badge variant="ok" title="Accepted, and the rows it was holding up are ticked.">accepted</Badge>
-							{:else}
-								<Button
-									size="sm"
-									class="ml-auto"
-									disabled={d.settles === 0}
-									title={d.settles === 0
-										? 'The rows naming this one are waiting on another object or on a warning of their own.'
-										: `Create ${d.name} and tick the ${d.settles} row${d.settles === 1 ? '' : 's'} it was holding up.`}
-									onclick={() => acceptObject(d)}
-								>Accept{d.settles > 0 ? ` (${formatCount(d.settles)} rows)` : ''}</Button>
-							{/if}
+							<Button
+								size="sm"
+								variant={d.accepted ? 'ghost' : 'primary'}
+								class="ml-auto"
+								title={acceptHint(d)}
+								onclick={() => acceptObject(d)}
+							>{d.accepted
+								? '✓ accepted'
+								: `Accept${d.settles > 0 ? ` (${formatCount(d.settles)} rows)` : ''}`}</Button>
 						</li>
 					{/each}
 				</ul>
@@ -2246,11 +2371,14 @@
 						{goToParam}
 						{replicateChip}
 						{replicateRouting}
+						{valuesChip}
+						{streamPreview}
 					/>
 
 				<!-- ── PARAMETERS TAB ── -->
 				{:else if reviewTab === 'parameters'}
 					<ParametersTab
+						bind:paramPage
 						{paramGroups}
 						{existingParams}
 						siteCount={siteGroups.length}
@@ -2308,7 +2436,7 @@
 		onsiteattribute={correctSiteAttribute}
 		{reviewProgress}
 		{familySummary}
-		planDeviceCount={planDevices.length}
+		instruments={instrumentBindings}
 		{openInstrumentQuestions}
 		undeclaredEstimatorCount={undeclaredEstimatorEntries.length}
 		{undeclaredEstimatorFamilies}

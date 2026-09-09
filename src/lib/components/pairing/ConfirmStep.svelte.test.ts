@@ -24,7 +24,7 @@ const reviewProgress = {
 	selfValidatedPct: 100,
 };
 
-const noCreations = { projects: [], sites: [], parameters: [], instruments: [] };
+const noCreations = { projects: [], sites: [], parameters: [], groups: [] };
 
 function mount(openInstrumentQuestions: number, over: Record<string, unknown> = {}) {
 	return render(ConfirmStep, {
@@ -35,7 +35,7 @@ function mount(openInstrumentQuestions: number, over: Record<string, unknown> = 
 			summary,
 			reviewProgress,
 			familySummary: { streams: 0, columns: 0 },
-			planDeviceCount: 0,
+			instruments: [],
 			openInstrumentQuestions,
 			undeclaredEstimatorCount: 0,
 			undeclaredEstimatorFamilies: [],
@@ -82,13 +82,13 @@ describe('ConfirmStep creations', () => {
 				projects: ['METALP'],
 				sites: [site],
 				parameters: [{ name: 'Depth', units: 'mm', siteCount: 2 }],
-				instruments: ['DOC'],
+				groups: [{ code: 'field_data', label: 'Field data', members: ['WTW_pH_1', 'Field_BP'] }],
 			},
 			summary: { ...summary, newSites: 1, newParams: 1, newProjects: 1 },
 		});
 		expect(screen.getAllByText('METALP').length).toBeGreaterThan(0);
 		expect(screen.getByText('Depth (mm)')).not.toBeNull();
-		expect(screen.getAllByText('DOC').length).toBeGreaterThan(0);
+		expect(screen.getByText('Field data · 2 parameters')).not.toBeNull();
 	});
 
 	it('reports an edited elevation against the site the apply has not created yet', async () => {
@@ -114,5 +114,37 @@ describe('ConfirmStep creations', () => {
 		const field = screen.getByLabelText('latitude for WrongElevation');
 		await fireEvent.change(field, { target: { value: '  ' } });
 		expect(onsiteattribute).toHaveBeenCalledWith(site, 'latitude', null);
+	});
+
+	it('names the instruments the plan binds, whether or not the apply mints them', () => {
+		mount(0, {
+			instruments: [
+				{
+					name: 'Martigny CDOM',
+					streamCount: 1,
+					siteCount: 1,
+					parameters: ['CDOM'],
+					create: false,
+					defaulted: true,
+				},
+				{
+					name: 'DOC',
+					streamCount: 31,
+					siteCount: 23,
+					parameters: ['DOC'],
+					create: true,
+					defaulted: false,
+				},
+			],
+		});
+		expect(screen.getByText('Instruments')).not.toBeNull();
+		expect(screen.getByText(/Martigny CDOM/)).not.toBeNull();
+		expect(screen.getByText(/named at registration/)).not.toBeNull();
+		expect(screen.getByText(/created by this apply/)).not.toBeNull();
+	});
+
+	it('says nothing about instruments when the plan binds none', () => {
+		mount(0);
+		expect(screen.queryByText('Instruments')).toBeNull();
 	});
 });

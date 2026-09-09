@@ -13,7 +13,7 @@
 	import { me } from '$auth/me.svelte';
 	import { formatDate, formatRelativeTime } from '$lib/utils';
 	import { formatEquation } from '$lib/standardCurves';
-	import { inUseCell, isBookkeeping, kindLabel } from '$lib/instruments/kind';
+	import { inUseCell, isBookkeeping, kindLabel, provenanceOf } from '$lib/instruments/kind';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
@@ -26,7 +26,7 @@
 	import type { Column, PageRequest } from '$components/crud/CrudList.svelte';
 	import { formatCount } from '$lib/format';
 
-	type FilterMode = 'all' | 'field' | 'lab' | 'source_parameter' | 'entry_channel';
+	type FilterMode = 'measuring' | 'all' | 'field' | 'lab' | 'source_parameter' | 'entry_channel';
 
 	let sensors = $state<Sensor[]>([]);
 	let deployments = $state<SensorDeployment[]>([]);
@@ -39,7 +39,9 @@
 	let quickFilter = $state<'' | 'undeployed' | 'no_curves'>('');
 	// The Field/Lab chip is deep-linkable (?type=lab|field) so the old /instruments URL forwards here.
 	const initialType = page.url.searchParams.get('type');
-	let filterMode = $state<FilterMode>(initialType === 'lab' || initialType === 'field' ? initialType : 'all');
+	// The bookkeeping rows outnumber the instruments three to one, so the list opens on what
+	// something was measured on and the other two kinds are reached by their own chip.
+	let filterMode = $state<FilterMode>(initialType === 'lab' || initialType === 'field' ? initialType : 'measuring');
 
 	// Parameter id → display name, loaded once for resolving curve parameters.
 	let parameterNames = $state<Map<string, string>>(new Map());
@@ -68,7 +70,8 @@
 		const filter: Record<string, unknown> = { ...originFilter(origin, 'source_system') };
 		if (searchQuery) filter.q = searchQuery;
 		if (filterActive) filter.is_active = filterActive === 'true';
-		if (filterMode === 'field') filter.kind = 'device';
+		if (filterMode === 'measuring') filter.kind = ['device', 'lab'];
+		else if (filterMode === 'field') filter.kind = 'device';
 		else if (filterMode === 'lab') filter.kind = 'lab';
 		else if (filterMode !== 'all') filter.kind = filterMode;
 
@@ -211,6 +214,7 @@
 		{ key: 'expand', label: '', sortable: false, class: 'w-8 px-2 text-center' },
 		{ key: 'serial_number', label: 'Serial' },
 		{ key: 'name', label: 'Name' },
+		{ key: 'source_key', label: 'Source key', sortable: false, class: 'text-brand-muted text-xs' },
 		{ key: 'kind', label: 'Type', sortable: false },
 		{ key: 'data_frequency', label: 'Frequency' },
 		{ key: 'manufacturer', label: 'Manufacturer', sortable: false, class: 'text-brand-muted' },
@@ -228,6 +232,7 @@
 	// The four kinds a row can be: two instruments something was measured on, two bookkeeping rows
 	// minted so a reading can name what it came through.
 	const filterChips: { mode: FilterMode; label: string }[] = [
+		{ mode: 'measuring', label: 'Field and lab' },
 		{ mode: 'all', label: 'All' },
 		{ mode: 'field', label: 'Field' },
 		{ mode: 'lab', label: 'Lab' },
@@ -375,6 +380,9 @@
 				<a href="{base}/sensors/{row.id}" class="text-brand-primary font-semibold no-underline hover:underline font-mono text-xs">{row.serial_number ?? 'None'}</a>
 			{:else if column.key === 'name'}
 				{row.name ?? 'None'}
+			{:else if column.key === 'source_key'}
+				{@const prov = provenanceOf(row)}
+				<span class="font-mono" title={prov.key ? 'The key its source knows this row by, and what tells two rows of the same name apart' : 'Registered here, so no source names it'}>{prov.key ?? '—'}</span>
 			{:else if column.key === 'kind'}
 				<Badge variant={isBookkeeping(row) ? 'default' : row.is_lab_instrument === true ? 'accent' : 'default'}>{kindLabel(row)}</Badge>
 				<OriginBadge sourceSystem={row.source_system} />
@@ -413,8 +421,16 @@
 
 		{#snippet rowDetail({ row, colCount }: { row: Sensor; colCount: number })}
 			{#if expanded.has(row.id)}
+				{@const prov = provenanceOf(row)}
 				<tr class="border-b border-brand-divider bg-brand-bg/40">
 					<td colspan={colCount} class="px-4 py-3">
+						{#if prov.key || prov.installed || prov.inField !== null}
+							<p class="text-xs text-brand-muted mb-2">
+								{#if prov.key}<span class="font-mono">{prov.key}</span>{/if}
+								{#if prov.installed}<span> &middot; installed {formatDate(prov.installed)}</span>{/if}
+								{#if prov.inField !== null}<span> &middot; {prov.inField ? 'in the field' : 'not in the field'} per its register</span>{/if}
+							</p>
+						{/if}
 						{#if curvesLoading.has(row.id) && !curvesBySensor.has(row.id)}
 							<p class="text-xs text-brand-muted">Loading…</p>
 						{:else}

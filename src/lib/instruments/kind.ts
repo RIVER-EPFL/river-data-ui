@@ -74,3 +74,29 @@ export function inUseCell(
 				: 'No curve has been fitted on this instrument',
 	};
 }
+
+/// What a synced instrument row carries about where it came from. The register row is the identity
+/// (Q7: 34 METALP rows have no serial and one serial is on two probes), so it is what tells two
+/// same-named rows apart.
+export interface InstrumentProvenance {
+	/// The key the source knows the row by: `sensor_inventory:87` for a portal register row,
+	/// `{source}:{parameter}` for a bookkeeping one.
+	key: string | null;
+	/// The portal register's own installation date, where the inventory supplies one.
+	installed: string | null;
+	/// Whether the register still has it in the field. Null where the source says nothing.
+	inField: boolean | null;
+}
+
+export function provenanceOf(
+	sensor: Pick<Sensor, 'source_key' | 'metadata'>
+): InstrumentProvenance {
+	const meta = sensor.metadata ?? {};
+	const installed = meta.installation_date;
+	const inField = meta.in_field;
+	return {
+		key: sensor.source_key ?? null,
+		installed: typeof installed === 'string' && installed !== '' ? installed : null,
+		inField: typeof inField === 'boolean' ? inField : null,
+	};
+}

@@ -29,15 +29,7 @@ export function objectKeys(entry: PairingPlanEntry): string[] {
 	return keys;
 }
 
-/** An object is accepted once every row it alone was holding up has been ticked. */
-function isAccepted(entries: PairingPlanEntry[], key: string): boolean {
-	const held = entries.filter(
-		(e) => entryStatus(e).warnings === 0 && objectKeys(e).every((k) => k === key),
-	);
-	return held.length > 0 && held.every((e) => e.acknowledged === true);
-}
-
-/** The rows accepting `key` settles: nothing else about them is still open. */
+/** The rows accepting `key` settles: every other object they name is accepted already. */
 export function entriesSettledBy(
 	entries: PairingPlanEntry[],
 	key: string,
@@ -53,9 +45,14 @@ export function entriesSettledBy(
 
 /// Every object this plan creates, each with what accepting it answers.
 ///
-/// Ordered by how much it carries, so the one decision behind a thousand rows is read first, and
-/// the ones still open come before the ones already taken.
-export function objectDecisions(entries: PairingPlanEntry[]): ObjectDecision[] {
+/// Acceptance is the plan's own record, passed in: an object is one decision behind however many
+/// rows name it, and no row can carry a decision it is waiting on. Ordered by how much it carries,
+/// so the one decision behind a thousand rows is read first, and the ones still open come before
+/// the ones already taken.
+export function objectDecisions(
+	entries: PairingPlanEntry[],
+	acceptedKeys: Iterable<string> = [],
+): ObjectDecision[] {
 	const pairing = entries.filter((e) => e.action !== 'skip');
 	const byKey = new Map<string, PairingPlanEntry[]>();
 	for (const e of pairing) {
@@ -65,9 +62,7 @@ export function objectDecisions(entries: PairingPlanEntry[]): ObjectDecision[] {
 			else byKey.set(key, [e]);
 		}
 	}
-	const accepted = new Set(
-		[...byKey.keys()].filter((key) => isAccepted(byKey.get(key) ?? [], key)),
-	);
+	const accepted = new Set(acceptedKeys);
 	return [...byKey.entries()]
 		.map(([key, rows]): ObjectDecision => {
 			const [kind, ...rest] = key.split(':');
@@ -91,4 +86,19 @@ export function objectDecisions(entries: PairingPlanEntry[]): ObjectDecision[] {
 /** The set of accepted keys, for callers deciding what one more acceptance would settle. */
 export function acceptedKeys(decisions: ObjectDecision[]): Set<string> {
 	return new Set(decisions.filter((d) => d.accepted).map((d) => d.key));
+}
+
+/// What pressing Accept on one object does, in the words of its effect.
+///
+/// The object is created by the apply, accepted or not; accepting records the decision and ticks
+/// whichever rows it completes, which may be none until their other objects are accepted too.
+export function acceptHint(decision: ObjectDecision): string {
+	if (decision.accepted) {
+		return `${decision.name} is accepted. Click to take that back.`;
+	}
+	if (decision.settles === 0) {
+		return `Record ${decision.name} as accepted. No row is ticked until the other objects it names are accepted too.`;
+	}
+	const rows = `${decision.settles} row${decision.settles === 1 ? '' : 's'}`;
+	return `Record ${decision.name} as accepted, and tick the ${rows} it completes.`;
 }

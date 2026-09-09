@@ -17,6 +17,8 @@ const stored = {
 	readings_backfilled: 2_400_000,
 	curves_assigned: 0,
 	streams_skipped: 0,
+	groups_created: 2,
+	group_members_created: 17,
 };
 
 describe('ApplyResults', () => {
@@ -28,6 +30,8 @@ describe('ApplyResults', () => {
 		expect(screen.getByText('Streams paired')).not.toBeNull();
 		expect(screen.getByText('92')).not.toBeNull();
 		expect(screen.getByText('23')).not.toBeNull();
+		expect(screen.getByText('Parameter groups created')).not.toBeNull();
+		expect(screen.getByText('2')).not.toBeNull();
 	});
 
 	it('says a revert is running rather than offering it twice', () => {

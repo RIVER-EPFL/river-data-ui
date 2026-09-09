@@ -21,6 +21,8 @@ export interface DraftQueueOptions<T> {
 	retryMs?: number;
 	maxRetries?: number;
 	onPendingChange?: (pending: number) => void;
+	/** A batch reached the server. What was queued at that moment is now the draft's own. */
+	onSaved?: () => void;
 	onRefused?: (error: unknown) => void;
 	onRetryScheduled?: (attempt: number, delayMs: number, error: unknown) => void;
 	setTimeoutFn?: (fn: () => void, ms: number) => TimerHandle;
@@ -49,6 +51,7 @@ export function createDraftQueue<T>(options: DraftQueueOptions<T>): DraftQueue<T
 		retryMs = 1000,
 		maxRetries = 5,
 		onPendingChange,
+		onSaved,
 		onRefused,
 		onRetryScheduled,
 		setTimeoutFn = (fn, ms) => setTimeout(fn, ms),
@@ -78,6 +81,7 @@ export function createDraftQueue<T>(options: DraftQueueOptions<T>): DraftQueue<T
 		try {
 			await send(batch);
 			attempt = 0;
+			onSaved?.();
 		} catch (error) {
 			const status = statusOf(error);
 			const refused = status !== undefined && status >= 400 && status < 500;

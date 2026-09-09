@@ -133,4 +133,26 @@ describe('pairing draft queue', () => {
 		expect(send).toHaveBeenCalledTimes(1);
 		expect(queue.pending()).toBe(0);
 	});
+
+	it('reports a save only when the batch reached the server, never on a refusal', async () => {
+		const saves: number[] = [];
+		const send = vi
+			.fn()
+			.mockResolvedValueOnce(undefined)
+			.mockRejectedValueOnce(Object.assign(new Error('refused'), { status: 422 }));
+		const queue = createDraftQueue<{ stream_id: string }>({
+			send,
+			debounceMs: 10_000,
+			onSaved: () => saves.push(saves.length + 1),
+			onRefused: () => {},
+		});
+
+		queue.enqueue([{ stream_id: 'a' }]);
+		await queue.flush();
+		expect(saves).toEqual([1]);
+
+		queue.enqueue([{ stream_id: 'b' }]);
+		await expect(queue.flush()).rejects.toThrow('refused');
+		expect(saves).toEqual([1]);
+	});
 });

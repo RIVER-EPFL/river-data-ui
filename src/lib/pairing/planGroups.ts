@@ -1,3 +1,4 @@
+import type { Parameter } from '$api/crud';
 import type {
 	InstrumentNameConflict,
 	PairingPlanEntry,
@@ -135,6 +136,10 @@ export interface ParamGroup {
 	replicates: PlanReplicateSummary | null;
 	instrument: PlanInstrumentRef | null;
 	pairCount: number;
+	/** The decimal places the source declared, where every stream in the group declares the same. */
+	decimalPlaces: number | null;
+	/** The group's streams declare more than one precision, so the apply writes per slot. */
+	decimalPlacesMixed: boolean;
 }
 
 export function paramGroups(entries: PairingPlanEntry[]): ParamGroup[] {
@@ -154,6 +159,7 @@ export function paramGroups(entries: PairingPlanEntry[]): ParamGroup[] {
 			warnings: Set<string>;
 			replicates: PlanReplicateSummary | null;
 			instrument: PlanInstrumentRef | null;
+			decimals: Set<number>;
 		}
 	>();
 	for (const e of entries) {
@@ -173,9 +179,11 @@ export function paramGroups(entries: PairingPlanEntry[]): ParamGroup[] {
 				warnings: new Set(),
 				replicates: e.replicates ?? null,
 				instrument: e.instrument ?? null,
+				decimals: new Set(),
 			};
 			map.set(key, g);
 		}
+		if (typeof e.decimal_places === 'number') g.decimals.add(e.decimal_places);
 		if (!g.label && e.parameter.label) g.label = e.parameter.label;
 		if (!g.replicates && e.replicates) g.replicates = e.replicates;
 		if (!g.instrument && e.instrument) g.instrument = e.instrument;
@@ -203,6 +211,8 @@ export function paramGroups(entries: PairingPlanEntry[]): ParamGroup[] {
 			replicates: g.replicates,
 			instrument: g.instrument,
 			pairCount,
+			decimalPlaces: g.decimals.size === 1 ? [...g.decimals][0]! : null,
+			decimalPlacesMixed: g.decimals.size > 1,
 		});
 	}
 	return groups.sort((a, b) => a.name.localeCompare(b.name) || a.units.localeCompare(b.units));
@@ -260,12 +270,19 @@ export interface ParameterCreation {
 	siteCount: number;
 }
 
+/// A parameter group the source's registry names and the database does not hold.
+export interface GroupCreation {
+	code: string;
+	label: string;
+	/** The parameters this apply would place in it, in the registry's order. */
+	members: string[];
+}
+
 export interface Creations {
 	projects: string[];
 	sites: SiteCreation[];
 	parameters: ParameterCreation[];
-	/** Instrument names the apply mints, one per instrument rather than per entry. */
-	instruments: string[];
+	groups: GroupCreation[];
 }
 
 /** Every entity the plan's pairing entries would create, deduplicated the way the apply mints it. */
@@ -311,19 +328,104 @@ export function creations(entries: PairingPlanEntry[]): Creations {
 		seen.siteCount = seen.sites.size;
 	}
 
-	const instruments = new Map<string, string>();
+	// A group is one decision behind every column of its category, so it is collected by code and
+	// carries the members the apply would place in it.
+	const groups = new Map<string, GroupCreation & { placed: Map<string, number> }>();
 	for (const e of pairing) {
-		const i = e.instrument;
-		if (!i?.create || i.id) continue;
-		instruments.set(i.source_key || i.name, i.name);
+		const g = e.parameter.group;
+		if (!g?.create) continue;
+		const seen =
+			groups.get(g.code) ??
+			groups
+				.set(g.code, { code: g.code, label: g.label, members: [], placed: new Map() })
+				.get(g.code)!;
+		if (!seen.placed.has(e.parameter.name)) seen.placed.set(e.parameter.name, g.ordinal);
 	}
 
 	return {
 		projects: projects.sort((a, b) => a.localeCompare(b)),
+		groups: [...groups.values()]
+			.map(({ code, label, placed }) => ({
+				code,
+				label,
+				members: [...placed.entries()]
+					.sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
+					.map(([name]) => name),
+			}))
+			.sort((a, b) => a.label.localeCompare(b.label)),
 		sites: [...sites.values()].sort((a, b) => a.name.localeCompare(b.name)),
 		parameters: [...parameters.values()]
 			.map(({ name, units, siteCount }) => ({ name, units, siteCount }))
 			.sort((a, b) => a.name.localeCompare(b.name) || a.units.localeCompare(b.units)),
-		instruments: [...new Set(instruments.values())].sort((a, b) => a.localeCompare(b)),
 	};
+}
+
+/// The catalog a plan's parameter rows are matched against, by every name a row may carry.
+///
+/// A hundred rows ask the same question several times each, so the catalog is indexed once. The
+/// first parameter claiming a name keeps it, which is the order a scan of the list would find.
+export function parameterIndex(params: Parameter[]): Map<string, Parameter> {
+	const index = new Map<string, Parameter>();
+	for (const p of params) {
+		for (const key of [p.code, p.name, ...(p.aliases ?? [])]) {
+			const k = key?.trim().toLowerCase();
+			if (k && !index.has(k)) index.set(k, p);
+		}
+	}
+	return index;
+}
+
+/** One instrument the plan binds, with the ground it covers. */
+export interface InstrumentBinding {
+	name: string;
+	streamCount: number;
+	siteCount: number;
+	parameters: string[];
+	/** The apply mints this one; the others are already in the inventory. */
+	create: boolean;
+	/** Minted by stream registration, so it names no real device yet. */
+	defaulted: boolean;
+}
+
+/** Every instrument the plan's pairing entries bind, counted by identity rather than by entry.
+ *
+ *  Registration mints an instrument for every stream, so most of these exist before the plan runs
+ *  and `create` is the minority. Counting only the creations reports a plan that pairs 1,679
+ *  streams to instruments as touching none. */
+export function instrumentBindings(entries: PairingPlanEntry[]): InstrumentBinding[] {
+	const map = new Map<
+		string,
+		InstrumentBinding & { streams: Set<string>; sites: Set<string>; params: Set<string> }
+	>();
+	for (const e of entries) {
+		if (e.action !== 'pair' || !e.instrument) continue;
+		const i = e.instrument;
+		const key = i.id ?? i.source_key ?? i.name;
+		let row = map.get(key);
+		if (!row) {
+			row = {
+				name: i.name,
+				streamCount: 0,
+				siteCount: 0,
+				parameters: [],
+				create: i.create,
+				defaulted: i.defaulted,
+				streams: new Set(),
+				sites: new Set(),
+				params: new Set(),
+			};
+			map.set(key, row);
+		}
+		row.streams.add(e.stream_id);
+		row.sites.add(e.site.name);
+		row.params.add(e.parameter.name);
+	}
+	return [...map.values()]
+		.map(({ streams, sites, params, ...row }) => ({
+			...row,
+			streamCount: streams.size,
+			siteCount: sites.size,
+			parameters: [...params].sort((a, b) => a.localeCompare(b)),
+		}))
+		.sort((a, b) => a.name.localeCompare(b.name));
 }
