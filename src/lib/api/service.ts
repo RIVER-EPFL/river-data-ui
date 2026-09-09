@@ -626,35 +626,9 @@ export type PairingPlan = components['schemas']['PairingPlan'];
 
 export type PairingPlanApplyResult = components['schemas']['ApplyResult'];
 
-// Hand-written on purpose: the plan PATCH body is deserialized by a private request struct the
-// document does not describe, and it is not the stored `PlanEntry`.
-export interface PlanEntryUpdate {
-	stream_id: string;
-	action?: string;
-	project_name?: string;
-	site_name?: string;
-	// Where the apply will put a site it creates. Ignored once the entry resolves to a site that
-	// exists: that site's own page owns its attributes. Null clears the value.
-	site_latitude?: number | null;
-	site_longitude?: number | null;
-	site_altitude_m?: number | null;
-	parameter_name?: string;
-	parameter_units?: string;
-	// Display label for a parameter the plan will create; ignored for matched existing parameters.
-	parameter_label?: string;
-	// Instrument decisions are per curve column, so any one entry settles every entry sharing it.
-	instrument_id?: string;
-	instrument_name?: string;
-	instrument_confirmed?: boolean;
-	// Detach the instrument from every entry this one groups with; an absent instrument_id means
-	// unchanged, not none.
-	instrument_clear?: boolean;
-	// Which divisor this slot publishes its replicate standard deviation with. An empty string
-	// clears the choice and leaves the slot undeclared.
-	sd_estimator?: SdEstimator | '';
-	// Record that a person looked at this entry and agreed with it, or take that back.
-	acknowledged?: boolean;
-}
+// The PATCH body's per-entry update, as the route's own request struct. `sd_estimator` is a string
+// on the wire because an empty one clears the choice and leaves the slot undeclared.
+export type PlanEntryUpdate = components['schemas']['PlanEntryUpdate'];
 
 export const createPairingPlan = (sourceSystem: string) =>
 	POST<PairingPlan>(`${ADMIN}/sync/pairing-plans`, { source_system: sourceSystem });
@@ -681,13 +655,9 @@ export type PlanUnassignedParameter = components['schemas']['PlanUnassignedParam
 export type PlanCurveAssignment = components['schemas']['PlanCurveAssignment'];
 
 // A curve assigned to an instrument the plan will create; the move happens on apply. A null
-// source key clears the assignment.
-// Hand-written on purpose: the assignment a review sends, where a null `instrument_source_key`
-// clears one. The stored `PlanCurveIntent` always names an instrument.
-export interface PlanCurveUpdate {
-	curve_id: string;
-	instrument_source_key: string | null;
-}
+// `instrument_source_key` clears the assignment, where the stored `PlanCurveIntent` always names
+// an instrument.
+export type PlanCurveUpdate = components['schemas']['PlanCurveUpdate'];
 
 // One physical device the plan's feeds name, and the channels it serves at one site. Not a
 // decision: the serial is the identity, and pairing attaches it and opens the site slot's
@@ -816,11 +786,9 @@ export function replicateSpec(stream: DataStream): ReplicateSpec | null {
 }
 
 // One stored value with the replicate index it is stored at, which is the source's column
-// position and the only handle a flag can name. Hand-written with the hold that carries it.
-export interface ReplicateAuditValue {
-	index: number;
-	value: number;
-}
+// position and the only handle a flag can name. A hold recorded before the index travelled with
+// the value carries the bare number instead.
+export type ReplicateAuditValue = components['schemas']['HoldValue'];
 
 // A replicate group whose recomputed mean/sd disagrees with the portal's stored avg/sd. The group
 // is stored and served (our recomputed statistics); the hold queues the disagreement for review.
@@ -833,36 +801,14 @@ export type HoldKind =
 	| 'skipped_output'
 	| 'curve_claim_stripped';
 
-// Hand-written on purpose: `expected`, `computed`, `delta` and `resolution` are free JSON on the
-// hold row, so the document says "an object" and this is the shape the panel actually reads.
-export interface ReplicateAuditHold {
-	id: string;
-	// null on event-audit findings, which are keyed on (site, parameter, instant) instead.
-	stream_id: string | null;
+// The document carries the three statistics blobs as the structs their writer builds; `kind`,
+// `status` and `classification` are strings there and the closed sets the panel branches on here,
+// and `resolution` stays free JSON on the row.
+export type ReplicateAuditHold = Omit<
+	components['schemas']['HoldRow'],
+	'kind' | 'status' | 'classification' | 'resolution'
+> & {
 	kind: HoldKind;
-	source_system: string | null;
-	source_key: string | null;
-	source_name: string | null;
-	site_id: string | null;
-	site_name: string | null;
-	parameter_name: string | null;
-	parameter_code: string | null;
-	// The tool an event finding names.
-	tool: string | null;
-	paired: boolean;
-	group_time: string;
-	expected: { mean: number | null; sd: number | null; n?: number | null };
-	// Each value carries the replicate index it is stored at. Holds recorded before the index
-	// travelled with the value hold bare numbers, and no position in that array stands for one.
-	computed: {
-		mean: number | null;
-		sd: number | null;
-		n: number;
-		values?: ReplicateAuditValue[] | number[];
-	};
-	delta: { mean: number | null; sd: number | null; n?: number | null };
-	// The divisor computed.sd was made with; null on holds that are not replicate statistics.
-	sd_estimator: SdEstimator | null;
 	// deferred holds sit on unpaired streams and become pending when the stream is paired;
 	// remediated means replicates were flagged. use_portal/use_manual/consumed are legacy
 	// statuses from the replaced-value model and occur only in history.
@@ -887,25 +833,13 @@ export interface ReplicateAuditHold {
 		scope?: 'slot' | 'instant';
 		previous_estimator?: SdEstimator | null;
 	} | null;
-	created_at: string;
-	acknowledged_by: string | null;
-	acknowledged_at: string | null;
-	// Disagreement sizes normalized by the mean magnitude; relative_delta is the
-	// max of the two and remains the sort key.
-	relative_delta: number;
-	mean_relative_delta: number;
-	sd_relative_delta: number;
-}
+};
 
-// Hand-written with the hold above, which it carries.
-export interface ReplicateAuditListResponse {
-	holds: ReplicateAuditHold[];
-	total: number;
-	pending: number;
-	deferred: number;
-	/** Pending holds per kind, so an entry point can say what is waiting. */
-	pending_by_kind: Record<string, number>;
-}
+// The generated response with the narrowed hold above in place of the document's own.
+export type ReplicateAuditListResponse = Omit<
+	components['schemas']['ListHoldsResponse'],
+	'holds'
+> & { holds: ReplicateAuditHold[] };
 
 
 // Omitting `status` returns live holds. `status` also accepts the meta-value 'resolved'

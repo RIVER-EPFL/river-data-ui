@@ -7883,6 +7883,23 @@ export interface components {
              */
             stream_id?: string | null;
         };
+        BulkAction: {
+            /** @description `pair` or `skip`. */
+            action: string;
+            where?: components["schemas"]["BulkWhere"];
+        };
+        /**
+         * @description Which entries a plan-wide bulk action covers. Every field is a further narrowing, so an empty
+         *     `BulkWhere` selects the whole plan; a plan-wide action is then one predicate on the wire rather
+         *     than one update per entry (1891 for CNET, 29,400 for NOMIS).
+         */
+        BulkWhere: {
+            /** @description `exact` when the project, site and parameter all resolved, `none` otherwise. */
+            confidence?: string | null;
+            has_warnings?: boolean | null;
+            parameter_name?: string | null;
+            site_name?: string | null;
+        };
         CalculationFormulaCreate: {
             code: string;
             curve_slot?: string | null;
@@ -9657,6 +9674,38 @@ export interface components {
              */
             sync_interval_secs?: number | null;
         };
+        /** @description What river-data computes over the values it stores, which is what it serves. */
+        HoldComputed: {
+            /** Format: double */
+            mean: number | null;
+            /** Format: int64 */
+            n: number;
+            /** Format: double */
+            sd: number | null;
+            sd_estimator?: null | components["schemas"]["SdEstimator"];
+            values?: components["schemas"]["HoldValue"][] | null;
+        };
+        /** @description Source minus computed, per statistic. */
+        HoldDelta: {
+            /** Format: double */
+            mean: number | null;
+            /** Format: int64 */
+            n?: number | null;
+            /** Format: double */
+            sd: number | null;
+        };
+        /** @description The source's own statistics for the group, as the hold recorded them. */
+        HoldExpected: {
+            /** Format: double */
+            mean: number | null;
+            /**
+             * Format: int64
+             * @description The replicate count the source declares, where it declares one.
+             */
+            n?: number | null;
+            /** Format: double */
+            sd: number | null;
+        };
         HoldMatch: {
             /** Format: double */
             expected_mean: number | null;
@@ -9691,11 +9740,11 @@ export interface components {
              *     `unexplained`. Computed from the stored expectation and recompute, never persisted.
              */
             classification: string;
-            computed: Record<string, never>;
+            computed: components["schemas"]["HoldComputed"];
             /** Format: date-time */
             created_at: string;
-            delta: Record<string, never>;
-            expected: Record<string, never>;
+            delta: components["schemas"]["HoldDelta"];
+            expected: components["schemas"]["HoldExpected"];
             /** Format: date-time */
             group_time: string;
             /** Format: uuid */
@@ -9747,6 +9796,17 @@ export interface components {
             /** @description The tool an event finding names. */
             tool: string | null;
         };
+        /**
+         * @description One stored value with the replicate index it sits at, which is the source's column position and
+         *     the only handle a flag can name. A hold recorded before the index travelled with the value
+         *     carries the bare number, and no position in that array stands for an index.
+         */
+        HoldValue: {
+            /** Format: int32 */
+            index: number;
+            /** Format: double */
+            value: number;
+        } | number;
         IdentityBand: {
             /** Format: uuid */
             deployment_id: string;
@@ -11621,6 +11681,15 @@ export interface components {
             /** Format: double */
             slope: number;
         };
+        PlanCurveUpdate: {
+            /** Format: uuid */
+            curve_id: string;
+            /**
+             * @description The `source_key` of an instrument the plan proposes creating. Null clears the assignment,
+             *     leaving the curve on the instrument it has.
+             */
+            instrument_source_key?: string | null;
+        };
         /**
          * @description One device-shaped feed a plan carries, and the slot it serves.
          *
@@ -11713,6 +11782,60 @@ export interface components {
             /** Format: uuid */
             stream_id: string;
             warnings: components["schemas"]["PlanWarning"][];
+        };
+        PlanEntryUpdate: {
+            /**
+             * @description Record that a person looked at this entry and agreed with it, or take that back. Separate
+             *     from `action`, so changing what an entry does is not the same as deciding it.
+             */
+            acknowledged?: boolean | null;
+            action?: string | null;
+            /**
+             * @description Detach the instrument from every entry this one groups with. Attaching is `instrument_id`;
+             *     this is its inverse, since an absent `instrument_id` means "unchanged", not "none".
+             */
+            instrument_clear?: boolean | null;
+            /** @description Agree to creating the proposed instrument. Apply refuses while any remain unconfirmed. */
+            instrument_confirmed?: boolean | null;
+            /**
+             * Format: uuid
+             * @description Point this entry's curve references at an existing lab instrument instead of the resolved
+             *     one. Applies to every entry sharing the same curve column, since one column is one
+             *     instrument across the source.
+             */
+            instrument_id?: string | null;
+            /** @description Rename an instrument the plan will create. Ignored once it resolves to an existing one. */
+            instrument_name?: string | null;
+            /**
+             * @description Human display label for the parameter. Takes effect only when apply creates the
+             *     parameter (`create: true`); a matched existing parameter keeps its own name.
+             */
+            parameter_label?: string | null;
+            parameter_name?: string | null;
+            parameter_units?: string | null;
+            project_name?: string | null;
+            /**
+             * @description Declare which divisor this slot publishes its replicate standard deviation with,
+             *     `sample` or `population`. Applied to the `site_parameters` row when the plan is applied.
+             *     Never inferred: absent leaves the slot undeclared and the audit gate asks later.
+             */
+            sd_estimator?: string | null;
+            /** Format: double */
+            site_altitude_m?: number | null;
+            /**
+             * Format: double
+             * @description The coordinates and elevation the apply will create this site with. A site is created once,
+             *     so a value the source recorded wrong (an elevation of 1 m) is corrected here rather than on
+             *     the site afterwards. Ignored where the entry resolves to a site that already exists: that
+             *     site's own page owns its attributes. Applied to every entry naming the same site, so the
+             *     twenty-three feeds at one station do not disagree about where it is.
+             */
+            site_latitude?: number | null;
+            /** Format: double */
+            site_longitude?: number | null;
+            site_name?: string | null;
+            /** Format: uuid */
+            stream_id: string;
         };
         /**
          * @description One instrument decision in a pairing plan: the instrument, what it covers, and the curves it
@@ -11945,7 +12068,7 @@ export interface components {
          */
         PlanWarning: {
             existing?: null | components["schemas"]["ExistingParamRef"];
-            /** @description `units_mismatch` | `empty_name`. */
+            /** @description `units_mismatch` | `empty_name` | `near_duplicate` | `sd_estimator_undeclared`. */
             kind: string;
             message: string;
             parameter?: string | null;
@@ -15424,6 +15547,20 @@ export interface components {
              * @description The decision set that was inverted, if the retirement moved any reading.
              */
             set_id: string | null;
+        };
+        UpdatePairingPlanRequest: {
+            bulk?: null | components["schemas"]["BulkAction"];
+            /**
+             * @description Standard curves to assign to instruments this plan will create. The move happens when the
+             *     plan is applied, in the transaction that mints the instrument.
+             */
+            curves?: components["schemas"]["PlanCurveUpdate"][];
+            /**
+             * Format: int32
+             * @description The version the client read. The write is refused if the plan has moved on since.
+             */
+            expected_version: number;
+            updates?: components["schemas"]["PlanEntryUpdate"][];
         };
         UpdatePrefsRequest: {
             web_push_enabled?: boolean | null;
@@ -31591,7 +31728,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": Record<string, never>;
+                "application/json": components["schemas"]["UpdatePairingPlanRequest"];
             };
         };
         responses: {
