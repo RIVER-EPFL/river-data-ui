@@ -837,6 +837,8 @@ export interface SyncServiceCredential {
 	id: string;
 	client_id: string;
 	service_type: string;
+	// The source system a service enrolling on this credential speaks for; null where undeclared.
+	source_system: string | null;
 	service_id: string | null;
 	revoked: boolean;
 	created_at: string;
@@ -854,9 +856,10 @@ export const setSyncInterval = (serviceId: string, seconds: number | null) =>
 export const setFullReassert = (serviceId: string, enabled: boolean) =>
 	PATCH<SyncService>(`${ADMIN}/sync/services/${serviceId}`, { full_reassert_enabled: enabled });
 
-export const createServiceCredential = (serviceType: string) =>
+export const createServiceCredential = (serviceType: string, sourceSystem?: string) =>
 	POST<{ client_id: string; client_secret: string }>(`${ADMIN}/sync/credentials`, {
 		service_type: serviceType,
+		source_system: sourceSystem || null,
 	});
 
 export const revokeSyncService = (credentialId: string) =>

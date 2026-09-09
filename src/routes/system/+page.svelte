@@ -103,6 +103,7 @@
 
 	let createDialog = $state(false);
 	let createServiceType = $state('');
+	let createSourceSystem = $state('');
 
 	async function loadStatus() {
 		try {
@@ -278,8 +279,9 @@
 		}
 	}
 
-	function openCreateDialog(serviceType = '') {
+	function openCreateDialog(serviceType = '', sourceSystem = '') {
 		createServiceType = serviceType;
+		createSourceSystem = sourceSystem;
 		createDialog = true;
 	}
 
@@ -287,7 +289,7 @@
 		const serviceType = createServiceType.trim();
 		if (!serviceType) { toastStore.error('Enter a service type'); return; }
 		try {
-			newCredential = await createServiceCredential(serviceType);
+			newCredential = await createServiceCredential(serviceType, createSourceSystem.trim());
 			createDialog = false;
 			credentialDialog = true;
 			loadStatus();
@@ -743,6 +745,7 @@
 						<thead><tr class="bg-brand-bg border-b border-brand-divider">
 							<th class="text-left px-4 py-2 font-semibold">Client ID</th>
 							<th class="text-left px-4 py-2 font-semibold">Type</th>
+							<th class="text-left px-4 py-2 font-semibold">Source system</th>
 							<th class="text-left px-4 py-2 font-semibold">Status</th>
 							<th class="text-left px-4 py-2 font-semibold">Created</th>
 							<th class="text-left px-4 py-2 font-semibold">Actions</th>
@@ -752,6 +755,7 @@
 								<tr class="border-b border-brand-divider last:border-b-0">
 									<td class="px-4 py-2 font-mono text-xs">{cred.client_id}</td>
 									<td class="px-4 py-2 text-xs">{cred.service_type}</td>
+									<td class="px-4 py-2 text-xs">{cred.source_system ?? '—'}</td>
 									<td class="px-4 py-2">{#if cred.revoked}<span class="text-xs text-severity-alarm">Revoked</span>{:else}<span class="text-xs text-severity-ok">Active</span>{/if}</td>
 									<td class="px-4 py-2 text-xs text-brand-muted">{formatRelativeTime(cred.created_at)}</td>
 									<td class="px-4 py-2">
@@ -1038,6 +1042,18 @@
 				</datalist>
 			</label>
 			<p class="text-xs text-brand-muted">Type a new service type or pick an existing one.</p>
+			<label class="block text-sm">
+				<span class="text-brand-muted">Source system</span>
+				<input
+					bind:value={createSourceSystem}
+					placeholder="e.g. metalp"
+					class="mt-1 w-full px-3 py-2 border border-brand-divider rounded-md text-sm bg-brand-surface"
+				/>
+			</label>
+			<p class="text-xs text-brand-muted">
+				What a service on this credential writes its provenance under. One rshiny image serves
+				CNET, METALP or NOMIS, so the service type cannot say which.
+			</p>
 		</div>
 	{/snippet}
 	{#snippet actions()}
