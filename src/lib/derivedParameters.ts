@@ -69,3 +69,29 @@ export function formulaOwnership(
 		.map((f) => f.ordinal);
 	return { tool_script_id: calculationId, ordinal: taken.length === 0 ? 1 : Math.max(...taken) + 1 };
 }
+
+/// The variables a formula may be evaluated per replicate over.
+///
+/// A formula runs over one input's replicate vector, so the choice is among the variables the
+/// formula itself names. The curve coefficients are supplied by the curve slot rather than read
+/// from a parameter, so neither is a replicate to iterate.
+export function perReplicateChoices(variableNames: string[]): string[] {
+	return variableNames
+		.filter((n) => n !== 'curve_slope' && n !== 'curve_intercept')
+		.sort((a, b) => a.localeCompare(b));
+}
+
+/// The shape a formula declares: which input it runs per replicate over, which curve slot it
+/// corrects with, and whether it is a step of the calculation rather than a measurement. All three
+/// are optional, and the first two are cleared by an empty field, so a decision can be taken back.
+export function formulaShape(
+	perReplicate: string,
+	curveSlot: string,
+	intermediate = false,
+): { per_replicate: string | null; curve_slot: string | null; intermediate: boolean } {
+	return {
+		per_replicate: perReplicate.trim() || null,
+		curve_slot: curveSlot.trim() || null,
+		intermediate,
+	};
+}

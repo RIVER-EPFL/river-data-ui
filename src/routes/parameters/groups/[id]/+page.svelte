@@ -5,7 +5,7 @@
 	import { page } from '$app/state';
 	import { api, type Parameter, type ParameterGroup, type ParameterGroupMember } from '$api/crud';
 	import { getGroupDefinition, type GroupDefinitionMember } from '$api/service';
-	import { assignmentError, roleLabel, MEMBER_ROLES } from '$lib/parameters/groups';
+	import { assignmentError, roleLabel } from '$lib/parameters/groups';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
@@ -27,7 +27,6 @@
 	let busy = $state(false);
 
 	let assignParameterId = $state('');
-	let assignRole = $state<string>('measured');
 
 	// The definition is the server's own column order; the member rows carry the ids a reorder patches.
 	async function load() {
@@ -72,7 +71,9 @@
 			await api.parameterGroupMembers.create({
 				group_id: groupId,
 				parameter_id: assignParameterId,
-				role: assignRole,
+				// The stored role is vestigial: every read derives it from the calculations (Q135),
+				// and the column is NOT NULL until the migration that drops it.
+				role: 'entry_only',
 				ordinal: nextOrdinal,
 			});
 			assignParameterId = '';
@@ -94,18 +95,6 @@
 		try {
 			await api.parameterGroupMembers.update(order[index].id, { ordinal: order[target].ordinal });
 			await api.parameterGroupMembers.update(order[target].id, { ordinal: order[index].ordinal });
-			await load();
-		} catch (e) {
-			toastStore.error(assignmentError(e, groups));
-		} finally {
-			busy = false;
-		}
-	}
-
-	async function setRole(member: ParameterGroupMember, role: string) {
-		busy = true;
-		try {
-			await api.parameterGroupMembers.update(member.id, { role });
 			await load();
 		} catch (e) {
 			toastStore.error(assignmentError(e, groups));
@@ -194,22 +183,9 @@
 								{#if column.statistics}<Badge variant="accent">replicated</Badge>{/if}
 							</td>
 							<td class="px-3 py-2 text-brand-muted">{column.units ?? '—'}</td>
-							<td class="px-3 py-2">
-								{#if member}
-									<select
-										class="border border-brand-divider rounded px-2 py-1 bg-brand-surface"
-										value={member.role}
-										disabled={busy}
-										onchange={(e) => setRole(member, e.currentTarget.value)}
-									>
-										{#each MEMBER_ROLES as role}
-											<option value={role}>{roleLabel(role)}</option>
-										{/each}
-									</select>
-								{:else}
-									{roleLabel(column.role)}
-								{/if}
-							</td>
+							<!-- The role is what the calculations make of the parameter, not a choice
+							     taken here (Q135). -->
+							<td class="px-3 py-2 text-brand-muted">{roleLabel(column.role)}</td>
 							<td class="px-3 py-2 text-right whitespace-nowrap">
 								<Button size="sm" variant="ghost" disabled={busy || index === 0} onclick={() => move(column.parameter_id, -1)}>Up</Button>
 								<Button size="sm" variant="ghost" disabled={busy || index === columns.length - 1} onclick={() => move(column.parameter_id, 1)}>Down</Button>
@@ -243,17 +219,9 @@
 						{/each}
 					</select>
 				</label>
-				<label class="text-sm">
-					<span class="block text-brand-muted mb-1">Role</span>
-					<select bind:value={assignRole} class="border border-brand-divider rounded px-2 py-1 bg-brand-surface">
-						{#each MEMBER_ROLES as role}
-							<option value={role}>{roleLabel(role)}</option>
-						{/each}
-					</select>
-				</label>
 				<Button variant="primary" loading={busy} disabled={!assignParameterId} onclick={assign}>Assign</Button>
 			</div>
-			<p class="text-xs text-brand-muted">A parameter belongs to one group; assigning one that is already grouped is refused, naming the group that holds it.</p>
+			<p class="text-xs text-brand-muted">A parameter belongs to one group; assigning one that is already grouped is refused, naming the group that holds it. Its role is read from the calculations that write and read it, not chosen here.</p>
 			{#if assignError}<ErrorNotice message={assignError} />{/if}
 		</div>
 

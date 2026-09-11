@@ -1,6 +1,13 @@
 <script lang="ts">
 	import { type DragPayload, type FormulaNode, parseFromMeval, serializeToMeval, getNodeAtPath, replaceAtPath, hasEmptySlots, wrapWithOp, payloadToNode } from './ast';
 	import { tokens } from '$lib/charts/tokens';
+	import {
+		callAt,
+		lintFormula,
+		FORMULA_FUNCTIONS,
+		FORMULA_FUNCTION_HELP,
+		type Diagnostic
+	} from '$lib/formula/lint';
 	import type { Constant } from '$api/crud';
 	import Button from '$components/ui/Button.svelte';
 
@@ -8,10 +15,22 @@
 		value = $bindable(''),
 		variables = [],
 		constants = [],
+		steps = [],
+		hasCurve = false,
+		ownCode = undefined,
+		diagnostics = $bindable([]),
 	}: {
 		value: string;
 		variables: Array<{ name: string; label: string; category?: string }>;
 		constants?: Constant[];
+		/** Earlier formulas of the same calculation, readable by their code. */
+		steps?: string[];
+		/** Whether this formula declares a curve slot, which binds the two coefficients. */
+		hasCurve?: boolean;
+		/** The code of the formula being edited: naming itself is a cycle. */
+		ownCode?: string;
+		/** What the text says wrong, read out so the page can hold Save while one stands. */
+		diagnostics?: Diagnostic[];
 	} = $props();
 
 	let root = $state<FormulaNode>(value ? parseFromMeval(value) : { type: 'empty' });
@@ -20,7 +39,8 @@
 	let editingConstantPath = $state<string | null>(null);
 	let dragOverPath = $state<string | null>(null);
 
-	const FUNCTIONS = ['sqrt', 'abs', 'ln', 'log', 'sin', 'cos', 'tan', 'exp', 'floor', 'ceil', 'round', 'min', 'max'];
+	// Every function the engine defines, so the palette offers the guards and comparisons too.
+	const FUNCTIONS = Object.keys(FORMULA_FUNCTIONS);
 	const MULTI_ARG_FUNCTIONS = new Set(['min', 'max']);
 
 	const constantNames = $derived(new Set(constants.map((c) => c.name)));
@@ -196,10 +216,25 @@
 	}
 
 	function handleTextInput(e: Event) {
-		const text = (e.target as HTMLInputElement).value;
-		value = text;
-		try { root = parseFromMeval(text); } catch { /* invalid formula */ }
+		const input = e.target as HTMLInputElement;
+		value = input.value;
+		caret = input.selectionStart ?? input.value.length;
+		try { root = parseFromMeval(input.value); } catch { /* the diagnostics say what is wrong */ }
 	}
+
+	// Read on every keystroke, so a name that is not a parameter is named here rather than by the
+	// server after the save.
+	let caret = $state(0);
+	$effect(() => {
+		diagnostics = lintFormula(value, {
+			variables: variables.map((v) => v.name),
+			constants: constants.map((c) => c.name),
+			steps,
+			hasCurve,
+			ownCode,
+		});
+	});
+	const signature = $derived(callAt(value, caret));
 
 	function colorForVar(name: string): string {
 		const idx = variables.findIndex((v) => v.name === name);
@@ -228,6 +263,20 @@
 			placeholder="Type formula directly, or drag tokens from the palette into the canvas…"
 			class="w-full px-3 py-2 border border-brand-divider rounded bg-brand-surface text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
 		/>
+		{#if signature}
+			<span class="text-xs text-brand-muted mt-1 block font-mono">
+				{signature.name}({#if signature.arity === null}…{:else}{#each Array(signature.arity) as _, i (i)}<span
+							class={i === signature.argument ? 'text-brand-primary font-semibold' : ''}
+							>{i > 0 ? ', ' : ''}arg{i + 1}</span
+						>{/each}{/if})
+			</span>
+		{/if}
+		{#each diagnostics as diagnostic, i (i)}
+			<span class="text-xs text-severity-alarm mt-1 block">
+				{diagnostic.message}{#if diagnostic.suggestion}. Did you mean
+					<span class="font-mono">{diagnostic.suggestion}</span>?{/if}
+			</span>
+		{/each}
 		{#if hasEmptySlots(root) && root.type !== 'empty'}
 			<span class="text-xs text-severity-warning mt-1 block">Formula has empty slots (shown as ?)</span>
 		{/if}
@@ -282,7 +331,7 @@
 								onclick={() => clickPalette({ kind: 'function', name: fn })}
 								onkeydown={(e) => paletteKeydown(e, { kind: 'function', name: fn })}
 								class="px-2 py-1 text-xs rounded cursor-grab active:cursor-grabbing border border-brand-divider bg-brand-surface text-brand-text hover:bg-brand-bg"
-								title="Click or drag {fn}() into formula; drop onto a token to wrap it"
+								title="{FORMULA_FUNCTION_HELP[fn] ?? fn}&#10;Click or drag {fn}() into formula; drop onto a token to wrap it"
 							>{fn}()</div>
 						{/each}
 					</div>

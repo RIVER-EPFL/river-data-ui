@@ -107,6 +107,22 @@
 			{#if def.units}
 				<div><span class="text-sm text-brand-muted block">Units</span><p class="text-sm">{def.units}</p></div>
 			{/if}
+			{#if def.per_replicate || def.curve_slot}
+				<div class="grid grid-cols-2 gap-3">
+					{#if def.per_replicate}
+						<div>
+							<span class="text-sm text-brand-muted block">Per replicate over</span>
+							<p class="text-sm font-mono">{def.per_replicate}</p>
+						</div>
+					{/if}
+					{#if def.curve_slot}
+						<div>
+							<span class="text-sm text-brand-muted block">Curve slot</span>
+							<p class="text-sm font-mono">{def.curve_slot}</p>
+						</div>
+					{/if}
+				</div>
+			{/if}
 			{#if outputParam}
 				{@const warningRange = formatThresholdRange(globalThreshold?.warning_min, globalThreshold?.warning_max, def.units)}
 				{@const alarmRange = formatThresholdRange(globalThreshold?.alarm_min, globalThreshold?.alarm_max, def.units)}

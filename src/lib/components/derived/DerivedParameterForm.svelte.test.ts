@@ -11,6 +11,7 @@ vi.mock('$api/crud', () => ({
 		derivedParameters: {
 			create: (v: unknown) => create(v),
 			get: (id: string) => get(id),
+			list: () => list(),
 			update: vi.fn()
 		},
 		parameters: { list: () => list() },
@@ -35,7 +36,11 @@ describe('DerivedParameterForm', () => {
 		create.mockReset();
 		get.mockReset();
 		list.mockReset();
-		list.mockResolvedValue({ data: [] });
+		// The catalog the formula reads from: an identifier no parameter carries is a diagnostic
+		// now, and the form holds Save while one stands.
+		list.mockResolvedValue({
+			data: [{ id: 'p-do', code: 'Dissolved_O2', name: 'Dissolved oxygen', default_units: 'uM' }]
+		});
 		create.mockResolvedValue({ id: 'def-1', output_parameter_id: 'param-1' });
 	});
 
@@ -62,6 +67,9 @@ describe('DerivedParameterForm', () => {
 			units: 'mg/L',
 			formula: 'Dissolved_O2 * 0.032',
 			description: 'oxygen',
+			per_replicate: null,
+			curve_slot: null,
+			intermediate: false,
 			tool_script_id: null,
 			ordinal: 0
 		});

@@ -18,7 +18,9 @@
 	import StagedVisitBar from '$components/tools/StagedVisitBar.svelte';
 	import { stagedVisit } from '$lib/stores/visit.svelte';
 	import { prefillFromVisit } from '$lib/tools/visitPrefill';
+	import { runTables } from '$lib/tools/runTable';
 	import ToolForm from '$components/tools/ToolForm.svelte';
+	import RunResultsTable from '$components/tools/RunResultsTable.svelte';
 	import {
 		buildRequestBody,
 		curveSelectionsFrom,
@@ -145,47 +147,15 @@
 			.join('; '),
 	);
 
-	// Results are read through the manifest, so each number carries the label and units the tool
-	// declares for it. A per_replicate output's keys arrive suffixed ({base}_{rep}) and take their
-	// declaration from the base.
-	const outputFor = $derived.by(() => {
-		const exact = new Map<string, ToolOutput>();
-		const replicated: { base: string; output: ToolOutput }[] = [];
-		for (const o of activeTool?.outputs ?? []) {
-			const base = o.key.replace(/_?\{rep\}/, '');
-			if (o.per_replicate) replicated.push({ base, output: o });
-			else exact.set(o.key, o);
-		}
-		return (key: string): { output: ToolOutput; suffix: string | null } | null => {
-			const direct = exact.get(key);
-			if (direct) return { output: direct, suffix: null };
-			const rep = replicated.find((r) => key.startsWith(`${r.base}_`));
-			return rep ? { output: rep.output, suffix: key.slice(rep.base.length + 1) } : null;
-		};
-	});
-
-	const displayResults = $derived(
-		result
-			? Object.entries(result.results)
-					.filter(([, v]) => v != null)
-					.map(([key, value]) => {
-						const match = outputFor(key);
-						const label = match
-							? match.suffix
-								? `${match.output.label} ${match.suffix}`
-								: match.output.label
-							: key.replace(/_/g, ' ');
-						return {
-							key,
-							value,
-							label,
-							units: match?.output.units ?? null,
-							// An avg or sd row summarises another output; the database derives it from
-							// the replicates that are saved, so it is shown and never stored.
-							derived: !!match?.output.aggregate_of,
-						};
-					})
-			: [],
+	// One shape for both tables, so a run reads as the portal's: parameters down, replicates
+	// across, the steps of the calculation above what it publishes.
+	const resultTables = $derived(
+		runTables(
+			(result?.results ?? {}) as Record<string, unknown>,
+			activeTool?.outputs ?? [],
+			(result?.skipped ?? []) as Array<Record<string, unknown>>,
+			result?.trace ?? [],
+		),
 	);
 
 	$effect(() => {
@@ -244,11 +214,6 @@
 		selectTool(tool, inputs);
 	}
 
-	function fmtValue(value: unknown): string {
-		if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toPrecision(6);
-		if (Array.isArray(value)) return value.map(fmtValue).join(', ');
-		return String(value);
-	}
 </script>
 
 <svelte:head><title>Tools | RIVER Data</title></svelte:head>
@@ -368,20 +333,7 @@
 								Ignored inputs: {result.inputs_ignored.join(', ')}
 							</p>
 						{/if}
-						<div class="space-y-2">
-							{#each displayResults as row (row.key)}
-								<div class="flex justify-between gap-3 text-sm border-b border-brand-divider pb-1 last:border-b-0">
-									<span class="text-brand-muted">
-										{row.label}{#if row.units}&nbsp;({row.units}){/if}
-										{#if row.derived}<span class="ml-1 text-[10px] uppercase tracking-wide text-brand-accent-dark">derived</span>{/if}
-									</span>
-									<span class="font-mono">{fmtValue(row.value)}</span>
-								</div>
-							{/each}
-							{#if displayResults.length === 0}
-								<p class="text-sm text-brand-muted">No outputs were computable from these inputs.</p>
-							{/if}
-						</div>
+						<RunResultsTable tables={resultTables} />
 					</div>
 				{:else}
 					<div class="rounded-md border border-brand-divider bg-brand-surface p-4 flex items-center justify-center h-40 text-sm text-brand-muted">

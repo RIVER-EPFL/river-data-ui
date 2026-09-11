@@ -13,9 +13,16 @@
 	} from '$api/crud';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { listToolScripts, type ToolScriptSummary } from '$api/service';
-	import { formulaOwnership, fromNum, thresholdPatch } from '$lib/derivedParameters';
+	import {
+		formulaOwnership,
+		formulaShape,
+		fromNum,
+		perReplicateChoices,
+		thresholdPatch,
+	} from '$lib/derivedParameters';
 	import Button from '$components/ui/Button.svelte';
 	import VisualFormulaBuilder from '$lib/components/formula/VisualFormulaBuilder.svelte';
+	import type { Diagnostic } from '$lib/formula/lint';
 	import LivePreview from '$lib/components/derived/LivePreview.svelte';
 
 	// The derived-parameter form in both modes. The bounds live on the output parameter's global
@@ -44,6 +51,13 @@
 	let units = $state('');
 	let formula = $state('');
 	let description = $state('');
+	// What shape the formula runs in: over one input's replicates, and against a curve slot.
+	let perReplicate = $state('');
+	let curveSlot = $state('');
+	let intermediate = $state(false);
+	// What the builder says is wrong with the text. A formula that names something unknown is not
+	// saved: the server would refuse it anyway, and here it is said before the work is done.
+	let formulaDiagnostics = $state<Diagnostic[]>([]);
 
 	let outputParameterId = $state<string | null>(null);
 	let thresholds = $state({ warningMin: '', warningMax: '', alarmMin: '', alarmMax: '' });
@@ -117,6 +131,9 @@
 			units = d.units ?? '';
 			formula = d.formula ?? '';
 			description = d.description ?? '';
+			perReplicate = d.per_replicate ?? '';
+			curveSlot = d.curve_slot ?? '';
+			intermediate = d.intermediate ?? false;
 			outputParameterId = d.output_parameter_id;
 			if (d.output_parameter_id) {
 				globalThreshold = await loadGlobalThreshold(d.output_parameter_id);
@@ -133,7 +150,7 @@
 	});
 
 	async function handleSubmit() {
-		if (!code || !formula) return;
+		if (!code || !formula || formulaDiagnostics.length > 0) return;
 		saving = true;
 		try {
 			const values = {
@@ -142,6 +159,7 @@
 				units,
 				formula,
 				description: description || undefined,
+				...formulaShape(perReplicate, curveSlot, intermediate),
 				...formulaOwnership(calculationId, def, siblings),
 			};
 			// The output parameter is created by an after-create hook, so a create re-fetches the
@@ -187,7 +205,7 @@
 		</h2>
 		{#if ownedBy}
 			<p class="text-sm text-brand-muted mt-1">
-				A formula of <a href="{base}/tools/manage" class="text-brand-primary no-underline hover:underline">{ownedBy.label || ownedBy.name}</a>,
+				A formula of <a href="{base}/calculations/{ownedBy.id}" class="text-brand-primary no-underline hover:underline">{ownedBy.label || ownedBy.name}</a>,
 				which runs its formulas together and records one run.
 			</p>
 		{:else if !editing}
@@ -217,8 +235,67 @@
 		</div>
 
 		<div class="grid grid-cols-1 xl:grid-cols-[1fr_minmax(420px,560px)] gap-3 items-start">
-			<VisualFormulaBuilder bind:value={formula} variables={paramVars} {constants} />
+			<VisualFormulaBuilder
+				bind:value={formula}
+				bind:diagnostics={formulaDiagnostics}
+				variables={paramVars}
+				{constants}
+				hasCurve={curveSlot.trim().length > 0}
+				ownCode={code || undefined}
+			/>
 			<LivePreview {formula} sites={sitesWithAvailability} variableNames={variableNamesInFormula} />
+		</div>
+
+		<!-- What shape the formula runs in. A formula over a replicate vector writes one reading per
+		     index under its output; a curve slot supplies `curve_slope` and `curve_intercept`. -->
+		<div class="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-2xl">
+			<div>
+				<label for="dp-per-replicate" class="text-sm text-brand-muted block mb-1"
+					>Per replicate over</label
+				>
+				<select
+					id="dp-per-replicate"
+					bind:value={perReplicate}
+					class="w-full px-3 py-2 text-sm border border-brand-divider rounded bg-brand-surface"
+				>
+					<option value="">Not per replicate, one value per visit</option>
+					{#each perReplicateChoices(variableNamesInFormula) as variable (variable)}
+						<option value={variable}>{variable}</option>
+					{/each}
+					{#if perReplicate && !variableNamesInFormula.includes(perReplicate)}
+						<option value={perReplicate}>{perReplicate} (not in the formula)</option>
+					{/if}
+				</select>
+				<p class="text-xs text-brand-muted mt-1">
+					The input whose replicates this runs over, one reading per index under the output.
+				</p>
+			</div>
+			<div class="md:col-span-2">
+				<label class="flex items-start gap-2 text-sm">
+					<input type="checkbox" bind:checked={intermediate} class="mt-1" />
+					<span>
+						A step of the calculation
+						<span class="block text-xs text-brand-muted">
+							Its value reaches the formulas after it under this code, and is stored nowhere: no
+							catalog parameter is created for it and nothing offers to save it.
+						</span>
+					</span>
+				</label>
+			</div>
+			<div>
+				<label for="dp-curve-slot" class="text-sm text-brand-muted block mb-1">Curve slot</label>
+				<input
+					id="dp-curve-slot"
+					bind:value={curveSlot}
+					placeholder="e.g. doc"
+					class="w-full px-3 py-2 text-sm border border-brand-divider rounded bg-brand-surface"
+				/>
+				<p class="text-xs text-brand-muted mt-1">
+					The standard curve this formula corrects with. Its coefficients reach the formula as
+					<span class="font-mono">curve_slope</span> and
+					<span class="font-mono">curve_intercept</span>.
+				</p>
+			</div>
 		</div>
 
 		<div class="max-w-2xl">
@@ -252,7 +329,11 @@
 		{/if}
 
 		<div class="flex gap-2">
-			<Button variant="primary" onclick={handleSubmit} disabled={saving || !code || !formula}>
+			<Button
+				variant="primary"
+				onclick={handleSubmit}
+				disabled={saving || !code || !formula || formulaDiagnostics.length > 0}
+			>
 				{saving ? (editing ? 'Saving…' : 'Creating…') : editing ? 'Save' : 'Create'}
 			</Button>
 			{#if editing}

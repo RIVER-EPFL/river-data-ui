@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DerivedParameter } from '$api/crud';
-import { formulaOwnership, fromNum, thresholdPatch, toNum } from './derivedParameters';
+import { formulaOwnership, formulaShape, fromNum, perReplicateChoices, thresholdPatch, toNum } from './derivedParameters';
 
 const blank = { warningMin: '', warningMax: '', alarmMin: '', alarmMax: '' };
 
@@ -61,6 +61,31 @@ describe('formulaOwnership', () => {
 		expect(formulaOwnership('other', existing, [])).toEqual({
 			tool_script_id: 'calc',
 			ordinal: 3,
+		});
+	});
+});
+
+describe('formula shape', () => {
+	it('offers the formula\'s own variables, never the coefficients a curve slot supplies', () => {
+		expect(perReplicateChoices(['lab_co2_co2ppm', 'curve_slope', 'Field_BP', 'curve_intercept']))
+			.toEqual(['Field_BP', 'lab_co2_co2ppm']);
+	});
+
+	it('sends both declarations, and clears either one', () => {
+		expect(formulaShape(' lab_co2_co2ppm ', 'doc')).toEqual({
+			per_replicate: 'lab_co2_co2ppm',
+			curve_slot: 'doc',
+			intermediate: false,
+		});
+		expect(formulaShape('', '  ')).toEqual({
+			per_replicate: null,
+			curve_slot: null,
+			intermediate: false,
+		});
+		expect(formulaShape('', '', true)).toEqual({
+			per_replicate: null,
+			curve_slot: null,
+			intermediate: true,
 		});
 	});
 });

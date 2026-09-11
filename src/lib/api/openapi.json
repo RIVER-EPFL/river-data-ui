@@ -390,6 +390,125 @@
         ],
         "type": "object"
       },
+      "AlarmEventList": {
+        "properties": {
+          "acknowledged_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "acknowledged_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "last_seen_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "last_value": {
+            "format": "double",
+            "type": "number"
+          },
+          "max_severity": {
+            "description": "The worst it has been, which is what the history is ranked by.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "measurement_type": {
+            "description": "The cadence the episode belongs to: a grab series and a sensor series alarm apart.",
+            "type": "string"
+          },
+          "notified_at": {
+            "description": "When the subscribers were told the episode opened.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parameter_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "resolution_notified_at": {
+            "description": "When they were told it closed.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resolved_at": {
+            "description": "NULL while the breach stands; the sweeper stamps it when the value returns to range.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resolved_value": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "severity": {
+            "description": "1 = warning, 2 = alarm; what the episode reads as now.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "site_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "value_at_start": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "site_id",
+          "parameter_id",
+          "severity",
+          "max_severity",
+          "started_at",
+          "value_at_start",
+          "last_seen_at",
+          "last_value",
+          "acknowledged_at",
+          "acknowledged_by",
+          "resolved_at",
+          "resolved_value",
+          "created_at",
+          "updated_at",
+          "notified_at",
+          "resolution_notified_at",
+          "measurement_type"
+        ],
+        "type": "object"
+      },
       "AlarmEventResponse": {
         "description": "A single persisted alarm event",
         "properties": {
@@ -2405,6 +2524,12 @@
           "formula": {
             "type": "string"
           },
+          "intermediate": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "name": {
             "type": "string"
           },
@@ -2472,6 +2597,10 @@
             "format": "uuid",
             "type": "string"
           },
+          "intermediate": {
+            "description": "A step of the calculation rather than a measurement of anything (M180): it mints no catalog\nparameter, is not saved and is not a manifest output, and its value is handed to the\nformulas after it and reported in the run under this formula's own code.",
+            "type": "boolean"
+          },
           "name": {
             "type": "string"
           },
@@ -2524,6 +2653,7 @@
           "ordinal",
           "curve_slot",
           "per_replicate",
+          "intermediate",
           "created_at",
           "sources"
         ],
@@ -2560,6 +2690,10 @@
           "id": {
             "format": "uuid",
             "type": "string"
+          },
+          "intermediate": {
+            "description": "A step of the calculation rather than a measurement of anything (M180): it mints no catalog\nparameter, is not saved and is not a manifest output, and its value is handed to the\nformulas after it and reported in the run under this formula's own code.",
+            "type": "boolean"
           },
           "name": {
             "type": "string"
@@ -2613,6 +2747,7 @@
           "ordinal",
           "curve_slot",
           "per_replicate",
+          "intermediate",
           "created_at",
           "sources"
         ],
@@ -2641,6 +2776,12 @@
           "formula": {
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "intermediate": {
+            "type": [
+              "boolean",
               "null"
             ]
           },
@@ -3217,8 +3358,84 @@
         },
         "type": "object"
       },
+      "ChangeAuditList": {
+        "properties": {
+          "change": {
+            "description": "What happened, as the writer named it: `schedule_update`, `member_insert`, and so on.",
+            "type": "string"
+          },
+          "changed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "changed_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "new_value": {},
+          "old_value": {},
+          "subject": {
+            "description": "The thing the change was made to, as the writer keyed it: `schedule:{job_name}`,\n`parameter:{id}`, `site_parameter:{id}`, `parameter_group:{id}`, `push_subscriptions:{sub}`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "subject",
+          "change",
+          "changed_by",
+          "old_value",
+          "new_value",
+          "changed_at"
+        ],
+        "type": "object"
+      },
+      "ChangeAuditResponse": {
+        "properties": {
+          "change": {
+            "description": "What happened, as the writer named it: `schedule_update`, `member_insert`, and so on.",
+            "type": "string"
+          },
+          "changed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "changed_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "new_value": {},
+          "old_value": {},
+          "subject": {
+            "description": "The thing the change was made to, as the writer keyed it: `schedule:{job_name}`,\n`parameter:{id}`, `site_parameter:{id}`, `parameter_group:{id}`, `push_subscriptions:{sub}`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "subject",
+          "change",
+          "changed_by",
+          "old_value",
+          "new_value",
+          "changed_at"
+        ],
+        "type": "object"
+      },
       "ChangeEntry": {
-        "description": "One entry as the API exposes it.",
+        "description": "One entry as the subject-keyed reader exposes it.",
         "properties": {
           "change": {
             "description": "What happened, as the writer named it: `schedule_update`, `member_insert`, and so on.",
@@ -3821,6 +4038,52 @@
             ]
           }
         },
+        "type": "object"
+      },
+      "ConsumerRef": {
+        "description": "One formula reading the record's parameter, with its output at the instant where one exists.",
+        "properties": {
+          "calculation": {
+            "description": "The calculation the formula belongs to, absent on a standalone derived parameter.",
+            "type": "string"
+          },
+          "definition_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "formula_code": {
+            "type": "string"
+          },
+          "formula_name": {
+            "type": "string"
+          },
+          "output_parameter_code": {
+            "type": "string"
+          },
+          "output_parameter_id": {
+            "description": "The slot key of the output's own record. Absent on an intermediate, which mints none.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "replicate_index": {
+            "description": "Set when the formula evaluates per replicate over this parameter: the output at this index\ncame from the record's value at the same index.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "value": {
+            "format": "double",
+            "type": "number"
+          },
+          "variable_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "definition_id",
+          "formula_code",
+          "formula_name",
+          "variable_name"
+        ],
         "type": "object"
       },
       "CreateCredentialRequest": {
@@ -5660,6 +5923,54 @@
         ],
         "type": "object"
       },
+      "DraftFormula": {
+        "description": "One formula of a draft set, as the calculation editor holds it: the same fields the stored\nformula carries, without an id, because the point is to run what is not saved yet.",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "curve_slot": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "formula": {
+            "type": "string"
+          },
+          "intermediate": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ordinal": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "per_replicate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "units": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "code",
+          "formula",
+          "ordinal"
+        ],
+        "type": "object"
+      },
       "DraftRunFailure": {
         "properties": {
           "call": {
@@ -6713,6 +7024,159 @@
         ],
         "type": "object"
       },
+      "FormulaDraftRunRequest": {
+        "description": "Run a formula calculation's unsaved formula set at a visit. The formulas replace the stored\nset for this run only; nothing is written.",
+        "properties": {
+          "constants": {
+            "additionalProperties": {
+              "format": "double",
+              "type": "number"
+            },
+            "description": "Constant values in place of the catalog; omit to read the catalog.",
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "formulas": {
+            "items": {
+              "$ref": "#/components/schemas/DraftFormula"
+            },
+            "type": "array"
+          },
+          "inputs": {
+            "additionalProperties": {},
+            "description": "The calculate request body: `site_id`, `collected_at`, replicate lists and any value\noverriding what the visit holds.",
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "formulas"
+        ],
+        "type": "object"
+      },
+      "FormulaDraftRunResponse": {
+        "allOf": [
+          {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FormulaDraftRunResults"
+              }
+            ]
+          },
+          {
+            "properties": {
+              "failure": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DraftRunFailure"
+                  }
+                ]
+              },
+              "manifest": {
+                "description": "The manifest the formula set implies: its params, outputs, constants, curve slots and the\nsite and event inputs, in the shape `GET /tools` serves.",
+                "type": "object"
+              },
+              "ran": {
+                "description": "True when the run fields are present; false when `failure` is.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "ran",
+              "failure",
+              "manifest"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "FormulaDraftRunResults": {
+        "description": "What the formula set produced, present only when the run reached the end.",
+        "properties": {
+          "constants": {
+            "additionalProperties": {
+              "format": "double",
+              "type": "number"
+            },
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "curves": {
+            "items": {
+              "$ref": "#/components/schemas/CurveSnapshot"
+            },
+            "type": "array"
+          },
+          "event_inputs": {
+            "description": "The visit's stored values the run read, as `{param, parameter_code, parameter_id, value}`.",
+            "items": {},
+            "type": "array"
+          },
+          "inputs_ignored": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "inputs_used": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "results": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "site_inputs": {
+            "description": "The site properties the run read, as `{property, param, value}`.",
+            "items": {},
+            "type": "array"
+          },
+          "skipped": {
+            "description": "Outputs the run did not produce, each with its reason.",
+            "items": {},
+            "type": "array"
+          },
+          "trace": {
+            "description": "Each formula as it was evaluated, with the values it read per cell.",
+            "items": {
+              "$ref": "#/components/schemas/TraceStep"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "results",
+          "skipped",
+          "inputs_used",
+          "inputs_ignored",
+          "constants",
+          "curves",
+          "site_inputs",
+          "event_inputs",
+          "trace"
+        ],
+        "type": "object"
+      },
       "GrabPreview": {
         "properties": {
           "base_calibration": {
@@ -7161,24 +7625,14 @@
             ]
           },
           "sd_estimator": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/SdEstimator",
-                "description": "The divisor `sd` was computed under. Absent on a hold that predates the record."
-              }
-            ]
+            "$ref": "#/components/schemas/SdEstimator",
+            "description": "The divisor `sd` was computed under. Absent on a hold that predates the record."
           },
           "values": {
             "items": {
               "$ref": "#/components/schemas/HoldValue"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           }
         },
         "required": [
@@ -7200,10 +7654,7 @@
           },
           "n": {
             "format": "int64",
-            "type": [
-              "integer",
-              "null"
-            ]
+            "type": "integer"
           },
           "sd": {
             "format": "double",
@@ -7232,10 +7683,7 @@
           "n": {
             "description": "The replicate count the source declares, where it declares one.",
             "format": "int64",
-            "type": [
-              "integer",
-              "null"
-            ]
+            "type": "integer"
           },
           "sd": {
             "format": "double",
@@ -8119,6 +8567,204 @@
         ],
         "type": "object"
       },
+      "IngestReceiptList": {
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "brake_threshold": {
+            "format": "float",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "braked": {
+            "type": "boolean"
+          },
+          "changed": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "changed_keys": {},
+          "dropped": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "new_rows": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "proposed": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "rejected": {},
+          "rejected_total": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "retained": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "stream_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "submitted": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "unchanged": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "window_from": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "window_to": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "withdrawn": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "stream_id",
+          "at",
+          "window_from",
+          "window_to",
+          "submitted",
+          "new_rows",
+          "changed",
+          "unchanged",
+          "retained",
+          "rejected_total",
+          "rejected",
+          "dropped",
+          "withdrawn",
+          "changed_keys",
+          "braked",
+          "brake_threshold",
+          "proposed"
+        ],
+        "type": "object"
+      },
+      "IngestReceiptResponse": {
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "brake_threshold": {
+            "format": "float",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "braked": {
+            "type": "boolean"
+          },
+          "changed": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "changed_keys": {},
+          "dropped": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "new_rows": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "proposed": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "rejected": {},
+          "rejected_total": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "retained": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "stream_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "submitted": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "unchanged": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "window_from": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "window_to": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "withdrawn": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "stream_id",
+          "at",
+          "window_from",
+          "window_to",
+          "submitted",
+          "new_rows",
+          "changed",
+          "unchanged",
+          "retained",
+          "rejected_total",
+          "rejected",
+          "dropped",
+          "withdrawn",
+          "changed_keys",
+          "braked",
+          "brake_threshold",
+          "proposed"
+        ],
+        "type": "object"
+      },
       "IngestResponse": {
         "properties": {
           "accepted_window": {
@@ -8259,6 +8905,52 @@
           "inserted",
           "stream_id",
           "paired"
+        ],
+        "type": "object"
+      },
+      "InputRef": {
+        "description": "One value a formula read at the record's instant. A parameter input carries the slot key\n(`parameter_id` with the record's site and time) that resolves its own record; a site property\ncarries the column it was read from.",
+        "properties": {
+          "definition_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "formula_code": {
+            "description": "The formula's code, so two formulas producing one parameter stay apart.",
+            "type": "string"
+          },
+          "parameter_code": {
+            "type": "string"
+          },
+          "parameter_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "replicate_index": {
+            "description": "Set when the formula evaluates per replicate and this is the variable it iterates: the\nvalue at this index fed the output at the same index.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "served_as": {
+            "description": "How the value was read: `replicate` (the row at the index), `mean` (the family's sample\nstatistic), `reading` (the single row at the instant), `site` (the site row's column).\n`missing` when nothing at the instant answers.",
+            "type": "string"
+          },
+          "site_property": {
+            "type": "string"
+          },
+          "value": {
+            "format": "double",
+            "type": "number"
+          },
+          "variable_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "definition_id",
+          "formula_code",
+          "variable_name",
+          "served_as"
         ],
         "type": "object"
       },
@@ -14003,7 +14695,27 @@
       },
       "ProjectResponse": {
         "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "data_source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discovered_at": {
+            "format": "date-time",
             "type": [
               "string",
               "null"
@@ -14013,14 +14725,56 @@
             "format": "uuid",
             "type": "string"
           },
+          "is_public": {
+            "type": "boolean"
+          },
           "name": {
             "type": "string"
+          },
+          "public_api_description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "public_api_title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "public_api_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "public_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "public_contact_email": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
           "id",
           "name",
-          "description"
+          "data_source",
+          "description",
+          "created_at",
+          "discovered_at",
+          "is_public",
+          "public_code",
+          "public_api_title",
+          "public_api_description",
+          "public_api_version",
+          "public_contact_email"
         ],
         "type": "object"
       },
@@ -14232,12 +14986,26 @@
           "computation": {
             "$ref": "#/components/schemas/ComputationInfo"
           },
+          "consumers": {
+            "description": "Every enabled formula reading this parameter, one hop down the chain, with its output's\nvalue at this instant where one exists.",
+            "items": {
+              "$ref": "#/components/schemas/ConsumerRef"
+            },
+            "type": "array"
+          },
           "event": {
             "$ref": "#/components/schemas/EventRef"
           },
           "holds": {
             "items": {
               "$ref": "#/components/schemas/HoldRef"
+            },
+            "type": "array"
+          },
+          "inputs": {
+            "description": "The values the formula producing this parameter read at this instant, one hop up the\nchain. Each names the key its own record is read by.",
+            "items": {
+              "$ref": "#/components/schemas/InputRef"
             },
             "type": "array"
           },
@@ -14334,6 +15102,204 @@
         "required": [
           "job_id",
           "status"
+        ],
+        "type": "object"
+      },
+      "ReadingDecisionList": {
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "job_id": {
+            "description": "The tracked job that made a system change, where one did. Cleared when that job row is\npruned, so an old decision keeps its record and loses only the link to the run.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "new": {
+            "description": "What the decision asserts about those columns."
+          },
+          "old": {
+            "description": "The projected columns as they stood before the decision."
+          },
+          "origin": {
+            "type": "string"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "replicate_index": {
+            "description": "The replicate the decision names, or NULL for one taken on the whole group.",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "rolled_back_by": {
+            "description": "The `rollback` that inverted this decision, once one has.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "set_id": {
+            "description": "The set-level decision this row materialises, where it belongs to one.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stream_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "supersedes": {
+            "description": "The live decision of the same family this one replaces.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "time": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "stream_id",
+          "time",
+          "replicate_index",
+          "kind",
+          "old",
+          "new",
+          "actor",
+          "at",
+          "reason",
+          "origin",
+          "supersedes",
+          "rolled_back_by",
+          "set_id",
+          "job_id"
+        ],
+        "type": "object"
+      },
+      "ReadingDecisionResponse": {
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "job_id": {
+            "description": "The tracked job that made a system change, where one did. Cleared when that job row is\npruned, so an old decision keeps its record and loses only the link to the run.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "new": {
+            "description": "What the decision asserts about those columns."
+          },
+          "old": {
+            "description": "The projected columns as they stood before the decision."
+          },
+          "origin": {
+            "type": "string"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "replicate_index": {
+            "description": "The replicate the decision names, or NULL for one taken on the whole group.",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "rolled_back_by": {
+            "description": "The `rollback` that inverted this decision, once one has.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "set_id": {
+            "description": "The set-level decision this row materialises, where it belongs to one.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stream_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "supersedes": {
+            "description": "The live decision of the same family this one replaces.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "time": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "stream_id",
+          "time",
+          "replicate_index",
+          "kind",
+          "old",
+          "new",
+          "actor",
+          "at",
+          "reason",
+          "origin",
+          "supersedes",
+          "rolled_back_by",
+          "set_id",
+          "job_id"
         ],
         "type": "object"
       },
@@ -14833,9 +15799,13 @@
       },
       "RefreshAggregatesRequest": {
         "properties": {
-          "full": {
-            "description": "If true, refresh ALL continuous aggregates (slow). If false, incremental refresh.",
-            "type": "boolean"
+          "since": {
+            "description": "Rematerialise only from this instant to now. Omitted, the whole history is rematerialised,\nwhich is the repair for a database edited out of band; the open bucket is served from the\nraw rows and each policy already covers the rest.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "type": "object"
@@ -15123,6 +16093,212 @@
         ],
         "type": "object"
       },
+      "ReplicateAuditHoldList": {
+        "properties": {
+          "acknowledged_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "acknowledged_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "computed": {
+            "description": "What river-data computes over what it stores."
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "delta": {},
+          "expected": {
+            "description": "What the source said, as the raise recorded it."
+          },
+          "group_time": {
+            "description": "The instant the finding is about.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "manual_value": {
+            "description": "The value an operator entered in place of both, where one was.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "parameter_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resolution": {
+            "description": "What the decision was, as the transition recorded it."
+          },
+          "site_id": {
+            "description": "The slot half of the key, for a finding no stream produced.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "stream_id": {
+            "description": "The stream the finding is about, or NULL for one no stream produced.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tool": {
+            "description": "The calculation a finding is about, where one produced it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "stream_id",
+          "group_time",
+          "expected",
+          "computed",
+          "delta",
+          "status",
+          "created_at",
+          "acknowledged_by",
+          "acknowledged_at",
+          "manual_value",
+          "resolution",
+          "kind",
+          "site_id",
+          "parameter_id",
+          "tool"
+        ],
+        "type": "object"
+      },
+      "ReplicateAuditHoldResponse": {
+        "properties": {
+          "acknowledged_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "acknowledged_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "computed": {
+            "description": "What river-data computes over what it stores."
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "delta": {},
+          "expected": {
+            "description": "What the source said, as the raise recorded it."
+          },
+          "group_time": {
+            "description": "The instant the finding is about.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "manual_value": {
+            "description": "The value an operator entered in place of both, where one was.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "parameter_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resolution": {
+            "description": "What the decision was, as the transition recorded it."
+          },
+          "site_id": {
+            "description": "The slot half of the key, for a finding no stream produced.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "stream_id": {
+            "description": "The stream the finding is about, or NULL for one no stream produced.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tool": {
+            "description": "The calculation a finding is about, where one produced it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "stream_id",
+          "group_time",
+          "expected",
+          "computed",
+          "delta",
+          "status",
+          "created_at",
+          "acknowledged_by",
+          "acknowledged_at",
+          "manual_value",
+          "resolution",
+          "kind",
+          "site_id",
+          "parameter_id",
+          "tool"
+        ],
+        "type": "object"
+      },
       "ReplicateOut": {
         "description": "One replicate behind a grab-sample point.",
         "properties": {
@@ -15330,6 +16506,10 @@
       },
       "ReprocessingJobList": {
         "properties": {
+          "cancel_requested": {
+            "description": "Set by `POST /reprocessing_jobs/{id}/cancel`; the run stops at its next checkpoint.",
+            "type": "boolean"
+          },
           "cancellable": {
             "description": "Whether `POST /reprocessing_jobs/{id}/cancel` accepts this row, from the registry's policy.",
             "type": "boolean"
@@ -15349,6 +16529,13 @@
             "format": "date-time",
             "type": "string"
           },
+          "dedupe_key": {
+            "description": "Coalescing key while a job waits: an enqueue naming one that is already queued creates\nnothing. The claim clears it, so the next enqueue queues a fresh run.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "detail": {
             "description": "Structured per-job summary + provenance (scope, time range, counts, source, samples)."
           },
@@ -15361,6 +16548,31 @@
           "id": {
             "format": "uuid",
             "type": "string"
+          },
+          "lease_epoch": {
+            "description": "Bumped on every claim, so a lease granted before a takeover cannot write after it.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "lease_expires_at": {
+            "description": "When the current lease lapses, after which a reaper arm may claim the row again.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "next_attempt_at": {
+            "description": "When the row becomes claimable, which a retry pushes out by the backoff.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "owner": {
+            "description": "The worker replica holding the lease, while one does.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "params": {
             "description": "What the run was asked to do, the object `worker::enqueue` stored and a rerun replays."
@@ -15449,6 +16661,12 @@
           "params",
           "created_at",
           "completed_at",
+          "owner",
+          "lease_expires_at",
+          "lease_epoch",
+          "cancel_requested",
+          "next_attempt_at",
+          "dedupe_key",
           "rerunnable",
           "cancellable"
         ],
@@ -15456,6 +16674,10 @@
       },
       "ReprocessingJobResponse": {
         "properties": {
+          "cancel_requested": {
+            "description": "Set by `POST /reprocessing_jobs/{id}/cancel`; the run stops at its next checkpoint.",
+            "type": "boolean"
+          },
           "cancellable": {
             "description": "Whether `POST /reprocessing_jobs/{id}/cancel` accepts this row, from the registry's policy.",
             "type": "boolean"
@@ -15475,6 +16697,13 @@
             "format": "date-time",
             "type": "string"
           },
+          "dedupe_key": {
+            "description": "Coalescing key while a job waits: an enqueue naming one that is already queued creates\nnothing. The claim clears it, so the next enqueue queues a fresh run.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "detail": {
             "description": "Structured per-job summary + provenance (scope, time range, counts, source, samples)."
           },
@@ -15487,6 +16716,31 @@
           "id": {
             "format": "uuid",
             "type": "string"
+          },
+          "lease_epoch": {
+            "description": "Bumped on every claim, so a lease granted before a takeover cannot write after it.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "lease_expires_at": {
+            "description": "When the current lease lapses, after which a reaper arm may claim the row again.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "next_attempt_at": {
+            "description": "When the row becomes claimable, which a retry pushes out by the backoff.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "owner": {
+            "description": "The worker replica holding the lease, while one does.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "params": {
             "description": "What the run was asked to do, the object `worker::enqueue` stored and a rerun replays."
@@ -15575,6 +16829,12 @@
           "params",
           "created_at",
           "completed_at",
+          "owner",
+          "lease_expires_at",
+          "lease_epoch",
+          "cancel_requested",
+          "next_attempt_at",
+          "dedupe_key",
           "rerunnable",
           "cancellable"
         ],
@@ -19451,7 +20711,7 @@
             ]
           },
           "decimal_places": {
-            "description": "Display precision, carried to the client by [`super::descriptor::SlotDescriptor`]. The API\nserves full precision and the client formats, so a change here never rewrites a value.",
+            "description": "Display precision, carried to the client by [`SlotDescriptor`]. The API\nserves full precision and the client formats, so a change here never rewrites a value.",
             "format": "int32",
             "type": [
               "integer",
@@ -19467,7 +20727,7 @@
             ]
           },
           "display_units": {
-            "description": "Site-level units override. NULL means \"no override\": every endpoint serving this slot\nresolves units through [`super::descriptor::SlotDescriptor`], which falls back to the\ncatalog `default_units`.",
+            "description": "Site-level units override. NULL means \"no override\": every endpoint serving this slot\nresolves units through [`SlotDescriptor`], which falls back to the\ncatalog `default_units`.",
             "type": [
               "string",
               "null"
@@ -19617,7 +20877,7 @@
             ]
           },
           "decimal_places": {
-            "description": "Display precision, carried to the client by [`super::descriptor::SlotDescriptor`]. The API\nserves full precision and the client formats, so a change here never rewrites a value.",
+            "description": "Display precision, carried to the client by [`SlotDescriptor`]. The API\nserves full precision and the client formats, so a change here never rewrites a value.",
             "format": "int32",
             "type": [
               "integer",
@@ -19633,7 +20893,7 @@
             ]
           },
           "display_units": {
-            "description": "Site-level units override. NULL means \"no override\": every endpoint serving this slot\nresolves units through [`super::descriptor::SlotDescriptor`], which falls back to the\ncatalog `default_units`.",
+            "description": "Site-level units override. NULL means \"no override\": every endpoint serving this slot\nresolves units through [`SlotDescriptor`], which falls back to the\ncatalog `default_units`.",
             "type": [
               "string",
               "null"
@@ -22461,6 +23721,13 @@
           "tool_version": {
             "$ref": "#/components/schemas/ToolVersionRef",
             "description": "The exact script version and runtime that produced these numbers; goes into the\nprovenance blob on save."
+          },
+          "trace": {
+            "description": "Each formula as it was evaluated, with the values it read per cell. Absent for a script\nrun, which returns only what the script returns.",
+            "items": {
+              "$ref": "#/components/schemas/TraceStep"
+            },
+            "type": "array"
           }
         },
         "required": [
@@ -22472,6 +23739,86 @@
           "curves",
           "tool_version",
           "run_id"
+        ],
+        "type": "object"
+      },
+      "ToolRunList": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "source": {
+            "description": "Which path minted the run: `interactive`, `csv_import` or `chain`.",
+            "type": "string"
+          },
+          "tool_name": {
+            "type": "string"
+          },
+          "tool_version": {
+            "description": "The version that ran, as the provenance blob carries it."
+          }
+        },
+        "required": [
+          "id",
+          "tool_name",
+          "tool_version",
+          "created_by",
+          "created_at",
+          "source"
+        ],
+        "type": "object"
+      },
+      "ToolRunResponse": {
+        "properties": {
+          "constants": {},
+          "context": {
+            "description": "The resolved calculation context: site, collected_at, and the station and event inputs\nthe server read. Null on a run that named none."
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "curves": {},
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "inputs": {},
+          "outputs": {},
+          "source": {
+            "description": "Which path minted the run: `interactive`, `csv_import` or `chain`.",
+            "type": "string"
+          },
+          "tool_name": {
+            "type": "string"
+          },
+          "tool_version": {
+            "description": "The version that ran, as the provenance blob carries it."
+          }
+        },
+        "required": [
+          "id",
+          "tool_name",
+          "tool_version",
+          "inputs",
+          "constants",
+          "curves",
+          "outputs",
+          "created_by",
+          "created_at",
+          "context",
+          "source"
         ],
         "type": "object"
       },
@@ -22830,6 +24177,83 @@
           "content_hash",
           "runner_image",
           "r_version"
+        ],
+        "type": "object"
+      },
+      "TraceCell": {
+        "description": "What one evaluation of a formula read and produced. `bindings` is keyed by the variable name\nas the formula spells it; a value bound as not-a-number serialises as null.",
+        "properties": {
+          "bindings": {
+            "additionalProperties": {
+              "format": "double",
+              "type": "number"
+            },
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "index": {
+            "description": "The replicate index, absent for a scalar formula.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "skipped": {
+            "type": "string"
+          },
+          "value": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "value",
+          "bindings"
+        ],
+        "type": "object"
+      },
+      "TraceStep": {
+        "description": "One formula of a run as it was evaluated: the text, and per cell the value it produced and\nthe variables it read. A scalar formula has one cell; a per-replicate one has one per index.",
+        "properties": {
+          "cells": {
+            "items": {
+              "$ref": "#/components/schemas/TraceCell"
+            },
+            "type": "array"
+          },
+          "code": {
+            "type": "string"
+          },
+          "formula": {
+            "type": "string"
+          },
+          "intermediate": {
+            "type": "boolean"
+          },
+          "label": {
+            "type": "string"
+          },
+          "per_replicate": {
+            "type": "boolean"
+          },
+          "units": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "code",
+          "label",
+          "units",
+          "formula",
+          "intermediate",
+          "per_replicate",
+          "cells"
         ],
         "type": "object"
       },
@@ -24233,6 +25657,7 @@
             "description": "The backdate names no target, so a caller confined to a project set is refused"
           }
         },
+        "summary": "Re-derive `sensor_id`/`deployment_id`/`site_id`/`calibrated_value` for ALL historical readings\nfrom the current deployment + calibration timelines, across every `(site, parameter)` slot that\nhas a deployment. Use after correcting deployment/calibration windows in bulk (the backdate of\nhistorical attribution). Each slot is reprocessed via the decompression-safe\n`reprocess_site_parameter_readings`; runs as one tracked job. Requires `write_data`.",
         "tags": [
           "actions"
         ]
@@ -24401,6 +25826,150 @@
         "tags": [
           "actions"
         ]
+      }
+    },
+    "/api/alarm_events": {
+      "get": {
+        "description": "Retrieves all alarm_events.\n\nThis resource manages alarm_event items\n\nAdditional sortable columns: \n- site_id\n- parameter_id\n- severity\n- max_severity\n- started_at\n- last_seen_at\n- acknowledged_at\n- resolved_at\n- created_at\n- measurement_type.\n\nAdditional filterable columns: \n- site_id\n- parameter_id\n- severity\n- max_severity\n- acknowledged_at\n- acknowledged_by\n- resolved_at\n- measurement_type.",
+        "operationId": "get_all_alarm_events",
+        "parameters": [
+          {
+            "description": "JSON-encoded filter for querying resources.\n\nThis parameter supports various filtering options:\n- Free text search: `{\"q\": \"search text\"}`\n- Filtering by a single ID: `{\"id\": \"550e8400-e29b-41d4-a716-446655440000\"}`\n- Filtering by multiple IDs: `{\"id\": [\"550e8400-e29b-41d4-a716-446655440000\", \"550e8400-e29b-41d4-a716-446655440001\"]}`\n- Filtering on other columns: `{\"name\": \"example\"}`",
+            "example": {
+              "id": "550e8400-e29b-41d4-a716-446655440000",
+              "name": "example",
+              "q": "search text"
+            },
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Range for pagination in the format \"[start, end]\".\n\nExample: `[0,9]`",
+            "example": "[0,9]",
+            "in": "query",
+            "name": "range",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page number for standard REST pagination (1-based).\n\nExample: `1`",
+            "example": 1,
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of items per page for standard REST pagination.\n\nExample: `10`",
+            "example": 10,
+            "in": "query",
+            "name": "per_page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Sort order for the results in the format `[\"column\", \"order\"]`.\n\nExample: `[\"id\", \"ASC\"]`",
+            "example": "[\"id\", \"ASC\"]",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort column for standard REST format.\n\nExample: `title`",
+            "example": "title",
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort order for standard REST format (ASC or DESC).\n\nExample: `ASC`",
+            "example": "ASC",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AlarmEventList"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List of resources"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Get all alarm_events"
+      }
+    },
+    "/api/alarm_events/{id}": {
+      "get": {
+        "description": "Retrieves one alarm_event by its ID.\n\nThis resource manages alarm_event items",
+        "operationId": "get_one_alarm_event",
+        "parameters": [
+          {
+            "description": "Resource identifier",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlarmEventResponse"
+                }
+              }
+            },
+            "description": "The requested resource"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "404": {
+            "description": "Resource not found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Get one alarm_event"
       }
     },
     "/api/alarm_thresholds": {
@@ -26354,6 +27923,150 @@
         "tags": [
           "admin"
         ]
+      }
+    },
+    "/api/change_audit_entries": {
+      "get": {
+        "description": "Retrieves all change_audit_entries.\n\nThis resource manages change_audit_entry items\n\nAdditional sortable columns: \n- subject\n- change\n- changed_by\n- changed_at.\n\nAdditional filterable columns: \n- subject\n- change\n- changed_by.",
+        "operationId": "get_all_change_audit_entries",
+        "parameters": [
+          {
+            "description": "JSON-encoded filter for querying resources.\n\nThis parameter supports various filtering options:\n- Free text search: `{\"q\": \"search text\"}`\n- Filtering by a single ID: `{\"id\": \"550e8400-e29b-41d4-a716-446655440000\"}`\n- Filtering by multiple IDs: `{\"id\": [\"550e8400-e29b-41d4-a716-446655440000\", \"550e8400-e29b-41d4-a716-446655440001\"]}`\n- Filtering on other columns: `{\"name\": \"example\"}`",
+            "example": {
+              "id": "550e8400-e29b-41d4-a716-446655440000",
+              "name": "example",
+              "q": "search text"
+            },
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Range for pagination in the format \"[start, end]\".\n\nExample: `[0,9]`",
+            "example": "[0,9]",
+            "in": "query",
+            "name": "range",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page number for standard REST pagination (1-based).\n\nExample: `1`",
+            "example": 1,
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of items per page for standard REST pagination.\n\nExample: `10`",
+            "example": 10,
+            "in": "query",
+            "name": "per_page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Sort order for the results in the format `[\"column\", \"order\"]`.\n\nExample: `[\"id\", \"ASC\"]`",
+            "example": "[\"id\", \"ASC\"]",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort column for standard REST format.\n\nExample: `title`",
+            "example": "title",
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort order for standard REST format (ASC or DESC).\n\nExample: `ASC`",
+            "example": "ASC",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ChangeAuditList"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List of resources"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Get all change_audit_entries"
+      }
+    },
+    "/api/change_audit_entries/{id}": {
+      "get": {
+        "description": "Retrieves one change_audit_entry by its ID.\n\nThis resource manages change_audit_entry items",
+        "operationId": "get_one_change_audit_entry",
+        "parameters": [
+          {
+            "description": "Resource identifier",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeAuditResponse"
+                }
+              }
+            },
+            "description": "The requested resource"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "404": {
+            "description": "Resource not found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Get one change_audit_entry"
       }
     },
     "/api/collection_events": {
@@ -28416,7 +30129,7 @@
     },
     "/api/derived_parameters": {
       "get": {
-        "description": "Retrieves all calculation_formulas.\n\nThis resource manages calculation_formula items\n\nAdditional sortable columns: \n- code\n- ordinal\n- created_at.\n\nAdditional filterable columns: \n- code\n- tool_script_id\n- ordinal\n- curve_slot\n- per_replicate.",
+        "description": "Retrieves all calculation_formulas.\n\nThis resource manages calculation_formula items\n\nAdditional sortable columns: \n- code\n- ordinal\n- created_at.\n\nAdditional filterable columns: \n- code\n- tool_script_id\n- ordinal\n- curve_slot\n- per_replicate\n- intermediate.",
         "operationId": "get_all_calculation_formulas",
         "parameters": [
           {
@@ -29018,6 +30731,150 @@
         "tags": [
           "ingestion"
         ]
+      }
+    },
+    "/api/ingest_receipts": {
+      "get": {
+        "description": "Retrieves all ingest_receipts.\n\nThis resource manages ingest_receipt items\n\nAdditional sortable columns: \n- stream_id\n- at\n- window_from\n- window_to.\n\nAdditional filterable columns: \n- stream_id\n- braked.",
+        "operationId": "get_all_ingest_receipts",
+        "parameters": [
+          {
+            "description": "JSON-encoded filter for querying resources.\n\nThis parameter supports various filtering options:\n- Free text search: `{\"q\": \"search text\"}`\n- Filtering by a single ID: `{\"id\": \"550e8400-e29b-41d4-a716-446655440000\"}`\n- Filtering by multiple IDs: `{\"id\": [\"550e8400-e29b-41d4-a716-446655440000\", \"550e8400-e29b-41d4-a716-446655440001\"]}`\n- Filtering on other columns: `{\"name\": \"example\"}`",
+            "example": {
+              "id": "550e8400-e29b-41d4-a716-446655440000",
+              "name": "example",
+              "q": "search text"
+            },
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Range for pagination in the format \"[start, end]\".\n\nExample: `[0,9]`",
+            "example": "[0,9]",
+            "in": "query",
+            "name": "range",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page number for standard REST pagination (1-based).\n\nExample: `1`",
+            "example": 1,
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of items per page for standard REST pagination.\n\nExample: `10`",
+            "example": 10,
+            "in": "query",
+            "name": "per_page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Sort order for the results in the format `[\"column\", \"order\"]`.\n\nExample: `[\"id\", \"ASC\"]`",
+            "example": "[\"id\", \"ASC\"]",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort column for standard REST format.\n\nExample: `title`",
+            "example": "title",
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort order for standard REST format (ASC or DESC).\n\nExample: `ASC`",
+            "example": "ASC",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/IngestReceiptList"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List of resources"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Get all ingest_receipts"
+      }
+    },
+    "/api/ingest_receipts/{id}": {
+      "get": {
+        "description": "Retrieves one ingest_receipt by its ID.\n\nThis resource manages ingest_receipt items",
+        "operationId": "get_one_ingest_receipt",
+        "parameters": [
+          {
+            "description": "Resource identifier",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestReceiptResponse"
+                }
+              }
+            },
+            "description": "The requested resource"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "404": {
+            "description": "Resource not found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Get one ingest_receipt"
       }
     },
     "/api/instruments/overview": {
@@ -33448,6 +35305,150 @@
         ]
       }
     },
+    "/api/reading_decisions": {
+      "get": {
+        "description": "Retrieves all reading_decisions.\n\nThis resource manages reading_decision items\n\nAdditional sortable columns: \n- stream_id\n- time\n- replicate_index\n- kind\n- actor\n- at\n- origin.\n\nAdditional filterable columns: \n- stream_id\n- time\n- replicate_index\n- kind\n- actor\n- origin\n- supersedes\n- rolled_back_by\n- set_id\n- job_id.",
+        "operationId": "get_all_reading_decisions",
+        "parameters": [
+          {
+            "description": "JSON-encoded filter for querying resources.\n\nThis parameter supports various filtering options:\n- Free text search: `{\"q\": \"search text\"}`\n- Filtering by a single ID: `{\"id\": \"550e8400-e29b-41d4-a716-446655440000\"}`\n- Filtering by multiple IDs: `{\"id\": [\"550e8400-e29b-41d4-a716-446655440000\", \"550e8400-e29b-41d4-a716-446655440001\"]}`\n- Filtering on other columns: `{\"name\": \"example\"}`",
+            "example": {
+              "id": "550e8400-e29b-41d4-a716-446655440000",
+              "name": "example",
+              "q": "search text"
+            },
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Range for pagination in the format \"[start, end]\".\n\nExample: `[0,9]`",
+            "example": "[0,9]",
+            "in": "query",
+            "name": "range",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page number for standard REST pagination (1-based).\n\nExample: `1`",
+            "example": 1,
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of items per page for standard REST pagination.\n\nExample: `10`",
+            "example": 10,
+            "in": "query",
+            "name": "per_page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Sort order for the results in the format `[\"column\", \"order\"]`.\n\nExample: `[\"id\", \"ASC\"]`",
+            "example": "[\"id\", \"ASC\"]",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort column for standard REST format.\n\nExample: `title`",
+            "example": "title",
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort order for standard REST format (ASC or DESC).\n\nExample: `ASC`",
+            "example": "ASC",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ReadingDecisionList"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List of resources"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Get all reading_decisions"
+      }
+    },
+    "/api/reading_decisions/{id}": {
+      "get": {
+        "description": "Retrieves one reading_decision by its ID.\n\nThis resource manages reading_decision items",
+        "operationId": "get_one_reading_decision",
+        "parameters": [
+          {
+            "description": "Resource identifier",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadingDecisionResponse"
+                }
+              }
+            },
+            "description": "The requested resource"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "404": {
+            "description": "Resource not found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Get one reading_decision"
+      }
+    },
     "/api/readings/batch": {
       "post": {
         "operationId": "insert_batch_readings",
@@ -33479,6 +35480,7 @@
             "description": "Body exceeds 10MB limit"
           }
         },
+        "summary": "Batch insert readings keyed by (site_id, parameter_id). Auto-creates \"api\" streams when\na (site, parameter) pair has none. 10MB body limit. Requires `write_data`.",
         "tags": [
           "ingestion"
         ]
@@ -34251,9 +36253,153 @@
         ]
       }
     },
+    "/api/replicate_audit_holds": {
+      "get": {
+        "description": "Retrieves all replicate_audit_holds.\n\nThis resource manages replicate_audit_hold items\n\nAdditional sortable columns: \n- stream_id\n- group_time\n- status\n- created_at\n- acknowledged_at\n- kind\n- site_id\n- parameter_id\n- tool.\n\nAdditional filterable columns: \n- stream_id\n- group_time\n- status\n- acknowledged_by\n- kind\n- site_id\n- parameter_id\n- tool.",
+        "operationId": "get_all_replicate_audit_holds",
+        "parameters": [
+          {
+            "description": "JSON-encoded filter for querying resources.\n\nThis parameter supports various filtering options:\n- Free text search: `{\"q\": \"search text\"}`\n- Filtering by a single ID: `{\"id\": \"550e8400-e29b-41d4-a716-446655440000\"}`\n- Filtering by multiple IDs: `{\"id\": [\"550e8400-e29b-41d4-a716-446655440000\", \"550e8400-e29b-41d4-a716-446655440001\"]}`\n- Filtering on other columns: `{\"name\": \"example\"}`",
+            "example": {
+              "id": "550e8400-e29b-41d4-a716-446655440000",
+              "name": "example",
+              "q": "search text"
+            },
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Range for pagination in the format \"[start, end]\".\n\nExample: `[0,9]`",
+            "example": "[0,9]",
+            "in": "query",
+            "name": "range",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page number for standard REST pagination (1-based).\n\nExample: `1`",
+            "example": 1,
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of items per page for standard REST pagination.\n\nExample: `10`",
+            "example": 10,
+            "in": "query",
+            "name": "per_page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Sort order for the results in the format `[\"column\", \"order\"]`.\n\nExample: `[\"id\", \"ASC\"]`",
+            "example": "[\"id\", \"ASC\"]",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort column for standard REST format.\n\nExample: `title`",
+            "example": "title",
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort order for standard REST format (ASC or DESC).\n\nExample: `ASC`",
+            "example": "ASC",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ReplicateAuditHoldList"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List of resources"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Get all replicate_audit_holds"
+      }
+    },
+    "/api/replicate_audit_holds/{id}": {
+      "get": {
+        "description": "Retrieves one replicate_audit_hold by its ID.\n\nThis resource manages replicate_audit_hold items",
+        "operationId": "get_one_replicate_audit_hold",
+        "parameters": [
+          {
+            "description": "Resource identifier",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReplicateAuditHoldResponse"
+                }
+              }
+            },
+            "description": "The requested resource"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "404": {
+            "description": "Resource not found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Get one replicate_audit_hold"
+      }
+    },
     "/api/reprocessing_jobs": {
       "get": {
-        "description": "Retrieves all reprocessing_jobs.\n\nThis resource manages reprocessing_job items\n\nAdditional sortable columns: \n- status\n- created_at\n- completed_at.\n\nAdditional filterable columns: \n- sensor_id\n- trigger_type\n- trigger_id\n- status\n- category\n- site_id\n- parent_job_id.",
+        "description": "Retrieves all reprocessing_jobs.\n\nThis resource manages reprocessing_job items\n\nAdditional sortable columns: \n- status\n- created_at\n- completed_at\n- lease_expires_at\n- next_attempt_at.\n\nAdditional filterable columns: \n- sensor_id\n- trigger_type\n- trigger_id\n- status\n- category\n- site_id\n- parent_job_id\n- cancel_requested\n- dedupe_key.",
         "operationId": "get_all_reprocessing_jobs",
         "parameters": [
           {
@@ -45660,6 +47806,150 @@
         ]
       }
     },
+    "/api/tool_runs": {
+      "get": {
+        "description": "Retrieves all tool_runs.\n\nThis resource manages tool_run items\n\nAdditional sortable columns: \n- tool_name\n- created_by\n- created_at\n- source.\n\nAdditional filterable columns: \n- tool_name\n- created_by\n- source.",
+        "operationId": "get_all_tool_runs",
+        "parameters": [
+          {
+            "description": "JSON-encoded filter for querying resources.\n\nThis parameter supports various filtering options:\n- Free text search: `{\"q\": \"search text\"}`\n- Filtering by a single ID: `{\"id\": \"550e8400-e29b-41d4-a716-446655440000\"}`\n- Filtering by multiple IDs: `{\"id\": [\"550e8400-e29b-41d4-a716-446655440000\", \"550e8400-e29b-41d4-a716-446655440001\"]}`\n- Filtering on other columns: `{\"name\": \"example\"}`",
+            "example": {
+              "id": "550e8400-e29b-41d4-a716-446655440000",
+              "name": "example",
+              "q": "search text"
+            },
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Range for pagination in the format \"[start, end]\".\n\nExample: `[0,9]`",
+            "example": "[0,9]",
+            "in": "query",
+            "name": "range",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page number for standard REST pagination (1-based).\n\nExample: `1`",
+            "example": 1,
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of items per page for standard REST pagination.\n\nExample: `10`",
+            "example": 10,
+            "in": "query",
+            "name": "per_page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Sort order for the results in the format `[\"column\", \"order\"]`.\n\nExample: `[\"id\", \"ASC\"]`",
+            "example": "[\"id\", \"ASC\"]",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort column for standard REST format.\n\nExample: `title`",
+            "example": "title",
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort order for standard REST format (ASC or DESC).\n\nExample: `ASC`",
+            "example": "ASC",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ToolRunList"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List of resources"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Get all tool_runs"
+      }
+    },
+    "/api/tool_runs/{id}": {
+      "get": {
+        "description": "Retrieves one tool_run by its ID.\n\nThis resource manages tool_run items",
+        "operationId": "get_one_tool_run",
+        "parameters": [
+          {
+            "description": "Resource identifier",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolRunResponse"
+                }
+              }
+            },
+            "description": "The requested resource"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "404": {
+            "description": "Resource not found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Get one tool_run"
+      }
+    },
     "/api/tool_runs/{id}/reload": {
       "get": {
         "operationId": "reload_run",
@@ -45924,6 +48214,56 @@
           }
         },
         "summary": "The script's activation history, newest first. Requires Administrator.",
+        "tags": [
+          "tool_scripts"
+        ]
+      }
+    },
+    "/api/tool_scripts/{id}/formulas/draft_run": {
+      "post": {
+        "description": "Each formula's variables resolve as a save would resolve them (a catalog parameter, a\nconstant, a column of `sites`), the set is ordered and checked as a version mint would check\nit, and the run reads the visit exactly as `/tools/{name}/calculate` does. Nothing is stored:\nno version, no run row, no reading. A formula the set refuses (an unknown variable, a cycle,\nan unreadable expression) is a 400 naming it; a run that ends without results reports why at\n200, as the script draft run does.",
+        "operationId": "draft_run_formulas",
+        "parameters": [
+          {
+            "description": "The formula calculation",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FormulaDraftRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormulaDraftRunResponse"
+                }
+              }
+            },
+            "description": "The results or the reason the run ended, and the manifest the set implies"
+          },
+          "400": {
+            "description": "A formula the set refuses, or a calculation that is not formula-engined"
+          },
+          "404": {
+            "description": "No such calculation"
+          }
+        },
+        "summary": "Run an unsaved formula set at a visit, in place of the calculation's stored formulas.",
         "tags": [
           "tool_scripts"
         ]

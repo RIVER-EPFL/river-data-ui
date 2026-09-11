@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
+	import { goto } from '$app/navigation';
 	import {
+		createToolScript,
 		getCalculationClosure,
 		listTools,
 		listToolScripts,
@@ -9,11 +11,14 @@
 		type ToolDescriptor,
 		type ToolScriptSummary,
 	} from '$api/service';
-	import { api, type DerivedParameter, type Parameter } from '$api/crud';
+	import { api, type DerivedParameter, type Parameter, type ParameterGroup } from '$api/crud';
 	import { listAll } from '$api/paged';
 	import { calculationRows, unconfiguredInputs, type CalculationRow } from '$lib/calculations/rows';
+	import { newCalculationRequest, unboundGroups } from '$lib/toolbox/newCalculation';
 	import Badge from '$components/ui/Badge.svelte';
+	import Button from '$components/ui/Button.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
+	import { toastStore } from '$lib/stores/toast.svelte';
 
 	let formulas = $state<DerivedParameter[]>([]);
 	let tools = $state<ToolDescriptor[]>([]);
@@ -23,6 +28,37 @@
 	let loading = $state(true);
 	let loadError = $state<string | null>(null);
 	let engineFilter = $state<'all' | 'formula' | 'script'>('all');
+
+	// A new formula calculation. The engine is chosen here because it is a property of the
+	// calculation, and the group because one group holds one calculation (Q43).
+	let groups = $state<ParameterGroup[]>([]);
+	let composing = $state(false);
+	let newName = $state('');
+	let newLabel = $state('');
+	let newGroupId = $state('');
+	let creating = $state(false);
+	const availableGroups = $derived(unboundGroups(groups, scripts));
+
+	async function createCalculation() {
+		const made = newCalculationRequest({
+			name: newName,
+			label: newLabel,
+			parameterGroupId: newGroupId,
+		});
+		if ('error' in made) {
+			toastStore.error(made.error);
+			return;
+		}
+		creating = true;
+		try {
+			const created = await createToolScript(made.request);
+			await goto(`${base}/calculations/${created.id}`);
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'The calculation was not created.');
+		} finally {
+			creating = false;
+		}
+	}
 
 	const rows = $derived(
 		calculationRows({ derived: formulas, tools, scripts, parameters, coverage, base }).filter(
@@ -43,7 +79,7 @@
 
 	onMount(async () => {
 		try {
-			const [d, t, s, p, closure] = await Promise.all([
+			const [d, t, s, p, closure, g] = await Promise.all([
 				listAll<DerivedParameter>(api.derivedParameters),
 				listTools().catch(() => [] as ToolDescriptor[]),
 				listToolScripts().catch(() => [] as ToolScriptSummary[]),
@@ -52,12 +88,14 @@
 					calculations: [],
 					coverage: [],
 				})),
+				listAll<ParameterGroup>(api.parameterGroups).catch(() => [] as ParameterGroup[]),
 			]);
 			formulas = d;
 			tools = t;
 			scripts = s;
 			parameters = p;
 			coverage = closure.coverage ?? [];
+			groups = g;
 		} catch (e) {
 			loadError = e instanceof Error ? e.message : 'Failed to load calculations.';
 		} finally {
@@ -106,6 +144,65 @@
 	{:else if loading}
 		<p class="text-sm text-brand-muted">Loading…</p>
 	{:else}
+		<!-- A formula calculation is made here: Manage Tools authors R scripts, and a definition made
+		     from the parameter list belongs to no calculation. -->
+		<div class="rounded-md border border-brand-divider bg-brand-surface px-4 py-3 text-sm">
+			<div class="flex items-center justify-between gap-3">
+				<div>
+					<p class="font-semibold">New formula calculation</p>
+					<p class="text-brand-muted text-xs mt-0.5">
+						Reads and writes the members of one parameter group, and holds an ordered set of
+						formulas. Its formulas are authored on its own page.
+					</p>
+				</div>
+				{#if !composing}
+					<Button size="sm" onclick={() => (composing = true)} disabled={availableGroups.length === 0}
+						>New calculation</Button
+					>
+				{/if}
+			</div>
+			{#if composing}
+				<div class="mt-3 flex flex-wrap items-end gap-2">
+					<label class="text-xs text-brand-muted">
+						Name
+						<input
+							bind:value={newName}
+							placeholder="pco2"
+							class="block mt-0.5 px-2 py-1 rounded border border-brand-divider bg-brand-surface text-sm text-brand-text w-40"
+						/>
+					</label>
+					<label class="text-xs text-brand-muted">
+						Label
+						<input
+							bind:value={newLabel}
+							placeholder="pCO2"
+							class="block mt-0.5 px-2 py-1 rounded border border-brand-divider bg-brand-surface text-sm text-brand-text w-40"
+						/>
+					</label>
+					<label class="text-xs text-brand-muted">
+						Parameter group
+						<select
+							bind:value={newGroupId}
+							class="block mt-0.5 px-2 py-1 rounded border border-brand-divider bg-brand-surface text-sm text-brand-text"
+						>
+							<option value="">Choose a group…</option>
+							{#each availableGroups as g (g.id)}
+								<option value={g.id}>{g.label}</option>
+							{/each}
+						</select>
+					</label>
+					<Button size="sm" onclick={createCalculation} disabled={creating}
+						>{creating ? 'Creating…' : 'Create and open it'}</Button
+					>
+					<Button size="sm" variant="ghost" onclick={() => (composing = false)}>Cancel</Button>
+				</div>
+			{:else if availableGroups.length === 0}
+				<p class="text-brand-muted text-xs mt-2">
+					Every parameter group already holds a calculation. A new one needs a new group.
+				</p>
+			{/if}
+		</div>
+
 		{#if formulaCalculations.length > 0}
 			<div class="rounded-md border border-brand-divider bg-brand-surface px-4 py-3 text-sm">
 				<p class="font-semibold">Formula calculations</p>
@@ -122,9 +219,9 @@
 								</span>
 							</span>
 							<a
-								href="{base}/derived/new?calculation={calculation.id}"
+								href="{base}/calculations/{calculation.id}"
 								class="text-brand-primary no-underline hover:underline text-xs"
-							>Add formula</a>
+							>Open</a>
 						</li>
 					{/each}
 				</ul>

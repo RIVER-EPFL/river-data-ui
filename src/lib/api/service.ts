@@ -1189,6 +1189,9 @@ export type ManifestOutput = components['schemas']['ManifestOutput'];
 /** The same output as `GET /tools` serves it: the declaration plus the parameter it resolves to. */
 export type ToolOutput = components['schemas']['ToolOutput'];
 
+/** One formula of a run as it was evaluated: its text and, per cell, the values it read. */
+export type RunTraceStep = components['schemas']['TraceStep'];
+
 export type ToolCurveSlot = components['schemas']['ManifestCurve'];
 
 /**
@@ -1275,6 +1278,10 @@ export const createToolScript = (body: {
 	label: string;
 	description?: string;
 	created_by?: string;
+	/** `script` (the default) or `formula`; the engine is a property of the calculation. */
+	engine?: 'script' | 'formula';
+	/** The parameter group whose members a formula calculation reads and writes. */
+	parameter_group_id?: string;
 }) => POST<ToolScriptSummary>(`${ADMIN}/tool_scripts`, body);
 
 export const updateToolScript = (
@@ -1368,6 +1375,46 @@ export type ToolDraftRunResponse = components['schemas']['DraftRunResponse'];
 
 export const draftRunToolScript = (body: ToolDraftRunRequest) =>
 	POST<ToolDraftRunResponse>(`${ADMIN}/tool_scripts/draft_run`, body);
+
+// A formula calculation's unsaved formula set run at a visit, in place of its stored formulas.
+// Writes nothing. The shapes mirror `FormulaDraftRunRequest` and `FormulaDraftRunResponse`.
+
+export interface FormulaDraft {
+	code: string;
+	name?: string;
+	units?: string;
+	formula: string;
+	ordinal: number;
+	curve_slot?: string;
+	per_replicate?: string;
+	intermediate?: boolean;
+}
+
+export interface FormulaDraftRunRequest {
+	formulas: FormulaDraft[];
+	/** The calculate body: `site_id`, `collected_at`, replicate lists, any overriding value. */
+	inputs?: Record<string, unknown>;
+	constants?: Record<string, number>;
+}
+
+export interface FormulaDraftRunResponse {
+	ran: boolean;
+	results?: Record<string, unknown>;
+	skipped?: Array<Record<string, unknown>>;
+	inputs_used?: string[];
+	inputs_ignored?: string[];
+	constants?: Record<string, number>;
+	curves?: unknown[];
+	site_inputs?: Array<{ property: string; param: string; value: unknown }>;
+	event_inputs?: Array<{ param: string; parameter_code: string; parameter_id: string; value: unknown }>;
+	trace?: RunTraceStep[];
+	failure: ToolDraftFailure | null;
+	/** The manifest the set implies, in the shape `GET /tools` serves. */
+	manifest: ToolManifest;
+}
+
+export const draftRunFormulas = (calculationId: string, body: FormulaDraftRunRequest) =>
+	POST<FormulaDraftRunResponse>(`${ADMIN}/tool_scripts/${calculationId}/formulas/draft_run`, body);
 
 /** Lint findings from a refused version create (409 { error, detail }); null otherwise. */
 export function toolLintFindings(e: unknown): ToolLintFinding[] | null {

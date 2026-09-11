@@ -301,6 +301,15 @@ export interface DerivedParameter {
 	tool_script_id: string | null;
 	/** Evaluation order inside the calculation. */
 	ordinal: number;
+	/** The curve slot this formula corrects with; its coefficients reach the formula as
+	 *  `curve_slope` and `curve_intercept`. */
+	curve_slot: string | null;
+	/** The variable whose replicate vector this formula evaluates over, one reading per index under
+	 *  its output parameter. Null is a formula producing one number. */
+	per_replicate: string | null;
+	/** A step of the calculation rather than a measurement: it mints no catalog parameter, saves
+	 *  nowhere, and reaches the formulas after it under its own code. */
+	intermediate: boolean;
 	sources: DerivedParameterSource[];
 	created_at: string;
 }

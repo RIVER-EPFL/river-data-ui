@@ -390,6 +390,13 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * Re-derive `sensor_id`/`deployment_id`/`site_id`/`calibrated_value` for ALL historical readings
+         *     from the current deployment + calibration timelines, across every `(site, parameter)` slot that
+         *     has a deployment. Use after correcting deployment/calibration windows in bulk (the backdate of
+         *     historical attribution). Each slot is reprocessed via the decompression-safe
+         *     `reprocess_site_parameter_readings`; runs as one tracked job. Requires `write_data`.
+         */
         post: operations["reprocess_all"];
         delete?: never;
         options?: never;
@@ -492,6 +499,72 @@ export interface paths {
          *     source's, so nothing here decides one.
          */
         get: operations["undeclared_sd_estimators"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/alarm_events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get all alarm_events
+         * @description Retrieves all alarm_events.
+         *
+         *     This resource manages alarm_event items
+         *
+         *     Additional sortable columns:
+         *     - site_id
+         *     - parameter_id
+         *     - severity
+         *     - max_severity
+         *     - started_at
+         *     - last_seen_at
+         *     - acknowledged_at
+         *     - resolved_at
+         *     - created_at
+         *     - measurement_type.
+         *
+         *     Additional filterable columns:
+         *     - site_id
+         *     - parameter_id
+         *     - severity
+         *     - max_severity
+         *     - acknowledged_at
+         *     - acknowledged_by
+         *     - resolved_at
+         *     - measurement_type.
+         */
+        get: operations["get_all_alarm_events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/alarm_events/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one alarm_event
+         * @description Retrieves one alarm_event by its ID.
+         *
+         *     This resource manages alarm_event items
+         */
+        get: operations["get_one_alarm_event"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1012,6 +1085,61 @@ export interface paths {
         };
         /** The change trail of one subject, newest first. Requires `read_metadata`. */
         get: operations["list_change_audit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/change_audit_entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get all change_audit_entries
+         * @description Retrieves all change_audit_entries.
+         *
+         *     This resource manages change_audit_entry items
+         *
+         *     Additional sortable columns:
+         *     - subject
+         *     - change
+         *     - changed_by
+         *     - changed_at.
+         *
+         *     Additional filterable columns:
+         *     - subject
+         *     - change
+         *     - changed_by.
+         */
+        get: operations["get_all_change_audit_entries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/change_audit_entries/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one change_audit_entry
+         * @description Retrieves one change_audit_entry by its ID.
+         *
+         *     This resource manages change_audit_entry items
+         */
+        get: operations["get_one_change_audit_entry"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1554,7 +1682,8 @@ export interface paths {
          *     - tool_script_id
          *     - ordinal
          *     - curve_slot
-         *     - per_replicate.
+         *     - per_replicate
+         *     - intermediate.
          */
         get: operations["get_all_calculation_formulas"];
         put?: never;
@@ -1720,6 +1849,60 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["ingest_status_events"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ingest_receipts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get all ingest_receipts
+         * @description Retrieves all ingest_receipts.
+         *
+         *     This resource manages ingest_receipt items
+         *
+         *     Additional sortable columns:
+         *     - stream_id
+         *     - at
+         *     - window_from
+         *     - window_to.
+         *
+         *     Additional filterable columns:
+         *     - stream_id
+         *     - braked.
+         */
+        get: operations["get_all_ingest_receipts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ingest_receipts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one ingest_receipt
+         * @description Retrieves one ingest_receipt by its ID.
+         *
+         *     This resource manages ingest_receipt items
+         */
+        get: operations["get_one_ingest_receipt"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2933,6 +3116,71 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reading_decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get all reading_decisions
+         * @description Retrieves all reading_decisions.
+         *
+         *     This resource manages reading_decision items
+         *
+         *     Additional sortable columns:
+         *     - stream_id
+         *     - time
+         *     - replicate_index
+         *     - kind
+         *     - actor
+         *     - at
+         *     - origin.
+         *
+         *     Additional filterable columns:
+         *     - stream_id
+         *     - time
+         *     - replicate_index
+         *     - kind
+         *     - actor
+         *     - origin
+         *     - supersedes
+         *     - rolled_back_by
+         *     - set_id
+         *     - job_id.
+         */
+        get: operations["get_all_reading_decisions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reading_decisions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one reading_decision
+         * @description Retrieves one reading_decision by its ID.
+         *
+         *     This resource manages reading_decision items
+         */
+        get: operations["get_one_reading_decision"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/readings/batch": {
         parameters: {
             query?: never;
@@ -2942,6 +3190,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * Batch insert readings keyed by (site_id, parameter_id). Auto-creates "api" streams when
+         *     a (site, parameter) pair has none. 10MB body limit. Requires `write_data`.
+         */
         post: operations["insert_batch_readings"];
         delete?: never;
         options?: never;
@@ -3284,6 +3536,71 @@ export interface paths {
         patch: operations["unflag_range"];
         trace?: never;
     };
+    "/api/replicate_audit_holds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get all replicate_audit_holds
+         * @description Retrieves all replicate_audit_holds.
+         *
+         *     This resource manages replicate_audit_hold items
+         *
+         *     Additional sortable columns:
+         *     - stream_id
+         *     - group_time
+         *     - status
+         *     - created_at
+         *     - acknowledged_at
+         *     - kind
+         *     - site_id
+         *     - parameter_id
+         *     - tool.
+         *
+         *     Additional filterable columns:
+         *     - stream_id
+         *     - group_time
+         *     - status
+         *     - acknowledged_by
+         *     - kind
+         *     - site_id
+         *     - parameter_id
+         *     - tool.
+         */
+        get: operations["get_all_replicate_audit_holds"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/replicate_audit_holds/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one replicate_audit_hold
+         * @description Retrieves one replicate_audit_hold by its ID.
+         *
+         *     This resource manages replicate_audit_hold items
+         */
+        get: operations["get_one_replicate_audit_hold"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/reprocessing_jobs": {
         parameters: {
             query?: never;
@@ -3300,7 +3617,9 @@ export interface paths {
          *     Additional sortable columns:
          *     - status
          *     - created_at
-         *     - completed_at.
+         *     - completed_at
+         *     - lease_expires_at
+         *     - next_attempt_at.
          *
          *     Additional filterable columns:
          *     - sensor_id
@@ -3309,7 +3628,9 @@ export interface paths {
          *     - status
          *     - category
          *     - site_id
-         *     - parent_job_id.
+         *     - parent_job_id
+         *     - cancel_requested
+         *     - dedupe_key.
          */
         get: operations["get_all_reprocessing_jobs"];
         put?: never;
@@ -6588,6 +6909,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tool_runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get all tool_runs
+         * @description Retrieves all tool_runs.
+         *
+         *     This resource manages tool_run items
+         *
+         *     Additional sortable columns:
+         *     - tool_name
+         *     - created_by
+         *     - created_at
+         *     - source.
+         *
+         *     Additional filterable columns:
+         *     - tool_name
+         *     - created_by
+         *     - source.
+         */
+        get: operations["get_all_tool_runs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tool_runs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one tool_run
+         * @description Retrieves one tool_run by its ID.
+         *
+         *     This resource manages tool_run items
+         */
+        get: operations["get_one_tool_run"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tool_runs/{id}/reload": {
         parameters: {
             query?: never;
@@ -6725,6 +7101,31 @@ export interface paths {
         get: operations["list_activations"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tool_scripts/{id}/formulas/draft_run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run an unsaved formula set at a visit, in place of the calculation's stored formulas.
+         * @description Each formula's variables resolve as a save would resolve them (a catalog parameter, a
+         *     constant, a column of `sites`), the set is ordered and checked as a version mint would check
+         *     it, and the run reads the visit exactly as `/tools/{name}/calculate` does. Nothing is stored:
+         *     no version, no run row, no reading. A formula the set refuses (an unknown variable, a cycle,
+         *     an unreadable expression) is a 400 naming it; a run that ends without results reports why at
+         *     200, as the script draft run does.
+         */
+        post: operations["draft_run_formulas"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7190,6 +7591,58 @@ export interface components {
             start: string;
             /** @description Array of bucket timestamps */
             times: string[];
+        };
+        AlarmEventList: {
+            /** Format: date-time */
+            acknowledged_at: string | null;
+            acknowledged_by: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            last_seen_at: string;
+            /** Format: double */
+            last_value: number;
+            /**
+             * Format: int32
+             * @description The worst it has been, which is what the history is ranked by.
+             */
+            max_severity: number;
+            /** @description The cadence the episode belongs to: a grab series and a sensor series alarm apart. */
+            measurement_type: string;
+            /**
+             * Format: date-time
+             * @description When the subscribers were told the episode opened.
+             */
+            notified_at: string | null;
+            /** Format: uuid */
+            parameter_id: string;
+            /**
+             * Format: date-time
+             * @description When they were told it closed.
+             */
+            resolution_notified_at: string | null;
+            /**
+             * Format: date-time
+             * @description NULL while the breach stands; the sweeper stamps it when the value returns to range.
+             */
+            resolved_at: string | null;
+            /** Format: double */
+            resolved_value: number | null;
+            /**
+             * Format: int32
+             * @description 1 = warning, 2 = alarm; what the episode reads as now.
+             */
+            severity: number;
+            /** Format: uuid */
+            site_id: string;
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: double */
+            value_at_start: number;
         };
         /** @description A single persisted alarm event */
         AlarmEventResponse: {
@@ -7913,6 +8366,7 @@ export interface components {
             curve_slot?: string | null;
             description?: string | null;
             formula: string;
+            intermediate?: boolean | null;
             name: string;
             /** Format: int32 */
             ordinal?: number | null;
@@ -7934,6 +8388,12 @@ export interface components {
             formula: string;
             /** Format: uuid */
             id: string;
+            /**
+             * @description A step of the calculation rather than a measurement of anything (M180): it mints no catalog
+             *     parameter, is not saved and is not a manifest output, and its value is handed to the
+             *     formulas after it and reported in the run under this formula's own code.
+             */
+            intermediate: boolean;
             name: string;
             /**
              * Format: int32
@@ -7970,6 +8430,12 @@ export interface components {
             formula: string;
             /** Format: uuid */
             id: string;
+            /**
+             * @description A step of the calculation rather than a measurement of anything (M180): it mints no catalog
+             *     parameter, is not saved and is not a manifest output, and its value is handed to the
+             *     formulas after it and reported in the run under this formula's own code.
+             */
+            intermediate: boolean;
             name: string;
             /**
              * Format: int32
@@ -7998,6 +8464,7 @@ export interface components {
             curve_slot?: string | null;
             description?: string | null;
             formula?: string | null;
+            intermediate?: boolean | null;
             name?: string | null;
             /** Format: int32 */
             ordinal?: number | null;
@@ -8231,7 +8698,39 @@ export interface components {
             pins?: components["schemas"]["PinRef"][];
             sensor?: components["schemas"]["SensorRef"];
         };
-        /** @description One entry as the API exposes it. */
+        ChangeAuditList: {
+            /** @description What happened, as the writer named it: `schedule_update`, `member_insert`, and so on. */
+            change: string;
+            /** Format: date-time */
+            changed_at: string;
+            changed_by: string | null;
+            /** Format: uuid */
+            id: string;
+            new_value: unknown;
+            old_value: unknown;
+            /**
+             * @description The thing the change was made to, as the writer keyed it: `schedule:{job_name}`,
+             *     `parameter:{id}`, `site_parameter:{id}`, `parameter_group:{id}`, `push_subscriptions:{sub}`.
+             */
+            subject: string;
+        };
+        ChangeAuditResponse: {
+            /** @description What happened, as the writer named it: `schedule_update`, `member_insert`, and so on. */
+            change: string;
+            /** Format: date-time */
+            changed_at: string;
+            changed_by: string | null;
+            /** Format: uuid */
+            id: string;
+            new_value: unknown;
+            old_value: unknown;
+            /**
+             * @description The thing the change was made to, as the writer keyed it: `schedule:{job_name}`,
+             *     `parameter:{id}`, `site_parameter:{id}`, `parameter_group:{id}`, `push_subscriptions:{sub}`.
+             */
+            subject: string;
+        };
+        /** @description One entry as the subject-keyed reader exposes it. */
         ChangeEntry: {
             /** @description What happened, as the writer named it: `schedule_update`, `member_insert`, and so on. */
             change: string;
@@ -8449,6 +8948,30 @@ export interface components {
             units?: string | null;
             /** Format: double */
             value?: number | null;
+        };
+        /** @description One formula reading the record's parameter, with its output at the instant where one exists. */
+        ConsumerRef: {
+            /** @description The calculation the formula belongs to, absent on a standalone derived parameter. */
+            calculation?: string;
+            /** Format: uuid */
+            definition_id: string;
+            formula_code: string;
+            formula_name: string;
+            output_parameter_code?: string;
+            /**
+             * Format: uuid
+             * @description The slot key of the output's own record. Absent on an intermediate, which mints none.
+             */
+            output_parameter_id?: string;
+            /**
+             * Format: int32
+             * @description Set when the formula evaluates per replicate over this parameter: the output at this index
+             *     came from the record's value at the same index.
+             */
+            replicate_index?: number;
+            /** Format: double */
+            value?: number;
+            variable_name: string;
         };
         CreateCredentialRequest: {
             service_type: string;
@@ -9069,6 +9592,21 @@ export interface components {
             name: string;
             values: (number | null)[];
         };
+        /**
+         * @description One formula of a draft set, as the calculation editor holds it: the same fields the stored
+         *     formula carries, without an id, because the point is to run what is not saved yet.
+         */
+        DraftFormula: {
+            code: string;
+            curve_slot?: string | null;
+            formula: string;
+            intermediate?: boolean;
+            name?: string | null;
+            /** Format: int32 */
+            ordinal: number;
+            per_replicate?: string | null;
+            units?: string | null;
+        };
         DraftRunFailure: {
             /** @description The R call that raised, when the runner named one. */
             call: string | null;
@@ -9493,6 +10031,54 @@ export interface components {
              */
             standard_curve_id: string;
         };
+        /**
+         * @description Run a formula calculation's unsaved formula set at a visit. The formulas replace the stored
+         *     set for this run only; nothing is written.
+         */
+        FormulaDraftRunRequest: {
+            /** @description Constant values in place of the catalog; omit to read the catalog. */
+            constants?: {
+                [key: string]: number;
+            } | null;
+            formulas: components["schemas"]["DraftFormula"][];
+            /**
+             * @description The calculate request body: `site_id`, `collected_at`, replicate lists and any value
+             *     overriding what the visit holds.
+             */
+            inputs?: {
+                [key: string]: unknown;
+            };
+        };
+        FormulaDraftRunResponse: (null | components["schemas"]["FormulaDraftRunResults"]) & {
+            failure: null | components["schemas"]["DraftRunFailure"];
+            /**
+             * @description The manifest the formula set implies: its params, outputs, constants, curve slots and the
+             *     site and event inputs, in the shape `GET /tools` serves.
+             */
+            manifest: Record<string, never>;
+            /** @description True when the run fields are present; false when `failure` is. */
+            ran: boolean;
+        };
+        /** @description What the formula set produced, present only when the run reached the end. */
+        FormulaDraftRunResults: {
+            constants: {
+                [key: string]: number;
+            };
+            curves: components["schemas"]["CurveSnapshot"][];
+            /** @description The visit's stored values the run read, as `{param, parameter_code, parameter_id, value}`. */
+            event_inputs: unknown[];
+            inputs_ignored: string[];
+            inputs_used: string[];
+            results: {
+                [key: string]: unknown;
+            };
+            /** @description The site properties the run read, as `{property, param, value}`. */
+            site_inputs: unknown[];
+            /** @description Outputs the run did not produce, each with its reason. */
+            skipped: unknown[];
+            /** @description Each formula as it was evaluated, with the values it read per cell. */
+            trace: components["schemas"]["TraceStep"][];
+        };
         GrabPreview: {
             base_calibration: null | components["schemas"]["CurveApplication"];
             /** Format: double */
@@ -9690,15 +10276,16 @@ export interface components {
             n: number;
             /** Format: double */
             sd: number | null;
-            sd_estimator?: null | components["schemas"]["SdEstimator"];
-            values?: components["schemas"]["HoldValue"][] | null;
+            /** @description The divisor `sd` was computed under. Absent on a hold that predates the record. */
+            sd_estimator?: components["schemas"]["SdEstimator"];
+            values?: components["schemas"]["HoldValue"][];
         };
         /** @description Source minus computed, per statistic. */
         HoldDelta: {
             /** Format: double */
             mean: number | null;
             /** Format: int64 */
-            n?: number | null;
+            n?: number;
             /** Format: double */
             sd: number | null;
         };
@@ -9710,7 +10297,7 @@ export interface components {
              * Format: int64
              * @description The replicate count the source declares, where it declares one.
              */
-            n?: number | null;
+            n?: number;
             /** Format: double */
             sd: number | null;
         };
@@ -10084,6 +10671,76 @@ export interface components {
             stream_id: string;
             window?: null | components["schemas"]["SourceWindow"];
         };
+        IngestReceiptList: {
+            /** Format: date-time */
+            at: string;
+            /** Format: float */
+            brake_threshold: number | null;
+            braked: boolean;
+            /** Format: int32 */
+            changed: number;
+            changed_keys: unknown;
+            /** Format: int32 */
+            dropped: number;
+            /** Format: uuid */
+            id: string;
+            /** Format: int32 */
+            new_rows: number;
+            /** Format: int32 */
+            proposed: number;
+            rejected: unknown;
+            /** Format: int32 */
+            rejected_total: number;
+            /** Format: int32 */
+            retained: number;
+            /** Format: uuid */
+            stream_id: string;
+            /** Format: int32 */
+            submitted: number;
+            /** Format: int32 */
+            unchanged: number;
+            /** Format: date-time */
+            window_from: string | null;
+            /** Format: date-time */
+            window_to: string | null;
+            /** Format: int32 */
+            withdrawn: number;
+        };
+        IngestReceiptResponse: {
+            /** Format: date-time */
+            at: string;
+            /** Format: float */
+            brake_threshold: number | null;
+            braked: boolean;
+            /** Format: int32 */
+            changed: number;
+            changed_keys: unknown;
+            /** Format: int32 */
+            dropped: number;
+            /** Format: uuid */
+            id: string;
+            /** Format: int32 */
+            new_rows: number;
+            /** Format: int32 */
+            proposed: number;
+            rejected: unknown;
+            /** Format: int32 */
+            rejected_total: number;
+            /** Format: int32 */
+            retained: number;
+            /** Format: uuid */
+            stream_id: string;
+            /** Format: int32 */
+            submitted: number;
+            /** Format: int32 */
+            unchanged: number;
+            /** Format: date-time */
+            window_from: string | null;
+            /** Format: date-time */
+            window_to: string | null;
+            /** Format: int32 */
+            withdrawn: number;
+        };
         IngestResponse: {
             /**
              * @description The window the server accepted, echoed so a connector can detect an API image that
@@ -10155,6 +10812,36 @@ export interface components {
             skipped?: number;
             /** Format: uuid */
             stream_id: string;
+        };
+        /**
+         * @description One value a formula read at the record's instant. A parameter input carries the slot key
+         *     (`parameter_id` with the record's site and time) that resolves its own record; a site property
+         *     carries the column it was read from.
+         */
+        InputRef: {
+            /** Format: uuid */
+            definition_id: string;
+            /** @description The formula's code, so two formulas producing one parameter stay apart. */
+            formula_code: string;
+            parameter_code?: string;
+            /** Format: uuid */
+            parameter_id?: string;
+            /**
+             * Format: int32
+             * @description Set when the formula evaluates per replicate and this is the variable it iterates: the
+             *     value at this index fed the output at the same index.
+             */
+            replicate_index?: number;
+            /**
+             * @description How the value was read: `replicate` (the row at the index), `mean` (the family's sample
+             *     statistic), `reading` (the single row at the instant), `site` (the site row's column).
+             *     `missing` when nothing at the instant answers.
+             */
+            served_as: string;
+            site_property?: string;
+            /** Format: double */
+            value?: number;
+            variable_name: string;
         };
         InspectRequest: {
             selection: components["schemas"]["Selection"];
@@ -12255,10 +12942,21 @@ export interface components {
             name: string;
         };
         ProjectResponse: {
+            /** Format: date-time */
+            created_at: string | null;
+            data_source: string | null;
             description: string | null;
+            /** Format: date-time */
+            discovered_at: string | null;
             /** Format: uuid */
             id: string;
+            is_public: boolean;
             name: string;
+            public_api_description: string | null;
+            public_api_title: string | null;
+            public_api_version: string | null;
+            public_code: string | null;
+            public_contact_email: string | null;
         };
         ProjectResult: {
             /** Format: uuid */
@@ -12316,8 +13014,18 @@ export interface components {
             calculation?: components["schemas"]["CalculationInfo"];
             chain: components["schemas"]["ChainInfo"];
             computation?: components["schemas"]["ComputationInfo"];
+            /**
+             * @description Every enabled formula reading this parameter, one hop down the chain, with its output's
+             *     value at this instant where one exists.
+             */
+            consumers?: components["schemas"]["ConsumerRef"][];
             event?: components["schemas"]["EventRef"];
             holds: components["schemas"]["HoldRef"][];
+            /**
+             * @description The values the formula producing this parameter read at this instant, one hop up the
+             *     chain. Each names the key its own record is read by.
+             */
+            inputs?: components["schemas"]["InputRef"][];
             origin: components["schemas"]["OriginInfo"];
             readings: components["schemas"]["ReadingFacet"][];
         };
@@ -12353,6 +13061,94 @@ export interface components {
             job_id: string | null;
             /** @description `queued`, always. */
             status: string;
+        };
+        ReadingDecisionList: {
+            actor: string;
+            /** Format: date-time */
+            at: string;
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: uuid
+             * @description The tracked job that made a system change, where one did. Cleared when that job row is
+             *     pruned, so an old decision keeps its record and loses only the link to the run.
+             */
+            job_id: string | null;
+            kind: string;
+            /** @description What the decision asserts about those columns. */
+            new: unknown;
+            /** @description The projected columns as they stood before the decision. */
+            old: unknown;
+            origin: string;
+            reason: string | null;
+            /**
+             * Format: int32
+             * @description The replicate the decision names, or NULL for one taken on the whole group.
+             */
+            replicate_index: number | null;
+            /**
+             * Format: uuid
+             * @description The `rollback` that inverted this decision, once one has.
+             */
+            rolled_back_by: string | null;
+            /**
+             * Format: uuid
+             * @description The set-level decision this row materialises, where it belongs to one.
+             */
+            set_id: string | null;
+            /** Format: uuid */
+            stream_id: string;
+            /**
+             * Format: uuid
+             * @description The live decision of the same family this one replaces.
+             */
+            supersedes: string | null;
+            /** Format: date-time */
+            time: string;
+        };
+        ReadingDecisionResponse: {
+            actor: string;
+            /** Format: date-time */
+            at: string;
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: uuid
+             * @description The tracked job that made a system change, where one did. Cleared when that job row is
+             *     pruned, so an old decision keeps its record and loses only the link to the run.
+             */
+            job_id: string | null;
+            kind: string;
+            /** @description What the decision asserts about those columns. */
+            new: unknown;
+            /** @description The projected columns as they stood before the decision. */
+            old: unknown;
+            origin: string;
+            reason: string | null;
+            /**
+             * Format: int32
+             * @description The replicate the decision names, or NULL for one taken on the whole group.
+             */
+            replicate_index: number | null;
+            /**
+             * Format: uuid
+             * @description The `rollback` that inverted this decision, once one has.
+             */
+            rolled_back_by: string | null;
+            /**
+             * Format: uuid
+             * @description The set-level decision this row materialises, where it belongs to one.
+             */
+            set_id: string | null;
+            /** Format: uuid */
+            stream_id: string;
+            /**
+             * Format: uuid
+             * @description The live decision of the same family this one replaces.
+             */
+            supersedes: string | null;
+            /** Format: date-time */
+            time: string;
         };
         ReadingFacet: {
             /** Format: double */
@@ -12558,8 +13354,13 @@ export interface components {
             updated: number;
         };
         RefreshAggregatesRequest: {
-            /** @description If true, refresh ALL continuous aggregates (slow). If false, incremental refresh. */
-            full?: boolean;
+            /**
+             * Format: date-time
+             * @description Rematerialise only from this instant to now. Omitted, the whole history is rematerialised,
+             *     which is the repair for a database edited out of band; the open bucket is served from the
+             *     raw rows and each policy already covers the rest.
+             */
+            since?: string | null;
         };
         RegisterAnnotationsRequest: {
             annotations: components["schemas"]["AnnotationUpsert"][];
@@ -12663,6 +13464,90 @@ export interface components {
             }[];
             tool: string;
         };
+        ReplicateAuditHoldList: {
+            /** Format: date-time */
+            acknowledged_at: string | null;
+            acknowledged_by: string | null;
+            /** @description What river-data computes over what it stores. */
+            computed: unknown;
+            /** Format: date-time */
+            created_at: string;
+            delta: unknown;
+            /** @description What the source said, as the raise recorded it. */
+            expected: unknown;
+            /**
+             * Format: date-time
+             * @description The instant the finding is about.
+             */
+            group_time: string;
+            /** Format: uuid */
+            id: string;
+            kind: string;
+            /**
+             * Format: double
+             * @description The value an operator entered in place of both, where one was.
+             */
+            manual_value: number | null;
+            /** Format: uuid */
+            parameter_id: string | null;
+            /** @description What the decision was, as the transition recorded it. */
+            resolution: unknown;
+            /**
+             * Format: uuid
+             * @description The slot half of the key, for a finding no stream produced.
+             */
+            site_id: string | null;
+            status: string;
+            /**
+             * Format: uuid
+             * @description The stream the finding is about, or NULL for one no stream produced.
+             */
+            stream_id: string | null;
+            /** @description The calculation a finding is about, where one produced it. */
+            tool: string | null;
+        };
+        ReplicateAuditHoldResponse: {
+            /** Format: date-time */
+            acknowledged_at: string | null;
+            acknowledged_by: string | null;
+            /** @description What river-data computes over what it stores. */
+            computed: unknown;
+            /** Format: date-time */
+            created_at: string;
+            delta: unknown;
+            /** @description What the source said, as the raise recorded it. */
+            expected: unknown;
+            /**
+             * Format: date-time
+             * @description The instant the finding is about.
+             */
+            group_time: string;
+            /** Format: uuid */
+            id: string;
+            kind: string;
+            /**
+             * Format: double
+             * @description The value an operator entered in place of both, where one was.
+             */
+            manual_value: number | null;
+            /** Format: uuid */
+            parameter_id: string | null;
+            /** @description What the decision was, as the transition recorded it. */
+            resolution: unknown;
+            /**
+             * Format: uuid
+             * @description The slot half of the key, for a finding no stream produced.
+             */
+            site_id: string | null;
+            status: string;
+            /**
+             * Format: uuid
+             * @description The stream the finding is about, or NULL for one no stream produced.
+             */
+            stream_id: string | null;
+            /** @description The calculation a finding is about, where one produced it. */
+            tool: string | null;
+        };
         /** @description One replicate behind a grab-sample point. */
         ReplicateOut: {
             /** Format: double */
@@ -12751,6 +13636,8 @@ export interface components {
         };
         ReprocessingJobCreate: Record<string, never>;
         ReprocessingJobList: {
+            /** @description Set by `POST /reprocessing_jobs/{id}/cancel`; the run stops at its next checkpoint. */
+            cancel_requested: boolean;
             /** @description Whether `POST /reprocessing_jobs/{id}/cancel` accepts this row, from the registry's policy. */
             cancellable: boolean;
             /** @description Classification driving UI grouping/filtering: operator | metadata | maintenance. */
@@ -12759,11 +13646,33 @@ export interface components {
             completed_at: string | null;
             /** Format: date-time */
             created_at: string;
+            /**
+             * @description Coalescing key while a job waits: an enqueue naming one that is already queued creates
+             *     nothing. The claim clears it, so the next enqueue queues a fresh run.
+             */
+            dedupe_key: string | null;
             /** @description Structured per-job summary + provenance (scope, time range, counts, source, samples). */
             detail: unknown;
             error_message: string | null;
             /** Format: uuid */
             id: string;
+            /**
+             * Format: int64
+             * @description Bumped on every claim, so a lease granted before a takeover cannot write after it.
+             */
+            lease_epoch: number;
+            /**
+             * Format: date-time
+             * @description When the current lease lapses, after which a reaper arm may claim the row again.
+             */
+            lease_expires_at: string | null;
+            /**
+             * Format: date-time
+             * @description When the row becomes claimable, which a retry pushes out by the backoff.
+             */
+            next_attempt_at: string;
+            /** @description The worker replica holding the lease, while one does. */
+            owner: string | null;
             /** @description What the run was asked to do, the object `worker::enqueue` stored and a rerun replays. */
             params: unknown;
             /**
@@ -12794,6 +13703,8 @@ export interface components {
             trigger_type: string;
         };
         ReprocessingJobResponse: {
+            /** @description Set by `POST /reprocessing_jobs/{id}/cancel`; the run stops at its next checkpoint. */
+            cancel_requested: boolean;
             /** @description Whether `POST /reprocessing_jobs/{id}/cancel` accepts this row, from the registry's policy. */
             cancellable: boolean;
             /** @description Classification driving UI grouping/filtering: operator | metadata | maintenance. */
@@ -12802,11 +13713,33 @@ export interface components {
             completed_at: string | null;
             /** Format: date-time */
             created_at: string;
+            /**
+             * @description Coalescing key while a job waits: an enqueue naming one that is already queued creates
+             *     nothing. The claim clears it, so the next enqueue queues a fresh run.
+             */
+            dedupe_key: string | null;
             /** @description Structured per-job summary + provenance (scope, time range, counts, source, samples). */
             detail: unknown;
             error_message: string | null;
             /** Format: uuid */
             id: string;
+            /**
+             * Format: int64
+             * @description Bumped on every claim, so a lease granted before a takeover cannot write after it.
+             */
+            lease_epoch: number;
+            /**
+             * Format: date-time
+             * @description When the current lease lapses, after which a reaper arm may claim the row again.
+             */
+            lease_expires_at: string | null;
+            /**
+             * Format: date-time
+             * @description When the row becomes claimable, which a retry pushes out by the backoff.
+             */
+            next_attempt_at: string;
+            /** @description The worker replica holding the lease, while one does. */
+            owner: string | null;
             /** @description What the run was asked to do, the object `worker::enqueue` stored and a rerun replays. */
             params: unknown;
             /**
@@ -14246,7 +15179,7 @@ export interface components {
             created_at: string | null;
             /**
              * Format: int32
-             * @description Display precision, carried to the client by [`super::descriptor::SlotDescriptor`]. The API
+             * @description Display precision, carried to the client by [`SlotDescriptor`]. The API
              *     serves full precision and the client formats, so a change here never rewrites a value.
              */
             decimal_places: number | null;
@@ -14258,7 +15191,7 @@ export interface components {
             discovered_at: string | null;
             /**
              * @description Site-level units override. NULL means "no override": every endpoint serving this slot
-             *     resolves units through [`super::descriptor::SlotDescriptor`], which falls back to the
+             *     resolves units through [`SlotDescriptor`], which falls back to the
              *     catalog `default_units`.
              */
             display_units: string | null;
@@ -14334,7 +15267,7 @@ export interface components {
             created_at: string | null;
             /**
              * Format: int32
-             * @description Display precision, carried to the client by [`super::descriptor::SlotDescriptor`]. The API
+             * @description Display precision, carried to the client by [`SlotDescriptor`]. The API
              *     serves full precision and the client formats, so a change here never rewrites a value.
              */
             decimal_places: number | null;
@@ -14346,7 +15279,7 @@ export interface components {
             discovered_at: string | null;
             /**
              * @description Site-level units override. NULL means "no override": every endpoint serving this slot
-             *     resolves units through [`super::descriptor::SlotDescriptor`], which falls back to the
+             *     resolves units through [`SlotDescriptor`], which falls back to the
              *     catalog `default_units`.
              */
             display_units: string | null;
@@ -15358,6 +16291,44 @@ export interface components {
              *     provenance blob on save.
              */
             tool_version: components["schemas"]["ToolVersionRef"];
+            /**
+             * @description Each formula as it was evaluated, with the values it read per cell. Absent for a script
+             *     run, which returns only what the script returns.
+             */
+            trace?: components["schemas"]["TraceStep"][];
+        };
+        ToolRunList: {
+            /** Format: date-time */
+            created_at: string;
+            created_by: string;
+            /** Format: uuid */
+            id: string;
+            /** @description Which path minted the run: `interactive`, `csv_import` or `chain`. */
+            source: string;
+            tool_name: string;
+            /** @description The version that ran, as the provenance blob carries it. */
+            tool_version: unknown;
+        };
+        ToolRunResponse: {
+            constants: unknown;
+            /**
+             * @description The resolved calculation context: site, collected_at, and the station and event inputs
+             *     the server read. Null on a run that named none.
+             */
+            context: unknown;
+            /** Format: date-time */
+            created_at: string;
+            created_by: string;
+            curves: unknown;
+            /** Format: uuid */
+            id: string;
+            inputs: unknown;
+            outputs: unknown;
+            /** @description Which path minted the run: `interactive`, `csv_import` or `chain`. */
+            source: string;
+            tool_name: string;
+            /** @description The version that ran, as the provenance blob carries it. */
+            tool_version: unknown;
         };
         ToolScript: {
             /**
@@ -15503,6 +16474,33 @@ export interface components {
             script_version_id: string | null;
             /** Format: int32 */
             version_no: number | null;
+        };
+        /**
+         * @description What one evaluation of a formula read and produced. `bindings` is keyed by the variable name
+         *     as the formula spells it; a value bound as not-a-number serialises as null.
+         */
+        TraceCell: {
+            bindings: {
+                [key: string]: number;
+            };
+            /** @description The replicate index, absent for a scalar formula. */
+            index?: number;
+            skipped?: string;
+            /** Format: double */
+            value: number | null;
+        };
+        /**
+         * @description One formula of a run as it was evaluated: the text, and per cell the value it produced and
+         *     the variables it read. A scalar formula has one cell; a per-replicate one has one per index.
+         */
+        TraceStep: {
+            cells: components["schemas"]["TraceCell"][];
+            code: string;
+            formula: string;
+            intermediate: boolean;
+            label: string;
+            per_replicate: boolean;
+            units: string | null;
         };
         TunableKind: {
             /** @enum {string} */
@@ -16534,6 +17532,135 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["UndeclaredEstimatorsResponse"];
                 };
+            };
+        };
+    };
+    get_all_alarm_events: {
+        parameters: {
+            query?: {
+                /**
+                 * @description JSON-encoded filter for querying resources.
+                 *
+                 *     This parameter supports various filtering options:
+                 *     - Free text search: `{"q": "search text"}`
+                 *     - Filtering by a single ID: `{"id": "550e8400-e29b-41d4-a716-446655440000"}`
+                 *     - Filtering by multiple IDs: `{"id": ["550e8400-e29b-41d4-a716-446655440000", "550e8400-e29b-41d4-a716-446655440001"]}`
+                 *     - Filtering on other columns: `{"name": "example"}`
+                 * @example {
+                 *       "id": "550e8400-e29b-41d4-a716-446655440000",
+                 *       "name": "example",
+                 *       "q": "search text"
+                 *     }
+                 */
+                filter?: string;
+                /**
+                 * @description Range for pagination in the format "[start, end]".
+                 *
+                 *     Example: `[0,9]`
+                 * @example [0,9]
+                 */
+                range?: string;
+                /**
+                 * @description Page number for standard REST pagination (1-based).
+                 *
+                 *     Example: `1`
+                 * @example 1
+                 */
+                page?: number;
+                /**
+                 * @description Number of items per page for standard REST pagination.
+                 *
+                 *     Example: `10`
+                 * @example 10
+                 */
+                per_page?: number;
+                /**
+                 * @description Sort order for the results in the format `["column", "order"]`.
+                 *
+                 *     Example: `["id", "ASC"]`
+                 * @example ["id", "ASC"]
+                 */
+                sort?: string;
+                /**
+                 * @description Sort column for standard REST format.
+                 *
+                 *     Example: `title`
+                 * @example title
+                 */
+                sort_by?: string;
+                /**
+                 * @description Sort order for standard REST format (ASC or DESC).
+                 *
+                 *     Example: `ASC`
+                 * @example ASC
+                 */
+                order?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of resources */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlarmEventList"][];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_one_alarm_event: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Resource identifier */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The requested resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlarmEventResponse"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -18160,6 +19287,135 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ChangeEntry"][];
                 };
+            };
+        };
+    };
+    get_all_change_audit_entries: {
+        parameters: {
+            query?: {
+                /**
+                 * @description JSON-encoded filter for querying resources.
+                 *
+                 *     This parameter supports various filtering options:
+                 *     - Free text search: `{"q": "search text"}`
+                 *     - Filtering by a single ID: `{"id": "550e8400-e29b-41d4-a716-446655440000"}`
+                 *     - Filtering by multiple IDs: `{"id": ["550e8400-e29b-41d4-a716-446655440000", "550e8400-e29b-41d4-a716-446655440001"]}`
+                 *     - Filtering on other columns: `{"name": "example"}`
+                 * @example {
+                 *       "id": "550e8400-e29b-41d4-a716-446655440000",
+                 *       "name": "example",
+                 *       "q": "search text"
+                 *     }
+                 */
+                filter?: string;
+                /**
+                 * @description Range for pagination in the format "[start, end]".
+                 *
+                 *     Example: `[0,9]`
+                 * @example [0,9]
+                 */
+                range?: string;
+                /**
+                 * @description Page number for standard REST pagination (1-based).
+                 *
+                 *     Example: `1`
+                 * @example 1
+                 */
+                page?: number;
+                /**
+                 * @description Number of items per page for standard REST pagination.
+                 *
+                 *     Example: `10`
+                 * @example 10
+                 */
+                per_page?: number;
+                /**
+                 * @description Sort order for the results in the format `["column", "order"]`.
+                 *
+                 *     Example: `["id", "ASC"]`
+                 * @example ["id", "ASC"]
+                 */
+                sort?: string;
+                /**
+                 * @description Sort column for standard REST format.
+                 *
+                 *     Example: `title`
+                 * @example title
+                 */
+                sort_by?: string;
+                /**
+                 * @description Sort order for standard REST format (ASC or DESC).
+                 *
+                 *     Example: `ASC`
+                 * @example ASC
+                 */
+                order?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of resources */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeAuditList"][];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_one_change_audit_entry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Resource identifier */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The requested resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeAuditResponse"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -20600,6 +21856,135 @@ export interface operations {
             };
             /** @description Stream not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_all_ingest_receipts: {
+        parameters: {
+            query?: {
+                /**
+                 * @description JSON-encoded filter for querying resources.
+                 *
+                 *     This parameter supports various filtering options:
+                 *     - Free text search: `{"q": "search text"}`
+                 *     - Filtering by a single ID: `{"id": "550e8400-e29b-41d4-a716-446655440000"}`
+                 *     - Filtering by multiple IDs: `{"id": ["550e8400-e29b-41d4-a716-446655440000", "550e8400-e29b-41d4-a716-446655440001"]}`
+                 *     - Filtering on other columns: `{"name": "example"}`
+                 * @example {
+                 *       "id": "550e8400-e29b-41d4-a716-446655440000",
+                 *       "name": "example",
+                 *       "q": "search text"
+                 *     }
+                 */
+                filter?: string;
+                /**
+                 * @description Range for pagination in the format "[start, end]".
+                 *
+                 *     Example: `[0,9]`
+                 * @example [0,9]
+                 */
+                range?: string;
+                /**
+                 * @description Page number for standard REST pagination (1-based).
+                 *
+                 *     Example: `1`
+                 * @example 1
+                 */
+                page?: number;
+                /**
+                 * @description Number of items per page for standard REST pagination.
+                 *
+                 *     Example: `10`
+                 * @example 10
+                 */
+                per_page?: number;
+                /**
+                 * @description Sort order for the results in the format `["column", "order"]`.
+                 *
+                 *     Example: `["id", "ASC"]`
+                 * @example ["id", "ASC"]
+                 */
+                sort?: string;
+                /**
+                 * @description Sort column for standard REST format.
+                 *
+                 *     Example: `title`
+                 * @example title
+                 */
+                sort_by?: string;
+                /**
+                 * @description Sort order for standard REST format (ASC or DESC).
+                 *
+                 *     Example: `ASC`
+                 * @example ASC
+                 */
+                order?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of resources */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngestReceiptList"][];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_one_ingest_receipt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Resource identifier */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The requested resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngestReceiptResponse"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -24636,6 +26021,135 @@ export interface operations {
             };
         };
     };
+    get_all_reading_decisions: {
+        parameters: {
+            query?: {
+                /**
+                 * @description JSON-encoded filter for querying resources.
+                 *
+                 *     This parameter supports various filtering options:
+                 *     - Free text search: `{"q": "search text"}`
+                 *     - Filtering by a single ID: `{"id": "550e8400-e29b-41d4-a716-446655440000"}`
+                 *     - Filtering by multiple IDs: `{"id": ["550e8400-e29b-41d4-a716-446655440000", "550e8400-e29b-41d4-a716-446655440001"]}`
+                 *     - Filtering on other columns: `{"name": "example"}`
+                 * @example {
+                 *       "id": "550e8400-e29b-41d4-a716-446655440000",
+                 *       "name": "example",
+                 *       "q": "search text"
+                 *     }
+                 */
+                filter?: string;
+                /**
+                 * @description Range for pagination in the format "[start, end]".
+                 *
+                 *     Example: `[0,9]`
+                 * @example [0,9]
+                 */
+                range?: string;
+                /**
+                 * @description Page number for standard REST pagination (1-based).
+                 *
+                 *     Example: `1`
+                 * @example 1
+                 */
+                page?: number;
+                /**
+                 * @description Number of items per page for standard REST pagination.
+                 *
+                 *     Example: `10`
+                 * @example 10
+                 */
+                per_page?: number;
+                /**
+                 * @description Sort order for the results in the format `["column", "order"]`.
+                 *
+                 *     Example: `["id", "ASC"]`
+                 * @example ["id", "ASC"]
+                 */
+                sort?: string;
+                /**
+                 * @description Sort column for standard REST format.
+                 *
+                 *     Example: `title`
+                 * @example title
+                 */
+                sort_by?: string;
+                /**
+                 * @description Sort order for standard REST format (ASC or DESC).
+                 *
+                 *     Example: `ASC`
+                 * @example ASC
+                 */
+                order?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of resources */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadingDecisionList"][];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_one_reading_decision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Resource identifier */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The requested resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadingDecisionResponse"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     insert_batch_readings: {
         parameters: {
             query?: never;
@@ -25273,6 +26787,135 @@ export interface operations {
             };
             /** @description end_time < start_time */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_all_replicate_audit_holds: {
+        parameters: {
+            query?: {
+                /**
+                 * @description JSON-encoded filter for querying resources.
+                 *
+                 *     This parameter supports various filtering options:
+                 *     - Free text search: `{"q": "search text"}`
+                 *     - Filtering by a single ID: `{"id": "550e8400-e29b-41d4-a716-446655440000"}`
+                 *     - Filtering by multiple IDs: `{"id": ["550e8400-e29b-41d4-a716-446655440000", "550e8400-e29b-41d4-a716-446655440001"]}`
+                 *     - Filtering on other columns: `{"name": "example"}`
+                 * @example {
+                 *       "id": "550e8400-e29b-41d4-a716-446655440000",
+                 *       "name": "example",
+                 *       "q": "search text"
+                 *     }
+                 */
+                filter?: string;
+                /**
+                 * @description Range for pagination in the format "[start, end]".
+                 *
+                 *     Example: `[0,9]`
+                 * @example [0,9]
+                 */
+                range?: string;
+                /**
+                 * @description Page number for standard REST pagination (1-based).
+                 *
+                 *     Example: `1`
+                 * @example 1
+                 */
+                page?: number;
+                /**
+                 * @description Number of items per page for standard REST pagination.
+                 *
+                 *     Example: `10`
+                 * @example 10
+                 */
+                per_page?: number;
+                /**
+                 * @description Sort order for the results in the format `["column", "order"]`.
+                 *
+                 *     Example: `["id", "ASC"]`
+                 * @example ["id", "ASC"]
+                 */
+                sort?: string;
+                /**
+                 * @description Sort column for standard REST format.
+                 *
+                 *     Example: `title`
+                 * @example title
+                 */
+                sort_by?: string;
+                /**
+                 * @description Sort order for standard REST format (ASC or DESC).
+                 *
+                 *     Example: `ASC`
+                 * @example ASC
+                 */
+                order?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of resources */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplicateAuditHoldList"][];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_one_replicate_audit_hold: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Resource identifier */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The requested resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplicateAuditHoldResponse"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -34766,6 +36409,135 @@ export interface operations {
             };
         };
     };
+    get_all_tool_runs: {
+        parameters: {
+            query?: {
+                /**
+                 * @description JSON-encoded filter for querying resources.
+                 *
+                 *     This parameter supports various filtering options:
+                 *     - Free text search: `{"q": "search text"}`
+                 *     - Filtering by a single ID: `{"id": "550e8400-e29b-41d4-a716-446655440000"}`
+                 *     - Filtering by multiple IDs: `{"id": ["550e8400-e29b-41d4-a716-446655440000", "550e8400-e29b-41d4-a716-446655440001"]}`
+                 *     - Filtering on other columns: `{"name": "example"}`
+                 * @example {
+                 *       "id": "550e8400-e29b-41d4-a716-446655440000",
+                 *       "name": "example",
+                 *       "q": "search text"
+                 *     }
+                 */
+                filter?: string;
+                /**
+                 * @description Range for pagination in the format "[start, end]".
+                 *
+                 *     Example: `[0,9]`
+                 * @example [0,9]
+                 */
+                range?: string;
+                /**
+                 * @description Page number for standard REST pagination (1-based).
+                 *
+                 *     Example: `1`
+                 * @example 1
+                 */
+                page?: number;
+                /**
+                 * @description Number of items per page for standard REST pagination.
+                 *
+                 *     Example: `10`
+                 * @example 10
+                 */
+                per_page?: number;
+                /**
+                 * @description Sort order for the results in the format `["column", "order"]`.
+                 *
+                 *     Example: `["id", "ASC"]`
+                 * @example ["id", "ASC"]
+                 */
+                sort?: string;
+                /**
+                 * @description Sort column for standard REST format.
+                 *
+                 *     Example: `title`
+                 * @example title
+                 */
+                sort_by?: string;
+                /**
+                 * @description Sort order for standard REST format (ASC or DESC).
+                 *
+                 *     Example: `ASC`
+                 * @example ASC
+                 */
+                order?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of resources */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolRunList"][];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_one_tool_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Resource identifier */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The requested resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolRunResponse"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     reload_run: {
         parameters: {
             query?: never;
@@ -34970,6 +36742,47 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ActivationRecord"][];
                 };
+            };
+        };
+    };
+    draft_run_formulas: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The formula calculation */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FormulaDraftRunRequest"];
+            };
+        };
+        responses: {
+            /** @description The results or the reason the run ended, and the manifest the set implies */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FormulaDraftRunResponse"];
+                };
+            };
+            /** @description A formula the set refuses, or a calculation that is not formula-engined */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such calculation */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
