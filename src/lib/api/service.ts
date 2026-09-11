@@ -1059,6 +1059,10 @@ export type StagedEvent = components['schemas']['StagedEvent'];
 export const stageCollectionEvent = (req: { site_id: string; collected_at: string; notes?: string }) =>
 	POST<StagedEvent>(`${SERVICE}/collection_events/stage`, req);
 
+/** Stage a trip: one visit per site named, all at one instant, in one call. */
+export const stageCollectionEvents = (req: { site_ids: string[]; collected_at: string; notes?: string }) =>
+	POST<StagedEvent[]>(`${SERVICE}/collection_events/stage_many`, req);
+
 export const recomputeCollectionEvent = (id: string) =>
 	POST<{ job_id: string | null }>(`${SERVICE}/collection_events/${id}/recompute`, {});
 

@@ -1247,6 +1247,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/collection_events/stage_many": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stage a trip: one visit per site named, all at `collected_at`, in one transaction. A site
+         *     named twice is staged once; an unknown site refuses the whole trip, so no partial trip lands.
+         *     Each visit is find-or-create exactly as `/collection_events/stage`. Requires `write_data`.
+         */
+        post: operations["stage_collection_events"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/collection_events/{id}": {
         parameters: {
             query?: never;
@@ -15493,6 +15514,13 @@ export interface components {
             /** Format: uuid */
             site_id: string;
         };
+        /** @description A trip: one visit per site named, all at one instant. */
+        StageEventsRequest: {
+            /** Format: date-time */
+            collected_at: string;
+            notes?: string | null;
+            site_ids: string[];
+        };
         StagedEvent: {
             /** Format: date-time */
             collected_at: string;
@@ -19766,6 +19794,44 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["StagedEvent"];
                 };
+            };
+            /** @description Unknown site */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    stage_collection_events: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StageEventsRequest"];
+            };
+        };
+        responses: {
+            /** @description The staged visits, one per site in the order named */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StagedEvent"][];
+                };
+            };
+            /** @description No site named */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Unknown site */
             404: {
