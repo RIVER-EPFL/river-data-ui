@@ -663,6 +663,11 @@ export type PlanCurveUpdate = components['schemas']['PlanCurveUpdate'];
 // way the card names it.
 export type PlanObjectUpdate = components['schemas']['PlanObjectUpdate'];
 
+// One row of a source's own instrument register, waiting for a plan to admit it.
+export type PlanInstrumentProposal = components['schemas']['PlanInstrumentProposal'];
+
+export type PlanProposalUpdate = components['schemas']['PlanProposalUpdate'];
+
 // One physical device the plan's feeds name, and the channels it serves at one site. Not a
 // decision: the serial is the identity, and pairing attaches it and opens the site slot's
 // deployment.
@@ -681,12 +686,14 @@ export const updatePairingPlan = (
 	updates: PlanEntryUpdate[],
 	curves: PlanCurveUpdate[] = [],
 	objects: PlanObjectUpdate[] = [],
+	instruments: PlanProposalUpdate[] = [],
 ) =>
 	PATCH<PairingPlan>(`${ADMIN}/sync/pairing-plans/${id}`, {
 		expected_version: expectedVersion,
 		updates,
 		curves,
 		objects,
+		instruments,
 	});
 
 // A plan-wide decision: the server selects on the predicate and applies the action, so the round
@@ -878,6 +885,8 @@ export const listReplicateAudits = (
 // `skipped_undeclared_estimator` counts holds deliberately left pending: their disagreement is
 // the population-divisor signature on a parameter that has not declared which formula it
 // publishes, so accepting would record that decision without anyone having made it.
+// `skipped_no_stream` counts the ones the sweep could not reach at all: an event finding is keyed
+// on its slot rather than a stream, and the sweep and its filters are about streams.
 export type AcknowledgeResult = components['schemas']['AcknowledgeResponse'];
 
 export const acknowledgeReplicateAudit = (id: string) =>

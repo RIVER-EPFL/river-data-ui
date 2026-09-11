@@ -8,6 +8,12 @@
             "minimum": 0,
             "type": "integer"
           },
+          "skipped_no_stream": {
+            "description": "Pending holds this call could not reach: a hold with no stream is keyed on its slot rather\nthan a stream, and the sweep's statement and every filter it takes are about streams. The\ncount is what keeps `acknowledged` from reading as the whole queue.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "skipped_undeclared_estimator": {
             "description": "Holds this call deliberately left pending: their disagreement is the population-divisor\nsignature on a slot that has not declared an estimator, so accepting them would record a\ndecision about which formula this slot publishes without anyone having made one.",
             "format": "int64",
@@ -422,7 +428,7 @@
             "type": "number"
           },
           "max_severity": {
-            "description": "The worst it has been, which is what the history is ranked by.",
+            "description": "The worst it has been, which is what the history is ranked by. Set when the episode\nopens and advanced by the sweeper, never overwritten by a registration.",
             "format": "int32",
             "type": "integer"
           },
@@ -475,6 +481,7 @@
             "type": "string"
           },
           "started_at": {
+            "description": "Fixed when the episode opens: a later breach of the same open episode leaves it.",
             "format": "date-time",
             "type": "string"
           },
@@ -1536,9 +1543,6 @@
         ],
         "type": "object"
       },
-      "ApiTokenAuditLogCreate": {
-        "type": "object"
-      },
       "ApiTokenAuditLogList": {
         "properties": {
           "created_at": {
@@ -1623,9 +1627,6 @@
           "project_scope",
           "created_at"
         ],
-        "type": "object"
-      },
-      "ApiTokenAuditLogUpdate": {
         "type": "object"
       },
       "ApiTokenCreate": {
@@ -9474,6 +9475,59 @@
         ],
         "type": "object"
       },
+      "LastUsedInstrument": {
+        "description": "One instrument and when it last recorded one of the parameters asked about.",
+        "properties": {
+          "last_used_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parameter_id": {
+            "description": "The parameter whose reading is the newest of the ones asked about.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "sensor_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "serial_number": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "sensor_id",
+          "serial_number",
+          "name",
+          "parameter_id",
+          "last_used_at"
+        ],
+        "type": "object"
+      },
+      "LastUsedResponse": {
+        "description": "The ranking, most recently used first.",
+        "properties": {
+          "instruments": {
+            "items": {
+              "$ref": "#/components/schemas/LastUsedInstrument"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "instruments"
+        ],
+        "type": "object"
+      },
       "LedgerEntry": {
         "description": "One thing that happened, in the one shape every source answers in.",
         "properties": {
@@ -10983,6 +11037,37 @@
         },
         "type": "object"
       },
+      "NotificationStateList": {
+        "properties": {
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "last_notified_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "subject_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "subject_key",
+          "state",
+          "last_notified_at",
+          "detail"
+        ],
+        "type": "object"
+      },
       "Origin": {
         "enum": [
           "manual",
@@ -11434,6 +11519,10 @@
             "format": "uuid",
             "type": "string"
           },
+          "instrument_proposals": {
+            "$ref": "#/components/schemas/PlanInstrumentProposals",
+            "description": "The source's own instrument register, waiting for this plan to admit it (M185). Each row\ncarries `admit`, which the review turns off for one it wants left behind."
+          },
           "source_system": {
             "type": "string"
           },
@@ -11458,6 +11547,7 @@
           "entries",
           "curve_assignments",
           "accepted_objects",
+          "instrument_proposals",
           "version",
           "created_at",
           "applied_at",
@@ -11540,6 +11630,10 @@
             "format": "uuid",
             "type": "string"
           },
+          "instrument_proposals": {
+            "$ref": "#/components/schemas/PlanInstrumentProposals",
+            "description": "The source's own instrument register, waiting for this plan to admit it (M185). Each row\ncarries `admit`, which the review turns off for one it wants left behind."
+          },
           "source_system": {
             "type": "string"
           },
@@ -11564,6 +11658,7 @@
           "entries",
           "curve_assignments",
           "accepted_objects",
+          "instrument_proposals",
           "version",
           "created_at",
           "applied_at",
@@ -11615,6 +11710,10 @@
             "format": "uuid",
             "type": "string"
           },
+          "instrument_proposals": {
+            "$ref": "#/components/schemas/PlanInstrumentProposals",
+            "description": "The source's own instrument register, waiting for this plan to admit it (M185). Each row\ncarries `admit`, which the review turns off for one it wants left behind."
+          },
           "source_system": {
             "type": "string"
           },
@@ -11639,6 +11738,7 @@
           "entries",
           "curve_assignments",
           "accepted_objects",
+          "instrument_proposals",
           "version",
           "created_at",
           "applied_at",
@@ -13675,6 +13775,71 @@
         ],
         "type": "object"
       },
+      "PlanInstrumentProposal": {
+        "description": "Create the lab instruments a plan's confirmed entries ask for, one per `source_key` however\nmany streams share it, and return them by that key. Find-or-create, so re-running an apply\nafter a partial failure resolves the same rows.\nOne row of a source's own instrument register, as the plan puts it to the operator.\n\nThe register is the only record of which probe carried which serial and when it was installed,\nand it goes with the portal, so it travels ahead of the plan and waits (M185). Admitting one is\nthe plan's act, like creating a site: nothing exists until the apply runs.",
+        "properties": {
+          "admit": {
+            "description": "Whether the apply creates it. Proposed admitted: the register is the lab's own record, so\nthe question is which rows to leave behind rather than which to take.",
+            "type": "boolean"
+          },
+          "is_lab_instrument": {
+            "type": "boolean"
+          },
+          "manufacturer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "metadata": {
+            "description": "Whatever the register holds that river-data has no column for: the station it was installed\nat, the dates, the state the lab recorded."
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "serial_number": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_key": {
+            "description": "The source's own identity for it, e.g. `sensor_inventory:62`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_key",
+          "name",
+          "serial_number",
+          "manufacturer",
+          "model",
+          "notes",
+          "is_lab_instrument",
+          "metadata",
+          "admit"
+        ],
+        "type": "object"
+      },
+      "PlanInstrumentProposals": {
+        "description": "The register rows waiting for this source, as the plan carries them.",
+        "items": {
+          "$ref": "#/components/schemas/PlanInstrumentProposal"
+        },
+        "type": "array"
+      },
       "PlanInstrumentRef": {
         "description": "The instrument a plan entry's curve references resolve to, and how that was decided.",
         "properties": {
@@ -13880,6 +14045,22 @@
           "units",
           "group",
           "original_names"
+        ],
+        "type": "object"
+      },
+      "PlanProposalUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "admit": {
+            "type": "boolean"
+          },
+          "source_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_key",
+          "admit"
         ],
         "type": "object"
       },
@@ -14971,6 +15152,46 @@
           "last_seen_at",
           "decided_by",
           "decided_at"
+        ],
+        "type": "object"
+      },
+      "ProposeInstrumentsRequest": {
+        "additionalProperties": false,
+        "description": "A source's whole instrument register, offered for a plan to admit.",
+        "properties": {
+          "instruments": {
+            "items": {
+              "$ref": "#/components/schemas/SensorUpsert"
+            },
+            "type": "array"
+          },
+          "source_system": {
+            "description": "The sync source the register belongs to, e.g. \"metalp\".",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_system",
+          "instruments"
+        ],
+        "type": "object"
+      },
+      "ProposeInstrumentsResponse": {
+        "properties": {
+          "already_admitted": {
+            "description": "Proposals a plan has already admitted, which are instruments now and are left alone.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "stored": {
+            "description": "Rows now held as proposals, whether this call created or refreshed them.",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "stored",
+          "already_admitted"
         ],
         "type": "object"
       },
@@ -16501,9 +16722,6 @@
         ],
         "type": "object"
       },
-      "ReprocessingJobCreate": {
-        "type": "object"
-      },
       "ReprocessingJobList": {
         "properties": {
           "cancel_requested": {
@@ -16669,6 +16887,38 @@
           "dedupe_key",
           "rerunnable",
           "cancellable"
+        ],
+        "type": "object"
+      },
+      "ReprocessingJobLogList": {
+        "properties": {
+          "context": {},
+          "job_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "level": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "seq": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "ts": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "seq",
+          "ts",
+          "level",
+          "message",
+          "context"
         ],
         "type": "object"
       },
@@ -16838,9 +17088,6 @@
           "rerunnable",
           "cancellable"
         ],
-        "type": "object"
-      },
-      "ReprocessingJobUpdate": {
         "type": "object"
       },
       "RerunResponse": {
@@ -24622,6 +24869,13 @@
             "format": "int32",
             "type": "integer"
           },
+          "instruments": {
+            "description": "Register rows the review has decided to admit or leave behind, by the source's own key.",
+            "items": {
+              "$ref": "#/components/schemas/PlanProposalUpdate"
+            },
+            "type": "array"
+          },
           "objects": {
             "description": "Objects the review has accepted or taken back, `{kind}:{name}` as the card names them.",
             "items": {
@@ -27401,272 +27655,6 @@
           }
         },
         "summary": "Get all api_token_audit_logs"
-      },
-      "post": {
-        "description": "Creates a new api_token_audit_log.\n\nThis resource manages api_token_audit_log items",
-        "operationId": "create_one_api_token_audit_log",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ApiTokenAuditLogCreate"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiTokenAuditLogResponse"
-                }
-              }
-            },
-            "description": "Resource created successfully"
-          },
-          "409": {
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Duplicate record"
-          }
-        },
-        "summary": "Create one api_token_audit_log"
-      }
-    },
-    "/api/api_token_audit_logs/batch": {
-      "delete": {
-        "description": "Deletes many api_token_audit_logs by their IDs and returns array of deleted UUIDs.\n\nUse `?partial=true` for partial success mode (deletes valid items even if some fail).\n\nThis resource manages api_token_audit_log items",
-        "operationId": "delete_many_api_token_audit_logs",
-        "parameters": [
-          {
-            "description": "Enable partial success mode for batch operations.\n\nWhen `true`, the operation processes each item independently instead of\nusing all-or-nothing semantics. Items that succeed are committed even if\nother items fail.\n\nDefault: `false` (all-or-nothing)",
-            "example": false,
-            "in": "query",
-            "name": "partial",
-            "required": false,
-            "schema": {
-              "type": "boolean"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Resources deleted successfully"
-          },
-          "207": {
-            "description": "Partial success - some items deleted, some failed"
-          },
-          "400": {
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Bad request - batch size exceeded"
-          },
-          "500": {
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Internal Server Error"
-          }
-        },
-        "summary": "Delete many api_token_audit_logs"
-      },
-      "patch": {
-        "description": "Updates multiple api_token_audit_logs in a batch. Limited to 100 items per request.\n\nUse `?partial=true` for partial success mode (commits successful items even if some fail).\n\nThis resource manages api_token_audit_log items",
-        "operationId": "update_many_api_token_audit_logs",
-        "parameters": [
-          {
-            "description": "Enable partial success mode for batch operations.\n\nWhen `true`, the operation processes each item independently instead of\nusing all-or-nothing semantics. Items that succeed are committed even if\nother items fail.\n\nDefault: `false` (all-or-nothing)",
-            "example": false,
-            "in": "query",
-            "name": "partial",
-            "required": false,
-            "schema": {
-              "type": "boolean"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "items": {
-                  "$ref": "#/components/schemas/BatchUpdateRequest"
-                },
-                "type": "array"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ApiTokenAuditLogResponse"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Resources updated successfully"
-          },
-          "207": {
-            "description": "Partial success - some items updated, some failed"
-          },
-          "400": {
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Bad request - batch size exceeded or validation failed"
-          },
-          "404": {
-            "description": "One or more resources not found"
-          },
-          "409": {
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Duplicate record"
-          },
-          "500": {
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Internal Server Error"
-          }
-        },
-        "summary": "Update many api_token_audit_logs"
-      },
-      "post": {
-        "description": "Creates multiple api_token_audit_logs in a batch. Limited to 100 items per request.\n\nUse `?partial=true` for partial success mode (commits successful items even if some fail).\n\nThis resource manages api_token_audit_log items",
-        "operationId": "create_many_api_token_audit_logs",
-        "parameters": [
-          {
-            "description": "Enable partial success mode for batch operations.\n\nWhen `true`, the operation processes each item independently instead of\nusing all-or-nothing semantics. Items that succeed are committed even if\nother items fail.\n\nDefault: `false` (all-or-nothing)",
-            "example": false,
-            "in": "query",
-            "name": "partial",
-            "required": false,
-            "schema": {
-              "type": "boolean"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "items": {
-                  "$ref": "#/components/schemas/ApiTokenAuditLogCreate"
-                },
-                "type": "array"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ApiTokenAuditLogResponse"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Resources created successfully"
-          },
-          "207": {
-            "description": "Partial success - some items created, some failed"
-          },
-          "400": {
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Bad request - batch size exceeded or validation failed"
-          },
-          "409": {
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Duplicate record"
-          },
-          "500": {
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Internal Server Error"
-          }
-        },
-        "summary": "Create many api_token_audit_logs"
       }
     },
     "/api/api_token_audit_logs/distinct/status_codes": {
@@ -27691,33 +27679,6 @@
       }
     },
     "/api/api_token_audit_logs/{id}": {
-      "delete": {
-        "description": "Deletes one api_token_audit_log by its ID.\n\nThis resource manages api_token_audit_log items",
-        "operationId": "delete_one_api_token_audit_log",
-        "parameters": [
-          {
-            "description": "Resource identifier",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Resource deleted successfully"
-          },
-          "404": {
-            "description": "Resource not found"
-          },
-          "500": {
-            "description": "Internal Server Error"
-          }
-        },
-        "summary": "Delete one api_token_audit_log"
-      },
       "get": {
         "description": "Retrieves one api_token_audit_log by its ID.\n\nThis resource manages api_token_audit_log items",
         "operationId": "get_one_api_token_audit_log",
@@ -27754,57 +27715,6 @@
           }
         },
         "summary": "Get one api_token_audit_log"
-      },
-      "put": {
-        "description": "Updates one api_token_audit_log by its ID.\n\nThis resource manages api_token_audit_log items",
-        "operationId": "update_one_api_token_audit_log",
-        "parameters": [
-          {
-            "description": "Resource identifier",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ApiTokenAuditLogUpdate"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiTokenAuditLogResponse"
-                }
-              }
-            },
-            "description": "Resource updated successfully"
-          },
-          "404": {
-            "description": "Resource not found"
-          },
-          "409": {
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Duplicate record"
-          }
-        },
-        "summary": "Update one api_token_audit_log"
       }
     },
     "/api/calculations/closure": {
@@ -32512,6 +32422,111 @@
         "summary": "Update one notification_mute"
       }
     },
+    "/api/notification_states": {
+      "get": {
+        "description": "Retrieves all notification_states.\n\nThis resource manages notification_state items\n\nAdditional sortable columns: \n- kind\n- subject_key\n- last_notified_at.\n\nAdditional filterable columns: \n- kind\n- subject_key\n- state.",
+        "operationId": "get_all_notification_states",
+        "parameters": [
+          {
+            "description": "JSON-encoded filter for querying resources.\n\nThis parameter supports various filtering options:\n- Free text search: `{\"q\": \"search text\"}`\n- Filtering by a single ID: `{\"id\": \"550e8400-e29b-41d4-a716-446655440000\"}`\n- Filtering by multiple IDs: `{\"id\": [\"550e8400-e29b-41d4-a716-446655440000\", \"550e8400-e29b-41d4-a716-446655440001\"]}`\n- Filtering on other columns: `{\"name\": \"example\"}`",
+            "example": {
+              "id": "550e8400-e29b-41d4-a716-446655440000",
+              "name": "example",
+              "q": "search text"
+            },
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Range for pagination in the format \"[start, end]\".\n\nExample: `[0,9]`",
+            "example": "[0,9]",
+            "in": "query",
+            "name": "range",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page number for standard REST pagination (1-based).\n\nExample: `1`",
+            "example": 1,
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of items per page for standard REST pagination.\n\nExample: `10`",
+            "example": 10,
+            "in": "query",
+            "name": "per_page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Sort order for the results in the format `[\"column\", \"order\"]`.\n\nExample: `[\"id\", \"ASC\"]`",
+            "example": "[\"id\", \"ASC\"]",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort column for standard REST format.\n\nExample: `title`",
+            "example": "title",
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort order for standard REST format (ASC or DESC).\n\nExample: `ASC`",
+            "example": "ASC",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/NotificationStateList"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List of resources"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Get all notification_states"
+      }
+    },
     "/api/notifications/channels": {
       "get": {
         "operationId": "list_channels",
@@ -36465,6 +36480,111 @@
         "summary": "Get one replicate_audit_hold"
       }
     },
+    "/api/reprocessing_job_logs": {
+      "get": {
+        "description": "Retrieves all reprocessing_job_logs.\n\nThis resource manages reprocessing_job_log items\n\nAdditional sortable columns: \n- job_id\n- seq\n- ts\n- level.\n\nAdditional filterable columns: \n- job_id\n- seq\n- ts\n- level.",
+        "operationId": "get_all_reprocessing_job_logs",
+        "parameters": [
+          {
+            "description": "JSON-encoded filter for querying resources.\n\nThis parameter supports various filtering options:\n- Free text search: `{\"q\": \"search text\"}`\n- Filtering by a single ID: `{\"id\": \"550e8400-e29b-41d4-a716-446655440000\"}`\n- Filtering by multiple IDs: `{\"id\": [\"550e8400-e29b-41d4-a716-446655440000\", \"550e8400-e29b-41d4-a716-446655440001\"]}`\n- Filtering on other columns: `{\"name\": \"example\"}`",
+            "example": {
+              "id": "550e8400-e29b-41d4-a716-446655440000",
+              "name": "example",
+              "q": "search text"
+            },
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Range for pagination in the format \"[start, end]\".\n\nExample: `[0,9]`",
+            "example": "[0,9]",
+            "in": "query",
+            "name": "range",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page number for standard REST pagination (1-based).\n\nExample: `1`",
+            "example": 1,
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of items per page for standard REST pagination.\n\nExample: `10`",
+            "example": 10,
+            "in": "query",
+            "name": "per_page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Sort order for the results in the format `[\"column\", \"order\"]`.\n\nExample: `[\"id\", \"ASC\"]`",
+            "example": "[\"id\", \"ASC\"]",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort column for standard REST format.\n\nExample: `title`",
+            "example": "title",
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort order for standard REST format (ASC or DESC).\n\nExample: `ASC`",
+            "example": "ASC",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ReprocessingJobLogList"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List of resources"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Get all reprocessing_job_logs"
+      }
+    },
     "/api/reprocessing_jobs": {
       "get": {
         "description": "Retrieves all reprocessing_jobs.\n\nThis resource manages reprocessing_job items\n\nAdditional sortable columns: \n- status\n- created_at\n- completed_at\n- lease_expires_at\n- next_attempt_at.\n\nAdditional filterable columns: \n- sensor_id\n- trigger_type\n- trigger_id\n- status\n- category\n- site_id\n- parent_job_id\n- cancel_requested\n- dedupe_key.",
@@ -36568,302 +36688,9 @@
           }
         },
         "summary": "Get all reprocessing_jobs"
-      },
-      "post": {
-        "description": "Creates a new reprocessing_job.\n\nThis resource manages reprocessing_job items",
-        "operationId": "create_one_reprocessing_job",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ReprocessingJobCreate"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ReprocessingJobResponse"
-                }
-              }
-            },
-            "description": "Resource created successfully"
-          },
-          "409": {
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Duplicate record"
-          }
-        },
-        "summary": "Create one reprocessing_job"
-      }
-    },
-    "/api/reprocessing_jobs/batch": {
-      "delete": {
-        "description": "Deletes many reprocessing_jobs by their IDs and returns array of deleted UUIDs.\n\nUse `?partial=true` for partial success mode (deletes valid items even if some fail).\n\nThis resource manages reprocessing_job items",
-        "operationId": "delete_many_reprocessing_jobs",
-        "parameters": [
-          {
-            "description": "Enable partial success mode for batch operations.\n\nWhen `true`, the operation processes each item independently instead of\nusing all-or-nothing semantics. Items that succeed are committed even if\nother items fail.\n\nDefault: `false` (all-or-nothing)",
-            "example": false,
-            "in": "query",
-            "name": "partial",
-            "required": false,
-            "schema": {
-              "type": "boolean"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Resources deleted successfully"
-          },
-          "207": {
-            "description": "Partial success - some items deleted, some failed"
-          },
-          "400": {
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Bad request - batch size exceeded"
-          },
-          "500": {
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Internal Server Error"
-          }
-        },
-        "summary": "Delete many reprocessing_jobs"
-      },
-      "patch": {
-        "description": "Updates multiple reprocessing_jobs in a batch. Limited to 100 items per request.\n\nUse `?partial=true` for partial success mode (commits successful items even if some fail).\n\nThis resource manages reprocessing_job items",
-        "operationId": "update_many_reprocessing_jobs",
-        "parameters": [
-          {
-            "description": "Enable partial success mode for batch operations.\n\nWhen `true`, the operation processes each item independently instead of\nusing all-or-nothing semantics. Items that succeed are committed even if\nother items fail.\n\nDefault: `false` (all-or-nothing)",
-            "example": false,
-            "in": "query",
-            "name": "partial",
-            "required": false,
-            "schema": {
-              "type": "boolean"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "items": {
-                  "$ref": "#/components/schemas/BatchUpdateRequest"
-                },
-                "type": "array"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ReprocessingJobResponse"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Resources updated successfully"
-          },
-          "207": {
-            "description": "Partial success - some items updated, some failed"
-          },
-          "400": {
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Bad request - batch size exceeded or validation failed"
-          },
-          "404": {
-            "description": "One or more resources not found"
-          },
-          "409": {
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Duplicate record"
-          },
-          "500": {
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Internal Server Error"
-          }
-        },
-        "summary": "Update many reprocessing_jobs"
-      },
-      "post": {
-        "description": "Creates multiple reprocessing_jobs in a batch. Limited to 100 items per request.\n\nUse `?partial=true` for partial success mode (commits successful items even if some fail).\n\nThis resource manages reprocessing_job items",
-        "operationId": "create_many_reprocessing_jobs",
-        "parameters": [
-          {
-            "description": "Enable partial success mode for batch operations.\n\nWhen `true`, the operation processes each item independently instead of\nusing all-or-nothing semantics. Items that succeed are committed even if\nother items fail.\n\nDefault: `false` (all-or-nothing)",
-            "example": false,
-            "in": "query",
-            "name": "partial",
-            "required": false,
-            "schema": {
-              "type": "boolean"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "items": {
-                  "$ref": "#/components/schemas/ReprocessingJobCreate"
-                },
-                "type": "array"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ReprocessingJobResponse"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Resources created successfully"
-          },
-          "207": {
-            "description": "Partial success - some items created, some failed"
-          },
-          "400": {
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Bad request - batch size exceeded or validation failed"
-          },
-          "409": {
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Duplicate record"
-          },
-          "500": {
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Internal Server Error"
-          }
-        },
-        "summary": "Create many reprocessing_jobs"
       }
     },
     "/api/reprocessing_jobs/{id}": {
-      "delete": {
-        "description": "Deletes one reprocessing_job by its ID.\n\nThis resource manages reprocessing_job items",
-        "operationId": "delete_one_reprocessing_job",
-        "parameters": [
-          {
-            "description": "Resource identifier",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Resource deleted successfully"
-          },
-          "404": {
-            "description": "Resource not found"
-          },
-          "500": {
-            "description": "Internal Server Error"
-          }
-        },
-        "summary": "Delete one reprocessing_job"
-      },
       "get": {
         "description": "Retrieves one reprocessing_job by its ID.\n\nThis resource manages reprocessing_job items",
         "operationId": "get_one_reprocessing_job",
@@ -36900,57 +36727,6 @@
           }
         },
         "summary": "Get one reprocessing_job"
-      },
-      "put": {
-        "description": "Updates one reprocessing_job by its ID.\n\nThis resource manages reprocessing_job items",
-        "operationId": "update_one_reprocessing_job",
-        "parameters": [
-          {
-            "description": "Resource identifier",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ReprocessingJobUpdate"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ReprocessingJobResponse"
-                }
-              }
-            },
-            "description": "Resource updated successfully"
-          },
-          "404": {
-            "description": "Resource not found"
-          },
-          "409": {
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Duplicate record"
-          }
-        },
-        "summary": "Update one reprocessing_job"
       }
     },
     "/api/reprocessing_jobs/{id}/cancel": {
@@ -39461,6 +39237,116 @@
           }
         },
         "summary": "Create many sensors"
+      }
+    },
+    "/api/sensors/last_used": {
+      "get": {
+        "description": "Field instruments record `spot` readings, which the rollups exclude, so the answer lives in\n`readings` and nowhere else. The ordering is done in SQL over\n`idx_readings_spot_param_sensor_time` rather than by annotating a page that has already been\nselected, which is what `enrich` does and why it cannot order (M204).",
+        "operationId": "last_used_instruments",
+        "parameters": [
+          {
+            "description": "The parameters an instrument must have recorded, as a comma-separated list of ids. An\ninstrument is ranked by the newest spot reading it took of any of them.",
+            "in": "query",
+            "name": "parameter_ids",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "The same by catalog code, for a caller that holds the code rather than the id.",
+            "in": "query",
+            "name": "parameter_codes",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Only instruments used at this site.",
+            "in": "query",
+            "name": "site_id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "How many to return. Default 20, capped at 200.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LastUsedResponse"
+                }
+              }
+            },
+            "description": "Instruments by last use"
+          },
+          "400": {
+            "description": "Neither parameter_ids nor parameter_codes given"
+          }
+        },
+        "summary": "`GET /sensors/last_used`, the instruments that recorded these parameters, most recently first.",
+        "tags": [
+          "sensors"
+        ]
+      }
+    },
+    "/api/sensors/proposals": {
+      "post": {
+        "description": "Nothing is created: an instrument exists once a pairing plan an operator validated creates it\n(Q134). A row already admitted as an instrument under the same provenance is skipped rather than\nre-proposed, so a sync does not offer back what the operator already took.",
+        "operationId": "propose_instruments",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProposeInstrumentsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProposeInstrumentsResponse"
+                }
+              }
+            },
+            "description": "Register stored"
+          }
+        },
+        "summary": "Store a source's instrument register as proposals. Requires `write_metadata`.",
+        "tags": [
+          "sensors"
+        ]
       }
     },
     "/api/sensors/register": {

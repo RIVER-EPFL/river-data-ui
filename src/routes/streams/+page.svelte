@@ -10,7 +10,7 @@
 		applyPairingPlan, revertPairingPlan, pollJob, getUnpairedSummary, getPlanSiteMetadata,
 		replicateSpec, getPendingAuditSummary, getReconciliationCandidates, getStreamPreview, declareSdEstimator,
 		getPlanInstruments, listPairingPlans, supersedePairingPlan, getPairingPlan, bulkUpdatePairingPlan,
-		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type PlanObjectUpdate, type SdEstimator, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
+		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type PlanObjectUpdate, type PlanProposalUpdate, type SdEstimator, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
 		type PlanReplicateSummary, type StreamReceipt, type PlanWarning, type PlanInstrumentRef,
 		type PlanInstruments, type PlanInstrumentGroup, type PlanDeviceGroup, type PlanCurveAssignment,
 		type PairingPlanListing,
@@ -65,6 +65,16 @@
 	import InstrumentsTab from '$components/pairing/InstrumentsTab.svelte';
 	import ParametersTab, { PARAM_ROWS_PER_PAGE } from '$components/pairing/ParametersTab.svelte';
 	import SitesTab from '$components/pairing/SitesTab.svelte';
+	import {
+		clearSelection,
+		emptySelection,
+		prune,
+		selectAllInFilter,
+		selectEntries,
+		toggle as toggleSelected,
+		type Selection,
+	} from '$lib/pairing/selection';
+	import { bulkUpdates, type BulkDecision } from '$lib/pairing/bulkActions';
 
 	// ── Stream list state ──
 	let streams = $state<DataStream[]>([]);
@@ -221,6 +231,8 @@
 	const reviewParam = (name: string) => page.url.searchParams.get(name);
 	let siteSearch = $state(reviewParam('q') ?? '');
 	let reviewFilter = $state<EntryFilter>((reviewParam('filter') as EntryFilter) ?? 'all');
+	/** The rows a bulk action is about. Kept beside the plan so a tab change does not lose it. */
+	let planSelection = $state<Selection>(emptySelection);
 	let expandedSites = $state<Set<string>>(new Set());
 	let editingSite = $state<string | null>(null);
 	let editingParam = $state<{ site: string; streamId: string } | null>(null);
@@ -620,6 +632,33 @@
 		await loadPlanInstruments();
 	}
 
+	// One decision over the chosen rows: the same writes the per-row controls make, built once and
+	// sent as a single PATCH, which the server applies in one transaction. The local entries move
+	// with it so the review reads the way the operator just left it rather than waiting on a reload.
+	async function applyBulkDecision(decision: BulkDecision) {
+		const updates = bulkUpdates(planEntries, planSelection, decision);
+		if (updates.length === 0) return;
+		for (const update of updates) {
+			const entry = planEntries.find((e) => e.stream_id === update.stream_id);
+			if (!entry) continue;
+			if (update.action != null) entry.action = update.action;
+			if (update.acknowledged != null) entry.acknowledged = update.acknowledged;
+			if (update.sd_estimator !== undefined) {
+				(entry as { sd_estimator?: SdEstimator | null }).sd_estimator =
+					(update.sd_estimator as SdEstimator | '') || null;
+			}
+		}
+		planEntries = [...planEntries];
+		queueUpdate(updates, { immediate: true });
+		try {
+			await flushUpdates();
+			toastStore.success(`${formatCount(updates.length)} rows updated`);
+		} catch { /* the toast from the failed flush is the signal */ }
+		if (decision.field === 'instrument_id' || decision.field === 'instrument_clear') {
+			await loadPlanInstruments();
+		}
+	}
+
 	// Detach, the inverse of an attach: the streams keep pairing, they just carry no instrument.
 	async function detachInstrument(streamId: string) {
 		queueUpdate([{ stream_id: streamId, instrument_clear: true }]);
@@ -996,6 +1035,7 @@
 			});
 			plan = updated;
 			planEntries = [...updated.entries];
+			planSelection = prune(planSelection, planEntries);
 			editGeneration++;
 			toastStore.success(`${option.label}: ${formatCount(option.count)} entries`);
 		} catch (e) {
@@ -1009,7 +1049,7 @@
 	let editGeneration = 0;
 	let unsavedCount = $state(0);
 
-	const draftQueue = createDraftQueue<PlanEntryUpdate | PlanObjectUpdate>({
+	const draftQueue = createDraftQueue<PlanEntryUpdate | PlanObjectUpdate | PlanProposalUpdate>({
 		send: async (batch) => {
 			if (!plan) return;
 			const generation = editGeneration;
@@ -1017,16 +1057,21 @@
 			try {
 				const entryUpdates = batch.filter((u): u is PlanEntryUpdate => 'stream_id' in u);
 				const objectUpdates = batch.filter((u): u is PlanObjectUpdate => 'key' in u);
+				const proposalUpdates = batch.filter(
+					(u): u is PlanProposalUpdate => 'source_key' in u,
+				);
 				const updated = await updatePairingPlan(
 					plan.id,
 					plan.version,
 					entryUpdates,
 					[],
 					objectUpdates,
+					proposalUpdates,
 				);
 				if (editGeneration === generation) {
 					plan = updated;
 					planEntries = [...updated.entries];
+			planSelection = prune(planSelection, planEntries);
 				} else {
 					// The snapshot is stale, but its version is what the next write must name.
 					plan = { ...plan, version: updated.version };
@@ -1039,6 +1084,7 @@
 						const reloaded = await getPairingPlan(plan.id);
 						plan = reloaded;
 						planEntries = [...reloaded.entries];
+			planSelection = prune(planSelection, planEntries);
 						toastStore.error('Someone else edited this plan; it was reloaded and your change will be reapplied.');
 						throw new ApiError(503, 'Plan reloaded, reapplying');
 					} catch (reload) {
@@ -1071,6 +1117,20 @@
 	}
 
 	// A decision is one PATCH: only text edits wait for the debounce.
+	// A register row's decision is one PATCH of its own, like an object's.
+	function queueProposal(sourceKey: string, admit: boolean) {
+		if (plan) {
+			plan = {
+				...plan,
+				instrument_proposals: (plan.instrument_proposals ?? []).map((p) =>
+					p.source_key === sourceKey ? { ...p, admit } : p,
+				),
+			};
+		}
+		editGeneration++;
+		draftQueue.enqueue([{ source_key: sourceKey, admit }], { immediate: true });
+	}
+
 	// An object decision is one PATCH of its own: it is a click, and the card must say it landed.
 	function queueObject(key: string, accepted: boolean) {
 		objectOverlay = new Map(objectOverlay).set(key, accepted);
@@ -1493,6 +1553,7 @@
 			}));
 			plan = loaded;
 			planEntries = [...loaded.entries];
+			planSelection = prune(planSelection, planEntries);
 			params = paramResult.data;
 			sites = siteResult.data;
 			existingParams = params;
@@ -2299,6 +2360,8 @@
 				     decided here rather than offering a second editor over the same decision. -->
 				{#if reviewTab === 'instruments'}
 					<InstrumentsTab
+						proposals={plan.instrument_proposals ?? []}
+						onadmit={queueProposal}
 						{planInstruments}
 						{planDevices}
 						{instrumentDecisions}
@@ -2362,6 +2425,15 @@
 						{setEntryAction}
 						{setEntryEstimator}
 						{setEntryAcknowledged}
+						selection={planSelection}
+						ontoggleentry={(entry) => (planSelection = toggleSelected(planSelection, entry))}
+						onselectallinfilter={() =>
+							(planSelection = selectAllInFilter(planSelection, planEntries, reviewFilter))}
+						onclearselection={() => (planSelection = clearSelection())}
+						onselectdecision={(entries) =>
+							(planSelection = selectEntries(planSelection, entries))}
+						{labInstruments}
+						onbulk={applyBulkDecision}
 						{setSiteAction}
 						{toggleExpand}
 						{startEditSite}

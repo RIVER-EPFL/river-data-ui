@@ -236,8 +236,8 @@
 					</div>
 				</div>
 				<div>
-					<label class="text-sm font-medium block mb-1">Parameters</label>
-					<div class="max-h-32 overflow-y-auto border border-brand-divider rounded-md p-2 space-y-1">
+					<span id="exp-params-label" class="text-sm font-medium block mb-1">Parameters</span>
+					<div role="group" aria-labelledby="exp-params-label" class="max-h-32 overflow-y-auto border border-brand-divider rounded-md p-2 space-y-1">
 						<label class="flex items-center gap-2 cursor-pointer text-xs text-brand-muted">
 							<input type="checkbox" checked={exportSelectedParamIds.length === 0} onchange={() => exportSelectedParamIds = []} /> All parameters
 						</label>
@@ -308,8 +308,8 @@
 					</label>
 				</div>
 				<div>
-					<label class="text-sm font-medium block mb-1">Format</label>
-					<div class="flex gap-3">
+					<span id="exp-format-label" class="text-sm font-medium block mb-1">Format</span>
+					<div role="radiogroup" aria-labelledby="exp-format-label" class="flex gap-3">
 						{#each [['csv', 'CSV'], ['json', 'JSON'], ['ndjson', 'NDJSON']] as [val, label]}
 							<label class="flex items-center gap-1.5 cursor-pointer text-sm">
 								<input type="radio" bind:group={exportFormat} value={val} /> {label}

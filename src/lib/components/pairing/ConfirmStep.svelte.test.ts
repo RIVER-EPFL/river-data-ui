@@ -15,13 +15,15 @@ const summary = {
 	newProjects: 0,
 };
 
+// Every row ticked. A self-validated row is one nobody has looked at yet, and Apply waits for
+// those too (Q155), so it is `acknowledged` that leaves the gate open.
 const reviewProgress = {
 	total: 3,
 	needs_checking: 0,
-	self_validated: 3,
-	acknowledged: 0,
+	self_validated: 0,
+	acknowledged: 3,
 	needsCheckingPct: 0,
-	selfValidatedPct: 100,
+	selfValidatedPct: 0,
 };
 
 const noCreations = { projects: [], sites: [], parameters: [], groups: [] };
@@ -59,10 +61,44 @@ describe('ConfirmStep', () => {
 		expect(screen.getByText(/instrument above first/i)).not.toBeNull();
 	});
 
-	it('offers Apply once every instrument is decided', () => {
+	it('offers Apply once every instrument is decided and every row is ticked', () => {
 		mount(0);
 		const apply = screen.getByRole('button', { name: /Apply Plan/ }) as HTMLButtonElement;
 		expect(apply.disabled).toBe(false);
+	});
+
+	// The count and the wording are `applyGate.test.ts`; what this asserts is that the button
+	// reflects the gate and that the operator is told why.
+	it('refuses Apply while rows are still unticked, and says why', () => {
+		mount(0, {
+			reviewProgress: {
+				total: 3,
+				needs_checking: 3,
+				self_validated: 0,
+				acknowledged: 0,
+				needsCheckingPct: 100,
+				selfValidatedPct: 0,
+			},
+		});
+		const apply = screen.getByRole('button', { name: /Apply Plan/ }) as HTMLButtonElement;
+		expect(apply.disabled).toBe(true);
+		expect(screen.getByText(/still to tick/)).not.toBeNull();
+	});
+
+	// A row that resolved cleanly is still a row nobody has looked at.
+	it('refuses Apply while a row is only self-validated', () => {
+		mount(0, {
+			reviewProgress: {
+				total: 3,
+				needs_checking: 0,
+				self_validated: 3,
+				acknowledged: 0,
+				needsCheckingPct: 0,
+				selfValidatedPct: 100,
+			},
+		});
+		const apply = screen.getByRole('button', { name: /Apply Plan/ }) as HTMLButtonElement;
+		expect(apply.disabled).toBe(true);
 	});
 });
 

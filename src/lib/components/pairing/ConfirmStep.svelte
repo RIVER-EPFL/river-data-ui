@@ -4,6 +4,7 @@
 	import type { Creations, InstrumentBinding, SiteCreation } from '$lib/pairing/planGroups';
 	import Button from '$components/ui/Button.svelte';
 	import { formatCount } from '$lib/format';
+	import { applyBlockedReason } from '$lib/pairing/applyGate';
 
 	// The wizard's Confirm step: what the apply will do, counted from the plan the reviewer just
 	// worked, and the one button that does it.
@@ -71,6 +72,16 @@
 		/** Back to the Sites tab under one review filter, at its first page. */
 		ongotosites: (filter: 'needs_checking' | 'self_validated') => void;
 	} = $props();
+
+	// Why Apply is refused, or null. Q133 chose the hard gate: a plan is applied once, and the
+	// rectification afterwards costs more than the review does.
+	const blockedReason = $derived(
+		applyBlockedReason({
+			needsChecking: reviewProgress.needs_checking,
+			selfValidated: reviewProgress.self_validated,
+			openInstrumentQuestions,
+		}),
+	);
 </script>
 
 {#snippet countCard(label: string, count: number, rows: string[])}
@@ -279,10 +290,8 @@
 			<Button
 				variant="primary"
 				onclick={onapply}
-				disabled={applying || openInstrumentQuestions > 0}
-				title={openInstrumentQuestions > 0
-					? `${openInstrumentQuestions} instrument${openInstrumentQuestions === 1 ? '' : 's'} still to decide; every parameter is paired with one`
-					: undefined}
+				disabled={applying || blockedReason !== null}
+				title={blockedReason ?? undefined}
 				class="px-4 py-2 font-semibold"
 			>
 				{applying ? 'Applying…' : 'Apply Plan'}
@@ -291,6 +300,10 @@
 				<p class="self-center text-xs text-severity-warning-text">
 					Decide the {openInstrumentQuestions === 1 ? 'instrument' : 'instruments'} above first: a parameter is
 					paired with the instrument that measures it.
+				</p>
+			{:else if blockedReason !== null}
+				<p class="self-center text-xs text-severity-warning-text">
+					{blockedReason}. Work the review above: the counts beside it open the rows that are waiting.
 				</p>
 			{/if}
 		</div>

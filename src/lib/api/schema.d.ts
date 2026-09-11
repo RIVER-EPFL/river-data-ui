@@ -955,57 +955,11 @@ export interface paths {
          */
         get: operations["get_all_api_token_audit_logs"];
         put?: never;
-        /**
-         * Create one api_token_audit_log
-         * @description Creates a new api_token_audit_log.
-         *
-         *     This resource manages api_token_audit_log items
-         */
-        post: operations["create_one_api_token_audit_log"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
-        trace?: never;
-    };
-    "/api/api_token_audit_logs/batch": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Create many api_token_audit_logs
-         * @description Creates multiple api_token_audit_logs in a batch. Limited to 100 items per request.
-         *
-         *     Use `?partial=true` for partial success mode (commits successful items even if some fail).
-         *
-         *     This resource manages api_token_audit_log items
-         */
-        post: operations["create_many_api_token_audit_logs"];
-        /**
-         * Delete many api_token_audit_logs
-         * @description Deletes many api_token_audit_logs by their IDs and returns array of deleted UUIDs.
-         *
-         *     Use `?partial=true` for partial success mode (deletes valid items even if some fail).
-         *
-         *     This resource manages api_token_audit_log items
-         */
-        delete: operations["delete_many_api_token_audit_logs"];
-        options?: never;
-        head?: never;
-        /**
-         * Update many api_token_audit_logs
-         * @description Updates multiple api_token_audit_logs in a batch. Limited to 100 items per request.
-         *
-         *     Use `?partial=true` for partial success mode (commits successful items even if some fail).
-         *
-         *     This resource manages api_token_audit_log items
-         */
-        patch: operations["update_many_api_token_audit_logs"];
         trace?: never;
     };
     "/api/api_token_audit_logs/distinct/status_codes": {
@@ -1039,21 +993,9 @@ export interface paths {
          *     This resource manages api_token_audit_log items
          */
         get: operations["get_one_api_token_audit_log"];
-        /**
-         * Update one api_token_audit_log
-         * @description Updates one api_token_audit_log by its ID.
-         *
-         *     This resource manages api_token_audit_log items
-         */
-        put: operations["update_one_api_token_audit_log"];
+        put?: never;
         post?: never;
-        /**
-         * Delete one api_token_audit_log
-         * @description Deletes one api_token_audit_log by its ID.
-         *
-         *     This resource manages api_token_audit_log items
-         */
-        delete: operations["delete_one_api_token_audit_log"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2334,6 +2276,38 @@ export interface paths {
          *     This resource manages notification_mute items
          */
         delete: operations["delete_one_notification_mute"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notification_states": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get all notification_states
+         * @description Retrieves all notification_states.
+         *
+         *     This resource manages notification_state items
+         *
+         *     Additional sortable columns:
+         *     - kind
+         *     - subject_key
+         *     - last_notified_at.
+         *
+         *     Additional filterable columns:
+         *     - kind
+         *     - subject_key
+         *     - state.
+         */
+        get: operations["get_all_notification_states"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -3622,6 +3596,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reprocessing_job_logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get all reprocessing_job_logs
+         * @description Retrieves all reprocessing_job_logs.
+         *
+         *     This resource manages reprocessing_job_log items
+         *
+         *     Additional sortable columns:
+         *     - job_id
+         *     - seq
+         *     - ts
+         *     - level.
+         *
+         *     Additional filterable columns:
+         *     - job_id
+         *     - seq
+         *     - ts
+         *     - level.
+         */
+        get: operations["get_all_reprocessing_job_logs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/reprocessing_jobs": {
         parameters: {
             query?: never;
@@ -3655,57 +3663,11 @@ export interface paths {
          */
         get: operations["get_all_reprocessing_jobs"];
         put?: never;
-        /**
-         * Create one reprocessing_job
-         * @description Creates a new reprocessing_job.
-         *
-         *     This resource manages reprocessing_job items
-         */
-        post: operations["create_one_reprocessing_job"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
-        trace?: never;
-    };
-    "/api/reprocessing_jobs/batch": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Create many reprocessing_jobs
-         * @description Creates multiple reprocessing_jobs in a batch. Limited to 100 items per request.
-         *
-         *     Use `?partial=true` for partial success mode (commits successful items even if some fail).
-         *
-         *     This resource manages reprocessing_job items
-         */
-        post: operations["create_many_reprocessing_jobs"];
-        /**
-         * Delete many reprocessing_jobs
-         * @description Deletes many reprocessing_jobs by their IDs and returns array of deleted UUIDs.
-         *
-         *     Use `?partial=true` for partial success mode (deletes valid items even if some fail).
-         *
-         *     This resource manages reprocessing_job items
-         */
-        delete: operations["delete_many_reprocessing_jobs"];
-        options?: never;
-        head?: never;
-        /**
-         * Update many reprocessing_jobs
-         * @description Updates multiple reprocessing_jobs in a batch. Limited to 100 items per request.
-         *
-         *     Use `?partial=true` for partial success mode (commits successful items even if some fail).
-         *
-         *     This resource manages reprocessing_job items
-         */
-        patch: operations["update_many_reprocessing_jobs"];
         trace?: never;
     };
     "/api/reprocessing_jobs/{id}": {
@@ -3722,21 +3684,9 @@ export interface paths {
          *     This resource manages reprocessing_job items
          */
         get: operations["get_one_reprocessing_job"];
-        /**
-         * Update one reprocessing_job
-         * @description Updates one reprocessing_job by its ID.
-         *
-         *     This resource manages reprocessing_job items
-         */
-        put: operations["update_one_reprocessing_job"];
+        put?: never;
         post?: never;
-        /**
-         * Delete one reprocessing_job
-         * @description Deletes one reprocessing_job by its ID.
-         *
-         *     This resource manages reprocessing_job items
-         */
-        delete: operations["delete_one_reprocessing_job"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -4450,6 +4400,51 @@ export interface paths {
          *     This resource manages sensor items
          */
         patch: operations["update_many_sensors"];
+        trace?: never;
+    };
+    "/api/sensors/last_used": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * `GET /sensors/last_used`, the instruments that recorded these parameters, most recently first.
+         * @description Field instruments record `spot` readings, which the rollups exclude, so the answer lives in
+         *     `readings` and nowhere else. The ordering is done in SQL over
+         *     `idx_readings_spot_param_sensor_time` rather than by annotating a page that has already been
+         *     selected, which is what `enrich` does and why it cannot order (M204).
+         */
+        get: operations["last_used_instruments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sensors/proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Store a source's instrument register as proposals. Requires `write_metadata`.
+         * @description Nothing is created: an instrument exists once a pairing plan an operator validated creates it
+         *     (Q134). A row already admitted as an instrument under the same provenance is skipped rather than
+         *     re-proposed, so a sync does not offer back what the operator already took.
+         */
+        post: operations["propose_instruments"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/sensors/register": {
@@ -7459,6 +7454,13 @@ export interface components {
             acknowledged: number;
             /**
              * Format: int64
+             * @description Pending holds this call could not reach: a hold with no stream is keyed on its slot rather
+             *     than a stream, and the sweep's statement and every filter it takes are about streams. The
+             *     count is what keeps `acknowledged` from reading as the whole queue.
+             */
+            skipped_no_stream?: number;
+            /**
+             * Format: int64
              * @description Holds this call deliberately left pending: their disagreement is the population-divisor
              *     signature on a slot that has not declared an estimator, so accepting them would record a
              *     decision about which formula this slot publishes without anyone having made one.
@@ -7627,7 +7629,8 @@ export interface components {
             last_value: number;
             /**
              * Format: int32
-             * @description The worst it has been, which is what the history is ranked by.
+             * @description The worst it has been, which is what the history is ranked by. Set when the episode
+             *     opens and advanced by the sweeper, never overwritten by a registration.
              */
             max_severity: number;
             /** @description The cadence the episode belongs to: a grab series and a sensor series alarm apart. */
@@ -7658,7 +7661,10 @@ export interface components {
             severity: number;
             /** Format: uuid */
             site_id: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Fixed when the episode opens: a later breach of the same open episode leaves it.
+             */
             started_at: string;
             /** Format: date-time */
             updated_at: string;
@@ -8038,7 +8044,6 @@ export interface components {
             /** @description Non-secret indexed lookup key (`rvd_<token_prefix>_<secret>`); set on mint. */
             token_prefix: string;
         };
-        ApiTokenAuditLogCreate: Record<string, never>;
         ApiTokenAuditLogList: {
             /** Format: date-time */
             created_at: string;
@@ -8067,7 +8072,6 @@ export interface components {
             /** Format: uuid */
             token_id: string;
         };
-        ApiTokenAuditLogUpdate: Record<string, never>;
         ApiTokenCreate: {
             created_by?: string | null;
             description?: string | null;
@@ -11013,6 +11017,24 @@ export interface components {
              */
             used_at: string | null;
         };
+        /** @description One instrument and when it last recorded one of the parameters asked about. */
+        LastUsedInstrument: {
+            /** Format: date-time */
+            last_used_at: string;
+            name: string | null;
+            /**
+             * Format: uuid
+             * @description The parameter whose reading is the newest of the ones asked about.
+             */
+            parameter_id: string;
+            /** Format: uuid */
+            sensor_id: string;
+            serial_number: string | null;
+        };
+        /** @description The ranking, most recently used first. */
+        LastUsedResponse: {
+            instruments: components["schemas"]["LastUsedInstrument"][];
+        };
         /** @description One thing that happened, in the one shape every source answers in. */
         LedgerEntry: {
             actor?: string;
@@ -11576,6 +11598,14 @@ export interface components {
             /** Format: uuid */
             site_id?: string | null;
         };
+        NotificationStateList: {
+            detail: string | null;
+            kind: string;
+            /** Format: date-time */
+            last_notified_at: string;
+            state: string;
+            subject_key: string;
+        };
         /** @enum {string} */
         Origin: "manual" | "sync" | "csv" | "audit" | "chain" | "rollback" | "migration" | "system" | "janitor";
         OriginInfo: {
@@ -11780,6 +11810,11 @@ export interface components {
             entries: components["schemas"]["PlanEntries"];
             /** Format: uuid */
             id: string;
+            /**
+             * @description The source's own instrument register, waiting for this plan to admit it (M185). Each row
+             *     carries `admit`, which the review turns off for one it wants left behind.
+             */
+            instrument_proposals: components["schemas"]["PlanInstrumentProposals"];
             source_system: string;
             status: string;
             summary: components["schemas"]["PlanSummary"];
@@ -11817,6 +11852,11 @@ export interface components {
             entries: components["schemas"]["PlanEntries"];
             /** Format: uuid */
             id: string;
+            /**
+             * @description The source's own instrument register, waiting for this plan to admit it (M185). Each row
+             *     carries `admit`, which the review turns off for one it wants left behind.
+             */
+            instrument_proposals: components["schemas"]["PlanInstrumentProposals"];
             source_system: string;
             status: string;
             summary: components["schemas"]["PlanSummary"];
@@ -11847,6 +11887,11 @@ export interface components {
             entries: components["schemas"]["PlanEntries"];
             /** Format: uuid */
             id: string;
+            /**
+             * @description The source's own instrument register, waiting for this plan to admit it (M185). Each row
+             *     carries `admit`, which the review turns off for one it wants left behind.
+             */
+            instrument_proposals: components["schemas"]["PlanInstrumentProposals"];
             source_system: string;
             status: string;
             summary: components["schemas"]["PlanSummary"];
@@ -12645,6 +12690,38 @@ export interface components {
             stamps_readings: boolean;
             stream_count: number;
         };
+        /**
+         * @description Create the lab instruments a plan's confirmed entries ask for, one per `source_key` however
+         *     many streams share it, and return them by that key. Find-or-create, so re-running an apply
+         *     after a partial failure resolves the same rows.
+         *     One row of a source's own instrument register, as the plan puts it to the operator.
+         *
+         *     The register is the only record of which probe carried which serial and when it was installed,
+         *     and it goes with the portal, so it travels ahead of the plan and waits (M185). Admitting one is
+         *     the plan's act, like creating a site: nothing exists until the apply runs.
+         */
+        PlanInstrumentProposal: {
+            /**
+             * @description Whether the apply creates it. Proposed admitted: the register is the lab's own record, so
+             *     the question is which rows to leave behind rather than which to take.
+             */
+            admit: boolean;
+            is_lab_instrument: boolean;
+            manufacturer: string | null;
+            /**
+             * @description Whatever the register holds that river-data has no column for: the station it was installed
+             *     at, the dates, the state the lab recorded.
+             */
+            metadata: unknown;
+            model: string | null;
+            name: string;
+            notes: string | null;
+            serial_number: string | null;
+            /** @description The source's own identity for it, e.g. `sensor_inventory:62`. */
+            source_key: string;
+        };
+        /** @description The register rows waiting for this source, as the plan carries them. */
+        PlanInstrumentProposals: components["schemas"]["PlanInstrumentProposal"][];
         /** @description The instrument a plan entry's curve references resolve to, and how that was decided. */
         PlanInstrumentRef: {
             /** @description A creation an operator has agreed to. Apply refuses a plan holding an unconfirmed one. */
@@ -12733,6 +12810,10 @@ export interface components {
             name: string;
             original_names: string[];
             units: string;
+        };
+        PlanProposalUpdate: {
+            admit: boolean;
+            source_key: string;
         };
         /** @description Replicate-family summary carried on a plan entry, from the stream's registered spec. */
         PlanReplicates: {
@@ -13029,6 +13110,18 @@ export interface components {
             stream_id: string;
             /** Format: date-time */
             time: string;
+        };
+        /** @description A source's whole instrument register, offered for a plan to admit. */
+        ProposeInstrumentsRequest: {
+            instruments: components["schemas"]["SensorUpsert"][];
+            /** @description The sync source the register belongs to, e.g. "metalp". */
+            source_system: string;
+        };
+        ProposeInstrumentsResponse: {
+            /** @description Proposals a plan has already admitted, which are instruments now and are left alone. */
+            already_admitted: number;
+            /** @description Rows now held as proposals, whether this call created or refreshed them. */
+            stored: number;
         };
         ProvenanceRecord: {
             /** @description The formula that produced a derived value, the counterpart of a tool run's record. */
@@ -13655,7 +13748,6 @@ export interface components {
             /** Format: uuid */
             sensor_id: string;
         };
-        ReprocessingJobCreate: Record<string, never>;
         ReprocessingJobList: {
             /** @description Set by `POST /reprocessing_jobs/{id}/cancel`; the run stops at its next checkpoint. */
             cancel_requested: boolean;
@@ -13722,6 +13814,17 @@ export interface components {
             /** Format: uuid */
             trigger_id: string | null;
             trigger_type: string;
+        };
+        ReprocessingJobLogList: {
+            context: unknown;
+            /** Format: uuid */
+            job_id: string;
+            level: string;
+            message: string;
+            /** Format: int64 */
+            seq: number;
+            /** Format: date-time */
+            ts: string;
         };
         ReprocessingJobResponse: {
             /** @description Set by `POST /reprocessing_jobs/{id}/cancel`; the run stops at its next checkpoint. */
@@ -13790,7 +13893,6 @@ export interface components {
             trigger_id: string | null;
             trigger_type: string;
         };
-        ReprocessingJobUpdate: Record<string, never>;
         RerunResponse: {
             /** Format: uuid */
             job_id: string;
@@ -16657,6 +16759,8 @@ export interface components {
              * @description The version the client read. The write is refused if the plan has moved on since.
              */
             expected_version: number;
+            /** @description Register rows the review has decided to admit or leave behind, by the source's own key. */
+            instruments?: components["schemas"]["PlanProposalUpdate"][];
             /** @description Objects the review has accepted or taken back, `{kind}:{name}` as the card names them. */
             objects?: components["schemas"]["PlanObjectUpdate"][];
             updates?: components["schemas"]["PlanEntryUpdate"][];
@@ -18867,247 +18971,6 @@ export interface operations {
             };
         };
     };
-    create_one_api_token_audit_log: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ApiTokenAuditLogCreate"];
-            };
-        };
-        responses: {
-            /** @description Resource created successfully */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiTokenAuditLogResponse"];
-                };
-            };
-            /** @description Duplicate record */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": string;
-                };
-            };
-        };
-    };
-    create_many_api_token_audit_logs: {
-        parameters: {
-            query?: {
-                /**
-                 * @description Enable partial success mode for batch operations.
-                 *
-                 *     When `true`, the operation processes each item independently instead of
-                 *     using all-or-nothing semantics. Items that succeed are committed even if
-                 *     other items fail.
-                 *
-                 *     Default: `false` (all-or-nothing)
-                 * @example false
-                 */
-                partial?: boolean;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ApiTokenAuditLogCreate"][];
-            };
-        };
-        responses: {
-            /** @description Resources created successfully */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiTokenAuditLogResponse"][];
-                };
-            };
-            /** @description Partial success - some items created, some failed */
-            207: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Bad request - batch size exceeded or validation failed */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": string;
-                };
-            };
-            /** @description Duplicate record */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": string;
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": string;
-                };
-            };
-        };
-    };
-    delete_many_api_token_audit_logs: {
-        parameters: {
-            query?: {
-                /**
-                 * @description Enable partial success mode for batch operations.
-                 *
-                 *     When `true`, the operation processes each item independently instead of
-                 *     using all-or-nothing semantics. Items that succeed are committed even if
-                 *     other items fail.
-                 *
-                 *     Default: `false` (all-or-nothing)
-                 * @example false
-                 */
-                partial?: boolean;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": string[];
-            };
-        };
-        responses: {
-            /** @description Resources deleted successfully */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": string[];
-                };
-            };
-            /** @description Partial success - some items deleted, some failed */
-            207: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Bad request - batch size exceeded */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": string;
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": string;
-                };
-            };
-        };
-    };
-    update_many_api_token_audit_logs: {
-        parameters: {
-            query?: {
-                /**
-                 * @description Enable partial success mode for batch operations.
-                 *
-                 *     When `true`, the operation processes each item independently instead of
-                 *     using all-or-nothing semantics. Items that succeed are committed even if
-                 *     other items fail.
-                 *
-                 *     Default: `false` (all-or-nothing)
-                 * @example false
-                 */
-                partial?: boolean;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BatchUpdateRequest"][];
-            };
-        };
-        responses: {
-            /** @description Resources updated successfully */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiTokenAuditLogResponse"][];
-                };
-            };
-            /** @description Partial success - some items updated, some failed */
-            207: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Bad request - batch size exceeded or validation failed */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": string;
-                };
-            };
-            /** @description One or more resources not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Duplicate record */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": string;
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": string;
-                };
-            };
-        };
-    };
     distinct_status_codes: {
         parameters: {
             query?: never;
@@ -19151,84 +19014,6 @@ export interface operations {
             };
             /** @description Bad request */
             400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Resource not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    update_one_api_token_audit_log: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Resource identifier */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ApiTokenAuditLogUpdate"];
-            };
-        };
-        responses: {
-            /** @description Resource updated successfully */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiTokenAuditLogResponse"];
-                };
-            };
-            /** @description Resource not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Duplicate record */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": string;
-                };
-            };
-        };
-    };
-    delete_one_api_token_audit_log: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Resource identifier */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Resource deleted successfully */
-            204: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -23498,6 +23283,91 @@ export interface operations {
             };
         };
     };
+    get_all_notification_states: {
+        parameters: {
+            query?: {
+                /**
+                 * @description JSON-encoded filter for querying resources.
+                 *
+                 *     This parameter supports various filtering options:
+                 *     - Free text search: `{"q": "search text"}`
+                 *     - Filtering by a single ID: `{"id": "550e8400-e29b-41d4-a716-446655440000"}`
+                 *     - Filtering by multiple IDs: `{"id": ["550e8400-e29b-41d4-a716-446655440000", "550e8400-e29b-41d4-a716-446655440001"]}`
+                 *     - Filtering on other columns: `{"name": "example"}`
+                 * @example {
+                 *       "id": "550e8400-e29b-41d4-a716-446655440000",
+                 *       "name": "example",
+                 *       "q": "search text"
+                 *     }
+                 */
+                filter?: string;
+                /**
+                 * @description Range for pagination in the format "[start, end]".
+                 *
+                 *     Example: `[0,9]`
+                 * @example [0,9]
+                 */
+                range?: string;
+                /**
+                 * @description Page number for standard REST pagination (1-based).
+                 *
+                 *     Example: `1`
+                 * @example 1
+                 */
+                page?: number;
+                /**
+                 * @description Number of items per page for standard REST pagination.
+                 *
+                 *     Example: `10`
+                 * @example 10
+                 */
+                per_page?: number;
+                /**
+                 * @description Sort order for the results in the format `["column", "order"]`.
+                 *
+                 *     Example: `["id", "ASC"]`
+                 * @example ["id", "ASC"]
+                 */
+                sort?: string;
+                /**
+                 * @description Sort column for standard REST format.
+                 *
+                 *     Example: `title`
+                 * @example title
+                 */
+                sort_by?: string;
+                /**
+                 * @description Sort order for standard REST format (ASC or DESC).
+                 *
+                 *     Example: `ASC`
+                 * @example ASC
+                 */
+                order?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of resources */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationStateList"][];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     list_channels: {
         parameters: {
             query?: never;
@@ -26989,6 +26859,91 @@ export interface operations {
             };
         };
     };
+    get_all_reprocessing_job_logs: {
+        parameters: {
+            query?: {
+                /**
+                 * @description JSON-encoded filter for querying resources.
+                 *
+                 *     This parameter supports various filtering options:
+                 *     - Free text search: `{"q": "search text"}`
+                 *     - Filtering by a single ID: `{"id": "550e8400-e29b-41d4-a716-446655440000"}`
+                 *     - Filtering by multiple IDs: `{"id": ["550e8400-e29b-41d4-a716-446655440000", "550e8400-e29b-41d4-a716-446655440001"]}`
+                 *     - Filtering on other columns: `{"name": "example"}`
+                 * @example {
+                 *       "id": "550e8400-e29b-41d4-a716-446655440000",
+                 *       "name": "example",
+                 *       "q": "search text"
+                 *     }
+                 */
+                filter?: string;
+                /**
+                 * @description Range for pagination in the format "[start, end]".
+                 *
+                 *     Example: `[0,9]`
+                 * @example [0,9]
+                 */
+                range?: string;
+                /**
+                 * @description Page number for standard REST pagination (1-based).
+                 *
+                 *     Example: `1`
+                 * @example 1
+                 */
+                page?: number;
+                /**
+                 * @description Number of items per page for standard REST pagination.
+                 *
+                 *     Example: `10`
+                 * @example 10
+                 */
+                per_page?: number;
+                /**
+                 * @description Sort order for the results in the format `["column", "order"]`.
+                 *
+                 *     Example: `["id", "ASC"]`
+                 * @example ["id", "ASC"]
+                 */
+                sort?: string;
+                /**
+                 * @description Sort column for standard REST format.
+                 *
+                 *     Example: `title`
+                 * @example title
+                 */
+                sort_by?: string;
+                /**
+                 * @description Sort order for standard REST format (ASC or DESC).
+                 *
+                 *     Example: `ASC`
+                 * @example ASC
+                 */
+                order?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of resources */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReprocessingJobLogList"][];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     get_all_reprocessing_jobs: {
         parameters: {
             query?: {
@@ -27074,247 +27029,6 @@ export interface operations {
             };
         };
     };
-    create_one_reprocessing_job: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReprocessingJobCreate"];
-            };
-        };
-        responses: {
-            /** @description Resource created successfully */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReprocessingJobResponse"];
-                };
-            };
-            /** @description Duplicate record */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": string;
-                };
-            };
-        };
-    };
-    create_many_reprocessing_jobs: {
-        parameters: {
-            query?: {
-                /**
-                 * @description Enable partial success mode for batch operations.
-                 *
-                 *     When `true`, the operation processes each item independently instead of
-                 *     using all-or-nothing semantics. Items that succeed are committed even if
-                 *     other items fail.
-                 *
-                 *     Default: `false` (all-or-nothing)
-                 * @example false
-                 */
-                partial?: boolean;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReprocessingJobCreate"][];
-            };
-        };
-        responses: {
-            /** @description Resources created successfully */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReprocessingJobResponse"][];
-                };
-            };
-            /** @description Partial success - some items created, some failed */
-            207: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Bad request - batch size exceeded or validation failed */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": string;
-                };
-            };
-            /** @description Duplicate record */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": string;
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": string;
-                };
-            };
-        };
-    };
-    delete_many_reprocessing_jobs: {
-        parameters: {
-            query?: {
-                /**
-                 * @description Enable partial success mode for batch operations.
-                 *
-                 *     When `true`, the operation processes each item independently instead of
-                 *     using all-or-nothing semantics. Items that succeed are committed even if
-                 *     other items fail.
-                 *
-                 *     Default: `false` (all-or-nothing)
-                 * @example false
-                 */
-                partial?: boolean;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": string[];
-            };
-        };
-        responses: {
-            /** @description Resources deleted successfully */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": string[];
-                };
-            };
-            /** @description Partial success - some items deleted, some failed */
-            207: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Bad request - batch size exceeded */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": string;
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": string;
-                };
-            };
-        };
-    };
-    update_many_reprocessing_jobs: {
-        parameters: {
-            query?: {
-                /**
-                 * @description Enable partial success mode for batch operations.
-                 *
-                 *     When `true`, the operation processes each item independently instead of
-                 *     using all-or-nothing semantics. Items that succeed are committed even if
-                 *     other items fail.
-                 *
-                 *     Default: `false` (all-or-nothing)
-                 * @example false
-                 */
-                partial?: boolean;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BatchUpdateRequest"][];
-            };
-        };
-        responses: {
-            /** @description Resources updated successfully */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReprocessingJobResponse"][];
-                };
-            };
-            /** @description Partial success - some items updated, some failed */
-            207: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Bad request - batch size exceeded or validation failed */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": string;
-                };
-            };
-            /** @description One or more resources not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Duplicate record */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": string;
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": string;
-                };
-            };
-        };
-    };
     get_one_reprocessing_job: {
         parameters: {
             query?: never;
@@ -27338,84 +27052,6 @@ export interface operations {
             };
             /** @description Bad request */
             400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Resource not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    update_one_reprocessing_job: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Resource identifier */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReprocessingJobUpdate"];
-            };
-        };
-        responses: {
-            /** @description Resource updated successfully */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReprocessingJobResponse"];
-                };
-            };
-            /** @description Resource not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Duplicate record */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": string;
-                };
-            };
-        };
-    };
-    delete_one_reprocessing_job: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Resource identifier */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Resource deleted successfully */
-            204: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -29675,6 +29311,69 @@ export interface operations {
                 };
                 content: {
                     "text/plain": string;
+                };
+            };
+        };
+    };
+    last_used_instruments: {
+        parameters: {
+            query?: {
+                /**
+                 * @description The parameters an instrument must have recorded, as a comma-separated list of ids. An
+                 *     instrument is ranked by the newest spot reading it took of any of them.
+                 */
+                parameter_ids?: string | null;
+                /** @description The same by catalog code, for a caller that holds the code rather than the id. */
+                parameter_codes?: string | null;
+                /** @description Only instruments used at this site. */
+                site_id?: string | null;
+                /** @description How many to return. Default 20, capped at 200. */
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Instruments by last use */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LastUsedResponse"];
+                };
+            };
+            /** @description Neither parameter_ids nor parameter_codes given */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    propose_instruments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProposeInstrumentsRequest"];
+            };
+        };
+        responses: {
+            /** @description Register stored */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProposeInstrumentsResponse"];
                 };
             };
         };

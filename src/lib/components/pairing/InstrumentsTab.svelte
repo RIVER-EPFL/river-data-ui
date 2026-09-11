@@ -2,7 +2,12 @@
 	import type { Snippet } from 'svelte';
 
 	import { base } from '$app/paths';
-	import type { PlanDeviceGroup, PlanInstrumentGroup, PlanInstruments } from '$api/service';
+	import type {
+		PlanDeviceGroup,
+		PlanInstrumentGroup,
+		PlanInstrumentProposal,
+		PlanInstruments,
+	} from '$api/service';
 	import Badge from '$components/ui/Badge.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import MappingSelect, { type MappingGroup } from '$components/ui/MappingSelect.svelte';
@@ -28,6 +33,8 @@
 		onassign,
 		onacceptall,
 		nameField,
+		proposals = [],
+		onadmit,
 	}: {
 		/** Null while the plan's instruments are still loading. */
 		planInstruments: PlanInstruments | null;
@@ -41,6 +48,9 @@
 		instrumentStatus: (d: InstrumentDecision) => 'existing' | 'new' | 'unset';
 		/** The row's DOM id, so a question elsewhere in the wizard can scroll to it. */
 		instrumentRowId: (scope: string) => string;
+		/** The source's own instrument register, waiting for this plan to admit it. */
+		proposals?: PlanInstrumentProposal[];
+		onadmit?: (sourceKey: string, admit: boolean) => void;
 		onchoose: (d: InstrumentDecision, value: string) => void;
 		/** Attach the named existing instrument, the other half of a name collision. */
 		onattach: (d: InstrumentDecision, instrumentId: string) => void;
@@ -313,3 +323,58 @@
 			</table>
 		</div>
 	{/if}
+
+<!-- The source's own instrument register: rows no stream mints, carrying the serial, the model and
+     what the lab recorded about where it was installed. Admitted rows are created by the apply,
+     like every other thing this plan makes. -->
+{#if proposals.length > 0}
+	<div class="mt-4 rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
+		<div class="px-3 py-2 border-b border-brand-divider">
+			<span class="text-sm font-semibold">From the source's instrument register</span>
+			<span class="text-xs text-brand-muted ml-2">
+				{proposals.filter((p) => p.admit).length} of {proposals.length} will be created by this
+				apply. A row left out stays offered, and the next plan asks again.
+			</span>
+		</div>
+		<table class="w-full text-sm">
+			<thead>
+				<tr class="bg-brand-bg border-b border-brand-divider text-xs text-brand-muted">
+					<th class="text-left px-3 py-2 font-semibold">Name</th>
+					<th class="text-left px-3 py-2 font-semibold">Serial</th>
+					<th class="text-left px-3 py-2 font-semibold">Model</th>
+					<th class="text-left px-3 py-2 font-semibold">What the register records</th>
+					<th class="text-right px-3 py-2 font-semibold">Create</th>
+				</tr>
+			</thead>
+			<tbody>
+				{#each proposals as proposal (proposal.source_key)}
+					<tr class="border-b border-brand-divider last:border-b-0 {proposal.admit ? '' : 'opacity-60'}">
+						<td class="px-3 py-2">
+							{proposal.name}
+							<span class="block text-[11px] text-brand-muted font-mono">{proposal.source_key}</span>
+						</td>
+						<td class="px-3 py-2 font-mono text-xs">{proposal.serial_number ?? '--'}</td>
+						<td class="px-3 py-2 text-xs">{proposal.model ?? '--'}</td>
+						<td class="px-3 py-2 text-[11px] text-brand-muted">
+							{#if proposal.metadata}
+								{Object.entries(proposal.metadata as Record<string, unknown>)
+									.map(([k, v]) => `${k}: ${v}`)
+									.join(' · ')}
+							{:else}
+								--
+							{/if}
+						</td>
+						<td class="px-3 py-2 text-right">
+							<input
+								type="checkbox"
+								checked={proposal.admit}
+								onchange={(e) => onadmit?.(proposal.source_key, e.currentTarget.checked)}
+								aria-label="Create {proposal.name}"
+							/>
+						</td>
+					</tr>
+				{/each}
+			</tbody>
+		</table>
+	</div>
+{/if}

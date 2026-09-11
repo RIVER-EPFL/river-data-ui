@@ -404,10 +404,14 @@
 				max_sd_relative_delta: sdThresholdPct / 100,
 			});
 			const skipped = res.skipped_undeclared_estimator ?? 0;
+			const outOfReach = res.skipped_no_stream ?? 0;
 			toastStore.success(
 				`Marked ${res.acknowledged} hold${res.acknowledged === 1 ? '' : 's'} reviewed under x̄ ≤ ${meanThresholdPct}% and s ≤ ${sdThresholdPct}%` +
 					(skipped > 0
 						? `; ${skipped} left pending, awaiting a standard-deviation formula for their parameter`
+						: '') +
+					(outOfReach > 0
+						? `; ${outOfReach} event finding${outOfReach === 1 ? '' : 's'} left pending, ${outOfReach === 1 ? 'it carries' : 'they carry'} no stream and this sweep only reaches streams`
 						: ''),
 			);
 			await ctx.reload();

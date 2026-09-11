@@ -13,6 +13,15 @@
 	import PairSkipToggle from '$components/ui/PairSkipToggle.svelte';
 	import type { ParamGroup, SdDecision, SiteGroup } from '$lib/pairing/planGroups';
 	import type { EntryFilter, EntryStatus, ReviewState } from '$lib/pairing/entryStatus';
+	import {
+		filterSelectionState,
+		isSelected,
+		selectedCount,
+		type Selection,
+	} from '$lib/pairing/selection';
+	import { decisionGroups, decisionScopeLabel } from '$lib/pairing/decisionGroups';
+	import type { BulkDecision } from '$lib/pairing/bulkActions';
+	import { focusOnMount } from '$lib/focus';
 
 	// The plan's Sites review tab: the plan by site, each group expanding to its streams. A site is
 	// mapped to an existing one or created; the rows under it carry the per-stream decisions.
@@ -47,6 +56,13 @@
 		setEntryAction,
 		setEntryEstimator,
 		setEntryAcknowledged,
+		selection,
+		ontoggleentry,
+		onselectallinfilter,
+		onclearselection,
+		onselectdecision,
+		labInstruments,
+		onbulk,
 		setSiteAction,
 		toggleExpand,
 		startEditSite,
@@ -95,6 +111,17 @@
 		setEntryAction: (entry: PairingPlanEntry, action: 'pair' | 'skip') => void;
 		setEntryEstimator: (entry: PairingPlanEntry, value: SdEstimator | '') => void;
 		setEntryAcknowledged: (entry: PairingPlanEntry, acknowledged: boolean) => void;
+		/** The rows a bulk action is about. Held by the page so it survives a tab change. */
+		selection: Selection;
+		ontoggleentry: (entry: PairingPlanEntry) => void;
+		onselectallinfilter: () => void;
+		onclearselection: () => void;
+		/** Take every row waiting on one question, which is what the grouping is for. */
+		onselectdecision: (entries: PairingPlanEntry[]) => void;
+		/** The lab instruments a selection can be pointed at in one action. */
+		labInstruments: Array<{ id: string; name: string | null; serial_number: string | null }>;
+		/** Apply one decision to every selected row, in one request. */
+		onbulk: (decision: BulkDecision) => void;
 		setSiteAction: (group: SiteGroup, action: 'pair' | 'skip') => void;
 		toggleExpand: (siteName: string) => void;
 		startEditSite: (siteName: string) => void;
@@ -109,6 +136,13 @@
 		valuesChip: Snippet<[string]>;
 		streamPreview: Snippet<[string]>;
 	} = $props();
+
+	/** Whether the current filter's rows are all, some or none selected, for the header checkbox. */
+	const headerState = $derived(filterSelectionState(selection, planEntries, reviewFilter));
+	/** The questions the plan still poses, biggest first. Each is selectable whole. */
+	const decisions = $derived(decisionGroups(planEntries));
+	/** The instrument the bulk picker is pointing at. Cleared once the action is sent. */
+	let bulkInstrument = $state('');
 </script>
 
 	<input
@@ -119,8 +153,44 @@
 		class="w-full px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
 	/>
 
+	<!-- What the plan is still waiting on, grouped by the question rather than by the row. A first
+	     sync is a handful of questions repeated, and answering one of these answers every row under
+	     it. -->
+	{#if decisions.length > 0}
+		<div class="flex flex-wrap items-center gap-1.5 text-xs">
+			<span class="text-brand-muted">Waiting on:</span>
+			{#each decisions as group (group.key)}
+				<button
+					onclick={() => onselectdecision(group.entries)}
+					title="Select the {decisionScopeLabel(group)} waiting on this"
+					class="px-2 py-0.5 rounded cursor-pointer border-none bg-severity-warning-soft text-severity-warning-text"
+				>{group.label} ({group.entries.length})</button>
+			{/each}
+		</div>
+	{/if}
+
 	<div class="flex items-center justify-between gap-3">
-		<div class="text-xs text-brand-muted">{filteredGroups.length} site{filteredGroups.length === 1 ? '' : 's'} ({planEntries.filter((e) => e.action === 'pair').length} streams to pair)</div>
+		<div class="flex items-center gap-2 text-xs text-brand-muted">
+			<!-- Select-all acts on the current filter, which is what makes a 1,679-row plan workable:
+			     filter to the rows that share a problem, take them all, decide once. -->
+			<input
+				type="checkbox"
+				checked={headerState === 'all'}
+				indeterminate={headerState === 'some'}
+				onchange={() => (headerState === 'all' ? onclearselection() : onselectallinfilter())}
+				title="Select every row this filter shows"
+				class="cursor-pointer"
+				aria-label="Select every row this filter shows"
+			/>
+			<span>{filteredGroups.length} site{filteredGroups.length === 1 ? '' : 's'} ({planEntries.filter((e) => e.action === 'pair').length} streams to pair)</span>
+			{#if selectedCount(selection) > 0}
+				<span class="px-2 py-0.5 rounded bg-brand-primary text-white">{selectedCount(selection)} selected</span>
+				<button
+					onclick={onclearselection}
+					class="cursor-pointer border-none bg-transparent text-brand-muted hover:text-brand-text underline"
+				>clear</button>
+			{/if}
+		</div>
 		<div class="flex gap-1">
 			{#each [['all', 'All'], ['pair', 'Will pair'], ['skip', 'Skipped'], ['needs_checking', 'Needs checking'], ['self_validated', 'Self-validated'], ['unmatched', 'Unmatched'], ['warnings', 'With warnings']] as [val, label]}
 				<button
@@ -130,6 +200,48 @@
 			{/each}
 		</div>
 	</div>
+
+	<!-- One decision over the chosen rows. The rows waiting on the same answer are a group above;
+	     this is the answer, sent as one request rather than one per row. -->
+	{#if selectedCount(selection) > 0}
+		<div class="flex flex-wrap items-center gap-2 rounded-md border border-brand-divider bg-brand-bg px-3 py-2 text-xs">
+			<span class="text-brand-muted">Apply to {selectedCount(selection)} selected:</span>
+			<Button size="sm" onclick={() => onbulk({ field: 'action', value: 'pair' })}>Pair</Button>
+			<Button size="sm" onclick={() => onbulk({ field: 'action', value: 'skip' })}>Skip</Button>
+			<Button size="sm" onclick={() => onbulk({ field: 'acknowledged', value: true })}>Mark checked</Button>
+			<Button size="sm" onclick={() => onbulk({ field: 'acknowledged', value: false })}>Unmark</Button>
+			<select
+				value=""
+				onchange={(e) => {
+					const value = e.currentTarget.value as SdEstimator | '';
+					e.currentTarget.value = '';
+					if (value) onbulk({ field: 'sd_estimator', value });
+				}}
+				aria-label="Standard deviation divisor for the selected rows"
+				class="px-2 py-1 border border-brand-divider rounded bg-brand-surface"
+			>
+				<option value="">sd divisor…</option>
+				<option value="sample">sample (n-1)</option>
+				<option value="population">population (n)</option>
+			</select>
+			<select
+				bind:value={bulkInstrument}
+				onchange={() => {
+					if (!bulkInstrument) return;
+					onbulk({ field: 'instrument_id', value: bulkInstrument });
+					bulkInstrument = '';
+				}}
+				aria-label="Instrument for the selected rows"
+				class="px-2 py-1 border border-brand-divider rounded bg-brand-surface"
+			>
+				<option value="">instrument…</option>
+				{#each labInstruments as s (s.id)}
+					<option value={s.id}>{s.name || s.serial_number || s.id}</option>
+				{/each}
+			</select>
+			<Button size="sm" onclick={() => onbulk({ field: 'instrument_clear' })}>Detach instrument</Button>
+		</div>
+	{/if}
 
 	<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 		{#each pagedGroups as group}
@@ -144,7 +256,7 @@
 				<button onclick={() => toggleExpand(group.siteName)} aria-label={isExpanded ? 'Collapse site group' : 'Expand site group'} class="px-3 py-2 bg-transparent border-none cursor-pointer text-brand-muted text-xs w-6">{isExpanded ? '▼' : '▶'}</button>
 				<div class="flex-1 py-2 min-w-0">
 					{#if editingSite === group.siteName}
-						<input type="text" bind:value={editValue} onkeydown={(e) => { if (e.key === 'Enter') commitEditSite(); if (e.key === 'Escape') editingSite = null; }} onblur={commitEditSite} class="px-1 py-0.5 border border-brand-primary rounded text-sm bg-brand-surface w-48" autofocus />
+						<input type="text" bind:value={editValue} onkeydown={(e) => { if (e.key === 'Enter') commitEditSite(); if (e.key === 'Escape') editingSite = null; }} onblur={commitEditSite} class="px-1 py-0.5 border border-brand-primary rounded text-sm bg-brand-surface w-48" use:focusOnMount />
 					{:else}
 						<select
 							value={siteMatched ? `db:${siteMatched.id}` : `new:${group.siteName}`}
@@ -217,6 +329,13 @@
 				{@const entryEditing = editingParam?.streamId === entry.stream_id}
 				{@const entryReplicates = entry.replicates}
 					<div class="flex items-center gap-2 pl-10 pr-2 py-1.5 border-b border-brand-divider bg-brand-bg/30 text-xs {entry.action === 'skip' ? 'opacity-50' : ''}">
+						<input
+							type="checkbox"
+							checked={isSelected(selection, entry)}
+							onchange={() => ontoggleentry(entry)}
+							class="cursor-pointer"
+							aria-label="Select {entry.source_key}"
+						/>
 						<div class="flex-1 min-w-0 flex items-center gap-1.5">
 							{#if entryEditing}
 								{#if customParamInput !== null}
@@ -225,7 +344,7 @@
 										bind:value={customParamInput}
 										placeholder="New parameter name"
 										class="px-1 py-0.5 rounded text-xs bg-brand-surface border border-brand-primary max-w-[180px]"
-										autofocus
+										use:focusOnMount
 										onkeydown={(e) => {
 											if (e.key === 'Enter' && customParamInput?.trim()) {
 												const name = customParamInput.trim();
@@ -275,7 +394,7 @@
 											}
 										}}
 										class="px-1 py-0.5 rounded text-xs bg-brand-surface border border-brand-primary max-w-[220px]"
-										autofocus
+										use:focusOnMount
 									>
 										<optgroup label="Existing">
 											{#each existingParams as ep}

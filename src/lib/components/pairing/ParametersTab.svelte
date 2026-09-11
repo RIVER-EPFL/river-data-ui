@@ -17,6 +17,7 @@
 	import PairSkipToggle from '$components/ui/PairSkipToggle.svelte';
 	import type { ParamGroup, SdDecision } from '$lib/pairing/planGroups';
 	import { formatCount } from '$lib/format';
+	import { focusOnMount } from '$lib/focus';
 
 	// The plan's Parameters review tab: one row per parameter across every station that measures it,
 	// so a decision taken here settles all of them at once.
@@ -143,9 +144,6 @@
 		paramPage: number;
 	} = $props();
 
-	function focusOnMount(node: HTMLInputElement) {
-		node.focus();
-	}
 
 	// The Map-to dropdown offers the same two lists on every row, so the list of parameters this
 	// plan would create is built once rather than filtered per row against the whole catalog.
@@ -228,7 +226,7 @@
 													bind:value={splitParamValue}
 													placeholder="New parameter name"
 													class="px-1 py-0.5 rounded text-[11px] bg-brand-surface border border-brand-primary w-28"
-													autofocus
+													use:focusOnMount
 													onkeydown={(e) => {
 														if (e.key === 'Enter') splitSourceToNewParam(src, splitParamValue);
 														if (e.key === 'Escape') { splitParamInput = null; splitParamValue = ''; }
@@ -257,7 +255,7 @@
 							{#if matched}
 								<span class="font-medium text-brand-text font-mono" title="Already exists in the database - edit via the Parameters page">{matched.code ?? matched.name}</span>
 							{:else if editingGlobalParam === pg.name}
-								<input type="text" bind:value={editValue} onkeydown={(e) => { if (e.key === 'Enter') commitEditGlobalParam(); if (e.key === 'Escape') editingGlobalParam = null; }} onblur={commitEditGlobalParam} class="px-1 py-0.5 border border-brand-primary rounded text-sm bg-brand-surface w-40" autofocus />
+								<input type="text" bind:value={editValue} onkeydown={(e) => { if (e.key === 'Enter') commitEditGlobalParam(); if (e.key === 'Escape') editingGlobalParam = null; }} onblur={commitEditGlobalParam} class="px-1 py-0.5 border border-brand-primary rounded text-sm bg-brand-surface w-40" use:focusOnMount />
 							{:else}
 								<button onclick={() => startEditGlobalParam(pg.name)} class="bg-transparent border-0 border-b border-dashed border-brand-muted cursor-pointer text-brand-text hover:text-brand-primary hover:border-brand-primary text-left font-medium font-mono">{pg.name}</button>
 							{/if}
@@ -335,7 +333,7 @@
 							{#if matched}
 								<span class="text-brand-muted" title="Already exists in the database - edit via the Parameters page">{matched.default_units}</span>
 							{:else if editingGlobalUnits?.name === pg.name && editingGlobalUnits?.units === pg.units}
-								<input type="text" bind:value={editUnitsValue} onkeydown={(e) => { if (e.key === 'Enter') commitEditUnits(); if (e.key === 'Escape') editingGlobalUnits = null; }} onblur={commitEditUnits} class="px-1 py-0.5 border border-brand-primary rounded text-xs bg-brand-surface w-20" autofocus />
+								<input type="text" bind:value={editUnitsValue} onkeydown={(e) => { if (e.key === 'Enter') commitEditUnits(); if (e.key === 'Escape') editingGlobalUnits = null; }} onblur={commitEditUnits} class="px-1 py-0.5 border border-brand-primary rounded text-xs bg-brand-surface w-20" use:focusOnMount />
 							{:else}
 								<button onclick={() => startEditUnits(pg.name, pg.units)} class="bg-transparent border-0 border-b border-dashed border-brand-muted cursor-pointer text-brand-muted hover:text-brand-primary hover:border-brand-primary">{pg.units || '--'}</button>
 							{/if}

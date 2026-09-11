@@ -19,6 +19,7 @@
 		'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 	let panel = $state<HTMLElement | null>(null);
+	const titleId = `dialog-title-${crypto.randomUUID()}`;
 
 	// The keyboard has to come back where it came from. A dialog opened from the entry grid is
 	// opened from a cell the operator is typing in, so a close that leaves focus on the body ends
@@ -66,18 +67,21 @@
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div
 		class="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-		role="dialog"
-		aria-modal="true"
+		role="presentation"
 		onclick={handleBackdrop}
 	>
+		<!-- The dialog is the panel, not the backdrop: the backdrop is what a click outside lands on. -->
 		<div
 			bind:this={panel}
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby={title ? titleId : undefined}
 			tabindex="-1"
 			class="bg-brand-surface rounded-lg shadow-lg w-full {widths[maxWidth]} mx-4 max-h-[90vh] flex flex-col"
 		>
 			{#if title}
 				<div class="px-4 py-3.5 border-b border-brand-divider">
-					<h3 class="text-[1.0625rem] font-semibold">{title}</h3>
+					<h3 id={titleId} class="text-[1.0625rem] font-semibold">{title}</h3>
 				</div>
 			{/if}
 			<div class="px-4 py-3 overflow-y-auto flex-1">

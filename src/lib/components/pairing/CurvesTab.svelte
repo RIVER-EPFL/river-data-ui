@@ -2,6 +2,7 @@
 	import type { PlanCurveAssignment, PlanInstruments } from '$api/service';
 	import { formatCount } from '$lib/format';
 	import { formatSignificant } from '$lib/utils';
+	import { focusOnMount } from '$lib/focus';
 
 	// The plan's Curves review tab. A curve belongs to one instrument, so this tab is where two
 	// columns of one probe are put onto the same one; the parameter's own instrument is Parameters'.
@@ -28,9 +29,6 @@
 		onrehome: (curve: PlanCurveAssignment, target: string) => void;
 	} = $props();
 
-	function focusOnMount(node: HTMLInputElement) {
-		node.focus();
-	}
 </script>
 
 	<details class="text-xs text-brand-muted">
