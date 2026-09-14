@@ -23,7 +23,7 @@
 	import NewStandardCurveForm from '$components/sensors/NewStandardCurveForm.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { curveEquation, curveIdentity, curveLabel, formatEquation } from '$lib/standardCurves';
-	import { kindLabel, measuringInstruments } from '$lib/instruments/kind';
+	import { instrumentFilter, kindLabel, measuringInstruments, retiredSuffix } from '$lib/instruments/kind';
 
 	// Stored-curve dropdown (instrument -> its standard_curves) with a
 	// manual slope/intercept fallback. Writes the resolved selection to `value`.
@@ -49,6 +49,9 @@
 	let mode = $state<Mode>('stored');
 
 	let instruments = $state<Sensor[]>([]);
+	// A curve fitted on an instrument that has since been retired still corrects a value measured
+	// on it, so the list can be asked for the whole inventory.
+	let showRetired = $state(false);
 	let selectedInstrumentId = $state('');
 	let curves = $state<StandardCurve[]>([]);
 	let loadingCurves = $state(false);
@@ -77,7 +80,7 @@
 	function instrumentLabel(instrument: Sensor): string {
 		const name = instrument.name ?? instrument.serial_number ?? instrument.id;
 		const source = instrument.source_system ? `, from ${instrument.source_system}` : '';
-		return `${name} (${kindLabel(instrument)}${source})`;
+		return `${name} (${kindLabel(instrument)}${source})${retiredSuffix(instrument)}`;
 	}
 
 	function curveOptionLabel(c: StandardCurve): string {
@@ -113,11 +116,10 @@
 	}
 
 	async function loadInstruments() {
-		if (instruments.length > 0) return;
 		try {
 			const res = await api.sensors.list({
 				perPage: 1000,
-				filter: { is_active: true },
+				filter: instrumentFilter(showRetired),
 				sort: ['name', 'ASC'],
 			});
 			instruments = measuringInstruments(res.data);
@@ -149,6 +151,7 @@
 		}
 	}
 
+	// Reads `showRetired`, so turning retired instruments on reloads the list.
 	$effect(() => {
 		void loadInstruments();
 	});
@@ -238,6 +241,10 @@
 				<option value={i.id}>{instrumentLabel(i)}</option>
 			{/each}
 		</select>
+		<label class="flex items-center gap-1.5 text-xs text-brand-muted cursor-pointer">
+			<input type="checkbox" bind:checked={showRetired} />
+			Show retired instruments
+		</label>
 		{#if selectedInstrumentId}
 			{#if loadingCurves}
 				<p class="text-xs text-brand-muted">Loading…</p>

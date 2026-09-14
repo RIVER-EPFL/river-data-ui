@@ -175,7 +175,7 @@ describe('ConfirmStep creations', () => {
 		});
 		expect(screen.getByText('Instruments')).not.toBeNull();
 		expect(screen.getByText(/Martigny CDOM/)).not.toBeNull();
-		expect(screen.getByText(/named at registration/)).not.toBeNull();
+		expect(screen.getByText(/named for its feed/)).not.toBeNull();
 		expect(screen.getByText(/created by this apply/)).not.toBeNull();
 	});
 

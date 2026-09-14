@@ -4,9 +4,13 @@ import {
 	kindOf,
 	kindLabel,
 	isBookkeeping,
+	instrumentFilter,
+	isRetired,
 	measuringInstruments,
 	provenanceOf,
+	retiredSuffix,
 } from './kind';
+import type { Sensor } from '$api/crud';
 
 const sensor = (kind: string | undefined, is_lab_instrument = false) =>
 	({ kind, is_lab_instrument }) as never;
@@ -105,5 +109,26 @@ describe('instrument provenance', () => {
 			installed: null,
 			inField: null,
 		});
+	});
+});
+
+describe('retirement', () => {
+	it('reads only an explicit false as retired', () => {
+		expect(isRetired({ is_active: false } as Sensor)).toBe(true);
+		expect(isRetired({ is_active: true } as Sensor)).toBe(false);
+		expect(isRetired({ is_active: null } as unknown as Sensor)).toBe(false);
+	});
+
+	it('asks for active rows only until retired ones are wanted', () => {
+		expect(instrumentFilter(false)).toEqual({ is_active: true });
+	});
+
+	it('asks for the whole inventory when retired rows are wanted', () => {
+		expect(instrumentFilter(true)).toEqual({});
+	});
+
+	it('marks a retired row in the label and leaves an active one alone', () => {
+		expect(retiredSuffix({ is_active: false } as Sensor)).toBe(' (retired)');
+		expect(retiredSuffix({ is_active: true } as Sensor)).toBe('');
 	});
 });

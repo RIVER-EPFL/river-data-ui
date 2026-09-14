@@ -178,7 +178,7 @@
 										&middot; {i.parameters.join(', ')} at {i.siteCount} site{i.siteCount === 1 ? '' : 's'}
 									</span>
 									{#if i.create}<span class="text-brand-primary">&middot; created by this apply</span>{/if}
-									{#if i.defaulted}<span class="text-brand-primary">&middot; named at registration, not a device</span>{/if}
+									{#if i.defaulted}<span class="text-brand-primary">&middot; named for its feed, not a device</span>{/if}
 								</li>
 							{/each}
 						</ul>

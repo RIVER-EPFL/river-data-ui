@@ -383,7 +383,7 @@ export interface InstrumentBinding {
 	parameters: string[];
 	/** The apply mints this one; the others are already in the inventory. */
 	create: boolean;
-	/** Minted by stream registration, so it names no real device yet. */
+	/** Minted for a feed rather than named by a source or an operator, so it is no real device. */
 	defaulted: boolean;
 }
 

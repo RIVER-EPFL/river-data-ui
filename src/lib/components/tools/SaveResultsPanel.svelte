@@ -34,7 +34,7 @@
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { toDatetimeLocal, fromDatetimeLocal, formatDateTime } from '$lib/utils';
 	import { curveEquation, curveIdentity } from '$lib/standardCurves';
-	import { kindLabel, measuringInstruments } from '$lib/instruments/kind';
+	import { instrumentFilter, kindLabel, measuringInstruments, retiredSuffix } from '$lib/instruments/kind';
 	import { instrumentIsChoosable, readingInstrument } from '$lib/tools/rowInstrument';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
@@ -248,6 +248,8 @@
 	// with no curve is the normal case, and the API then leaves calibrated_value null rather than
 	// pretending an identity curve was applied.
 	let instruments = $state<Sensor[]>([]);
+	// A visit entered from paper names what measured it, which may have been retired since.
+	let showRetired = $state(false);
 	let selectedSensorId = $state('');
 	// The instrument each row declares it was measured with, by row id. Empty means the row takes
 	// what its slot declares, which the server resolves (M111); a value here is the operator saying
@@ -450,26 +452,30 @@
 	async function loadSites() {
 		if (params.length > 0) return;
 		try {
-			const [, p, i] = await Promise.all([
+			const [, p] = await Promise.all([
 				siteRefs.ensure(),
 				listAll(api.parameters, { perPage: 500, sort: ['name', 'ASC'] }),
-				listAll(api.sensors, {
-					perPage: 500,
-					filter: { is_active: true },
-					sort: ['name', 'ASC'],
-				}),
+				loadInstruments(),
 			]);
 			params = p;
-			instruments = measuringInstruments(i);
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Failed to load sites');
 		}
 	}
 
+	async function loadInstruments() {
+		const rows = await listAll(api.sensors, {
+			perPage: 500,
+			filter: instrumentFilter(showRetired),
+			sort: ['name', 'ASC'],
+		});
+		instruments = measuringInstruments(rows);
+	}
+
 	function instrumentLabel(instrument: Sensor): string {
 		const name = instrument.name ?? instrument.serial_number ?? instrument.id;
 		const source = instrument.source_system ? `, from ${instrument.source_system}` : '';
-		return `${name} (${kindLabel(instrument)}${source})`;
+		return `${name} (${kindLabel(instrument)}${source})${retiredSuffix(instrument)}`;
 	}
 
 	function curveOptionLabel(curve: StandardCurve): string {
@@ -859,6 +865,10 @@
 							<option value={i.id}>{instrumentLabel(i)}</option>
 						{/each}
 					</select>
+					<label class="flex items-center gap-1.5 text-xs text-brand-muted cursor-pointer">
+						<input type="checkbox" bind:checked={showRetired} onchange={() => loadInstruments()} />
+						Show retired instruments
+					</label>
 				</div>
 				<div class="flex flex-col gap-1">
 					<span class="text-sm font-medium">

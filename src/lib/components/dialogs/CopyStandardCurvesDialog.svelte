@@ -3,7 +3,7 @@
 	import { api, type Sensor, type StandardCurve } from '$api/crud';
 	import { me } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { kindLabel, measuringInstruments } from '$lib/instruments/kind';
+	import { instrumentFilter, kindLabel, measuringInstruments, retiredSuffix } from '$lib/instruments/kind';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
@@ -40,13 +40,25 @@
 
 	function sensorDisplay(s: Sensor): string {
 		const label = s.name ?? s.serial_number ?? s.id;
-		return `${label} (${kindLabel(s)})`;
+		return `${label} (${kindLabel(s)})${retiredSuffix(s)}`;
+	}
+
+	// A curve entered against an instrument that has since been retired is still the curve this
+	// season's plate needs, so the source list can be asked for the whole inventory.
+	let showRetired = $state(false);
+
+	async function loadSensors() {
+		const res = await api.sensors.list({
+			perPage: 1000,
+			filter: instrumentFilter(showRetired),
+			sort: ['name', 'ASC'],
+		});
+		sensors = measuringInstruments(res.data).filter((s) => s.id !== targetSensorId);
 	}
 
 	onMount(async () => {
 		try {
-			const res = await api.sensors.list({ perPage: 1000, filter: { is_active: true }, sort: ['name', 'ASC'] });
-			sensors = measuringInstruments(res.data).filter((s) => s.id !== targetSensorId);
+			await loadSensors();
 		} catch (e) {
 			error = apiMessage(e);
 		}
@@ -146,6 +158,10 @@
 						<option value={s.id}>{sensorDisplay(s)}</option>
 					{/each}
 				</select>
+				<label class="flex items-center gap-1.5 text-xs text-brand-muted cursor-pointer">
+					<input type="checkbox" bind:checked={showRetired} onchange={() => loadSensors()} />
+					Show retired instruments
+				</label>
 			</div>
 
 			{#if sourceId}

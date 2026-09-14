@@ -34,6 +34,23 @@ export function measuringInstruments<T extends Pick<Sensor, 'kind' | 'is_lab_ins
 	return sensors.filter((s) => !isBookkeeping(s));
 }
 
+/// Retirement is `is_active = false`; the column defaults to true and an unset flag is not a
+/// retirement.
+export function isRetired(sensor: Pick<Sensor, 'is_active'>): boolean {
+	return sensor.is_active === false;
+}
+
+/// The `is_active` filter an instrument picker sends. A picker hides retired rows by default and
+/// asks for the whole inventory when the operator turns them on, rather than for the retired half.
+export function instrumentFilter(showRetired: boolean): { is_active?: boolean } {
+	return showRetired ? {} : { is_active: true };
+}
+
+/// What a picker appends to a retired row's label, so a list offering one says what it is.
+export function retiredSuffix(sensor: Pick<Sensor, 'is_active'>): string {
+	return isRetired(sensor) ? ' (retired)' : '';
+}
+
 /// What an instrument's inventory row states where a device states its deployment. A lab
 /// instrument never has one, so "Undeployed" says nothing about it; the curves fitted on it and
 /// when one of them last corrected a reading are what say whether it is still in use.

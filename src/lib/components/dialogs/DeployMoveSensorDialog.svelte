@@ -8,7 +8,7 @@
 	import Dialog from '$components/ui/Dialog.svelte';
 	import SiteSelect from '$components/SiteSelect.svelte';
 	import { siteRefs } from '$lib/siteRefs.svelte';
-	import { measuringInstruments } from '$lib/instruments/kind';
+	import { instrumentFilter, measuringInstruments, retiredSuffix } from '$lib/instruments/kind';
 
 	// Two modes:
 	//  - 'site':   the site is fixed; pick a sensor to deploy here.
@@ -51,6 +51,9 @@
 	let searchResults = $state<Sensor[]>([]);
 	let searching = $state(false);
 	let showDeployed = $state(false);
+	// A retired instrument is hidden until asked for: the API refuses a deployment naming one, and
+	// the list says which rows those are so the refusal is not a surprise.
+	let showRetired = $state(false);
 	let selectedSensor = $state<Sensor | null>(null);
 	let activeDepBySensor = $state<Map<string, SensorDeployment>>(new Map());
 	let searchTimer: ReturnType<typeof setTimeout> | null = null;
@@ -58,7 +61,7 @@
 	async function runSearch() {
 		searching = true;
 		try {
-			const filter: Record<string, unknown> = { is_active: true };
+			const filter: Record<string, unknown> = { ...instrumentFilter(showRetired) };
 			if (query.trim()) filter.q = query.trim();
 			const res = await api.sensors.list({ page: 1, perPage: 20, sort: ['name', 'ASC'], filter });
 			// A bookkeeping row cannot hold a deployment; the API refuses one, so it is not offered.
@@ -187,6 +190,10 @@
 							<input type="checkbox" bind:checked={showDeployed} />
 							Show deployed sensors
 						</label>
+						<label class="flex items-center gap-1.5 text-xs text-brand-muted cursor-pointer">
+							<input type="checkbox" bind:checked={showRetired} onchange={runSearch} />
+							Show retired instruments
+						</label>
 						<div class="max-h-56 overflow-y-auto rounded-md border border-brand-divider divide-y divide-brand-divider">
 							{#if searching}
 								<div class="px-3 py-3 text-sm text-brand-muted text-center">Searching…</div>
@@ -200,7 +207,7 @@
 										onclick={() => pickSensor(s)}
 										class="w-full text-left px-3 py-2 cursor-pointer bg-transparent border-none hover:bg-brand-bg flex flex-col gap-0.5"
 									>
-										<span class="text-sm font-semibold">{sensorDisplay(s)}</span>
+										<span class="text-sm font-semibold">{sensorDisplay(s)}{retiredSuffix(s)}</span>
 										<span class="text-xs text-brand-muted font-mono">{s.serial_number ?? 'None'}{s.manufacturer ? ` · ${s.manufacturer}` : ''}{s.model ? ` ${s.model}` : ''}</span>
 										{#if depSite}
 											<span class="text-xs text-severity-warning">currently deployed at {depSite}</span>
