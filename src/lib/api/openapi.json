@@ -6812,6 +6812,29 @@
         ],
         "type": "object"
       },
+      "ExternalSource": {
+        "description": "How a parameter the site does not measure itself is attributed wherever it is read. The\nMeteoSwiss terms ask for the attribution on anything published from the feed, so the line is\nbuilt here rather than composed by each reader.",
+        "properties": {
+          "attribution": {
+            "description": "The attribution line to show.",
+            "type": "string"
+          },
+          "station": {
+            "description": "The station the values are read from.",
+            "type": "string"
+          },
+          "system": {
+            "description": "The feed, as its rows are keyed (`meteoswiss`).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "system",
+          "station",
+          "attribution"
+        ],
+        "type": "object"
+      },
       "FamilyCandidate": {
         "properties": {
           "family_source_key": {
@@ -8093,6 +8116,47 @@
         ],
         "type": "object"
       },
+      "ImportChunkRequest": {
+        "additionalProperties": false,
+        "description": "One slice of a file too large for a single request. The portals' `10min_data.csv` is 474 MB, an\norder of magnitude over the import body limit, so it arrives as appends against one staging\nsession and is imported by naming that session.",
+        "properties": {
+          "chunk": {
+            "description": "The next slice of the file, in file order. The first chunk carries the header row, and a\nslice ends where the caller chose: the session holds text, so a row split across two\nchunks is rejoined by the append.",
+            "type": "string"
+          },
+          "session_id": {
+            "description": "The session to append to. Omitted, a session is opened and its id returned; pass that id\non every later chunk and to the import itself.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "chunk"
+        ],
+        "type": "object"
+      },
+      "ImportChunkResponse": {
+        "properties": {
+          "bytes": {
+            "description": "Bytes the session now holds.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "session_id": {
+            "description": "The session the file is accumulating in. Name it on the next chunk and on the import.",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "bytes"
+        ],
+        "type": "object"
+      },
       "ImportCsvRequest": {
         "additionalProperties": false,
         "properties": {
@@ -8109,7 +8173,7 @@
             "description": "Behaviour on (stream_id, time, replicate_index) collisions. Defaults to `skip`."
           },
           "csv": {
-            "description": "Wide CSV text: a `DateTime` column plus one column per parameter.\nOptional when `session_id` references a previously uploaded CSV.",
+            "description": "Wide CSV text: a `DateTime`, `Date` or `Time` column plus one column per parameter.\nOptional when `session_id` references a previously uploaded CSV.",
             "type": [
               "string",
               "null"
@@ -8165,8 +8229,15 @@
             ]
           },
           "site": {
-            "description": "Target site, by UUID or case-insensitive name.",
+            "description": "Target site, by UUID or case-insensitive name. With `site_column`, the site a row whose\ncell is empty belongs to.",
             "type": "string"
+          },
+          "site_column": {
+            "description": "The column naming each row's site, for a file covering several sites: the portals'\nhigh-frequency exports are one wide file per resolution with a `Site_ID` column. Each cell\nis resolved like `site`, by UUID or case-insensitive name. Omitted, a header named\n`site_id` or `site` is taken as one.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "tool": {
             "description": "Import the file as tool entry (S4a): each row's columns are inputs of this tool, the tool\nruns over every row, and the outputs are saved through the grab write path with the same\nserver-built provenance a typed entry gets (`source: csv_import`). Without it, columns are\ncatalog parameters and values import as-is.",
@@ -8318,6 +8389,13 @@
           "site_id": {
             "format": "uuid",
             "type": "string"
+          },
+          "site_imports": {
+            "description": "One entry per site a `site_column` file landed on, in the order they were imported. Empty\nfor a single-site file, whose totals are the scalar fields.",
+            "items": {
+              "$ref": "#/components/schemas/SiteImportOutcome"
+            },
+            "type": "array"
           },
           "site_name": {
             "type": "string"
@@ -10292,6 +10370,154 @@
           "deployments_moved",
           "source_deleted"
         ],
+        "type": "object"
+      },
+      "MeteoswissSubscriptionCreate": {
+        "properties": {
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "site_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "station_abbr": {
+            "type": "string"
+          },
+          "variable": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "site_id",
+          "station_abbr",
+          "variable"
+        ],
+        "type": "object"
+      },
+      "MeteoswissSubscriptionList": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enabled": {
+            "description": "A subscription switched off keeps the station and the variable and stops the fetch.",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "parameter_id": {
+            "description": "The catalog parameter the variable lands on, minted with the subscription.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "site_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "station_abbr": {
+            "description": "The SMN station abbreviation (`MOB`, `SIO`, ...) reporting for the site.",
+            "type": "string"
+          },
+          "variable": {
+            "description": "The SMN variable the station is read for, `prestas0` for station-level pressure.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "site_id",
+          "station_abbr",
+          "variable",
+          "parameter_id",
+          "enabled",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "MeteoswissSubscriptionResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enabled": {
+            "description": "A subscription switched off keeps the station and the variable and stops the fetch.",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "parameter_id": {
+            "description": "The catalog parameter the variable lands on, minted with the subscription.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "site_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "station_abbr": {
+            "description": "The SMN station abbreviation (`MOB`, `SIO`, ...) reporting for the site.",
+            "type": "string"
+          },
+          "variable": {
+            "description": "The SMN variable the station is read for, `prestas0` for station-level pressure.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "site_id",
+          "station_abbr",
+          "variable",
+          "parameter_id",
+          "enabled",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "MeteoswissSubscriptionUpdate": {
+        "properties": {
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "site_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "station_abbr": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "variable": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "MovedRow": {
@@ -12829,6 +13055,17 @@
             "description": "How this site fills the slot: 'manual' or 'tool'",
             "type": "string"
           },
+          "external_source": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExternalSource",
+                "description": "The outside feed the values come from, where the site subscribes to one for this parameter.\nNone is the site's own instruments."
+              }
+            ]
+          },
           "frequency": {
             "description": "Data-driven cadence classification: 'low' (spot-only), 'high' (no spot), or 'mixed'.\nLow-frequency series render marker-only over their full range and skip the aggregate path.",
             "type": "string"
@@ -12904,7 +13141,8 @@
           "reading_count",
           "has_continuous",
           "has_spot",
-          "frequency"
+          "frequency",
+          "external_source"
         ],
         "type": "object"
       },
@@ -21124,12 +21362,6 @@
               "null"
             ]
           },
-          "meteoswiss_station_abbr": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "name": {
             "type": "string"
           },
@@ -21242,6 +21474,41 @@
         ],
         "type": "object"
       },
+      "SiteImportOutcome": {
+        "description": "One site's share of a multi-site import: what it took and the job that writes it. The scalar\nfields beside it are the file's totals.",
+        "properties": {
+          "derived_job_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "inserted_total": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "row_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "site_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "site_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "site_id",
+          "site_name",
+          "row_count",
+          "inserted_total",
+          "derived_job_id"
+        ],
+        "type": "object"
+      },
       "SiteList": {
         "properties": {
           "altitude_m": {
@@ -21284,13 +21551,6 @@
               "null"
             ]
           },
-          "meteoswiss_station_abbr": {
-            "description": "The MeteoSwiss SMN station abbreviation (`MOB`, `SIO`, ...) supplying this site's\nbarometric pressure. Null means the site takes no pressure series.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "name": {
             "type": "string"
           },
@@ -21325,8 +21585,7 @@
           "altitude_m",
           "created_at",
           "discovered_at",
-          "public_code",
-          "meteoswiss_station_abbr"
+          "public_code"
         ],
         "type": "object"
       },
@@ -22015,12 +22274,6 @@
             "format": "double",
             "type": [
               "number",
-              "null"
-            ]
-          },
-          "meteoswiss_station_abbr": {
-            "type": [
-              "string",
               "null"
             ]
           },
@@ -31330,6 +31583,494 @@
         ]
       }
     },
+    "/api/meteoswiss_subscriptions": {
+      "get": {
+        "description": "Retrieves all meteoswiss_subscriptions.\n\nThis resource manages meteoswiss_subscription items\n\nAdditional sortable columns: \n- site_id\n- station_abbr\n- variable\n- enabled\n- created_at.\n\nAdditional filterable columns: \n- site_id\n- station_abbr\n- variable\n- parameter_id\n- enabled.",
+        "operationId": "get_all_meteoswiss_subscriptions",
+        "parameters": [
+          {
+            "description": "JSON-encoded filter for querying resources.\n\nThis parameter supports various filtering options:\n- Free text search: `{\"q\": \"search text\"}`\n- Filtering by a single ID: `{\"id\": \"550e8400-e29b-41d4-a716-446655440000\"}`\n- Filtering by multiple IDs: `{\"id\": [\"550e8400-e29b-41d4-a716-446655440000\", \"550e8400-e29b-41d4-a716-446655440001\"]}`\n- Filtering on other columns: `{\"name\": \"example\"}`",
+            "example": {
+              "id": "550e8400-e29b-41d4-a716-446655440000",
+              "name": "example",
+              "q": "search text"
+            },
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Range for pagination in the format \"[start, end]\".\n\nExample: `[0,9]`",
+            "example": "[0,9]",
+            "in": "query",
+            "name": "range",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page number for standard REST pagination (1-based).\n\nExample: `1`",
+            "example": 1,
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of items per page for standard REST pagination.\n\nExample: `10`",
+            "example": 10,
+            "in": "query",
+            "name": "per_page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Sort order for the results in the format `[\"column\", \"order\"]`.\n\nExample: `[\"id\", \"ASC\"]`",
+            "example": "[\"id\", \"ASC\"]",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort column for standard REST format.\n\nExample: `title`",
+            "example": "title",
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort order for standard REST format (ASC or DESC).\n\nExample: `ASC`",
+            "example": "ASC",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MeteoswissSubscriptionList"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List of resources"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Get all meteoswiss_subscriptions"
+      },
+      "post": {
+        "description": "Creates a new meteoswiss_subscription.\n\nThis resource manages meteoswiss_subscription items",
+        "operationId": "create_one_meteoswiss_subscription",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MeteoswissSubscriptionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeteoswissSubscriptionResponse"
+                }
+              }
+            },
+            "description": "Resource created successfully"
+          },
+          "409": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Duplicate record"
+          }
+        },
+        "summary": "Create one meteoswiss_subscription"
+      }
+    },
+    "/api/meteoswiss_subscriptions/batch": {
+      "delete": {
+        "description": "Deletes many meteoswiss_subscriptions by their IDs and returns array of deleted UUIDs.\n\nUse `?partial=true` for partial success mode (deletes valid items even if some fail).\n\nThis resource manages meteoswiss_subscription items",
+        "operationId": "delete_many_meteoswiss_subscriptions",
+        "parameters": [
+          {
+            "description": "Enable partial success mode for batch operations.\n\nWhen `true`, the operation processes each item independently instead of\nusing all-or-nothing semantics. Items that succeed are committed even if\nother items fail.\n\nDefault: `false` (all-or-nothing)",
+            "example": false,
+            "in": "query",
+            "name": "partial",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Resources deleted successfully"
+          },
+          "207": {
+            "description": "Partial success - some items deleted, some failed"
+          },
+          "400": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Bad request - batch size exceeded"
+          },
+          "500": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Delete many meteoswiss_subscriptions"
+      },
+      "patch": {
+        "description": "Updates multiple meteoswiss_subscriptions in a batch. Limited to 100 items per request.\n\nUse `?partial=true` for partial success mode (commits successful items even if some fail).\n\nThis resource manages meteoswiss_subscription items",
+        "operationId": "update_many_meteoswiss_subscriptions",
+        "parameters": [
+          {
+            "description": "Enable partial success mode for batch operations.\n\nWhen `true`, the operation processes each item independently instead of\nusing all-or-nothing semantics. Items that succeed are committed even if\nother items fail.\n\nDefault: `false` (all-or-nothing)",
+            "example": false,
+            "in": "query",
+            "name": "partial",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "items": {
+                  "$ref": "#/components/schemas/BatchUpdateRequest"
+                },
+                "type": "array"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MeteoswissSubscriptionResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Resources updated successfully"
+          },
+          "207": {
+            "description": "Partial success - some items updated, some failed"
+          },
+          "400": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Bad request - batch size exceeded or validation failed"
+          },
+          "404": {
+            "description": "One or more resources not found"
+          },
+          "409": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Duplicate record"
+          },
+          "500": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Update many meteoswiss_subscriptions"
+      },
+      "post": {
+        "description": "Creates multiple meteoswiss_subscriptions in a batch. Limited to 100 items per request.\n\nUse `?partial=true` for partial success mode (commits successful items even if some fail).\n\nThis resource manages meteoswiss_subscription items",
+        "operationId": "create_many_meteoswiss_subscriptions",
+        "parameters": [
+          {
+            "description": "Enable partial success mode for batch operations.\n\nWhen `true`, the operation processes each item independently instead of\nusing all-or-nothing semantics. Items that succeed are committed even if\nother items fail.\n\nDefault: `false` (all-or-nothing)",
+            "example": false,
+            "in": "query",
+            "name": "partial",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "items": {
+                  "$ref": "#/components/schemas/MeteoswissSubscriptionCreate"
+                },
+                "type": "array"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MeteoswissSubscriptionResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Resources created successfully"
+          },
+          "207": {
+            "description": "Partial success - some items created, some failed"
+          },
+          "400": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Bad request - batch size exceeded or validation failed"
+          },
+          "409": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Duplicate record"
+          },
+          "500": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Create many meteoswiss_subscriptions"
+      }
+    },
+    "/api/meteoswiss_subscriptions/{id}": {
+      "delete": {
+        "description": "Deletes one meteoswiss_subscription by its ID.\n\nThis resource manages meteoswiss_subscription items",
+        "operationId": "delete_one_meteoswiss_subscription",
+        "parameters": [
+          {
+            "description": "Resource identifier",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Resource deleted successfully"
+          },
+          "404": {
+            "description": "Resource not found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Delete one meteoswiss_subscription"
+      },
+      "get": {
+        "description": "Retrieves one meteoswiss_subscription by its ID.\n\nThis resource manages meteoswiss_subscription items",
+        "operationId": "get_one_meteoswiss_subscription",
+        "parameters": [
+          {
+            "description": "Resource identifier",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeteoswissSubscriptionResponse"
+                }
+              }
+            },
+            "description": "The requested resource"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "404": {
+            "description": "Resource not found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Get one meteoswiss_subscription"
+      },
+      "put": {
+        "description": "Updates one meteoswiss_subscription by its ID.\n\nThis resource manages meteoswiss_subscription items",
+        "operationId": "update_one_meteoswiss_subscription",
+        "parameters": [
+          {
+            "description": "Resource identifier",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MeteoswissSubscriptionUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeteoswissSubscriptionResponse"
+                }
+              }
+            },
+            "description": "Resource updated successfully"
+          },
+          "404": {
+            "description": "Resource not found"
+          },
+          "409": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Duplicate record"
+          }
+        },
+        "summary": "Update one meteoswiss_subscription"
+      }
+    },
     "/api/notes": {
       "get": {
         "description": "Retrieves all notes.\n\nThis resource manages note items\n\nAdditional sortable columns: \n- created_at.\n\nAdditional filterable columns: \n- site_id\n- source_system\n- source_key.",
@@ -36711,7 +37452,7 @@
             "description": "Import summary or dry-run plan"
           },
           "400": {
-            "description": "Unparseable CSV, missing DateTime column, or no resolvable parameter columns"
+            "description": "Unparseable CSV, missing DateTime column, an unusable site column, or no resolvable parameter columns"
           },
           "404": {
             "description": "Site not found"
@@ -36720,7 +37461,44 @@
             "description": "Body exceeds 50MB limit"
           }
         },
-        "summary": "Import historical readings from a wide CSV for one site. Resolves columns to parameters\n(explicit mapping > public name > alias > catalog), skips derived outputs, inserts raw values\nidempotently, then recomputes derived parameters and refreshes aggregates. `dry_run` returns the\nresolution plan only. Requires `write_data`.",
+        "summary": "Import historical readings from a wide CSV. Resolves columns to parameters (explicit mapping >\npublic name > alias > catalog), skips derived outputs, inserts raw values idempotently, then\nrecomputes derived parameters and refreshes aggregates. `dry_run` returns the resolution plan\nonly. A file carrying a site column is split by site and each site's rows imported against\ntheir own slots. Requires `write_data`.",
+        "tags": [
+          "ingestion"
+        ]
+      }
+    },
+    "/api/readings/import_csv/chunk": {
+      "post": {
+        "operationId": "import_csv_chunk",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportChunkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportChunkResponse"
+                }
+              }
+            },
+            "description": "The session and what it now holds"
+          },
+          "400": {
+            "description": "The session expired or was never opened"
+          },
+          "413": {
+            "description": "Chunk exceeds the import body limit"
+          }
+        },
+        "summary": "`POST /api/readings/import_csv/chunk`, one slice of a file that does not fit in one request.\nThe session accumulates the text; the import then names the session instead of carrying a body.",
         "tags": [
           "ingestion"
         ]
@@ -41132,7 +41910,7 @@
     },
     "/api/sites": {
       "get": {
-        "description": "Retrieves all sites.\n\nThis resource manages site items\n\nAdditional sortable columns: \n- project_id\n- subproject_id\n- name\n- latitude\n- longitude\n- altitude_m\n- created_at\n- discovered_at\n- meteoswiss_station_abbr.\n\nAdditional filterable columns: \n- project_id\n- subproject_id\n- name\n- discovered_at\n- meteoswiss_station_abbr.",
+        "description": "Retrieves all sites.\n\nThis resource manages site items\n\nAdditional sortable columns: \n- project_id\n- subproject_id\n- name\n- latitude\n- longitude\n- altitude_m\n- created_at\n- discovered_at.\n\nAdditional filterable columns: \n- project_id\n- subproject_id\n- name\n- discovered_at.",
         "operationId": "get_all_sites",
         "parameters": [
           {
@@ -41732,7 +42510,7 @@
             }
           },
           {
-            "description": "Aggregation resolution: hourly, daily, weekly, monthly",
+            "description": "Aggregation resolution: hourly, 6hourly, 12hourly, daily, weekly, monthly",
             "in": "path",
             "name": "resolution",
             "required": true,

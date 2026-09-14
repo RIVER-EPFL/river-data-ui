@@ -1659,3 +1659,19 @@ export type ChangeEntry = components['schemas']['ChangeEntry'];
 /** The change trail of one subject, newest first. An unknown subject is an empty list. */
 export const getChangeAudit = (subject: string) =>
 	GET<ChangeEntry[]>(`${SERVICE}/change_audit`, { subject });
+
+/** One MeteoSwiss station the picker offers, with its distance from the site being configured. */
+export interface MeteoswissStation {
+	station_abbr: string;
+	name: string;
+	data_since?: string | null;
+	height_masl?: number | null;
+	height_barometer_masl?: number | null;
+	latitude?: number | null;
+	longitude?: number | null;
+	distance_km?: number | null;
+}
+
+/** Candidate stations for a site, nearest first where the site has coordinates. */
+export const getMeteoswissStations = (q: { q?: string; site_id?: string }) =>
+	GET<MeteoswissStation[]>(`${SERVICE}/meteoswiss/stations`, { ...q });

@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 	import CrudForm from '$components/crud/CrudForm.svelte';
+	import MeteoswissSubscriptions from '$components/sites/MeteoswissSubscriptions.svelte';
 	import { api } from '$api/crud';
 	import { siteNavigator } from '$lib/stores/sites.svelte';
 	import type { Field } from '$components/crud/CrudForm.svelte';
@@ -44,3 +45,11 @@
 <svelte:head><title>Edit Site | RIVER Data</title></svelte:head>
 
 <CrudForm client={api.sites} entityId={page.params.id} title="Edit Site" backHref="{base}/sites/{page.params.id}" {fields} onSaved={() => void siteNavigator.refresh()} />
+
+<!-- A subscription is its own row rather than a column on the site, so it is attached here and
+     saved on the spot rather than with the form. The create form has no site to attach one to. -->
+{#if page.params.id}
+	<div class="mt-6 rounded border border-brand-border p-4">
+		<MeteoswissSubscriptions siteId={page.params.id} />
+	</div>
+{/if}

@@ -409,6 +409,7 @@
 		has_continuous?: boolean;
 		has_spot?: boolean;
 		frequency?: 'high' | 'low' | 'mixed';
+		external_source?: { system: string; station: string; attribution: string } | null;
 	}
 	interface SiteDetailResponse {
 		data_start: string | null;
@@ -1390,6 +1391,7 @@
 							units={sp.display_units ?? param.default_units}
 							decimals={sp.decimal_places}
 							isDerived={sp.entry_mode === 'tool'}
+							externalSource={paramExtents.get(sp.id)?.external_source ?? null}
 							threshold={th}
 							annotations={annotationsByParam.get(sp.parameter_id) ?? []}
 							seriesIndex={i}

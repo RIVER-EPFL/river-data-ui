@@ -51,12 +51,25 @@ export const api = {
 	notificationLogs: crudClient<NotificationLog>('notification_logs'),
 	notificationMutes: crudClient<NotificationMute>('notification_mutes'),
 	notificationSubscribers: crudClient<NotificationSubscriber>('notification_subscribers'),
+	meteoswissSubscriptions: crudClient<MeteoswissSubscription>('meteoswiss_subscriptions'),
 	// Keycloak realm accounts, not a database entity: the API proxies the realm behind the same
 	// list shape. Admin-only, so only mount it from a route guarded by `me.can('admin')`.
 	users: crudClient<RealmUser>('users'),
 };
 
 // Entity types
+
+/** A site's subscription to one MeteoSwiss station and one of the variables it publishes. */
+export interface MeteoswissSubscription {
+	id: string;
+	site_id: string;
+	station_abbr: string;
+	variable: string;
+	parameter_id: string;
+	enabled: boolean;
+	created_at?: string | null;
+}
+
 export interface RealmUser {
 	id: string;
 	username: string;

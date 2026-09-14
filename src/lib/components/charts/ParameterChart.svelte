@@ -68,6 +68,7 @@
 		showCalibrationMarkers = false,
 		showAlarmBands = true,
 		isDerived = false,
+		externalSource = null,
 		activeBreach = null,
 		nowMs = 0,
 		originLabel = '',
@@ -117,6 +118,9 @@
 		showCalibrationMarkers?: boolean;
 		showAlarmBands?: boolean;
 		isDerived?: boolean;
+		/** The outside feed the values come from, attributed in the header where the site
+		 *  subscribes to one for this parameter. */
+		externalSource?: { system: string; station: string; attribution: string } | null;
 		/** Live active breach for this parameter (from getActiveAlarms), shown as a header badge. */
 		activeBreach?: { severity: number; started_at?: string | null; since: string } | null;
 		/** Ticking clock (ms) from the parent so the badge's "active for …" stays fresh. */
@@ -1005,6 +1009,10 @@
 		<span class="text-sm font-semibold">
 			{parameterName} <span class="text-brand-muted font-normal">({units})</span>
 			{#if isDerived}<span class="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-brand-accent/15 text-brand-accent-dark align-middle">derived</span>{/if}
+			{#if externalSource}<span
+					class="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-brand-accent/15 text-brand-accent-dark align-middle"
+					title="{externalSource.attribution}, station {externalSource.station}"
+				>{externalSource.attribution}</span>{/if}
 			{#if parameterCode}<span class="text-xs text-brand-muted font-normal font-mono ml-1.5">{parameterCode}</span>{/if}
 			{#if hasData}<span class="text-xs text-brand-muted font-normal ml-2">{dataPoints} pts</span>{/if}
 			{#if withdrawnCount > 0}
