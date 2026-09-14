@@ -128,6 +128,10 @@
             "format": "uuid",
             "type": "string"
           },
+          "kind": {
+            "description": "What raised it: 'threshold', the site or parameter bounds, or 'instrument_range', a value\noutside what the instrument that measured it can read.",
+            "type": "string"
+          },
           "max_severity": {
             "description": "Highest severity seen while this event has been open (1=warning, 2=alarm).",
             "format": "int32",
@@ -142,6 +146,14 @@
             "type": "string"
           },
           "parameter_name": {
+            "type": "string"
+          },
+          "sensor_id": {
+            "description": "The instrument an 'instrument_range' breach is about; absent on a threshold breach, which\nis about the water rather than the device.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "sensor_name": {
             "type": "string"
           },
           "severity": {
@@ -167,7 +179,8 @@
             "type": "string"
           },
           "threshold": {
-            "$ref": "#/components/schemas/ResolvedThreshold"
+            "$ref": "#/components/schemas/ResolvedThreshold",
+            "description": "The bounds that were breached. On an 'instrument_range' breach these are the instrument's\nown `range_min`/`range_max`, carried as the alarm bounds because a range breach has no\nwarning degree to it."
           }
         },
         "required": [
@@ -177,6 +190,7 @@
           "parameter_name",
           "current_value",
           "measurement_type",
+          "kind",
           "threshold",
           "severity",
           "since",
@@ -419,6 +433,10 @@
             "format": "uuid",
             "type": "string"
           },
+          "kind": {
+            "description": "What raised it: `threshold`, the site or parameter bounds, or `instrument_range`, a\nvalue outside what the instrument that measured it can read. The two stand open on the\nsame slot at once, so a failing instrument is not read as an unusual river.",
+            "type": "string"
+          },
           "last_seen_at": {
             "format": "date-time",
             "type": "string"
@@ -471,6 +489,14 @@
               "null"
             ]
           },
+          "sensor_id": {
+            "description": "The instrument a range episode is about; NULL on a threshold episode, which is about\nthe water rather than the device.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "severity": {
             "description": "1 = warning, 2 = alarm; what the episode reads as now.",
             "format": "int32",
@@ -512,7 +538,9 @@
           "updated_at",
           "notified_at",
           "resolution_notified_at",
-          "measurement_type"
+          "measurement_type",
+          "kind",
+          "sensor_id"
         ],
         "type": "object"
       },
@@ -528,6 +556,10 @@
           },
           "id": {
             "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "description": "What raised it: 'threshold' or 'instrument_range'.",
             "type": "string"
           },
           "last_seen_at": {
@@ -562,6 +594,11 @@
             "format": "double",
             "type": "number"
           },
+          "sensor_id": {
+            "description": "The instrument an 'instrument_range' event is about.",
+            "format": "uuid",
+            "type": "string"
+          },
           "severity": {
             "description": "Current severity (1=warning, 2=alarm)",
             "format": "int32",
@@ -590,6 +627,7 @@
           "parameter_id",
           "parameter_name",
           "measurement_type",
+          "kind",
           "severity",
           "max_severity",
           "started_at",
@@ -9674,9 +9712,6 @@
               "$ref": "#/components/schemas/ManifestParam"
             },
             "type": "array"
-          },
-          "qc": {
-            "description": "Opaque QC block, stored as declared and served on `GET /tools` for clients that read it.\nNothing server-side reads it: the seasonal check and the event audit take no input from\nthe manifest. The only validation is that it is an object."
           },
           "sections": {
             "items": {
@@ -24265,7 +24300,6 @@
             },
             "type": "array"
           },
-          "qc": {},
           "script_version_id": {
             "format": "uuid",
             "type": "string"
@@ -26481,7 +26515,7 @@
     },
     "/api/alarm_events": {
       "get": {
-        "description": "Retrieves all alarm_events.\n\nThis resource manages alarm_event items\n\nAdditional sortable columns: \n- site_id\n- parameter_id\n- severity\n- max_severity\n- started_at\n- last_seen_at\n- acknowledged_at\n- resolved_at\n- created_at\n- measurement_type.\n\nAdditional filterable columns: \n- site_id\n- parameter_id\n- severity\n- max_severity\n- acknowledged_at\n- acknowledged_by\n- resolved_at\n- measurement_type.",
+        "description": "Retrieves all alarm_events.\n\nThis resource manages alarm_event items\n\nAdditional sortable columns: \n- site_id\n- parameter_id\n- severity\n- max_severity\n- started_at\n- last_seen_at\n- acknowledged_at\n- resolved_at\n- created_at\n- measurement_type\n- kind.\n\nAdditional filterable columns: \n- site_id\n- parameter_id\n- severity\n- max_severity\n- acknowledged_at\n- acknowledged_by\n- resolved_at\n- measurement_type\n- kind\n- sensor_id.",
         "operationId": "get_all_alarm_events",
         "parameters": [
           {

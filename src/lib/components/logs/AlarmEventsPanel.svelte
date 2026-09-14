@@ -11,7 +11,7 @@
 	} from '$api/service';
 	import { formatRelativeTime, formatDateTime } from '$lib/utils';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { alarmHref, severityLabel } from '$lib/alarms';
+	import { alarmCauseLabel, alarmHref, severityLabel } from '$lib/alarms';
 	import Button from '$components/ui/Button.svelte';
 	import SiteSelect from '$components/SiteSelect.svelte';
 	import CrudList from '$components/crud/CrudList.svelte';
@@ -49,6 +49,7 @@
 		{ key: 'site_name', label: 'Site', sortable: false },
 		{ key: 'parameter_name', label: 'Parameter', sortable: false },
 		{ key: 'severity', label: 'Severity', sortable: false },
+		{ key: 'kind', label: 'Cause', sortable: false },
 		{ key: 'started_at', label: 'Started', sortable: false, class: 'text-right text-brand-muted' },
 		{ key: 'duration', label: 'Duration', sortable: false, class: 'text-right text-brand-muted' },
 		{ key: 'last_seen_at', label: 'Last seen', sortable: false, class: 'text-right text-brand-muted' },
@@ -84,7 +85,7 @@
 	}
 
 	function exportEventsCsv() {
-		const header = ['Site', 'Parameter', 'Severity', 'Started', 'Last seen', 'Status', 'Last value', 'Resolved at'];
+		const header = ['Site', 'Parameter', 'Severity', 'Cause', 'Started', 'Last seen', 'Status', 'Last value', 'Resolved at'];
 		const escape = (v: unknown): string => {
 			const s = v == null ? '' : String(v);
 			return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -95,6 +96,7 @@
 				e.site_name,
 				e.parameter_name,
 				severityLabel(sev),
+				alarmCauseLabel(e.kind),
 				e.started_at,
 				e.last_seen_at,
 				e.resolved_at ? 'Resolved' : 'Open',
@@ -211,7 +213,9 @@
 	{/snippet}
 
 	{#snippet cell({ column, row, text }: { column: Column; row: AlarmEvent; text: string })}
-		{#if column.key === 'severity'}
+		{#if column.key === 'kind'}
+			<span class="text-brand-muted" title={row.kind === 'instrument_range' ? 'The value is outside what the instrument that measured it can read' : 'The value is outside the site or parameter bounds'}>{alarmCauseLabel(row.kind)}</span>
+		{:else if column.key === 'severity'}
 			{@const sev = row.max_severity ?? row.severity}
 			<span class="inline-flex items-center gap-1.5">
 				<span class="inline-block w-2.5 h-2.5 rounded-full {severityDot(sev)}"></span>

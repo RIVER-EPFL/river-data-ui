@@ -509,7 +509,8 @@ export interface paths {
          *     - acknowledged_at
          *     - resolved_at
          *     - created_at
-         *     - measurement_type.
+         *     - measurement_type
+         *     - kind.
          *
          *     Additional filterable columns:
          *     - site_id
@@ -519,7 +520,9 @@ export interface paths {
          *     - acknowledged_at
          *     - acknowledged_by
          *     - resolved_at
-         *     - measurement_type.
+         *     - measurement_type
+         *     - kind
+         *     - sensor_id.
          */
         get: operations["get_all_alarm_events"];
         put?: never;
@@ -7530,6 +7533,11 @@ export interface components {
              */
             event_id?: string;
             /**
+             * @description What raised it: 'threshold', the site or parameter bounds, or 'instrument_range', a value
+             *     outside what the instrument that measured it can read.
+             */
+            kind: string;
+            /**
              * Format: int32
              * @description Highest severity seen while this event has been open (1=warning, 2=alarm).
              */
@@ -7539,6 +7547,13 @@ export interface components {
             /** Format: uuid */
             parameter_id: string;
             parameter_name: string;
+            /**
+             * Format: uuid
+             * @description The instrument an 'instrument_range' breach is about; absent on a threshold breach, which
+             *     is about the water rather than the device.
+             */
+            sensor_id?: string;
+            sensor_name?: string;
             /**
              * Format: int32
              * @description 1=warning, 2=alarm
@@ -7557,6 +7572,11 @@ export interface components {
              * @description When the breach started (from the persisted alarm event).
              */
             started_at?: string;
+            /**
+             * @description The bounds that were breached. On an 'instrument_range' breach these are the instrument's
+             *     own `range_min`/`range_max`, carried as the alarm bounds because a range breach has no
+             *     warning degree to it.
+             */
             threshold: components["schemas"]["ResolvedThreshold"];
         };
         /** @description Response for active alarms endpoint */
@@ -7644,6 +7664,12 @@ export interface components {
             created_at: string;
             /** Format: uuid */
             id: string;
+            /**
+             * @description What raised it: `threshold`, the site or parameter bounds, or `instrument_range`, a
+             *     value outside what the instrument that measured it can read. The two stand open on the
+             *     same slot at once, so a failing instrument is not read as an unusual river.
+             */
+            kind: string;
             /** Format: date-time */
             last_seen_at: string;
             /** Format: double */
@@ -7676,6 +7702,12 @@ export interface components {
             /** Format: double */
             resolved_value: number | null;
             /**
+             * Format: uuid
+             * @description The instrument a range episode is about; NULL on a threshold episode, which is about
+             *     the water rather than the device.
+             */
+            sensor_id: string | null;
+            /**
              * Format: int32
              * @description 1 = warning, 2 = alarm; what the episode reads as now.
              */
@@ -7699,6 +7731,8 @@ export interface components {
             acknowledged_by?: string;
             /** Format: uuid */
             id: string;
+            /** @description What raised it: 'threshold' or 'instrument_range'. */
+            kind: string;
             /** Format: date-time */
             last_seen_at: string;
             /** Format: double */
@@ -7717,6 +7751,11 @@ export interface components {
             resolved_at?: string;
             /** Format: double */
             resolved_value?: number;
+            /**
+             * Format: uuid
+             * @description The instrument an 'instrument_range' event is about.
+             */
+            sensor_id?: string;
             /**
              * Format: int32
              * @description Current severity (1=warning, 2=alarm)
@@ -11117,12 +11156,6 @@ export interface components {
             match_keywords: string[];
             outputs: components["schemas"]["ManifestOutput"][];
             params: components["schemas"]["ManifestParam"][];
-            /**
-             * @description Opaque QC block, stored as declared and served on `GET /tools` for clients that read it.
-             *     Nothing server-side reads it: the seasonal check and the event audit take no input from
-             *     the manifest. The only validation is that it is an object.
-             */
-            qc?: unknown;
             sections?: components["schemas"]["ManifestSection"][];
             site_inputs?: components["schemas"]["ManifestSiteInput"][];
         };
@@ -16577,7 +16610,6 @@ export interface components {
             name: string;
             outputs: components["schemas"]["ToolOutput"][];
             params: components["schemas"]["ManifestParam"][];
-            qc?: unknown;
             /** Format: uuid */
             script_version_id: string;
             sections?: components["schemas"]["ManifestSection"][];

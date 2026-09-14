@@ -100,6 +100,14 @@ export function formatThresholdRange(
 	return units ? `${range} ${units}` : range;
 }
 
+/**
+ * What raised an alarm: the site or parameter thresholds, or a value outside what the instrument
+ * that measured it can read. An older event carries no kind and reads as a threshold breach.
+ */
+export function alarmCauseLabel(kind: string | null | undefined): string {
+	return kind === 'instrument_range' ? 'Out of instrument range' : 'Threshold';
+}
+
 export interface AlarmLinkTarget {
 	site_id: string;
 	parameter_id: string;
