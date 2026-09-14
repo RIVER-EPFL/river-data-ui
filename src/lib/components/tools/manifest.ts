@@ -46,7 +46,6 @@ export interface BuilderManifest {
 	sections: ToolSection[];
 	site_inputs: ToolSiteInput[];
 	event_inputs: ToolEventInput[];
-	qc: Record<string, unknown> | null;
 }
 
 function str(value: unknown, fallback = ''): string {
@@ -78,7 +77,6 @@ export function emptyManifest(label = ''): BuilderManifest {
 		sections: [],
 		site_inputs: [],
 		event_inputs: [],
-		qc: null,
 	};
 }
 
@@ -139,7 +137,6 @@ export function fromManifest(raw: unknown): BuilderManifest {
 		sections: arr(m.sections) as ToolSection[],
 		site_inputs: arr(m.site_inputs) as ToolSiteInput[],
 		event_inputs: arr(m.event_inputs) as ToolEventInput[],
-		qc: typeof m.qc === 'object' && m.qc !== null ? (m.qc as Record<string, unknown>) : null,
 	};
 }
 
@@ -155,7 +152,6 @@ export function toWireManifest(m: BuilderManifest): ToolManifest {
 		...(m.sections.length > 0 ? { sections: m.sections } : {}),
 		...(m.site_inputs.length > 0 ? { site_inputs: m.site_inputs } : {}),
 		...(m.event_inputs.length > 0 ? { event_inputs: m.event_inputs } : {}),
-		...(m.qc ? { qc: m.qc } : {}),
 	};
 }
 

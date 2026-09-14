@@ -2,7 +2,6 @@
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
 	import { api, type RealmUser } from '$api/crud';
-	import { getNotificationSubscribers } from '$api/service';
 	import { accessLevelLabel, accessLevelVariant, highestAccessRole } from '$lib/users';
 	import { createUrlTab } from '$lib/urlTab.svelte';
 	import Tabs from '$components/ui/Tabs.svelte';
@@ -74,10 +73,13 @@
 		if (all.length === 0) {
 			const [result, roster] = await Promise.all([
 				api.users.list({ perPage: 500, sort }),
-				getNotificationSubscribers().catch(() => []),
+				api.notificationSubscribers
+					.list({ perPage: 500 })
+					.then((r) => r.data)
+					.catch(() => []),
 			]);
 			all = result.data;
-			pushCounts = new Map(roster.map((s) => [s.keycloakSub, s.pushSubscriptionCount]));
+			pushCounts = new Map(roster.map((s) => [s.keycloak_sub, s.push_subscription_count ?? 0]));
 		}
 		return { data: matching, total: matching.length };
 	}

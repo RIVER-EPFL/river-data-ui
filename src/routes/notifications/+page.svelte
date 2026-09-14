@@ -349,8 +349,11 @@
 					</div>
 
 					{#if subscribersLoaded}
-						{@const activeUsers = subscribers.filter((s) => s.webPushEnabled).length}
-						{@const totalDevices = subscribers.reduce((n, s) => n + s.pushSubscriptionCount, 0)}
+						{@const activeUsers = subscribers.filter((s) => s.web_push_enabled).length}
+						{@const totalDevices = subscribers.reduce(
+							(n, s) => n + (s.push_subscription_count ?? 0),
+							0,
+						)}
 						<div class="text-sm text-brand-text">
 							{activeUsers} user{activeUsers === 1 ? '' : 's'} with push enabled,
 							{totalDevices} device{totalDevices === 1 ? '' : 's'} registered.

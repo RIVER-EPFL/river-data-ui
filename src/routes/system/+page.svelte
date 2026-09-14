@@ -48,6 +48,7 @@
 	import JobsPanel from '$components/logs/JobsPanel.svelte';
 	import ApiAuditPanel from '$components/logs/ApiAuditPanel.svelte';
 	import SyncEventsPanel from '$components/logs/SyncEventsPanel.svelte';
+	import { serviceHealth } from '$lib/sync/health';
 	import NotificationHealthNotice from '$components/notifications/NotificationHealthNotice.svelte';
 	import InvariantReportsPanel from '$components/logs/InvariantReportsPanel.svelte';
 
@@ -139,18 +140,7 @@
 		return events.filter((e) => e.service_id === serviceId).slice(0, 10);
 	}
 
-	// A service that heartbeats on time while every stream in its source errors is not healthy, so
-	// the dot reads the most recent cycle as well as the heartbeat age.
-	function serviceHealth(svc: SyncService): 'ok' | 'warning' | 'alarm' | 'unknown' {
-		if (!svc.last_heartbeat) return 'unknown';
-		const age = Date.now() - new Date(svc.last_heartbeat).getTime();
-		const byAge = age < 90_000 ? 'ok' : age < 300_000 ? 'warning' : 'alarm';
-		if (byAge === 'alarm') return 'alarm';
-		const latest = eventsForService(svc.id)[0];
-		if (latest?.status === 'failed') return 'alarm';
-		if (latest?.status === 'partial') return 'warning';
-		return byAge;
-	}
+	const healthOf = (svc: SyncService) => serviceHealth(svc, eventsForService(svc.id)[0]);
 
 	// The cadence editor holds a per-service draft so a half-typed number never reaches the API.
 	let intervalDraft = $state<Record<string, string>>({});
@@ -564,7 +554,7 @@
 
 			<div class="space-y-3">
 				{#each services as svc}
-					{@const health = serviceHealth(svc)}
+					{@const health = healthOf(svc)}
 					{@const svcCreds = credentialsForService(svc.id)}
 					{@const svcCommands = commandsForService(svc.id)}
 					{@const svcEvents = eventsForService(svc.id)}

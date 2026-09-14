@@ -20,6 +20,8 @@
 		{ key: 'name', label: 'Name' },
 		{ key: 'manufacturer', label: 'Manufacturer' },
 		{ key: 'model', label: 'Model' },
+		{ key: 'range_min', label: 'Range minimum', type: 'number', helperText: 'The measurement range the manufacturer specifies for this unit. Leave blank where the datasheet is not to hand: a blank range is unstated, not unbounded' },
+		{ key: 'range_max', label: 'Range maximum', type: 'number' },
 		{ key: 'notes', label: 'Notes', type: 'textarea' },
 		{ key: 'is_lab_instrument', label: 'Lab instrument', type: 'boolean', defaultValue: false, helperText: 'Field/lab instrument taken on trips (sparse grab samples) rather than a sensor fixed at one site' },
 		{ key: 'data_frequency', label: 'Data frequency', type: 'select', defaultValue: 'high', options: [

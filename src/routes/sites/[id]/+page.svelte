@@ -907,6 +907,25 @@
 		}
 	}
 
+	// The slot's own configuration is edited here and nowhere else (Q71): its entity list was
+	// unreachable, and these are the fields a site's parameter row is read by.
+	async function updateSlot(sp: SiteParameter, patch: Partial<SiteParameter>, what: string) {
+		try {
+			await api.siteParameters.update(sp.id, patch);
+			await reloadSiteParameters();
+			toastStore.success(`${paramName(sp.parameter_id)}: ${what} saved`);
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : `Could not save the ${what}`);
+		}
+	}
+
+	/** An empty field clears the column; anything unparseable leaves it as it was. */
+	function slotNumber(raw: string): number | null | undefined {
+		if (raw.trim() === '') return null;
+		const n = Number(raw);
+		return Number.isFinite(n) ? n : undefined;
+	}
+
 	function sensorName(sensorId: string): string {
 		return sensors.find((s) => s.id === sensorId)?.name ?? sensorId.slice(0, 8);
 	}
@@ -1536,9 +1555,12 @@
 						<th class="text-left px-4 py-2 font-semibold">Parameter</th>
 						<th class="text-left px-4 py-2 font-semibold">Units</th>
 						<th class="text-left px-4 py-2 font-semibold">Interval</th>
+						<th class="text-left px-4 py-2 font-semibold">Channel</th>
+						<th class="text-left px-4 py-2 font-semibold">Decimals</th>
 						<th class="text-left px-4 py-2 font-semibold">Instrument</th>
 						<th class="text-left px-4 py-2 font-semibold">Warning</th>
 						<th class="text-left px-4 py-2 font-semibold">Alarm</th>
+						<th class="text-left px-4 py-2 font-semibold">Active</th>
 						<th class="text-right px-4 py-2 font-semibold">Actions</th>
 					</tr></thead>
 					<tbody>
@@ -1555,8 +1577,61 @@
 										<span class="ml-1 rounded bg-severity-warning-soft px-1.5 py-0.5 text-xs font-medium text-severity-warning-text" title="Added by a tool save, awaiting confirmation">Needs review</span>
 									{/if}
 								</td>
-								<td class="px-4 py-2 text-brand-muted">{paramUnits(sp)}</td>
-								<td class="px-4 py-2 text-brand-muted">{sp.sample_interval_sec ? `${sp.sample_interval_sec}s` : 'None'}</td>
+								<td class="px-4 py-2">
+									<input
+										class="w-24 rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
+										title="Overrides the parameter's default units at this site"
+										aria-label="Display units for {paramName(sp.parameter_id)}"
+										placeholder={parameters.find((p) => p.id === sp.parameter_id)?.default_units ?? ''}
+										value={sp.display_units ?? ''}
+										onchange={(e) => updateSlot(sp, { display_units: e.currentTarget.value.trim() || null }, 'units')}
+									/>
+								</td>
+								<td class="px-4 py-2">
+									<input
+										type="number"
+										min="0"
+										class="w-24 rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
+										title="Expected seconds between readings"
+										aria-label="Sample interval in seconds for {paramName(sp.parameter_id)}"
+										placeholder="None"
+										value={sp.sample_interval_sec ?? ''}
+										onchange={(e) => {
+											const v = slotNumber(e.currentTarget.value);
+											if (v !== undefined) updateSlot(sp, { sample_interval_sec: v }, 'sample interval');
+										}}
+									/>
+								</td>
+								<td class="px-4 py-2">
+									<input
+										type="number"
+										class="w-20 rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
+										title="The channel identifier this slot carries in its source system"
+										aria-label="Channel identifier for {paramName(sp.parameter_id)}"
+										placeholder="None"
+										value={sp.channel_id ?? ''}
+										onchange={(e) => {
+											const v = slotNumber(e.currentTarget.value);
+											if (v !== undefined) updateSlot(sp, { channel_id: v }, 'channel');
+										}}
+									/>
+								</td>
+								<td class="px-4 py-2">
+									<input
+										type="number"
+										min="0"
+										max="10"
+										class="w-16 rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
+										title="How many decimal places this slot is shown and published at. Stored readings keep their full precision either way."
+										aria-label="Decimal places for {paramName(sp.parameter_id)}"
+										placeholder="Default"
+										value={sp.decimal_places ?? ''}
+										onchange={(e) => {
+											const v = slotNumber(e.currentTarget.value);
+											if (v !== undefined) updateSlot(sp, { decimal_places: v }, 'decimal places');
+										}}
+									/>
+								</td>
 								<td class="px-4 py-2">
 									<select
 										class="rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
@@ -1577,6 +1652,15 @@
 									<td class="px-4 py-2 text-xs text-severity-warning">{#if warn}{warn}{:else}<span class="text-brand-muted">None</span>{/if}</td>
 									<td class="px-4 py-2 text-xs text-severity-alarm">{#if alarm}{alarm}{:else}<span class="text-brand-muted">None</span>{/if}</td>
 								{/if}
+								<td class="px-4 py-2">
+									<input
+										type="checkbox"
+										title="A retired slot keeps its readings and its configuration, and stops being alarmed on or listed as a place this parameter is measured"
+										aria-label="Active at this site: {paramName(sp.parameter_id)}"
+										checked={sp.is_active ?? false}
+										onchange={(e) => updateSlot(sp, { is_active: e.currentTarget.checked }, e.currentTarget.checked ? 'active' : 'retired')}
+									/>
+								</td>
 								<td class="px-4 py-2 text-right space-x-1">
 									<ConfirmSiteParameterButton
 										siteParameter={sp}
@@ -1607,7 +1691,7 @@
 							</tr>
 						{/each}
 						{#if siteParameters.filter((sp) => sp.entry_mode !== 'tool').length === 0}
-							<tr><td colspan="8" class="px-4 py-6 text-center text-brand-muted">No parameters configured</td></tr>
+							<tr><td colspan="11" class="px-4 py-6 text-center text-brand-muted">No parameters configured</td></tr>
 						{/if}
 					</tbody>
 				</table>

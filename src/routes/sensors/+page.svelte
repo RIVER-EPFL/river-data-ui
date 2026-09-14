@@ -467,7 +467,7 @@
 							{/if}
 							{#if canManage}
 								<div class="mt-2">
-									<a href="{base}/sensor-calibrations/new?sensor_id={row.id}" class="text-xs text-brand-primary no-underline hover:underline">+ Add curve</a>
+									<a href="{base}/sensors/{row.id}?tab=calibrations" class="text-xs text-brand-primary no-underline hover:underline">+ Add curve</a>
 								</div>
 							{/if}
 						{/if}

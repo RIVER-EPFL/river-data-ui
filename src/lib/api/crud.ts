@@ -50,6 +50,7 @@ export const api = {
 	reprocessingJobs: crudClient<ReprocessingJob>('reprocessing_jobs'),
 	notificationLogs: crudClient<NotificationLog>('notification_logs'),
 	notificationMutes: crudClient<NotificationMute>('notification_mutes'),
+	notificationSubscribers: crudClient<NotificationSubscriber>('notification_subscribers'),
 	// Keycloak realm accounts, not a database entity: the API proxies the realm behind the same
 	// list shape. Admin-only, so only mount it from a route guarded by `me.can('admin')`.
 	users: crudClient<RealmUser>('users'),
@@ -188,6 +189,10 @@ export interface Sensor {
 	name: string | null;
 	manufacturer: string | null;
 	model: string | null;
+	/** The measurement range the manufacturer specifies for this unit. Null is unstated, not
+	 *  unbounded, and takes no part in threshold resolution. */
+	range_min: number | null;
+	range_max: number | null;
 	is_active: boolean | null;
 	is_lab_instrument: boolean | null;
 	/** What the row is: 'device', 'lab', 'source_parameter' or 'entry_channel'. */
@@ -475,6 +480,19 @@ export interface NotificationLog {
 	status: string;
 	error: string | null;
 	created_at: string;
+}
+
+/**
+ * Somebody notifications are addressed to, keyed by their Keycloak `sub`. `push_subscription_count`
+ * is filled by the entity's own hook, not stored on the row.
+ */
+export interface NotificationSubscriber {
+	id: string;
+	keycloak_sub: string;
+	web_push_enabled: boolean;
+	push_subscription_count: number | null;
+	created_at: string;
+	updated_at: string;
 }
 
 /** A (site, parameter) slot muted from notifications, optionally with an expiry. */

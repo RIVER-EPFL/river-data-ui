@@ -481,6 +481,12 @@
 					<div><span class="text-brand-muted block">Name</span>{sensor.name ?? 'None'}</div>
 					<div><span class="text-brand-muted block">Manufacturer</span>{sensor.manufacturer ?? 'None'}</div>
 					<div><span class="text-brand-muted block">Model</span>{sensor.model ?? 'None'}</div>
+					{#if sensor.range_min != null || sensor.range_max != null}
+						<div>
+							<span class="text-brand-muted block" title="The measurement range the manufacturer specifies for this unit">Specified range</span>
+							{sensor.range_min ?? '?'} to {sensor.range_max ?? '?'}
+						</div>
+					{/if}
 					{#if provenance.key}
 						<div>
 							<span class="text-brand-muted block" title="The key its source knows this row by, and what tells two rows of the same name apart">Source key</span>
