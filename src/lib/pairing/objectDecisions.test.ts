@@ -86,7 +86,7 @@ describe('pairing object decisions', () => {
 	it('offers every object of a first import, where each row creates all three', () => {
 		const entries = ['FP1', 'FP2'].flatMap((s) =>
 			['DOC', 'Depth'].map((p) =>
-				site(s, { parameter: { id: null, name: p, label: null, create: true, units: 'ppb', group_key: null, group: null, original_names: [] } } as Partial<PairingPlanEntry>),
+				site(s, { parameter: { id: null, name: p, label: null, create: true, units: 'ppb', group_key: null, group: null, calculation: null, original_names: [] } } as Partial<PairingPlanEntry>),
 			),
 		);
 		const decisions = objectDecisions(entries);

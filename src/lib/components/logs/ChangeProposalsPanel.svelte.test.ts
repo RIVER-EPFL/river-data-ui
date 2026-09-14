@@ -34,11 +34,14 @@ const proposal = {
   decided_at: null,
 };
 
+/** The generated list answers with rows and a total. */
+const page = (rows: unknown[]) => ({ data: rows, total: rows.length });
+
 beforeEach(() => vi.clearAllMocks());
 
 describe("ChangeProposalsPanel", () => {
   it("shows the stored value beside the one the source now asserts", async () => {
-    getChangeProposals.mockResolvedValue([proposal]);
+    getChangeProposals.mockResolvedValue(page([proposal]));
     render(ChangeProposalsPanel, {});
     const row = (await screen.findByRole("cell", { name: /FP15/ })).closest(
       "tr",
@@ -48,7 +51,7 @@ describe("ChangeProposalsPanel", () => {
   });
 
   it("decides only the selected proposals", async () => {
-    getChangeProposals.mockResolvedValue([proposal]);
+    getChangeProposals.mockResolvedValue(page([proposal]));
     decideChangeProposals.mockResolvedValue({
       accepted: 1,
       rejected: 0,
@@ -67,15 +70,23 @@ describe("ChangeProposalsPanel", () => {
   });
 
   it("counts what is awaiting a decision for the tab that hosts it", async () => {
-    getChangeProposals.mockResolvedValue([
-      proposal,
-      { ...proposal, id: "prop-2" },
-    ]);
+    getChangeProposals.mockResolvedValue(page([proposal, { ...proposal, id: "prop-2" }]));
     let counted = 0;
     render(ChangeProposalsPanel, {
       onPendingChange: (n: number) => (counted = n),
     });
     await screen.findAllByRole("cell", { name: /FP15/ });
     expect(counted).toBe(2);
+  });
+
+  it("asks the generated list for one status at a time", async () => {
+    getChangeProposals.mockResolvedValue(page([proposal]));
+    render(ChangeProposalsPanel, {});
+    await screen.findByRole("cell", { name: /FP15/ });
+    expect(getChangeProposals).toHaveBeenCalledWith({
+      status: "pending",
+      page: 1,
+      perPage: 50,
+    });
   });
 });

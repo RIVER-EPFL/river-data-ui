@@ -340,6 +340,7 @@ describe('instrumentBindings', () => {
 						description: null,
 						create: true,
 					},
+					calculation: null,
 					original_names: [],
 				},
 			} as Partial<PairingPlanEntry>);
@@ -368,6 +369,7 @@ describe('instrumentBindings', () => {
 					description: null,
 					create: false,
 				},
+				calculation: null,
 				original_names: [],
 			},
 		} as Partial<PairingPlanEntry>);

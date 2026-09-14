@@ -111,11 +111,6 @@ export type TestSendResult = components['schemas']['TestSendResponse'];
 export const testSend = (body: { channel: string; recipient: string }) =>
 	POST<TestSendResult>(`${ADMIN}/notifications/test-send`, body);
 
-export type NotificationSubscriber = components['schemas']['SubscriberRow'];
-
-export const getNotificationSubscribers = () =>
-	GET<NotificationSubscriber[]>(`${ADMIN}/notifications/subscribers`);
-
 /** The API's `DeliveryRecipient`. */
 export type DeliveryRecipient = components['schemas']['DeliveryRecipient'];
 
@@ -274,9 +269,6 @@ export const rollbackDeployment = (deploymentId: string) =>
 
 export const recomputeDerived = (id: string) =>
 	POST<QueuedJobResponse>(`${ADMIN}/actions/derived_parameters/${id}/recompute`);
-
-export const refreshAggregates = (full = false) =>
-	POST<QueuedJobResponse>(`${SERVICE}/actions/refresh_aggregates`, { full });
 
 export const invalidatePublicConfig = (code: string) =>
 	POST<InvalidatedConfigResponse>(`${ADMIN}/actions/invalidate_public_config/${code}`);
@@ -576,9 +568,15 @@ export interface SourceAuditReport {
 	};
 }
 
-export type SyncEvent = components['schemas']['SyncEventResponse'];
+// `errors` and `log` are jsonb arrays of lines. The generated schema types them `{}`, because
+// EntityToModels drops the `#[schema(value_type = ...)]` that would say so (C271); until that
+// lands, the two fields are declared here.
+export type SyncEvent = Omit<components['schemas']['SyncEventResponse'], 'errors' | 'log'> & {
+	errors?: string[] | null;
+	log?: string[] | null;
+};
 
-export type SyncServiceCredential = components['schemas']['CredentialResponse'];
+export type SyncServiceCredential = components['schemas']['SyncServiceCredentialResponse'];
 
 export const issueSyncCommand = (serviceId: string, command: string, payload?: object) =>
 	POST<SyncCommand>(`${ADMIN}/sync/services/${serviceId}/commands`, { command, payload });
@@ -586,11 +584,11 @@ export const issueSyncCommand = (serviceId: string, command: string, payload?: o
 // Null clears the override, returning the service to its own configured cadence. The service
 // adopts the change on its next heartbeat.
 export const setSyncInterval = (serviceId: string, seconds: number | null) =>
-	PATCH<SyncService>(`${ADMIN}/sync/services/${serviceId}`, { sync_interval_secs: seconds });
+	PATCH<SyncService>(`${SERVICE}/sync_services/${serviceId}`, { sync_interval_secs: seconds });
 
 // Whether the weekly sync_full_reassert job queues a full sync for this service.
 export const setFullReassert = (serviceId: string, enabled: boolean) =>
-	PATCH<SyncService>(`${ADMIN}/sync/services/${serviceId}`, { full_reassert_enabled: enabled });
+	PATCH<SyncService>(`${SERVICE}/sync_services/${serviceId}`, { full_reassert_enabled: enabled });
 
 export const createServiceCredential = (serviceType: string, sourceSystem?: string) =>
 	POST<{ client_id: string; client_secret: string }>(`${ADMIN}/sync/credentials`, {
@@ -984,7 +982,7 @@ export const reopenReplicateAudit = (id: string) =>
 	POST<{ status: string }>(`${ADMIN}/sync/replicate_audit_holds/${id}/reopen`, {});
 
 export const getSyncCommand = (id: string) =>
-	GET<SyncCommand>(`${ADMIN}/sync/commands/${id}`);
+	GET<SyncCommand>(`${SERVICE}/sync_commands/${id}`);
 
 /** Pending review items and their per-kind breakdown, for the entry-point wording. */
 export const getPendingAuditSummary = async (): Promise<{ pending: number; byKind: Record<string, number> }> => {
@@ -1112,12 +1110,23 @@ export const getDuplicateSlots = () =>
 	GET<{ slots: DuplicateSlot[] }>(`${ADMIN}/sync/replicate_reconciliation/duplicate_slots`);
 
 /** A value the source changed after river-data stored it, awaiting a decision (Q84). */
-export type ChangeProposal = components['schemas']['Proposal'];
+export type ChangeProposal = components['schemas']['ReadingChangeProposalList'];
 
 export type ProposalDecisionResult = components['schemas']['DecideResponse'];
 
-export const getChangeProposals = (params: { status?: string; stream_id?: string } = {}) =>
-	GET<ChangeProposal[]>(`${ADMIN}/sync/change_proposals`, { ...params });
+/** The queue is the entity's own list; the stream's naming and its slot come with each row. */
+export const getChangeProposals = (
+	params: { status?: string; stream_id?: string; page?: number; perPage?: number } = {}
+) =>
+	getList<ChangeProposal>(`${ADMIN}/reading_change_proposals`, {
+		page: params.page,
+		perPage: params.perPage,
+		sort: ['last_seen_at', 'DESC'],
+		filter: {
+			...(params.status ? { status: params.status } : {}),
+			...(params.stream_id ? { stream_id: params.stream_id } : {})
+		}
+	});
 
 export const decideChangeProposals = (
 	ids: string[],

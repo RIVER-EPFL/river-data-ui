@@ -21,8 +21,29 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # The API's document is copied in beside the types generated from it, so a route change that
-      # has not been carried over here fails rather than reaching a call site as a stale type.
+      # The document itself is the API's, generated from its router and guarded there. Checking it
+      # out and diffing is what stops this copy drifting: without it the copy is only refreshed
+      # when somebody happens to change the API surface, and by then the diff is months of other
+      # people's changes. The API repository is public, so the default token reads it.
+      - name: Check out the API's document
+        uses: actions/checkout@v4
+        with:
+          repository: RIVER-EPFL/river-data-api
+          path: .api
+          sparse-checkout: docs/openapi.json
+          sparse-checkout-cone-mode: false
+      - name: Fail on a stale API document
+        run: |
+          if ! diff -q .api/docs/openapi.json src/lib/api/openapi.json > /dev/null; then
+            echo "src/lib/api/openapi.json is behind the API. Refresh it with:"
+            echo "  npm run api-doc && npm run api-types"
+            diff --stat .api/docs/openapi.json src/lib/api/openapi.json || true
+            exit 1
+          fi
+          echo "The document matches the API's"
+      - run: rm -rf .api
+      # The types are generated from that document, so a route change that has not been carried
+      # over here fails rather than reaching a call site as a stale type.
       - run: npm run api-types
       - name: Fail on stale generated types
         run: git diff --exit-code -- src/lib/api/schema.d.ts

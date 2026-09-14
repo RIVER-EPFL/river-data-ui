@@ -10,12 +10,16 @@
 		getNotificationsHealth,
 		refreshNotificationsHealth,
 		testSend,
-		getNotificationSubscribers,
 		type NotificationsConfig,
 		type ChannelHealth,
-		type NotificationSubscriber,
 	} from '$api/service';
-	import { api, type Parameter, type NotificationMute, type RealmUser } from '$api/crud';
+	import {
+		api,
+		type Parameter,
+		type NotificationMute,
+		type NotificationSubscriber,
+		type RealmUser,
+	} from '$api/crud';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import ParameterSelect from '$components/ParameterSelect.svelte';
 	import SiteSelect from '$components/SiteSelect.svelte';
@@ -121,7 +125,9 @@
 	async function loadSubscribers() {
 		try {
 			const [roster, users] = await Promise.all([
-				getNotificationSubscribers(),
+				api.notificationSubscribers
+					.list({ perPage: 500, sort: ['keycloak_sub', 'ASC'] })
+					.then((r) => r.data),
 				api.users
 					.list({ perPage: 500, sort: ['username', 'ASC'] })
 					.then((r) => r.data)

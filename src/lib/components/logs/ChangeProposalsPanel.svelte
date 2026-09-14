@@ -7,6 +7,7 @@
 	} from '$api/service';
 	import Button from '$components/ui/Button.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
+	import PaginationControls from '$components/ui/PaginationControls.svelte';
 	import { formatDateTime } from '$lib/utils';
 
 	// A stored value the source has changed since is proposed, never written, until somebody rules
@@ -15,8 +16,12 @@
 
 	let { onPendingChange }: { onPendingChange?: (n: number) => void } = $props();
 
+	const PER_PAGE = 50;
+
 	let view = $state<'pending' | 'rejected' | 'accepted'>('pending');
 	let rows = $state<ChangeProposal[]>([]);
+	let total = $state(0);
+	let page = $state(1);
 	let selected = $state<Set<string>>(new Set());
 	let loading = $state(true);
 	let busy = $state(false);
@@ -26,9 +31,11 @@
 		loading = true;
 		error = '';
 		try {
-			rows = await getChangeProposals({ status: view });
+			const listed = await getChangeProposals({ status: view, page, perPage: PER_PAGE });
+			rows = listed.data;
+			total = listed.total;
 			selected = new Set();
-			if (view === 'pending') onPendingChange?.(rows.length);
+			if (view === 'pending') onPendingChange?.(listed.total);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load proposed corrections';
 		} finally {
@@ -38,6 +45,7 @@
 
 	$effect(() => {
 		void view;
+		void page;
 		load();
 	});
 
@@ -82,7 +90,10 @@
 				class="cursor-pointer border-none bg-transparent p-0 text-sm {view === v.key
 					? 'font-semibold text-brand-text'
 					: 'text-brand-muted hover:underline'}"
-				onclick={() => (view = v.key)}>{v.label}</button
+				onclick={() => {
+					view = v.key;
+					page = 1;
+				}}>{v.label}</button
 			>
 		{/each}
 	</div>
@@ -166,5 +177,12 @@
 				</tbody>
 			</table>
 		</div>
+
+		<PaginationControls
+			{total}
+			{page}
+			perPage={PER_PAGE}
+			onPageChange={(p) => (page = p)}
+		/>
 	{/if}
 </div>

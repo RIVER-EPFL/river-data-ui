@@ -50,7 +50,7 @@ describe('provenanceKindLabel', () => {
 	it('names each stored origin in the words a reader uses', () => {
 		expect(provenanceKindLabel('tool_run')).toBe('tool run');
 		expect(provenanceKindLabel('manual')).toBe('hand entry');
-		expect(provenanceKindLabel('migration')).toBe('origin not recorded');
+		expect(provenanceKindLabel('derived')).toBe('derived parameter');
 	});
 
 	it('passes an unknown kind through and says nothing about a row that carries none', () => {

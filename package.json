@@ -11,6 +11,7 @@
     "test": "svelte-kit sync && vitest run",
     "test:watch": "svelte-kit sync && vitest",
     "test:browser": "playwright test",
+    "api-doc": "cp ../river-data-api/docs/openapi.json src/lib/api/openapi.json",
     "api-types": "openapi-typescript src/lib/api/openapi.json -o src/lib/api/schema.d.ts"
   },
   "dependencies": {

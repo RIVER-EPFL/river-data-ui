@@ -338,27 +338,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/actions/refresh_aggregates": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Refresh of TimescaleDB continuous aggregates, tracked as a `reprocessing_jobs` row.
-         *     Returns immediately with the job id; the refresh runs in a background task with a
-         *     10-minute timeout (a timeout marks the job `failed`). Requires `write_data`.
-         */
-        post: operations["refresh_aggregates"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/actions/reprocess": {
         parameters: {
             query?: never;
@@ -2313,6 +2292,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/notification_subscribers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get all notification_subscribers
+         * @description Retrieves all notification_subscribers.
+         *
+         *     This resource manages notification_subscriber items
+         *
+         *     Additional sortable columns:
+         *     - keycloak_sub
+         *     - web_push_enabled
+         *     - created_at
+         *     - updated_at.
+         *
+         *     Additional filterable columns:
+         *     - keycloak_sub
+         *     - web_push_enabled.
+         */
+        get: operations["get_all_notification_subscribers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notification_subscribers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one notification_subscriber
+         * @description Retrieves one notification_subscriber by its ID.
+         *
+         *     This resource manages notification_subscriber items
+         */
+        get: operations["get_one_notification_subscriber"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/notifications/channels": {
         parameters: {
             query?: never;
@@ -2453,22 +2486,6 @@ export interface paths {
         };
         get?: never;
         put: operations["set_my_subscriptions"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/notifications/subscribers": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["list_subscribers"];
-        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -3111,6 +3128,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reading_change_proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get all reading_change_proposals
+         * @description Retrieves all reading_change_proposals.
+         *
+         *     This resource manages reading_change_proposal items
+         *
+         *     Additional sortable columns:
+         *     - time
+         *     - first_seen_at
+         *     - last_seen_at.
+         *
+         *     Additional filterable columns:
+         *     - stream_id
+         *     - status.
+         */
+        get: operations["get_all_reading_change_proposals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reading_change_proposals/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one reading_change_proposal
+         * @description Retrieves one reading_change_proposal by its ID.
+         *
+         *     This resource manages reading_change_proposal items
+         */
+        get: operations["get_one_reading_change_proposal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/reading_decisions": {
         parameters: {
             query?: never;
@@ -3168,6 +3238,47 @@ export interface paths {
          *     This resource manages reading_decision items
          */
         get: operations["get_one_reading_decision"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/readings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get all readings
+         * @description Retrieves all readings.
+         *
+         *     This resource manages reading items
+         *
+         *     Additional sortable columns:
+         *     - time
+         *     - raw_value.
+         *
+         *     Additional filterable columns:
+         *     - stream_id
+         *     - time
+         *     - replicate_index
+         *     - site_id
+         *     - parameter_id
+         *     - sensor_id
+         *     - standard_curve_id
+         *     - measurement_type
+         *     - is_flagged
+         *     - sample_id
+         *     - collection_event_id
+         *     - provenance_kind
+         *     - unverified.
+         */
+        get: operations["get_all_readings"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4332,6 +4443,8 @@ export interface paths {
          *     Additional sortable columns:
          *     - serial_number
          *     - name
+         *     - range_min
+         *     - range_max
          *     - kind
          *     - data_frequency
          *     - created_at.
@@ -4340,6 +4453,8 @@ export interface paths {
          *     - serial_number
          *     - manufacturer
          *     - model
+         *     - range_min
+         *     - range_max
          *     - is_active
          *     - is_lab_instrument
          *     - kind
@@ -5649,26 +5764,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/sync/change_proposals": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * The proposed corrections a person has still to decide. Requires `manage_sensors`, the same
-         *     review layer the audit holds use.
-         */
-        get: operations["list_proposals"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/sync/change_proposals/decide": {
         parameters: {
             query?: never;
@@ -5686,26 +5781,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/sync/commands": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Paginated list of sync commands (newest first). Returns a `Content-Range: items {start}-{end}/{total}`
-         *     header for React-admin style pagination. Requires `read_metadata`.
-         */
-        get: operations["list_commands"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/sync/commands/{id}": {
         parameters: {
             query?: never;
@@ -5713,8 +5788,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** One command's current state, for polling a command just issued. Requires `read_metadata`. */
-        get: operations["get_command"];
+        get?: never;
         put?: never;
         post?: never;
         delete?: never;
@@ -5736,13 +5810,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * List enrollment credentials with their service binding and revocation status. The
-         *     client_secret is never returned here, only the hash is stored. Gated by `require_admin`
-         *     upstream, matching credential mint and revoke: a credential bootstraps a full-permission
-         *     sync session token, so no API token may enumerate them.
-         */
-        get: operations["list_credentials"];
+        get?: never;
         put?: never;
         /**
          * Mint a new enrollment credential (client_id + client_secret). The `client_secret` is
@@ -5807,12 +5875,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Paginated list of sync events (newest first). Returns a `Content-Range` header for
-         *     React-admin style pagination. Each event records readings/status_events_synced counts,
-         *     optional errors/log JSON payloads, and duration. Requires `read_metadata`.
-         */
-        get: operations["list_sync_events"];
+        get?: never;
         put?: never;
         /**
          * Sync service reports the start of a sync operation. Returns the created event ID
@@ -6192,48 +6255,6 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
-        trace?: never;
-    };
-    "/api/sync/services": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List all registered sync services with their health (computed from `last_heartbeat`
-         *     age vs the `sync_health_healthy_secs`/`sync_health_warning_secs` thresholds in `Config`).
-         *     Sorted by `updated_at` DESC. Requires `read_metadata`.
-         */
-        get: operations["list_services"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/sync/services/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get a single sync service by ID with its computed health. Requires `read_metadata`. */
-        get: operations["get_service"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * Update a sync service's operator settings. The service adopts a new cadence on its next
-         *     heartbeat, with no redeploy and no restart. Requires `write_metadata`.
-         */
-        patch: operations["update_service"];
         trace?: never;
     };
     "/api/sync/services/{id}/commands": {
@@ -9061,17 +9082,6 @@ export interface components {
             service_id: string;
             status: string;
         };
-        CredentialResponse: {
-            client_id: string;
-            created_at: string;
-            /** Format: uuid */
-            id: string;
-            revoked: boolean;
-            /** Format: uuid */
-            service_id: string | null;
-            service_type: string;
-            source_system: string | null;
-        };
         /**
          * @description What the file's numbers are, deciding whether the import may claim a correction.
          * @enum {string}
@@ -9837,7 +9847,7 @@ export interface components {
             parameter_name: string;
             /**
              * @description Where the value came from, as the row records it: `tool_run` | `chain` | `csv_import` |
-             *     `manual` | `batch` | `sync` | `derived` | `migration`. Narrower than `origin`, which reads
+             *     `manual` | `batch` | `sync` | `derived`. Narrower than `origin`, which reads
              *     the stream alone and cannot tell a hand entry from a tool save on the same channel.
              */
             provenance_kind?: string;
@@ -11606,8 +11616,40 @@ export interface components {
             state: string;
             subject_key: string;
         };
+        NotificationSubscriberList: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            keycloak_sub: string;
+            /**
+             * Format: int64
+             * @description Push devices registered to this person, which is what the roster reports beside the
+             *     switch.
+             */
+            push_subscription_count: number | null;
+            /** Format: date-time */
+            updated_at: string;
+            web_push_enabled: boolean;
+        };
+        NotificationSubscriberResponse: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            keycloak_sub: string;
+            /**
+             * Format: int64
+             * @description Push devices registered to this person, which is what the roster reports beside the
+             *     switch.
+             */
+            push_subscription_count: number | null;
+            /** Format: date-time */
+            updated_at: string;
+            web_push_enabled: boolean;
+        };
         /** @enum {string} */
-        Origin: "manual" | "sync" | "csv" | "audit" | "chain" | "rollback" | "migration" | "system" | "janitor";
+        Origin: "manual" | "sync" | "csv" | "audit" | "chain" | "rollback" | "system" | "janitor";
         OriginInfo: {
             /** @description 'sync' | 'manual' | 'csv' | 'api', from the stream's source system. */
             classification: string;
@@ -11642,11 +11684,14 @@ export interface components {
         };
         /**
          * @description Readings carrying a correction no curve accounts for: neither a calibration nor a standard
-         *     curve is named, yet `calibrated_value` differs from `raw_value`. Reported, never rewritten,
-         *     the stored number is somebody's measurement and this code cannot know how it was produced.
+         *     curve is named, yet `calibrated_value` differs from `raw_value`. The stored number is somebody's
+         *     measurement and this code cannot know how it was produced.
          *
-         *     The reprocess engines hold the same rows back (`service::orphaned_correction_rows`, the shared
-         *     definition this query uses), so nothing an operator can trigger overwrites one either.
+         *     A recomposition driven by the row's own curves leaves them standing
+         *     (`service::orphaned_correction_rows`, the shared definition this query uses). A calibration
+         *     window that covers one is another matter: the reprocess recomputes it from that curve and
+         *     records the move in `reading_decisions`, so the row leaves this report as soon as a curve can
+         *     account for it (Q114).
          */
         OrphanedCorrection: {
             /** Format: int64 */
@@ -12134,6 +12179,7 @@ export interface components {
             parameter_id: string;
             replicates?: unknown;
             role: string;
+            source_calculation?: unknown;
             units?: string | null;
         };
         ParameterGroupMemberList: {
@@ -12160,6 +12206,12 @@ export interface components {
              *     [`super::rules::Role`].
              */
             role: string;
+            /**
+             * @description What the source computed an `output` member with: `{ function, inputs }`, the portal's
+             *     own calculation and the columns it reads. NULL where nothing computed the column, or
+             *     where the source declares no calculation.
+             */
+            source_calculation: unknown;
             units: string | null;
         };
         ParameterGroupMemberResponse: {
@@ -12186,6 +12238,12 @@ export interface components {
              *     [`super::rules::Role`].
              */
             role: string;
+            /**
+             * @description What the source computed an `output` member with: `{ function, inputs }`, the portal's
+             *     own calculation and the columns it reads. NULL where nothing computed the column, or
+             *     where the source declares no calculation.
+             */
+            source_calculation: unknown;
             units: string | null;
         };
         ParameterGroupMemberUpdate: {
@@ -12199,6 +12257,7 @@ export interface components {
             parameter_id?: string | null;
             replicates?: unknown;
             role?: string | null;
+            source_calculation?: unknown;
             units?: string | null;
         };
         ParameterGroupResponse: {
@@ -12413,6 +12472,19 @@ export interface components {
         };
         /** @description The objects the review has accepted, as the column holds them. */
         PlanAcceptedObjects: components["schemas"]["PlanAcceptedObject"][];
+        /**
+         * @description What the source computed an `output` column with: its own calculation function and the columns
+         *     that function reads.
+         *
+         *     The role says a column is computed; this says what computed it, which is the statement a
+         *     formula set is authored against and the one an output still waiting for one is missing.
+         */
+        PlanCalculationRef: {
+            /** @description The source's own function name, verbatim (`calcPCO2`). */
+            function: string;
+            /** @description The columns it reads, in the order the source lists them. */
+            inputs: string[];
+        };
         /**
          * @description One standard curve the source has replicated, and the instrument it is currently fitted on.
          *     Re-homing is a curve-level decision, so the curves are listed in their own right rather than
@@ -12796,6 +12868,7 @@ export interface components {
             key: string;
         };
         PlanParamRef: {
+            calculation: null | components["schemas"]["PlanCalculationRef"];
             create: boolean;
             group: null | components["schemas"]["PlanGroupRef"];
             group_key?: string | null;
@@ -13076,41 +13149,6 @@ export interface components {
             public_code?: string | null;
             public_contact_email?: string | null;
         };
-        /** @description One proposed correction, as the review surface reads it. */
-        Proposal: {
-            /** Format: date-time */
-            decided_at: string | null;
-            decided_by: string | null;
-            /** Format: date-time */
-            first_seen_at: string;
-            /** Format: uuid */
-            id: string;
-            /** Format: date-time */
-            last_seen_at: string;
-            parameter_code: string | null;
-            /** Format: uuid */
-            parameter_id: string | null;
-            /** Format: double */
-            proposed_raw_value: number;
-            /** Format: uuid */
-            proposed_standard_curve_id: string | null;
-            /** Format: int32 */
-            replicate_index: number;
-            /** Format: uuid */
-            site_id: string | null;
-            site_name: string | null;
-            source_key: string;
-            source_system: string;
-            status: string;
-            /** Format: double */
-            stored_raw_value: number;
-            /** Format: uuid */
-            stored_standard_curve_id: string | null;
-            /** Format: uuid */
-            stream_id: string;
-            /** Format: date-time */
-            time: string;
-        };
         /** @description A source's whole instrument register, offered for a plan to admit. */
         ProposeInstrumentsRequest: {
             instruments: components["schemas"]["SensorUpsert"][];
@@ -13175,6 +13213,84 @@ export interface components {
             job_id: string | null;
             /** @description `queued`, always. */
             status: string;
+        };
+        ReadingChangeProposalList: {
+            /** Format: date-time */
+            decided_at: string | null;
+            decided_by: string | null;
+            /** Format: date-time */
+            first_seen_at: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            last_seen_at: string;
+            parameter_code: string | null;
+            /** Format: uuid */
+            parameter_id: string | null;
+            /** Format: double */
+            proposed_raw_value: number;
+            /** Format: uuid */
+            proposed_standard_curve_id: string | null;
+            /** Format: int32 */
+            replicate_index: number;
+            /** Format: uuid */
+            site_id: string | null;
+            site_name: string | null;
+            source_key: string | null;
+            /**
+             * @description The stream's own naming, and the slot its pairing places it in. Filled from the
+             *     pairing on read; a proposal against an unpaired stream carries only the source half.
+             */
+            source_system: string | null;
+            /** @description `pending` | `accepted` | `rejected`, a table CHECK. */
+            status: string;
+            /** Format: double */
+            stored_raw_value: number;
+            /** Format: uuid */
+            stored_standard_curve_id: string | null;
+            /** Format: uuid */
+            stream_id: string;
+            /** Format: date-time */
+            time: string;
+        };
+        ReadingChangeProposalResponse: {
+            /** Format: date-time */
+            decided_at: string | null;
+            decided_by: string | null;
+            /** Format: date-time */
+            first_seen_at: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            last_seen_at: string;
+            parameter_code: string | null;
+            /** Format: uuid */
+            parameter_id: string | null;
+            /** Format: double */
+            proposed_raw_value: number;
+            /** Format: uuid */
+            proposed_standard_curve_id: string | null;
+            /** Format: int32 */
+            replicate_index: number;
+            /** Format: uuid */
+            site_id: string | null;
+            site_name: string | null;
+            source_key: string | null;
+            /**
+             * @description The stream's own naming, and the slot its pairing places it in. Filled from the
+             *     pairing on read; a proposal against an unpaired stream carries only the source half.
+             */
+            source_system: string | null;
+            /** @description `pending` | `accepted` | `rejected`, a table CHECK. */
+            status: string;
+            /** Format: double */
+            stored_raw_value: number;
+            /** Format: uuid */
+            stored_standard_curve_id: string | null;
+            /** Format: uuid */
+            stream_id: string;
+            /** Format: date-time */
+            time: string;
         };
         ReadingDecisionList: {
             actor: string;
@@ -13353,6 +13469,90 @@ export interface components {
             /** Format: date-time */
             time: string;
         };
+        ReadingList: {
+            /** Format: double */
+            calibrated_value: number | null;
+            /**
+             * Format: uuid
+             * @description The time-windowed base calibration the value was corrected with.
+             */
+            calibration_id: string | null;
+            /**
+             * Format: uuid
+             * @description The collection event (site visit) an attributed spot reading belongs to. Stamped by
+             *     `collection_events::attach` after the write; NULL on continuous and derived rows.
+             */
+            collection_event_id: string | null;
+            /** @description Who entered it, on a hand-entered measurement. */
+            created_by: string | null;
+            /** Format: uuid */
+            deployment_id: string | null;
+            /**
+             * Format: uuid
+             * @description The formula version a derived value was computed under, on a derived row.
+             */
+            derived_version_id: string | null;
+            flag_reason: string | null;
+            /**
+             * Format: date-time
+             * @description When the stored value arrived (DB default on insert, re-stamped when an overwrite changes
+             *     the value). NULL on rows that predate tracking.
+             */
+            ingested_at: string | null;
+            is_flagged: boolean | null;
+            /** @description The operator's name for the measurement. */
+            label: string | null;
+            logged: boolean | null;
+            measurement_type: string | null;
+            /** @description The operator's free text about the measurement. */
+            notes: string | null;
+            /** Format: uuid */
+            parameter_id: string | null;
+            /**
+             * @description The server-built record of what produced this value: the tool run and pinned script version,
+             *     its resolved inputs, constants and curves, and the outputs it returned. Written by the grab
+             *     write path from the stored `tool_runs` row, never by a client.
+             */
+            provenance: unknown;
+            /**
+             * @description Where this value came from: `tool_run` | `chain` | `csv_import` | `manual` | `batch` |
+             *     `sync` | `derived`. Total, held by a DB trigger for a writer that names none,
+             *     so an unrecorded origin is a named kind rather than a NULL blob (Q49).
+             */
+            provenance_kind: string | null;
+            /** Format: double */
+            raw_value: number;
+            /** Format: int32 */
+            replicate_index: number;
+            /** Format: uuid */
+            sample_id: string | null;
+            /** Format: uuid */
+            sensor_id: string | null;
+            /** Format: uuid */
+            site_id: string | null;
+            /**
+             * Format: uuid
+             * @description The hand-picked lab curve applied on top of the base calibration, for grab measurements.
+             */
+            standard_curve_id: string | null;
+            /** Format: uuid */
+            stream_id: string;
+            /** Format: date-time */
+            time: string;
+            /**
+             * @description An intern's entry that no manager has verified. Curated surfaces leave it out
+             *     (`common/served.rs`); only `reading_decisions` moves it, through its projection trigger.
+             */
+            unverified: boolean;
+            /**
+             * Format: date-time
+             * @description Retraction stamp: the source's claimed window no longer contains this reading. A withdrawn
+             *     reading is excluded from serving, statistics and alarms, and a later honest window that
+             *     re-asserts the row clears the stamp. Spot rows only (DB CHECK); never a delete.
+             */
+            withdrawn_at: string | null;
+            withdrawn_reason: string | null;
+        };
         ReadingsResponse: {
             /**
              * Format: date-time
@@ -13466,15 +13666,6 @@ export interface components {
             opened: number;
             resolved: number;
             updated: number;
-        };
-        RefreshAggregatesRequest: {
-            /**
-             * Format: date-time
-             * @description Rematerialise only from this instant to now. Omitted, the whole history is rematerialised,
-             *     which is the repair for a database edited out of band; the open bucket is served from the
-             *     raw rows and each policy already covers the rest.
-             */
-            since?: string | null;
         };
         RegisterAnnotationsRequest: {
             annotations: components["schemas"]["AnnotationUpsert"][];
@@ -14752,6 +14943,10 @@ export interface components {
             model?: string | null;
             name?: string | null;
             notes?: string | null;
+            /** Format: double */
+            range_max?: number | null;
+            /** Format: double */
+            range_min?: number | null;
             serial_number?: string | null;
         };
         /** @description One curve's usage on the instrument that owns it. */
@@ -14953,6 +15148,17 @@ export interface components {
             model: string | null;
             name: string | null;
             notes: string | null;
+            /**
+             * Format: double
+             * @description The highest value the manufacturer specifies this unit can measure.
+             */
+            range_max: number | null;
+            /**
+             * Format: double
+             * @description The lowest value the manufacturer specifies this unit can measure. Entered by hand; no
+             *     source feed supplies one, and NULL means unstated rather than unbounded.
+             */
+            range_min: number | null;
             /** Format: int64 */
             reading_count: number | null;
             serial_number: string | null;
@@ -15060,6 +15266,17 @@ export interface components {
             model: string | null;
             name: string | null;
             notes: string | null;
+            /**
+             * Format: double
+             * @description The highest value the manufacturer specifies this unit can measure.
+             */
+            range_max: number | null;
+            /**
+             * Format: double
+             * @description The lowest value the manufacturer specifies this unit can measure. Entered by hand; no
+             *     source feed supplies one, and NULL means unstated rather than unbounded.
+             */
+            range_min: number | null;
             /** Format: int64 */
             reading_count: number | null;
             serial_number: string | null;
@@ -15090,6 +15307,10 @@ export interface components {
             model?: string | null;
             name?: string | null;
             notes?: string | null;
+            /** Format: double */
+            range_max?: number | null;
+            /** Format: double */
+            range_min?: number | null;
             serial_number?: string | null;
         };
         /**
@@ -15933,14 +16154,6 @@ export interface components {
             /** Format: uuid */
             project_id?: string | null;
         };
-        SubscriberRow: {
-            keycloakSub: string;
-            /** Format: int64 */
-            pushSubscriptionCount: number;
-            /** Format: int64 */
-            subscriptionOverrides: number;
-            webPushEnabled: boolean;
-        };
         SubscriptionScope: {
             /**
              * @description The channel the row answers for, which is the notification kind (M163). Absent means
@@ -16108,22 +16321,25 @@ export interface components {
         SyncEventResponse: {
             /** Format: uuid */
             command_id: string | null;
+            /** Format: date-time */
             completed_at: string | null;
             /** Format: int64 */
             duration_ms: number | null;
-            /** @description The messages the pass reported, in order. */
-            errors: string[] | null;
+            errors: unknown;
             event_type: string;
             /** Format: uuid */
             id: string;
-            /** @description The lines the pass logged, in order. */
-            log: string[] | null;
-            /** Format: int64 */
+            log: unknown;
+            /**
+             * Format: int64
+             * @description Readings the cycle sent that ingest admission dropped.
+             */
             readings_skipped: number;
             /** Format: int64 */
             readings_synced: number;
             /** Format: uuid */
             service_id: string;
+            /** Format: date-time */
             started_at: string;
             status: string;
             /** Format: int64 */
@@ -16154,7 +16370,6 @@ export interface components {
         SyncServiceCreate: {
             current_operation?: string | null;
             instance_id: string;
-            last_error?: string | null;
             /** Format: date-time */
             last_sync_completed_at?: string | null;
             service_type: string;
@@ -16170,7 +16385,6 @@ export interface components {
         };
         SyncServiceCredentialList: {
             client_id: string;
-            client_secret_hash: string;
             /** Format: date-time */
             created_at: string;
             /** Format: uuid */
@@ -16189,7 +16403,6 @@ export interface components {
         };
         SyncServiceCredentialResponse: {
             client_id: string;
-            client_secret_hash: string;
             /** Format: date-time */
             created_at: string;
             /** Format: uuid */
@@ -16218,14 +16431,16 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             current_operation: string | null;
-            /**
-             * @description Whether the weekly `sync_full_reassert` queues a `trigger_full_sync` for this service.
-             *     Set through `PATCH /sync/services/{id}`.
-             */
+            /** @description Whether the weekly `sync_full_reassert` queues a `trigger_full_sync` for this service. */
             full_reassert_enabled: boolean;
             /** Format: uuid */
             id: string;
             instance_id: string;
+            /**
+             * @description The first error of the service's most recent cycle that reported one, filled by
+             *     `SyncServiceOperations` from `sync_events`. The column itself has never been written: a
+             *     service has no field to report an error through, so the row cannot carry one.
+             */
             last_error: string | null;
             /** Format: date-time */
             last_heartbeat: string | null;
@@ -16242,54 +16457,61 @@ export interface components {
             /**
              * Format: int32
              * @description Operator-set scheduled sync cadence in seconds. NULL leaves the service on its own
-             *     `SYNC_INTERVAL_SECONDS`. Set through `PATCH /sync/services/{id}`, which enforces the
-             *     minimum the runner floors at; generic CRUD must not write it around that check.
+             *     `SYNC_INTERVAL_SECONDS`. `SyncServiceOperations::before_update` enforces the minimum
+             *     the runner floors at.
              */
             sync_interval_secs: number | null;
             /** Format: date-time */
             updated_at: string;
         };
         SyncServiceResponse: {
+            /** Format: date-time */
             created_at: string;
             current_operation: string | null;
-            /** @description Whether the weekly full re-assert queues a `trigger_full_sync` for this service. */
+            /** @description Whether the weekly `sync_full_reassert` queues a `trigger_full_sync` for this service. */
             full_reassert_enabled: boolean;
-            health: string;
             /** Format: uuid */
             id: string;
             instance_id: string;
             /**
-             * @description The first error of the service's most recent cycle that reported one. Read from
-             *     `sync_events`, not from `sync_services.last_error`: nothing has ever written that column and
-             *     a service has no field to report an error through, so the row itself cannot carry one.
+             * @description The first error of the service's most recent cycle that reported one, filled by
+             *     `SyncServiceOperations` from `sync_events`. The column itself has never been written: a
+             *     service has no field to report an error through, so the row cannot carry one.
              */
             last_error: string | null;
+            /** Format: date-time */
             last_heartbeat: string | null;
+            /** Format: date-time */
             last_sync_completed_at: string | null;
             paused: boolean;
             service_type: string;
             /**
-             * @description The source system this service's registrations are written under; null where the credential
-             *     it enrolled on declares none.
+             * @description Copied from the credential at enrolment: the source system this service's registrations are
+             *     written under. Not a CRUD field, it belongs to the credential.
              */
             source_system: string | null;
             status: string;
             /**
              * Format: int32
-             * @description Operator-set scheduled cadence in seconds; null means the service's own configuration.
+             * @description Operator-set scheduled sync cadence in seconds. NULL leaves the service on its own
+             *     `SYNC_INTERVAL_SECONDS`. `SyncServiceOperations::before_update` enforces the minimum
+             *     the runner floors at.
              */
             sync_interval_secs: number | null;
+            /** Format: date-time */
             updated_at: string;
         };
         SyncServiceUpdate: {
             current_operation?: string | null;
+            full_reassert_enabled?: boolean | null;
             instance_id?: string | null;
-            last_error?: string | null;
             /** Format: date-time */
             last_sync_completed_at?: string | null;
             paused?: boolean | null;
             service_type?: string | null;
             status?: string | null;
+            /** Format: int32 */
+            sync_interval_secs?: number | null;
         };
         TestResult: {
             error: string | null;
@@ -16782,20 +17004,6 @@ export interface components {
              *     the other fields of this request behave.
              */
             parameter_group_id?: string | null;
-        };
-        /**
-         * @description Settings an operator may change on a registered service. Absent fields are left alone;
-         *     an explicit null clears the setting.
-         */
-        UpdateServiceRequest: {
-            /** @description Whether the weekly full re-assert queues a `trigger_full_sync` for this service. */
-            full_reassert_enabled?: boolean | null;
-            /**
-             * Format: int32
-             * @description Scheduled sync cadence in seconds. Null returns the service to its own
-             *     `SYNC_INTERVAL_SECONDS`. Below `MIN_SYNC_INTERVAL_SECS` is refused.
-             */
-            sync_interval_secs?: number | null;
         };
         UpdateSyncEventRequest: {
             /** Format: int64 */
@@ -17418,30 +17626,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReconcileAlarmsResponse"];
-                };
-            };
-        };
-    };
-    refresh_aggregates: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RefreshAggregatesRequest"];
-            };
-        };
-        responses: {
-            /** @description Refresh triggered */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["QueuedJobResponse"];
                 };
             };
         };
@@ -23368,6 +23552,135 @@ export interface operations {
             };
         };
     };
+    get_all_notification_subscribers: {
+        parameters: {
+            query?: {
+                /**
+                 * @description JSON-encoded filter for querying resources.
+                 *
+                 *     This parameter supports various filtering options:
+                 *     - Free text search: `{"q": "search text"}`
+                 *     - Filtering by a single ID: `{"id": "550e8400-e29b-41d4-a716-446655440000"}`
+                 *     - Filtering by multiple IDs: `{"id": ["550e8400-e29b-41d4-a716-446655440000", "550e8400-e29b-41d4-a716-446655440001"]}`
+                 *     - Filtering on other columns: `{"name": "example"}`
+                 * @example {
+                 *       "id": "550e8400-e29b-41d4-a716-446655440000",
+                 *       "name": "example",
+                 *       "q": "search text"
+                 *     }
+                 */
+                filter?: string;
+                /**
+                 * @description Range for pagination in the format "[start, end]".
+                 *
+                 *     Example: `[0,9]`
+                 * @example [0,9]
+                 */
+                range?: string;
+                /**
+                 * @description Page number for standard REST pagination (1-based).
+                 *
+                 *     Example: `1`
+                 * @example 1
+                 */
+                page?: number;
+                /**
+                 * @description Number of items per page for standard REST pagination.
+                 *
+                 *     Example: `10`
+                 * @example 10
+                 */
+                per_page?: number;
+                /**
+                 * @description Sort order for the results in the format `["column", "order"]`.
+                 *
+                 *     Example: `["id", "ASC"]`
+                 * @example ["id", "ASC"]
+                 */
+                sort?: string;
+                /**
+                 * @description Sort column for standard REST format.
+                 *
+                 *     Example: `title`
+                 * @example title
+                 */
+                sort_by?: string;
+                /**
+                 * @description Sort order for standard REST format (ASC or DESC).
+                 *
+                 *     Example: `ASC`
+                 * @example ASC
+                 */
+                order?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of resources */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationSubscriberList"][];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_one_notification_subscriber: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Resource identifier */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The requested resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationSubscriberResponse"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     list_channels: {
         parameters: {
             query?: never;
@@ -23574,26 +23887,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MyNotifications"];
-                };
-            };
-        };
-    };
-    list_subscribers: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Subscriber roster */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SubscriberRow"][];
                 };
             };
         };
@@ -25957,6 +26250,135 @@ export interface operations {
             };
         };
     };
+    get_all_reading_change_proposals: {
+        parameters: {
+            query?: {
+                /**
+                 * @description JSON-encoded filter for querying resources.
+                 *
+                 *     This parameter supports various filtering options:
+                 *     - Free text search: `{"q": "search text"}`
+                 *     - Filtering by a single ID: `{"id": "550e8400-e29b-41d4-a716-446655440000"}`
+                 *     - Filtering by multiple IDs: `{"id": ["550e8400-e29b-41d4-a716-446655440000", "550e8400-e29b-41d4-a716-446655440001"]}`
+                 *     - Filtering on other columns: `{"name": "example"}`
+                 * @example {
+                 *       "id": "550e8400-e29b-41d4-a716-446655440000",
+                 *       "name": "example",
+                 *       "q": "search text"
+                 *     }
+                 */
+                filter?: string;
+                /**
+                 * @description Range for pagination in the format "[start, end]".
+                 *
+                 *     Example: `[0,9]`
+                 * @example [0,9]
+                 */
+                range?: string;
+                /**
+                 * @description Page number for standard REST pagination (1-based).
+                 *
+                 *     Example: `1`
+                 * @example 1
+                 */
+                page?: number;
+                /**
+                 * @description Number of items per page for standard REST pagination.
+                 *
+                 *     Example: `10`
+                 * @example 10
+                 */
+                per_page?: number;
+                /**
+                 * @description Sort order for the results in the format `["column", "order"]`.
+                 *
+                 *     Example: `["id", "ASC"]`
+                 * @example ["id", "ASC"]
+                 */
+                sort?: string;
+                /**
+                 * @description Sort column for standard REST format.
+                 *
+                 *     Example: `title`
+                 * @example title
+                 */
+                sort_by?: string;
+                /**
+                 * @description Sort order for standard REST format (ASC or DESC).
+                 *
+                 *     Example: `ASC`
+                 * @example ASC
+                 */
+                order?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of resources */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadingChangeProposalList"][];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_one_reading_change_proposal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Resource identifier */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The requested resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadingChangeProposalResponse"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     get_all_reading_decisions: {
         parameters: {
             query?: {
@@ -26076,6 +26498,91 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_all_readings: {
+        parameters: {
+            query?: {
+                /**
+                 * @description JSON-encoded filter for querying resources.
+                 *
+                 *     This parameter supports various filtering options:
+                 *     - Free text search: `{"q": "search text"}`
+                 *     - Filtering by a single ID: `{"id": "550e8400-e29b-41d4-a716-446655440000"}`
+                 *     - Filtering by multiple IDs: `{"id": ["550e8400-e29b-41d4-a716-446655440000", "550e8400-e29b-41d4-a716-446655440001"]}`
+                 *     - Filtering on other columns: `{"name": "example"}`
+                 * @example {
+                 *       "id": "550e8400-e29b-41d4-a716-446655440000",
+                 *       "name": "example",
+                 *       "q": "search text"
+                 *     }
+                 */
+                filter?: string;
+                /**
+                 * @description Range for pagination in the format "[start, end]".
+                 *
+                 *     Example: `[0,9]`
+                 * @example [0,9]
+                 */
+                range?: string;
+                /**
+                 * @description Page number for standard REST pagination (1-based).
+                 *
+                 *     Example: `1`
+                 * @example 1
+                 */
+                page?: number;
+                /**
+                 * @description Number of items per page for standard REST pagination.
+                 *
+                 *     Example: `10`
+                 * @example 10
+                 */
+                per_page?: number;
+                /**
+                 * @description Sort order for the results in the format `["column", "order"]`.
+                 *
+                 *     Example: `["id", "ASC"]`
+                 * @example ["id", "ASC"]
+                 */
+                sort?: string;
+                /**
+                 * @description Sort column for standard REST format.
+                 *
+                 *     Example: `title`
+                 * @example title
+                 */
+                sort_by?: string;
+                /**
+                 * @description Sort order for standard REST format (ASC or DESC).
+                 *
+                 *     Example: `ASC`
+                 * @example ASC
+                 */
+                order?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of resources */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadingList"][];
+                };
             };
             /** @description Internal Server Error */
             500: {
@@ -32676,30 +33183,6 @@ export interface operations {
             };
         };
     };
-    list_proposals: {
-        parameters: {
-            query?: {
-                /** @description `pending` (the default view of the queue), `accepted` or `rejected`. */
-                status?: string | null;
-                stream_id?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Proposed corrections */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Proposal"][];
-                };
-            };
-        };
-    };
     decide_proposals: {
         parameters: {
             query?: never;
@@ -32724,65 +33207,6 @@ export interface operations {
             };
             /** @description An unrecognised decision */
             400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    list_commands: {
-        parameters: {
-            query?: {
-                page?: number;
-                per_page?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Page of commands. Response includes a `Content-Range` header with `items start-end/total` for pagination. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SyncCommandResponse"][];
-                };
-            };
-            /** @description per_page is zero */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    get_command: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Command UUID */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SyncCommandResponse"];
-                };
-            };
-            /** @description Command not found */
-            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -32842,26 +33266,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-        };
-    };
-    list_credentials: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Credentials list (no secrets) */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CredentialResponse"][];
-                };
             };
         };
     };
@@ -32943,36 +33347,6 @@ export interface operations {
             };
             /** @description Invalid client credentials; the reason is not disclosed */
             401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    list_sync_events: {
-        parameters: {
-            query?: {
-                page?: number;
-                per_page?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Page of sync events. Response includes a `Content-Range` header. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SyncEventResponse"][];
-                };
-            };
-            /** @description per_page is zero */
-            400: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -33673,97 +34047,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DuplicateSlotsResponse"];
                 };
-            };
-        };
-    };
-    list_services: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Registered sync services with health */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SyncServiceResponse"][];
-                };
-            };
-        };
-    };
-    get_service: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Sync service UUID */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Sync service detail */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SyncServiceResponse"];
-                };
-            };
-            /** @description Service not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    update_service: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Sync service UUID */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateServiceRequest"];
-            };
-        };
-        responses: {
-            /** @description Updated service */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SyncServiceResponse"];
-                };
-            };
-            /** @description Cadence below the minimum */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Service not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
         };
     };

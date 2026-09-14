@@ -24,7 +24,6 @@ export function provenanceKindLabel(kind: string | undefined): string | undefine
 		batch: 'API batch',
 		sync: 'sync service',
 		derived: 'derived parameter',
-		migration: 'origin not recorded',
 	};
 	return labels[kind] ?? kind;
 }

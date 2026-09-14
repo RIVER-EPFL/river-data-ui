@@ -92,6 +92,7 @@ describe('pairing entry status', () => {
 				units: 'mm',
 				group_key: null,
 				group: null,
+				calculation: null,
 				original_names: [],
 			},
 		});
