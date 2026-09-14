@@ -8,7 +8,8 @@
 	// audit / sync / anything else lands on the Logs tab.
 	onMount(() => {
 		const tab = page.url.searchParams.get('tab') === 'jobs' ? 'jobs' : 'logs';
-		goto(`${base}/system?tab=${tab}`, { replaceState: true });
+		const job = page.url.searchParams.get('job');
+		goto(`${base}/system?tab=${tab}${job ? `&job=${job}` : ''}`, { replaceState: true });
 	});
 </script>
 

@@ -4354,6 +4354,28 @@ export interface paths {
         patch: operations["update_many_schedules"];
         trace?: never;
     };
+    "/api/schedules/runnable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * `GET /api/schedules/runnable`, every job kind a person may run off-cadence, by name, with what
+         *     each one needs and the cadence it also runs on where it has one. Requires `read_metadata`.
+         * @description The `schedules` table holds a row only for a kind with a default cadence, so it is not the list
+         *     of what can be run: the registry is.
+         */
+        get: operations["list_runnable"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/schedules/{id}": {
         parameters: {
             query?: never;
@@ -11723,6 +11745,25 @@ export interface components {
              */
             values: number;
         };
+        /**
+         * @description What one kind needs before a person can run it off-cadence.
+         *
+         *     Three answers, and every kind gives one (I94): a kind reached only from its own action route
+         *     is `NotOffered` and is not listed; one whose `run` reads nothing from `params` is a button;
+         *     one that reads a target or a window declares each input, and both the refusal and the form are
+         *     built from that declaration. There is no free JSON field anywhere (Evan, Q165).
+         */
+        ManualRun: {
+            /** @enum {string} */
+            offer: "not_offered";
+        } | {
+            /** @enum {string} */
+            offer: "no_parameters";
+        } | {
+            /** @enum {string} */
+            offer: "declared";
+            params: components["schemas"]["ParamSpec"][];
+        };
         Me: {
             email: string | null;
             /**
@@ -12458,6 +12499,16 @@ export interface components {
             any_of?: unknown[] | null;
             equals?: unknown;
             param: string;
+        };
+        /** @enum {string} */
+        ParamKind: "uuid" | "instant" | "text" | "bool" | "number" | "uuid_list" | "pair_list";
+        /** @description One input a manual run supplies, as the form renders it and the refusal names it. */
+        ParamSpec: {
+            kind: components["schemas"]["ParamKind"];
+            /** @description What the control is labelled, and what the 400 calls the input. */
+            label: string;
+            name: string;
+            required: boolean;
         };
         /**
          * @description A param's `when`. A plain string is an advisory note and gates nothing; the object form is a
@@ -14874,6 +14925,21 @@ export interface components {
             enqueued: boolean;
             /** Format: uuid */
             job_id: string | null;
+        };
+        /**
+         * @description One kind a person may run off-cadence, as the page lists it: what it needs, and the cadence it
+         *     also runs on where it has one.
+         */
+        RunnableJob: {
+            /** @description Whether the cadence is switched on, where it has one. */
+            enabled?: boolean | null;
+            /**
+             * Format: int64
+             * @description Absent where the kind has no schedule at all, which the page reads as on demand.
+             */
+            interval_seconds?: number | null;
+            job_name: string;
+            manual_run: components["schemas"]["ManualRun"];
         };
         SampleCreate: {
             /** Format: date-time */
@@ -29839,6 +29905,26 @@ export interface operations {
                 };
                 content: {
                     "text/plain": string;
+                };
+            };
+        };
+    };
+    list_runnable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The kinds a person may run, by name */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunnableJob"][];
                 };
             };
         };

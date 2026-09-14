@@ -26,6 +26,7 @@
 		detail,
 		detailActions,
 		rowClass,
+		openOnLoad,
 	}: {
 		load: (args: { page: number; perPage: number }) => Promise<{ data: T[]; total: number }>;
 		perPage?: number;
@@ -44,6 +45,8 @@
 		detailMaxWidth?: 'sm' | 'md' | 'lg';
 		detail?: Snippet<[T, DetailCtx]>;
 		detailActions?: Snippet<[T, DetailCtx]>;
+		/** The row a deep link asks for, opened once when the page it is on first arrives. */
+		openOnLoad?: (item: T) => boolean;
 	} = $props();
 
 	let items = $state<T[]>([]);
@@ -96,6 +99,10 @@
 
 	onMount(async () => {
 		await fetchPage();
+		if (openOnLoad) {
+			const asked = items.find(openOnLoad);
+			if (asked) handleRow(asked);
+		}
 		if (pollWhile) {
 			pollTimer = setInterval(() => {
 				if (pollWhile(items)) fetchPage();

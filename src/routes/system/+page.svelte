@@ -51,6 +51,7 @@
 	import { serviceHealth } from '$lib/sync/health';
 	import NotificationHealthNotice from '$components/notifications/NotificationHealthNotice.svelte';
 	import InvariantReportsPanel from '$components/logs/InvariantReportsPanel.svelte';
+	import RunJobPanel from '$components/logs/RunJobPanel.svelte';
 
 	// Local-only mode and the Administrator role both hold the admin capability. The API-audit /
 	// sync-events panels and schedule edits need admin; non-admins see a notice rather than failing
@@ -68,6 +69,9 @@
 	// The Audits view moved to /streams; old deep links follow it there. Captured synchronously so
 	// the tab writeback rewriting ?tab can't erase the request before the redirect fires.
 	const requestedTab = page.url.searchParams.get('tab');
+	// A notification links to the job it announced; read once, before the tab writeback rewrites
+	// the query.
+	const requestedJob = page.url.searchParams.get('job');
 	onMount(() => {
 		if (requestedTab === 'audits' || requestedTab === 'replicate_audits' || requestedTab === 'holds') {
 			goto(`${base}/streams?tab=audits`, { replaceState: true });
@@ -784,8 +788,14 @@
 			</div>
 		{/if}
 	{:else if tab.key === 'jobs'}
-		<JobsPanel />
+		<JobsPanel openJobId={requestedJob} />
 	{:else if tab.key === 'schedules'}
+		<!-- Run by hand: every kind, whether or not it has a cadence -->
+		<section class="space-y-2">
+			<h3 class="text-sm font-semibold uppercase tracking-wide text-brand-muted">Run a job</h3>
+			<RunJobPanel canRun={isAdmin} />
+		</section>
+
 		<!-- Schedules: recurring background services -->
 		<div class="flex items-center justify-between">
 			<p class="text-sm text-brand-muted">

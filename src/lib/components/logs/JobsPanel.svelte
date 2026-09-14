@@ -15,6 +15,9 @@
 	import Button from '$components/ui/Button.svelte';
 	import EventPanel from '$components/logs/EventPanel.svelte';
 
+	// The job a notification links to, so the row that announced itself is the one that opens.
+	let { openJobId = null }: { openJobId?: string | null } = $props();
+
 	const PER_PAGE = 100;
 	const CATEGORIES = ['all', 'operator', 'metadata', 'maintenance'] as const;
 
@@ -113,6 +116,9 @@
 		if (job.trigger_type === 'derived_recompute' && job.trigger_id) {
 			return { label: derivedMap.get(job.trigger_id) ?? job.trigger_id, href: `${base}/derived/${job.trigger_id}` };
 		}
+		if ((job.trigger_type === 'plan_apply' || job.trigger_type === 'plan_revert') && job.trigger_id) {
+			return { label: 'Pairing plan', href: `${base}/streams?step=results&plan=${job.trigger_id}` };
+		}
 		if (job.trigger_type === 'replicate_reconciliation' || job.trigger_type === 'replicate_reconciliation_delete') {
 			const scope = job.detail?.scope as Record<string, unknown> | undefined;
 			const source = typeof scope?.source_system === 'string' ? scope.source_system : 'Streams';
@@ -157,6 +163,7 @@
 	emptyText="No jobs"
 	pollWhile={(jobs) => jobs.some((j) => j.status === 'pending' || j.status === 'running')}
 	onOpenDetail={loadLogs}
+	openOnLoad={openJobId ? (job) => job.id === openJobId : undefined}
 	detailTitle="Job Detail"
 	detailMaxWidth="sm"
 >

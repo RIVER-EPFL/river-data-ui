@@ -1544,8 +1544,16 @@ export const getSchedule = (jobName: string) =>
 export const updateSchedule = (jobName: string, body: ScheduleUpdate) =>
 	PUT<Schedule>(`${ADMIN}/schedules/${encodeURIComponent(jobName)}`, body);
 
-export const runScheduleNow = (jobName: string) =>
-	POST<RunNowResponse>(`${ADMIN}/schedules/${encodeURIComponent(jobName)}/run_now`);
+export type RunnableJob = components['schemas']['RunnableJob'];
+
+export type ParamSpec = components['schemas']['ParamSpec'];
+
+// Every kind a person may run, which is not the schedules list: a row exists there only for a kind
+// with a default cadence, and most on-demand kinds have none.
+export const listRunnableJobs = () => GET<RunnableJob[]>(`${ADMIN}/schedules/runnable`);
+
+export const runScheduleNow = (jobName: string, inputs?: Record<string, unknown>) =>
+	POST<RunNowResponse>(`${ADMIN}/schedules/${encodeURIComponent(jobName)}/run_now`, inputs);
 
 export const getScheduleAudit = (jobName: string) =>
 	GET<ScheduleAuditEntry[]>(`${ADMIN}/schedules/${encodeURIComponent(jobName)}/audit`);

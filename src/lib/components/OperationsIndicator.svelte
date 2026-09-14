@@ -6,7 +6,13 @@
 	import { me } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { eventBus } from '$lib/stores/events.svelte';
-	import { formatRelativeTime, triggerLabel, holdKindBreakdown, headlineFor } from '$lib/utils';
+	import {
+		formatRelativeTime,
+		triggerLabel,
+		holdKindBreakdown,
+		headlineFor,
+		jobDetailPath,
+	} from '$lib/utils';
 
 	const POLL_MS = 10_000;
 	const RECENT_LINGER_MS = 5000;
@@ -189,7 +195,10 @@
 				{:else}
 					{#each [...activeJobs, ...recentJobs] as job (job.id)}
 						{@const pct = progressPercent(job)}
-						<div class="px-3 py-2 border-b border-brand-divider last:border-b-0">
+						<a
+							href="{base}{jobDetailPath(job.id)}"
+							class="block px-3 py-2 border-b border-brand-divider last:border-b-0 no-underline text-brand-text hover:bg-brand-bg"
+						>
 							<div class="flex items-center gap-2">
 								<span class="w-2 h-2 rounded-full shrink-0 {statusDotClass(job.status)}"></span>
 								<span class="text-sm font-medium">{triggerLabel(job.trigger_type)}</span>
@@ -209,12 +218,15 @@
 							{#if job.status === 'failed' && job.error_message}
 								<p class="mt-1 text-xs text-severity-alarm break-words">{job.error_message}</p>
 							{/if}
-						</div>
+						</a>
 					{/each}
 					{#if completedJobs.length > 0}
 						<div class="px-3 py-1.5 text-xs font-semibold text-brand-muted bg-brand-bg">Recent</div>
 						{#each completedJobs as job (job.id)}
-							<div class="px-3 py-2 border-b border-brand-divider last:border-b-0 opacity-60">
+							<a
+								href="{base}{jobDetailPath(job.id)}"
+								class="block px-3 py-2 border-b border-brand-divider last:border-b-0 opacity-60 no-underline text-brand-text hover:bg-brand-bg"
+							>
 								<div class="flex items-center gap-2">
 									<span class="w-2 h-2 rounded-full shrink-0 {statusDotClass(job.status)}"></span>
 									<span class="text-sm">{triggerLabel(job.trigger_type)}</span>
@@ -227,7 +239,7 @@
 								{#if job.status === 'failed' && job.error_message}
 									<p class="mt-1 text-xs text-severity-alarm break-words">{job.error_message}</p>
 								{/if}
-							</div>
+							</a>
 						{/each}
 					{/if}
 				{/if}

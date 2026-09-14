@@ -231,6 +231,11 @@ export function countLabel(key: string): string {
 	}
 }
 
+/** The System page's Jobs tab, opened on one job: where a notification about a job leads. */
+export function jobDetailPath(jobId: string): string {
+	return `/system?tab=jobs&job=${encodeURIComponent(jobId)}`;
+}
+
 export function triggerLabel(triggerType: string): string {
 	switch (triggerType) {
 		case 'janitor_service': return 'Janitor sweep';
@@ -248,6 +253,8 @@ export function triggerLabel(triggerType: string): string {
 		case 'compute_derived': return 'Compute derived';
 		case 'csv_import': return 'CSV import';
 		case 'pairing_backfill': return 'Pairing backfill';
+		case 'plan_apply': return 'Applying pairing plan';
+		case 'plan_revert': return 'Reverting pairing plan';
 		case 'replicate_reconciliation': return 'Replicate migration';
 		case 'replicate_reconciliation_delete': return 'Replicate migration cleanup';
 		default: return triggerType;
