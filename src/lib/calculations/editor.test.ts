@@ -3,10 +3,9 @@ import { describe, expect, it } from 'vitest';
 import type { Constant, Parameter } from '$api/crud';
 import {
 	blankFormula,
+	dependencyOrder,
 	draftRunBody,
 	inputRows,
-	moved,
-	ordinalChanges,
 	outputRows,
 	parseReplicates,
 	type EditableFormula,
@@ -66,31 +65,40 @@ describe('inputs of a formula set', () => {
 });
 
 describe('ordering', () => {
-	it('swaps ordinals with the neighbour and reports only the rows that moved', () => {
-		const after = moved(set, 2, -1)!;
-		expect(after.map((f) => f.code)).toEqual(['CO2_HS_Um', 'bp', 'pCO2_HS_uatm']);
-		expect(ordinalChanges(set, after)).toEqual([
-			{ id: 'c', ordinal: 2 },
-			{ id: 'b', ordinal: 3 },
-		]);
-	});
-
-	it('renumbers rows sharing an ordinal so they can trade places', () => {
-		const tied = [
-			formula({ id: 'x', code: 'x', ordinal: 0 }),
-			formula({ id: 'y', code: 'y', ordinal: 0 }),
+	it('puts a formula after every formula whose code it reads', () => {
+		// `pCO2_HS_uatm` reads `CO2_HS_Um`, whatever the ordinals say.
+		const shuffled = [
+			formula({ id: 'b', code: 'pCO2_HS_uatm', formula: 'CO2_HS_Um / kh', ordinal: 1 }),
+			formula({ id: 'a', code: 'CO2_HS_Um', formula: 'lab_co2_co2ppm * R', ordinal: 2 }),
 		];
-		const after = moved(tied, 1, -1)!;
-		expect(after.map((f) => f.code)).toEqual(['y', 'x']);
-		expect(ordinalChanges(tied, after)).toEqual([
-			{ id: 'y', ordinal: 1 },
-			{ id: 'x', ordinal: 2 },
-		]);
+		expect(dependencyOrder(shuffled).map((f) => f.code)).toEqual(['CO2_HS_Um', 'pCO2_HS_uatm']);
 	});
 
-	it('refuses a move off either end', () => {
-		expect(moved(set, 0, -1)).toBeNull();
-		expect(moved(set, 2, 1)).toBeNull();
+	it('keeps ordinal then code between two formulas that read nothing of each other', () => {
+		const loose = [
+			formula({ id: 'y', code: 'y', formula: 'Depth * 2', ordinal: 2 }),
+			formula({ id: 'x', code: 'x', formula: 'Depth * 3', ordinal: 1 }),
+			formula({ id: 'w', code: 'a', formula: 'Depth * 4', ordinal: 1 }),
+		];
+		expect(dependencyOrder(loose).map((f) => f.code)).toEqual(['a', 'x', 'y']);
+	});
+
+	it('reads a shared step like any other step of the set, whatever its ordinal', () => {
+		// A declared step carries the ordinal it has in the calculation that wrote it, which is
+		// no order at all here: what orders it is that `pco2_out` reads it.
+		const withShared = [
+			formula({ id: 'out', code: 'pco2_out', formula: 'bp * 2', ordinal: 1 }),
+			formula({ id: 'step', code: 'bp', formula: 'Field_BP * 1', ordinal: 7, intermediate: true, declarationId: 'd1' }),
+		];
+		expect(dependencyOrder(withShared).map((f) => f.code)).toEqual(['bp', 'pco2_out']);
+	});
+
+	it('still lists every formula when two read each other', () => {
+		const cycle = [
+			formula({ id: 'p', code: 'p', formula: 'q + 1', ordinal: 1 }),
+			formula({ id: 'q', code: 'q', formula: 'p + 1', ordinal: 2 }),
+		];
+		expect(dependencyOrder(cycle).map((f) => f.code)).toEqual(['p', 'q']);
 	});
 
 	it('places a new formula after the last', () => {

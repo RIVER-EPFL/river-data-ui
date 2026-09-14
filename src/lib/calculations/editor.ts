@@ -13,6 +13,11 @@ export interface EditableFormula extends FormulaDraft {
 	curve_slot: string;
 	per_replicate: string;
 	intermediate: boolean;
+	/**
+	 * The declaration this calculation reads the step through, when the step belongs to no
+	 * calculation. Null on a formula of this calculation's own.
+	 */
+	declarationId?: string | null;
 }
 
 export function editableFormula(stored: DerivedParameter): EditableFormula {
@@ -45,35 +50,47 @@ export function blankFormula(existing: EditableFormula[]): EditableFormula {
 	};
 }
 
-/** The calculation's formulas in evaluation order: ordinal, then code for a shared ordinal. */
+/** The tie-break between two formulas neither of which reads the other: ordinal, then code. */
 export function inOrder<T extends { ordinal: number; code: string }>(formulas: T[]): T[] {
 	return [...formulas].sort((a, b) => a.ordinal - b.ordinal || a.code.localeCompare(b.code));
 }
 
 /**
- * Move one formula a step up or down, as ordinal swaps. Every row is renumbered from 1 first so
- * that two formulas sharing an ordinal (one saved under the default 0, say) can still trade
- * places. Returns the rows in their new order, or null when the move falls off either end.
+ * The formulas in the order the dependencies give them: a formula comes after every formula whose
+ * code it reads, and two that read nothing of each other keep the tie-break above. This is what
+ * the server evaluates them in, so the page shows that rather than a hand-set order.
+ *
+ * A cycle is refused by the server; here its members are appended in the tie-break order, so the
+ * list still shows every formula while the page is being written.
  */
-export function moved(formulas: EditableFormula[], index: number, delta: number): EditableFormula[] | null {
-	const ordered = inOrder(formulas).map((f, i) => ({ ...f, ordinal: i + 1 }));
-	const target = index + delta;
-	if (index < 0 || index >= ordered.length || target < 0 || target >= ordered.length) return null;
-	const a = ordered[index]!;
-	const b = ordered[target]!;
-	[a.ordinal, b.ordinal] = [b.ordinal, a.ordinal];
-	return inOrder(ordered);
-}
+export function dependencyOrder<T extends { ordinal: number; code: string; formula: string }>(
+	formulas: T[],
+): T[] {
+	const candidates = inOrder(formulas);
+	const codes = new Map<string, T>();
+	for (const f of candidates) {
+		const code = f.code.trim();
+		if (code && !codes.has(code)) codes.set(code, f);
+	}
+	const reads = (f: T) =>
+		identifiers(f.formula)
+			.map(({ name }) => name)
+			.filter((name) => name !== f.code.trim() && codes.has(name));
 
-/** The stored rows whose ordinal differs from the one the editor now holds. */
-export function ordinalChanges(
-	before: EditableFormula[],
-	after: EditableFormula[],
-): Array<{ id: string; ordinal: number }> {
-	const was = new Map(before.filter((f) => f.id).map((f) => [f.id!, f.ordinal]));
-	return after
-		.filter((f) => f.id && was.get(f.id) !== f.ordinal)
-		.map((f) => ({ id: f.id!, ordinal: f.ordinal }));
+	const ordered: T[] = [];
+	const placed = new Set<string>();
+	let remaining = [...candidates];
+	while (remaining.length > 0) {
+		const ready = remaining.filter((f) => reads(f).every((name) => placed.has(name)));
+		if (ready.length === 0) break;
+		for (const f of ready) {
+			ordered.push(f);
+			const code = f.code.trim();
+			if (code) placed.add(code);
+		}
+		remaining = remaining.filter((f) => !ready.includes(f));
+	}
+	return [...ordered, ...remaining];
 }
 
 /** The body a formula's create or update carries. */
@@ -154,7 +171,7 @@ export function inputRows(
 
 /** What the calculation publishes: every formula that is not a step, in order. */
 export function outputRows(formulas: EditableFormula[]) {
-	return inOrder(formulas)
+	return dependencyOrder(formulas)
 		.filter((f) => !f.intermediate)
 		.map((f) => ({
 			code: f.code,
@@ -192,7 +209,7 @@ export function draftRunBody(
 		if (values.length > 0) inputs[name] = values;
 	}
 	return {
-		formulas: inOrder(formulas)
+		formulas: dependencyOrder(formulas)
 			.filter((f) => f.code.trim().length > 0)
 			.map((f) => ({
 				code: f.code.trim(),

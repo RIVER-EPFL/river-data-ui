@@ -1291,6 +1291,12 @@ export type ToolValidateResponse = components['schemas']['ValidateResponse'];
 
 export type ToolActivationRecord = components['schemas']['ActivationRecord'];
 
+/** Every calculation that reads one step, and the formulas inside each that name it. */
+export type StepDependents = components['schemas']['StepDependents'];
+
+export const getStepDependents = (formulaId: string) =>
+	GET<StepDependents>(`${ADMIN}/derived_parameters/${formulaId}/dependents`);
+
 export const listToolScripts = () => GET<ToolScriptSummary[]>(`${ADMIN}/tool_scripts`);
 
 export const getToolScript = (id: string) => GET<ToolScriptDetail>(`${ADMIN}/tool_scripts/${id}`);

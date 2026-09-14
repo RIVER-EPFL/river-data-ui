@@ -983,6 +983,117 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/calculation_shared_steps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get all calculation_shared_steps
+         * @description Retrieves all calculation_shared_steps.
+         *
+         *     This resource manages calculation_shared_step items
+         *
+         *     Additional sortable columns:
+         *     - tool_script_id
+         *     - formula_id
+         *     - created_at.
+         *
+         *     Additional filterable columns:
+         *     - tool_script_id
+         *     - formula_id.
+         */
+        get: operations["get_all_calculation_shared_steps"];
+        put?: never;
+        /**
+         * Create one calculation_shared_step
+         * @description Creates a new calculation_shared_step.
+         *
+         *     This resource manages calculation_shared_step items
+         */
+        post: operations["create_one_calculation_shared_step"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/calculation_shared_steps/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create many calculation_shared_steps
+         * @description Creates multiple calculation_shared_steps in a batch. Limited to 100 items per request.
+         *
+         *     Use `?partial=true` for partial success mode (commits successful items even if some fail).
+         *
+         *     This resource manages calculation_shared_step items
+         */
+        post: operations["create_many_calculation_shared_steps"];
+        /**
+         * Delete many calculation_shared_steps
+         * @description Deletes many calculation_shared_steps by their IDs and returns array of deleted UUIDs.
+         *
+         *     Use `?partial=true` for partial success mode (deletes valid items even if some fail).
+         *
+         *     This resource manages calculation_shared_step items
+         */
+        delete: operations["delete_many_calculation_shared_steps"];
+        options?: never;
+        head?: never;
+        /**
+         * Update many calculation_shared_steps
+         * @description Updates multiple calculation_shared_steps in a batch. Limited to 100 items per request.
+         *
+         *     Use `?partial=true` for partial success mode (commits successful items even if some fail).
+         *
+         *     This resource manages calculation_shared_step items
+         */
+        patch: operations["update_many_calculation_shared_steps"];
+        trace?: never;
+    };
+    "/api/calculation_shared_steps/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one calculation_shared_step
+         * @description Retrieves one calculation_shared_step by its ID.
+         *
+         *     This resource manages calculation_shared_step items
+         */
+        get: operations["get_one_calculation_shared_step"];
+        /**
+         * Update one calculation_shared_step
+         * @description Updates one calculation_shared_step by its ID.
+         *
+         *     This resource manages calculation_shared_step items
+         */
+        put: operations["update_one_calculation_shared_step"];
+        post?: never;
+        /**
+         * Delete one calculation_shared_step
+         * @description Deletes one calculation_shared_step by its ID.
+         *
+         *     This resource manages calculation_shared_step items
+         */
+        delete: operations["delete_one_calculation_shared_step"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/calculations/closure": {
         parameters: {
             query?: never;
@@ -1719,6 +1830,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/derived_parameters/{id}/dependents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every calculation that reads this step, and the formulas inside each that name it (M208). A
+         *     step mints no catalog parameter, so the parameter graph cannot answer this. Requires
+         *     `read_data`.
+         */
+        get: operations["step_dependents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/events": {
         parameters: {
             query?: never;
@@ -1908,6 +2040,23 @@ export interface paths {
          *     like `/api/me`. Projects and subprojects without sites are omitted.
          */
         get: operations["get_my_sites"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/meteoswiss/stations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The stations a site may subscribe to, nearest first. Requires `read_metadata`. */
+        get: operations["list_stations"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3626,7 +3775,10 @@ export interface paths {
         put?: never;
         /**
          * `POST /api/readings/import_csv/chunk`, one slice of a file that does not fit in one request.
-         *     The session accumulates the text; the import then names the session instead of carrying a body.
+         *     The chunks accumulate as rows of `csv_import_chunks`; the import then names the session instead
+         *     of carrying a body. The rows are the session, so an upload survives a restart and a chunk that
+         *     reaches another replica appends to the same file. An upload that stops part-way is removed by
+         *     the janitor after `IMPORT_SESSION_RETENTION_MINUTES`.
          */
         post: operations["import_csv_chunk"];
         delete?: never;
@@ -4263,8 +4415,9 @@ export interface paths {
         put?: never;
         /**
          * `POST /api/schedules/{job_name}/run_now`, fire one off-cadence run with the schedule's current
-         *     tunables snapshot. 404 if `job_name` is not a known job. Requires `write_metadata` (+ non-scoped
-         *     token).
+         *     tunables snapshot and whatever inputs the kind declares. 404 if `job_name` is not a known job,
+         *     400 if it is not run by hand or an input it declares is missing. Requires `write_metadata`
+         *     (+ non-scoped token).
          */
         post: operations["run_now"];
         delete?: never;
@@ -8729,6 +8882,50 @@ export interface components {
             version_id?: string;
             /** Format: int32 */
             version_no?: number;
+        };
+        CalculationSharedStepCreate: {
+            /** Format: uuid */
+            formula_id: string;
+            /** Format: uuid */
+            tool_script_id: string;
+        };
+        CalculationSharedStepList: {
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * Format: uuid
+             * @description The step it reads, which is a formula row owned by no calculation.
+             */
+            formula_id: string;
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: uuid
+             * @description The calculation that reads the step.
+             */
+            tool_script_id: string;
+        };
+        CalculationSharedStepResponse: {
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * Format: uuid
+             * @description The step it reads, which is a formula row owned by no calculation.
+             */
+            formula_id: string;
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: uuid
+             * @description The calculation that reads the step.
+             */
+            tool_script_id: string;
+        };
+        CalculationSharedStepUpdate: {
+            /** Format: uuid */
+            formula_id?: string | null;
+            /** Format: uuid */
+            tool_script_id?: string | null;
         };
         CalibrationBackfillCandidate: {
             /** Format: date-time */
@@ -16326,6 +16523,35 @@ export interface components {
             /** Format: uuid */
             job_id: string;
         };
+        /**
+         * @description One station offered to a picker: what the list holds, plus how far it is from the site being
+         *     configured where that site has coordinates.
+         */
+        StationCandidate: {
+            /** Format: date */
+            data_since?: string | null;
+            /**
+             * Format: double
+             * @description Great-circle distance from the site, absent where either end has no coordinates.
+             */
+            distance_km?: number | null;
+            /**
+             * Format: double
+             * @description The elevation the barometer sits at, which a station reporting no pressure leaves empty.
+             */
+            height_barometer_masl?: number | null;
+            /**
+             * Format: double
+             * @description The station's own elevation, which every published station carries.
+             */
+            height_masl?: number | null;
+            /** Format: double */
+            latitude?: number | null;
+            /** Format: double */
+            longitude?: number | null;
+            name: string;
+            station_abbr: string;
+        };
         StatisticsResponse: {
             /** Format: date-time */
             end?: string;
@@ -16367,6 +16593,33 @@ export interface components {
              * @description Total events matching the time range (ignores limit/offset)
              */
             total: number;
+        };
+        /**
+         * @description What a step feeds: one calculation that computes it, and the formulas inside that calculation
+         *     whose text reads the step's code.
+         */
+        StepDependent: {
+            formulas: components["schemas"]["StepReader"][];
+            label: string;
+            name: string;
+            /** @description Whether the calculation owns the step, rather than declaring one owned by nobody. */
+            owns: boolean;
+            /** Format: uuid */
+            tool_script_id: string;
+        };
+        /** @description Everything that reads one step, which is what its page shows before its expression is edited. */
+        StepDependents: {
+            calculations: components["schemas"]["StepDependent"][];
+            code: string;
+            /** Format: uuid */
+            formula_id: string;
+            /** @description True when the step belongs to no calculation, which is what makes it shareable (Q156). */
+            shared: boolean;
+        };
+        /** @description One formula that reads the step. */
+        StepReader: {
+            code: string;
+            formula: string;
         };
         StreamPreviewResponse: {
             instants: components["schemas"]["PreviewInstant"][];
@@ -19501,6 +19754,454 @@ export interface operations {
             };
         };
     };
+    get_all_calculation_shared_steps: {
+        parameters: {
+            query?: {
+                /**
+                 * @description JSON-encoded filter for querying resources.
+                 *
+                 *     This parameter supports various filtering options:
+                 *     - Free text search: `{"q": "search text"}`
+                 *     - Filtering by a single ID: `{"id": "550e8400-e29b-41d4-a716-446655440000"}`
+                 *     - Filtering by multiple IDs: `{"id": ["550e8400-e29b-41d4-a716-446655440000", "550e8400-e29b-41d4-a716-446655440001"]}`
+                 *     - Filtering on other columns: `{"name": "example"}`
+                 * @example {
+                 *       "id": "550e8400-e29b-41d4-a716-446655440000",
+                 *       "name": "example",
+                 *       "q": "search text"
+                 *     }
+                 */
+                filter?: string;
+                /**
+                 * @description Range for pagination in the format "[start, end]".
+                 *
+                 *     Example: `[0,9]`
+                 * @example [0,9]
+                 */
+                range?: string;
+                /**
+                 * @description Page number for standard REST pagination (1-based).
+                 *
+                 *     Example: `1`
+                 * @example 1
+                 */
+                page?: number;
+                /**
+                 * @description Number of items per page for standard REST pagination.
+                 *
+                 *     Example: `10`
+                 * @example 10
+                 */
+                per_page?: number;
+                /**
+                 * @description Sort order for the results in the format `["column", "order"]`.
+                 *
+                 *     Example: `["id", "ASC"]`
+                 * @example ["id", "ASC"]
+                 */
+                sort?: string;
+                /**
+                 * @description Sort column for standard REST format.
+                 *
+                 *     Example: `title`
+                 * @example title
+                 */
+                sort_by?: string;
+                /**
+                 * @description Sort order for standard REST format (ASC or DESC).
+                 *
+                 *     Example: `ASC`
+                 * @example ASC
+                 */
+                order?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of resources */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalculationSharedStepList"][];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    create_one_calculation_shared_step: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CalculationSharedStepCreate"];
+            };
+        };
+        responses: {
+            /** @description Resource created successfully */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalculationSharedStepResponse"];
+                };
+            };
+            /** @description Duplicate record */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+        };
+    };
+    create_many_calculation_shared_steps: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Enable partial success mode for batch operations.
+                 *
+                 *     When `true`, the operation processes each item independently instead of
+                 *     using all-or-nothing semantics. Items that succeed are committed even if
+                 *     other items fail.
+                 *
+                 *     Default: `false` (all-or-nothing)
+                 * @example false
+                 */
+                partial?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CalculationSharedStepCreate"][];
+            };
+        };
+        responses: {
+            /** @description Resources created successfully */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalculationSharedStepResponse"][];
+                };
+            };
+            /** @description Partial success - some items created, some failed */
+            207: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad request - batch size exceeded or validation failed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            /** @description Duplicate record */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+        };
+    };
+    delete_many_calculation_shared_steps: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Enable partial success mode for batch operations.
+                 *
+                 *     When `true`, the operation processes each item independently instead of
+                 *     using all-or-nothing semantics. Items that succeed are committed even if
+                 *     other items fail.
+                 *
+                 *     Default: `false` (all-or-nothing)
+                 * @example false
+                 */
+                partial?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": string[];
+            };
+        };
+        responses: {
+            /** @description Resources deleted successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
+                };
+            };
+            /** @description Partial success - some items deleted, some failed */
+            207: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad request - batch size exceeded */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+        };
+    };
+    update_many_calculation_shared_steps: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Enable partial success mode for batch operations.
+                 *
+                 *     When `true`, the operation processes each item independently instead of
+                 *     using all-or-nothing semantics. Items that succeed are committed even if
+                 *     other items fail.
+                 *
+                 *     Default: `false` (all-or-nothing)
+                 * @example false
+                 */
+                partial?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchUpdateRequest"][];
+            };
+        };
+        responses: {
+            /** @description Resources updated successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalculationSharedStepResponse"][];
+                };
+            };
+            /** @description Partial success - some items updated, some failed */
+            207: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad request - batch size exceeded or validation failed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            /** @description One or more resources not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Duplicate record */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+        };
+    };
+    get_one_calculation_shared_step: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Resource identifier */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The requested resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalculationSharedStepResponse"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    update_one_calculation_shared_step: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Resource identifier */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CalculationSharedStepUpdate"];
+            };
+        };
+        responses: {
+            /** @description Resource updated successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalculationSharedStepResponse"];
+                };
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Duplicate record */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+        };
+    };
+    delete_one_calculation_shared_step: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Resource identifier */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resource deleted successfully */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     get_calculation_closure: {
         parameters: {
             query?: {
@@ -22067,6 +22768,36 @@ export interface operations {
             };
         };
     };
+    step_dependents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Formula UUID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The calculations and formulas that read the step */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepDependents"];
+                };
+            };
+            /** @description No formula carries that id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     event_stream: {
         parameters: {
             query?: never;
@@ -22379,6 +23110,31 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    list_stations: {
+        parameters: {
+            query?: {
+                /** @description Part of an abbreviation or a name. Absent lists every station. */
+                q?: string | null;
+                /** @description The site being configured, whose coordinates rank the candidates. */
+                site_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Candidate stations, nearest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StationCandidate"][];
+                };
             };
         };
     };
@@ -29207,7 +29963,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": unknown;
+            };
+        };
         responses: {
             /** @description The enqueued run */
             200: {
@@ -29217,6 +29977,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["RunNowResponse"];
                 };
+            };
+            /** @description The job is not run by hand, or an input it declares is missing */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description No job of that name is registered */
             404: {

@@ -2,26 +2,26 @@
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
-	import { api, type Constant, type Parameter } from '$api/crud';
+	import { api, type Constant, type DerivedParameter, type Parameter } from '$api/crud';
 	import {
 		draftRunFormulas,
+		getStepDependents,
 		getToolScript,
 		listSiteVisits,
 		type FormulaDraftRunResponse,
+		type StepDependents,
 		type ToolScriptDetail,
 		type VisitRow,
 	} from '$api/service';
 	import { listAll } from '$api/paged';
 	import {
 		blankFormula,
+		dependencyOrder,
 		draftOutputs,
 		draftRunBody,
 		editableFormula,
 		formulaBody,
-		inOrder,
 		inputRows,
-		moved,
-		ordinalChanges,
 		outputRows,
 		type EditableFormula,
 	} from '$lib/calculations/editor';
@@ -67,7 +67,13 @@
 	let run = $state<FormulaDraftRunResponse | null>(null);
 	let runError = $state('');
 
-	const ordered = $derived(inOrder(formulas));
+	// Steps this calculation reads but does not own (Q156), and the ones it could bring in.
+	let shareable = $state<DerivedParameter[]>([]);
+	let declaring = $state('');
+	let dependents = $state<Record<string, StepDependents>>({});
+	let expanded = $state<string | null>(null);
+
+	const ordered = $derived(dependencyOrder(formulas));
 	const inputs = $derived(inputRows(formulas, parameters, constants));
 	const outputs = $derived(outputRows(formulas));
 	const families = $derived(inputs.filter((i) => i.kind === 'replicates').map((i) => i.name));
@@ -97,18 +103,76 @@
 		return [...new Set(identifiers(f.formula).map((i) => i.name))];
 	}
 
-	/** The codes a formula may read as steps: every other formula before it. */
+	/** The codes a formula may read as steps: every other formula of the set, in order. */
 	function stepsBefore(f: EditableFormula): string[] {
 		return ordered
-			.filter((o) => o !== f && o.ordinal <= f.ordinal && o.code.trim())
+			.filter((o) => o !== f && o.code.trim())
 			.map((o) => o.code.trim());
+	}
+
+	/** The steps this calculation reads through a declaration, as read-only rows of the list. */
+	async function declaredSteps(steps: DerivedParameter[]): Promise<EditableFormula[]> {
+		const declarations = await api.calculationSharedSteps.list({
+			perPage: 200,
+			filter: { tool_script_id: calculationId },
+		});
+		const rows: EditableFormula[] = [];
+		for (const declaration of declarations.data) {
+			const step = steps.find((s) => s.id === declaration.formula_id);
+			if (step) rows.push({ ...editableFormula(step), declarationId: declaration.id });
+		}
+		return rows;
+	}
+
+	async function declare() {
+		if (!declaring) return;
+		busy = true;
+		try {
+			await api.calculationSharedSteps.create({
+				tool_script_id: calculationId,
+				formula_id: declaring,
+			});
+			declaring = '';
+			await load();
+			toastStore.success('Step brought in');
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Could not bring the step in');
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function stopReading(f: EditableFormula) {
+		if (!f.declarationId) return;
+		busy = true;
+		try {
+			await api.calculationSharedSteps.remove(f.declarationId);
+			await load();
+			toastStore.success('Step no longer read here');
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Could not drop the step');
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function showDependents(f: EditableFormula) {
+		if (!f.id) return;
+		expanded = expanded === f.id ? null : f.id;
+		if (expanded && !dependents[f.id]) {
+			try {
+				dependents = { ...dependents, [f.id]: await getStepDependents(f.id) };
+			} catch (e) {
+				toastStore.error(e instanceof Error ? e.message : 'Could not read what the step feeds');
+			}
+		}
 	}
 
 	async function load() {
 		loading = true;
 		error = '';
 		try {
-			const [script, rows, params, consts] = await Promise.all([
+			const [script, rows, params, consts, steps] = await Promise.all([
 				getToolScript(calculationId),
 				api.derivedParameters.list({
 					perPage: 500,
@@ -117,12 +181,21 @@
 				}),
 				listAll<Parameter>(api.parameters, { perPage: 500, sort: ['code', 'ASC'] }),
 				listAll<Constant>(api.constants, { perPage: 500, sort: ['name', 'ASC'] }),
+				listAll<DerivedParameter>(api.derivedParameters, {
+					perPage: 500,
+					filter: { intermediate: true },
+					sort: ['code', 'ASC'],
+				}),
 			]);
 			calculation = script;
-			stored = rows.data.map(editableFormula);
-			formulas = rows.data.map(editableFormula);
+			const declared = await declaredSteps(steps);
+			stored = [...rows.data.map(editableFormula), ...declared];
+			formulas = [...rows.data.map(editableFormula), ...declared];
 			parameters = params;
 			constants = consts;
+			// A step this calculation already reads, or already owns, is not one to bring in.
+			const own = new Set(stored.map((f) => f.id));
+			shareable = steps.filter((s) => !own.has(s.id));
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load the calculation';
 		} finally {
@@ -135,28 +208,6 @@
 	function add() {
 		formulas = [...formulas, blankFormula(formulas)];
 		editing = formulas.length - 1;
-	}
-
-	async function move(index: number, delta: number) {
-		const after = moved(ordered, index, delta);
-		if (!after) return;
-		const changes = ordinalChanges(stored, after);
-		busy = true;
-		try {
-			for (const change of changes) {
-				await api.derivedParameters.update(change.id, { ordinal: change.ordinal });
-			}
-			// Unsaved rows keep their new ordinal in memory until they are saved.
-			formulas = after;
-			stored = stored.map((s) => {
-				const change = changes.find((c) => c.id === s.id);
-				return change ? { ...s, ordinal: change.ordinal } : s;
-			});
-		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Reorder failed');
-		} finally {
-			busy = false;
-		}
 	}
 
 	async function save(f: EditableFormula) {
@@ -306,10 +357,22 @@
 
 			<!-- Formulas, in evaluation order, edited in place. -->
 			<section class="rounded-md border border-brand-divider bg-brand-surface">
-				<div class="flex items-center justify-between px-3 py-2 border-b border-brand-divider">
+				<div class="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-brand-divider">
 					<h3 class="text-sm font-semibold">Formulas</h3>
-					<Button size="sm" onclick={add} disabled={busy || editing !== null}>Add formula</Button>
+					<div class="flex flex-wrap items-center gap-2">
+						{#if shareable.length > 0}
+							<select bind:value={declaring} class={inputCls} aria-label="A step written elsewhere">
+								<option value="">Bring in a step…</option>
+								{#each shareable as step (step.id)}
+									<option value={step.id}>{step.code}{step.name && step.name !== step.code ? ` · ${step.name}` : ''}</option>
+								{/each}
+							</select>
+							<Button size="sm" disabled={busy || !declaring} onclick={declare}>Bring in</Button>
+						{/if}
+						<Button size="sm" onclick={add} disabled={busy || editing !== null}>Add formula</Button>
+					</div>
 				</div>
+				<p class="px-3 pt-2 text-xs text-brand-muted">In the order the dependencies give them: a formula comes after every formula whose code it reads.</p>
 				{#if ordered.length === 0}
 					<p class="px-3 py-3 text-sm text-brand-muted">No formulas yet. Add the first; a per-replicate formula runs once per index of the family it names.</p>
 				{/if}
@@ -376,18 +439,44 @@
 											{#if f.units}<span class="text-brand-muted"> ({f.units})</span>{/if}
 											{#if f.per_replicate}<Badge variant="accent">per {f.per_replicate}</Badge>{/if}
 											{#if f.intermediate}<Badge>step</Badge>{/if}
+											{#if f.declarationId}<Badge variant="accent">shared</Badge>{/if}
 											{#if f.curve_slot}<Badge>curve {f.curve_slot}</Badge>{/if}
 											{#if f.id === null || isDirty(f)}<Badge variant="warning">unsaved</Badge>{/if}
 										</p>
 										<p class="font-mono text-xs text-brand-muted break-all">{f.formula || '—'}</p>
+										{#if f.declarationId && f.id && expanded === f.id}
+											{@const feeds = dependents[f.id]}
+											<div class="mt-1 rounded-md border border-brand-divider bg-brand-bg px-2 py-1">
+												{#if feeds}
+													<p class="text-xs text-brand-muted">Read by</p>
+													<ul class="text-xs">
+														{#each feeds.calculations as reader (reader.tool_script_id)}
+															<li>
+																<a href="{base}/calculations/{reader.tool_script_id}" class="text-brand-primary no-underline hover:underline">{reader.label || reader.name}</a>
+																<span class="text-brand-muted">
+																	{reader.formulas.map((r) => r.code).join(', ') || 'no formula names it yet'}
+																</span>
+															</li>
+														{/each}
+													</ul>
+												{:else}
+													<p class="text-xs text-brand-muted">Reading…</p>
+												{/if}
+											</div>
+										{/if}
 									</div>
 									<div class="whitespace-nowrap">
-										<Button size="sm" variant="ghost" disabled={busy || index === 0} onclick={() => move(index, -1)}>Up</Button>
-										<Button size="sm" variant="ghost" disabled={busy || index === ordered.length - 1} onclick={() => move(index, 1)}>Down</Button>
-										<Button size="sm" variant="ghost" disabled={busy || editing !== null} onclick={() => { diagnostics = []; editing = position; }}>Edit</Button>
-										<ConfirmPopover message="Remove {f.code || 'this formula'} from the calculation?" confirmLabel="Remove" onconfirm={() => remove(f)}>
-											<Button size="sm" variant="ghost" disabled={busy}>Remove</Button>
-										</ConfirmPopover>
+										{#if f.declarationId}
+											<Button size="sm" variant="ghost" disabled={busy} onclick={() => showDependents(f)}>{expanded === f.id ? 'Hide' : 'What it feeds'}</Button>
+											<ConfirmPopover message="Stop reading {f.code} in this calculation? The step itself stays." confirmLabel="Stop reading" onconfirm={() => stopReading(f)}>
+												<Button size="sm" variant="ghost" disabled={busy}>Stop reading</Button>
+											</ConfirmPopover>
+										{:else}
+											<Button size="sm" variant="ghost" disabled={busy || editing !== null} onclick={() => { diagnostics = []; editing = position; }}>Edit</Button>
+											<ConfirmPopover message="Remove {f.code || 'this formula'} from the calculation?" confirmLabel="Remove" onconfirm={() => remove(f)}>
+												<Button size="sm" variant="ghost" disabled={busy}>Remove</Button>
+											</ConfirmPopover>
+										{/if}
 									</div>
 								</div>
 							{/if}

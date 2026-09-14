@@ -51,6 +51,7 @@ export const api = {
 	notificationLogs: crudClient<NotificationLog>('notification_logs'),
 	notificationMutes: crudClient<NotificationMute>('notification_mutes'),
 	notificationSubscribers: crudClient<NotificationSubscriber>('notification_subscribers'),
+	calculationSharedSteps: crudClient<CalculationSharedStep>('calculation_shared_steps'),
 	meteoswissSubscriptions: crudClient<MeteoswissSubscription>('meteoswiss_subscriptions'),
 	// Keycloak realm accounts, not a database entity: the API proxies the realm behind the same
 	// list shape. Admin-only, so only mount it from a route guarded by `me.can('admin')`.
@@ -508,7 +509,18 @@ export interface NotificationSubscriber {
 	updated_at: string;
 }
 
-/** A (site, parameter) slot muted from notifications, optionally with an expiry. */
+/**
+ * One calculation's declaration that it reads a step belonging to no calculation (Q156). The step
+ * itself is a `DerivedParameter` row that is `intermediate` with no `tool_script_id`.
+ */
+export interface CalculationSharedStep {
+	id: string;
+	tool_script_id: string;
+	formula_id: string;
+	created_at: string;
+}
+
+/** A (site, parameter) slot muted from notifications, optionally with an expiry. *//** A (site, parameter) slot muted from notifications, optionally with an expiry. */
 export interface NotificationMute {
 	id: string;
 	site_id: string;
