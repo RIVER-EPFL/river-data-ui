@@ -1,16 +1,21 @@
 import { render, screen } from "@testing-library/svelte";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const listSiteVisits = vi.fn();
+const runEventRecompute = vi.fn();
+const pollJob = vi.fn();
 vi.mock("$api/service", () => ({
   listSiteVisits: (siteId: string, range: unknown) =>
     listSiteVisits(siteId, range),
   getCollectionEventDetail: vi.fn(),
   recomputeCollectionEvent: vi.fn(),
   runEventAudit: vi.fn(),
-  runEventRecompute: vi.fn(),
-  pollJob: vi.fn(),
+  runEventRecompute: (req: unknown) => runEventRecompute(req),
+  pollJob: (id: string) => pollJob(id),
 }));
+
+vi.mock("$auth/me.svelte", () => ({ me: { can: () => true, data: null } }));
 
 const SiteVisitsTab = (await import("./SiteVisitsTab.svelte")).default;
 
@@ -133,5 +138,40 @@ describe("SiteVisitsTab", () => {
     // A visit whose outputs no calculation will write does not read like one that just recomputed.
     expect(await screen.findByText("not calculated here")).toBeTruthy();
     expect(screen.getAllByText("not calculated here")).toHaveLength(1);
+  });
+  it("asks for every listed visit, not only the flagged ones, when computing a new calculation", async () => {
+    // Every visit is current: a calculation authored today has raised no finding anywhere, so
+    // the findings arm would select nothing.
+    listSiteVisits.mockResolvedValue({
+      site_id: "site-1",
+      page: 1,
+      page_size: 50,
+      total: 1,
+      expected_parameters: [column("declared", "DOC", 2)],
+      visits: [
+        {
+          id: "entered",
+          collected_at: "2025-06-01T08:00:00Z",
+          created_by: "tester",
+          source: "manual",
+          notes: null,
+          parameters_filled: 1,
+          findings_open: 0,
+          recompute: "current",
+          cells: [cell("declared")],
+        },
+      ],
+    });
+    runEventRecompute.mockResolvedValue({ job_id: null });
+
+    render(SiteVisitsTab, props({ declared: 2 }));
+
+    await userEvent.click(await screen.findByText("Compute at listed visits"));
+    await userEvent.click(screen.getByText("Compute"));
+
+    expect(runEventRecompute).toHaveBeenCalledWith({
+      site_id: "site-1",
+      only_findings: false,
+    });
   });
 });

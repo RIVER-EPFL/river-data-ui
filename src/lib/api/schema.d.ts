@@ -9112,6 +9112,8 @@ export interface components {
              * @description The standard curve applied on top of the base calibration, null when none was.
              */
             standard_curve_id?: string;
+            /** @description A pending entry: stored and shown, counted by no statistic and served nowhere (Q18, Q21). */
+            unverified: boolean;
             withdrawn: boolean;
             /** Format: date-time */
             withdrawn_at?: string;
@@ -10348,6 +10350,14 @@ export interface components {
             /** Format: uuid */
             standard_curve_id: string | null;
         };
+        /** @description The replicate indexes a client read for one group before it built its save. */
+        ExpectedGroup: {
+            /** Format: uuid */
+            parameter_id: string;
+            replicate_indices: number[];
+            /** Format: date-time */
+            time: string;
+        };
         ExpectedParameter: {
             code: string;
             /**
@@ -10578,6 +10588,13 @@ export interface components {
             created_by?: string | null;
             /** @description Compute the preview and report existing groups without writing anything. */
             dry_run?: boolean;
+            /**
+             * @description What the client believes each group it replaces already holds. A replace retracts the
+             *     stored replicates it does not carry, so a save built from a stale read would retract a
+             *     repeat somebody else added in the meantime. Naming the indexes refuses that with a 409
+             *     describing what is there instead; omitting the field writes without the check.
+             */
+            expected_replicates?: components["schemas"]["ExpectedGroup"][] | null;
             /** @description Stamped onto the samples rows this request creates or reuses. */
             label?: string | null;
             mode?: null | components["schemas"]["GrabWriteMode"];
@@ -17696,6 +17713,12 @@ export interface components {
              *     removed rather than because the measurement changed.
              */
             n_total: number;
+            /**
+             * Format: int64
+             * @description Replicates entered but not yet verified. The sample trigger counts none of them, so a
+             *     cell whose replicates are all pending serves `n = 0` beside values that are on screen.
+             */
+            n_unverified: number;
             /** Format: int64 */
             n_withdrawn: number;
             /** Format: uuid */

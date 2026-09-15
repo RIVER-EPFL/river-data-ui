@@ -13,6 +13,7 @@
 		inferLayout,
 		layoutKey,
 		parseBlock,
+		saveAll,
 		type BatchVisit,
 		type ColumnRole,
 		type Layout,
@@ -168,18 +169,9 @@
 	async function save() {
 		saving = true;
 		confirmOpen = false;
-		for (const [index, visit] of visits.entries()) {
-			if (visit.problem !== null) {
-				results = { ...results, [index]: `not saved: ${visit.problem}` };
-				continue;
-			}
-			try {
-				results = { ...results, [index]: await saveVisit(visit) };
-			} catch (e) {
-				// Visits are independent: a station the API refuses leaves the rest as they are.
-				results = { ...results, [index]: `refused: ${e instanceof Error ? e.message : String(e)}` };
-			}
-		}
+		await saveAll(visits, saveVisit, (index, result) => {
+			results = { ...results, [index]: result };
+		});
 		saving = false;
 	}
 
@@ -303,6 +295,12 @@
 								</td>
 								<td class="px-2 py-1 {visit.problem ? 'text-severity-alarm' : 'text-brand-muted'}">
 									{results[index] ?? visit.problem ?? 'ready'}
+									{#if !visit.problem && visit.unreadable > 0}
+										<span class="text-brand-accent-dark"
+											>({visit.unreadable}
+											{visit.unreadable === 1 ? 'cell was not a number' : 'cells were not numbers'})</span
+										>
+									{/if}
 								</td>
 							</tr>
 						{/each}

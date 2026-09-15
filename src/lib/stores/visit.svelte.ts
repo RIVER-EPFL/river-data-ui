@@ -1,4 +1,5 @@
 import { getCollectionEventDetail, type EventDetailResponse } from '$api/service';
+import { api } from '$api/crud';
 
 // The staged field visit: one (station, collection instant) every tool writes into, held for the
 // session so a visit is staged once and several tools attach to it in turn. It is the portal's
@@ -60,6 +61,11 @@ export const stagedVisit = {
 		current = null;
 		detail = null;
 		persist();
+	},
+
+	async discard(eventId: string) {
+		await api.collectionEvents.remove(eventId);
+		if (current?.eventId === eventId) this.clear();
 	},
 
 	/** Re-read the event's grid; call after a save so the summary shows what just landed. */

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { originFilter, originLabel, originSource, provenanceKindLabel } from './origin';
+import {
+	originFilter,
+	originLabel,
+	originSource,
+	provenanceKindLabel,
+	rowProvenanceLabel,
+} from './origin';
 
 describe('originFilter', () => {
 	it('asks for nothing when no origin is chosen', () => {
@@ -56,5 +62,19 @@ describe('provenanceKindLabel', () => {
 	it('passes an unknown kind through and says nothing about a row that carries none', () => {
 		expect(provenanceKindLabel('something_new')).toBe('something_new');
 		expect(provenanceKindLabel(undefined)).toBeUndefined();
+	});
+});
+
+describe('rowProvenanceLabel', () => {
+	it('prefers the row\'s own kind over the stream it arrived on', () => {
+		expect(rowProvenanceLabel('csv_import', 'cnet')).toBe('CSV import');
+	});
+
+	it('falls back to the source system, spelled as the badge spells it', () => {
+		expect(rowProvenanceLabel(undefined, 'cnet')).toBe('cnet sync');
+	});
+
+	it('says nothing about a row that names neither', () => {
+		expect(rowProvenanceLabel(undefined, undefined)).toBeUndefined();
 	});
 });

@@ -7,6 +7,7 @@ import {
 	instrumentFilter,
 	isRetired,
 	measuringInstruments,
+	pickerOptions,
 	provenanceOf,
 	retiredSuffix,
 } from './kind';
@@ -36,6 +37,31 @@ describe('instrument kinds', () => {
 		expect(
 			measuringInstruments([sensor('device'), sensor('entry_channel'), sensor('lab')])
 		).toHaveLength(2);
+	});
+});
+
+describe('what an instrument picker offers', () => {
+	const row = (id: string, kind: string, is_active = true) =>
+		({ id, kind, is_lab_instrument: false, is_active }) as never;
+
+	it('leaves out the bookkeeping rows a CNET plan mints and the retired instruments', () => {
+		const offered = pickerOptions([
+			row('probe', 'device'),
+			row('marker', 'source_parameter'),
+			row('channel', 'entry_channel'),
+			row('old', 'lab', false),
+		]);
+		expect(offered.map((s) => s.id)).toEqual(['probe']);
+	});
+
+	it('keeps whatever the row already declares, so a stored instrument is not replaced silently', () => {
+		const sensors = [row('probe', 'device'), row('old', 'lab', false)];
+		expect(pickerOptions(sensors, 'old').map((s) => s.id)).toEqual(['probe', 'old']);
+		expect(pickerOptions(sensors, 'probe').map((s) => s.id)).toEqual(['probe']);
+	});
+
+	it('offers what it has when the declared instrument is not among the rows it was given', () => {
+		expect(pickerOptions([row('probe', 'device')], 'gone').map((s) => s.id)).toEqual(['probe']);
 	});
 });
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
 	import {
@@ -9,13 +10,25 @@
 		rollbackEditSet,
 		listSiteVisits,
 		saveGrabSample,
+		seasonalCheck,
 		type CalculationImpact,
+		type SeasonalCheckResponse,
+		type SeasonalFinding,
 		type EventDetailResponse,
 	} from '$api/service';
 	import {
 		applyPaste,
+		cellStateTitle,
+		unreadablePasteNotice,
+		refusalMessage,
+		saveErrors,
 		clearedCells,
+		copyBlock,
+		duplicatedParameters,
 		entryGroups,
+		expectedReplicates,
+		rowKey,
+		rowStats,
 		gridFromVisit,
 		pendingWrites,
 		rowsInGroup,
@@ -25,22 +38,40 @@
 		touchedParameters,
 		headerCount,
 		isEditable,
+		rendersInput,
 		setCellValue,
 		withConfiguredRows,
 		type ConfiguredParameter,
 		type GridRow,
 	} from '$lib/visits/grid';
-	import { at, covers, isGridKey, move, type Selection } from '$lib/visits/keys';
+	import {
+		at,
+		bounds,
+		covers,
+		isGridKey,
+		nextCell,
+		onFocusMoved,
+		type Selection,
+	} from '$lib/visits/keys';
 	import { push, undo, type History } from '$lib/visits/history';
 	import { api, type ParameterGroup, type Sensor } from '$api/crud';
-	import { goto } from '$app/navigation';
+	import { beforeNavigate, goto } from '$app/navigation';
 	import { stagedVisit } from '$lib/stores/visit.svelte';
 	import { curveRefs } from '$lib/curveRefs.svelte';
+	import { listAll } from '$api/paged';
+	import { pickerOptions, retiredSuffix } from '$lib/instruments/kind';
 	import { curveCountLabel } from '$lib/standardCurves';
 	import { me } from '$auth/me.svelte';
-	import { cellRecord, recordMarkerTitle } from '$lib/visits/cell';
+	import { cellRecord, findingLabel, recordMarkerTitle, showsProvenanceMarker } from '$lib/visits/cell';
 	import { cellWritable, editConsequence } from '$lib/visits/role';
-	import { RECOMPUTE_BADGE, computing } from '$lib/visits/recompute';
+	import { seasonalFindingLabel } from '$lib/seasonal';
+	import {
+		computedHere,
+		computing,
+		entryNoticeFor,
+		visitBadge,
+		visitSourceLabel,
+	} from '$lib/visits/recompute';
 	import { formatDateTime } from '$lib/utils';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Badge from '$components/ui/Badge.svelte';
@@ -59,8 +90,13 @@
 	let sensors = $state<Sensor[]>([]);
 	/** What each slot declares measures it (M111), the default a row takes. */
 	let slotInstruments = $state<Record<string, string>>({});
+	/** The station the visit belongs to, which the header names and the staging bar labels. */
+	let siteName = $state('');
 	let loading = $state(true);
+	/** A load failure: the visit is not on the page, so the notice stands in its place. */
 	let error = $state('');
+	/** An action's refusal: the grid still holds what was typed, so the notice stands above it. */
+	let refusal = $state('');
 	let saving = $state(false);
 	let confirmOpen = $state(false);
 	let consequence = $state<string | null>(null);
@@ -88,11 +124,63 @@
 	const width = $derived(headerCount(rows));
 	const shown = $derived(new Set(rowsInGroup(rows, groupOf, groupFilter).map((r) => r.parameterId)));
 	const writes = $derived(pendingWrites(rows));
+	/** Parameters two streams serve here, whose rows name the source they came from. */
+	const duplicated = $derived(duplicatedParameters(rows));
+
+	// Typed cells live in the grid until Save, so a link, a browser back or a closed tab would
+	// take them with it. A deliberate exit (a discard, a save that returns to the site) sets
+	// `leaving` and is not asked again.
+	let leaving = false;
+	const unsavedPrompt = () =>
+		`This visit has ${writes.length} unsaved value${writes.length === 1 ? '' : 's'}. Leave and lose them?`;
+	beforeNavigate((nav) => {
+		if (leaving || writes.length === 0 || nav.willUnload) return;
+		if (!window.confirm(unsavedPrompt())) nav.cancel();
+	});
+	if (typeof window !== 'undefined') {
+		const warnOnUnload = (e: BeforeUnloadEvent) => {
+			if (!leaving && writes.length > 0) e.preventDefault();
+		};
+		window.addEventListener('beforeunload', warnOnUnload);
+		onDestroy(() => window.removeEventListener('beforeunload', warnOnUnload));
+	}
+	/**
+	 * The site-history screening this save was held to. A save that names a check is held by the
+	 * server to exactly the values that check screened, so it is re-run whenever the cells move.
+	 */
+	let check = $state<{ id: string; response: SeasonalCheckResponse; signature: string } | null>(
+		null,
+	);
+	let checking = $state(false);
+
+	/** What the entry half of the save will write: the pairs a check has to cover. */
+	const checkValues = $derived(
+		entryGroups(rows).map((w) => ({ parameter_id: w.parameterId, value: w.value })),
+	);
+	const checkSignature = $derived(`${detail?.site_id ?? ''}|${JSON.stringify(checkValues)}`);
+	const checkSatisfied = $derived(
+		checkValues.length === 0 || (check !== null && check.signature === checkSignature),
+	);
+	const checkStale = $derived(check !== null && check.signature !== checkSignature);
+	const parameterNames = $derived(
+		Object.fromEntries(rows.map((r) => [r.parameterId, r.parameterName])),
+	);
+
+	/** What the visit serves for each parameter today, so a consequence can name what will move. */
+	const servedByCode = $derived(
+		Object.fromEntries((detail?.cells ?? []).map((c) => [c.parameter_code, c.served_value ?? null])),
+	);
 
 	/** How long the grid follows a visit's calculations before leaving it to the next read. */
 	const RECOMPUTE_POLL_MS = 400;
 	const RECOMPUTE_POLL_ATTEMPTS = 50;
 	const cleared = $derived(clearedCells(rows));
+	/** The rows a refusal names, so it is read beside the values that caused it. */
+	const refusedRows = $derived(refusal ? saveErrors(refusal, rows) : {});
+	/** What the header says about the visit's calculations, and what entering a value here means. */
+	const badge = $derived(detail ? visitBadge(detail.source, detail.recompute) : null);
+	const notice = $derived(entryNoticeFor(detail?.source));
+	const calculatedHere = $derived(computedHere(detail?.source));
 
 	$effect(() => {
 		const id = eventId;
@@ -118,16 +206,18 @@
 	 * site adds around them.
 	 */
 	async function loadConfigured(siteId: string) {
-		const [slots, catalog, instruments, groupRows, members] = await Promise.all([
+		const [slots, catalog, instruments, groupRows, members, site] = await Promise.all([
 			api.siteParameters.list({ perPage: 500, filter: { site_id: siteId } }),
 			api.parameters.list({ perPage: 1000, sort: ['code', 'ASC'] }),
-			api.sensors.list({ perPage: 200, sort: ['name', 'ASC'] }),
+			listAll(api.sensors, { perPage: 500, sort: ['name', 'ASC'] }),
 			api.parameterGroups.list({ perPage: 200, sort: ['ordinal', 'ASC'] }),
 			api.parameterGroupMembers.list({ perPage: 1000 }),
+			api.sites.get(siteId),
 		]);
+		siteName = site.name ?? '';
 		groups = groupRows.data;
 		groupOf = Object.fromEntries(members.data.map((m) => [m.parameter_id, m.group_id]));
-		sensors = instruments.data;
+		sensors = instruments;
 		// What each slot declares measures it, which is what a row with nothing stored takes.
 		slotInstruments = Object.fromEntries(
 			slots.data
@@ -186,12 +276,6 @@
 	async function openCalculation(tool: string) {
 		const visit = detail;
 		if (!visit) return;
-		let siteName = '';
-		try {
-			siteName = (await api.sites.get(visit.site_id)).name;
-		} catch {
-			// The name is a label on the staging bar; the visit is identified by its ids.
-		}
 		stagedVisit.set(stagedVisitFrom(visit, siteName));
 		await goto(`${base}/tools?tool=${encodeURIComponent(tool)}`);
 	}
@@ -227,6 +311,12 @@
 		rows = setCellValue(rows, rowIndex, column, parsed);
 	}
 
+	// Where the keyboard may land: a cell the grid draws an input in, on a row the filter shows.
+	function navigable(rowIndex: number, column: number): boolean {
+		const row = rows[rowIndex];
+		return !!row && shown.has(row.parameterId) && rendersInput(row, column, me.level);
+	}
+
 	// Move the keyboard between cells rather than inside one. The destination input is focused by
 	// the id the markup gives it, which is what makes the roving focus a real focus.
 	function onCellKey(event: KeyboardEvent, rowIndex: number, column: number) {
@@ -235,21 +325,49 @@
 			undoEdit();
 			return;
 		}
+		if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
+			copySelection(event);
+			return;
+		}
 		if (!isGridKey(event.key)) return;
 		const from = focused ?? at(rowIndex, column);
-		const next = move({ ...from, row: rowIndex, column }, event.key, { rows: rows.length, columns: width }, event.shiftKey);
+		const next = nextCell(
+			{ ...from, row: rowIndex, column },
+			event.key,
+			{ rows: rows.length, columns: width },
+			navigable,
+			event.shiftKey,
+		);
 		if (!next) return;
 		event.preventDefault();
 		focused = next;
 		document.getElementById(`cell-${next.row}-${next.column}`)?.focus();
 	}
 
+	// Copy a selected block out in the layout the paste reads, so a spreadsheet takes the columns
+	// back the way it gave them. A selection of one cell is left to the input under the cursor,
+	// where copying part of a value is what the operator means.
+	function copySelection(event: KeyboardEvent) {
+		if (!focused) return;
+		const block = bounds(focused);
+		if (block.height * block.width === 1) return;
+		event.preventDefault();
+		const text = copyBlock(rows, block.row, block.column, block.height, block.width);
+		navigator.clipboard?.writeText(text).catch(() => {});
+	}
+
+	// What a paste left behind, held on screen until the next one rather than passed as a toast: a
+	// cell that kept an earlier visit's value reads as a measurement until somebody is told.
+	let pasteNotice = $state<string | null>(null);
+
 	function onPaste(event: ClipboardEvent, rowIndex: number, column: number) {
 		const text = event.clipboardData?.getData('text/plain') ?? '';
 		if (!text.includes('\t') && !text.includes('\n')) return;
 		event.preventDefault();
 		remember();
-		rows = applyPaste(rows, rowIndex, column, text);
+		const pasted = applyPaste(rows, rowIndex, column, text);
+		rows = pasted.rows;
+		pasteNotice = unreadablePasteNotice(pasted.unreadable);
 	}
 
 	function reset() {
@@ -267,7 +385,7 @@
 			try {
 				const closure = await getCalculationClosure({ parameter_ids: parameters.join(',') });
 				calculations = closure.calculations;
-				consequence = editConsequence(closure.calculations);
+				consequence = editConsequence(closure.calculations, servedByCode);
 			} catch {
 				consequence = null;
 			}
@@ -275,10 +393,37 @@
 		confirmOpen = true;
 	}
 
+	async function runCheck() {
+		const visit = detail;
+		if (!visit || checkValues.length === 0) return;
+		checking = true;
+		try {
+			const signature = checkSignature;
+			const response = await seasonalCheck({
+				site_id: visit.site_id,
+				time: visit.collected_at,
+				values: checkValues,
+			});
+			check = { id: response.check_id, response, signature };
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'The check did not run');
+		} finally {
+			checking = false;
+		}
+	}
+
+	function seasonalLabel(finding: SeasonalFinding): string {
+		return seasonalFindingLabel(
+			finding,
+			parameterNames[finding.parameter_id] ?? finding.parameter_id,
+		);
+	}
+
 	async function save() {
 		const visit = detail;
 		if (!visit) return;
 		saving = true;
+		refusal = '';
 		try {
 			// A value nothing computed is corrected in place through the edit primitive; a replicate
 			// the visit did not hold is an entry, so it goes through the grab write path (Q8).
@@ -305,6 +450,7 @@
 			// The whole group, not only the new cells: a replace rewrites what the request names.
 			const entries = entryGroups(rows);
 			let kept = 0;
+			let retracted = 0;
 			if (entries.length > 0) {
 				const readings = [];
 				for (const w of entries) {
@@ -316,21 +462,38 @@
 						...(w.sensorId ? { sensor_id: w.sensorId } : {}),
 					});
 				}
-				kept = (await saveGrabSample({ site_id: visit.site_id, mode: 'replace', readings }))
-					.kept_curated;
+				const written = await saveGrabSample({
+					site_id: visit.site_id,
+					mode: 'replace',
+					readings,
+					expected_replicates: expectedReplicates(rows, entries, visit.collected_at),
+					...(check && check.signature === checkSignature ? { check_id: check.id } : {}),
+				});
+				kept = written.kept_curated;
+				retracted = written.withdrawn;
 			}
 			const saved = `${writes.length} value${writes.length === 1 ? '' : 's'} saved`;
+			const notes = [];
 			if (kept) {
-				toastStore.info(
-					`${saved}. ${kept} curated value${kept === 1 ? ' was' : 's were'} kept, so what you entered there was not written.`,
+				notes.push(
+					`${kept} curated value${kept === 1 ? ' was' : 's were'} kept, so what you entered there was not written.`,
 				);
+			}
+			if (retracted) {
+				notes.push(
+					`${retracted} repeat${retracted === 1 ? '' : 's'} the grid did not carry ${retracted === 1 ? 'was' : 'were'} retracted; they are on the visit's record and can be re-asserted.`,
+				);
+			}
+			if (notes.length > 0) {
+				toastStore.info(`${saved}. ${notes.join(' ')}`);
 			} else {
 				toastStore.success(saved);
 			}
 			confirmOpen = false;
+			check = null;
 			await refreshWhileComputing();
 		} catch (e) {
-			error = e instanceof Error ? e.message : String(e);
+			refusal = e instanceof Error ? e.message : String(e);
 			confirmOpen = false;
 		} finally {
 			saving = false;
@@ -363,7 +526,7 @@
 	async function askToWithdraw() {
 		const visit = detail;
 		if (!visit) return;
-		error = '';
+		refusal = '';
 		consequence = null;
 		calculations = [];
 		try {
@@ -372,10 +535,10 @@
 			withdrawPreviewId = preview.preview_id;
 			withdrawRows = preview.rows.length;
 			calculations = preview.calculations;
-			consequence = editConsequence(preview.calculations);
+			consequence = editConsequence(preview.calculations, servedByCode);
 			withdrawOpen = true;
 		} catch (e) {
-			error = e instanceof Error ? e.message : String(e);
+			refusal = e instanceof Error ? e.message : String(e);
 		}
 	}
 
@@ -396,7 +559,7 @@
 			withdrawOpen = false;
 			await refreshWhileComputing();
 		} catch (e) {
-			error = e instanceof Error ? e.message : String(e);
+			refusal = e instanceof Error ? e.message : String(e);
 			withdrawOpen = false;
 		} finally {
 			withdrawing = false;
@@ -414,14 +577,21 @@
 			);
 			await refreshWhileComputing();
 		} catch (e) {
-			error = e instanceof Error ? e.message : String(e);
+			refusal = e instanceof Error ? e.message : String(e);
 		} finally {
 			withdrawing = false;
 		}
 	}
 
-	function fmt(v: number | undefined): string {
-		return v === undefined || v === null ? '—' : String(v);
+	async function discardVisit() {
+		if (!detail || !window.confirm('Discard this empty visit? This cannot be undone.')) return;
+		try {
+			leaving = true;
+			await stagedVisit.discard(detail.id);
+			await goto(`${base}/sites/${detail.site_id}?tab=visits`);
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Could not discard the visit');
+		}
 	}
 </script>
 
@@ -434,14 +604,22 @@
 		<ErrorNotice message={error} />
 	{:else if detail}
 		<div class="flex flex-wrap items-baseline justify-between gap-2">
-			<h2 class="text-xl font-semibold">
-				Visit of {formatDateTime(detail.collected_at)}
-			</h2>
+			<div>
+				<h2 class="text-xl font-semibold">
+					{siteName ? `${siteName}, visit of` : 'Visit of'}
+					{formatDateTime(detail.collected_at)}
+				</h2>
+				<p class="text-sm text-brand-muted">
+					{visitSourceLabel(detail.source, detail.created_by)}{#if detail.notes}
+						· {detail.notes}{/if}
+				</p>
+			</div>
 			<div class="flex items-center gap-2">
-				{#if RECOMPUTE_BADGE[detail.recompute]}
-					<Badge variant={RECOMPUTE_BADGE[detail.recompute].variant}
-						>{RECOMPUTE_BADGE[detail.recompute].label}</Badge
-					>
+				{#if me.can('writeFieldMetadata') && detail.cells.length === 0}
+					<Button variant="danger" size="sm" disabled={writes.length > 0} onclick={discardVisit}>Discard this visit</Button>
+				{/if}
+				{#if badge}
+					<Badge variant={badge.variant}>{badge.label}</Badge>
 				{/if}
 				<a class="text-sm text-brand-primary hover:underline" href="{base}/sites/{detail.site_id}?tab=visits&event={detail.id}"
 					>Back to the site</a
@@ -449,14 +627,36 @@
 			</div>
 		</div>
 
+		{#if refusal}
+			<div class="flex items-start gap-2" data-testid="save-refusal">
+				<ErrorNotice message={refusalMessage(refusal)} />
+				<Button variant="ghost" size="sm" onclick={() => (refusal = '')}>Dismiss</Button>
+			</div>
+		{/if}
+
+		{#if notice}
+			<p
+				class="rounded-md border border-severity-warning/40 bg-severity-warning/10 px-3 py-2 text-sm"
+				data-testid="synced-visit-notice"
+			>{notice}</p>
+		{/if}
+
 		<div class="flex flex-wrap items-center gap-2 text-sm">
 			<span class="text-brand-muted">
 				Each row opens as wide as the site last recorded that parameter; − and + change its
 				repeat count, and a stored repeat is never dropped by the minus. Paste a spreadsheet
 				block into any cell and it fills rightward and downward, where a blank cell stays a
-				gap.
+				gap and a cell that is not a number is counted and left as it stands. Hold shift with
+				the arrows to select a block and Ctrl+C copies it back out in the same layout.
 			</span>
 		</div>
+
+		{#if pasteNotice}
+			<p
+				class="rounded border border-brand-accent/40 bg-brand-accent/10 text-brand-accent-dark px-2 py-1 text-sm"
+				data-testid="paste-notice"
+			>{pasteNotice}</p>
+		{/if}
 
 		<div class="flex flex-wrap items-center gap-2 text-sm">
 			<label for="group-filter">Parameter group</label>
@@ -494,8 +694,9 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each rows as row, rowIndex (row.parameterId)}
+					{#each rows as row, rowIndex (rowKey(row))}
 						{#if shown.has(row.parameterId)}
+						{@const stats = rowStats(row, slotDisplay[row.parameterId]?.decimals ?? null)}
 						<tr class="border-t border-gray-100 dark:border-gray-800">
 							<th
 								scope="row"
@@ -503,7 +704,13 @@
 								title={row.roleTitle ?? undefined}
 							>
 								{row.parameterName}
-								{#if row.record}
+								{#if duplicated.has(row.parameterId)}
+									<span
+										class="ml-1 text-xs text-brand-muted"
+										title="Two feeds serve {row.parameterName} at this visit, one row each"
+									>{row.sourceSystem ?? 'unknown'}{row.sourceKey ? ` ${row.sourceKey}` : ''}</span>
+								{/if}
+								{#if showsProvenanceMarker(row)}
 									<button
 										type="button"
 										class="ml-1 rounded px-1 text-xs text-brand-primary hover:underline"
@@ -511,16 +718,33 @@
 										aria-label="What produced {row.parameterName}"
 										data-testid="provenance-marker"
 										onclick={() =>
-											(inspecting = inspecting?.parameterId === row.parameterId ? null : row)}
+											(inspecting = inspecting && rowKey(inspecting) === rowKey(row) ? null : row)}
 									>&#9432;</button>
 								{/if}
-								{#if row.writtenBy}
+								{#if row.finding}
+									<span class="ml-1" data-testid="cell-finding">
+										<Badge variant="warning">{findingLabel(row.finding)}</Badge>
+									</span>
+								{/if}
+								{#if refusedRows[row.parameterId]}
+									<span
+										class="ml-1 text-xs text-severity-alarm"
+										title={refusedRows[row.parameterId]}
+										data-testid="cell-refusal"
+									>refused</span>
+								{/if}
+								{#if row.writtenBy && calculatedHere}
 									<button
 										type="button"
 										class="ml-1 text-xs text-brand-primary hover:underline"
 										title="Open {row.writtenBy} at this visit, with what it reads loaded"
 										onclick={() => openCalculation(row.writtenBy!)}
 									>computed by {row.writtenBy}</button>
+								{:else if row.writtenBy}
+									<span
+										class="ml-1 text-xs text-brand-muted"
+										title="The portal computed this row and sent its values. {row.writtenBy} does not run at a synced visit."
+									>computed in the portal</span>
 								{/if}
 							</th>
 							<td class="px-2 py-1">
@@ -535,8 +759,12 @@
 										onchange={(e) => declareRowInstrument(rowIndex, e.currentTarget.value)}
 									>
 										<option value="">Undeclared</option>
-										{#each sensors as sensor}
-											<option value={sensor.id}>{sensor.name ?? sensor.serial_number ?? sensor.id.slice(0, 8)}</option>
+										{#each pickerOptions(sensors, row.sensorId) as sensor (sensor.id)}
+											<option value={sensor.id}
+												>{sensor.name ?? sensor.serial_number ?? sensor.id.slice(0, 8)}{retiredSuffix(
+													sensor,
+												)}</option
+											>
 										{/each}
 									</select>
 									{#if row.sensorId}
@@ -599,9 +827,10 @@
 											class:bg-brand-bg={focused
 												? covers(focused, rowIndex, column)
 												: false}
+											class:text-severity-warning={cell?.unverified}
 											value={cell?.value ?? ''}
-											title={cell?.flagged ? 'Flagged: excluded from the statistics' : undefined}
-											onfocus={() => (focused = at(rowIndex, column))}
+											title={cellStateTitle(cell)}
+											onfocus={() => (focused = onFocusMoved(focused, rowIndex, column))}
 											onkeydown={(e) => onCellKey(e, rowIndex, column)}
 											onpaste={(e) => onPaste(e, rowIndex, column)}
 											oninput={(e) => setCell(rowIndex, column, e.currentTarget.value)}
@@ -630,18 +859,18 @@
 									>&plus;</button>
 								{/if}
 							</td>
-							<td class="px-2 py-1 text-brand-muted">{row.stats ? row.stats.n : '—'}</td>
-							<td class="px-2 py-1 text-brand-muted">{fmt(row.stats?.mean)}</td>
+							<td class="px-2 py-1 text-brand-muted">{stats.n}</td>
+							<td class="px-2 py-1 text-brand-muted">{stats.mean}</td>
 							<td
 								class="px-2 py-1 text-brand-muted"
 								title={row.stats?.sd_estimator
 									? `Standard deviation under the ${row.stats.sd_estimator} divisor`
-									: undefined}>{fmt(row.stats?.stdev)}</td
+									: undefined}>{stats.stdev}</td
 							>
-							<td class="px-2 py-1 text-brand-muted">{fmt(row.stats?.min)}</td>
-							<td class="px-2 py-1 text-brand-muted">{fmt(row.stats?.max)}</td>
+							<td class="px-2 py-1 text-brand-muted">{stats.min}</td>
+							<td class="px-2 py-1 text-brand-muted">{stats.max}</td>
 						</tr>
-						{#if inspecting?.parameterId === row.parameterId && detail}
+						{#if inspecting && rowKey(inspecting) === rowKey(row) && detail}
 							<tr class="border-t border-gray-100 dark:border-gray-800">
 								<td colspan={width + 9} class="px-2 py-2">
 									<PointInspector
@@ -712,10 +941,37 @@
 		{:else if calculations.length === 0}
 			<p class="text-brand-muted">No calculation reads what this save changes.</p>
 		{/if}
+		{#if checkValues.length > 0}
+			<div class="space-y-1 border-t border-brand-divider pt-2">
+				<div class="flex flex-wrap items-center justify-between gap-2">
+					<span class="font-medium">Check against site history</span>
+					<Button size="sm" onclick={runCheck} disabled={checking}>
+						{checking ? 'Checking…' : checkSatisfied ? 'Re-check' : 'Check'}
+					</Button>
+				</div>
+				{#if checkStale}
+					<p class="text-xs text-severity-warning-text">
+						Values changed since the last check; check again before saving.
+					</p>
+				{:else if check}
+					{#each check.response.findings as finding (finding.parameter_id + finding.value)}
+						<p class="text-xs {finding.warning ? 'text-severity-warning-text' : 'text-brand-muted'}">
+							{seasonalLabel(finding)}
+						</p>
+					{/each}
+				{:else}
+					<p class="text-xs text-brand-muted">
+						Screens each entered value against this site's history for the entry month ±2 across
+						all years (replicates pooled). Advisory, but saving requires a check of exactly these
+						values.
+					</p>
+				{/if}
+			</div>
+		{/if}
 	</div>
 	{#snippet actions()}
 		<Button onclick={() => (confirmOpen = false)}>Cancel</Button>
-		<Button variant="primary" loading={saving} onclick={save}>Save</Button>
+		<Button variant="primary" loading={saving} disabled={!checkSatisfied} onclick={save}>Save</Button>
 	{/snippet}
 </Dialog>
 
@@ -739,4 +995,3 @@
 		<Button variant="danger" loading={withdrawing} onclick={withdrawVisit}>Withdraw</Button>
 	{/snippet}
 </Dialog>
-

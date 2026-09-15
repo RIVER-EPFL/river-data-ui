@@ -281,6 +281,13 @@ export type GroupDefinition = components['schemas']['GroupDefinition'];
 export const getGroupDefinition = (groupId: string, siteId?: string) =>
 	GET<GroupDefinition>(`${SERVICE}/parameter_groups/${groupId}/definition`, { site_id: siteId });
 
+// The group at a site: one slot per member, inputs and outputs together, so every calculation of
+// the group applies there.
+export type ApplyGroupResponse = components['schemas']['ApplyGroupResponse'];
+
+export const applyParameterGroup = (siteId: string, groupId: string) =>
+	POST<ApplyGroupResponse>(`${SERVICE}/sites/${siteId}/parameter_groups`, { group_id: groupId });
+
 // Merge parameters
 export type MergeParametersResponse = components['schemas']['MergeParametersResponse'];
 

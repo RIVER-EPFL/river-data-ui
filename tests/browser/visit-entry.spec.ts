@@ -38,7 +38,7 @@ async function token(request: APIRequestContext): Promise<string> {
 }
 
 /** A site with one spot parameter and one visit holding two replicates of it. */
-async function seedVisit(request: APIRequestContext): Promise<Fixture> {
+async function seedVisit(request: APIRequestContext, empty = false): Promise<Fixture> {
 	const stamp = `${Date.now()}_${(seeded += 1)}`;
 	const bearer = await token(request);
 	const headers = { Authorization: `Bearer ${bearer}` };
@@ -63,7 +63,7 @@ async function seedVisit(request: APIRequestContext): Promise<Fixture> {
 	});
 
 	const collectedAt = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
-	await post('/grab_samples', {
+	if (!empty) await post('/grab_samples', {
 		site_id: site.id,
 		mode: 'replace',
 		readings: [
@@ -81,6 +81,19 @@ async function seedVisit(request: APIRequestContext): Promise<Fixture> {
 function cell(page: Page, row: number, column: number) {
 	return page.getByTestId(`grid-cell-${row}-${column}`);
 }
+
+test('an empty visit can be discarded from its grid', async ({ page, request }) => {
+	const visit = await seedVisit(request, true);
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/visits/${visit.eventId}`);
+	page.once('dialog', (dialog) => dialog.accept());
+	await page.getByRole('button', { name: 'Discard this visit' }).click();
+	await expect(page).toHaveURL(new RegExp(`/sites/${visit.siteId}\\?tab=visits$`));
+	const response = await request.get(`${API_URL}/api/collection_events/${visit.eventId}/detail`, {
+		headers: { Authorization: `Bearer ${await token(request)}` },
+	});
+	expect(response.status()).toBe(404);
+});
 
 test('a visit is entered, its consequence read, and its saved value comes back', async ({
 	page,
@@ -107,12 +120,18 @@ test('a visit is entered, its consequence read, and its saved value comes back',
 	await expect(save).toBeEnabled();
 	await expect(save).toContainText('Save 1 value');
 
-	// The save states its consequence before it is taken.
+	// The save states its consequence before it is taken, and screens what is entered against the
+	// site's history: a save may go past a warning, but not past an unchecked value.
 	await save.click();
 	const dialog = page.getByRole('dialog');
 	await expect(dialog).toContainText('1 value will be written');
 	await expect(dialog).toContainText('0 corrected in place');
-	await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+	const confirm = dialog.getByRole('button', { name: 'Save', exact: true });
+	await expect(confirm).toBeDisabled();
+	await dialog.getByRole('button', { name: 'Check', exact: true }).click();
+	await expect(dialog).toContainText('Entry grid parameter:');
+	await expect(confirm).toBeEnabled();
+	await confirm.click();
 
 	// The value comes back from the store, and the trigger's mean moves with it.
 	await expect(dialog).toBeHidden();
@@ -141,4 +160,27 @@ test('a pasted block fills rightward and a blank cell stays a gap', async ({ pag
 	await expect(cell(page, 0, 1)).toHaveValue('');
 	await expect(cell(page, 0, 2)).toHaveValue('23');
 	await expect(page.getByRole('button', { name: /^Save .*value/ })).toContainText('Save 2 values');
+});
+
+test('a typed value is not lost to a link out of the grid', async ({ page, request }) => {
+	const visit = await seedVisit(request);
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/visits/${visit.eventId}`);
+
+	await cell(page, 0, 2).fill('14');
+	await expect(page.getByRole('button', { name: /^Save .*value/ })).toBeEnabled();
+
+	// Declining the prompt keeps the operator on the visit, with what they typed.
+	const back = page.getByRole('link', { name: 'Back to the site' });
+	const declined = page.waitForEvent('dialog');
+	await back.click();
+	await (await declined).dismiss();
+	await expect(page).toHaveURL(new RegExp(`/visits/${visit.eventId}$`));
+	await expect(cell(page, 0, 2)).toHaveValue('14');
+
+	// Accepting it leaves.
+	const accepted = page.waitForEvent('dialog');
+	await back.click();
+	await (await accepted).accept();
+	await expect(page).toHaveURL(new RegExp(`/sites/${visit.siteId}\\?tab=visits`));
 });

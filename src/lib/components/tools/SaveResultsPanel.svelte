@@ -34,6 +34,7 @@
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { toDatetimeLocal, fromDatetimeLocal, formatDateTime } from '$lib/utils';
 	import { curveEquation, curveIdentity } from '$lib/standardCurves';
+	import { SEASONAL_CLASS_LABELS, seasonalFindingLabel } from '$lib/seasonal';
 	import { instrumentFilter, kindLabel, measuringInstruments, retiredSuffix } from '$lib/instruments/kind';
 	import { instrumentIsChoosable, readingInstrument } from '$lib/tools/rowInstrument';
 	import Button from '$components/ui/Button.svelte';
@@ -648,15 +649,6 @@
 		return `${readings} reading${readings === 1 ? '' : 's'} at ${indices} ${indices === 1 ? 'index' : 'indices'} to ${selectedSiteName ?? 'no site'} ${when}, curve ${curve}, calibration ${calibration}`;
 	});
 
-	const CLASS_LABELS: Record<string, string> = {
-		no_history: 'no history',
-		below_min: 'below recorded minimum',
-		below_q10: 'below Q10',
-		normal: 'normal',
-		above_q90: 'above Q90',
-		above_max: 'above recorded maximum',
-	};
-
 	async function runCheck() {
 		if (!canSave) return;
 		checking = true;
@@ -680,11 +672,7 @@
 	}
 
 	function findingLabel(f: SeasonalFinding): string {
-		const range =
-			f.min !== null && f.max !== null
-				? ` (seasonal range ${f.min.toPrecision(4)} – ${f.max.toPrecision(4)}, n=${f.n})`
-				: '';
-		return `${paramNameById(f.parameter_id)}: ${CLASS_LABELS[f.class] ?? f.class}${range}`;
+		return seasonalFindingLabel(f, paramNameById(f.parameter_id));
 	}
 
 	// Every reading carries its index: the endpoint preserves a set of indices only when all of them
@@ -1132,7 +1120,7 @@
 										<ul class="mt-1 space-y-0.5">
 											{#each check.method.classes as c}
 												<li>
-													<span class="font-mono">{CLASS_LABELS[c.class] ?? c.class}</span>: {c.meaning}{c.warning ? ' (warning)' : ''}
+													<span class="font-mono">{SEASONAL_CLASS_LABELS[c.class] ?? c.class}</span>: {c.meaning}{c.warning ? ' (warning)' : ''}
 												</li>
 											{/each}
 										</ul>

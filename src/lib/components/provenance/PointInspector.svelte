@@ -249,11 +249,13 @@
 	function stateText(r: ProvenanceReading): string {
 		if (r.withdrawn_at) return `withdrawn${r.withdrawn_reason ? `: ${r.withdrawn_reason}` : ''}`;
 		if (r.is_flagged) return `flagged${r.flag_reason ? `: ${r.flag_reason}` : ''}`;
+		if (r.unverified) return 'pending';
 		return NO_VALUE;
 	}
 
 	function stateTip(r: ProvenanceReading): string | undefined {
 		if (r.withdrawn_at) return `Withdrawn ${formatDateTime(r.withdrawn_at)}; the source no longer claims this value.`;
+		if (r.unverified) return 'Entered and not yet verified: no statistic counts it and it is served nowhere.';
 		return undefined;
 	}
 
@@ -599,6 +601,8 @@
 											{#if r.withdrawn_reason}<span class="text-xs text-brand-muted">{r.withdrawn_reason}</span>{/if}
 										{:else if r.is_flagged}
 											<Badge variant="warning">flagged{r.flag_reason ? `: ${r.flag_reason}` : ''}</Badge>
+										{:else if r.unverified}
+											<Badge variant="warning">pending</Badge>
 										{:else}
 											<span class="text-brand-muted">{NO_VALUE}</span>
 										{/if}

@@ -4,13 +4,20 @@ import type { EventCell, EventDetailResponse } from '$api/service';
 import {
 	addParameterRow,
 	applyPaste,
+	cellStateTitle,
+	unreadablePasteNotice,
 	clearedCells,
+	copyBlock,
 	columnCount,
 	entryGroups,
+	expectedReplicates,
 	gridFromVisit,
 	headerCount,
 	isEditable,
+	rendersInput,
 	pendingWrites,
+	refusalMessage,
+	saveErrors,
 	rowsInGroup,
 	seedReplicateCounts,
 	setCellValue,
@@ -19,6 +26,9 @@ import {
 	touchedParameters,
 	withColumns,
 	withConfiguredRows,
+	duplicatedParameters,
+	rowKey,
+	rowStats,
 } from './grid';
 
 function cell(over: Partial<EventCell> = {}): EventCell {
@@ -50,6 +60,7 @@ const stored = (index: number, value: number) => ({
 	raw_value: value,
 	flagged: false,
 	withdrawn: false,
+	unverified: false,
 });
 
 describe('the visit grid', () => {
@@ -148,20 +159,20 @@ describe('pasting a spreadsheet block', () => {
 		);
 
 	it('fills rightward and downward from the focused cell', () => {
-		const rows = applyPaste(base(), 0, 0, '120\t122\t118\n7.1\t7.2\t7.3');
+		const rows = applyPaste(base(), 0, 0, '120\t122\t118\n7.1\t7.2\t7.3').rows;
 		expect(rows[0].replicates.map((c) => c.value)).toEqual([120, 122, 118]);
 		expect(rows[1].replicates.map((c) => c.value)).toEqual([7.1, 7.2, 7.3]);
 	});
 
 	it('grows only the rows the block covers, and each to its own line', () => {
-		const rows = applyPaste(base(), 0, 0, '120\t122\t118\t121');
+		const rows = applyPaste(base(), 0, 0, '120\t122\t118\t121').rows;
 		expect(columnCount(rows)).toBe(4);
 		expect(rows[0].replicates).toHaveLength(4);
 		expect(rows[1].replicates).toHaveLength(1);
 	});
 
 	it('leaves a blank cell as a gap rather than shifting what follows', () => {
-		const rows = applyPaste(base(), 0, 0, '120\t\t118');
+		const rows = applyPaste(base(), 0, 0, '120\t\t118').rows;
 		expect(rows[0].replicates.map((c) => c.value)).toEqual([120, null, 118]);
 	});
 
@@ -172,20 +183,91 @@ describe('pasting a spreadsheet block', () => {
 				cell({ replicates: [stored(0, 1)] }),
 			]),
 		);
-		const pasted = applyPaste(rows, 0, 0, '5\n6\n7\n8');
+		const pasted = applyPaste(rows, 0, 0, '5\n6\n7\n8').rows;
 		expect(pasted[0].replicates).toEqual([]);
 		expect(pasted[1].replicates[0].value).toBe(6);
 	});
 
+	it('starts where the paste was made, not at the first cell of the row', () => {
+		const rows = applyPaste(base(), 0, 2, '120\t122').rows;
+		expect(rows[0].replicates.map((c) => c.value)).toEqual([1, null, 120, 122]);
+	});
+
+	it('starts at the row the paste was made on, leaving the rows above it alone', () => {
+		const rows = applyPaste(base(), 1, 0, '7.4\t7.5').rows;
+		expect(rows[0].replicates.map((c) => c.value)).toEqual([1]);
+		expect(rows[1].replicates.map((c) => c.value)).toEqual([7.4, 7.5]);
+	});
+
 	it('ignores a cell that is not a number rather than writing NaN', () => {
-		const rows = applyPaste(base(), 0, 0, 'n/a');
+		const rows = applyPaste(base(), 0, 0, 'n/a').rows;
 		expect(rows[0].replicates[0].value).toBe(1);
 	});
 
+	// A sheet exported with comma decimals reads as no numbers at all, and the row it lands on may
+	// already hold the last visit's values: silence there is a stale value saved as this visit's.
+	it('counts the cells it could not read, so the paste does not look like it worked', () => {
+		const pasted = applyPaste(base(), 0, 0, '12,5\t13,1\t12,8');
+		expect(pasted.unreadable).toBe(3);
+		expect(pasted.rows[0].replicates.map((c) => c.value)).toEqual([1]);
+	});
+
+	it('counts nothing when every cell is a number or a deliberate gap', () => {
+		expect(applyPaste(base(), 0, 0, '120\t\t118').unreadable).toBe(0);
+	});
+
+	it('says nothing about a paste that was read in full', () => {
+		expect(unreadablePasteNotice(0)).toBeNull();
+		expect(unreadablePasteNotice(1)).toContain('1 pasted cell was not a number');
+		expect(unreadablePasteNotice(4)).toContain('4 pasted cells were not numbers');
+	});
+
 	it('accepts the line endings a spreadsheet pastes', () => {
-		const rows = applyPaste(base(), 0, 0, '120\r\n7.5\r\n');
+		const rows = applyPaste(base(), 0, 0, '120\r\n7.5\r\n').rows;
 		expect(rows[0].replicates[0].value).toBe(120);
 		expect(rows[1].replicates[0].value).toBe(7.5);
+	});
+});
+
+describe('copying a selection out of the grid', () => {
+	const base = () =>
+		gridFromVisit(
+			visit([
+				cell({ replicates: [stored(0, 120), stored(1, 122), stored(2, 118)] }),
+				cell({
+					parameter_id: 'p-ph',
+					parameter_code: 'pH',
+					replicates: [stored(0, 7.1), stored(1, 7.2)],
+				}),
+			]),
+		);
+
+	it('is the block as tab-separated lines, in the layout a paste reads', () => {
+		expect(copyBlock(base(), 0, 0, 2, 3)).toBe('120\t122\t118\n7.1\t7.2\t');
+	});
+
+	it('takes the block the selection covers, not the whole row', () => {
+		expect(copyBlock(base(), 0, 1, 1, 2)).toBe('122\t118');
+	});
+
+	it('writes a repeat that was not measured as an empty cell', () => {
+		const rows = applyPaste(base(), 0, 0, '120\t\t118').rows;
+		expect(copyBlock(rows, 0, 0, 1, 3)).toBe('120\t\t118');
+	});
+
+	it('copies what a computed row shows, which a paste back onto it will not write', () => {
+		const rows = gridFromVisit(
+			visit([cell({ parameter_id: 'p-dom', parameter_code: 'DOM', written_by: 'dom', replicates: [stored(0, 4.2)] })]),
+		);
+		expect(copyBlock(rows, 0, 0, 1, 1)).toBe('4.2');
+	});
+
+	it('round trips: the block pasted back where it was copied from changes nothing', () => {
+		const rows = base();
+		const pasted = applyPaste(rows, 0, 0, copyBlock(rows, 0, 0, 2, 3)).rows;
+		expect(pasted.map((r) => r.replicates.map((c) => c.value))).toEqual(
+			rows.map((r) => r.replicates.map((c) => c.value)),
+		);
 	});
 });
 
@@ -193,7 +275,7 @@ describe('what a save would write', () => {
 	it('is only the cells that moved, and says which are corrections', () => {
 		let rows = gridFromVisit(visit([cell({ replicates: [stored(0, 120)] })]));
 		expect(pendingWrites(rows)).toEqual([]);
-		rows = applyPaste(rows, 0, 0, '125\t130');
+		rows = applyPaste(rows, 0, 0, '125\t130').rows;
 		expect(pendingWrites(rows)).toEqual([
 			{
 				parameterId: 'p-doc',
@@ -221,7 +303,7 @@ describe('what a save would write', () => {
 			0,
 			0,
 			'42',
-		);
+		).rows;
 		expect(pendingWrites(rows)).toEqual([]);
 	});
 
@@ -255,7 +337,7 @@ describe('entering a parameter the visit does not hold yet', () => {
 		expect(rows[1].parameterId).toBe('p-ph');
 		expect(rows[1].replicates).toEqual([]);
 
-		rows = applyPaste(rows, 1, 0, '7.1\t7.3');
+		rows = applyPaste(rows, 1, 0, '7.1\t7.3').rows;
 		expect(pendingWrites(rows)).toEqual([
 			{
 				parameterId: 'p-ph',
@@ -283,7 +365,7 @@ describe('the curve a row is read against', () => {
 	it('is shown but never written by the grid', () => {
 		let rows = gridFromVisit(visit([cell({ replicates: [stored(0, 120)] })]));
 		rows[0].standardCurveId = 'curve-4';
-		rows = applyPaste(rows, 0, 0, '125\t130');
+		rows = applyPaste(rows, 0, 0, '125\t130').rows;
 		expect(rows[0].standardCurveId).toBe('curve-4');
 		expect(pendingWrites(rows)).toHaveLength(2);
 		for (const write of pendingWrites(rows)) {
@@ -363,6 +445,14 @@ describe('a row is as wide as the repeats it holds', () => {
 		expect([0, 1, 2, 3].map((c) => isEditable(rows[0], c))).toEqual([true, true, true, true]);
 	});
 
+	it('draws no input where an intern would be overwriting a stored value', () => {
+		const rows = grid();
+		expect(rendersInput(rows[1], 0, 2)).toBe(true);
+		expect(rendersInput(rows[1], 0, 1)).toBe(false);
+		expect(rendersInput(rows[1], 1, 1)).toBe(true);
+		expect(rendersInput(rows[1], 2, 2)).toBe(false);
+	});
+
 	it('never offers an input on a row a calculation writes', () => {
 		const [computed] = gridFromVisit(visit([cell({ written_by: 'doc' })]));
 		expect(isEditable(computed, 0)).toBe(false);
@@ -396,7 +486,7 @@ describe('the instrument a row was measured with', () => {
 			visit([cell({ replicates: [{ ...stored(0, 120), sensor_id: 'probe-1' }] })]),
 		);
 		expect(rows[0].sensorId).toBe('probe-1');
-		rows = applyPaste(rows, 0, 0, '125\t130');
+		rows = applyPaste(rows, 0, 0, '125\t130').rows;
 		expect(pendingWrites(rows).map((w) => w.sensorId)).toEqual(['probe-1', 'probe-1']);
 	});
 
@@ -424,12 +514,78 @@ describe('the grid a site opens as', () => {
 		expect(rows[1].replicates).toEqual([]);
 	});
 
+	it('keeps both rows where two streams serve one parameter at the visit', () => {
+		const rows = withConfiguredRows(
+			gridFromVisit(
+				visit([
+					cell({ stream_id: 'stream-cnet', source_system: 'cnet', replicates: [stored(0, 120)] }),
+					cell({ stream_id: 'stream-grab', source_system: 'grab_sample', replicates: [stored(0, 131)] }),
+				]),
+			),
+			configured,
+		);
+		expect(rows.map((r) => r.streamId)).toEqual([
+			'stream-cnet',
+			'stream-grab',
+			'',
+			'',
+		]);
+		// The rows are told apart by their stream, so the grid can key them.
+		expect(new Set(rows.map(rowKey)).size).toBe(rows.length);
+		expect(duplicatedParameters(rows)).toEqual(new Set(['p-doc']));
+	});
+
 	it('leaves a stored parameter the site no longer declares on the grid', () => {
 		const rows = withConfiguredRows(
 			gridFromVisit(visit([cell({ parameter_id: 'p-retired', parameter_code: 'OLD' })])),
 			configured,
 		);
 		expect(rows.map((r) => r.parameterId)).toContain('p-retired');
+	});
+});
+
+describe('the statistics beside a row', () => {
+	// A single-precision 100.8 as the portals store it, so what the grid prints is a display
+	// decision rather than an artefact of the number.
+	const STORED = 100.8000030517578;
+	const withSample = () =>
+		gridFromVisit(
+			visit([
+				cell({
+					replicates: [stored(0, STORED)],
+					sample: { n: 3, mean: STORED, stdev: 0.15275252316519466, min: 1.1, max: 1.4 },
+				} as Partial<EventCell>),
+			]),
+		)[0];
+
+	it('takes the precision the slot declares', () => {
+		expect(rowStats(withSample(), 2)).toEqual({
+			n: '3',
+			mean: '100.80',
+			stdev: '0.15',
+			min: '1.10',
+			max: '1.40',
+		});
+	});
+
+	it('leaves an undeclared slot at what was measured, rounded to no precision nobody chose', () => {
+		const stats = rowStats(withSample(), null);
+		expect(stats.mean).toBe('100.8');
+		expect(stats.stdev).toBe('0.152753');
+	});
+
+	// A lone measurement forms no sample row, and the serving arm reports it as n = 1. The
+	// statistics a single value does not have stay absent.
+	it('counts a row with no sample as the one measurement it holds', () => {
+		const rows = gridFromVisit(visit([cell({ replicates: [stored(0, 120)] })]));
+		expect(rowStats(rows[0], 2)).toEqual({ n: '1', mean: '-', stdev: '-', min: '-', max: '-' });
+	});
+
+	it('counts nothing where the lone replicate is excluded from the mean', () => {
+		const rows = gridFromVisit(
+			visit([cell({ replicates: [{ ...stored(0, 120), flagged: true }] })]),
+		);
+		expect(rowStats(rows[0], 2).n).toBe('0');
 	});
 });
 
@@ -514,5 +670,87 @@ describe('adding and removing a repeat by hand', () => {
 	it('never leaves a row with no cell to type into', () => {
 		const rows = setReplicateCount(gridFromVisit(visit([cell({ replicates: [] })])), 0, 0);
 		expect(rows[0].replicates).toHaveLength(1);
+	});
+});
+
+describe('refusalMessage', () => {
+	it('unwraps the API envelope and leaves anything else alone', () => {
+		expect(refusalMessage('{"error":"Check c1 does not exist"}')).toBe('Check c1 does not exist');
+		expect(refusalMessage('502 Bad Gateway')).toBe('502 Bad Gateway');
+		expect(refusalMessage('{"detail":"no error key"}')).toBe('{"detail":"no error key"}');
+	});
+});
+
+describe('saveErrors', () => {
+	const rows = gridFromVisit(
+		visit([
+			cell({ parameter_id: 'p-doc', parameter_code: 'DOC_ppb' }),
+			cell({ parameter_id: 'p-ph', parameter_code: 'pH' }),
+		]),
+	);
+
+	it('puts a refusal on the row it names', () => {
+		const refusal = JSON.stringify({
+			error: 'Value 7.4 for parameter p-ph was not screened by check c1',
+		});
+		expect(saveErrors(refusal, rows)).toEqual({
+			'p-ph': 'Value 7.4 for parameter p-ph was not screened by check c1',
+		});
+	});
+
+	it('names every row a refusal mentions', () => {
+		const refusal = JSON.stringify({ error: 'p-doc and p-ph are not configured for site Sion' });
+		expect(Object.keys(saveErrors(refusal, rows)).sort()).toEqual(['p-doc', 'p-ph']);
+	});
+
+	it('leaves the grid unmarked when the refusal names no parameter', () => {
+		expect(saveErrors('{"error":"Database error"}', rows)).toEqual({});
+	});
+});
+
+describe('a pending replicate', () => {
+	it('arrives on the grid cell, so the value can be drawn as pending', () => {
+		const grid = gridFromVisit(
+			visit([cell({ replicates: [{ ...stored(0, 120), unverified: true }, stored(1, 122)] })]),
+		);
+		expect(grid[0].replicates[0].unverified).toBe(true);
+		expect(grid[0].replicates[1].unverified).toBe(false);
+	});
+
+	it('says in the cell title what pending means for the value', () => {
+		expect(cellStateTitle({ value: 1, stored: 1, flagged: false, withdrawn: false, unverified: true })).toContain(
+			'Pending',
+		);
+		expect(cellStateTitle({ value: 1, stored: 1, flagged: false, withdrawn: false, unverified: false })).toBeUndefined();
+	});
+});
+
+describe('expectedReplicates', () => {
+	it('names what the grid read for every group the save carries, and no other', () => {
+		const rows = setCellValue(
+			gridFromVisit(
+				visit([
+					cell({ parameter_id: 'p-doc', replicates: [stored(0, 120), stored(2, 118)] }),
+					cell({ parameter_id: 'p-ph', replicates: [stored(0, 7.1)] }),
+				]),
+			),
+			0,
+			1,
+			119,
+		);
+		const entries = entryGroups(rows);
+		expect(expectedReplicates(rows, entries, '2025-06-20T10:30:00Z')).toEqual([
+			{ parameter_id: 'p-doc', time: '2025-06-20T10:30:00Z', replicate_indices: [0, 2] },
+		]);
+	});
+
+	it('names only what is stored, not what was typed', () => {
+		const typed = setCellValue(
+			gridFromVisit(visit([cell({ parameter_id: 'p-doc', replicates: [stored(0, 120)] })])),
+			0,
+			1,
+			121,
+		);
+		expect(expectedReplicates(typed, entryGroups(typed), 't')[0].replicate_indices).toEqual([0]);
 	});
 });

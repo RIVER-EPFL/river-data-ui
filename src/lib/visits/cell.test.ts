@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { cellRecord, recordMarkerTitle, visitCellMarker, visitCellStatistics, visitCounts } from './cell';
+import {
+	cellRecord,
+	findingLabel,
+	recordMarkerTitle,
+	showsProvenanceMarker,
+	statisticsParts,
+	visitCellMarker,
+	visitCellStatistics,
+	visitCounts,
+} from './cell';
 import type { EventCell, EventCellReplicate, EventDetailResponse, VisitCell } from '$api/service';
 import type { GridRow } from './grid';
 
@@ -12,6 +21,7 @@ function cell(over: Partial<VisitCell>): VisitCell {
 		n_total: 3,
 		n_flagged: 0,
 		n_withdrawn: 0,
+		n_unverified: 0,
 		...over,
 	};
 }
@@ -46,6 +56,29 @@ describe('visitCellMarker', () => {
 	it('says how many of how many, so the mark is readable without expanding the row', () => {
 		expect(visitCellMarker(cell({ n_flagged: 1, n_total: 3 }))?.title).toContain('1 of 3');
 	});
+
+	// An intern's entry is stored and drawn like any other number, and counted by nothing.
+	it('marks a pending group, which no statistic counts', () => {
+		const marker = visitCellMarker(cell({ n_unverified: 3 }));
+		expect(marker?.text).toBe('?');
+		expect(marker?.title).toContain('not yet verified');
+	});
+});
+
+describe('visitCellStatistics', () => {
+	it('says why the statistics are empty when every replicate is pending', () => {
+		const line = visitCellStatistics(cell({ n: 0, n_unverified: 3 }));
+		expect(line).toContain('n = 0');
+		expect(line).toContain('not counted until verified');
+	});
+
+	it('offers a line for a single measurement, which the serving arm counts as one', () => {
+		expect(visitCellStatistics(cell({ n: 1, n_total: 1 }))).toBe('n = 1');
+	});
+
+	it('stays silent on a cell holding nothing at all', () => {
+		expect(visitCellStatistics(cell({ n: 0, n_total: 0 }))).toBeNull();
+	});
 });
 
 describe('visitCounts', () => {
@@ -62,7 +95,7 @@ describe('visitCounts', () => {
 		};
 	}
 	function rep(flagged = false, withdrawn = false): EventCellReplicate {
-		return { replicate_index: 0, raw_value: 1, flagged, withdrawn };
+		return { replicate_index: 0, raw_value: 1, flagged, withdrawn, unverified: false };
 	}
 
 	it('counts parameters, replicates, flagged, withdrawn and findings over the grid', () => {
@@ -169,6 +202,33 @@ describe('visitCellStatistics', () => {
 	});
 });
 
+describe('statisticsParts', () => {
+	// The expanded cell serves both divisors, so the line names each one and formats it like every
+	// other number on the row.
+	it('formats both divisors to the slot\'s declared precision', () => {
+		const parts = statisticsParts(
+			{
+				n: 3,
+				sd_estimator: 'sample',
+				sd_estimator_source: 'declared',
+				stdev: 0.1 + 0.2,
+				stdev_sample: 0.1 + 0.2,
+				stdev_population: 0.2451,
+			},
+			2,
+			'mg/L'
+		);
+		expect(parts).toContain('sample, n-1: 0.30 mg/L');
+		expect(parts).toContain('population, n: 0.25 mg/L');
+		expect(parts.join(' ')).not.toContain('0.30000000000000004');
+	});
+
+	it('leaves out a divisor the group does not carry', () => {
+		const parts = statisticsParts({ n: 3, stdev: 0.5, sd_estimator: 'sample' });
+		expect(parts.some((p) => p.startsWith('population, n:'))).toBe(false);
+	});
+});
+
 describe('recordMarkerTitle', () => {
 	const row = (over: Partial<GridRow>): GridRow =>
 		({
@@ -192,11 +252,19 @@ describe('recordMarkerTitle', () => {
 		);
 	});
 
-	it('falls back to the row\'s own kind, then to the stream\'s origin', () => {
+	it('spells the kind the way the record it opens spells it', () => {
 		expect(recordMarkerTitle(row({ provenanceKind: 'csv_import', origin: 'csv' }))).toBe(
-			'What produced this value (csv import)'
+			'What produced this value (CSV import)'
 		);
-		expect(recordMarkerTitle(row({ origin: 'sync' }))).toBe('What produced this value (sync)');
+		expect(recordMarkerTitle(row({ provenanceKind: 'sync', origin: 'sync' }))).toBe(
+			'What produced this value (sync service)'
+		);
+	});
+
+	it('falls back to the source system the stream names, as the badge spells it', () => {
+		expect(recordMarkerTitle(row({ origin: 'sync', sourceSystem: 'cnet' }))).toBe(
+			'What produced this value (cnet sync)'
+		);
 	});
 
 	it('carries an open finding, which is the reason to look', () => {
@@ -207,5 +275,44 @@ describe('recordMarkerTitle', () => {
 
 	it('promises only the record when nothing about the origin is known', () => {
 		expect(recordMarkerTitle(row({}))).toBe('What produced this value');
+	});
+});
+
+describe('showsProvenanceMarker', () => {
+	const row = (over: Partial<GridRow>) =>
+		({
+			parameterId: 'p',
+			parameterCode: 'DOC_ppb',
+			parameterName: 'DOC',
+			role: 'plain',
+			roleTitle: null,
+			roleClass: '',
+			readBy: [],
+			replicates: [],
+			stats: null,
+			streamId: 's',
+			hasProvenance: true,
+			...over,
+		}) as GridRow;
+
+	it('draws on a row that carries a record', () => {
+		expect(showsProvenanceMarker(row({ record: {} as GridRow['record'] }))).toBe(true);
+	});
+
+	it('draws on a finding with no reading behind it, which would otherwise read as an empty row', () => {
+		expect(showsProvenanceMarker(row({ finding: 'missing_output' }))).toBe(true);
+	});
+
+	it('draws on nothing when the row has neither', () => {
+		expect(showsProvenanceMarker(row({}))).toBe(false);
+	});
+});
+
+describe('findingLabel', () => {
+	it('gives each kind its word, and an unknown kind the missing one', () => {
+		expect(findingLabel('stale_output')).toBe('stale');
+		expect(findingLabel('skipped_output')).toBe('skipped');
+		expect(findingLabel('missing_output')).toBe('missing');
+		expect(findingLabel('something_new')).toBe('missing');
 	});
 });

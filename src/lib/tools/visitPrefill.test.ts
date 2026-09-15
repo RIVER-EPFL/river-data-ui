@@ -51,8 +51,8 @@ describe('opening a tool on a visit that already holds values', () => {
 		const cells = [
 			cell({
 				replicates: [
-					{ replicate_index: 1, raw_value: 122, flagged: false, withdrawn: false },
-					{ replicate_index: 0, raw_value: 120, flagged: false, withdrawn: false },
+					{ replicate_index: 1, raw_value: 122, flagged: false, withdrawn: false, unverified: false },
+					{ replicate_index: 0, raw_value: 120, flagged: false, withdrawn: false, unverified: false },
 				],
 			}),
 		];
@@ -63,8 +63,8 @@ describe('opening a tool on a visit that already holds values', () => {
 		const cells = [
 			cell({
 				replicates: [
-					{ replicate_index: 0, raw_value: 120, flagged: false, withdrawn: false },
-					{ replicate_index: 2, raw_value: 118, flagged: false, withdrawn: false },
+					{ replicate_index: 0, raw_value: 120, flagged: false, withdrawn: false, unverified: false },
+					{ replicate_index: 2, raw_value: 118, flagged: false, withdrawn: false, unverified: false },
 				],
 			}),
 		];
@@ -75,8 +75,8 @@ describe('opening a tool on a visit that already holds values', () => {
 		const cells = [
 			cell({
 				replicates: [
-					{ replicate_index: 0, raw_value: 120, flagged: false, withdrawn: false, standard_curve_id: 'curve-1' },
-					{ replicate_index: 1, raw_value: 122, flagged: false, withdrawn: false, standard_curve_id: 'curve-1' },
+					{ replicate_index: 0, raw_value: 120, flagged: false, withdrawn: false, unverified: false, standard_curve_id: 'curve-1' },
+					{ replicate_index: 1, raw_value: 122, flagged: false, withdrawn: false, unverified: false, standard_curve_id: 'curve-1' },
 				],
 			}),
 		];
@@ -107,7 +107,7 @@ describe('opening a tool on a visit that already holds values', () => {
 			],
 		});
 		const cells = [
-			cell({ replicates: [{ replicate_index: 0, raw_value: 9, flagged: false, withdrawn: false }] }),
+			cell({ replicates: [{ replicate_index: 0, raw_value: 9, flagged: false, withdrawn: false, unverified: false }] }),
 		];
 		expect(prefillFromVisit(withId, cells).doc).toEqual([9]);
 		expect(
@@ -127,7 +127,7 @@ describe('opening a tool on a visit that already holds values', () => {
 		const docCells = [
 			cell({
 				served_value: 121,
-				replicates: [{ replicate_index: 0, raw_value: 120, flagged: false, withdrawn: false }],
+				replicates: [{ replicate_index: 0, raw_value: 120, flagged: false, withdrawn: false, unverified: false }],
 			}),
 		];
 		expect(prefillFromVisit(both, docCells).doc).toEqual([120]);

@@ -357,6 +357,30 @@ describe('PointInspector', () => {
 			expect(screen.getByText(/absent from source window/)).toBeTruthy();
 		});
 
+		// The state is written by the grid's own save path and excluded from every statistic, so
+		// the record is where a manager finds out that is why the sample counts nothing.
+		it('names a pending entry as pending rather than leaving its state blank', async () => {
+			open(
+				response([
+					{
+						origin: {
+							stream_id: 'stream',
+							source_system: 'grab_sample',
+							source_key: 'FP15:pH',
+							classification: 'manual',
+							ingested_at: '2026-07-15T04:00:00Z',
+						},
+						readings: [reading(0, 8.005, { unverified: true }), reading(1, 8.02, { unverified: true })],
+						chain: {},
+						computation: { sd_estimator: 'sample', sd_estimator_source: 'default' },
+						holds: [],
+					},
+				]),
+			);
+			await screen.findByText('8.005');
+			expect(screen.getAllByText('pending')).toHaveLength(2);
+		});
+
 		it('prints the calibration window and the curve name as visible text', async () => {
 			const { container } = open(syncedGroup());
 			await screen.findByText('41.2');

@@ -37,6 +37,35 @@ describe('editConsequence', () => {
 		expect(text).toContain('DOM Indices rewrites SUVA');
 		expect(text).toContain('DOC runs again');
 	});
+
+	it('names what each output holds today, so the move is readable before it is made', () => {
+		const text = editConsequence(
+			[{ tool: 'dom', label: 'DOM Indices', outputs: [{ parameter_code: 'SUVA' }] }],
+			{ SUVA: 3.4 },
+		);
+		expect(text).toContain('SUVA (now 3.4)');
+	});
+
+	it('says an output holds nothing yet rather than showing a blank', () => {
+		const text = editConsequence(
+			[{ tool: 'dom', label: 'DOM Indices', outputs: [{ parameter_code: 'SUVA' }] }],
+			{ SUVA: null },
+		);
+		expect(text).toContain('SUVA (no value yet)');
+		expect(
+			editConsequence([
+				{ tool: 'dom', label: 'DOM Indices', outputs: [{ parameter_code: 'SUVA' }] },
+			]),
+		).toContain('SUVA (no value yet)');
+	});
+
+	it('names a zero as the value it is', () => {
+		const text = editConsequence(
+			[{ tool: 'dom', label: 'DOM Indices', outputs: [{ parameter_code: 'SUVA' }] }],
+			{ SUVA: 0 },
+		);
+		expect(text).toContain('SUVA (now 0)');
+	});
 });
 
 describe('cellWritable', () => {

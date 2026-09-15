@@ -20,6 +20,7 @@ export type MeData = {
 export type Capability =
 	| 'readMetadata'
 	| 'readData'
+	| 'enterFieldData'
 	| 'writeData'
 	| 'writeFieldMetadata'
 	| 'manageSensors'
@@ -38,6 +39,7 @@ const ROLE_LEVEL: Record<string, number> = {
 const CAP_MIN_LEVEL: Record<Capability, number> = {
 	readMetadata: 1,
 	readData: 1,
+	enterFieldData: 1,
 	writeData: 2,
 	writeFieldMetadata: 2,
 	manageSensors: 3,

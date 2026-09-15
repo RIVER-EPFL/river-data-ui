@@ -80,8 +80,16 @@ describe('readings response', () => {
 });
 
 describe('grab save response', () => {
-	it('reports the curated rows a replace left in place', () => {
-		assertKeys(grabSave, ['inserted', 'samples_created', 'dry_run', 'replaced', 'kept_curated', 'preview']);
+	it('reports the curated rows a replace left in place, and the replicates it retracted', () => {
+		assertKeys(grabSave, [
+			'inserted',
+			'samples_created',
+			'dry_run',
+			'replaced',
+			'kept_curated',
+			'withdrawn',
+			'preview',
+		]);
 		expect(grabSave.kept_curated).toBe(1);
 	});
 });

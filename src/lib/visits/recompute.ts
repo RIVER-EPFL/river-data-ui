@@ -35,3 +35,23 @@ export function visitBadge(
 /** What a person entering a value at a portal-synced visit needs to know before they type it. */
 export const SYNCED_VISIT_NOTICE =
 	'Calculations do not run at a portal-synced visit: correct the value in the portal.';
+
+/** The notice the entry grid carries for a visit, or nothing when its values are entered here. */
+export function entryNoticeFor(source: string | undefined): string | null {
+	return source === 'portal_sync' ? SYNCED_VISIT_NOTICE : null;
+}
+
+/**
+ * Whether a calculation here owns the visit's output rows. A portal-synced visit arrives with the
+ * portal's outputs already computed, so naming a local calculation over them claims a run that
+ * never happened.
+ */
+export function computedHere(source: string | undefined): boolean {
+	return source !== 'portal_sync';
+}
+
+/** How a visit names where its values came from, and who typed them when somebody did. */
+export function visitSourceLabel(source: string | undefined, createdBy?: string | null): string {
+	if (source === 'portal_sync') return 'Synced from the portal';
+	return createdBy ? `Entered manually by ${createdBy}` : 'Entered manually';
+}

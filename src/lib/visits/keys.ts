@@ -30,32 +30,36 @@ export function isGridKey(key: string): key is GridKey {
 	return (KEYS as string[]).includes(key);
 }
 
-function clamp(value: number, limit: number): number {
-	return Math.max(0, Math.min(value, limit - 1));
-}
-
 /**
- * Where a keystroke leaves the selection, or `null` when the grid does not answer to it and the
- * cell's own input should have it.
+ * Where a keystroke leaves the selection, or `null` when there is nowhere to go and the cell's own
+ * input should keep the key.
  *
- * Arrows move by one and stop at the edges. Enter moves down, the way a technician reads an
- * analyser's output. Tab moves right and wraps to the next row's first replicate rather than into
- * the statistics; `shift` reverses Tab and extends an arrow's selection instead of moving it.
+ * The grid is ragged and filtered, so a coordinate is not a destination: `navigable` answers for
+ * each one, and the search walks past a computed row, a cell beyond its own row's replicates and a
+ * row the parameter-group filter hides. Arrows move by one such cell, Enter moves down the way a
+ * technician reads an analyser's output, and Tab runs the grid in row-major order so it wraps to
+ * the next row's first replicate rather than into the statistics; `shift` reverses Tab and extends
+ * an arrow's selection instead of moving it.
  */
-export function move(
+export function nextCell(
 	selection: Selection,
 	key: GridKey,
 	dimensions: Dimensions,
+	navigable: (row: number, column: number) => boolean,
 	shift = false,
 ): Selection | null {
 	const { rows, columns } = dimensions;
 	if (rows < 1 || columns < 1) return null;
 
 	if (key === 'Tab') {
-		const forward = !shift;
-		const index = selection.row * columns + selection.column + (forward ? 1 : -1);
-		if (index < 0 || index >= rows * columns) return null;
-		return at(Math.floor(index / columns), index % columns);
+		const step = shift ? -1 : 1;
+		const last = rows * columns;
+		for (let index = selection.row * columns + selection.column + step; index >= 0 && index < last; index += step) {
+			const row = Math.floor(index / columns);
+			const column = index % columns;
+			if (navigable(row, column)) return at(row, column);
+		}
+		return null;
 	}
 
 	const step: Record<Exclude<GridKey, 'Tab'>, [number, number]> = {
@@ -66,23 +70,44 @@ export function move(
 		Enter: [1, 0],
 	};
 	const [dy, dx] = step[key];
-	const row = clamp(selection.row + dy, rows);
-	const column = clamp(selection.column + dx, columns);
-	if (shift && key !== 'Enter') {
-		return { ...selection, row, column };
+	let row = selection.row + dy;
+	let column = selection.column + dx;
+	while (row >= 0 && row < rows && column >= 0 && column < columns) {
+		if (navigable(row, column)) {
+			return shift && key !== 'Enter' ? { ...selection, row, column } : at(row, column);
+		}
+		row += dy;
+		column += dx;
 	}
-	return at(row, column);
+	return null;
+}
+
+/** The rectangle a selection stands on, read from its top left corner. */
+export interface Bounds {
+	row: number;
+	column: number;
+	height: number;
+	width: number;
+}
+
+/** Where a selection starts and how far it reaches, whichever corner the head ended up in. */
+export function bounds(selection: Selection): Bounds {
+	const row = Math.min(selection.row, selection.anchorRow);
+	const column = Math.min(selection.column, selection.anchorColumn);
+	return {
+		row,
+		column,
+		height: Math.max(selection.row, selection.anchorRow) - row + 1,
+		width: Math.max(selection.column, selection.anchorColumn) - column + 1,
+	};
 }
 
 /** The cells a selection covers, in row-major order. One cell unless an extension widened it. */
 export function selectedCells(selection: Selection): { row: number; column: number }[] {
-	const rowFrom = Math.min(selection.row, selection.anchorRow);
-	const rowTo = Math.max(selection.row, selection.anchorRow);
-	const columnFrom = Math.min(selection.column, selection.anchorColumn);
-	const columnTo = Math.max(selection.column, selection.anchorColumn);
+	const { row: rowFrom, column: columnFrom, height, width } = bounds(selection);
 	const cells = [];
-	for (let row = rowFrom; row <= rowTo; row += 1) {
-		for (let column = columnFrom; column <= columnTo; column += 1) {
+	for (let row = rowFrom; row < rowFrom + height; row += 1) {
+		for (let column = columnFrom; column < columnFrom + width; column += 1) {
 			cells.push({ row, column });
 		}
 	}
@@ -91,10 +116,18 @@ export function selectedCells(selection: Selection): { row: number; column: numb
 
 /** Whether a cell is inside the selection, which is what the grid shades. */
 export function covers(selection: Selection, row: number, column: number): boolean {
+	const b = bounds(selection);
 	return (
-		row >= Math.min(selection.row, selection.anchorRow) &&
-		row <= Math.max(selection.row, selection.anchorRow) &&
-		column >= Math.min(selection.column, selection.anchorColumn) &&
-		column <= Math.max(selection.column, selection.anchorColumn)
+		row >= b.row && row < b.row + b.height && column >= b.column && column < b.column + b.width
 	);
+}
+
+/**
+ * Where a cell's focus event leaves the selection. A keyboard move focuses its destination, so a
+ * focus landing on the head keeps the extension that move built; a focus anywhere else came from
+ * the pointer or from Tab out of the grid and stands on that cell alone.
+ */
+export function onFocusMoved(selection: Selection | null, row: number, column: number): Selection {
+	if (selection && selection.row === row && selection.column === column) return selection;
+	return at(row, column);
 }

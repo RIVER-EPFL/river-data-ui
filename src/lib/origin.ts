@@ -28,6 +28,17 @@ export function provenanceKindLabel(kind: string | undefined): string | undefine
 	return labels[kind] ?? kind;
 }
 
+/**
+ * How a row reads on a surface that shows one phrase for it: its own recorded kind where it has
+ * one, else the source system its stream names.
+ */
+export function rowProvenanceLabel(
+	kind: string | undefined,
+	sourceSystem: string | undefined
+): string | undefined {
+	return provenanceKindLabel(kind) ?? (sourceSystem ? originLabel(sourceSystem) : undefined);
+}
+
 /** The source system named by an origin, or null for the origins that name none. */
 export function originSource(origin: Origin): string | null {
 	return origin.startsWith('source:') ? origin.slice('source:'.length) : null;

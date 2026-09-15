@@ -34,6 +34,18 @@ export function measuringInstruments<T extends Pick<Sensor, 'kind' | 'is_lab_ins
 	return sensors.filter((s) => !isBookkeeping(s));
 }
 
+/// What an instrument picker offers: the rows something could have been measured on, still in
+/// service, plus whatever the row already declares. A stored retired or bookkeeping instrument
+/// stays on the list, because a select that drops it reports the wrong instrument as chosen.
+export function pickerOptions<
+	T extends Pick<Sensor, 'id' | 'kind' | 'is_lab_instrument' | 'is_active'>,
+>(sensors: T[], declaredId?: string | null): T[] {
+	const offered = measuringInstruments(sensors).filter((s) => !isRetired(s));
+	if (!declaredId || offered.some((s) => s.id === declaredId)) return offered;
+	const declared = sensors.find((s) => s.id === declaredId);
+	return declared ? [...offered, declared] : offered;
+}
+
 /// Retirement is `is_active = false`; the column defaults to true and an unset flag is not a
 /// retirement.
 export function isRetired(sensor: Pick<Sensor, 'is_active'>): boolean {

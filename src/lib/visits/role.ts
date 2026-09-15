@@ -42,15 +42,24 @@ export function cellRole(cell: Pick<EventCell, 'read_by' | 'written_by'>): CellR
 }
 
 /**
- * The confirmation an edit needs before it is written: which scripts run again and which output
- * parameters move. Null when nothing reads the value, which is when no confirmation is warranted.
+ * The confirmation an edit needs before it is written: which scripts run again, which output
+ * parameters move, and what each of those holds today (M52). Null when nothing reads the value,
+ * which is when no confirmation is warranted.
+ *
+ * `stored` is what the visit serves for each output code. An output the visit has no value for
+ * says so rather than reading as a blank.
  */
 export function editConsequence(
-	calculations: { tool: string; label: string; outputs: { parameter_code: string }[] }[]
+	calculations: { tool: string; label: string; outputs: { parameter_code: string }[] }[],
+	stored: Record<string, number | null | undefined> = {}
 ): string | null {
 	if (calculations.length === 0) return null;
+	const named = (code: string) => {
+		const value = stored[code];
+		return value === null || value === undefined ? `${code} (no value yet)` : `${code} (now ${value})`;
+	};
 	const lines = calculations.map((c) => {
-		const outputs = c.outputs.map((o) => o.parameter_code).join(', ');
+		const outputs = c.outputs.map((o) => named(o.parameter_code)).join(', ');
 		return outputs ? `${c.label} rewrites ${outputs}` : `${c.label} runs again`;
 	});
 	return `Saving this recomputes ${calculations.length} calculation${

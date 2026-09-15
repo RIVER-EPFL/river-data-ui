@@ -6,9 +6,9 @@
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
-	import { api, type Site, type Project, type SiteParameter, type Parameter, type Sensor, type SensorDeployment, type SensorCalibration, type Note, type AlarmThreshold, type DerivedParameter, type Sample, type Annotation, type Subproject } from '$api/crud';
+	import { api, type Site, type Project, type SiteParameter, type Parameter, type Sensor, type SensorDeployment, type SensorCalibration, type Note, type AlarmThreshold, type DerivedParameter, type ParameterGroup, type Sample, type Annotation, type Subproject } from '$api/crud';
 	import { GET, POST, PATCH } from '$api/client';
-	import { recomputeDerived, getThresholds, getActiveAlarms, getSiteExportSummary, type ThresholdWithValue, type ActiveAlarm, type ExportSummary } from '$api/service';
+	import { applyParameterGroup, recomputeDerived, getThresholds, getActiveAlarms, getSiteExportSummary, type ThresholdWithValue, type ActiveAlarm, type ExportSummary } from '$api/service';
 	import { getSiteSensorIdentity, type SensorIdentityResponse } from '$api/sensors';
 	import {
 		annotationsByParameter,
@@ -84,6 +84,7 @@
 	let notes = $state<Note[]>([]);
 	let thresholds = $state<AlarmThreshold[]>([]);
 	let derivedDefs = $state<DerivedParameter[]>([]);
+	let parameterGroups = $state<ParameterGroup[]>([]);
 	let samples = $state<Sample[]>([]);
 	let samplesLoading = $state(false);
 	const SAMPLES_PER_PAGE = 50;
@@ -742,11 +743,13 @@
 		samplesSiteId = id;
 		samplesPage = 1;
 		try {
-			const [derivedResult] = await Promise.all([
+			const [derivedResult, groupResult] = await Promise.all([
 				api.derivedParameters.list({ perPage: 200 }),
+				api.parameterGroups.list({ perPage: 200, sort: ['ordinal', 'ASC'] }),
 				loadSamples(),
 			]);
 			derivedDefs = derivedResult.data;
+			parameterGroups = groupResult.data;
 		} catch (e) {
 			toastStore.error(e instanceof Error ? `Failed to load derived parameters / samples: ${e.message}` : 'Failed to load derived parameters / samples');
 		}
@@ -965,14 +968,19 @@
 		siteParameters.filter((sp) => sp.entry_mode === 'tool').map((sp) => sp.parameter_id)
 	));
 
+	// A formula of a calculation is declared by applying that calculation's parameter group, which
+	// brings its inputs and its outputs in together. What is assigned one at a time here is the
+	// standalone kind, which belongs to no calculation and is what the continuous engine computes.
+	const standaloneDerivedDefs = $derived(derivedDefs.filter((d) => !d.tool_script_id));
+
 	// Derived defs that are assigned to this site
 	const assignedDerivedDefs = $derived(
-		derivedDefs.filter((d) => !!d.output_parameter_id && computedParameterIds.has(d.output_parameter_id))
+		standaloneDerivedDefs.filter((d) => !!d.output_parameter_id && computedParameterIds.has(d.output_parameter_id))
 	);
 
 	// Availability check for each unassigned derived def
 	const availableDerivedDefs = $derived(
-		derivedDefs
+		standaloneDerivedDefs
 			.filter((d) => !assignedDerivedDefs.includes(d))
 			.map((d) => {
 				const sources = d.sources ?? [];
@@ -1003,6 +1011,29 @@
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Failed to add parameter');
 		} finally { addingParam = false; }
+	}
+
+	let showApplyGroup = $state(false);
+	let applyGroupId = $state('');
+	let applyingGroup = $state(false);
+
+	// A group is declared whole: the parameters entered at a visit and the ones its calculations
+	// publish, so every calculation of the group applies here.
+	async function applyGroup() {
+		if (!applyGroupId) return;
+		applyingGroup = true;
+		try {
+			const applied = await applyParameterGroup(siteId, applyGroupId);
+			const sp = await api.siteParameters.list({ perPage: 200, filter: { site_id: siteId } });
+			siteParameters = sp.data;
+			applyGroupId = '';
+			showApplyGroup = false;
+			toastStore.success(
+				`${applied.created.length} added, ${applied.existing.length} already here`,
+			);
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Failed to apply group');
+		} finally { applyingGroup = false; }
 	}
 
 	async function removeParameter(spId: string) {
@@ -1525,11 +1556,40 @@
 							</span>
 						{/if}
 					</span>
-					<Button
-						size="sm"
-						onclick={() => showAddParameter = !showAddParameter}
-					>{showAddParameter ? 'Cancel' : 'Add'}</Button>
+					<div class="flex items-center gap-2">
+						<Button
+							size="sm"
+							onclick={() => { showApplyGroup = !showApplyGroup; showAddParameter = false; }}
+						>{showApplyGroup ? 'Cancel' : 'Apply group'}</Button>
+						<Button
+							size="sm"
+							onclick={() => { showAddParameter = !showAddParameter; showApplyGroup = false; }}
+						>{showAddParameter ? 'Cancel' : 'Add'}</Button>
+					</div>
 				</div>
+
+				{#if showApplyGroup}
+					<div class="p-4 border-b border-brand-divider bg-brand-bg/50 space-y-2">
+						<p class="text-xs text-brand-muted">A group brings in everything it holds: the parameters entered at a visit and the ones its calculations publish. Parameters the site already carries are left as they are.</p>
+						<div class="flex items-end gap-3">
+							<div class="flex-1">
+								<label for="apply-group-select" class="text-xs font-medium block mb-1">Parameter group</label>
+								<select id="apply-group-select" bind:value={applyGroupId} class="w-full px-3 py-1.5 text-sm border border-brand-divider rounded bg-brand-surface">
+									<option value="">Select a group…</option>
+									{#each parameterGroups as g}
+										<option value={g.id}>{g.label} ({g.code})</option>
+									{/each}
+								</select>
+							</div>
+							<Button
+								variant="primary"
+								size="sm"
+								onclick={applyGroup}
+								disabled={!applyGroupId || applyingGroup}
+							>{applyingGroup ? 'Applying…' : 'Apply'}</Button>
+						</div>
+					</div>
+				{/if}
 
 				{#if showAddParameter}
 					<div class="p-4 border-b border-brand-divider bg-brand-bg/50 flex items-end gap-3">

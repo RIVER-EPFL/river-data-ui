@@ -1,5 +1,6 @@
 import type { EventCell, EventDetailResponse, ProvenanceRecord } from '$api/service';
-import { cellRole, type CellRole } from './role';
+import { NO_VALUE, formatCount, formatMeasurement } from '$lib/format';
+import { cellRole, cellWritable, type CellRole } from './role';
 
 // The visit as a grid (M50, oriented by I18): one row per parameter, replicate columns beside the
 // statistics the trigger maintains. A single visit is the Database grid filtered to one date, so
@@ -12,6 +13,8 @@ export interface GridCell {
 	stored: number | null;
 	flagged: boolean;
 	withdrawn: boolean;
+	/** Entered and not yet verified: on screen, counted by no statistic, served nowhere. */
+	unverified: boolean;
 }
 
 export interface GridRow {
@@ -53,6 +56,45 @@ export interface GridRow {
 	sourceKey?: string;
 	/** An open audit finding on this cell, by kind. */
 	finding?: string;
+}
+
+/**
+ * The statistics beside a row, as text. The four measurements take the slot's declared precision
+ * (`site_parameters.decimal_places`); n is a count, which declares nothing.
+ */
+export function rowStats(
+	row: GridRow,
+	decimals?: number | null,
+): { n: string; mean: string; stdev: string; min: string; max: string } {
+	if (!row.stats) {
+		return { n: NO_VALUE, mean: NO_VALUE, stdev: NO_VALUE, min: NO_VALUE, max: NO_VALUE };
+	}
+	return {
+		n: formatCount(row.stats.n),
+		mean: formatMeasurement(row.stats.mean, decimals),
+		stdev: formatMeasurement(row.stats.stdev, decimals),
+		min: formatMeasurement(row.stats.min, decimals),
+		max: formatMeasurement(row.stats.max, decimals),
+	};
+}
+
+/**
+ * What identifies a row. A parameter served by two streams at one instant is two rows (B64, Q33):
+ * each stream's replicates are its own, so the parameter alone does not name one.
+ */
+export function rowKey(row: GridRow): string {
+	return `${row.parameterId}|${row.streamId}`;
+}
+
+/** The parameters this grid holds more than one row for, which the rows name their source on. */
+export function duplicatedParameters(rows: GridRow[]): Set<string> {
+	const seen = new Set<string>();
+	const twice = new Set<string>();
+	for (const row of rows) {
+		if (seen.has(row.parameterId)) twice.add(row.parameterId);
+		seen.add(row.parameterId);
+	}
+	return twice;
 }
 
 /** A parameter the site is configured for, as the add-parameter control offers it. */
@@ -108,6 +150,18 @@ export function isEditable(row: GridRow, column: number): boolean {
 }
 
 /**
+ * Whether the grid draws an input at this position rather than a read-only span: the row's own
+ * replicates for a level that may overwrite what is stored there. This is where the keyboard may
+ * land, so a cell failing it is crossed rather than focused.
+ */
+export function rendersInput(row: GridRow, column: number, level: number): boolean {
+	return (
+		isEditable(row, column) &&
+		cellWritable(level, row.replicates[column]?.stored ?? null).writable
+	);
+}
+
+/**
  * Set one cell, growing that row alone to reach it. A row is as wide as the repeats it holds, so
  * typing into its trailing cell is what adds a replicate, and no other row is touched.
  */
@@ -140,8 +194,13 @@ function trimTrailingGaps(replicates: GridCell[]): GridCell[] {
 	return kept;
 }
 
+/** The replicates a mean would stand on: a flagged, withdrawn or pending one counts for nothing. */
+function countable(replicates: EventCell['replicates']): number {
+	return replicates.filter((r) => !r.flagged && !r.withdrawn && !r.unverified).length;
+}
+
 function emptyCell(): GridCell {
-	return { value: null, stored: null, flagged: false, withdrawn: false };
+	return { value: null, stored: null, flagged: false, withdrawn: false, unverified: false };
 }
 
 function rowOf(cell: EventCell): GridRow {
@@ -154,6 +213,7 @@ function rowOf(cell: EventCell): GridRow {
 			stored: r.raw_value,
 			flagged: r.flagged,
 			withdrawn: r.withdrawn,
+			unverified: r.unverified,
 		};
 	}
 	const ordered = cell.replicates.slice().sort((a, b) => a.replicate_index - b.replicate_index);
@@ -181,7 +241,9 @@ function rowOf(cell: EventCell): GridRow {
 					sd_estimator: cell.sample.sd_estimator,
 					sd_estimator_source: cell.sample.sd_estimator_source,
 				}
-			: null,
+			: // A single measurement forms no sample row; it is still one measurement, which is
+				// what the serving arm reports for the same instant.
+				{ n: countable(cell.replicates) },
 		standardCurveId: curve,
 		sensorId: sensor,
 		streamId: cell.stream_id,
@@ -212,9 +274,14 @@ export function withConfiguredRows(
 	rows: GridRow[],
 	configured: ConfiguredParameter[],
 ): GridRow[] {
-	const held = new Map(rows.map((r) => [r.parameterId, r]));
-	const assigned = configured.map(
-		(p) => held.get(p.parameterId) ?? addParameterRow([], p)[0],
+	const held = new Map<string, GridRow[]>();
+	for (const row of rows) {
+		const kept = held.get(row.parameterId);
+		if (kept) kept.push(row);
+		else held.set(row.parameterId, [row]);
+	}
+	const assigned = configured.flatMap(
+		(p) => held.get(p.parameterId) ?? addParameterRow([], p),
 	);
 	const unassigned = rows.filter((r) => !configured.some((p) => p.parameterId === r.parameterId));
 	return [...assigned, ...unassigned];
@@ -290,17 +357,28 @@ export function withColumns(rows: GridRow[], count: number): GridRow[] {
  * replicate index is a column position, not an ordinal. The block grows the grid's replicate
  * columns when it is wider than what is drawn, and stops at the last row rather than inventing
  * parameters.
+ *
+ * A cell that is neither blank nor a number is left alone and counted: a sheet written with comma
+ * decimals reads as no numbers at all, and the row it lands on may already hold the values of an
+ * earlier visit.
  */
+export interface PasteResult {
+	rows: GridRow[];
+	/** Cells the block covered that could not be read as a number. */
+	unreadable: number;
+}
+
 export function applyPaste(
 	rows: GridRow[],
 	atRow: number,
 	atColumn: number,
 	block: string,
-): GridRow[] {
+): PasteResult {
 	const lines = block.replace(/\r\n?/g, '\n').replace(/\n+$/, '').split('\n');
 	const cells = lines.map((line) => line.split('\t'));
 	const widest = cells.reduce((m, line) => Math.max(m, line.length), 0);
 	const next = rows.map((r) => ({ ...r, replicates: r.replicates.map((c) => ({ ...c })) }));
+	let unreadable = 0;
 	cells.forEach((line, dy) => {
 		const row = next[atRow + dy];
 		if (!row || row.writtenBy) return;
@@ -315,11 +393,52 @@ export function applyPaste(
 				return;
 			}
 			const parsed = Number(text);
-			cell.value = Number.isNaN(parsed) ? cell.value : parsed;
+			if (Number.isNaN(parsed)) {
+				unreadable += 1;
+				return;
+			}
+			cell.value = parsed;
 		});
 		row.replicates = trimTrailingGaps(row.replicates);
 	});
-	return next;
+	return { rows: next, unreadable };
+}
+
+/** What to tell the operator about a paste, or nothing when every cell was read. */
+export function unreadablePasteNotice(unreadable: number): string | null {
+	if (unreadable < 1) return null;
+	const cells = unreadable === 1 ? '1 pasted cell was not a number' : `${unreadable} pasted cells were not numbers`;
+	return `${cells} and the cells were left as they stood. A sheet written with comma decimals reads this way.`;
+}
+
+/**
+ * A selected block as the tab-separated text a spreadsheet reads, in the layout `applyPaste`
+ * takes: one line per row, one column per replicate.
+ *
+ * A cell holding nothing is written empty, whether it is a gap between two repeats or a position
+ * past the end of a row narrower than the block, so the columns of the block a sheet receives are
+ * the columns of the grid. The statistics beside the rows are not part of it: they are computed
+ * from the replicates, and the wide CSV of the Visits tab is where they are exported.
+ */
+export function copyBlock(
+	rows: GridRow[],
+	atRow: number,
+	atColumn: number,
+	height: number,
+	width: number,
+): string {
+	const lines: string[] = [];
+	for (let dy = 0; dy < height; dy += 1) {
+		const row = rows[atRow + dy];
+		if (!row) break;
+		const line: string[] = [];
+		for (let dx = 0; dx < width; dx += 1) {
+			const value = row.replicates[atColumn + dx]?.value ?? null;
+			line.push(value === null ? '' : String(value));
+		}
+		lines.push(line.join('\t'));
+	}
+	return lines.join('\n');
 }
 
 /** One cell a save has to write, and whether the store already holds a reading at that key. */
@@ -428,4 +547,64 @@ export function stagedVisitFrom(
 		siteName,
 		collectedAt: detail.collected_at,
 	};
+}
+
+/** The sentence a refusal carries, unwrapped from the envelope the API returns it in. */
+export function refusalMessage(payload: string): string {
+	try {
+		const body = JSON.parse(payload) as { error?: unknown };
+		if (typeof body?.error === 'string') return body.error;
+	} catch {
+		// A refusal that is not JSON is its own message: a proxy's text, or a network failure.
+	}
+	return payload;
+}
+
+/**
+ * Which rows a refused save names. The API refuses the whole request with one sentence, and the
+ * sentence names the parameters it was refused over, so it is shown on those rows rather than
+ * only over the grid.
+ */
+export function saveErrors(payload: string, rows: GridRow[]): Record<string, string> {
+	const message = refusalMessage(payload);
+	const errors: Record<string, string> = {};
+	for (const row of rows) {
+		if (message.includes(row.parameterId)) errors[row.parameterId] = message;
+	}
+	return errors;
+}
+
+/**
+ * What a cell's own state says about the value in it: flagged and withdrawn are exclusions from
+ * the statistics, pending is a value no statistic counts until a manager verifies it.
+ */
+export function cellStateTitle(cell: GridCell | undefined): string | undefined {
+	if (!cell) return undefined;
+	const parts: string[] = [];
+	if (cell.flagged) parts.push('Flagged: excluded from the statistics');
+	if (cell.withdrawn) parts.push('Withdrawn at source');
+	if (cell.unverified) parts.push('Pending: counted by no statistic until a manager verifies it');
+	return parts.length ? parts.join('. ') : undefined;
+}
+
+/**
+ * What the grid read for each group a save names, sent with it so the server can refuse a group
+ * that grew underneath it. A replace retracts the stored replicates the request does not carry,
+ * and the grid only carries what it loaded.
+ */
+export function expectedReplicates(
+	rows: GridRow[],
+	entries: PendingWrite[],
+	time: string,
+): { parameter_id: string; time: string; replicate_indices: number[] }[] {
+	const named = new Set(entries.map((entry) => entry.parameterId));
+	return rows
+		.filter((row) => named.has(row.parameterId))
+		.map((row) => ({
+			parameter_id: row.parameterId,
+			time,
+			replicate_indices: row.replicates
+				.map((cell, index) => (cell.stored === null ? -1 : index))
+				.filter((index) => index >= 0),
+		}));
 }

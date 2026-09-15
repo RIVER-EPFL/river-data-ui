@@ -6,7 +6,8 @@
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
 	import { me } from '$auth/me.svelte';
-	import { provenanceKindLabel } from '$lib/origin';
+	import { stagedVisit } from '$lib/stores/visit.svelte';
+	import { rowProvenanceLabel } from '$lib/origin';
 	import type { SiteParameter, ReprocessingJob } from '$api/crud';
 	import {
 		listSiteVisits,
@@ -23,11 +24,25 @@
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatDateTime, toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
 	import { formatMeasurement } from '$lib/format';
-	import { cellRecord, estimatorWord, visitCellMarker, visitCellStatistics, visitCounts } from '$lib/visits/cell';
-	import { SYNCED_VISIT_NOTICE, visitBadge } from '$lib/visits/recompute';
+	import {
+		cellRecord,
+		estimatorWord,
+		findingLabel,
+		statisticsParts,
+		visitCellMarker,
+		visitCellStatistics,
+		visitCounts,
+	} from '$lib/visits/cell';
+	import {
+		SYNCED_VISIT_NOTICE,
+		entryNoticeFor,
+		visitBadge,
+		visitSourceLabel,
+	} from '$lib/visits/recompute';
 	import { cellRole } from '$lib/visits/role';
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
+	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import PointInspector from '$components/provenance/PointInspector.svelte';
 
 	interface FlagTarget {
@@ -113,6 +128,20 @@
 		}
 	}
 
+	async function discardVisit(id: string) {
+		if (!window.confirm('Discard this empty visit? This cannot be undone.')) return;
+		visitBusy = id;
+		try {
+			await stagedVisit.discard(id);
+			expandedVisit = null;
+			await loadVisits();
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Could not discard the visit');
+		} finally {
+			visitBusy = null;
+		}
+	}
+
 	// The grid as displayed, one row per visit and one column per parameter code, named by site
 	// and date range the way the server names it. The Export dialog is the other file: readings
 	// in long format, one row per reading.
@@ -194,35 +223,6 @@
 		void openVisit(id, true, parameterId);
 	}
 
-	/// The badge on a cell the audit or the executor has an open finding about.
-	function findingBadge(kind: string): string {
-		switch (kind) {
-			case 'stale_output':
-				return 'stale';
-			case 'skipped_output':
-				return 'skipped';
-			default:
-				return 'missing';
-		}
-	}
-
-	/// How a cell's readings reached the store. Absent a tool run they were not necessarily typed
-	/// by a person: an import and a batch are different answers to that question.
-	function originLabel(origin: string | undefined): string {
-		switch (origin) {
-			case 'manual':
-				return 'hand-entered';
-			case 'csv':
-				return 'CSV import';
-			case 'api':
-				return 'API batch';
-			case 'sync':
-				return 'portal sync';
-			default:
-				return 'unknown origin';
-		}
-	}
-
 	function visitJobSummary(kind: 'recompute' | 'audit', job: ReprocessingJob): string {
 		const counts = (job.detail?.counts ?? {}) as Record<string, number>;
 		const parts =
@@ -245,13 +245,19 @@
 		return `${kind === 'recompute' ? 'Recomputed' : 'Audited'}: ${parts.join(', ')}${named}`;
 	}
 
-	// The scoped apply: every visit at this site with an open finding, in one tracked job.
+	// The scoped apply, in one tracked job: the visits at this site with an open finding, or
+	// every one the range lists. A calculation authored today has raised no finding anywhere, so
+	// the findings arm reaches none of the visits it has to compute at.
 	let staleApplyBusy = $state(false);
 	const staleVisitCount = $derived(visits.filter((v) => v.recompute === 'stale').length);
-	async function applyToStaleVisits() {
+	async function applyToVisits(onlyFindings: boolean) {
 		staleApplyBusy = true;
 		try {
-			const r = await runEventRecompute({ site_id: siteId, only_findings: true });
+			const r = await runEventRecompute(
+				onlyFindings
+					? { site_id: siteId, only_findings: true }
+					: { site_id: siteId, ...visitsRange(), only_findings: false },
+			);
 			if (r.job_id) {
 				const job = await pollJob(r.job_id);
 				if (job.status === 'completed') {
@@ -266,7 +272,7 @@
 			await loadVisits();
 			onDataChanged();
 		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Failed to recompute the stale visits');
+			toastStore.error(e instanceof Error ? e.message : 'Failed to recompute the visits');
 		} finally {
 			staleApplyBusy = false;
 		}
@@ -379,10 +385,25 @@
 								variant="secondary"
 								disabled={staleApplyBusy}
 								title="Recompute every visit at this site with an open missing- or stale-output finding, in one tracked job. Unchanged calculations are skipped; the findings a run repairs close with it."
-								onclick={applyToStaleVisits}
+								onclick={() => applyToVisits(true)}
 							>
 								{staleApplyBusy ? 'Recomputing…' : `Recompute stale visits${staleVisitCount > 0 ? ` (${staleVisitCount} listed)` : ''}`}
 							</Button>
+							<ConfirmPopover
+								message={`Run every calculation declared at this site at ${visits.length} visit${visits.length === 1 ? '' : 's'}${visitsStart || visitsEnd ? ' in this range' : ''}, whether or not a finding was raised there. A calculation that has never run here computes its outputs for the first time; one whose inputs and version are unchanged is left alone.`}
+								confirmLabel="Compute"
+								confirmVariant="primary"
+								onconfirm={() => applyToVisits(false)}
+							>
+								<Button
+									size="sm"
+									variant="secondary"
+									disabled={staleApplyBusy}
+									title="Compute a newly authored calculation at the visits already entered: every listed visit is recomputed, not only those with an open finding."
+								>
+									Compute at listed visits
+								</Button>
+							</ConfirmPopover>
 						</div>
 					{/if}
 					<div class="rounded-md border border-brand-divider bg-brand-surface overflow-x-auto">
@@ -492,19 +513,21 @@
 																{counts.parameters} parameter{counts.parameters === 1 ? '' : 's'} · {counts.replicates} replicate{counts.replicates === 1 ? '' : 's'} · {counts.flagged} flagged · {counts.withdrawn} withdrawn · {counts.findings} finding{counts.findings === 1 ? '' : 's'}
 															</span>
 															·
-															{visitDetail.source === 'portal_sync'
-																? `Synced from the portal. ${SYNCED_VISIT_NOTICE}`
-																: `Entered manually${visitDetail.created_by ? ` by ${visitDetail.created_by}` : ''}`}
+															{visitSourceLabel(visitDetail.source, visitDetail.created_by)}{#if entryNoticeFor(visitDetail.source)}. {SYNCED_VISIT_NOTICE}{/if}
 															{#if visitDetail.notes}· {visitDetail.notes}{/if}
 															{@render calculationBadge(visitDetail.source, visitDetail.recompute)}
 														</div>
-														{#if me.can('writeData')}
+														{#if me.can('enterFieldData')}
 															<div class="flex gap-2">
+																{#if me.can('writeFieldMetadata') && visitDetail.cells.length === 0}
+																	<Button variant="danger" size="sm" disabled={visitBusy === v.id} onclick={(e) => { e.stopPropagation(); discardVisit(v.id); }}>Discard this visit</Button>
+																{/if}
 																<a
 																	class="rounded bg-brand-primary px-2 py-1 text-xs font-medium text-white hover:opacity-90"
 																	href="{base}/visits/{v.id}"
 																	onclick={(e) => e.stopPropagation()}>Open the grid</a
 																>
+																{#if me.can('writeData')}
 																<!-- Calculations do not run at a visit the sync created (Q41): the portal
 																     recomputes its own outputs, and the route refuses this. -->
 																{#if visitDetail.source !== 'portal_sync'}
@@ -521,6 +544,7 @@
 																	disabled={visitBusy === v.id}
 																	onclick={(e) => { e.stopPropagation(); runVisitJob(v.id, 'audit'); }}
 																>Audit this visit</Button>
+																{/if}
 															</div>
 														{/if}
 													</div>
@@ -563,24 +587,11 @@
 																		{#if cell.sample && cell.sample.n >= 2 && cell.sample.stdev != null}
 																			<span
 																				class="text-brand-muted"
-																				title={[
-																					`SD ${cell.sample.stdev} (${estimatorWord(cell.sample.sd_estimator)})`,
-																					cell.sample.sd_estimator_source === 'default'
-																						? 'divisor not declared for this parameter'
-																						: null,
-																					cell.sample.stdev_sample != null
-																						? `sample, n-1: ${cell.sample.stdev_sample}`
-																						: null,
-																					cell.sample.stdev_population != null
-																						? `population, n: ${cell.sample.stdev_population}`
-																						: null,
-																					cell.sample.median != null ? `median ${cell.sample.median}` : null,
-																					cell.sample.min != null && cell.sample.max != null
-																						? `range ${cell.sample.min} to ${cell.sample.max}`
-																						: null,
-																				]
-																					.filter(Boolean)
-																					.join('\n')}
+																				title={statisticsParts(
+																					cell.sample,
+																					decimalsForParameter(cell.parameter_id),
+																					unitsForParameter(cell.parameter_id)
+																				).join('\n')}
 																			>±{formatMeasurement(cell.sample.stdev, decimalsForParameter(cell.parameter_id))} ({estimatorWord(cell.sample.sd_estimator)}, n={cell.sample.n})</span>
 																		{/if}
 																	</td>
@@ -593,12 +604,12 @@
 																		{#if cell.has_provenance}
 																			<Badge variant="ok">{cell.tool ?? 'tool run'}</Badge>
 																		{:else}
-																			<span class="text-brand-muted">{provenanceKindLabel(cell.provenance_kind) ?? originLabel(cell.origin)}</span>
+																			<span class="text-brand-muted">{rowProvenanceLabel(cell.provenance_kind, cell.source_system) ?? 'unknown origin'}</span>
 																		{/if}
 																	</td>
 																	<td class="py-1">
 																		{#if cell.finding}
-																			<Badge variant="warning">{findingBadge(cell.finding.kind)}</Badge>
+																			<Badge variant="warning">{findingLabel(cell.finding.kind)}</Badge>
 																		{:else}
 																			<span class="text-brand-muted">-</span>
 																		{/if}
@@ -608,7 +619,7 @@
 														</tbody>
 													</table>
 													{#if visitDetail.cells.some((c) => c.replicates.some((r) => r.flagged || r.withdrawn))}
-														<p class="mt-1 text-[11px] text-brand-muted">* flagged · † withdrawn at source</p>
+														<p class="mt-1 text-[11px] text-brand-muted">* flagged · † withdrawn at source · ? pending verification</p>
 													{/if}
 													{#if visitCell}
 														<PointInspector
@@ -635,7 +646,7 @@
 						</table>
 					</div>
 					{#if visits.some((v) => v.cells.some((c) => visitCellMarker(c)))}
-						<p class="text-[11px] text-brand-muted">* flagged · † withdrawn at source</p>
+						<p class="text-[11px] text-brand-muted">* flagged · † withdrawn at source · ? pending verification</p>
 					{/if}
 				{/if}
 			</div>

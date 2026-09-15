@@ -76,6 +76,8 @@ export interface BatchVisit {
 	siteId: string | null;
 	collectedAt: string | null;
 	values: BatchValue[];
+	/** Value cells that were neither blank nor a number, and so were not written. */
+	unreadable: number;
 	/** What stops this row being saved, said in the operator's terms. */
 	problem: string | null;
 }
@@ -103,6 +105,7 @@ export function batchVisits(block: string[][], layout: Layout, sites: SiteChoice
 		let site = '';
 		let collectedAt: string | null = null;
 		const values: BatchValue[] = [];
+		let unreadable = 0;
 		layout.columns.forEach((role, column) => {
 			const cell = row[column] ?? '';
 			if (role.kind === 'site') site = cell;
@@ -110,7 +113,10 @@ export function batchVisits(block: string[][], layout: Layout, sites: SiteChoice
 			else if (role.kind === 'value') {
 				if (cell === '') return;
 				const value = Number(cell);
-				if (Number.isNaN(value)) return;
+				if (Number.isNaN(value)) {
+					unreadable += 1;
+					return;
+				}
 				values.push({
 					parameterId: role.parameterId,
 					replicateIndex: role.replicateIndex,
@@ -127,9 +133,11 @@ export function batchVisits(block: string[][], layout: Layout, sites: SiteChoice
 				: collectedAt === null
 					? 'no date read'
 					: values.length === 0
-						? 'no values'
+						? unreadable > 0
+							? `no values (${unreadable} ${unreadable === 1 ? 'cell was not a number' : 'cells were not numbers'})`
+							: 'no values'
 						: null;
-		return { site, siteId, collectedAt, values, problem };
+		return { site, siteId, collectedAt, values, unreadable, problem };
 	});
 }
 
@@ -143,4 +151,32 @@ export function batchParameters(visits: BatchVisit[]): string[] {
 /** Where a project's column layout is remembered between pastes. */
 export function layoutKey(projectId: string): string {
 	return `river.visits.layout.${projectId}`;
+}
+
+/**
+ * Save a pasted block, one visit at a time. A row that cannot be resolved is never sent, and a row
+ * the API refuses leaves its neighbours saved: each result is keyed by the row's place in the
+ * block. `onResult` reports each row as it lands, so a long block fills in as it goes.
+ */
+export async function saveAll(
+	visits: BatchVisit[],
+	saveOne: (visit: BatchVisit) => Promise<string>,
+	onResult: (index: number, result: string) => void = () => {},
+): Promise<Record<number, string>> {
+	const results: Record<number, string> = {};
+	for (const [index, visit] of visits.entries()) {
+		let result: string;
+		if (visit.problem !== null) {
+			result = `not saved: ${visit.problem}`;
+		} else {
+			try {
+				result = await saveOne(visit);
+			} catch (e) {
+				result = `refused: ${e instanceof Error ? e.message : String(e)}`;
+			}
+		}
+		results[index] = result;
+		onResult(index, result);
+	}
+	return results;
 }
