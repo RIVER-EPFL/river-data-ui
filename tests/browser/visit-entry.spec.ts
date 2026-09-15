@@ -124,7 +124,9 @@ test('a visit is entered, its consequence read, and its saved value comes back',
 	// warning, but not past an unchecked value, so Save stays shut until the check has run.
 	await expect(save).toBeDisabled();
 	await page.getByRole('button', { name: 'Check against site history' }).click();
-	await expect(page.getByText('Entry grid parameter:')).toBeVisible();
+	const findings = page.getByText(/^Entry grid parameter: /);
+	await expect(findings).toHaveCount(3);
+	await expect(findings.first()).toBeVisible();
 	await expect(save).toBeEnabled();
 
 	// What is left in the dialog is the count and the corrected/entered split, and nothing else.
@@ -171,6 +173,7 @@ test('a typed value is not lost to a link out of the grid', async ({ page, reque
 
 	await page.getByRole('button', { name: 'One repeat more for Entry grid parameter' }).click();
 	await cell(page, 0, 2).fill('14');
+	await page.getByRole('button', { name: 'Check against site history' }).click();
 	await expect(page.getByRole('button', { name: /^Save .*value/ })).toBeEnabled();
 
 	// Declining the prompt keeps the operator on the visit, with what they typed.

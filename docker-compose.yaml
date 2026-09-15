@@ -386,6 +386,10 @@ services:
       - "5444:5432"
     tmpfs:
       - /var/lib/postgresql/data
+    # Every database on this server is in memory, so a stop empties it, not only a recreate. Run
+    # the stack detached (`docker compose up -d`) while claims are held: a `down`, a `stop` of this
+    # service, or an interrupt of a foreground `up` wipes every run in flight and waits for an idle
+    # fleet.
     # log_min_messages: `error` and no lower, so materialization and refresh chatter stays out of
     # the log while a deadlock or a constraint the suite hit is in it. At `fatal` a deadlock in a
     # test run left no trace anywhere. A change here reaches the server only on a recreate, which

@@ -58,26 +58,23 @@ async function seedComputedVisit(request: APIRequestContext): Promise<Fixture> {
 		ordinal: 1,
 	});
 
-	const parameters: Record<string, string> = {};
-	for (const [ordinal, [code, role]] of [
-		[inputName, 'measured'],
-		[outputName, 'output'],
-	].entries()) {
-		const parameter = await post('/parameters', {
-			code,
-			name: code,
-			category: 'measurement',
-			aliases: [],
-		});
-		parameters[code] = parameter.id;
+	// The calculation mints its own output parameter (Q183), so only the input is declared here.
+	const declare = async (parameterId: string, code: string, role: string, ordinal: number) => {
 		await post('/parameter_group_members', {
 			group_id: group.id,
-			parameter_id: parameter.id,
+			parameter_id: parameterId,
 			role,
 			ordinal,
 		});
-		await post('/site_parameters', { site_id: site.id, parameter_id: parameter.id, name: code });
-	}
+		await post('/site_parameters', { site_id: site.id, parameter_id: parameterId, name: code });
+	};
+	const input = await post('/parameters', {
+		code: inputName,
+		name: inputName,
+		category: 'measurement',
+		aliases: [],
+	});
+	await declare(input.id, inputName, 'measured', 0);
 
 	const calculation = await post('/tool_scripts', {
 		name: `recompute_${stamp}`,
@@ -85,7 +82,7 @@ async function seedComputedVisit(request: APIRequestContext): Promise<Fixture> {
 		engine: 'formula',
 		parameter_group_id: group.id,
 	});
-	await post('/derived_parameters', {
+	const derived = await post('/derived_parameters', {
 		code: outputName,
 		name: outputName,
 		units: '',
@@ -93,6 +90,7 @@ async function seedComputedVisit(request: APIRequestContext): Promise<Fixture> {
 		tool_script_id: calculation.id,
 		ordinal: 1,
 	});
+	await declare(derived.output_parameter_id, outputName, 'output', 1);
 
 	const collectedAt = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
 	await post('/grab_samples', {
@@ -100,7 +98,7 @@ async function seedComputedVisit(request: APIRequestContext): Promise<Fixture> {
 		mode: 'replace',
 		readings: [
 			{
-				parameter_id: parameters[inputName],
+				parameter_id: input.id,
 				value: ENTERED,
 				time: collectedAt,
 				replicate_index: 0,
