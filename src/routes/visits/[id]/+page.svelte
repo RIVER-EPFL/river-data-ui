@@ -654,6 +654,7 @@
 										measurementType="spot"
 										preloaded={cellRecord(detail, row.parameterId)}
 										onclose={() => (inspecting = null)}
+										onchange={() => void refresh()}
 									/>
 								</td>
 							</tr>

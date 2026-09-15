@@ -48,6 +48,7 @@
 		revision = 0,
 		link = null,
 		onclose,
+		onchange,
 		onflag,
 	}: {
 		siteId: string;
@@ -66,12 +67,17 @@
 		/** The address of this record, offered as a copy action. */
 		link?: string | null;
 		onclose?: () => void;
+		/** Called after a curation write from inside the panel, so the caller re-reads its own rows. */
+		onchange?: () => void;
 		// Shown as a "Flag replicates" action on a spot group, handed the group's replicates.
 		onflag?: (replicates: SampleReplicate[]) => void;
 	} = $props();
 
 	let loading = $state(false);
 	let error = $state('');
+	// A curation write from inside the panel outdates the caller's record, so the panel fetches its
+	// own from then on. Not reactive: `load()` reads it, and the mount effect resets it.
+	let ownRecord = false;
 	let resp = $state<ProvenanceResponse | null>(null);
 	let showToolRun = $state<Set<number>>(new Set());
 	// The history of one record, fetched on demand: it is the audit trail, not part of the value,
@@ -177,7 +183,7 @@
 			}
 			toastStore.success(`${decisionLabel(d.kind)} rolled back`);
 			await loadHistory(i, rec);
-			await load();
+			await changed();
 		} catch (e) {
 			historyError = {
 				...historyError,
@@ -186,6 +192,14 @@
 		} finally {
 			rollingBack = null;
 		}
+	}
+
+	// What every write from inside the panel does: re-read this record, and tell the caller to
+	// re-read what it drew from its own copy.
+	async function changed() {
+		ownRecord = true;
+		await load();
+		onchange?.();
 	}
 
 	function openEdit(rec: ProvenanceRecord) {
@@ -363,7 +377,7 @@
 	}
 
 	async function load() {
-		if (preloaded) {
+		if (preloaded && !ownRecord) {
 			resp = preloaded;
 			loading = false;
 			return;
@@ -391,6 +405,7 @@
 		showToolRun = new Set();
 		showHistory = new Set();
 		error = '';
+		ownRecord = false;
 		void load();
 	});
 
@@ -739,6 +754,6 @@
 		bind:open={editOpen}
 		selection={editSelection}
 		title="Edit {parameterName}"
-		onsuccess={() => void load()}
+		onsuccess={() => void changed()}
 	/>
 {/if}

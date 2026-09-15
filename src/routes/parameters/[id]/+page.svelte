@@ -10,6 +10,7 @@
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import MultiSiteParameterPlot from '$components/parameters/MultiSiteParameterPlot.svelte';
 	import ConfirmParameterButton from '$components/parameters/ConfirmParameterButton.svelte';
+	import ChangeTrail from '$components/audit/ChangeTrail.svelte';
 
 	let param = $state<Parameter | null>(null);
 	let siteParams = $state<SiteParameter[]>([]);
@@ -151,5 +152,7 @@
 			{siteOptions}
 			emptyMessage="This parameter is not measured at any sites yet."
 		/>
+
+		<ChangeTrail subject={`parameter:${paramId}`} title="What has been done to this parameter" />
 	</div>
 {/if}

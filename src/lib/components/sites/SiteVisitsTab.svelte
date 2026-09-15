@@ -142,6 +142,16 @@
 		}
 	}
 
+	// A curation write from inside an expanded visit's record: re-read the visit in place, without
+	// collapsing what the operator has open.
+	async function refreshVisitDetail(id: string) {
+		try {
+			visitDetail = await getCollectionEventDetail(id);
+		} catch {
+			// The panel reports its own failure; the row keeps what it had.
+		}
+	}
+
 	async function openVisit(id: string, forceOpen = false, selectParameterId: string | null = null) {
 		if (expandedVisit === id && !forceOpen) {
 			expandedVisit = null;
@@ -612,6 +622,7 @@
 															preloaded={cellRecord(visitDetail, visitCell.parameterId)}
 															link={visitPointLink(v.id, visitCell.parameterId)}
 															onclose={() => (visitCell = null)}
+															onchange={() => void refreshVisitDetail(v.id)}
 															onflag={(reps) => openVisitFlag(v.id, reps)}
 														/>
 													{/if}

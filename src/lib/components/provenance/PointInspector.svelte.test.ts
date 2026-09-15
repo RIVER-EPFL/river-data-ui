@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/svelte';
+import { render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ProvenanceResponse } from '$api/service';
@@ -7,11 +7,12 @@ import { formatDateTime } from '$lib/utils';
 const getReadingProvenance = vi.fn();
 const getReadingDecisions = vi.fn();
 const getReadingLedger = vi.fn();
+const rollbackEdit = vi.fn();
 vi.mock('$api/service', () => ({
 	getReadingProvenance: (q: unknown) => getReadingProvenance(q),
 	getReadingDecisions: (q: unknown) => getReadingDecisions(q),
 	getReadingLedger: (q: unknown) => getReadingLedger(q),
-	rollbackEdit: vi.fn(),
+	rollbackEdit: (id: string) => rollbackEdit(id),
 	rollbackEditSet: vi.fn(),
 }));
 
@@ -444,6 +445,63 @@ describe('PointInspector', () => {
 			expect(reps.map((r: { replicate_index: number }) => r.replicate_index)).toEqual([0, 1, 2]);
 			expect(reps[0].standard_curve_id).toBe('curve-9');
 			expect(reps[2].withdrawn).toBe(true);
+		});
+
+		it('re-reads the record and tells the visit after a roll-back, instead of redrawing what it was handed', async () => {
+			getReadingLedger.mockResolvedValue({
+				time: '2026-07-14T09:00:00Z',
+				entries: [decisionEntry('d1', 'value_correction', '2026-08-02T11:00:00Z')],
+				truncated: false,
+			});
+			getReadingDecisions.mockResolvedValue([
+				{
+					id: 'd1',
+					stream_id: 'stream',
+					time: '2026-07-14T09:00:00Z',
+					kind: 'value_correction',
+					old: { raw_value: 8.005 },
+					new: { raw_value: 11 },
+					actor: 'lab',
+					at: '2026-08-02T11:00:00Z',
+					origin: 'manual',
+					reversible: true,
+				},
+			]);
+			getReadingProvenance.mockResolvedValue(handEntered());
+			const onchange = vi.fn();
+			render(PointInspector, {
+				siteId: 'site',
+				parameterId: 'param',
+				parameterName: 'pH',
+				timeIso: '2026-07-14T09:00:00Z',
+				measurementType: 'spot',
+				preloaded: response([
+					{
+						origin: {
+							stream_id: 'stream',
+							source_system: 'cnet',
+							source_key: 'FP15:pH',
+							classification: 'manual',
+							ingested_at: '2026-07-15T04:00:00Z',
+						},
+						readings: [reading(0, 11)],
+						chain: {},
+						computation: { sd_estimator: 'sample', sd_estimator_source: 'default' },
+						holds: [],
+					},
+				]) as unknown as ProvenanceResponse,
+				onchange,
+			});
+
+			await screen.findByText('11');
+			expect(getReadingProvenance).not.toHaveBeenCalled();
+			(await screen.findByText('Show history')).click();
+			(await screen.findByText('Roll back')).click();
+
+			await waitFor(() => expect(onchange).toHaveBeenCalledTimes(1));
+			expect(rollbackEdit).toHaveBeenCalledWith('d1');
+			expect(getReadingProvenance).toHaveBeenCalledTimes(1);
+			expect(await screen.findByText('8.005')).toBeTruthy();
 		});
 
 		it('says when the instant carries no readings rather than fetching', async () => {

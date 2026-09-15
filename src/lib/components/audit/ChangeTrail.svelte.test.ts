@@ -28,6 +28,28 @@ describe('ChangeTrail', () => {
 		expect(container.textContent).not.toContain('updated_at');
 	});
 
+	it('reads a merge as one action over two rows, not as every column differing', async () => {
+		getChangeAudit.mockResolvedValue([
+			{
+				changed_at: '2026-09-08T11:00:00Z',
+				changed_by: 'evan',
+				change: 'parameter_merge',
+				old_value: {
+					source: { id: 'p-source', code: 'DO_old', name: 'Dissolved oxygen' },
+					counts: { readings_moved: 412, sites_reassigned: 2, streams_updated: 0 },
+				},
+				new_value: { id: 'p-target', code: 'DO', name: 'Dissolved oxygen' },
+			},
+		]);
+		const { container } = render(ChangeTrail, { subject: 'parameter:p-target' });
+		await screen.findByText('parameter_merge');
+		expect(container.textContent).toContain('absorbed DO_old');
+		expect(container.textContent).toContain('412 readings moved');
+		// A count of nothing is not worth a line, and the two sides are not a column diff.
+		expect(container.textContent).not.toContain('streams updated');
+		expect(container.textContent).not.toContain('source, counts');
+	});
+
 	it('says so when nothing has been changed', async () => {
 		getChangeAudit.mockResolvedValue([]);
 		render(ChangeTrail, { subject: 'parameter_group:g1' });

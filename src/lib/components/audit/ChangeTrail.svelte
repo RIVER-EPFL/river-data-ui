@@ -31,6 +31,20 @@
 			.filter((k) => JSON.stringify(before[k]) !== JSON.stringify(after[k]))
 			.filter((k) => k !== 'updated_at');
 	}
+
+	// A merge is one action over two rows, not a column edit: its `old_value` holds the row that was
+	// absorbed and what moved with it, so the entry reads as that rather than as every column
+	// differing.
+	function absorbed(e: ChangeEntry): string | null {
+		const before = (e.old_value ?? {}) as Record<string, unknown>;
+		if (!e.change?.endsWith('_merge') || !before.source) return null;
+		const source = before.source as Record<string, unknown>;
+		const name = (source.code ?? source.name ?? source.id) as string | undefined;
+		const counts = Object.entries((before.counts ?? {}) as Record<string, number>)
+			.filter(([, v]) => typeof v === 'number' && v > 0)
+			.map(([k, v]) => `${v} ${k.replace(/_/g, ' ')}`);
+		return [`absorbed ${name ?? 'another row'}`, ...counts].join(', ');
+	}
 </script>
 
 <div class="border border-brand-divider rounded-md p-3 space-y-2">
@@ -48,7 +62,9 @@
 					<span class="font-medium">{e.change}</span>
 					<span class="text-brand-muted">{formatDateTime(e.changed_at)}</span>
 					<span class="text-brand-muted">{e.changed_by ?? 'actor not recorded'}</span>
-					{#if moved(e).length > 0}
+					{#if absorbed(e)}
+						<span class="text-brand-muted">{absorbed(e)}</span>
+					{:else if moved(e).length > 0}
 						<span class="text-brand-muted">{moved(e).join(', ')}</span>
 					{/if}
 				</li>
