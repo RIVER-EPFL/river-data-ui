@@ -24,6 +24,7 @@
 	import { formatDateTime, toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
 	import { formatMeasurement } from '$lib/format';
 	import { cellRecord, estimatorWord, visitCellMarker, visitCellStatistics, visitCounts } from '$lib/visits/cell';
+	import { SYNCED_VISIT_NOTICE, visitBadge } from '$lib/visits/recompute';
 	import { cellRole } from '$lib/visits/role';
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
@@ -212,16 +213,6 @@
 		}
 	}
 
-	/// What the run actually did, from the counts the job records. "Visit audited" and "Visit
-	/// audited" are the same sentence whether two stale findings opened or none did, so whether
-	/// anything was found had to be inferred by re-reading the grid.
-	const recomputeBadge: Record<string, { label: string; variant: 'muted' | 'accent' | 'alarm' | 'warning' }> = {
-		queued: { label: 'recompute queued', variant: 'muted' },
-		running: { label: 'recomputing', variant: 'accent' },
-		failed: { label: 'recompute failed', variant: 'alarm' },
-		stale: { label: 'stale output', variant: 'warning' },
-	};
-
 	function visitJobSummary(kind: 'recompute' | 'audit', job: ReprocessingJob): string {
 		const counts = (job.detail?.counts ?? {}) as Record<string, number>;
 		const parts =
@@ -318,6 +309,13 @@
 	});
 </script>
 
+{#snippet calculationBadge(source: string | undefined, state: string | undefined)}
+	{@const badge = visitBadge(source, state)}
+	{#if badge}
+		<Badge variant={badge.variant}>{badge.label}</Badge>
+	{/if}
+{/snippet}
+
 			<div class="space-y-3">
 				<div class="flex flex-wrap items-end gap-3">
 					<div>
@@ -409,9 +407,7 @@
 											{#if v.findings_open > 0}
 												<Badge variant="warning">{v.findings_open} finding{v.findings_open === 1 ? '' : 's'}</Badge>
 											{/if}
-											{#if recomputeBadge[v.recompute]}
-												<Badge variant={recomputeBadge[v.recompute].variant}>{recomputeBadge[v.recompute].label}</Badge>
-											{/if}
+											{@render calculationBadge(v.source, v.recompute)}
 										</td>
 										<td class="px-3 py-2">
 											{#if v.source === 'portal_sync'}
@@ -487,12 +483,10 @@
 															</span>
 															·
 															{visitDetail.source === 'portal_sync'
-																? 'Synced from the portal'
+																? `Synced from the portal. ${SYNCED_VISIT_NOTICE}`
 																: `Entered manually${visitDetail.created_by ? ` by ${visitDetail.created_by}` : ''}`}
 															{#if visitDetail.notes}· {visitDetail.notes}{/if}
-															{#if recomputeBadge[visitDetail.recompute]}
-																<Badge variant={recomputeBadge[visitDetail.recompute].variant}>{recomputeBadge[visitDetail.recompute].label}</Badge>
-															{/if}
+															{@render calculationBadge(visitDetail.source, visitDetail.recompute)}
 														</div>
 														{#if me.can('writeData')}
 															<div class="flex gap-2">
@@ -501,12 +495,16 @@
 																	href="{base}/visits/{v.id}"
 																	onclick={(e) => e.stopPropagation()}>Open the grid</a
 																>
-																<Button
-																	size="sm"
-																	variant="secondary"
-																	disabled={visitBusy === v.id}
-																	onclick={(e) => { e.stopPropagation(); runVisitJob(v.id, 'recompute'); }}
-																>{visitBusy === v.id ? 'Working…' : 'Recompute tools'}</Button>
+																<!-- Calculations do not run at a visit the sync created (Q41): the portal
+																     recomputes its own outputs, and the route refuses this. -->
+																{#if visitDetail.source !== 'portal_sync'}
+																	<Button
+																		size="sm"
+																		variant="secondary"
+																		disabled={visitBusy === v.id}
+																		onclick={(e) => { e.stopPropagation(); runVisitJob(v.id, 'recompute'); }}
+																	>{visitBusy === v.id ? 'Working…' : 'Recompute tools'}</Button>
+																{/if}
 																<Button
 																	size="sm"
 																	variant="ghost"

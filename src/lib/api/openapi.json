@@ -30198,11 +30198,14 @@
             },
             "description": "The tracked recompute job"
           },
+          "400": {
+            "description": "The visit was created by the portal sync"
+          },
           "404": {
             "description": "Unknown collection event"
           }
         },
-        "summary": "Recompute a collection event's tool outputs on demand: the chain executor runs every active\ntool whose inputs resolve at this event, in dependency order, and saves the outputs through\nthe grab write path with fresh server-built provenance. Tracked job. Requires `write_data`.",
+        "summary": "Recompute a collection event's tool outputs on demand: the chain executor runs every active\ntool whose inputs resolve at this event, in dependency order, and saves the outputs through\nthe grab write path with fresh server-built provenance. A visit the sync created is refused\n(Q41). Tracked job. Requires `write_data`.",
         "tags": [
           "collection_events"
         ]

@@ -1387,7 +1387,8 @@ export interface paths {
         /**
          * Recompute a collection event's tool outputs on demand: the chain executor runs every active
          *     tool whose inputs resolve at this event, in dependency order, and saves the outputs through
-         *     the grab write path with fresh server-built provenance. Tracked job. Requires `write_data`.
+         *     the grab write path with fresh server-built provenance. A visit the sync created is refused
+         *     (Q41). Tracked job. Requires `write_data`.
          */
         post: operations["recompute_collection_event"];
         delete?: never;
@@ -21093,6 +21094,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["EnqueuedJobResponse"];
                 };
+            };
+            /** @description The visit was created by the portal sync */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Unknown collection event */
             404: {

@@ -4,6 +4,7 @@
 	import { stageCollectionEvent } from '$api/service';
 	import { stagedVisit } from '$lib/stores/visit.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import { SYNCED_VISIT_NOTICE } from '$lib/visits/recompute';
 	import { formatDateTime, toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
 	import Badge from '$components/ui/Badge.svelte';
 	import Button from '$components/ui/Button.svelte';
@@ -198,9 +199,15 @@
 								<button
 									type="button"
 									onclick={() => adopt(e)}
+									title={e.source === 'portal_sync' ? SYNCED_VISIT_NOTICE : undefined}
 									class="w-full text-left px-2 py-1.5 text-xs hover:bg-brand-bg cursor-pointer flex items-center justify-between gap-2"
 								>
-									<span>{formatDateTime(e.collected_at)}</span>
+									<span>
+										{formatDateTime(e.collected_at)}
+										{#if e.source === 'portal_sync'}
+											<span class="block text-brand-muted">{SYNCED_VISIT_NOTICE}</span>
+										{/if}
+									</span>
 									<Badge variant={e.source === 'portal_sync' ? 'accent' : 'muted'}>{e.source === 'portal_sync' ? 'sync' : e.source}</Badge>
 								</button>
 							{/each}

@@ -94,4 +94,44 @@ describe("SiteVisitsTab", () => {
     expect(screen.getByText("100.8")).toBeTruthy();
     expect(screen.queryByText("100.800003")).toBeNull();
   });
+
+  it("tells a portal-synced visit that no calculation runs there", async () => {
+    listSiteVisits.mockResolvedValue({
+      site_id: "site-1",
+      page: 1,
+      page_size: 50,
+      total: 2,
+      expected_parameters: [column("declared", "DOC", 2)],
+      visits: [
+        {
+          id: "synced",
+          collected_at: "2025-06-01T08:00:00Z",
+          created_by: null,
+          source: "portal_sync",
+          notes: null,
+          parameters_filled: 1,
+          findings_open: 0,
+          recompute: "current",
+          cells: [cell("declared")],
+        },
+        {
+          id: "entered",
+          collected_at: "2025-06-02T08:00:00Z",
+          created_by: "tester",
+          source: "manual",
+          notes: null,
+          parameters_filled: 1,
+          findings_open: 0,
+          recompute: "current",
+          cells: [cell("declared")],
+        },
+      ],
+    });
+
+    render(SiteVisitsTab, props({ declared: 2 }));
+
+    // A visit whose outputs no calculation will write does not read like one that just recomputed.
+    expect(await screen.findByText("not calculated here")).toBeTruthy();
+    expect(screen.getAllByText("not calculated here")).toHaveLength(1);
+  });
 });

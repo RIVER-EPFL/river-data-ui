@@ -18,3 +18,20 @@ export const RECOMPUTE_BADGE: Record<string, RecomputeBadge> = {
 export function computing(state: string | undefined): boolean {
 	return state === 'queued' || state === 'running';
 }
+
+/**
+ * The badge a visit carries for its calculations. A portal-synced visit runs none (Q41): its
+ * values are the portal's answer and a correction entered here moves no output, so it reads as
+ * not calculated rather than as up to date.
+ */
+export function visitBadge(
+	source: string | undefined,
+	state: string | undefined
+): RecomputeBadge | null {
+	if (source === 'portal_sync') return { label: 'not calculated here', variant: 'muted' };
+	return RECOMPUTE_BADGE[state ?? ''] ?? null;
+}
+
+/** What a person entering a value at a portal-synced visit needs to know before they type it. */
+export const SYNCED_VISIT_NOTICE =
+	'Calculations do not run at a portal-synced visit: correct the value in the portal.';
