@@ -6,7 +6,7 @@ import type { Constant, DerivedParameter, Parameter } from '$api/crud';
 import {
 	blankFormula,
 	editableFormula,
-	formulaBody,
+	formulaSetBody,
 	curveSlots,
 	dependencyOrder,
 	draftRunBody,
@@ -30,6 +30,7 @@ const formula = (over: Partial<EditableFormula>): EditableFormula => ({
 	curve_slot: '',
 	per_replicate: '',
 	intermediate: false,
+	codeLocked: null,
 	...over,
 });
 
@@ -279,12 +280,95 @@ describe('a formula as the page holds it', () => {
 		} as unknown as DerivedParameter;
 		const held = editableFormula(stored);
 		expect(held.description).toBe('calcAlt2BP: bigleaf 0.8.2 pressure.from.elevation(elev, Tair)');
-		expect(formulaBody(held, 'calc-1').description).toBe(
+		expect(formulaSetBody([held], false).formulas[0].description).toBe(
 			'calcAlt2BP: bigleaf 0.8.2 pressure.from.elevation(elev, Tair)'
 		);
 	});
 
 	it('sends no description for a formula that carries none', () => {
-		expect(formulaBody(formula({ code: 'X', formula: '1' }), 'calc-1').description).toBeNull();
+		expect(
+			formulaSetBody([formula({ code: 'X', formula: '1' })], false).formulas[0].description,
+		).toBeNull();
+	});
+
+	it('carries the reason the code is no longer free, so the field can say it', () => {
+		const stored = {
+			id: 'f-2',
+			code: 'SUVA',
+			name: 'SUVA',
+			units: 'L/mg/m',
+			formula: 'a254 * 1000 / DOC_avg_ppb',
+			ordinal: 1,
+			code_locked: '412 readings are stored under it'
+		} as unknown as DerivedParameter;
+		expect(editableFormula(stored).codeLocked).toBe('412 readings are stored under it');
+	});
+
+	it('leaves an unpublished code free', () => {
+		const stored = {
+			id: 'f-3',
+			code: 'SUVA',
+			formula: '1',
+			ordinal: 1
+		} as unknown as DerivedParameter;
+		expect(editableFormula(stored).codeLocked).toBeNull();
+	});
+});
+
+describe('the set a save posts', () => {
+	// Scenario: an author edits one formula, adds another and drops a third, then saves once.
+	// Expected behaviour: one body carrying the whole set, the arm the author chose, and nothing
+	// of the steps this calculation only reads.
+	const edited = [
+		formula({ id: 'a', code: ' CO2_HS_Um ', formula: 'x * 2', ordinal: 1, per_replicate: ' lab_co2_co2ppm ' }),
+		formula({ code: 'pCO2_HS_uatm', name: '', units: ' uatm ', formula: 'CO2_HS_Um / kh', ordinal: 2, curve_slot: ' co2 ' }),
+	];
+
+	it('carries every own formula, trimmed, with its id', () => {
+		const body = formulaSetBody(edited, false);
+		expect(body.formulas).toEqual([
+			{
+				id: 'a',
+				code: 'CO2_HS_Um',
+				name: 'CO2_HS_Um',
+				units: '',
+				description: null,
+				formula: 'x * 2',
+				ordinal: 1,
+				per_replicate: 'lab_co2_co2ppm',
+				curve_slot: null,
+				intermediate: false,
+			},
+			{
+				id: null,
+				code: 'pCO2_HS_uatm',
+				name: 'pCO2_HS_uatm',
+				units: 'uatm',
+				description: null,
+				formula: 'CO2_HS_Um / kh',
+				ordinal: 2,
+				per_replicate: null,
+				curve_slot: 'co2',
+				intermediate: false,
+			},
+		]);
+	});
+
+	it('leaves out a step read through a declaration', () => {
+		const shared = formula({ id: 'z', code: 'bp', formula: '1', ordinal: 3, declarationId: 'd-1' });
+		expect(formulaSetBody([...edited, shared], false).formulas.map((f) => f.code)).toEqual([
+			'CO2_HS_Um',
+			'pCO2_HS_uatm',
+		]);
+	});
+
+	it('carries the arm the author chose', () => {
+		expect(formulaSetBody(edited, false).migrate_stored).toBe(false);
+		expect(formulaSetBody(edited, true).migrate_stored).toBe(true);
+	});
+
+	it('drops a formula the author removed, by leaving it out of the set', () => {
+		const removed = edited.filter((f) => f.id !== 'a');
+		expect(formulaSetBody(removed, false).formulas.map((f) => f.id)).toEqual([null]);
 	});
 });

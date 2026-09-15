@@ -14,9 +14,12 @@
 		getStepDependents,
 		getToolScript,
 		listSiteVisits,
+		listToolVersionUsage,
+		saveFormulaSet,
 		type FormulaDraftRunResponse,
 		type StepDependents,
 		type ToolScriptDetail,
+		type ToolVersionUsage,
 		type VisitRow,
 	} from '$api/service';
 	import { listAll } from '$api/paged';
@@ -27,7 +30,7 @@
 		curveSlots,
 		draftRunBody,
 		editableFormula,
-		formulaBody,
+		formulaSetBody,
 		formulaVariables,
 		inputRows,
 		outputRows,
@@ -35,6 +38,7 @@
 		scalarOverrides,
 		type EditableFormula,
 	} from '$lib/calculations/editor';
+	import { armConsequence, storedLabel } from '$lib/calculations/consequence';
 	import { portalReference, replicatedCodes } from '$lib/calculations/members';
 	import { perReplicateChoices } from '$lib/derivedParameters';
 	import { identifiers } from '$lib/formula/lint';
@@ -62,6 +66,8 @@
 	const calculationId = page.params.id!;
 
 	let calculation = $state<ToolScriptDetail | null>(null);
+	// What each version has already produced, so the save says what it moves before it is made.
+	let usage = $state<ToolVersionUsage[]>([]);
 	let stored = $state<EditableFormula[]>([]);
 	let formulas = $state<EditableFormula[]>([]);
 	let parameters = $state<Parameter[]>([]);
@@ -99,6 +105,11 @@
 	let dependents = $state<Record<string, StepDependents>>({});
 	let expanded = $state<string | null>(null);
 
+	const usageByVersion = $derived(new Map(usage.map((u) => [u.version_id, u])));
+	const activeUsage = $derived(usage.find((u) => u.version_no === calculation?.active_version_no));
+	// Nothing to leave behind or recompute until a version has been serving: the first save
+	// supersedes none.
+	const supersedes = $derived(calculation?.active_version_no != null);
 	const ordered = $derived(dependencyOrder(formulas));
 	// A source of a replicated parameter that a per-replicate formula walks is the family, not its
 	// mean (Q155); replicate-ness is the parameter's, in whichever group holds it.
@@ -117,7 +128,13 @@
 		) as Record<string, string>,
 	);
 	const slots = $derived(curveSlots(formulas));
-	const unsaved = $derived(formulas.some((f) => f.id === null || isDirty(f)));
+	// A formula added, edited, or dropped from the set: all three are the save's business.
+	const dropped = $derived(
+		stored.filter((s) => !s.declarationId && !formulas.some((f) => f.id === s.id)),
+	);
+	const unsaved = $derived(
+		formulas.some((f) => f.id === null || isDirty(f)) || dropped.length > 0,
+	);
 	const visit = $derived(visits.find((v) => v.id === visitId) ?? null);
 	const paramVars = $derived(formulaVariables(parameters));
 	const tables = $derived(
@@ -232,6 +249,11 @@
 				listAll<ParameterGroupMember>(api.parameterGroupMembers, { perPage: 500 }),
 			]);
 			calculation = script;
+			// The counts are what the save's arms are stated in. A page that cannot read them still
+			// saves, and the arms say what they do without the numbers.
+			listToolVersionUsage(calculationId)
+				.then((rows) => (usage = rows))
+				.catch(() => (usage = []));
 			const declared = await declaredSteps(steps);
 			stored = [...rows.data.map(editableFormula), ...declared];
 			formulas = [...rows.data.map(editableFormula), ...declared];
@@ -260,19 +282,29 @@
 		editing = formulas.length - 1;
 	}
 
-	async function save(f: EditableFormula) {
+	/** Close the editor on a formula the set will carry. Nothing is written until the set is saved. */
+	function done(f: EditableFormula) {
 		if (!f.code.trim() || !f.formula.trim() || diagnostics.length > 0) return;
+		editing = null;
+	}
+
+	/**
+	 * Write the whole formula set as one version. The arm says what happens to the values the
+	 * version being replaced produced: left where they are, or recomputed under the new one.
+	 */
+	async function saveSet(migrate: boolean) {
+		if (editing !== null || !unsaved) return;
 		busy = true;
 		try {
-			const body = formulaBody(f, calculationId);
-			const saved = f.id
-				? await api.derivedParameters.update(f.id, body)
-				: await api.derivedParameters.create(body);
-			const row = editableFormula(saved);
-			formulas = formulas.map((x) => (x === f ? row : x));
-			stored = [...stored.filter((s) => s.id !== row.id), row];
-			editing = null;
-			toastStore.success(f.id ? 'Formula saved' : 'Formula added');
+			const res = await saveFormulaSet(calculationId, formulaSetBody(formulas, migrate));
+			await load();
+			toastStore.success(
+				res.version_no === null
+					? 'Saved; the formulas read as they did, so no version was minted'
+					: res.migrated
+						? `Version ${res.version_no} saved; the values it replaces are being recomputed`
+						: `Version ${res.version_no} saved`,
+			);
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Save failed');
 		} finally {
@@ -286,23 +318,10 @@
 		editing = null;
 	}
 
-	async function remove(f: EditableFormula) {
-		if (!f.id) {
-			discard(f);
-			return;
-		}
-		busy = true;
-		try {
-			await api.derivedParameters.remove(f.id);
-			formulas = formulas.filter((x) => x !== f);
-			stored = stored.filter((s) => s.id !== f.id);
-			editing = null;
-			toastStore.success('Formula removed');
-		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Remove failed');
-		} finally {
-			busy = false;
-		}
+	/** Drop a formula from the pending set. The save deletes it, by leaving it out. */
+	function remove(f: EditableFormula) {
+		formulas = formulas.filter((x) => x !== f);
+		editing = null;
 	}
 
 	async function loadVisits(site: string) {
@@ -437,7 +456,10 @@
 								<div class="space-y-2">
 									<div class="grid grid-cols-3 gap-2">
 										<label class="text-xs text-brand-muted">Code
-											<input bind:value={f.code} placeholder="CO2_HS_Um" class={inputCls} />
+											<input bind:value={f.code} placeholder="CO2_HS_Um" class={inputCls} disabled={!!f.codeLocked} title={f.codeLocked ?? ''} />
+											{#if f.codeLocked}
+												<span class="mt-1 block text-[11px] text-brand-muted">Published: {f.codeLocked}. The code is the CSV column header and the public identifier.</span>
+											{/if}
 										</label>
 										<label class="text-xs text-brand-muted">Name
 											<input bind:value={f.name} placeholder="CO2 headspace" class={inputCls} />
@@ -481,7 +503,7 @@
 										</label>
 									</div>
 									<div class="flex gap-2">
-										<Button size="sm" variant="primary" loading={busy} disabled={!f.code.trim() || !f.formula.trim() || diagnostics.length > 0} onclick={() => save(f)}>{f.id ? 'Save' : 'Add'}</Button>
+										<Button size="sm" variant="primary" disabled={!f.code.trim() || !f.formula.trim() || diagnostics.length > 0} onclick={() => done(f)}>Done</Button>
 										<Button size="sm" variant="ghost" disabled={busy} onclick={() => discard(f)}>Cancel</Button>
 									</div>
 								</div>
@@ -530,8 +552,8 @@
 											</ConfirmPopover>
 										{:else}
 											<Button size="sm" variant="ghost" disabled={busy || editing !== null} onclick={() => { diagnostics = []; editing = position; }}>Edit</Button>
-											<ConfirmPopover message="Remove {f.code || 'this formula'} from the calculation?" confirmLabel="Remove" onconfirm={() => remove(f)}>
-												<Button size="sm" variant="ghost" disabled={busy}>Remove</Button>
+											<ConfirmPopover message="Drop {f.code || 'this formula'} from the calculation? The save deletes it." confirmLabel="Drop" onconfirm={() => remove(f)}>
+												<Button size="sm" variant="ghost" disabled={busy}>Drop</Button>
 											</ConfirmPopover>
 										{/if}
 									</div>
@@ -540,6 +562,29 @@
 						</li>
 					{/each}
 				</ol>
+				<!-- One save over the whole set, and what it does to the values already computed. -->
+				<div class="border-t border-brand-divider px-3 py-2">
+					{#if unsaved}
+						<p class="text-sm">
+							Unsaved: the set holds {formulas.filter((f) => !f.declarationId).length} formula{formulas.filter((f) => !f.declarationId).length === 1 ? '' : 's'}{dropped.length > 0 ? `, and drops ${dropped.map((f) => f.code).join(', ')}` : ''}.
+						</p>
+						<p class="text-xs text-brand-muted">Saving writes the whole set as one version, whatever it changed.{supersedes ? ' Choose what happens to the values the version it replaces produced.' : ''}</p>
+						<div class="mt-2 flex flex-wrap gap-2">
+							<Button size="sm" variant="primary" loading={busy} disabled={busy || editing !== null} onclick={() => saveSet(false)}>Save as a new version</Button>
+							{#if supersedes}
+								<Button size="sm" loading={busy} disabled={busy || editing !== null} onclick={() => saveSet(true)}>Save and recompute</Button>
+							{/if}
+						</div>
+						{#if supersedes}
+							<p class="mt-1 text-xs text-brand-muted">{armConsequence(activeUsage)}</p>
+						{/if}
+						{#if editing !== null}
+							<p class="mt-1 text-xs text-brand-muted">Finish the formula you are editing first.</p>
+						{/if}
+					{:else}
+						<p class="text-sm text-brand-muted">Saved. The calculation runs as its active version.</p>
+					{/if}
+				</div>
 			</section>
 
 			<!-- Outputs: what a run publishes, in order. -->
@@ -576,6 +621,29 @@
 							<span class="font-mono">{recorded.code}</span>
 							<span class="text-brand-muted"> = </span>
 							<span class="font-mono">{recorded.function}({recorded.inputs.join(', ')})</span>
+						</li>
+					{/each}
+				</ul>
+			</section>
+		{/if}
+
+		{#if calculation && calculation.versions.length > 0}
+			<!-- Version history: which of them the record's values were computed under. -->
+			<section class="rounded-md border border-brand-divider bg-brand-surface">
+				<div class="px-3 py-2 border-b border-brand-divider">
+					<h3 class="text-sm font-semibold">Versions</h3>
+					<p class="text-xs text-brand-muted">Every save mints one, and each holds the values computed while it was active until a recompute moves them.</p>
+				</div>
+				<ul class="divide-y divide-brand-divider">
+					{#each calculation.versions as version (version.id)}
+						<li class="px-3 py-2 text-sm flex items-start justify-between gap-3 flex-wrap">
+							<div>
+								<span class="font-medium">Version {version.version_no}</span>
+								{#if version.active}<Badge variant="ok">active</Badge>{/if}
+								<span class="text-xs text-brand-muted"> · {formatDateTime(version.created_at)}{version.created_by ? ` · ${version.created_by}` : ''}</span>
+								{#if version.note}<p class="text-xs text-brand-muted">{version.note}</p>{/if}
+							</div>
+							<span class="text-xs text-brand-muted">{storedLabel(usageByVersion.get(version.id)) || 'counting…'}</span>
 						</li>
 					{/each}
 				</ul>

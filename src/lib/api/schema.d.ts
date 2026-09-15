@@ -8732,6 +8732,13 @@ export interface components {
         };
         CalculationFormulaList: {
             code: string;
+            /**
+             * @description Why this formula's code can no longer be changed, when it cannot. The catalog code is
+             *     the CSV column header and the public API's identifier, so once readings are stored under
+             *     the output parameter or a project publishes it, a rename is refused (Q183). NULL means
+             *     the code is still free.
+             */
+            code_locked: string | null;
             /** Format: date-time */
             created_at: string | null;
             /**
@@ -8774,6 +8781,13 @@ export interface components {
         };
         CalculationFormulaResponse: {
             code: string;
+            /**
+             * @description Why this formula's code can no longer be changed, when it cannot. The catalog code is
+             *     the CSV column header and the public API's identifier, so once readings are stored under
+             *     the output parameter or a project publishes it, a rename is refused (Q183). NULL means
+             *     the code is still free.
+             */
+            code_locked: string | null;
             /** Format: date-time */
             created_at: string | null;
             /**

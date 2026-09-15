@@ -25,6 +25,7 @@
 		buildRequestBody,
 		curveSelectionsFrom,
 		initFormState,
+		openingFromRun,
 		type FormState,
 	} from '$lib/tools/form';
 
@@ -188,8 +189,14 @@
 			try {
 				const raw = sessionStorage.getItem('tool-reload');
 				if (raw) {
-					const run = JSON.parse(raw) as { tool?: string; body?: Record<string, unknown> };
-					if (run.tool === wanted && run.body && typeof run.body === 'object') inputs = run.body;
+					const run = JSON.parse(raw) as {
+						tool?: string;
+						body?: Record<string, unknown>;
+						curves?: unknown[];
+					};
+					if (run.tool === wanted && run.body && typeof run.body === 'object') {
+						inputs = openingFromRun({ body: run.body, curves: run.curves });
+					}
 				}
 			} catch {
 				inputs = undefined;
@@ -197,7 +204,7 @@
 			sessionStorage.removeItem('tool-reload');
 			if (!inputs) {
 				reloadToolRun(runId)
-					.then((run) => selectTool(tool, run.body, from))
+					.then((run) => selectTool(tool, openingFromRun(run), from))
 					.catch((e: unknown) => {
 						loadError = e instanceof Error ? e.message : String(e);
 					});

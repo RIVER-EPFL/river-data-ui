@@ -358,6 +358,10 @@ export interface DerivedParameter {
 	 *  nowhere, and reaches the formulas after it under its own code. */
 	intermediate: boolean;
 	sources: DerivedParameterSource[];
+	/** Why the code can no longer be changed, when it cannot: the catalog code is the CSV column
+	 *  header and the public API's identifier, so a rename is refused once readings are stored
+	 *  under the output parameter or a project publishes it. Null while it is still free. */
+	code_locked: string | null;
 	created_at: string;
 }
 

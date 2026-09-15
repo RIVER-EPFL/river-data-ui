@@ -11,6 +11,7 @@
 		validateToolVersion,
 		activateToolVersion,
 		listToolActivations,
+		listToolVersionUsage,
 		inspectToolScript,
 		toolLintFindings,
 		type ToolScriptSummary,
@@ -20,12 +21,14 @@
 		type ToolLintFinding,
 		type ToolValidateResponse,
 		type ToolActivationRecord,
+		type ToolVersionUsage,
 		type ToolInspectResponse,
 		type ToolManifest,
 		type ToolTestCase,
 		type ToolTestCases,
 	} from '$api/service';
 	import { api, type Constant, type Parameter } from '$api/crud';
+	import { armConsequence } from '$lib/calculations/consequence';
 	import { listAll } from '$api/paged';
 	import { me } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
@@ -145,6 +148,12 @@
 	let confirmActivate = $state<ToolVersionSummary | null>(null);
 	let activateDialogOpen = $state(false);
 	let activating = $state(false);
+	// What each version has already produced: the activation's arms are stated in these counts.
+	let usage = $state<ToolVersionUsage[]>([]);
+	const activeUsage = $derived(usage.find((u) => u.version_no === detail?.active_version_no));
+	// Nothing to leave behind or recompute until a version has been serving: the first activation
+	// supersedes none.
+	const supersedes = $derived(detail?.active_version_no != null);
 
 	function openActivate(v: ToolVersionSummary) {
 		confirmActivate = v;
@@ -228,6 +237,11 @@
 			const [d, a] = await Promise.all([getToolScript(id), listToolActivations(id)]);
 			detail = d;
 			activations = a;
+			// A page that cannot read the counts still activates; the arms say what they do without
+			// the numbers.
+			listToolVersionUsage(id)
+				.then((rows) => (usage = rows))
+				.catch(() => (usage = []));
 			metaLabel = d.label;
 			metaDescription = d.description ?? '';
 			const active = d.versions.find((v) => v.active) ?? d.versions[0];
@@ -508,12 +522,16 @@
 		return detail?.active_version_no != null && v.version_no < detail.active_version_no;
 	}
 
-	async function doActivate() {
+	async function doActivate(migrateStored: boolean) {
 		if (!detail || !confirmActivate) return;
 		activating = true;
 		try {
-			await activateToolVersion(detail.id, confirmActivate.id);
-			toastStore.success(`Version ${confirmActivate.version_no} is now active for ${detail.name}`);
+			await activateToolVersion(detail.id, confirmActivate.id, migrateStored);
+			toastStore.success(
+				migrateStored
+					? `Version ${confirmActivate.version_no} is now active for ${detail.name}; the values it replaces are being recomputed`
+					: `Version ${confirmActivate.version_no} is now active for ${detail.name}`,
+			);
 			activateDialogOpen = false;
 			confirmActivate = null;
 			await selectScript(detail.id);
@@ -1077,13 +1095,21 @@
 					calculation from now on runs this version.
 				{/if}
 			</p>
+			{#if supersedes}
+				<p class="mt-2 text-xs text-brand-muted">{armConsequence(activeUsage)}</p>
+			{/if}
 		{/if}
 	{/snippet}
 	{#snippet actions()}
 		<Button onclick={() => (activateDialogOpen = false)}>Cancel</Button>
+		{#if supersedes}
+			<Button onclick={() => doActivate(true)} disabled={activating}>
+				{activating ? 'Activating…' : 'Activate and recompute'}
+			</Button>
+		{/if}
 		<Button
 			variant={confirmActivate && isRollback(confirmActivate) ? 'danger' : 'primary'}
-			onclick={doActivate}
+			onclick={() => doActivate(false)}
 			disabled={activating}
 		>{activating ? 'Activating…' : confirmActivate && isRollback(confirmActivate) ? 'Rollback' : 'Activate'}</Button>
 	{/snippet}

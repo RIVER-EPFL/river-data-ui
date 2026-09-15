@@ -2615,6 +2615,13 @@
           "code": {
             "type": "string"
           },
+          "code_locked": {
+            "description": "Why this formula's code can no longer be changed, when it cannot. The catalog code is\nthe CSV column header and the public API's identifier, so once readings are stored under\nthe output parameter or a project publishes it, a rename is refused (Q183). NULL means\nthe code is still free.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "created_at": {
             "format": "date-time",
             "type": [
@@ -2700,6 +2707,7 @@
           "per_replicate",
           "intermediate",
           "created_at",
+          "code_locked",
           "sources"
         ],
         "type": "object"
@@ -2708,6 +2716,13 @@
         "properties": {
           "code": {
             "type": "string"
+          },
+          "code_locked": {
+            "description": "Why this formula's code can no longer be changed, when it cannot. The catalog code is\nthe CSV column header and the public API's identifier, so once readings are stored under\nthe output parameter or a project publishes it, a rename is refused (Q183). NULL means\nthe code is still free.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "created_at": {
             "format": "date-time",
@@ -2794,6 +2809,7 @@
           "per_replicate",
           "intermediate",
           "created_at",
+          "code_locked",
           "sources"
         ],
         "type": "object"

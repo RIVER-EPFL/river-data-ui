@@ -472,6 +472,26 @@ export function curveSelectionFrom(v: unknown): CurveSelection | null {
 	};
 }
 
+/**
+ * The prefill a reopened run supplies: its stored inputs, plus the curves it used under the slots
+ * that took them. A run's curves are stored beside its inputs rather than in them, so a form built
+ * from the inputs alone opens with no curve and recomputes the output against none.
+ */
+export function openingFromRun(run: {
+	body: unknown;
+	curves?: unknown[];
+}): Record<string, unknown> {
+	const opening: Record<string, unknown> = {
+		...((run.body as Record<string, unknown> | null) ?? {}),
+	};
+	for (const snapshot of run.curves ?? []) {
+		if (typeof snapshot !== 'object' || snapshot === null) continue;
+		const { name, curve } = snapshot as { name?: unknown; curve?: unknown };
+		if (typeof name === 'string' && curve) opening[name] = curve;
+	}
+	return opening;
+}
+
 /** The field a curve slot contributes to the request body. */
 export function curveField(sel: CurveSelection | undefined): Record<string, unknown> | null {
 	if (!sel) return null;

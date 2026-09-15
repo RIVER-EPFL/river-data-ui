@@ -1,6 +1,6 @@
 import { SITE_PROPERTIES } from '$api/crud';
 import type { Constant, DerivedParameter, Parameter } from '$api/crud';
-import type { FormulaDraft, FormulaDraftRunRequest, ToolOutput } from '$api/service';
+import type { FormulaDraft, FormulaDraftRunRequest, FormulaSetSave, ToolOutput } from '$api/service';
 import { CURVE_VARIABLES, FORMULA_CONSTANTS, FORMULA_FUNCTIONS, identifiers } from '$lib/formula/lint';
 
 // A calculation as one page holds it: the formulas in order, what they read, what they publish,
@@ -21,6 +21,12 @@ export interface EditableFormula extends FormulaDraft {
 	 * calculation. Null on a formula of this calculation's own.
 	 */
 	declarationId?: string | null;
+	/**
+	 * Why the code can no longer be changed, from the server. Null while it is still free: the
+	 * catalog code is the CSV column header and the public API's identifier, so a rename is
+	 * refused once readings are stored under the output parameter or a project publishes it.
+	 */
+	codeLocked: string | null;
 }
 
 export function editableFormula(stored: DerivedParameter): EditableFormula {
@@ -35,6 +41,7 @@ export function editableFormula(stored: DerivedParameter): EditableFormula {
 		curve_slot: stored.curve_slot ?? '',
 		per_replicate: stored.per_replicate ?? '',
 		intermediate: stored.intermediate ?? false,
+		codeLocked: stored.code_locked ?? null,
 	};
 }
 
@@ -52,6 +59,7 @@ export function blankFormula(existing: EditableFormula[]): EditableFormula {
 		curve_slot: '',
 		per_replicate: '',
 		intermediate: false,
+		codeLocked: null,
 	};
 }
 
@@ -98,19 +106,29 @@ export function dependencyOrder<T extends { ordinal: number; code: string; formu
 	return [...ordered, ...remaining];
 }
 
-/** The body a formula's create or update carries. */
-export function formulaBody(formula: EditableFormula, calculationId: string) {
+/**
+ * The set-level save's body: this calculation's own formulas, trimmed, and what happens to the
+ * values the version being replaced produced. A step read through a declaration belongs to another
+ * calculation, so it is left out and the save neither rewrites nor deletes it. A formula the author
+ * removed is left out too, which is how the save deletes it.
+ */
+export function formulaSetBody(formulas: EditableFormula[], migrate: boolean): FormulaSetSave {
 	return {
-		code: formula.code.trim(),
-		name: formula.name.trim() || formula.code.trim(),
-		units: formula.units.trim(),
-		description: formula.description.trim() || null,
-		formula: formula.formula,
-		tool_script_id: calculationId,
-		ordinal: formula.ordinal,
-		per_replicate: formula.per_replicate.trim() || null,
-		curve_slot: formula.curve_slot.trim() || null,
-		intermediate: formula.intermediate,
+		formulas: formulas
+			.filter((f) => !f.declarationId)
+			.map((f) => ({
+				id: f.id,
+				code: f.code.trim(),
+				name: f.name.trim() || f.code.trim(),
+				units: f.units.trim(),
+				description: f.description.trim() || null,
+				formula: f.formula,
+				ordinal: f.ordinal,
+				per_replicate: f.per_replicate.trim() || null,
+				curve_slot: f.curve_slot.trim() || null,
+				intermediate: f.intermediate,
+			})),
+		migrate_stored: migrate,
 	};
 }
 

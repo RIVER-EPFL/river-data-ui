@@ -1348,13 +1348,35 @@ export const getToolVersion = (id: string, versionId: string) =>
 export const validateToolVersion = (id: string, versionId: string) =>
 	POST<ToolValidateResponse>(`${ADMIN}/tool_scripts/${id}/versions/${versionId}/validate`, {});
 
-export const activateToolVersion = (id: string, versionId: string, activatedBy?: string) =>
+/**
+ * Activate a version. `migrateStored` is the arm: `false` leaves the values the superseded version
+ * produced where they are, `true` recomputes them under this one.
+ */
+export const activateToolVersion = (
+	id: string,
+	versionId: string,
+	migrateStored = false,
+	activatedBy?: string,
+) =>
 	POST<ToolScriptSummary>(`${ADMIN}/tool_scripts/${id}/versions/${versionId}/activate`, {
+		migrate_stored: migrateStored,
 		...(activatedBy ? { activated_by: activatedBy } : {}),
 	});
 
 export const listToolActivations = (id: string) =>
 	GET<ToolActivationRecord[]>(`${ADMIN}/tool_scripts/${id}/activations`);
+
+/** What one version of a calculation has already produced, as the stored provenance names it. */
+export interface ToolVersionUsage {
+	version_id: string;
+	version_no: number;
+	visits: number;
+	readings: number;
+}
+
+/** Every version's stored usage, newest first. A version that produced nothing is a zero row. */
+export const listToolVersionUsage = (id: string) =>
+	GET<ToolVersionUsage[]>(`${ADMIN}/tool_scripts/${id}/version_usage`);
 
 // Script inspection. The runner parses the script and walks the tree; nothing is evaluated, so a
 // half-written script is safe to inspect and a syntax error is a 200 with `parse_ok: false`.
@@ -1450,6 +1472,43 @@ export interface FormulaDraftRunResponse {
 
 export const draftRunFormulas = (calculationId: string, body: FormulaDraftRunRequest) =>
 	POST<FormulaDraftRunResponse>(`${ADMIN}/tool_scripts/${calculationId}/formulas/draft_run`, body);
+
+/** One formula of a set-level save. No `id` is a formula the save creates. */
+export interface SavedFormula {
+	id: string | null;
+	code: string;
+	name: string;
+	units: string;
+	description: string | null;
+	formula: string;
+	ordinal: number;
+	per_replicate: string | null;
+	curve_slot: string | null;
+	intermediate: boolean;
+}
+
+export interface FormulaSetSave {
+	formulas: SavedFormula[];
+	/**
+	 * What happens to the values the version being replaced produced. `false` leaves them on that
+	 * version; `true` recomputes every visit it produced values at under the new one.
+	 */
+	migrate_stored: boolean;
+}
+
+export interface FormulaSetSaveResponse {
+	/** Null when the save changed nothing the version is hashed over, which mints none. */
+	version_id: string | null;
+	version_no: number | null;
+	created: number;
+	updated: number;
+	deleted: number;
+	migrated: boolean;
+}
+
+/** Save a calculation's whole formula set as one version. */
+export const saveFormulaSet = (calculationId: string, body: FormulaSetSave) =>
+	POST<FormulaSetSaveResponse>(`${ADMIN}/tool_scripts/${calculationId}/formulas`, body);
 
 /** Lint findings from a refused version create (409 { error, detail }); null otherwise. */
 export function toolLintFindings(e: unknown): ToolLintFinding[] | null {
