@@ -526,6 +526,10 @@
 									{#if expandedVisit === v.id}
 										<tr class="border-t border-brand-divider">
 											<td colspan={3 + visitColumns.length} class="bg-brand-bg/50 px-4 py-3">
+												<!-- The row spans a table wider than the window, so the panel is pinned to the
+												     window's left edge and takes only the width its content needs: reading what
+												     a visit holds is never a sideways scroll (S15). -->
+												<div class="sticky left-0 w-max max-w-[calc(100vw-3rem)]">
 												{#if visitDetailLoading}
 													<p class="text-xs text-brand-muted">Loading…</p>
 												{:else if visitDetail}
@@ -665,6 +669,7 @@
 														</div>
 													{/if}
 												{/if}
+												</div>
 											</td>
 										</tr>
 									{/if}

@@ -7409,6 +7409,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tool_scripts/{id}/formulas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save a formula calculation's whole formula set as one version.
+         * @description The set is the request: a formula carrying an `id` updates that row, one without an id is
+         *     created, and a stored formula the set leaves out is deleted. One version is minted from the
+         *     resulting set and activated, whatever the save touched, so an author's version history reads as
+         *     their decisions rather than as their keystrokes (Q186). `migrate_stored` chooses what happens to
+         *     the values the superseded version produced (Q170). Requires Administrator.
+         */
+        post: operations["save_formula_set"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tool_scripts/{id}/formulas/draft_run": {
         parameters: {
             query?: never;
@@ -7428,6 +7452,28 @@ export interface paths {
          *     200, as the script draft run does.
          */
         post: operations["draft_run_formulas"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tool_scripts/{id}/version_usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What each version of the calculation has already produced, newest first. Requires
+         *     Administrator.
+         * @description Read before a save or an activation, which offers the author the choice between leaving those
+         *     values on the version that produced them and recomputing them under the new one.
+         */
+        get: operations["list_version_usage"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -9085,6 +9131,12 @@ export interface components {
              *     re-entering a value does not silently re-attribute it to whatever the slot declares now.
              */
             sensor_id?: string;
+            /**
+             * @description What that instrument is: `device` | `lab` | `source_parameter` | `entry_channel`. The two
+             *     bookkeeping kinds record that nothing was declared, so a write may not name one and the
+             *     grid does not offer one back as a declaration.
+             */
+            sensor_kind?: string;
             /**
              * Format: uuid
              * @description The standard curve applied on top of the base calibration, null when none was.
@@ -12609,7 +12661,7 @@ export interface components {
             units: string | null;
         };
         ParameterCreate: {
-            aliases: string[];
+            aliases?: string[] | null;
             category?: string | null;
             code: string;
             default_units?: string | null;
@@ -15109,6 +15161,50 @@ export interface components {
             stdev_sample?: number;
         };
         SampleUpdate: Record<string, never>;
+        /** @description Save a formula calculation's whole set, as one version (Q186). */
+        SaveFormulaSetRequest: {
+            formulas: components["schemas"]["SavedFormula"][];
+            /**
+             * @description What happens to the values the version being replaced produced (Q170). `false`, the
+             *     default, leaves them on that version. `true` is a correction: every visit the superseded
+             *     version produced values at is recomputed under the new one.
+             */
+            migrate_stored?: boolean;
+        };
+        /** @description What one set-level save wrote. */
+        SaveFormulaSetResponse: {
+            created: number;
+            deleted: number;
+            /** @description Whether the migration of the superseded version's values was enqueued. */
+            migrated: boolean;
+            updated: number;
+            /**
+             * Format: uuid
+             * @description The version the save minted, or the one it matched: a save that changes nothing mints none.
+             */
+            version_id: string | null;
+            /** Format: int32 */
+            version_no: number | null;
+        };
+        /**
+         * @description One formula of a set-level save. An `id` names a stored formula of this calculation, which the
+         *     save updates; a formula without one is created, and a stored formula the set leaves out is
+         *     deleted.
+         */
+        SavedFormula: {
+            code: string;
+            curve_slot?: string | null;
+            description?: string | null;
+            formula: string;
+            /** Format: uuid */
+            id?: string | null;
+            intermediate?: boolean;
+            name?: string | null;
+            /** Format: int32 */
+            ordinal: number;
+            per_replicate?: string | null;
+            units?: string | null;
+        };
         ScheduleList: {
             catchup_policy: string | null;
             /** Format: date-time */
@@ -16140,9 +16236,9 @@ export interface components {
             is_public: boolean | null;
             name: string;
             /**
-             * @description Carried by slots a tool save minted before Q98 made the site parameters the declaration;
-             *     cleared by a manager confirming the slot from the site's Parameters tab. Nothing sets it
-             *     any more.
+             * @description Carried by a slot the chain minted where the site declared the calculation's inputs and
+             *     not its output (Q193); cleared by a manager confirming the slot from the site's Parameters
+             *     tab.
              */
             needs_review: boolean;
             parameter: components["schemas"]["ParameterList"][];
@@ -16228,9 +16324,9 @@ export interface components {
             is_public: boolean | null;
             name: string;
             /**
-             * @description Carried by slots a tool save minted before Q98 made the site parameters the declaration;
-             *     cleared by a manager confirming the slot from the site's Parameters tab. Nothing sets it
-             *     any more.
+             * @description Carried by a slot the chain minted where the site declared the calculation's inputs and
+             *     not its output (Q193); cleared by a manager confirming the slot from the site's Parameters
+             *     tab.
              */
             needs_review: boolean;
             parameter: components["schemas"]["Parameter"][];
@@ -17691,6 +17787,21 @@ export interface components {
              */
             public_api_contract: string;
             version: string;
+        };
+        /**
+         * @description What one version of a calculation has already produced: the readings whose stored provenance
+         *     names it, and the visits those readings belong to. A version that produced nothing carries
+         *     zeros, because "nothing stored" and "not counted" are different claims.
+         */
+        VersionUsage: {
+            /** Format: int64 */
+            readings: number;
+            /** Format: uuid */
+            version_id: string;
+            /** Format: int32 */
+            version_no: number;
+            /** Format: int64 */
+            visits: number;
         };
         VisitCell: {
             /** @description Kind of the oldest open finding on this cell, when one exists. */
@@ -38412,6 +38523,47 @@ export interface operations {
             };
         };
     };
+    save_formula_set: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Calculation UUID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveFormulaSetRequest"];
+            };
+        };
+        responses: {
+            /** @description The set is saved and one version activated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SaveFormulaSetResponse"];
+                };
+            };
+            /** @description A formula the set refuses, or a calculation that is not formula-engined */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such calculation */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     draft_run_formulas: {
         parameters: {
             query?: never;
@@ -38450,6 +38602,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    list_version_usage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionUsage"][];
+                };
             };
         };
     };

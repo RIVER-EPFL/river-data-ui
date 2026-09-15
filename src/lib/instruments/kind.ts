@@ -24,7 +24,12 @@ export function kindLabel(sensor: Pick<Sensor, 'kind' | 'is_lab_instrument'>): s
 /// A bookkeeping row exists so a reading can name something; nothing measured on it, so it is
 /// never offered where an operator picks the instrument a value was measured on.
 export function isBookkeeping(sensor: Pick<Sensor, 'kind' | 'is_lab_instrument'>): boolean {
-	const kind = kindOf(sensor);
+	return isBookkeepingKind(kindOf(sensor));
+}
+
+/// The same rule over a kind on its own, for a reading that names its instrument by id and kind
+/// rather than carrying the inventory row.
+export function isBookkeepingKind(kind: string | null | undefined): boolean {
 	return kind === 'source_parameter' || kind === 'entry_channel';
 }
 

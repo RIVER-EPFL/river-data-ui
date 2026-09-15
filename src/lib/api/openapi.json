@@ -3453,6 +3453,10 @@
             "format": "uuid",
             "type": "string"
           },
+          "sensor_kind": {
+            "description": "What that instrument is: `device` | `lab` | `source_parameter` | `entry_channel`. The two\nbookkeeping kinds record that nothing was declared, so a write may not name one and the\ngrid does not offer one back as a declaration.",
+            "type": "string"
+          },
           "standard_curve_id": {
             "description": "The standard curve applied on top of the base calibration, null when none was.",
             "format": "uuid",
@@ -12599,7 +12603,10 @@
             "items": {
               "type": "string"
             },
-            "type": "array"
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "category": {
             "type": [
@@ -12634,8 +12641,7 @@
         },
         "required": [
           "code",
-          "name",
-          "aliases"
+          "name"
         ],
         "type": "object"
       },
@@ -19151,6 +19157,131 @@
       "SampleUpdate": {
         "type": "object"
       },
+      "SaveFormulaSetRequest": {
+        "description": "Save a formula calculation's whole set, as one version (Q186).",
+        "properties": {
+          "formulas": {
+            "items": {
+              "$ref": "#/components/schemas/SavedFormula"
+            },
+            "type": "array"
+          },
+          "migrate_stored": {
+            "description": "What happens to the values the version being replaced produced (Q170). `false`, the\ndefault, leaves them on that version. `true` is a correction: every visit the superseded\nversion produced values at is recomputed under the new one.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "formulas"
+        ],
+        "type": "object"
+      },
+      "SaveFormulaSetResponse": {
+        "description": "What one set-level save wrote.",
+        "properties": {
+          "created": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "deleted": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "migrated": {
+            "description": "Whether the migration of the superseded version's values was enqueued.",
+            "type": "boolean"
+          },
+          "updated": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "version_id": {
+            "description": "The version the save minted, or the one it matched: a save that changes nothing mints none.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version_no": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "version_id",
+          "version_no",
+          "created",
+          "updated",
+          "deleted",
+          "migrated"
+        ],
+        "type": "object"
+      },
+      "SavedFormula": {
+        "description": "One formula of a set-level save. An `id` names a stored formula of this calculation, which the\nsave updates; a formula without one is created, and a stored formula the set leaves out is\ndeleted.",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "curve_slot": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "formula": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "intermediate": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ordinal": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "per_replicate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "units": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "code",
+          "formula",
+          "ordinal"
+        ],
+        "type": "object"
+      },
       "ScheduleList": {
         "properties": {
           "catchup_policy": {
@@ -22050,7 +22181,7 @@
             "type": "string"
           },
           "needs_review": {
-            "description": "Carried by slots a tool save minted before Q98 made the site parameters the declaration;\ncleared by a manager confirming the slot from the site's Parameters tab. Nothing sets it\nany more.",
+            "description": "Carried by a slot the chain minted where the site declared the calculation's inputs and\nnot its output (Q193); cleared by a manager confirming the slot from the site's Parameters\ntab.",
             "type": "boolean"
           },
           "parameter": {
@@ -22216,7 +22347,7 @@
             "type": "string"
           },
           "needs_review": {
-            "description": "Carried by slots a tool save minted before Q98 made the site parameters the declaration;\ncleared by a manager confirming the slot from the site's Parameters tab. Nothing sets it\nany more.",
+            "description": "Carried by a slot the chain minted where the site declared the calculation's inputs and\nnot its output (Q193); cleared by a manager confirming the slot from the site's Parameters\ntab.",
             "type": "boolean"
           },
           "parameter": {
@@ -26202,6 +26333,34 @@
           "commit",
           "built_at",
           "public_api_contract"
+        ],
+        "type": "object"
+      },
+      "VersionUsage": {
+        "description": "What one version of a calculation has already produced: the readings whose stored provenance\nnames it, and the visits those readings belong to. A version that produced nothing carries\nzeros, because \"nothing stored\" and \"not counted\" are different claims.",
+        "properties": {
+          "readings": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "version_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "version_no": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "visits": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version_id",
+          "version_no",
+          "visits",
+          "readings"
         ],
         "type": "object"
       },
@@ -50394,6 +50553,56 @@
         ]
       }
     },
+    "/api/tool_scripts/{id}/formulas": {
+      "post": {
+        "description": "The set is the request: a formula carrying an `id` updates that row, one without an id is\ncreated, and a stored formula the set leaves out is deleted. One version is minted from the\nresulting set and activated, whatever the save touched, so an author's version history reads as\ntheir decisions rather than as their keystrokes (Q186). `migrate_stored` chooses what happens to\nthe values the superseded version produced (Q170). Requires Administrator.",
+        "operationId": "save_formula_set",
+        "parameters": [
+          {
+            "description": "Calculation UUID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveFormulaSetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaveFormulaSetResponse"
+                }
+              }
+            },
+            "description": "The set is saved and one version activated"
+          },
+          "400": {
+            "description": "A formula the set refuses, or a calculation that is not formula-engined"
+          },
+          "404": {
+            "description": "No such calculation"
+          }
+        },
+        "summary": "Save a formula calculation's whole formula set as one version.",
+        "tags": [
+          "tool_scripts"
+        ]
+      }
+    },
     "/api/tool_scripts/{id}/formulas/draft_run": {
       "post": {
         "description": "Each formula's variables resolve as a save would resolve them (a catalog parameter, a\nconstant, a column of `sites`), the set is ordered and checked as a version mint would check\nit, and the run reads the visit exactly as `/tools/{name}/calculate` does. Nothing is stored:\nno version, no run row, no reading. A formula the set refuses (an unknown variable, a cycle,\nan unreadable expression) is a 400 naming it; a run that ends without results reports why at\n200, as the script draft run does.",
@@ -50439,6 +50648,42 @@
           }
         },
         "summary": "Run an unsaved formula set at a visit, in place of the calculation's stored formulas.",
+        "tags": [
+          "tool_scripts"
+        ]
+      }
+    },
+    "/api/tool_scripts/{id}/version_usage": {
+      "get": {
+        "description": "Read before a save or an activation, which offers the author the choice between leaving those\nvalues on the version that produced them and recomputing them under the new one.",
+        "operationId": "list_version_usage",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/VersionUsage"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "summary": "What each version of the calculation has already produced, newest first. Requires\nAdministrator.",
         "tags": [
           "tool_scripts"
         ]

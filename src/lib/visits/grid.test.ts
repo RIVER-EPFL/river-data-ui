@@ -531,6 +531,21 @@ describe('the instrument a row was measured with', () => {
 		expect(pendingWrites(rows).map((w) => w.sensorId)).toEqual(['probe-1', 'probe-1']);
 	});
 
+	it('is not the slot entry channel the store minted, which a save may not name', () => {
+		const rows = gridFromVisit(
+			visit([
+				cell({
+					replicates: [
+						{ ...stored(0, 120), sensor_id: 'entry-channel', sensor_kind: 'entry_channel' },
+					],
+				}),
+			]),
+		);
+		expect(rows[0].sensorId).toBeUndefined();
+		rows[0].replicates[0].value = 121;
+		expect(pendingWrites(rows).map((w) => w.sensorId)).toEqual([null]);
+	});
+
 	it('is null where the row declares none', () => {
 		const rows = gridFromVisit(visit([cell({ replicates: [stored(0, 120)] })]));
 		rows[0].replicates[0].value = 121;

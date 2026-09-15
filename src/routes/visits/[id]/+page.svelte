@@ -948,6 +948,9 @@
 						{#if inspecting && rowKey(inspecting) === rowKey(row) && detail}
 							<tr class="border-t border-gray-100 dark:border-gray-800">
 								<td colspan={width + 9} class="px-2 py-2">
+									<!-- The row spans a grid wider than the window, so the record is pinned to the
+									     window's left edge and takes only the width it needs (S15). -->
+									<div class="sticky left-0 w-max max-w-[calc(100vw-3rem)]">
 									<PointInspector
 										siteId={detail.site_id}
 										parameterId={row.parameterId}
@@ -960,6 +963,7 @@
 										onclose={() => (inspecting = null)}
 										onchange={() => void refresh()}
 									/>
+									</div>
 								</td>
 							</tr>
 						{/if}

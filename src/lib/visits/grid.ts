@@ -1,4 +1,10 @@
-import type { EventCell, EventDetailResponse, ProvenanceRecord } from '$api/service';
+import type {
+	EventCell,
+	EventCellReplicate,
+	EventDetailResponse,
+	ProvenanceRecord,
+} from '$api/service';
+import { isBookkeepingKind } from '$lib/instruments/kind';
 import { NO_VALUE, formatCount } from '$lib/format';
 import { readNumber, writeNumber, writeStatistic } from './number';
 import { cellRole, cellWritable, type CellRole } from './role';
@@ -219,6 +225,12 @@ function emptyCell(): GridCell {
 	return { value: null, stored: null, flagged: false, withdrawn: false, unverified: false };
 }
 
+/** The instrument a replicate declares, where it declares one: a bookkeeping row declares nothing. */
+function declaredInstrument(replicate: EventCellReplicate): string | undefined {
+	if (!replicate.sensor_id) return undefined;
+	return isBookkeepingKind(replicate.sensor_kind) ? undefined : replicate.sensor_id;
+}
+
 function rowOf(cell: EventCell): GridRow {
 	const role = cellRole(cell);
 	const highest = cell.replicates.reduce((m, r) => Math.max(m, r.replicate_index), -1);
@@ -235,8 +247,10 @@ function rowOf(cell: EventCell): GridRow {
 	const ordered = cell.replicates.slice().sort((a, b) => a.replicate_index - b.replicate_index);
 	const curve = ordered.find((r) => r.standard_curve_id)?.standard_curve_id;
 	// What the stored values already name wins over the slot's current declaration, so re-entering
-	// a value does not re-attribute the row to a probe that did not measure it.
-	const sensor = ordered.find((r) => r.sensor_id)?.sensor_id;
+	// a value does not re-attribute the row to a probe that did not measure it. A slot's own entry
+	// channel is not such a name: it records that nothing was declared, and a save naming one is
+	// refused.
+	const sensor = ordered.find((r) => declaredInstrument(r))?.sensor_id;
 	return {
 		parameterId: cell.parameter_id,
 		parameterCode: cell.parameter_code,
