@@ -41,6 +41,7 @@
 	import Tabs from '$components/ui/Tabs.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import SourceAuditPanel from '$components/sync/SourceAuditPanel.svelte';
+	import { latestSourceAudit } from '$lib/sync/sourceAudit';
 	import Badge from '$components/ui/Badge.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
@@ -246,6 +247,14 @@
 
 	const AUDIT_POLL_MS = 2000;
 	const AUDIT_POLL_ATTEMPTS = 60;
+
+	// What the service last answered with, read from the command rows the page already loads, so a
+	// service that is down still shows the source as it was when it was last asked.
+	const lastAudit = $derived(
+		Object.fromEntries(
+			services.map((svc) => [svc.id, latestSourceAudit(commands, svc.id)]),
+		) as Record<string, { report: SourceAuditReport; answeredAt: string } | null>,
+	);
 
 	async function runSourceAudit(svc: SyncService) {
 		sourceAuditing[svc.id] = true;
@@ -611,7 +620,12 @@
 									>
 										<Button size="sm" disabled={resyncing[svc.id]} onclick={() => prepareResync(svc)}>Repair stored values</Button>
 									</ConfirmPopover>
-									<Button size="sm" disabled={sourceAuditing[svc.id]} onclick={() => runSourceAudit(svc)}>
+									<Button
+										size="sm"
+										disabled={sourceAuditing[svc.id]}
+										title="The service answers on its next heartbeat; the last report it answered with is shown until then."
+										onclick={() => runSourceAudit(svc)}
+									>
 										{sourceAuditing[svc.id] ? 'Auditing…' : 'Audit against source'}
 									</Button>
 								</div>
@@ -620,6 +634,12 @@
 								{/if}
 								{#if sourceAuditReport[svc.id]}
 									<SourceAuditPanel report={sourceAuditReport[svc.id]} />
+								{:else if lastAudit[svc.id]}
+									<p class="text-xs text-brand-muted">
+										Last answered {formatDateTime(lastAudit[svc.id]!.answeredAt)}. A new audit
+										runs on the service's next heartbeat.
+									</p>
+									<SourceAuditPanel report={lastAudit[svc.id]!.report} />
 								{/if}
 								<div class="flex items-center gap-2 flex-wrap">
 									<label class="text-xs text-brand-muted" for="cadence-{svc.id}">Sync every</label>

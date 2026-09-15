@@ -225,6 +225,7 @@
 		skipped_output: 'Calculation did not run',
 		curve_claim_stripped: 'Curve claim stripped',
 		unverified_entry: 'Entered and not yet verified',
+		source_identity_changed: 'The feed reports a different device',
 	};
 
 	const ESTIMATOR_TIP: Record<string, string> = {

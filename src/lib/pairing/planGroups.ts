@@ -288,6 +288,16 @@ export interface Creations {
 	groups: GroupCreation[];
 }
 
+/**
+ * Sites the apply would create with no position. The portals carry an elevation and nothing else,
+ * so the coordinates are the reviewer's to supply: a site is created once, and a site with no
+ * position is absent from the map, from the Sites list's location cell, and from any ranking
+ * against a weather station by distance.
+ */
+export function sitesWithoutCoordinates(sites: SiteCreation[]): SiteCreation[] {
+	return sites.filter((s) => s.latitude === null || s.longitude === null);
+}
+
 /** Every entity the plan's pairing entries would create, deduplicated the way the apply mints it. */
 export function creations(entries: PairingPlanEntry[]): Creations {
 	const pairing = entries.filter((e) => e.action === 'pair');

@@ -16,3 +16,35 @@ export function pairingPlanHref(base: string, sourceSystem: string): string {
 export function unpairedStreamsHref(base: string, sourceSystem: string): string {
 	return streamsHref(base, { list_filter: 'unpaired', source: sourceSystem });
 }
+
+/** A command row as the audit reads it: the service that answered, and what it answered with. */
+export interface AnsweredCommand {
+	service_id: string;
+	command: string;
+	status: string;
+	completed_at: string | null;
+	result: Record<string, unknown> | null;
+}
+
+/**
+ * The last audit a service answered, so the report stands on the page without the service being
+ * reachable. The rows carry the result the command was answered with; the newest completed one is
+ * what the source looked like when it was last asked.
+ */
+export function latestSourceAudit<T extends AnsweredCommand>(
+	commands: T[],
+	serviceId: string,
+): { report: Record<string, unknown>; answeredAt: string } | null {
+	const answered = commands
+		.filter(
+			(c) =>
+				c.service_id === serviceId &&
+				c.command === 'source_audit' &&
+				c.status === 'completed' &&
+				c.completed_at !== null &&
+				c.result !== null,
+		)
+		.sort((a, b) => (a.completed_at! < b.completed_at! ? 1 : -1));
+	const last = answered[0];
+	return last ? { report: last.result!, answeredAt: last.completed_at! } : null;
+}

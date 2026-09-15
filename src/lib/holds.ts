@@ -18,6 +18,7 @@ export const KIND_LABEL: Record<HoldKind, string> = {
 	curve_claim_stripped: holdKindLabel('curve_claim_stripped'),
 	unverified_entry: holdKindLabel('unverified_entry'),
 	unverified_visit: holdKindLabel('unverified_visit'),
+	source_identity_changed: holdKindLabel('source_identity_changed'),
 };
 
 export const KIND_STYLE: Record<HoldKind, string> = {
@@ -30,6 +31,7 @@ export const KIND_STYLE: Record<HoldKind, string> = {
 	curve_claim_stripped: 'bg-severity-warning-soft text-severity-warning-text',
 	unverified_entry: 'bg-brand-bg text-brand-text',
 	unverified_visit: 'bg-severity-warning-soft text-severity-warning-text',
+	source_identity_changed: 'bg-severity-warning-soft text-severity-warning-text',
 };
 
 export const KIND_TIP: Record<HoldKind, string> = {
@@ -49,4 +51,36 @@ export const KIND_TIP: Record<HoldKind, string> = {
 		'A value entered by hand that nobody has ruled on yet. It is stored and shown as pending, and it is not served until someone verifies it. Verify accepts the value as it stands; Reject withdraws it with a reason.',
 	unverified_visit:
 		'An intern opened this field day and nobody has ruled on whether it should exist. Verifying it says the visit happened, and no more: each measurement in it is still verified on its own. Rejecting it withdraws the visit with every reading entered there; nothing is deleted.',
+	source_identity_changed:
+		'The device behind this feed reports an identity that is not the one stored for it. The readings kept arriving and are stored as they were; what measured them is what this hold asks about. Adopt or swap the instrument if the device really changed, then acknowledge.',
 };
+
+/** What a source-identity hold says changed, as the fields the source reported differently. */
+export interface IdentityChange {
+	field: string;
+	was: string;
+	now: string;
+}
+
+function textOf(value: unknown): string {
+	if (value === null || value === undefined || value === '') return 'not reported';
+	return typeof value === 'object' ? JSON.stringify(value) : String(value);
+}
+
+/**
+ * The stored and reported identity of a feed's device, field by field. The hold names the fields
+ * that moved; where it does not, every field either side carries is compared.
+ */
+export function identityChanges(expected: unknown, computed: unknown): IdentityChange[] {
+	const was = (expected as { was?: Record<string, unknown> } | null)?.was ?? {};
+	const now = (computed as { now?: Record<string, unknown> } | null)?.now ?? {};
+	const named = (expected as { fields?: unknown } | null)?.fields;
+	const fields = Array.isArray(named)
+		? named.map(String)
+		: [...new Set([...Object.keys(was), ...Object.keys(now)])];
+	return fields.map((field) => ({
+		field,
+		was: textOf(was[field]),
+		now: textOf(now[field]),
+	}));
+}

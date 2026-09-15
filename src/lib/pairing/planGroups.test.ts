@@ -11,6 +11,8 @@ import {
 	paramGroups,
 	sdDecisions,
 	siteGroups,
+	sitesWithoutCoordinates,
+	type SiteCreation,
 } from './planGroups';
 
 function entry(over: Partial<PairingPlanEntry> = {}): PairingPlanEntry {
@@ -381,5 +383,30 @@ describe('instrumentBindings', () => {
 			},
 		} as Partial<PairingPlanEntry>);
 		expect(creations([existing]).groups).toEqual([]);
+	});
+});
+
+describe('sitesWithoutCoordinates', () => {
+	const at = (name: string, latitude: number | null, longitude: number | null): SiteCreation => ({
+		name,
+		latitude,
+		longitude,
+		altitudeM: 1500,
+		anchorStreamId: `stream-${name}`,
+		streamCount: 1,
+	});
+
+	it('names a site the apply would create with no position', () => {
+		const sites = [at('Placed', 46.25, 7.75), at('Unplaced', null, null)];
+		expect(sitesWithoutCoordinates(sites).map((s) => s.name)).toEqual(['Unplaced']);
+	});
+
+	it('counts half a position as no position', () => {
+		expect(sitesWithoutCoordinates([at('Half', 46.25, null)])).toHaveLength(1);
+		expect(sitesWithoutCoordinates([at('Other half', null, 7.75)])).toHaveLength(1);
+	});
+
+	it('treats a zero coordinate as a position', () => {
+		expect(sitesWithoutCoordinates([at('Null Island', 0, 0)])).toHaveLength(0);
 	});
 });

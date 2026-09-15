@@ -812,6 +812,7 @@ export const HOLD_KINDS = [
 	'curve_claim_stripped',
 	'unverified_entry',
 	'unverified_visit',
+	'source_identity_changed',
 ] as const;
 
 export type HoldKind = (typeof HOLD_KINDS)[number];

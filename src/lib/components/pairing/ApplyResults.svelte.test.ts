@@ -44,3 +44,22 @@ describe('ApplyResults', () => {
 		expect(buttons.length).toBeGreaterThan(0);
 	});
 });
+
+// Scenario: an apply where an earlier plan had already paired some of the streams.
+// Expected behaviour: the skip is on the screen the operator is handed, not only in the job
+// detail, because a skipped stream is one the plan did not import.
+describe('a partial apply', () => {
+	it('reports the streams it skipped and the curves it assigned', () => {
+		render(ApplyResults, {
+			props: {
+				result: { ...stored, streams_paired: 1591, streams_skipped: 300, curves_assigned: 14 },
+				ondone: vi.fn(),
+				onrevert: vi.fn(),
+			},
+		});
+		expect(screen.getByText('Streams skipped')).not.toBeNull();
+		expect(screen.getByText('300')).not.toBeNull();
+		expect(screen.getByText('Standard curves assigned')).not.toBeNull();
+		expect(screen.getByText('14')).not.toBeNull();
+	});
+});

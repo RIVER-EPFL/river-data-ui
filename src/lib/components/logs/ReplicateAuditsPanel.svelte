@@ -25,7 +25,7 @@
 	import { resyncServiceFor } from '$lib/sync/resync';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatRelativeTime, formatDateTime } from '$lib/utils';
-	import { KIND_LABEL, KIND_STYLE, KIND_TIP } from '$lib/holds';
+	import { KIND_LABEL, KIND_STYLE, KIND_TIP, identityChanges } from '$lib/holds';
 	import { apiMessage } from '$lib/standardCurves';
 	import { estimatorLabel, sdFormulaTitle, sdRowLabel } from '$lib/sdEstimator';
 	import Button from '$components/ui/Button.svelte';
@@ -1081,6 +1081,22 @@
 				{/if}
 			</div>
 
+			{#if hold.kind === 'source_identity_changed'}
+				{@const changes = identityChanges(hold.expected, hold.computed)}
+				{#if changes.length > 0}
+					<div class="rounded-md border border-brand-divider bg-brand-bg p-3 text-xs space-y-1">
+						<p class="font-medium">What the device reports now</p>
+						{#each changes as change (change.field)}
+							<p>
+								<span class="text-brand-muted">{change.field.replace(/_/g, ' ')}:</span>
+								<span class="font-mono">{change.was}</span>
+								→
+								<span class="font-mono">{change.now}</span>
+							</p>
+						{/each}
+					</div>
+				{/if}
+			{/if}
 			{#if needsDeclaration(hold)}
 				{@const pop = populationSd(hold)}
 				<div class="rounded-md border border-severity-warning-border bg-severity-warning-soft p-3 text-xs text-severity-warning-text space-y-2">
@@ -1333,6 +1349,20 @@
 				onconfirm={() => handleRuleOnEntry(hold, 'reject', ctx)}
 			>
 				<Button disabled={acknowledging}>Reject</Button>
+			</ConfirmPopover>
+		{:else if hold.status === 'pending' && hold.kind === 'source_identity_changed'}
+			<Button
+				variant="secondary"
+				onclick={() => { window.location.href = `${base}/instruments`; }}
+			>Open the instruments</Button>
+			<ConfirmPopover
+				message="Mark this reviewed? The readings stay as they are. Adopt or swap the instrument first if the device really changed: this only closes the hold."
+				confirmLabel="Acknowledge"
+				confirmVariant="primary"
+				above
+				onconfirm={() => handleAcknowledgeHold(hold, ctx, 'Reviewed: the reported identity stands')}
+			>
+				<Button variant="primary" disabled={acknowledging}>Acknowledge</Button>
 			</ConfirmPopover>
 		{:else if hold.status === 'pending' && hold.kind === 'curve_claim_stripped'}
 			<ConfirmPopover

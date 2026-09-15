@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { base } from '$app/paths';
 	import type { PairingPlan } from '$api/service';
+	import { sitesWithoutCoordinates } from '$lib/pairing/planGroups';
 	import type { Creations, GroupCreation, InstrumentBinding, SiteCreation } from '$lib/pairing/planGroups';
 	import Button from '$components/ui/Button.svelte';
 	import { formatCount } from '$lib/format';
@@ -89,6 +90,10 @@
 			openInstrumentQuestions,
 		}),
 	);
+
+	// The portals carry an elevation per station and nothing else, so a site created from one is
+	// placed here or not at all until somebody edits it site by site.
+	const unplacedSites = $derived(sitesWithoutCoordinates(created.sites));
 </script>
 
 {#snippet countCard(label: string, count: number, rows: string[])}
@@ -207,10 +212,18 @@
 		</div>
 
 		{#if created.sites.length > 0}
-			<details class="rounded-md border border-brand-divider bg-brand-bg p-3 text-xs">
+			<details class="rounded-md border border-brand-divider bg-brand-bg p-3 text-xs" open={unplacedSites.length > 0}>
 				<summary class="cursor-pointer text-brand-primary">
 					Check the {created.sites.length === 1 ? 'site' : `${created.sites.length} sites`} before they are created
 				</summary>
+				{#if unplacedSites.length > 0}
+					<p class="mt-2 rounded bg-severity-warning-soft p-2 text-severity-warning">
+						{unplacedSites.length} of the {created.sites.length} sites would be created with no
+						coordinates: {unplacedSites.map((s) => s.name).join(', ')}. The source carries none, so a
+						site left blank is absent from the map and cannot be ranked against a weather station by
+						distance. Fill them in below, or edit each site afterwards one at a time.
+					</p>
+				{/if}
 				<p class="text-brand-muted mt-2">
 					A site is created once, and everything measured there inherits where it is. A value the
 					source recorded wrong is corrected here; leaving a field blank creates the site without it.
@@ -303,7 +316,7 @@
 				<p class="text-brand-muted">Set the divisor in Review now, or leave it and decide from the audit queue.</p>
 			</div>
 		{/if}
-		<p class="text-xs text-brand-muted">Readings will be backfilled with site and parameter IDs. Continuous aggregates will refresh in the background. This operation can be reverted.</p>
+		<p class="text-xs text-brand-muted">Readings will be backfilled with site and parameter IDs. Continuous aggregates will refresh in the background. Reverting unpairs the streams and takes the site and parameter back off their readings; sites, slots, parameters, parameter groups, instruments and deployments the apply creates stay, and a reverted plan cannot be applied again.</p>
 
 		<!-- What share of the plan has been looked at, beside the button that applies it. Each
 		     number opens the review filtered to exactly the entries it counts. -->

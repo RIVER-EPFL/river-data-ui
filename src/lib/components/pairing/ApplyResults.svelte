@@ -27,9 +27,14 @@
 		['Instruments created', String(result.instruments_created)],
 		['Parameter groups created', String(result.groups_created ?? 0)],
 		['Parameters placed in a group', String(result.group_members_created ?? 0)],
+		['Standard curves assigned', String(result.curves_assigned ?? 0)],
 		['Streams paired', formatCount(result.streams_paired)],
+		['Streams skipped', formatCount(result.streams_skipped ?? 0)],
 		['Readings backfilled', formatCount(result.readings_backfilled)],
 	]);
+
+	// A skip is a stream the plan did not import, so it is read as a warning rather than a tally.
+	const skipped = $derived(result.streams_skipped ?? 0);
 </script>
 
 <div class="space-y-4 max-w-xl mx-auto">
@@ -40,7 +45,12 @@
 			{#each cells as [label, value] (label)}
 				<div>
 					<span class="text-brand-muted block text-xs">{label}</span>
-					<span class="text-lg font-semibold {label === 'Streams paired' ? 'text-severity-ok' : ''}">{value}</span>
+					<span
+						class="text-lg font-semibold {label === 'Streams paired'
+							? 'text-severity-ok'
+							: label === 'Streams skipped' && skipped > 0
+								? 'text-severity-warning'
+								: ''}">{value}</span>
 				</div>
 			{/each}
 		</div>
@@ -48,7 +58,7 @@
 
 	<div class="flex gap-3">
 		<Button variant="primary" onclick={ondone} class="px-4 py-2 font-semibold">Done</Button>
-		<ConfirmPopover message="Revert this plan? All pairings will be undone. Projects, sites, and parameters created by the plan are kept." confirmLabel="Revert" onconfirm={onrevert}>
+		<ConfirmPopover message="Revert this plan? The streams are unpaired and their readings lose the site and parameter. Everything counted above except the pairings and the backfill is kept: projects, sites, parameters, site-parameters, instruments and parameter groups. A reverted plan cannot be applied again." confirmLabel="Revert" onconfirm={onrevert}>
 			<button disabled={reverting} class="px-4 py-2 border border-severity-alarm text-severity-alarm rounded-md text-sm cursor-pointer bg-transparent disabled:opacity-50">
 				{reverting ? 'Reverting…' : 'Revert Plan'}
 			</button>

@@ -293,6 +293,7 @@ export function holdKindLabel(kind: string): string {
 		case 'curve_claim_stripped': return 'curve stripped';
 		case 'unverified_entry': return 'entered, unverified';
 		case 'unverified_visit': return 'field day pending';
+		case 'source_identity_changed': return 'instrument changed';
 		default: return kind.replace(/_/g, ' ');
 	}
 }

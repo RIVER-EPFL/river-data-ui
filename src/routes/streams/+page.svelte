@@ -10,7 +10,7 @@
 		applyPairingPlan, revertPairingPlan, getUnpairedSummary, getPlanSiteMetadata,
 		replicateSpec, getPendingAuditSummary, getReconciliationCandidates, getStreamPreview, declareSdEstimator,
 		getPlanInstruments, listPairingPlans, supersedePairingPlan, getPairingPlan, bulkUpdatePairingPlan,
-		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type PlanObjectUpdate, type PlanProposalUpdate, type SdEstimator, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
+		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type SdEstimator, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
 		type PlanReplicateSummary, type StreamReceipt, type PlanWarning, type PlanInstrumentRef,
 		type PlanInstruments, type PlanInstrumentGroup, type PlanDeviceGroup, type PlanCurveAssignment,
 		type PairingPlanListing,
@@ -39,6 +39,9 @@
 	import { formatRelativeTime, holdKindBreakdown } from '$lib/utils';
 	import { createUrlTab } from '$lib/urlTab.svelte';
 	import { createDraftQueue } from '$lib/pairing/draftQueue';
+	import { splitPlanUpdates, type PlanUpdate } from '$lib/pairing/planUpdates';
+	import { NO_PLAN_RUNS, runsAfterJob, type PlanRuns } from '$lib/pairing/planRuns';
+	import { eventBus } from '$lib/stores/events.svelte';
 	import { entryStatus, estimatorScopeLabel, matchesFilter, reviewState, reviewStateLabel, statusLabel, type EntryFilter } from '$lib/pairing/entryStatus';
 	import {
 		acceptHint,
@@ -213,11 +216,12 @@
 	let applyResult = $state<PairingPlanApplyResult | null>(null);
 	let planLoading = $state(false);
 	let applying = $state(false);
-	let applyJobId = $state('');
-	// The plan this session started applying, so its row says so while the job runs.
-	let applyingPlanId = $state('');
-	// The same for a revert, which is handed back the same way an apply is (Q88).
-	let revertingPlanId = $state('');
+	// The apply and revert this tab started, so their plan's row says so while the job runs and
+	// stops saying so when it finishes.
+	let planRuns = $state<PlanRuns>({ ...NO_PLAN_RUNS });
+	const applyJobId = $derived(planRuns.applyJobId);
+	const applyingPlanId = $derived(planRuns.applyingPlanId);
+	const revertingPlanId = $derived(planRuns.revertingPlanId);
 	// Plans already applied, per source system: the way back to the counts of a run nobody watched.
 	let appliedPlans = $state<PairingPlanListing[]>([]);
 	let reverting = $state(false);
@@ -707,14 +711,24 @@
 	// An instrument that exists takes the curve now; one this plan will create takes it when the
 	// plan is applied, so the choice is carried on the plan until then.
 	const PLAN_INSTRUMENT_PREFIX = 'plan:';
+	// The move goes through the draft queue like every other decision on this plan, so a second
+	// reviewer's edit reloads the version and the move is reapplied rather than dropped. The queue
+	// reports its own failures, so a rejected flush is not toasted twice here.
+	async function moveCurveOnPlan(curveId: string, instrumentSourceKey: string | null) {
+		draftQueue.enqueue([{ curve_id: curveId, instrument_source_key: instrumentSourceKey }], {
+			immediate: true,
+		});
+		await draftQueue.flush().catch(() => {});
+	}
+
 	async function rehomeCurve(curve: PlanCurveAssignment, target: string) {
 		if (!target || !plan) return;
 		try {
 			if (target.startsWith(PLAN_INSTRUMENT_PREFIX)) {
-				plan = await updatePairingPlan(plan.id, plan.version, [], [{ curve_id: curve.id, instrument_source_key: target.slice(PLAN_INSTRUMENT_PREFIX.length) }]);
+				await moveCurveOnPlan(curve.id, target.slice(PLAN_INSTRUMENT_PREFIX.length));
 			} else {
 				if (curve.pending_source_key) {
-					plan = await updatePairingPlan(plan.id, plan.version, [], [{ curve_id: curve.id, instrument_source_key: null }]);
+					await moveCurveOnPlan(curve.id, null);
 				}
 				if (target !== curve.sensor_id) {
 					await api.standardCurves.update(curve.id, { sensor_id: target });
@@ -1062,24 +1076,20 @@
 	let editGeneration = 0;
 	let unsavedCount = $state(0);
 
-	const draftQueue = createDraftQueue<PlanEntryUpdate | PlanObjectUpdate | PlanProposalUpdate>({
+	const draftQueue = createDraftQueue<PlanUpdate>({
 		send: async (batch) => {
 			if (!plan) return;
 			const generation = editGeneration;
 			saving = true;
 			try {
-				const entryUpdates = batch.filter((u): u is PlanEntryUpdate => 'stream_id' in u);
-				const objectUpdates = batch.filter((u): u is PlanObjectUpdate => 'key' in u);
-				const proposalUpdates = batch.filter(
-					(u): u is PlanProposalUpdate => 'source_key' in u,
-				);
+				const split = splitPlanUpdates(batch);
 				const updated = await updatePairingPlan(
 					plan.id,
 					plan.version,
-					entryUpdates,
-					[],
-					objectUpdates,
-					proposalUpdates,
+					split.entries,
+					split.curves,
+					split.objects,
+					split.proposals,
 				);
 				if (editGeneration === generation) {
 					plan = updated;
@@ -1657,11 +1667,12 @@
 		const planId = plan.id;
 		try {
 			const { job_id } = await applyPairingPlan(plan.id, plan.version);
-			applyJobId = job_id;
-			applyingPlanId = planId;
+			planRuns = { ...planRuns, applyJobId: job_id, applyingPlanId: planId };
 			toastStore.success('Applying the plan. Its progress is in the operations panel; the counts appear here when it finishes.');
 			plan = null; planEntries = []; applyResult = null;
-			setMode('list'); load();
+			// Back to the source list, where the row for the plan just applied is the one in front
+			// of the operator, rather than to the streams list which names no running job.
+			await enterSourceSelect();
 		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Failed to apply plan'); }
 		finally { applying = false; }
 	}
@@ -1693,11 +1704,11 @@
 		reverting = true;
 		const planId = plan.id;
 		try {
-			await revertPairingPlan(planId);
-			revertingPlanId = planId;
+			const { job_id } = await revertPairingPlan(planId);
+			planRuns = { ...planRuns, revertJobId: job_id, revertingPlanId: planId };
 			toastStore.success('Reverting the plan. Its progress is in the operations panel; what it undid is recorded there.');
 			plan = null; planEntries = []; applyResult = null;
-			setMode('list'); load();
+			await enterSourceSelect();
 		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Failed to revert plan'); }
 		finally { reverting = false; }
 	}
@@ -1711,6 +1722,20 @@
 		plan = null; planEntries = []; applyResult = null;
 		setMode('list'); load();
 	}
+
+	// A plan's row reads "Applying…"/"Reverting…" off a job this tab started, so the label is
+	// cleared by the job's own completion rather than left standing for the session.
+	let unsubJobCompleted: (() => void) | null = null;
+	onMount(() => {
+		unsubJobCompleted = eventBus.subscribe('job_completed', (event) => {
+			const finished = (event as { job_id: string }).job_id;
+			const after = runsAfterJob(planRuns, finished);
+			if (after === planRuns) return;
+			planRuns = after;
+			if (mode === 'source-select') void loadSourceSelect();
+		});
+	});
+	onDestroy(() => unsubJobCompleted?.());
 
 	onMount(async () => {
 		// Build the source-system facet first so the initial list can default to

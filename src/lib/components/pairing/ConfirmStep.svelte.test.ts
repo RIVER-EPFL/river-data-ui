@@ -184,3 +184,36 @@ describe('ConfirmStep creations', () => {
 		expect(screen.queryByText('Instruments')).toBeNull();
 	});
 });
+
+// Scenario: the CNET portal carries an elevation per station and no coordinates, so every site the
+// apply creates from it lands with a null latitude and longitude.
+//
+// Expected behaviour: the confirm step says so before the apply, because a site is created once
+// and the only route afterwards is the per-site edit form, one site at a time.
+describe('ConfirmStep sites with no position', () => {
+	const placed = {
+		name: 'Martigny',
+		latitude: 46.1,
+		longitude: 7.07,
+		altitudeM: 471,
+		anchorStreamId: 'stream-a',
+		streamCount: 2,
+	};
+	const unplaced = { ...placed, name: 'Saxon', latitude: null, longitude: null, anchorStreamId: 'stream-b' };
+
+	it('counts the sites that would be created with no coordinates', () => {
+		mount(0, {
+			created: { ...noCreations, sites: [placed, unplaced] },
+			summary: { ...summary, newSites: 2 },
+		});
+		expect(screen.getByText(/1 of the 2 sites .* no coordinates/i)).not.toBeNull();
+	});
+
+	it('says nothing when every site the apply creates has a position', () => {
+		mount(0, {
+			created: { ...noCreations, sites: [placed] },
+			summary: { ...summary, newSites: 1 },
+		});
+		expect(screen.queryByText(/no coordinates/i)).toBeNull();
+	});
+});
