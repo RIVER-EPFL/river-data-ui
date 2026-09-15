@@ -55,7 +55,8 @@
 		return job.manual_run.offer === 'declared' ? job.manual_run.params : [];
 	}
 
-	/** A list-valued input has no control here yet, so it is not asked for and the run means all. */
+	/** A list-valued input has no control here yet, so nothing is entered for it: left out it
+	 *  means all, required it means the run cannot be started from this form. */
 	function offered(spec: ParamSpec): boolean {
 		return spec.kind !== 'uuid_list' && spec.kind !== 'pair_list';
 	}
@@ -72,7 +73,19 @@
 		const out: Record<string, string[]> = {};
 		for (const job of jobs) {
 			out[job.job_name] = specs(job)
-				.filter((s) => s.required && offered(s) && !held(job.job_name, s.name))
+				.filter((s) => s.required && !held(job.job_name, s.name))
+				.map((s) => s.label);
+		}
+		return out;
+	});
+
+	/** The required inputs this form has no control for, so the run belongs to the page that owns
+	 *  it: an instrument list to the Instruments page, a slot list to Streams. */
+	const unenterable = $derived.by(() => {
+		const out: Record<string, string[]> = {};
+		for (const job of jobs) {
+			out[job.job_name] = specs(job)
+				.filter((s) => s.required && !offered(s))
 				.map((s) => s.label);
 		}
 		return out;
@@ -156,7 +169,9 @@
 
 					{#if (missing[job.job_name]?.length ?? 0) > 0 && expanded !== job.job_name}
 						<p class="mt-1 text-xs text-brand-muted">
-							Needs {missing[job.job_name].join(', ')}
+							Needs {missing[job.job_name].join(', ')}{(unenterable[job.job_name]?.length ?? 0) > 0
+								? ', a list entered on the page the run belongs to'
+								: ''}
 						</p>
 					{/if}
 

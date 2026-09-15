@@ -232,6 +232,16 @@ export function countLabel(key: string): string {
 }
 
 /** The System page's Jobs tab, opened on one job: where a notification about a job leads. */
+// The statuses a job carries before it reaches a terminal one, matching the set the API
+// treats as in flight in `reprocessing_jobs/service.rs`. A fresh enqueue is `queued` and a
+// retryable failure goes back to it, so a panel that only knows `running` shows nothing for
+// the whole backoff.
+const ACTIVE_JOB_STATUSES = new Set(['queued', 'pending', 'running', 'retrying']);
+
+export function isJobActive(status: string): boolean {
+	return ACTIVE_JOB_STATUSES.has(status);
+}
+
 export function jobDetailPath(jobId: string): string {
 	return `/system?tab=jobs&job=${encodeURIComponent(jobId)}`;
 }

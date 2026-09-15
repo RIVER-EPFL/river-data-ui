@@ -7,6 +7,7 @@
 	import {
 		formatRelativeTime,
 		formatDateTime,
+		isJobActive,
 		triggerLabel,
 		statusBadgeClass,
 		countLabel,
@@ -23,7 +24,7 @@
 
 	let sensorMap = $state<Map<string, string>>(new Map());
 	let derivedMap = $state<Map<string, string>>(new Map());
-	let statusFilter = $state<'all' | 'pending' | 'running' | 'completed' | 'failed'>('all');
+	let statusFilter = $state<'all' | 'queued' | 'running' | 'completed' | 'failed'>('all');
 	let categoryFilter = $state<(typeof CATEGORIES)[number]>('all');
 
 	let logs = $state<JobLogLine[]>([]);
@@ -86,9 +87,6 @@
 	}
 
 	let cancelling = $state(false);
-	function isRunning(job: ReprocessingJob): boolean {
-		return job.status === 'pending' || job.status === 'running' || job.status === 'retrying';
-	}
 	async function handleCancel(job: ReprocessingJob, ctx: { close: () => void; reload: () => Promise<void> }) {
 		cancelling = true;
 		try {
@@ -161,7 +159,7 @@
 	perPage={PER_PAGE}
 	colCount={8}
 	emptyText="No jobs"
-	pollWhile={(jobs) => jobs.some((j) => j.status === 'pending' || j.status === 'running')}
+	pollWhile={(jobs) => jobs.some((j) => isJobActive(j.status))}
 	onOpenDetail={loadLogs}
 	openOnLoad={openJobId ? (job) => job.id === openJobId : undefined}
 	detailTitle="Job Detail"
@@ -169,7 +167,7 @@
 >
 	{#snippet filterBar({ reload })}
 		<div class="flex gap-1">
-			{#each ['all', 'pending', 'running', 'completed', 'failed'] as s}
+			{#each ['all', 'queued', 'running', 'completed', 'failed'] as s}
 				<button
 					onclick={() => { statusFilter = s as typeof statusFilter; reload(); }}
 					class="px-3 py-1 text-sm rounded-md cursor-pointer border-none {statusFilter === s ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted'}"
@@ -357,7 +355,7 @@
 
 	{#snippet detailActions(job, ctx)}
 		{@const target = jobTarget(job)}
-		{#if isRunning(job) && job.cancellable}
+		{#if isJobActive(job.status) && job.cancellable}
 			<Button variant="danger" disabled={cancelling} onclick={() => handleCancel(job, ctx)}>
 				{cancelling ? 'Cancelling…' : 'Cancel'}
 			</Button>

@@ -11,6 +11,7 @@
 		triggerLabel,
 		holdKindBreakdown,
 		headlineFor,
+		isJobActive,
 		jobDetailPath,
 	} from '$lib/utils';
 
@@ -26,9 +27,9 @@
 	let consecutiveErrors = $state(0);
 	let initialLoad = true;
 
-	const activeJobs = $derived(jobs.filter((j) => j.status === 'pending' || j.status === 'running'));
+	const activeJobs = $derived(jobs.filter((j) => isJobActive(j.status)));
 	const recentJobs = $derived(
-		jobs.filter((j) => recentlyFinished.has(j.id) && j.status !== 'pending' && j.status !== 'running'),
+		jobs.filter((j) => recentlyFinished.has(j.id) && !isJobActive(j.status)),
 	);
 	const recentJobIds = $derived(new Set(recentJobs.map((j) => j.id)));
 	const completedJobs = $derived(

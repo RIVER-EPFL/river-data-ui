@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDate, formatDateTime, formatInstant, jobDetailPath, triggerLabel } from './utils';
+import { formatDate, formatDateTime, formatInstant, isJobActive, jobDetailPath, triggerLabel } from './utils';
 
 const MS = Date.UTC(2026, 0, 15, 10, 30);
 
@@ -23,5 +23,23 @@ describe('job notifications', () => {
 
 	it('links a job to the tab that opens it, by id', () => {
 		expect(jobDetailPath('3f1a')).toBe('/system?tab=jobs&job=3f1a');
+	});
+});
+
+describe('isJobActive', () => {
+	it('counts every status the API treats as in flight', () => {
+		for (const status of ['queued', 'pending', 'running', 'retrying']) {
+			expect(isJobActive(status)).toBe(true);
+		}
+	});
+
+	it('does not count a terminal status', () => {
+		for (const status of ['completed', 'failed', 'cancelled']) {
+			expect(isJobActive(status)).toBe(false);
+		}
+	});
+
+	it('does not count a status it has never heard of', () => {
+		expect(isJobActive('paused')).toBe(false);
 	});
 });

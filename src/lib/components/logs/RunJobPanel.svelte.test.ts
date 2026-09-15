@@ -64,8 +64,8 @@ describe("RunJobPanel", () => {
   });
 
   it("counts only the inputs it has a control for", async () => {
-    // A list-valued input has no control here, and every kind that declares one declares it
-    // optional, so the run is still offered.
+    // A list-valued input has no control here, so it is left out of the form; left out it means
+    // all, and the run is still offered.
     listRunnableJobs.mockResolvedValue([
       declared("measurement_retag", [
         spec("target", "text", true, "Measurement type"),
@@ -77,6 +77,28 @@ describe("RunJobPanel", () => {
     render(RunJobPanel, { canRun: true });
 
     await waitFor(() => expect(screen.getByText("Inputs (1)")).toBeTruthy());
+  });
+
+  it("does not offer a run whose required input is a list it cannot enter", async () => {
+    listRunnableJobs.mockResolvedValue([
+      declared("backfill_calibrations", [
+        spec("sensors", "uuid_list", true, "Instruments"),
+      ]),
+    ]);
+
+    render(RunJobPanel, { canRun: true });
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "Needs Instruments, a list entered on the page the run belongs to",
+        ),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByRole("button", { name: "Run" })).toHaveProperty(
+      "disabled",
+      true,
+    );
   });
 
   it("offers nothing to a person who cannot run jobs", async () => {
