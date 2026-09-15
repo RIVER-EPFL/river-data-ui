@@ -43,6 +43,9 @@
 
 	// Show only mechanically-created entries awaiting a manager's confirmation.
 	let reviewOnly = $state(false);
+	// A row a calculation minted and gave up is still a parameter; hiding them is the way to read
+	// the catalogue as what is being measured.
+	let hideUnpublished = $state(false);
 
 	let list = $state<ReturnType<typeof CrudList> | null>(null);
 
@@ -125,6 +128,7 @@
 			if (excludedCats.has(p.category)) return false;
 			if (excludedTypes.has(isDerived(p) ? 'derived' : 'direct')) return false;
 			if (reviewOnly && !p.needs_review) return false;
+			if (hideUnpublished && p.unpublished_by) return false;
 			if (q) {
 				const hay = `${p.name ?? ''} ${p.code ?? ''} ${p.description ?? ''}`.toLowerCase();
 				if (!hay.includes(q)) return false;
@@ -134,6 +138,7 @@
 	});
 
 	const reviewCount = $derived(parameters.filter((p) => p.needs_review).length);
+	const unpublishedCount = $derived(parameters.filter((p) => p.unpublished_by).length);
 
 	// The confirmed row is replaced in place. With the filter on it drops out of the list, which is
 	// how a run through the unreviewed entries advances.
@@ -203,6 +208,12 @@
 			<input type="checkbox" bind:checked={reviewOnly} onchange={reload} />
 			Needs review only{#if reviewCount > 0}&nbsp;({reviewCount}){/if}
 		</label>
+		{#if unpublishedCount > 0}
+			<label class="flex items-center gap-1 text-xs text-brand-muted cursor-pointer" title="Entries a calculation minted and no longer publishes: the formula that made them is now a step">
+				<input type="checkbox" bind:checked={hideUnpublished} onchange={reload} />
+				Hide no longer published&nbsp;({unpublishedCount})
+			</label>
+		{/if}
 	{/snippet}
 
 	{#snippet cell({ column, row, text }: { column: Column; row: Parameter; text: string })}
@@ -218,6 +229,14 @@
 				</span>
 				<span class="ml-1.5 align-middle inline-block">
 					<ConfirmParameterButton parameter={row} onconfirmed={applyConfirmed} />
+				</span>
+			{/if}
+			{#if row.unpublished_by}
+				<span class="ml-1.5 align-middle">
+					<Badge
+						variant="muted"
+						title="Minted by {row.unpublished_by}, which no longer publishes it: its formula is a step of the calculation. Nothing computes this parameter."
+					>no longer published</Badge>
 				</span>
 			{/if}
 			{#if defId}

@@ -165,6 +165,9 @@ export interface Parameter {
 	aliases: string[] | null;
 	/** Catalog entry created mechanically (analyte seed); a manager confirms or merges it. */
 	needs_review: boolean;
+	/** The calculation that minted this row and no longer publishes it, where one did: a formula
+	 *  ticked as a step still names this code. Read from the formulas, never stored. */
+	unpublished_by?: string | null;
 	created_at: string;
 	updated_at: string;
 }

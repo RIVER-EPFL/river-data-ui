@@ -87,6 +87,12 @@
 					<Badge variant="warning">Needs review</Badge>
 					<ConfirmParameterButton parameter={param} onconfirmed={(p) => (param = p)} />
 				{/if}
+				{#if param.unpublished_by}
+					<Badge
+						variant="muted"
+						title="Its formula is a step of the calculation, so nothing computes this parameter."
+					>Minted by {param.unpublished_by}, no longer published</Badge>
+				{/if}
 				<a href="{base}/parameters/{paramId}/edit" class="px-3 py-1 text-sm border border-brand-divider bg-brand-surface rounded-md no-underline text-brand-text hover:bg-brand-bg">Edit</a>
 			</div>
 		</div>
