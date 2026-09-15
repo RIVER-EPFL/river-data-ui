@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { EventCell, ToolDescriptor, ToolParam } from '$api/service';
-import { hasVisitPrefill, prefillFromVisit } from './visitPrefill';
+import { hasVisitPrefill, lastRunOfCalculation, openedFrom, prefillFromVisit } from './visitPrefill';
 
 function param(over: Partial<ToolParam>): ToolParam {
 	return {
@@ -131,5 +131,50 @@ describe('opening a tool on a visit that already holds values', () => {
 			}),
 		];
 		expect(prefillFromVisit(both, docCells).doc).toEqual([120]);
+	});
+});
+
+describe('the run a row header reopens a calculation on', () => {
+	function ran(tool: string, blob: Record<string, unknown>): EventCell {
+		return {
+			...cell(),
+			written_by: tool,
+			record: { computation: { provenance: { tool, ...blob } } },
+		} as unknown as EventCell;
+	}
+
+	it('names the visit\u2019s most recent run of that calculation', () => {
+		const cells = [
+			ran('doc', { run_id: 'run-old', saved_at: '2026-03-01T08:00:00Z' }),
+			ran('doc', { run_id: 'run-new', saved_at: '2026-03-01T11:00:00Z' }),
+		];
+		expect(lastRunOfCalculation('doc', cells)).toBe('run-new');
+	});
+
+	it('ignores another calculation\u2019s run at the same visit', () => {
+		const cells = [ran('chla', { run_id: 'run-chla', saved_at: '2026-03-01T11:00:00Z' })];
+		expect(lastRunOfCalculation('doc', cells)).toBeNull();
+	});
+
+	it('is null where the visit holds no run of it, so the form opens as a first run', () => {
+		expect(lastRunOfCalculation('doc', [cell()])).toBeNull();
+		expect(lastRunOfCalculation('doc', [ran('doc', {})])).toBeNull();
+	});
+});
+
+describe('which arm filled the tool form', () => {
+	const from = (query: string) => openedFrom(new URLSearchParams(query));
+
+	it('is the visit\u2019s last run where the row header replayed one', () => {
+		expect(from('tool=doc&reload=run-1&replay=visit')).toBe('visit-last-run');
+	});
+
+	it('is fresh for the cell marker, which names a run of its own choosing', () => {
+		expect(from('tool=doc&reload=run-1')).toBe('fresh');
+	});
+
+	it('is fresh for a first run at a visit that has never run it', () => {
+		expect(from('tool=doc')).toBe('fresh');
+		expect(from('tool=doc&replay=visit')).toBe('fresh');
 	});
 });

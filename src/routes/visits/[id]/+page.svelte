@@ -54,6 +54,7 @@
 		type Selection,
 	} from '$lib/visits/keys';
 	import { empty, push, undo, type History } from '$lib/visits/history';
+	import { lastRunOfCalculation } from '$lib/tools/visitPrefill';
 	import { api, type ParameterGroup, type Sensor } from '$api/crud';
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { stagedVisit } from '$lib/stores/visit.svelte';
@@ -299,12 +300,20 @@
 		}
 	}
 
-	/** Open the calculation that writes a row, at this visit, with what it reads already loaded. */
+	/**
+	 * Open the calculation that writes a row, at this visit.
+	 *
+	 * A visit that has already run it reopens on that run, curve slots included, so a re-save moves
+	 * the output only where the person changed something (Q192). One that has not opens on the
+	 * visit's own values and the calculation's defaults, as a first run (Q46).
+	 */
 	async function openCalculation(tool: string) {
 		const visit = detail;
 		if (!visit) return;
 		stagedVisit.set(stagedVisitFrom(visit, siteName));
-		await goto(`${base}/tools?tool=${encodeURIComponent(tool)}`);
+		const run = lastRunOfCalculation(tool, visit.cells);
+		const reload = run ? `&reload=${run}&replay=visit` : '';
+		await goto(`${base}/tools?tool=${encodeURIComponent(tool)}${reload}`);
 	}
 
 	function setRowReplicates(rowIndex: number, count: number) {

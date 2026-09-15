@@ -67,3 +67,36 @@ export function prefillFromVisit(
 export function hasVisitPrefill(tool: ToolDescriptor, cells: EventCell[]): boolean {
 	return Object.keys(prefillFromVisit(tool, cells)).length > 0;
 }
+
+/**
+ * The run of `tool` this visit last saved, or null where it has never run here (Q192).
+ *
+ * The row header replays that run rather than opening on defaults, so a curve slot a scalar
+ * formula declares comes back with the value the run chose. The id is read from the blob the
+ * server stored on the measurement, which the visit detail serves verbatim.
+ */
+export function lastRunOfCalculation(tool: string, cells: EventCell[]): string | null {
+	let latest: { id: string; at: string } | null = null;
+	for (const cell of cells) {
+		const blob = cell.record?.computation?.provenance as Record<string, unknown> | undefined;
+		if (!blob || blob.tool !== tool) continue;
+		const id = blob.run_id;
+		if (typeof id !== 'string' || id.length === 0) continue;
+		const at = typeof blob.saved_at === 'string' ? blob.saved_at : '';
+		if (!latest || at > latest.at) latest = { id, at };
+	}
+	return latest?.id ?? null;
+}
+
+/** Which arm filled a tool form, read from the tools page URL (Q192). */
+export type OpenedFrom = 'visit-last-run' | 'fresh';
+
+/**
+ * The row header replays the visit's last run, and the form says so, so a replayed curve and a
+ * default are distinguishable to the person looking at the picker. The cell marker names the run
+ * it reopened instead, and a first run says nothing.
+ */
+export function openedFrom(params: URLSearchParams): OpenedFrom {
+	const replaying = params.get('reload') !== null && params.get('replay') === 'visit';
+	return replaying ? 'visit-last-run' : 'fresh';
+}

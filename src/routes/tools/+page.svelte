@@ -17,7 +17,7 @@
 	import SaveResultsPanel, { type UsedCurve } from '$components/tools/SaveResultsPanel.svelte';
 	import StagedVisitBar from '$components/tools/StagedVisitBar.svelte';
 	import { stagedVisit } from '$lib/stores/visit.svelte';
-	import { prefillFromVisit } from '$lib/tools/visitPrefill';
+	import { openedFrom, prefillFromVisit, type OpenedFrom } from '$lib/tools/visitPrefill';
 	import { runTables } from '$lib/tools/runTable';
 	import ToolForm from '$components/tools/ToolForm.svelte';
 	import RunResultsTable from '$components/tools/RunResultsTable.svelte';
@@ -36,6 +36,7 @@
 	const canAuthor = $derived(me.can('admin'));
 
 	let activeTool = $state<ToolDescriptor | null>(null);
+	let opened = $state<OpenedFrom>('fresh');
 	let form = $state<FormState>({
 		values: {},
 		bools: {},
@@ -79,7 +80,11 @@
 	// A tool opens on what the staged visit already holds (M4): the stored replicates in the
 	// source's own column order with their curve preselected, and the scalars the tool reads from
 	// the visit. An explicit reload wins over it, because that names a run rather than a visit.
-	function selectTool(tool: ToolDescriptor, prefill?: Record<string, unknown>) {
+	function selectTool(
+		tool: ToolDescriptor,
+		prefill?: Record<string, unknown>,
+		from: OpenedFrom = 'fresh',
+	) {
 		activeTool = tool;
 		result = null;
 		resultInputs = null;
@@ -88,6 +93,7 @@
 		const opening = { ...prefillFromVisit(tool, cells), ...(prefill ?? {}) };
 		form = initFormState(tool, opening);
 		curveSelections = curveSelectionsFrom(tool, opening);
+		opened = from;
 	}
 
 	// Every curve consumed by the current inputs, for the provenance blob and the save-step note.
@@ -175,6 +181,7 @@
 		const tool = loaded.find((t) => t.name === wanted);
 		if (!tool) return;
 		let inputs: Record<string, unknown> | undefined;
+		const from = openedFrom(page.url.searchParams);
 		const runId = page.url.searchParams.get('reload');
 		if (runId) {
 			// The edit dialog stashes the run it read, so reopening does not fetch it twice.
@@ -190,7 +197,7 @@
 			sessionStorage.removeItem('tool-reload');
 			if (!inputs) {
 				reloadToolRun(runId)
-					.then((run) => selectTool(tool, run.body))
+					.then((run) => selectTool(tool, run.body, from))
 					.catch((e: unknown) => {
 						loadError = e instanceof Error ? e.message : String(e);
 					});
@@ -211,7 +218,7 @@
 			}
 			sessionStorage.removeItem('tool-prefill');
 		}
-		selectTool(tool, inputs);
+		selectTool(tool, inputs, from);
 	}
 
 </script>
@@ -297,6 +304,13 @@
 									</div>
 								{/if}
 							</div>
+						{/if}
+						{#if opened === 'visit-last-run'}
+							<p class="text-xs text-brand-muted">
+								{activeTool.curves.length > 0
+									? 'Opened with the curve this visit’s last run used.'
+									: 'Opened with what this visit’s last run of this calculation used.'}
+							</p>
 						{/if}
 						<ToolForm spec={activeTool} bind:form bind:curveSelections siteId={contextSiteId || null} />
 
