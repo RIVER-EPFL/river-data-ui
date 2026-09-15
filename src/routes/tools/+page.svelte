@@ -357,6 +357,8 @@
 	results={result?.results ?? null}
 	outputs={activeTool?.outputs ?? []}
 	toolParams={activeTool?.params ?? []}
+	eventInputs={activeTool?.event_inputs ?? []}
+	visitCells={stagedVisit.detail?.cells ?? []}
 	toolVersion={result?.tool_version ?? null}
 	calcInputs={resultInputs}
 	curvesUsed={resultCurves}

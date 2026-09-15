@@ -26,6 +26,8 @@
 		type ToolCurveSnapshot,
 		type ToolOutput,
 		type ToolParam,
+		type ToolEventInput,
+		type EventCell,
 		type SdEstimator,
 		type ToolVersionRef,
 		getLastUsedCurve,
@@ -37,6 +39,7 @@
 	import { SEASONAL_CLASS_LABELS, seasonalFindingLabel } from '$lib/seasonal';
 	import { instrumentFilter, kindLabel, measuringInstruments, retiredSuffix } from '$lib/instruments/kind';
 	import { instrumentIsChoosable, readingInstrument } from '$lib/tools/rowInstrument';
+	import { correctionNote, correctionRows, type CorrectionRow } from '$lib/tools/correctionRows';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import LastUsedCurveNote from './LastUsedCurveNote.svelte';
@@ -61,6 +64,8 @@
 		results = null,
 		outputs = [],
 		toolParams = [],
+		eventInputs = [],
+		visitCells = [],
 		toolVersion = null,
 		calcInputs = null,
 		curvesUsed = [],
@@ -82,6 +87,10 @@
 		outputs?: ToolOutput[];
 		/** The tool's manifest params; a `replicates` param's entered values are saved as readings. */
 		toolParams?: ToolParam[];
+		/** The manifest's bindings of a numeric param to a parameter read at the visit. */
+		eventInputs?: ToolEventInput[];
+		/** What the staged visit holds, so a typed-over bound input is offered as a correction. */
+		visitCells?: EventCell[];
 		toolVersion?: ToolVersionRef | null;
 		/** The exact calculate request body these results came from. */
 		calcInputs?: Record<string, unknown> | null;
@@ -128,6 +137,8 @@
 		input?: string;
 		/** The curve the run corrected those replicates with, recorded on each stored reading. */
 		curveId?: string | null;
+		/** Set on a correction of a bound numeric input: what the visit holds and what replaces it. */
+		corrects?: CorrectionRow;
 	}
 
 	const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -338,7 +349,32 @@
 		return out;
 	});
 
-	const rows = $derived([...inputRows, ...outputRows]);
+	// A numeric field the manifest reads from the visit is a measurement, so typing over it corrects
+	// that measurement rather than staying inside the run (Q182). An unbound numeric param is a
+	// run-only setting and never reaches here.
+	const correctionInputRows = $derived.by((): ResultRow[] =>
+		correctionRows(
+			{ params: toolParams, event_inputs: eventInputs },
+			calcInputs ?? null,
+			visitCells,
+		).map((c) => ({
+			id: `correct:${c.param}`,
+			displayKey: c.param,
+			label: c.label,
+			units: c.units,
+			values: [{ key: c.param, value: c.value, index: 0 }],
+			replicateGroup: false,
+			displayOnly: false,
+			resolvedParameterId: c.parameterId,
+			suggestedCode: c.parameterCode,
+			defaultInclude: true,
+			input: c.param,
+			curveId: null,
+			corrects: c,
+		})),
+	);
+
+	const rows = $derived([...inputRows, ...correctionInputRows, ...outputRows]);
 	const saveableRows = $derived(rows.filter((r) => !r.displayOnly));
 
 	// Stored curves consumed by the calculation, noted into the sample notes by default.
@@ -530,9 +566,16 @@
 		return siteParams.find((sp) => sp.parameter_id === parameterId)?.instrument_sensor_id ?? '';
 	}
 
+	/// The curve recorded on the row's readings: the replicates' for an entered input, the
+	/// operator's pick for an output, and none for a correction of a field measurement.
+	function rowCurveId(row: { input?: string; corrects?: CorrectionRow }): string {
+		if (row.corrects) return '';
+		return row.input ? selectedCurveId : sentCurveId;
+	}
+
 	/// Whether the row's instrument is the operator's to choose, from the row's own curve.
-	function rowInstrumentIsChoosable(row: { input?: string }): boolean {
-		return instrumentIsChoosable(row.input ? selectedCurveId : sentCurveId, selectedSensorId);
+	function rowInstrumentIsChoosable(row: { input?: string; corrects?: CorrectionRow }): boolean {
+		return instrumentIsChoosable(rowCurveId(row), selectedSensorId);
 	}
 
 	// Matching ignores case, spaces, underscores and hyphens so a result key still finds the catalog
@@ -543,9 +586,9 @@
 	// Each row maps to the parameter the server resolved for that output, matched against the
 	// parameters configured at the site. String matching is the fallback only: the seeded manifests
 	// declare a code rather than an id, and some of those codes still have no catalog row.
-	function applyDefaultMappings() {
+	function applyDefaultMappings(target: ResultRow[] = saveableRows) {
 		const next = { ...paramChoices };
-		for (const r of saveableRows) {
+		for (const r of target) {
 			const byId = r.resolvedParameterId
 				? siteParams.find((sp) => sp.parameter_id === r.resolvedParameterId)
 				: undefined;
@@ -594,6 +637,17 @@
 		const units = sp.display_units ?? param?.default_units ?? '';
 		return units ? `${name} (${units})` : name;
 	}
+
+	// A row can appear after the dialog opened: the staged visit's cells load asynchronously, and a
+	// correction row exists only once they have. It takes its own default rather than staying
+	// untickable, and the choices the operator already made are left alone.
+	$effect(() => {
+		const fresh = saveableRows.filter((r) => included[r.id] === undefined);
+		if (fresh.length === 0) return;
+		included = { ...included, ...Object.fromEntries(fresh.map((r) => [r.id, r.defaultInclude])) };
+		paramChoices = { ...paramChoices, ...Object.fromEntries(fresh.map((r) => [r.id, ''])) };
+		if (siteParams.length > 0) applyDefaultMappings(fresh);
+	});
 
 	const includedRows = $derived(saveableRows.filter((r) => included[r.id]));
 
@@ -684,8 +738,9 @@
 			r.values.map((v) => {
 				// The instrument travels with the curve it was fitted on, so it reaches only the
 				// rows that curve corrected; every other row takes what its slot declares measures
-				// it (M111), which the server resolves.
-				const curveId = r.input ? selectedCurveId : sentCurveId;
+				// it (M111), which the server resolves. A correction of a field measurement was
+				// read off an instrument, not fitted on the replicates' curve.
+				const curveId = rowCurveId(r);
 				// The curve's instrument still wins where a curve applies; otherwise the operator's
 				// declaration for this row travels, and a row they left alone sends none so the
 				// server resolves the slot's (M128).
@@ -929,6 +984,9 @@
 									{#if row.units}<span class="text-xs text-brand-muted">({row.units})</span>{/if}
 									{#if row.replicateGroup}
 										<span class="text-xs text-brand-muted">({row.values.length} replicates)</span>
+									{/if}
+									{#if row.corrects}
+										<p class="text-xs text-severity-warning-text">{correctionNote(row.corrects)}</p>
 									{/if}
 								</td>
 								<td class="px-1 py-1.5 align-top font-mono text-xs">
