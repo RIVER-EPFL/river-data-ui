@@ -33,7 +33,7 @@
 				{#if me.can(AUTHOR_CALCULATIONS)}
 					<a href="{base}/parameters/groups/new" class="px-3 py-1.5 bg-brand-primary text-white rounded-md no-underline text-sm font-semibold hover:bg-brand-primary-dark">New group</a>
 				{/if}
-			{:else}
+			{:else if me.can(AUTHOR_CALCULATIONS)}
 				<a href="{base}/constants/new" class="px-3 py-1.5 bg-brand-primary text-white rounded-md no-underline text-sm font-semibold hover:bg-brand-primary-dark">New constant</a>
 			{/if}
 		</div>

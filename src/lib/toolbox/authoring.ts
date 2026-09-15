@@ -2,12 +2,17 @@ import { ApiError } from '$api/client';
 import type { Capability } from '$auth/me.svelte';
 
 /// The capability the API enforces over calculation authoring: every write on `/tool_scripts`,
-/// `/derived_parameters`, `/parameter_groups` and their members is `Capability::Admin`. The UI
-/// gates on the same one, so the nav and the pages cannot offer what the API refuses.
+/// `/derived_parameters`, `/parameter_groups`, `/constants` and their members is
+/// `Capability::Admin`. The UI gates on the same one, so the nav and the pages cannot offer what
+/// the API refuses.
 export const AUTHOR_CALCULATIONS: Capability = 'admin';
 
 export const AUTHORING_REFUSED =
 	'Authoring calculations requires the Administrator role.';
+
+/// A constant feeds every formula that names it, so it is authored under the same role (Q173).
+export const CONSTANTS_REFUSED =
+	'Creating and editing constants requires the Administrator role.';
 
 export type CatalogLoad<T> =
 	| { status: 'loaded'; items: T[] }
