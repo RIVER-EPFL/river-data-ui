@@ -54,7 +54,6 @@ const grabSave = {
 	replaced: 2,
 	withdrawn: 0,
 	kept_curated: 1,
-	withdrawn: 0,
 	preview: [],
 	existing_groups: [],
 	calculations: [],

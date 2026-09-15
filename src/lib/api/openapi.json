@@ -5421,50 +5421,6 @@
         ],
         "type": "object"
       },
-      "DeclareIntermediatesRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "intermediates": {
-            "items": {
-              "$ref": "#/components/schemas/DeclaredIntermediate"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "intermediates"
-        ],
-        "type": "object"
-      },
-      "DeclareIntermediatesResponse": {
-        "properties": {
-          "declared": {
-            "items": {
-              "$ref": "#/components/schemas/DeclaredResult"
-            },
-            "type": "array"
-          },
-          "group_id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "members_created": {
-            "minimum": 0,
-            "type": "integer"
-          },
-          "parameters_created": {
-            "minimum": 0,
-            "type": "integer"
-          }
-        },
-        "required": [
-          "group_id",
-          "declared",
-          "parameters_created",
-          "members_created"
-        ],
-        "type": "object"
-      },
       "DeclareSdEstimatorRequest": {
         "additionalProperties": false,
         "properties": {
@@ -5512,65 +5468,6 @@
           "estimator",
           "previous",
           "samples_affected"
-        ],
-        "type": "object"
-      },
-      "DeclaredIntermediate": {
-        "additionalProperties": false,
-        "description": "One intermediate, as the group declares it.",
-        "properties": {
-          "code": {
-            "description": "The catalog code, which is the identity: a re-declaration finds the same row.",
-            "type": "string"
-          },
-          "description": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "name": {
-            "type": "string"
-          },
-          "replicates": {
-            "description": "The replicate spec of the family this intermediate is computed over, member-shaped, so a\nstage-1 output entered at several indexes carries its statistics like any other family."
-          },
-          "units": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "required": [
-          "code",
-          "name"
-        ],
-        "type": "object"
-      },
-      "DeclaredResult": {
-        "properties": {
-          "code": {
-            "type": "string"
-          },
-          "member_created": {
-            "description": "Whether this call added the membership, rather than finding it.",
-            "type": "boolean"
-          },
-          "parameter_created": {
-            "description": "Whether this call created the catalog parameter, rather than finding it.",
-            "type": "boolean"
-          },
-          "parameter_id": {
-            "format": "uuid",
-            "type": "string"
-          }
-        },
-        "required": [
-          "code",
-          "parameter_id",
-          "parameter_created",
-          "member_created"
         ],
         "type": "object"
       },
@@ -18781,7 +18678,9 @@
         },
         "required": [
           "job_name",
-          "manual_run"
+          "manual_run",
+          "interval_seconds",
+          "enabled"
         ],
         "type": "object"
       },
@@ -23346,7 +23245,13 @@
         },
         "required": [
           "station_abbr",
-          "name"
+          "name",
+          "data_since",
+          "height_masl",
+          "height_barometer_masl",
+          "latitude",
+          "longitude",
+          "distance_km"
         ],
         "type": "object"
       },
@@ -36645,55 +36550,6 @@
         "summary": "GET /api/parameter_groups/{id}/definition",
         "tags": [
           "parameter_groups"
-        ]
-      }
-    },
-    "/api/parameter_groups/{id}/intermediates": {
-      "post": {
-        "operationId": "declare_intermediates",
-        "parameters": [
-          {
-            "description": "Parameter group id",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DeclareIntermediatesRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeclareIntermediatesResponse"
-                }
-              }
-            },
-            "description": ""
-          },
-          "400": {
-            "description": "A code the catalog holds under another group"
-          },
-          "404": {
-            "description": "Unknown group"
-          }
-        },
-        "summary": "`POST /parameter_groups/{id}/intermediates`: declare the intermediates a group's calculation\ncomputes, minting the catalog parameters it names and adding them to the group.",
-        "tags": [
-          "parameters"
         ]
       }
     },

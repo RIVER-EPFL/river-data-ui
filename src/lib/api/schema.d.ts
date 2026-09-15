@@ -3149,26 +3149,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/parameter_groups/{id}/intermediates": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * `POST /parameter_groups/{id}/intermediates`: declare the intermediates a group's calculation
-         *     computes, minting the catalog parameters it names and adding them to the group.
-         */
-        post: operations["declare_intermediates"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/parameters": {
         parameters: {
             query?: never;
@@ -9837,16 +9817,6 @@ export interface components {
             /** Format: date-time */
             time: string;
         };
-        DeclareIntermediatesRequest: {
-            intermediates: components["schemas"]["DeclaredIntermediate"][];
-        };
-        DeclareIntermediatesResponse: {
-            declared: components["schemas"]["DeclaredResult"][];
-            /** Format: uuid */
-            group_id: string;
-            members_created: number;
-            parameters_created: number;
-        };
         DeclareSdEstimatorRequest: {
             /**
              * @description 'sample' (divisor n-1), 'population' (divisor n), or null to clear the declaration.
@@ -9870,28 +9840,6 @@ export interface components {
             samples_affected: number;
             /** Format: uuid */
             site_parameter_id: string;
-        };
-        /** @description One intermediate, as the group declares it. */
-        DeclaredIntermediate: {
-            /** @description The catalog code, which is the identity: a re-declaration finds the same row. */
-            code: string;
-            description?: string | null;
-            name: string;
-            /**
-             * @description The replicate spec of the family this intermediate is computed over, member-shaped, so a
-             *     stage-1 output entered at several indexes carries its statistics like any other family.
-             */
-            replicates?: unknown;
-            units?: string | null;
-        };
-        DeclaredResult: {
-            code: string;
-            /** @description Whether this call added the membership, rather than finding it. */
-            member_created: boolean;
-            /** @description Whether this call created the catalog parameter, rather than finding it. */
-            parameter_created: boolean;
-            /** Format: uuid */
-            parameter_id: string;
         };
         DefinitionMember: {
             /** @description The catalog code; the stable machine identity and the CSV column header. */
@@ -15014,12 +14962,12 @@ export interface components {
          */
         RunnableJob: {
             /** @description Whether the cadence is switched on, where it has one. */
-            enabled?: boolean | null;
+            enabled: boolean | null;
             /**
              * Format: int64
              * @description Absent where the kind has no schedule at all, which the page reads as on demand.
              */
-            interval_seconds?: number | null;
+            interval_seconds: number | null;
             job_name: string;
             manual_run: components["schemas"]["ManualRun"];
         };
@@ -16677,26 +16625,26 @@ export interface components {
          */
         StationCandidate: {
             /** Format: date */
-            data_since?: string | null;
+            data_since: string | null;
             /**
              * Format: double
              * @description Great-circle distance from the site, absent where either end has no coordinates.
              */
-            distance_km?: number | null;
+            distance_km: number | null;
             /**
              * Format: double
              * @description The elevation the barometer sits at, which a station reporting no pressure leaves empty.
              */
-            height_barometer_masl?: number | null;
+            height_barometer_masl: number | null;
             /**
              * Format: double
              * @description The station's own elevation, which every published station carries.
              */
-            height_masl?: number | null;
+            height_masl: number | null;
             /** Format: double */
-            latitude?: number | null;
+            latitude: number | null;
             /** Format: double */
-            longitude?: number | null;
+            longitude: number | null;
             name: string;
             station_abbr: string;
         };
@@ -26942,46 +26890,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["GroupDefinition"];
                 };
-            };
-        };
-    };
-    declare_intermediates: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Parameter group id */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DeclareIntermediatesRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DeclareIntermediatesResponse"];
-                };
-            };
-            /** @description A code the catalog holds under another group */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unknown group */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
         };
     };
