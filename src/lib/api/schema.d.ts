@@ -7805,7 +7805,15 @@ export interface components {
             /** Format: uuid */
             event_id: string;
         };
-        ActivateRequest: Record<string, never>;
+        ActivateRequest: {
+            /**
+             * @description What happens to the values the version being replaced produced (Q170). `false`, the
+             *     default, leaves them on that version: this activation is a new method, and the history
+             *     stands as it was computed. `true` is a correction: every visit the superseded version
+             *     produced values at is recomputed under the new one.
+             */
+            migrate_stored?: boolean;
+        };
         ActivateResponse: components["schemas"]["ToolScript"] & {
             /**
              * @description What the manifest's catalog references amount to now, re-checked against the catalog as it
@@ -9231,6 +9239,12 @@ export interface components {
             calculations: components["schemas"]["CalculationImpact"][];
             /** @description Coverage per calculation input and output, when `include_coverage` asked for it. */
             coverage?: components["schemas"]["SlotCoverage"][];
+            /**
+             * @description What the subject has already been used to compute, from the stored provenance rather than
+             *     from the manifests. Present for a constant, which is the subject asked about before an edit
+             *     that would move every one of these values.
+             */
+            stored?: components["schemas"]["StoredUsage"];
         };
         CollectionEventCreate: {
             /** Format: date-time */
@@ -10290,6 +10304,8 @@ export interface components {
              *     beside it.
              */
             calculation?: string | null;
+            /** @description Only visits whose stored provenance names this constant. A scope in its own right. */
+            constant?: string | null;
             /**
              * Format: date-time
              * @description Visits collected at or before this instant.
@@ -10307,6 +10323,12 @@ export interface components {
              * @description Visits collected at or after this instant.
              */
             start?: string | null;
+            /**
+             * Format: uuid
+             * @description Every visit a script version produced values at, as the stored provenance names it. A
+             *     scope of its own: this is what an author's migrate arm asks for.
+             */
+            version?: string | null;
         };
         EventRef: {
             /** Format: date-time */
@@ -16718,6 +16740,18 @@ export interface components {
             code: string;
             formula: string;
         };
+        /**
+         * @description How much of the record a subject is written into: the visits and the readings whose stored
+         *     provenance names it.
+         */
+        StoredUsage: {
+            /** @description The name the provenance records the subject under. */
+            name: string;
+            /** Format: int64 */
+            readings: number;
+            /** Format: int64 */
+            visits: number;
+        };
         StreamPreviewResponse: {
             instants: components["schemas"]["PreviewInstant"][];
             /**
@@ -17249,6 +17283,12 @@ export interface components {
             }[];
             inputs_ignored: string[];
             inputs_used: string[];
+            /**
+             * @description Outputs whose formula produced a number that is not finite. The calculation divided by
+             *     zero, so the output is refused: it is in neither `results` nor `cleared`, the value already
+             *     stored at the visit stands, and `skipped` carries the reason (Q172).
+             */
+            refused?: string[];
             results: {
                 [key: string]: unknown;
             };
@@ -20318,6 +20358,8 @@ export interface operations {
                 stream_id?: string | null;
                 /** @description A calculation by name: what its own outputs feed downstream. */
                 calculation?: string | null;
+                /** @description A constant whose consequences are being asked about: where is this value used. */
+                constant_id?: string | null;
                 /** @description Confine the coverage counts to one site. Every site when omitted. */
                 site_id?: string | null;
                 /**

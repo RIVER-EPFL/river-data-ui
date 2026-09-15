@@ -25,6 +25,7 @@
 		backHref,
 		onSuccess,
 		onSaved,
+		confirmSave,
 	}: {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		client: CrudClient<any>;
@@ -35,6 +36,11 @@
 		onSuccess?: (data: Record<string, unknown>) => void;
 		/** Side-effect hook (store invalidation etc.), runs on save without replacing the default navigation. */
 		onSaved?: (data: Record<string, unknown>) => void;
+		/**
+		 * Asked with the payload before the write. Returning false abandons the save, which is how
+		 * a form whose save has consequences beyond the row puts them in front of the person first.
+		 */
+		confirmSave?: (payload: Record<string, unknown>) => boolean | Promise<boolean>;
 	} = $props();
 
 	let values = $state<Record<string, unknown>>({});
@@ -85,6 +91,8 @@
 					payload[f.key] = v;
 				}
 			}
+
+			if (confirmSave && !(await confirmSave(payload))) return;
 
 			let result: Record<string, unknown>;
 			if (entityId) {

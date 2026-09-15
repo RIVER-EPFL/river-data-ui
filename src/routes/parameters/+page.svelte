@@ -8,6 +8,8 @@
 	import Tabs from '$components/ui/Tabs.svelte';
 	import CrudList from '$components/crud/CrudList.svelte';
 	import ParameterCatalogList from '$components/parameters/ParameterCatalogList.svelte';
+	import { listTools, type ToolDescriptor } from '$api/service';
+	import { toolsDeclaring } from '$lib/constants/consequence';
 
 	// Capture the direct/derived filter from the URL before the tab writeback rewrites ?tab.
 	const initialType =
@@ -16,6 +18,16 @@
 
 	// Legacy ?tab=derived deep links land on the catalog with the derived filter pre-applied.
 	const tab = createUrlTab({ keys: ['catalog', 'groups', 'constants'], aliases: { derived: 'catalog' } });
+
+	// A constant's row says how many calculations read it, so the list answers "which of these
+	// matter" without opening each one.
+	let tools = $state<ToolDescriptor[]>([]);
+	$effect(() => {
+		if (tab.key !== 'constants') return;
+		listTools()
+			.then((t) => (tools = t))
+			.catch(() => (tools = []));
+	});
 </script>
 
 <svelte:head><title>Parameters | RIVER Data</title></svelte:head>
@@ -68,6 +80,14 @@
 				{ key: 'name', label: 'Name' },
 				{ key: 'value', label: 'Value' },
 				{ key: 'units', label: 'Units' },
+				{
+					key: 'name',
+					label: 'Read by',
+					render: (_value, row) => {
+						const n = toolsDeclaring(tools, String(row.name)).length;
+						return n === 0 ? 'no calculation' : `${n} calculation${n === 1 ? '' : 's'}`;
+					},
+				},
 				{ key: 'description', label: 'Description', class: 'text-brand-muted' },
 			]}
 			rowHref={(row) => `${base}/constants/${row.id}`}

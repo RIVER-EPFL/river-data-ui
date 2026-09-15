@@ -1588,6 +1588,7 @@ export type ClosureResponse = components['schemas']['ClosureResponse'];
 
 export const getCalculationClosure = (params: {
 	parameter_ids?: string;
+	constant_id?: string;
 	site_id?: string;
 	include_coverage?: boolean;
 }) => GET<ClosureResponse>(`${ADMIN}/calculations/closure`, params);
