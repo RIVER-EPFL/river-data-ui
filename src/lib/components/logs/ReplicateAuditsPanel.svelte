@@ -18,14 +18,15 @@
 		recomputeCollectionEvent,
 		pollJob,
 		type ReplicateAuditHold,
-		type HoldKind,
 		type SyncCommand,
 		type SyncService,
 	} from '$api/service';
 	import { getList } from '$api/client';
 	import { resyncServiceFor } from '$lib/sync/resync';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { formatRelativeTime, formatDateTime, holdKindLabel } from '$lib/utils';
+	import { formatRelativeTime, formatDateTime } from '$lib/utils';
+	import { KIND_LABEL, KIND_STYLE, KIND_TIP } from '$lib/holds';
+	import { apiMessage } from '$lib/standardCurves';
 	import { estimatorLabel, sdFormulaTitle, sdRowLabel } from '$lib/sdEstimator';
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
@@ -328,43 +329,6 @@
 		return hold.source_name ?? hold.source_key ?? 'unknown source';
 	}
 
-	// Kinds beyond the replicate-statistics disagreement: reconciliation holds (stream-keyed) and
-	// event-audit findings (slot-keyed, stream_id null).
-	const KIND_LABEL: Record<HoldKind, string> = {
-		replicate_stats: holdKindLabel('replicate_stats'),
-		source_modified: holdKindLabel('source_modified'),
-		brake_fired: holdKindLabel('brake_fired'),
-		missing_output: holdKindLabel('missing_output'),
-		stale_output: holdKindLabel('stale_output'),
-		skipped_output: holdKindLabel('skipped_output'),
-		curve_claim_stripped: holdKindLabel('curve_claim_stripped'),
-	};
-	const KIND_STYLE: Record<HoldKind, string> = {
-		replicate_stats: 'bg-brand-bg text-brand-text',
-		source_modified: 'bg-severity-warning-soft text-severity-warning-text',
-		brake_fired: 'bg-severity-alarm-soft text-severity-alarm',
-		missing_output: 'bg-severity-warning-soft text-severity-warning-text',
-		stale_output: 'bg-severity-warning-soft text-severity-warning-text',
-		skipped_output: 'bg-severity-warning-soft text-severity-warning-text',
-		curve_claim_stripped: 'bg-severity-warning-soft text-severity-warning-text',
-	};
-	const KIND_TIP: Record<HoldKind, string> = {
-		replicate_stats:
-			"The group's recomputed statistics disagree with the source's stored avg/sd.",
-		source_modified:
-			'The source changed or withdrew a reading that carries curation (a flag, a hand-picked curve, or a labelled sample). The value change applied; the curation and servedness did not move without this review.',
-		brake_fired:
-			'A reconciliation pass wanted to change or withdraw more of this stream than the brake allows. Its new rows applied; the reshape did not. Acknowledging admits exactly one braked-scale pass on the next sync cycle.',
-		missing_output:
-			"The tool's declared inputs exist at this visit but its output was never saved.",
-		stale_output:
-			'The stored output disagrees with a recompute under the same pinned script version, typically after an upstream correction.',
-		skipped_output:
-			'A calculation did not run at this visit and its output is absent. The reason it stopped, an input that did not resolve or a script that raised, is recorded on the finding. The repair is a recompute once the cause is fixed.',
-		curve_claim_stripped:
-			"The source named a standard curve this reading cannot carry (fitted on a different instrument, or not a spot measurement). The values were stored uncorrected; the claim is recorded here. Fix the curve's instrument or the stream's, then re-sync to apply the correction.",
-	};
-
 	function isStats(hold: ReplicateAuditHold): boolean {
 		return !hold.kind || hold.kind === 'replicate_stats';
 	}
@@ -426,6 +390,7 @@
 	// Per-open resolution state: which replicate indexes to flag, and why.
 	let selectedReplicates = $state<Set<number>>(new Set());
 	let flagReason = $state('');
+	let rulingReason = $state('');
 	// The hold whose detail is open, so the preview below can follow the selection.
 	let openHold = $state<ReplicateAuditHold | null>(null);
 	// What the statistics become under the change being considered (the selected replicates
@@ -561,6 +526,67 @@
 			await ctx.reload();
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Failed to mark reviewed');
+		} finally {
+			acknowledging = false;
+		}
+	}
+
+	// Verify accepts the entry as it stands; reject withdraws it with a reason. Both are a
+	// manager's ruling on a value an intern entered, recorded against every row of the slot.
+	async function handleRuleOnEntry(
+		hold: ReplicateAuditHold,
+		mode: 'verify' | 'reject',
+		ctx: { close: () => void; reload: () => Promise<void> },
+	) {
+		acknowledging = true;
+		try {
+			await resolveReplicateAudit(
+				hold.id,
+				mode === 'verify'
+					? { mode: 'verify' }
+					: { mode: 'reject', ...(rulingReason.trim() ? { reason: rulingReason.trim() } : {}) },
+			);
+			toastStore.success(
+				mode === 'verify'
+					? 'Verified: the value is served as it stands'
+					: 'Rejected: the value is withdrawn and stays on the record',
+			);
+			rulingReason = '';
+			ctx.close();
+			await ctx.reload();
+		} catch (e) {
+			toastStore.error(apiMessage(e));
+		} finally {
+			acknowledging = false;
+		}
+	}
+
+	// Rule on the field day itself (Q177). A verify says the visit happened; a reject withdraws it
+	// with its readings, which is what the count reports.
+	async function handleRuleOnVisit(
+		hold: ReplicateAuditHold,
+		mode: 'verify' | 'reject',
+		ctx: { close: () => void; reload: () => Promise<void> },
+	) {
+		acknowledging = true;
+		try {
+			const res = await resolveReplicateAudit(
+				hold.id,
+				mode === 'verify'
+					? { mode: 'verify' }
+					: { mode: 'reject', ...(rulingReason.trim() ? { reason: rulingReason.trim() } : {}) },
+			);
+			const withdrawn = res.samples_affected ?? 0;
+			toastStore.success(
+				mode === 'verify'
+					? 'Field day verified: its measurements are still verified one by one'
+					: `Field day rejected: ${withdrawn} reading${withdrawn === 1 ? '' : 's'} withdrawn with it`,
+			);
+			rulingReason = '';
+			ctx.close();
+			await ctx.reload();
+		} catch (e) {
+			toastStore.error(apiMessage(e));
 		} finally {
 			acknowledging = false;
 		}
@@ -744,7 +770,7 @@
 	emptyText={view === 'review' ? 'Nothing needs review' : view === 'resolved' ? 'No resolved holds' : 'No holds awaiting pairing'}
 	detailTitle="Replicate Audit Hold"
 	detailMaxWidth="md"
-	onOpenDetail={(hold) => { openHold = hold; selectedReplicates = new Set(); flagReason = ''; }}
+	onOpenDetail={(hold) => { openHold = hold; selectedReplicates = new Set(); flagReason = ''; rulingReason = ''; }}
 >
 	{#snippet filterBar({ reload })}
 		<div class="flex gap-1 flex-wrap">
@@ -1283,6 +1309,31 @@
 			>
 				<Button variant="primary" disabled={acknowledging}>Acknowledge</Button>
 			</ConfirmPopover>
+		{:else if hold.status === 'pending' && hold.kind === 'unverified_entry'}
+			<input
+				type="text"
+				bind:value={rulingReason}
+				placeholder="Reason (used when rejecting)"
+				class="px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-xs"
+			/>
+			<ConfirmPopover
+				message="Verify this entry? The value is served as it stands and the decision is recorded against it."
+				confirmLabel="Verify"
+				confirmVariant="primary"
+				above
+				onconfirm={() => handleRuleOnEntry(hold, 'verify', ctx)}
+			>
+				<Button variant="primary" disabled={acknowledging}>{acknowledging ? 'Saving…' : 'Verify'}</Button>
+			</ConfirmPopover>
+			<ConfirmPopover
+				message="Reject this entry? The value is withdrawn, stays on the record with the reason, and is not served."
+				confirmLabel="Reject"
+				confirmVariant="alarm"
+				above
+				onconfirm={() => handleRuleOnEntry(hold, 'reject', ctx)}
+			>
+				<Button disabled={acknowledging}>Reject</Button>
+			</ConfirmPopover>
 		{:else if hold.status === 'pending' && hold.kind === 'curve_claim_stripped'}
 			<ConfirmPopover
 				message="Mark this reviewed? The readings stay served uncorrected. To apply the correction, re-home the curve or repoint the stream's instrument, then re-sync; the source re-asserts the claim every cycle."
@@ -1319,6 +1370,25 @@
 				onconfirm={() => handleAcknowledgeHold(hold, ctx, 'Finding acknowledged')}
 			>
 				<Button disabled={acknowledging}>Acknowledge finding</Button>
+			</ConfirmPopover>
+		{:else if hold.status === 'pending' && hold.kind === 'unverified_visit'}
+			<ConfirmPopover
+				message="Verify the field day at {hold.site_name ?? 'this site'} on {formatDateTime(hold.group_time)}? It says the visit happened. Each measurement entered there is still verified on its own."
+				confirmLabel="Verify"
+				confirmVariant="primary"
+				above
+				onconfirm={() => handleRuleOnVisit(hold, 'verify', ctx)}
+			>
+				<Button variant="primary" disabled={acknowledging}>Verify the field day</Button>
+			</ConfirmPopover>
+			<ConfirmPopover
+				message="Reject this field day? It is withdrawn with every reading entered there. Nothing is deleted: a reassert restores the readings."
+				confirmLabel="Reject"
+				confirmVariant="alarm"
+				above
+				onconfirm={() => handleRuleOnVisit(hold, 'reject', ctx)}
+			>
+				<Button variant="danger" disabled={acknowledging}>Reject the field day</Button>
 			</ConfirmPopover>
 		{:else if hold.status === 'pending' && needsDeclaration(hold)}
 			{@const slot = undeclaredSlot(hold)}

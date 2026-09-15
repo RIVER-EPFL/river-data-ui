@@ -224,6 +224,7 @@
 		stale_output: 'Stale tool output',
 		skipped_output: 'Calculation did not run',
 		curve_claim_stripped: 'Curve claim stripped',
+		unverified_entry: 'Entered and not yet verified',
 	};
 
 	const ESTIMATOR_TIP: Record<string, string> = {

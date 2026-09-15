@@ -117,6 +117,7 @@ function detailWith(cells: EventDetailResponse['cells']): EventDetailResponse {
 		site_id: 'site',
 		collected_at: '2026-07-14T09:00:00Z',
 		source: 'manual',
+		unverified: false,
 		recompute: 'current',
 		cells,
 	};

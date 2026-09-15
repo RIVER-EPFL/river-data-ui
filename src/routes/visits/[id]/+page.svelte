@@ -77,6 +77,7 @@
 		visitSourceLabel,
 		type RunOutput,
 	} from '$lib/visits/recompute';
+	import { verificationBadge, verificationNoticeFor } from '$lib/visits/verification';
 	import { formatDateTime } from '$lib/utils';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Badge from '$components/ui/Badge.svelte';
@@ -198,6 +199,13 @@
 	const refusedRows = $derived(refusal ? saveErrors(refusal, rows) : {});
 	/** What the header says about the visit's calculations, and what entering a value here means. */
 	const badge = $derived(detail ? visitBadge(detail.source, detail.recompute) : null);
+	/** Whether the field day itself has been ruled on, which gates verifying anything in it (Q177). */
+	const visitState = $derived(
+		detail ? verificationBadge(detail.unverified, detail.withdrawn_at) : null
+	);
+	const verificationNotice = $derived(
+		verificationNoticeFor(detail?.unverified, detail?.withdrawn_at)
+	);
 	const notice = $derived(entryNoticeFor(detail?.source));
 	const calculatedHere = $derived(computedHere(detail?.source));
 
@@ -659,6 +667,9 @@
 					{visitSourceLabel(detail.source, detail.created_by)}{#if detail.notes}
 						· {detail.notes}{/if}
 				</p>
+				{#if verificationNotice}
+					<p class="text-sm text-severity-warning">{verificationNotice}</p>
+				{/if}
 			</div>
 			<div class="flex items-center gap-2">
 				{#if me.can('writeFieldMetadata') && detail.cells.length === 0}
@@ -666,6 +677,9 @@
 				{/if}
 				{#if badge}
 					<Badge variant={badge.variant}>{badge.label}</Badge>
+				{/if}
+				{#if visitState}
+					<Badge variant={visitState.variant}>{visitState.label}</Badge>
 				{/if}
 				<a class="text-sm text-brand-primary hover:underline" href="{base}/sites/{detail.site_id}?tab=visits&event={detail.id}"
 					>Back to the site</a

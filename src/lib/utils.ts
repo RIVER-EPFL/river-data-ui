@@ -281,7 +281,7 @@ export function formatSignificant(value: number, digits = 6): string {
 	return String(Number(value.toPrecision(digits)));
 }
 
-/** Short label per review-queue hold kind. The queue carries six, not just the statistics one. */
+/** Short label per review-queue hold kind. The queue carries every kind, not just the statistics one. */
 export function holdKindLabel(kind: string): string {
 	switch (kind) {
 		case 'replicate_stats': return 'statistics';
@@ -291,6 +291,8 @@ export function holdKindLabel(kind: string): string {
 		case 'stale_output': return 'stale output';
 		case 'skipped_output': return 'skipped step';
 		case 'curve_claim_stripped': return 'curve stripped';
+		case 'unverified_entry': return 'entered, unverified';
+		case 'unverified_visit': return 'field day pending';
 		default: return kind.replace(/_/g, ' ');
 	}
 }

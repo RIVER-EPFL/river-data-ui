@@ -810,14 +810,19 @@ export type ReplicateAuditValue = components['schemas']['HoldValue'];
 
 // A replicate group whose recomputed mean/sd disagrees with the portal's stored avg/sd. The group
 // is stored and served (our recomputed statistics); the hold queues the disagreement for review.
-export type HoldKind =
-	| 'replicate_stats'
-	| 'source_modified'
-	| 'brake_fired'
-	| 'missing_output'
-	| 'stale_output'
-	| 'skipped_output'
-	| 'curve_claim_stripped';
+export const HOLD_KINDS = [
+	'replicate_stats',
+	'source_modified',
+	'brake_fired',
+	'missing_output',
+	'stale_output',
+	'skipped_output',
+	'curve_claim_stripped',
+	'unverified_entry',
+	'unverified_visit',
+] as const;
+
+export type HoldKind = (typeof HOLD_KINDS)[number];
 
 // The document carries the three statistics blobs as the structs their writer builds; `kind`,
 // `status` and `classification` are strings there and the closed sets the panel branches on here,
@@ -916,13 +921,16 @@ export type ResolveHoldResult = components['schemas']['ResolveHoldResponse'];
 // named replicate indexes; the sample's mean/sd/n recompute immediately from the rest.
 // 'estimator' declares which divisor the parameter (scope 'slot') or this one collection group
 // (scope 'instant') publishes. Statistics are never entered directly: a resolution changes the
-// input set or the specification, and the trigger recomputes.
+// input set or the specification, and the trigger recomputes. 'verify' and 'reject' rule on what
+// somebody entered: a pending measurement, or the field day it was entered at.
 export const resolveReplicateAudit = (
 	id: string,
 	body:
 		| { mode: 'ours' }
 		| { mode: 'flag'; replicate_indexes: number[]; reason?: string }
-		| { mode: 'estimator'; estimator: SdEstimator; scope: 'slot' | 'instant' },
+		| { mode: 'estimator'; estimator: SdEstimator; scope: 'slot' | 'instant' }
+		| { mode: 'verify' }
+		| { mode: 'reject'; reason?: string },
 ) => POST<ResolveHoldResult>(`${ADMIN}/sync/replicate_audit_holds/${id}/resolve`, body);
 
 // One slot serving replicate statistics under no declared sd estimator. `population_signature_holds`

@@ -7,6 +7,7 @@
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
 	import SiteSelect from '$components/SiteSelect.svelte';
 	import { RECOMPUTE_BADGE } from '$lib/visits/recompute';
+	import { verificationBadge } from '$lib/visits/verification';
 	import { formatDateTime } from '$lib/utils';
 
 	// One row per collection event (field visit) across sites, with the fill and open-finding
@@ -86,6 +87,7 @@
 			<th class="text-left px-4 py-2 font-semibold"><span class="sr-only">Entry</span></th>
 		{/snippet}
 		{#snippet row(item)}
+			{@const state = verificationBadge(item.unverified, item.withdrawn_at)}
 			<td class="px-4 py-2 text-xs whitespace-nowrap">
 				{formatDateTime(item.collected_at)}
 				{#if RECOMPUTE_BADGE[item.recompute]}
@@ -98,6 +100,9 @@
 					<Badge variant="accent">portal</Badge>
 				{:else}
 					<Badge variant="muted">manual</Badge>
+				{/if}
+				{#if state}
+					<Badge variant={state.variant}>{state.label}</Badge>
 				{/if}
 			</td>
 			<td class="px-4 py-2 text-xs text-right tabular-nums {item.parameters_filled === 0 ? 'text-brand-muted' : ''}">{item.parameters_filled}</td>

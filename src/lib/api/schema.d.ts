@@ -1216,12 +1216,14 @@ export interface paths {
          *     Additional sortable columns:
          *     - site_id
          *     - collected_at
+         *     - withdrawn_at
          *     - created_at.
          *
          *     Additional filterable columns:
          *     - site_id
          *     - collected_at
-         *     - source.
+         *     - source
+         *     - unverified.
          */
         get: operations["get_all_collection_events"];
         put?: never;
@@ -9270,8 +9272,19 @@ export interface components {
              *     attach path writes `portal_sync` rows directly.
              */
             source: string;
+            /**
+             * @description The field day itself is pending: staged by an intern, and nobody has ruled on whether it
+             *     should exist (Q177). Set at staging from the stager's level and cleared by the manager's
+             *     verify; verifying the visit verifies none of its measurements.
+             */
+            unverified: boolean;
             /** Format: date-time */
             updated_at: string | null;
+            /**
+             * Format: date-time
+             * @description When the visit was rejected. Nothing deletes a visit: its readings are withdrawn beside it.
+             */
+            withdrawn_at: string | null;
         };
         CollectionEventResponse: {
             /** Format: date-time */
@@ -9289,8 +9302,19 @@ export interface components {
              *     attach path writes `portal_sync` rows directly.
              */
             source: string;
+            /**
+             * @description The field day itself is pending: staged by an intern, and nobody has ruled on whether it
+             *     should exist (Q177). Set at staging from the stager's level and cleared by the manager's
+             *     verify; verifying the visit verifies none of its measurements.
+             */
+            unverified: boolean;
             /** Format: date-time */
             updated_at: string | null;
+            /**
+             * Format: date-time
+             * @description When the visit was rejected. Nothing deletes a visit: its readings are withdrawn beside it.
+             */
+            withdrawn_at: string | null;
         };
         CollectionEventUpdate: {
             /** Format: date-time */
@@ -10297,6 +10321,16 @@ export interface components {
             /** Format: uuid */
             site_id: string;
             source: string;
+            /**
+             * @description The field day is pending a manager's ruling (Q177). Its measurements cannot be verified
+             *     until it is.
+             */
+            unverified: boolean;
+            /**
+             * Format: date-time
+             * @description When the visit was rejected, its readings withdrawn beside it.
+             */
+            withdrawn_at?: string;
         };
         EventRecomputeRequest: {
             /**
@@ -12372,6 +12406,16 @@ export interface components {
                 site_name: string;
                 /** @description 'manual' | 'portal_sync'. */
                 source: string;
+                /**
+                 * @description The field day is pending a manager's ruling (Q177). Its measurements cannot be verified
+                 *     until it is.
+                 */
+                unverified: boolean;
+                /**
+                 * Format: date-time
+                 * @description When the visit was rejected, its readings withdrawn beside it.
+                 */
+                withdrawn_at?: string;
             }[];
             /** Format: int64 */
             page: number;
@@ -16457,6 +16501,11 @@ export interface components {
             /** Format: uuid */
             site_id: string;
             source: string;
+            /**
+             * @description The field day is pending a manager's ruling. A visit already standing keeps the state it
+             *     had, so staging into someone else's verified visit does not reopen it.
+             */
+            unverified: boolean;
         };
         StandardCurveCreate: {
             /** Format: uuid */
@@ -17802,6 +17851,16 @@ export interface components {
             site_name: string;
             /** @description 'manual' | 'portal_sync'. */
             source: string;
+            /**
+             * @description The field day is pending a manager's ruling (Q177). Its measurements cannot be verified
+             *     until it is.
+             */
+            unverified: boolean;
+            /**
+             * Format: date-time
+             * @description When the visit was rejected, its readings withdrawn beside it.
+             */
+            withdrawn_at?: string;
         };
         VisitRow: {
             /** @description One cell per parameter measured at the visit (the wide portal row). */
@@ -17826,6 +17885,16 @@ export interface components {
             recompute: string;
             /** @description 'manual' | 'portal_sync'. */
             source: string;
+            /**
+             * @description The field day is pending a manager's ruling (Q177). Its measurements cannot be verified
+             *     until it is.
+             */
+            unverified: boolean;
+            /**
+             * Format: date-time
+             * @description When the visit was rejected, its readings withdrawn beside it.
+             */
+            withdrawn_at?: string;
         };
         VisitsResponse: {
             /**

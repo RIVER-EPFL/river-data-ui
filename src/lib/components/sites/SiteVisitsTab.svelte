@@ -39,6 +39,7 @@
 		visitBadge,
 		visitSourceLabel,
 	} from '$lib/visits/recompute';
+	import { verificationBadge, verificationNoticeFor } from '$lib/visits/verification';
 	import { cellRole } from '$lib/visits/role';
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
@@ -332,6 +333,13 @@
 	{/if}
 {/snippet}
 
+{#snippet visitState(unverified: boolean | undefined, withdrawnAt: string | null | undefined)}
+	{@const state = verificationBadge(unverified, withdrawnAt)}
+	{#if state}
+		<Badge variant={state.variant}>{state.label}</Badge>
+	{/if}
+{/snippet}
+
 			<div class="space-y-3">
 				<div class="flex flex-wrap items-end gap-3">
 					<div>
@@ -439,6 +447,7 @@
 												<Badge variant="warning">{v.findings_open} finding{v.findings_open === 1 ? '' : 's'}</Badge>
 											{/if}
 											{@render calculationBadge(v.source, v.recompute)}
+											{@render visitState(v.unverified, v.withdrawn_at)}
 										</td>
 										<td class="px-3 py-2">
 											{#if v.source === 'portal_sync'}
@@ -514,8 +523,10 @@
 															</span>
 															·
 															{visitSourceLabel(visitDetail.source, visitDetail.created_by)}{#if entryNoticeFor(visitDetail.source)}. {SYNCED_VISIT_NOTICE}{/if}
+															{#if verificationNoticeFor(visitDetail.unverified, visitDetail.withdrawn_at)}. {verificationNoticeFor(visitDetail.unverified, visitDetail.withdrawn_at)}{/if}
 															{#if visitDetail.notes}· {visitDetail.notes}{/if}
 															{@render calculationBadge(visitDetail.source, visitDetail.recompute)}
+															{@render visitState(visitDetail.unverified, visitDetail.withdrawn_at)}
 														</div>
 														{#if me.can('enterFieldData')}
 															<div class="flex gap-2">
