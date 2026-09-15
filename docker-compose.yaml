@@ -127,13 +127,16 @@ services:
         until pg_isready -h river-db-timescale -U ${POSTGRES_USER:-postgres}; do sleep 1; done
         psql -h river-db-timescale -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres} <<'SQL'
           CREATE EXTENSION IF NOT EXISTS pgcrypto;
-          INSERT INTO sync_service_credentials (id, client_id, client_secret_hash, service_type, revoked, created_at)
+          INSERT INTO sync_service_credentials (id, client_id, client_secret_hash, service_type, source_system, revoked, created_at)
           VALUES
-            (gen_random_uuid(), 'svc_dev_vaisala', encode(digest('dev_vaisala_secret', 'sha256'), 'hex'), 'vaisala', false, now()),
-            (gen_random_uuid(), 'svc_dev_cnet',    encode(digest('dev_cnet_secret', 'sha256'), 'hex'),    'cnet',    false, now()),
-            (gen_random_uuid(), 'svc_dev_metalp',  encode(digest('dev_metalp_secret', 'sha256'), 'hex'),  'metalp',  false, now()),
-            (gen_random_uuid(), 'svc_dev_nomis',   encode(digest('dev_nomis_secret', 'sha256'), 'hex'),   'nomis',   false, now())
-          ON CONFLICT (client_id) DO NOTHING;
+            (gen_random_uuid(), 'svc_dev_vaisala', encode(digest('dev_vaisala_secret', 'sha256'), 'hex'), 'vaisala', 'vaisala', false, now()),
+            (gen_random_uuid(), 'svc_dev_cnet',    encode(digest('dev_cnet_secret', 'sha256'), 'hex'),    'cnet',    'cnet',    false, now()),
+            (gen_random_uuid(), 'svc_dev_metalp',  encode(digest('dev_metalp_secret', 'sha256'), 'hex'),  'metalp',  'metalp',  false, now()),
+            (gen_random_uuid(), 'svc_dev_nomis',   encode(digest('dev_nomis_secret', 'sha256'), 'hex'),   'nomis',   'nomis',   false, now())
+          -- A volume seeded before the column existed is repaired here, and the services pick the
+          -- value up on their next enrollment, which a compose restart is.
+          ON CONFLICT (client_id) DO UPDATE SET source_system = EXCLUDED.source_system
+            WHERE sync_service_credentials.source_system IS NULL;
         SQL
     restart: "no"
 
@@ -206,6 +209,15 @@ services:
         condition: service_healthy
 
   # ── Portal source databases ─────────────────────────────────────────
+  # The three portal databases the acceptance run reads. Each seeds itself from a dump of the
+  # live portal, which is not in any repository: fetch one per portal into ./dumps (or set
+  # PORTAL_DUMPS_DIR) before starting these, and refresh it before an acceptance run so what is
+  # validated is the portal the client's data is in now.
+  #
+  #   kubectl -n epfl-river exec statefulset/cnet-data-portal-db-prod -- \
+  #     sh -c 'mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' > dumps/cnet_db_prod.sql
+  #
+  # metalp and nomis are the same command against their own statefulsets.
   portal-db-cnet:
     image: mariadb:10.3
     environment:
@@ -217,7 +229,7 @@ services:
     ports:
       - "3316:3306"
     volumes:
-      - /home/ejthomas/projects/RIVER/dumps/cnet_db_prod.sql:/docker-entrypoint-initdb.d/01-data.sql:ro
+      - ${PORTAL_DUMPS_DIR:-./dumps}/cnet_db_prod.sql:/docker-entrypoint-initdb.d/01-data.sql:ro
       - portal-cnet-data:/var/lib/mysql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
@@ -233,7 +245,7 @@ services:
       MYSQL_USER: sync_reader
       MYSQL_PASSWORD: sync_reader
     volumes:
-      - /home/ejthomas/projects/RIVER/dumps/metalp_db_prod.sql:/docker-entrypoint-initdb.d/01-data.sql:ro
+      - ${PORTAL_DUMPS_DIR:-./dumps}/metalp_db_prod.sql:/docker-entrypoint-initdb.d/01-data.sql:ro
       - portal-metalp-data:/var/lib/mysql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
@@ -249,7 +261,7 @@ services:
       MYSQL_USER: sync_reader
       MYSQL_PASSWORD: sync_reader
     volumes:
-      - /home/ejthomas/projects/RIVER/dumps/nomis_db_prod.sql:/docker-entrypoint-initdb.d/01-data.sql:ro
+      - ${PORTAL_DUMPS_DIR:-./dumps}/nomis_db_prod.sql:/docker-entrypoint-initdb.d/01-data.sql:ro
       - portal-nomis-data:/var/lib/mysql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]

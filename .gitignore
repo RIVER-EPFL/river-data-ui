@@ -28,6 +28,9 @@ yarn-error.log*
 
 *.md
 
+# Portal dumps for the acceptance run, fetched from the live portals
+dumps/
+
 # Playwright
 /test-results/
 /playwright-report/
