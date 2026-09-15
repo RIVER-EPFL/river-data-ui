@@ -3,6 +3,7 @@
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import type { CrudClient } from '$api/crud';
 	import Button from '$components/ui/Button.svelte';
+	import { buildPayload, initialValues } from './formValues';
 
 	export interface Field {
 		key: string;
@@ -15,6 +16,8 @@
 		defaultValue?: unknown;
 		disabled?: boolean;
 		step?: string;
+		/** Key of the field this one mirrors until somebody types a value of their own. */
+		derivedFrom?: string;
 	}
 
 	let {
@@ -43,17 +46,21 @@
 		confirmSave?: (payload: Record<string, unknown>) => boolean | Promise<boolean>;
 	} = $props();
 
-	let values = $state<Record<string, unknown>>({});
+	let values = $state<Record<string, unknown>>(initialValues(fields));
 	let loading = $state(!!entityId);
 	let saving = $state(false);
 	let errors = $state<Record<string, string>>({});
+	// Derived fields mirror their source until the operator types into them.
+	let following = $state<Record<string, boolean>>(
+		Object.fromEntries(fields.filter((f) => f.derivedFrom).map((f) => [f.key, true])),
+	);
 
-	// Initialize defaults
-	for (const f of fields) {
-		if (f.defaultValue !== undefined) values[f.key] = f.defaultValue;
-		else if (f.type === 'boolean') values[f.key] = false;
-		else if (f.type === 'number') values[f.key] = null;
-		else values[f.key] = '';
+	function setField(field: Field, v: string) {
+		values[field.key] = v;
+		if (field.derivedFrom) following[field.key] = false;
+		for (const f of fields) {
+			if (f.derivedFrom === field.key && following[f.key]) values[f.key] = v;
+		}
 	}
 
 	// Load existing entity for edit mode
@@ -61,6 +68,7 @@
 		client.get(entityId).then((data) => {
 			for (const f of fields) {
 				if (data[f.key] !== undefined) values[f.key] = data[f.key];
+				if (f.derivedFrom && values[f.key] !== '' && values[f.key] != null) following[f.key] = false;
 			}
 			loading = false;
 		}).catch((e) => {
@@ -82,15 +90,7 @@
 
 		saving = true;
 		try {
-			const payload: Record<string, unknown> = {};
-			for (const f of fields) {
-				if (!f.disabled) {
-					let v = values[f.key];
-					if (f.type === 'number' && v !== null && v !== '') v = Number(v);
-					if (v === '') v = null;
-					payload[f.key] = v;
-				}
-			}
+			const payload = buildPayload(fields, values);
 
 			if (confirmSave && !(await confirmSave(payload))) return;
 
@@ -204,7 +204,8 @@
 						<input
 							id={field.key}
 							type={field.type ?? 'text'}
-							bind:value={values[field.key]}
+							value={values[field.key] ?? ''}
+							oninput={(e) => setField(field, (e.target as HTMLInputElement).value)}
 							placeholder={field.placeholder}
 							disabled={field.disabled}
 							step={field.step}

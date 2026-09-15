@@ -12,7 +12,7 @@
 	backHref="{base}/parameters"
 	fields={[
 		{ key: 'code', label: 'Code', required: true, helperText: 'Short machine code for formulas and API queries, e.g. DOmgL. Every CSV and NDJSON export writes this as the column name, and a CSV import matches on it, so carry the units in it the way the portal columns did (DOC_avg_ppb, WTW_Temp_degC_1).' },
-		{ key: 'name', label: 'Name', required: true, helperText: 'Human label shown in the UI, e.g. Dissolved Oxygen' },
+		{ key: 'name', label: 'Name', required: true, derivedFrom: 'code', helperText: 'Human label shown in the UI, e.g. Dissolved Oxygen. Follows the code until you type one of your own.' },
 		{ key: 'default_units', label: 'Default Units', required: true, helperText: 'Measurement unit, e.g. uM, mg/L, NTU' },
 		{ key: 'category', label: 'Category', type: 'select', defaultValue: 'measurement', helperText: 'Groups parameters in the UI and public API', options: [
 			{ value: 'measurement', label: 'Measurement' },

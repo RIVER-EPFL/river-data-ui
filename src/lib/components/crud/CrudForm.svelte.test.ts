@@ -76,3 +76,53 @@ describe('CrudForm confirmSave', () => {
 		expect((c as unknown as { update: ReturnType<typeof vi.fn> }).update).toHaveBeenCalledTimes(1);
 	});
 });
+
+// Scenario: a parameter's name is nearly always its code, so the name follows the code until
+// somebody types a name of their own.
+describe('CrudForm derivedFrom', () => {
+	const DERIVED_FIELDS = [
+		{ key: 'code', label: 'Code' },
+		{ key: 'name', label: 'Name', derivedFrom: 'code' },
+	];
+
+	function mountNew() {
+		const c = client();
+		render(CrudForm, {
+			props: {
+				client: c,
+				title: 'New Parameter',
+				backHref: '/parameters',
+				fields: DERIVED_FIELDS,
+			} as never,
+		});
+		return c as unknown as { create: ReturnType<typeof vi.fn> };
+	}
+
+	it('fills the name from the code while the name is untouched', async () => {
+		mountNew();
+		const code = screen.getByLabelText(/Code/) as HTMLInputElement;
+		const name = screen.getByLabelText(/Name/) as HTMLInputElement;
+		await fireEvent.input(code, { target: { value: 'hs_co2_ppm' } });
+		expect(name.value).toBe('hs_co2_ppm');
+	});
+
+	it('leaves a hand-typed name alone when the code changes afterwards', async () => {
+		mountNew();
+		const code = screen.getByLabelText(/Code/) as HTMLInputElement;
+		const name = screen.getByLabelText(/Name/) as HTMLInputElement;
+		await fireEvent.input(code, { target: { value: 'hs_co2' } });
+		await fireEvent.input(name, { target: { value: 'Headspace CO2' } });
+		await fireEvent.input(code, { target: { value: 'hs_co2_ppm' } });
+		expect(name.value).toBe('Headspace CO2');
+	});
+
+	it('sends the derived name on create', async () => {
+		const c = mountNew();
+		const code = screen.getByLabelText(/Code/) as HTMLInputElement;
+		await fireEvent.input(code, { target: { value: 'hs_co2_ppm' } });
+		await fireEvent.submit(code.closest('form')!);
+		await settle();
+		expect(c.create).toHaveBeenCalledTimes(1);
+		expect(c.create.mock.calls[0][0]).toMatchObject({ code: 'hs_co2_ppm', name: 'hs_co2_ppm' });
+	});
+});

@@ -17,7 +17,7 @@
 	import { api, type DerivedParameter, type Parameter } from '$api/crud';
 	import { listAll } from '$api/paged';
 	import { calculationRows, unconfiguredInputs, type CalculationRow } from '$lib/calculations/rows';
-	import { newCalculationRequest } from '$lib/toolbox/newCalculation';
+	import { labelFollowingName, newCalculationRequest } from '$lib/toolbox/newCalculation';
 	import { AUTHOR_CALCULATIONS, authoringState, loadCatalog } from '$lib/toolbox/authoring';
 	import { me } from '$auth/me.svelte';
 	import Badge from '$components/ui/Badge.svelte';
@@ -42,6 +42,7 @@
 	let composing = $state(false);
 	let newName = $state('');
 	let newLabel = $state('');
+	let labelEdited = $state(false);
 	let creating = $state(false);
 	const access = $derived(
 		authoringState({ permitted: me.can(AUTHOR_CALCULATIONS), refused })
@@ -206,7 +207,11 @@
 						<label class="text-xs text-brand-muted">
 							Name
 							<input
-								bind:value={newName}
+								value={newName}
+								oninput={(e) => {
+									newName = (e.target as HTMLInputElement).value;
+									newLabel = labelFollowingName({ value: newLabel, edited: labelEdited }, newName);
+								}}
 								placeholder="pco2"
 								class="block mt-0.5 px-2 py-1 rounded border border-brand-divider bg-brand-surface text-sm text-brand-text w-40"
 							/>
@@ -214,7 +219,11 @@
 						<label class="text-xs text-brand-muted">
 							Label
 							<input
-								bind:value={newLabel}
+								value={newLabel}
+								oninput={(e) => {
+									newLabel = (e.target as HTMLInputElement).value;
+									labelEdited = true;
+								}}
 								placeholder="pCO2"
 								class="block mt-0.5 px-2 py-1 rounded border border-brand-divider bg-brand-surface text-sm text-brand-text w-40"
 							/>

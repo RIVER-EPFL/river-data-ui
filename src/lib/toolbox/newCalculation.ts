@@ -33,3 +33,11 @@ export function newCalculationRequest(
 		},
 	};
 }
+
+/**
+ * What the label field holds while the name is being typed: the name itself until somebody
+ * types a label of their own, and what they typed from then on.
+ */
+export function labelFollowingName(label: { value: string; edited: boolean }, name: string): string {
+	return label.edited ? label.value : name;
+}

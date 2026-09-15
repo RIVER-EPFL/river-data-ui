@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { newCalculationRequest } from './newCalculation';
+import { labelFollowingName, newCalculationRequest } from './newCalculation';
 
 describe('new formula calculation', () => {
 	it('declares the engine the calculation is, and names no group', () => {
@@ -17,5 +17,15 @@ describe('new formula calculation', () => {
 		expect(newCalculationRequest({ name: ' ', label: 'x' })).toEqual({
 			error: 'A calculation needs a name.',
 		});
+	});
+});
+
+describe('the label while the name is typed', () => {
+	it('shows the name so it is not entered twice', () => {
+		expect(labelFollowingName({ value: '', edited: false }, 'pco2')).toBe('pco2');
+	});
+
+	it('keeps a label somebody typed when the name changes afterwards', () => {
+		expect(labelFollowingName({ value: 'pCO2', edited: true }, 'pco2_headspace')).toBe('pCO2');
 	});
 });

@@ -17,7 +17,7 @@
 	backHref="{base}/parameters?tab=groups"
 	fields={[
 		{ key: 'code', label: 'Code', required: true, helperText: 'Stable machine identity, e.g. field_data' },
-		{ key: 'label', label: 'Label', required: true, helperText: 'What the group is called on screen' },
+		{ key: 'label', label: 'Label', required: true, derivedFrom: 'code', helperText: 'What the group is called on screen. Follows the code until you type one of your own.' },
 		{ key: 'description', label: 'Description', type: 'textarea' },
 		{ key: 'ordinal', label: 'Order', type: 'number', step: '1', defaultValue: 0, helperText: 'Where the group sits in the category order' },
 	]}
