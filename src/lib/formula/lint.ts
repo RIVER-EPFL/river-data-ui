@@ -122,6 +122,8 @@ export interface KnownNames {
 	hasCurve?: boolean;
 	/** The code of the formula being edited: naming itself is a cycle. */
 	ownCode?: string;
+	/** The human label of each variable, so a completion is found by the label too. */
+	labels?: Record<string, string>;
 }
 
 const IDENTIFIER = /[A-Za-z_]\w*/g;
@@ -207,17 +209,106 @@ export function callAt(
 	return null;
 }
 
-/** The names worth offering for a prefix, functions and constants after the author's own names. */
-export function completionsFor(prefix: string, known: KnownNames): string[] {
+/** What a completion is, so the list can group what it offers by where the name comes from. */
+export type CompletionKind = 'parameter' | 'step' | 'constant' | 'function' | 'curve';
+
+export interface Completion {
+	/** The name inserted into the formula. */
+	name: string;
+	kind: CompletionKind;
+	/** The human label of a parameter, where it has one that differs from the name. */
+	label?: string;
+}
+
+/** How many names the list offers at once. */
+export const MAX_COMPLETIONS = 12;
+
+/** Whether every character of `q` appears in `name`, in order but not adjacently. */
+function subsequence(name: string, q: string): boolean {
+	let i = 0;
+	for (const c of name) {
+		if (c === q[i]) i++;
+		if (i === q.length) return true;
+	}
+	return q.length === 0;
+}
+
+/**
+ * How well a name answers what is being typed: 0 is a prefix, 1 a substring, 2 the letters in
+ * order, 3 a near miss by edit distance. Anything further is not offered.
+ */
+function rank(name: string, q: string): number {
+	const lower = name.toLowerCase();
+	if (lower.startsWith(q)) return 0;
+	if (lower.includes(q)) return 1;
+	if (subsequence(lower, q)) return 2;
+	return nearest(q, [name]) ? 3 : 4;
+}
+
+/**
+ * The names worth offering for what the caret is on, the author's own before the language's and
+ * the closest match of each first.
+ *
+ * Matching is fuzzy: a parameter is found by any run of its letters, by a piece of its label, or
+ * by a spelling near enough that the author meant it.
+ */
+export function completionsFor(prefix: string, known: KnownNames): Completion[] {
 	const q = prefix.trim().toLowerCase();
-	const own = [...known.variables, ...(known.constants ?? []), ...(known.steps ?? [])];
-	const language = [
-		...Object.keys(FORMULA_FUNCTIONS),
-		...FORMULA_CONSTANTS,
-		...(known.hasCurve ? CURVE_VARIABLES : []),
+	const own: Completion[] = [
+		...known.variables.map((name) => ({
+			name,
+			kind: 'parameter' as const,
+			label: known.labels?.[name],
+		})),
+		...(known.steps ?? []).map((name) => ({ name, kind: 'step' as const })),
+		...(known.constants ?? []).map((name) => ({ name, kind: 'constant' as const })),
 	];
-	const matches = (name: string) => !q || name.toLowerCase().startsWith(q);
-	return [...own.filter(matches), ...language.filter(matches)];
+	const language: Completion[] = [
+		...Object.keys(FORMULA_FUNCTIONS).map((name) => ({ name, kind: 'function' as const })),
+		...FORMULA_CONSTANTS.map((name) => ({ name, kind: 'constant' as const })),
+		...(known.hasCurve ? CURVE_VARIABLES.map((name) => ({ name, kind: 'curve' as const })) : []),
+	];
+	const scored: Array<{ completion: Completion; score: number; order: number }> = [];
+	for (const [group, list] of [own, language].entries()) {
+		list.forEach((completion, i) => {
+			const score = q
+				? Math.min(rank(completion.name, q), completion.label ? rank(completion.label, q) : 4)
+				: 0;
+			if (score > 3) return;
+			scored.push({ completion, score: score * 2 + group, order: i });
+		});
+	}
+	scored.sort((a, b) => a.score - b.score || a.order - b.order);
+	return scored.slice(0, MAX_COMPLETIONS).map((s) => s.completion);
+}
+
+/** The identifier the caret sits in the middle or at the end of, and where it starts and ends. */
+export function identifierAt(
+	text: string,
+	caret: number,
+): { prefix: string; start: number; end: number } | null {
+	const at = Math.max(0, Math.min(caret, text.length));
+	let start = at;
+	while (start > 0 && /\w/.test(text[start - 1]!)) start--;
+	if (start === at) return null;
+	if (!/[A-Za-z_]/.test(text[start]!)) return null;
+	let end = at;
+	while (end < text.length && /\w/.test(text[end]!)) end++;
+	return { prefix: text.slice(start, at), start, end };
+}
+
+/** The text and caret that accepting `name` at the caret leaves behind. */
+export function applyCompletion(
+	text: string,
+	caret: number,
+	name: string,
+): { text: string; caret: number } {
+	const target = identifierAt(text, caret);
+	if (!target) return { text, caret };
+	return {
+		text: text.slice(0, target.start) + name + text.slice(target.end),
+		caret: target.start + name.length,
+	};
 }
 
 /** The arguments one call carries, split on the commas of its own depth. */

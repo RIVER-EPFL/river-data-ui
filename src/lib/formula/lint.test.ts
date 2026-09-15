@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { callAt, completionsFor, lintFormula, nearest } from './lint';
+import {
+	MAX_COMPLETIONS,
+	applyCompletion,
+	callAt,
+	completionsFor,
+	identifierAt,
+	lintFormula,
+	nearest,
+} from './lint';
 
 const known = {
 	variables: ['Dissolved_O2', 'WTW_Temp_degC_1', 'Field_BP'],
@@ -68,13 +76,74 @@ describe('formula lint', () => {
 	});
 
 	it('completes the author\'s own names before the language\'s', () => {
-		expect(completionsFor('Fie', known)).toEqual(['Field_BP']);
-		expect(completionsFor('co', known)).toEqual(['cos', 'cosh', 'coalesce']);
+		expect(completionsFor('Fie', known).map((c) => c.name)).toEqual(['Field_BP']);
+		expect(completionsFor('co', known).map((c) => c.name).slice(0, 3)).toEqual([
+			'cos',
+			'cosh',
+			'coalesce',
+		]);
 		// The curve coefficients are offered only where a slot binds them.
-		expect(completionsFor('curve', known)).toEqual([]);
-		expect(completionsFor('curve', { ...known, hasCurve: true })).toEqual([
+		expect(completionsFor('curve', known).map((c) => c.name)).toEqual([]);
+		expect(completionsFor('curve', { ...known, hasCurve: true }).map((c) => c.name)).toEqual([
 			'curve_slope',
 			'curve_intercept',
 		]);
+	});
+
+	it('says where each name it offers comes from', () => {
+		expect(completionsFor('bp', known).slice(0, 2)).toEqual([
+			{ name: 'bp', kind: 'step' },
+			{ name: 'Field_BP', kind: 'parameter', label: undefined },
+		]);
+		expect(completionsFor('lab', known)).toEqual([{ name: 'lab_temp_avg_degC', kind: 'constant' }]);
+	});
+
+	it('offers every parameter a shared prefix names', () => {
+		const headspace = {
+			variables: ['hs_co2_ppm', 'hs_h2o_pct', 'Field_BP'],
+		};
+		expect(completionsFor('hs_', headspace).map((c) => c.name)).toEqual([
+			'hs_co2_ppm',
+			'hs_h2o_pct',
+		]);
+	});
+
+	it('ranks a prefix over a run of letters, and a run over a misspelling', () => {
+		const names = { variables: ['Temp_degC', 'WTW_Temp_degC_1', 'Tmp'] };
+		expect(completionsFor('temp', names).map((c) => c.name)).toEqual([
+			'Temp_degC',
+			'WTW_Temp_degC_1',
+			'Tmp',
+		]);
+	});
+
+	it('finds a parameter by its label when the code says nothing', () => {
+		const labelled = {
+			variables: ['DOC_ppb'],
+			labels: { DOC_ppb: 'Dissolved organic carbon' },
+		};
+		expect(completionsFor('dissolved', labelled).map((c) => c.name)).toEqual(['DOC_ppb']);
+	});
+
+	it('offers at most one screenful', () => {
+		const many = { variables: Array.from({ length: 40 }, (_, i) => `param_${i}`) };
+		expect(completionsFor('param', many)).toHaveLength(MAX_COMPLETIONS);
+	});
+
+	it('reads the identifier the caret is in the middle of, and nothing after an operator', () => {
+		expect(identifierAt('hs_co2 * 2', 3)).toEqual({ prefix: 'hs_', start: 0, end: 6 });
+		expect(identifierAt('hs_co2 * ', 9)).toBeNull();
+		expect(identifierAt('2 * 3', 5)).toBeNull();
+	});
+
+	it('replaces the whole identifier the caret is in, not the part typed so far', () => {
+		expect(applyCompletion('hs_co * 2', 5, 'hs_co2_ppm')).toEqual({
+			text: 'hs_co2_ppm * 2',
+			caret: 10,
+		});
+		expect(applyCompletion('hs_c2 * 2', 4, 'hs_co2_ppm')).toEqual({
+			text: 'hs_co2_ppm * 2',
+			caret: 10,
+		});
 	});
 });

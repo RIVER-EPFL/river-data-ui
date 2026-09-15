@@ -2,10 +2,14 @@
 	import { type DragPayload, type FormulaNode, parseFromMeval, serializeToMeval, getNodeAtPath, replaceAtPath, hasEmptySlots, wrapWithOp, payloadToNode } from './ast';
 	import { tokens } from '$lib/charts/tokens';
 	import {
+		applyCompletion,
 		callAt,
+		completionsFor,
+		identifierAt,
 		lintFormula,
 		FORMULA_FUNCTIONS,
 		FORMULA_FUNCTION_HELP,
+		type Completion,
 		type Diagnostic
 	} from '$lib/formula/lint';
 	import type { Constant } from '$api/crud';
@@ -36,6 +40,8 @@
 	let root = $state<FormulaNode>(value ? parseFromMeval(value) : { type: 'empty' });
 	let selectedPath = $state<string | null>(null);
 	let paletteSearch = $state('');
+	let closedSections = $state<Record<string, boolean>>({ Functions: true, Constants: true });
+	let textInput = $state<HTMLInputElement | null>(null);
 	let editingConstantPath = $state<string | null>(null);
 	let dragOverPath = $state<string | null>(null);
 
@@ -55,6 +61,7 @@
 		})
 	);
 	const filteredFns = $derived(FUNCTIONS.filter((f) => !paletteSearch || f.includes(paletteSearch.toLowerCase())));
+	const labels = $derived(Object.fromEntries(variables.map((v) => [v.name, v.label])));
 	const filteredConstants = $derived(
 		constants.filter((c) => !paletteSearch || c.name.toLowerCase().includes(paletteSearch.toLowerCase()))
 	);
@@ -219,6 +226,8 @@
 		const input = e.target as HTMLInputElement;
 		value = input.value;
 		caret = input.selectionStart ?? input.value.length;
+		completionsDismissed = false;
+		completionIndex = 0;
 		try { root = parseFromMeval(input.value); } catch { /* the diagnostics say what is wrong */ }
 	}
 
@@ -235,6 +244,73 @@
 		});
 	});
 	const signature = $derived(callAt(value, caret));
+
+	// What the caret is on, offered while it is being typed: the list is what teaches the names,
+	// so the palette does not have to be read top to bottom.
+	let completionsDismissed = $state(false);
+	const completionTarget = $derived(completionsDismissed ? null : identifierAt(value, caret));
+	const completions = $derived<Completion[]>(
+		completionTarget
+			? completionsFor(completionTarget.prefix, {
+					variables: variables.map((v) => v.name),
+					constants: constants.map((c) => c.name),
+					steps,
+					hasCurve,
+					ownCode,
+					labels,
+				})
+			: []
+	);
+	let completionIndex = $state(0);
+	const activeCompletion = $derived(completions[Math.min(completionIndex, completions.length - 1)]);
+
+	function accept(name: string) {
+		const applied = applyCompletion(value, caret, name);
+		value = applied.text;
+		caret = applied.caret;
+		completionsDismissed = true;
+		try { root = parseFromMeval(value); } catch { /* the diagnostics say what is wrong */ }
+		if (textInput) {
+			textInput.value = applied.text;
+			textInput.setSelectionRange(applied.caret, applied.caret);
+			textInput.focus();
+		}
+	}
+
+	function textKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape' && completions.length > 0) {
+			e.preventDefault();
+			completionsDismissed = true;
+			return;
+		}
+		if (completions.length === 0) return;
+		if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+			e.preventDefault();
+			const step = e.key === 'ArrowDown' ? 1 : completions.length - 1;
+			completionIndex = (Math.min(completionIndex, completions.length - 1) + step) % completions.length;
+			return;
+		}
+		if (e.key === 'Enter' || e.key === 'Tab') {
+			if (!activeCompletion) return;
+			e.preventDefault();
+			accept(activeCompletion.name);
+		}
+	}
+
+	function syncCaret(e: Event) {
+		const input = e.target as HTMLInputElement;
+		caret = input.selectionStart ?? input.value.length;
+		completionsDismissed = true;
+	}
+
+	function toggleSection(name: string) {
+		closedSections = { ...closedSections, [name]: !closedSections[name] };
+	}
+
+	function sectionOpen(name: string, matches: number): boolean {
+		if (paletteSearch) return matches > 0;
+		return !closedSections[name];
+	}
 
 	function colorForVar(name: string): string {
 		const idx = variables.findIndex((v) => v.name === name);
@@ -256,13 +332,46 @@
 
 <div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 	<div class="px-4 py-3 border-b border-brand-divider bg-brand-bg">
-		<input
-			type="text"
-			{value}
-			oninput={handleTextInput}
-			placeholder="Type formula directly, or drag tokens from the palette into the canvas…"
-			class="w-full px-3 py-2 border border-brand-divider rounded bg-brand-surface text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
-		/>
+		<div class="relative">
+			<input
+				bind:this={textInput}
+				type="text"
+				{value}
+				oninput={handleTextInput}
+				onkeydown={textKeydown}
+				onclick={syncCaret}
+				placeholder="Type formula directly, or drag tokens from the palette into the canvas…"
+				role="combobox"
+				aria-expanded={completions.length > 0}
+				aria-controls="formula-completions"
+				aria-autocomplete="list"
+				class="w-full px-3 py-2 border border-brand-divider rounded bg-brand-surface text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+			/>
+			{#if completions.length > 0}
+				<ul
+					id="formula-completions"
+					aria-label="Name completions"
+					class="absolute z-20 left-0 right-0 mt-1 max-h-56 overflow-y-auto rounded border border-brand-divider bg-brand-surface shadow-lg py-1"
+				>
+					{#each completions as completion (completion.name)}
+						<li>
+							<button
+								type="button"
+								aria-selected={completion.name === activeCompletion?.name}
+								onmousedown={(e) => { e.preventDefault(); accept(completion.name); }}
+								class="w-full flex items-baseline gap-2 px-3 py-1 text-left text-xs {completion.name === activeCompletion?.name ? 'bg-brand-primary/10' : 'hover:bg-brand-bg'}"
+							>
+								<span class="font-mono text-brand-text">{completion.name}</span>
+								{#if completion.label && completion.label !== completion.name}
+									<span class="flex-1 truncate text-brand-muted">{completion.label}</span>
+								{/if}
+								<span class="ml-auto text-[10px] uppercase tracking-wider text-brand-muted">{completion.kind}</span>
+							</button>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</div>
 		{#if signature}
 			<span class="text-xs text-brand-muted mt-1 block font-mono">
 				{signature.name}({#if signature.arity === null}…{:else}{#each Array(signature.arity) as _, i (i)}<span
@@ -283,7 +392,7 @@
 	</div>
 
 	<div class="flex min-h-[260px]">
-		<div class="w-64 shrink-0 border-r border-brand-divider bg-brand-bg p-3 space-y-3 overflow-y-auto max-h-[460px]">
+		<div class="w-56 shrink-0 border-r border-brand-divider bg-brand-bg p-2 space-y-2 overflow-y-auto max-h-[460px]">
 			<input
 				type="text"
 				placeholder="Search…"
@@ -291,93 +400,97 @@
 				class="w-full px-2 py-1.5 border border-brand-divider rounded text-xs bg-brand-surface focus:outline-none focus:ring-1 focus:ring-brand-primary/30"
 			/>
 
-			{#each [...groupedVars.entries()] as [category, vars]}
+			{#each [...groupedVars.entries()] as [category, vars] (category)}
 				<div>
-					<div class="text-xs font-semibold text-brand-muted mb-1.5 uppercase tracking-wider">{category}</div>
-					<div class="space-y-1">
-						{#each vars as v}
-							<div
-								draggable="true"
-								role="button"
-								tabindex="0"
-								ondragstart={(e) => onDragStart(e, { kind: 'variable', name: v.name })}
-								onclick={() => clickPalette({ kind: 'variable', name: v.name })}
-								onkeydown={(e) => paletteKeydown(e, { kind: 'variable', name: v.name })}
-								class="px-2 py-1.5 rounded text-xs cursor-grab active:cursor-grabbing border border-transparent hover:border-brand-primary/40 flex items-center gap-2"
-								style:background="{colorForVar(v.name)}18"
-								title="Click or drag into formula"
-							>
-								<span class="w-2 h-2 rounded-full shrink-0" style:background={colorForVar(v.name)}></span>
-								<span class="flex-1 min-w-0">
-									<span class="block font-medium text-brand-text truncate">{v.label}</span>
-									<span class="block font-mono text-brand-muted text-[10px] truncate">{v.name}</span>
-								</span>
-							</div>
-						{/each}
-					</div>
+					{@render sectionHeader(category, vars.length)}
+					{#if sectionOpen(category, vars.length)}
+						<div>
+							{#each vars as v (v.name)}
+								<div
+									draggable="true"
+									role="button"
+									tabindex="0"
+									ondragstart={(e) => onDragStart(e, { kind: 'variable', name: v.name })}
+									onclick={() => clickPalette({ kind: 'variable', name: v.name })}
+									onkeydown={(e) => paletteKeydown(e, { kind: 'variable', name: v.name })}
+									class="px-1.5 py-0.5 rounded text-xs cursor-grab active:cursor-grabbing border border-transparent hover:border-brand-primary/40 flex items-center gap-1.5"
+									title="{v.label}&#10;Click or drag into formula"
+								>
+									<span class="w-1.5 h-1.5 rounded-full shrink-0" style:background={colorForVar(v.name)}></span>
+									<span class="font-mono text-brand-text truncate">{v.name}</span>
+								</div>
+							{/each}
+						</div>
+					{/if}
 				</div>
 			{/each}
 
 			{#if filteredFns.length > 0}
 				<div>
-					<div class="text-xs font-semibold text-brand-muted mb-1.5 uppercase tracking-wider">Functions</div>
-					<div class="flex flex-wrap gap-1">
-						{#each filteredFns as fn}
-							<div
-								draggable="true"
-								role="button"
-								tabindex="0"
-								ondragstart={(e) => onDragStart(e, { kind: 'function', name: fn })}
-								onclick={() => clickPalette({ kind: 'function', name: fn })}
-								onkeydown={(e) => paletteKeydown(e, { kind: 'function', name: fn })}
-								class="px-2 py-1 text-xs rounded cursor-grab active:cursor-grabbing border border-brand-divider bg-brand-surface text-brand-text hover:bg-brand-bg"
-								title="{FORMULA_FUNCTION_HELP[fn] ?? fn}&#10;Click or drag {fn}() into formula; drop onto a token to wrap it"
-							>{fn}()</div>
-						{/each}
-					</div>
+					{@render sectionHeader('Functions', filteredFns.length)}
+					{#if sectionOpen('Functions', filteredFns.length)}
+						<div class="flex flex-wrap gap-1">
+							{#each filteredFns as fn (fn)}
+								<div
+									draggable="true"
+									role="button"
+									tabindex="0"
+									ondragstart={(e) => onDragStart(e, { kind: 'function', name: fn })}
+									onclick={() => clickPalette({ kind: 'function', name: fn })}
+									onkeydown={(e) => paletteKeydown(e, { kind: 'function', name: fn })}
+									class="px-1.5 py-0.5 text-xs rounded cursor-grab active:cursor-grabbing border border-brand-divider bg-brand-surface text-brand-text hover:bg-brand-bg"
+									title="{FORMULA_FUNCTION_HELP[fn] ?? fn}&#10;Click or drag {fn}() into formula; drop onto a token to wrap it"
+								>{fn}()</div>
+							{/each}
+						</div>
+					{/if}
 				</div>
 			{/if}
 
 			<div>
-				<div class="text-xs font-semibold text-brand-muted mb-1.5 uppercase tracking-wider">Operators</div>
-				<div class="flex gap-1 flex-wrap">
-					{#each ['+', '-', '*', '/', '^'] as op}
-						<div
-							draggable="true"
-							role="button"
-							tabindex="0"
-							ondragstart={(e) => onDragStart(e, { kind: 'operator', op })}
-							onclick={() => clickPalette({ kind: 'operator', op })}
-							onkeydown={(e) => paletteKeydown(e, { kind: 'operator', op })}
-							class="w-9 h-9 text-sm font-mono rounded cursor-grab active:cursor-grabbing border border-brand-divider bg-brand-surface hover:bg-brand-bg flex items-center justify-center font-bold"
-							aria-label="Insert {op} operator"
-						>{op}</div>
-					{/each}
-				</div>
-			</div>
-
-			{#if filteredConstants.length > 0}
-				<div>
-					<div class="text-xs font-semibold text-brand-muted mb-1.5 uppercase tracking-wider">Named Constants</div>
-					<div class="space-y-1">
-						{#each filteredConstants as c}
+				{@render sectionHeader('Operators', 5)}
+				{#if sectionOpen('Operators', 5)}
+					<div class="flex gap-1 flex-wrap">
+						{#each ['+', '-', '*', '/', '^'] as op (op)}
 							<div
 								draggable="true"
 								role="button"
 								tabindex="0"
-								ondragstart={(e) => onDragStart(e, { kind: 'constant', name: c.name })}
-								onclick={() => clickPalette({ kind: 'constant', name: c.name })}
-								onkeydown={(e) => paletteKeydown(e, { kind: 'constant', name: c.name })}
-								class="px-2 py-1 rounded cursor-grab active:cursor-grabbing border border-brand-divider bg-brand-surface flex items-baseline justify-between gap-2"
-								title={c.description || c.name}
-							>
-								<span class="font-mono text-xs text-brand-text">{c.name}</span>
-								<span class="font-mono text-numeric text-brand-muted whitespace-nowrap">
-									{fmtNumber(c.value)}{c.units ? ` ${c.units}` : ''}
-								</span>
-							</div>
+								ondragstart={(e) => onDragStart(e, { kind: 'operator', op })}
+								onclick={() => clickPalette({ kind: 'operator', op })}
+								onkeydown={(e) => paletteKeydown(e, { kind: 'operator', op })}
+								class="w-7 h-7 text-sm font-mono rounded cursor-grab active:cursor-grabbing border border-brand-divider bg-brand-surface hover:bg-brand-bg flex items-center justify-center font-bold"
+								aria-label="Insert {op} operator"
+							>{op}</div>
 						{/each}
 					</div>
+				{/if}
+			</div>
+
+			{#if filteredConstants.length > 0}
+				<div>
+					{@render sectionHeader('Constants', filteredConstants.length)}
+					{#if sectionOpen('Constants', filteredConstants.length)}
+						<div>
+							{#each filteredConstants as c (c.name)}
+								<div
+									draggable="true"
+									role="button"
+									tabindex="0"
+									ondragstart={(e) => onDragStart(e, { kind: 'constant', name: c.name })}
+									onclick={() => clickPalette({ kind: 'constant', name: c.name })}
+									onkeydown={(e) => paletteKeydown(e, { kind: 'constant', name: c.name })}
+									class="px-1.5 py-0.5 rounded cursor-grab active:cursor-grabbing border border-transparent hover:border-brand-primary/40 flex items-baseline justify-between gap-2"
+									title="{c.description || c.name}&#10;{fmtNumber(c.value)}{c.units ? ` ${c.units}` : ''}"
+								>
+									<span class="font-mono text-xs text-brand-text truncate">{c.name}</span>
+									<span class="font-mono text-numeric text-brand-muted whitespace-nowrap">
+										{fmtNumber(c.value)}
+									</span>
+								</div>
+							{/each}
+						</div>
+					{/if}
 				</div>
 			{/if}
 
@@ -505,4 +618,17 @@
 			aria-label="Select empty slot"
 		>?</span>
 	{/if}
+{/snippet}
+
+{#snippet sectionHeader(name: string, count: number)}
+	<button
+		type="button"
+		onclick={() => toggleSection(name)}
+		aria-expanded={sectionOpen(name, count)}
+		class="w-full flex items-center gap-1 py-0.5 text-xs font-semibold text-brand-muted uppercase tracking-wider bg-transparent border-none cursor-pointer hover:text-brand-text"
+	>
+		<span class="font-mono text-[10px]">{sectionOpen(name, count) ? '▾' : '▸'}</span>
+		<span class="truncate">{name}</span>
+		<span class="ml-auto font-normal normal-case tabular-nums">{count}</span>
+	</button>
 {/snippet}
