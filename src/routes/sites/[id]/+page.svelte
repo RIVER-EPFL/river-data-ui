@@ -53,6 +53,7 @@
 	import ParameterChart, { type ChartData } from '$components/charts/ParameterChart.svelte';
 	import { GAP_THRESHOLDS } from '$lib/charts/uPlotTheme';
 	import { autoResolution, type Frequency } from '$lib/charts/multiSiteSeries';
+	import { byCadence } from '$lib/sites/cadence';
 	import { initialChartRange } from '$lib/charts/initialRange';
 	import type { SpotPointStats } from '$lib/charts/spotMarkers';
 	import FrequencyChips from '$components/charts/FrequencyChips.svelte';
@@ -439,16 +440,6 @@
 		// locking the control over a site that simply has nothing yet.
 		return avail.high || avail.low ? avail : { high: true, low: true };
 	});
-
-	// A chart empty because the Frequency filter excludes the only cadence this parameter holds
-	// says so, rather than reading as a gap in the record.
-	function emptyMessageFor(siteParameterId: string): string {
-		const ext = paramExtents.get(siteParameterId);
-		if (!ext) return 'No data for selected range';
-		if (frequency === 'low' && !ext.has_spot) return 'No low-frequency (grab/spot) data for this parameter';
-		if (frequency === 'high' && !ext.has_continuous) return 'No continuous (sensor) data for this parameter';
-		return 'No data for selected range';
-	}
 
 	let sliderRef: TimeRangeSlider | undefined = $state();
 
@@ -1237,7 +1228,7 @@
 	}
 
 	// Measurement params for charts (exclude device_health, only those with data)
-	const measurementParams = $derived(
+	const measurementWithData = $derived(
 		siteParameters.filter((sp) => {
 			const param = parameters.find((p) => p.id === sp.parameter_id);
 			return param && param.category !== 'device_health' && hasData(sp);
@@ -1245,11 +1236,22 @@
 	);
 
 	// Diagnostic (device_health) params, only those with data
-	const diagnosticParams = $derived(
+	const diagnosticWithData = $derived(
 		siteParameters.filter((sp) => {
 			const param = parameters.find((p) => p.id === sp.parameter_id);
 			return param && param.category === 'device_health' && hasData(sp);
 		})
+	);
+
+	// The chosen cadence decides which charts are on the page, not just what each one fetches: a
+	// parameter the cadence cannot draw is left out rather than drawn empty.
+	const extentOf = (sp: SiteParameter) => paramExtents.get(sp.id);
+	const measurementSplit = $derived(byCadence(measurementWithData, extentOf, frequency));
+	const diagnosticSplit = $derived(byCadence(diagnosticWithData, extentOf, frequency));
+	const measurementParams = $derived(measurementSplit.shown);
+	const diagnosticParams = $derived(diagnosticSplit.shown);
+	const hiddenByFrequency = $derived(
+		measurementSplit.hidden + (showDiagnostics ? diagnosticSplit.hidden : 0)
 	);
 </script>
 
@@ -1461,6 +1463,15 @@
 				{/if}
 
 				<!-- Charts -->
+				{#if hiddenByFrequency > 0}
+					<p class="text-xs text-brand-muted">
+						{hiddenByFrequency}
+						{hiddenByFrequency === 1 ? 'parameter has' : 'parameters have'} no
+						{frequency === 'low' ? 'grab' : 'sensor'} data and
+						{hiddenByFrequency === 1 ? 'is' : 'are'} hidden while Frequency is
+						{frequency === 'low' ? 'Low' : 'High'}.
+					</p>
+				{/if}
 				{#each measurementParams as sp, i}
 					{@const param = parameters.find((p) => p.id === sp.parameter_id)}
 					{@const th = effectiveThreshold(sp.parameter_id)}
@@ -1501,7 +1512,7 @@
 							originLabel={originLabels.get(sp.id) ?? ''}
 							extraSeries={sensorSplitMap.get(sp.id) ?? []}
 							primarySeriesLabel={firstSensorLabels.get(sp.id) ?? null}
-							emptyMessage={emptyMessageFor(sp.id)}
+							emptyMessage="No data for selected range"
 							exactTimes={chartResolution === 'raw'}
 							onpointclick={(p) => pinInspector(sp, param.name, p)}
 						/>
@@ -1523,7 +1534,11 @@
 					{/if}
 				{/each}
 				{#if measurementParams.length === 0}
-					<p class="text-sm text-brand-muted">No parameters configured for this site.</p>
+					<p class="text-sm text-brand-muted">
+						{measurementWithData.length === 0
+							? 'No parameters configured for this site.'
+							: `No parameter at this site holds ${frequency === 'low' ? 'grab' : 'sensor'} data.`}
+					</p>
 				{/if}
 
 				<!-- Diagnostics -->
@@ -1569,7 +1584,7 @@
 										originLabel={originLabels.get(sp.id) ?? ''}
 							extraSeries={sensorSplitMap.get(sp.id) ?? []}
 							primarySeriesLabel={firstSensorLabels.get(sp.id) ?? null}
-										emptyMessage={emptyMessageFor(sp.id)}
+										emptyMessage="No data for selected range"
 										exactTimes={chartResolution === 'raw'}
 										onpointclick={(p) => pinInspector(sp, param.name, p)}
 									/>
