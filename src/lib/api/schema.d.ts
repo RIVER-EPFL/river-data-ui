@@ -9442,12 +9442,6 @@ export interface components {
             engine?: string | null;
             label: string;
             name: string;
-            /**
-             * Format: uuid
-             * @description The parameter group whose members this calculation reads and writes. One calculation per
-             *     group (Q43).
-             */
-            parameter_group_id?: string | null;
         };
         CreateSyncEventRequest: {
             /** Format: uuid */
@@ -10707,7 +10701,19 @@ export interface components {
             /** Format: date-time */
             time: string;
         };
+        /** @description One calculation of a group's columns, as the group page lists it. */
+        GroupCalculation: {
+            /** Format: uuid */
+            id: string;
+            label: string;
+            name: string;
+        };
         GroupDefinition: {
+            /**
+             * @description The calculations that read or publish one of the members, by name. A calculation belongs to
+             *     no group (Q169), so the tie between the two is the parameters they share.
+             */
+            calculations: components["schemas"]["GroupCalculation"][];
             code: string;
             description: string | null;
             /** Format: uuid */
@@ -10717,8 +10723,8 @@ export interface components {
             /** Format: int32 */
             ordinal: number;
             /**
-             * @description The section labels, in the order their first column appears. Empty where the group's
-             *     calculation declares none.
+             * @description The section labels, in the order their first column appears. Empty where no calculation
+             *     naming one of these columns declares a section.
              */
             sections: string[];
         };
@@ -12554,6 +12560,7 @@ export interface components {
              *     confirming or merging the parameter.
              */
             needs_review: boolean;
+            unpublished_by: string | null;
         };
         ParameterAggregateData: {
             /** @description Average values array (same length as times) */
@@ -12830,6 +12837,12 @@ export interface components {
              *     confirming or merging the parameter.
              */
             needs_review: boolean;
+            /**
+             * @description The calculation that minted this row and no longer publishes it, where one did: a formula
+             *     ticked as a step still names this code while it publishes nothing, so the catalogue offers a
+             *     name nothing computes. Read from the formulas on every fetch, never stored.
+             */
+            unpublished_by: string | null;
         };
         /** @description Parameter information embedded in site responses */
         ParameterResponse: {
@@ -17341,11 +17354,6 @@ export interface components {
              *     unless `[a-z0-9_]` (`ToolScriptOperations`).
              */
             name: string;
-            /**
-             * Format: uuid
-             * @description The parameter group this calculation reads and writes. One calculation per group (Q43).
-             */
-            parameter_group_id: string | null;
             /** Format: date-time */
             updated_at: string;
             /** Format: int64 */
@@ -17384,11 +17392,6 @@ export interface components {
              *     unless `[a-z0-9_]` (`ToolScriptOperations`).
              */
             name: string;
-            /**
-             * Format: uuid
-             * @description The parameter group this calculation reads and writes. One calculation per group (Q43).
-             */
-            parameter_group_id: string | null;
             /** Format: date-time */
             updated_at: string;
             /** Format: int64 */
@@ -17629,12 +17632,6 @@ export interface components {
              */
             enabled?: boolean | null;
             label?: string | null;
-            /**
-             * Format: uuid
-             * @description Bind the calculation to a parameter group. Omitted leaves the binding as it is, the way
-             *     the other fields of this request behave.
-             */
-            parameter_group_id?: string | null;
         };
         UpdateSyncEventRequest: {
             /** Format: int64 */

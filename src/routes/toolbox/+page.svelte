@@ -14,10 +14,10 @@
 		type ToolDescriptor,
 		type ToolScriptSummary,
 	} from '$api/service';
-	import { api, type DerivedParameter, type Parameter, type ParameterGroup } from '$api/crud';
+	import { api, type DerivedParameter, type Parameter } from '$api/crud';
 	import { listAll } from '$api/paged';
 	import { calculationRows, unconfiguredInputs, type CalculationRow } from '$lib/calculations/rows';
-	import { newCalculationRequest, unboundGroups } from '$lib/toolbox/newCalculation';
+	import { newCalculationRequest } from '$lib/toolbox/newCalculation';
 	import { AUTHOR_CALCULATIONS, authoringState, loadCatalog } from '$lib/toolbox/authoring';
 	import { me } from '$auth/me.svelte';
 	import Badge from '$components/ui/Badge.svelte';
@@ -38,24 +38,17 @@
 	let engineFilter = $state<'all' | 'formula' | 'script'>('all');
 
 	// A new formula calculation. The engine is chosen here because it is a property of the
-	// calculation, and the group because one group holds one calculation (Q43).
-	let groups = $state<ParameterGroup[]>([]);
+	// calculation; a parameter group is not one of its properties (Q169).
 	let composing = $state(false);
 	let newName = $state('');
 	let newLabel = $state('');
-	let newGroupId = $state('');
 	let creating = $state(false);
-	const availableGroups = $derived(unboundGroups(groups, scripts));
 	const access = $derived(
 		authoringState({ permitted: me.can(AUTHOR_CALCULATIONS), refused })
 	);
 
 	async function createCalculation() {
-		const made = newCalculationRequest({
-			name: newName,
-			label: newLabel,
-			parameterGroupId: newGroupId,
-		});
+		const made = newCalculationRequest({ name: newName, label: newLabel });
 		if ('error' in made) {
 			toastStore.error(made.error);
 			return;
@@ -90,7 +83,7 @@
 
 	onMount(async () => {
 		try {
-			const [d, t, s, p, closure, g, h] = await Promise.all([
+			const [d, t, s, p, closure, h] = await Promise.all([
 				listAll<DerivedParameter>(api.derivedParameters),
 				listTools().catch(() => [] as ToolDescriptor[]),
 				loadCatalog(listToolScripts),
@@ -99,7 +92,6 @@
 					calculations: [],
 					coverage: [],
 				})),
-				loadCatalog(() => listAll<ParameterGroup>(api.parameterGroups)),
 				getCalculationHealth().catch(() => [] as CalculationHealth[]),
 			]);
 			formulas = d;
@@ -107,11 +99,9 @@
 			scripts = s.status === 'loaded' ? s.items : [];
 			parameters = p;
 			coverage = closure.coverage ?? [];
-			groups = g.status === 'loaded' ? g.items : [];
 			health = h;
-			refused = s.status === 'refused' || g.status === 'refused';
-			loadError =
-				(s.status === 'failed' && s.message) || (g.status === 'failed' && g.message) || null;
+			refused = s.status === 'refused';
+			loadError = (s.status === 'failed' && s.message) || null;
 		} catch (e) {
 			loadError = e instanceof Error ? e.message : 'Failed to load calculations.';
 		} finally {
@@ -203,14 +193,12 @@
 					<div>
 						<p class="font-semibold">New formula calculation</p>
 						<p class="text-brand-muted text-xs mt-0.5">
-							Reads and writes the members of one parameter group, and holds an ordered set of
-							formulas. Its formulas are authored on its own page.
+							Holds an ordered set of formulas over the parameters they name. Its formulas are
+							authored on its own page.
 						</p>
 					</div>
 					{#if !composing}
-						<Button size="sm" onclick={() => (composing = true)} disabled={availableGroups.length === 0}
-							>New calculation</Button
-						>
+						<Button size="sm" onclick={() => (composing = true)}>New calculation</Button>
 					{/if}
 				</div>
 				{#if composing}
@@ -231,27 +219,11 @@
 								class="block mt-0.5 px-2 py-1 rounded border border-brand-divider bg-brand-surface text-sm text-brand-text w-40"
 							/>
 						</label>
-						<label class="text-xs text-brand-muted">
-							Parameter group
-							<select
-								bind:value={newGroupId}
-								class="block mt-0.5 px-2 py-1 rounded border border-brand-divider bg-brand-surface text-sm text-brand-text"
-							>
-								<option value="">Choose a group…</option>
-								{#each availableGroups as g (g.id)}
-									<option value={g.id}>{g.label}</option>
-								{/each}
-							</select>
-						</label>
 						<Button size="sm" onclick={createCalculation} disabled={creating}
 							>{creating ? 'Creating…' : 'Create and open it'}</Button
 						>
 						<Button size="sm" variant="ghost" onclick={() => (composing = false)}>Cancel</Button>
 					</div>
-				{:else if availableGroups.length === 0}
-					<p class="text-brand-muted text-xs mt-2">
-						Every parameter group already holds a calculation. A new one needs a new group.
-					</p>
 				{/if}
 			</div>
 		{/if}

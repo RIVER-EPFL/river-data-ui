@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { readNumber, separatorsFor } from './number';
+import { readNumber, separatorsFor, writeNumber } from './number';
 
 describe('separatorsFor', () => {
 	it('reads the separators of the Swiss locales the lab runs', () => {
@@ -55,5 +55,29 @@ describe('readNumber', () => {
 		expect(readNumber('1,2e3', 'fr-CH')).toBe(1200);
 		expect(readNumber('  12,5  ', 'fr-CH')).toBe(12.5);
 		expect(readNumber('0', 'en-US')).toBe(0);
+	});
+});
+
+describe('writeNumber', () => {
+	it('writes the separators the locale reads', () => {
+		expect(writeNumber(12.5, 'fr-CH')).toBe('12,5');
+		expect(writeNumber(12.5, 'de-CH')).toBe('12.5');
+		expect(writeNumber(12.5, 'en-US')).toBe('12.5');
+		expect(writeNumber(1026, 'fr-CH')).toBe("1'026");
+		expect(writeNumber(1234.5, 'en-US')).toBe('1,234.5');
+	});
+
+	it('draws a slot at its declared precision, and an undeclared one as it stands', () => {
+		expect(writeNumber(12.5, 'fr-CH', 3)).toBe('12,500');
+		expect(writeNumber(12.5, 'fr-CH', 0)).toBe('13');
+		expect(writeNumber(0.000123, 'en-US')).toBe('0.000123');
+	});
+
+	it('round trips through readNumber in every locale the lab runs', () => {
+		for (const locale of ['fr-CH', 'de-CH', 'en-US', 'fr-FR']) {
+			for (const value of [12.5, 1026, 1234.5, -3.25, 0, 0.001]) {
+				expect(readNumber(writeNumber(value, locale), locale), `${value} in ${locale}`).toBe(value);
+			}
+		}
 	});
 });

@@ -134,6 +134,11 @@
 		createOpen = false;
 		publish();
 		if (!sensorId) return;
+		await fetchCurves(sensorId);
+	}
+
+	/** The instrument's offerable curves, plus `keep` where a selection already names one. */
+	async function fetchCurves(sensorId: string, keep?: string) {
 		loadingCurves = true;
 		try {
 			const res = await api.standardCurves.list({
@@ -142,13 +147,33 @@
 				sort: ['fitted_on', 'DESC'],
 			});
 			// A retired curve is out of circulation: the lab has finished with it, so it is not
-			// offered for a new measurement. The readings already corrected with it keep it.
-			curves = res.data.filter((c) => !c.retired_at);
+			// offered for a new measurement. The readings already corrected with it keep it, and so
+			// does a run reopened on it.
+			curves = res.data.filter((c) => !c.retired_at || c.id === keep);
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Failed to load standard curves');
 		} finally {
 			loadingCurves = false;
 		}
+	}
+
+	/**
+	 * Open the controls on a stored curve the caller arrived with, which is a reopened run replaying
+	 * what it chose (Q192). The selection names the curve alone, so the instrument that lists it is
+	 * read from the curve itself.
+	 */
+	async function adoptStored(curveId: string) {
+		let curve: StandardCurve;
+		try {
+			curve = await api.standardCurves.get(curveId);
+		} catch {
+			return;
+		}
+		if (!instruments.some((i) => i.id === curve.sensor_id)) showRetired = true;
+		selectedInstrumentId = curve.sensor_id;
+		await fetchCurves(curve.sensor_id, curveId);
+		selectedCurveId = curveId;
+		publish();
 	}
 
 	// Reads `showRetired`, so turning retired instruments on reloads the list.
@@ -166,7 +191,10 @@
 		try {
 			const res = await getLastUsedCurve(site, by);
 			lastUsed = res.sensor_id ? res : null;
-			if (!res.sensor_id || selectedInstrumentId || value.slope !== null) return;
+			// A slot that already carries a curve was given it by a person, here or in the run this
+			// form reopened, so the note is shown and nothing is applied over it.
+			if (!res.sensor_id || selectedInstrumentId || value.standardCurveId || value.slope !== null)
+				return;
 			selectedInstrumentId = res.sensor_id;
 			await loadCurves(res.sensor_id);
 		} catch {
@@ -201,7 +229,9 @@
 	$effect(() => {
 		if (adopted) return;
 		adopted = true;
-		if (value.standardCurveId === null && value.slope !== null && value.intercept !== null) {
+		if (value.standardCurveId) {
+			void adoptStored(value.standardCurveId);
+		} else if (value.slope !== null && value.intercept !== null) {
 			mode = 'manual';
 			manualSlope = String(value.slope);
 			manualIntercept = String(value.intercept);

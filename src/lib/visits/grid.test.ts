@@ -214,6 +214,17 @@ describe('pasting a spreadsheet block', () => {
 	});
 
 	// The lab's own machines are fr-CH, where Excel writes 12,5 and 1'026.
+	// A block leaves the grid in the form the machine's spreadsheet reads, and comes back as the
+	// same numbers: the grid is a sheet the lab copies to and from.
+	it('copies out the form the locale writes, and reads its own block back', () => {
+		const rows = applyPaste(base(), 0, 0, '12,5\t1\'026', 'fr-CH').rows;
+		const block = copyBlock(rows, 0, 0, 1, 2, 'fr-CH');
+		expect(block).toBe("12,5\t1'026");
+		expect(applyPaste(base(), 0, 0, block, 'fr-CH').rows[0].replicates.map((c) => c.value)).toEqual([
+			12.5, 1026,
+		]);
+	});
+
 	it('reads a sheet written in the locale of the machine pasting it', () => {
 		const pasted = applyPaste(base(), 0, 0, '12,5\t13,1\t12,8', 'fr-CH');
 		expect(pasted.unreadable).toBe(0);
@@ -255,28 +266,28 @@ describe('copying a selection out of the grid', () => {
 		);
 
 	it('is the block as tab-separated lines, in the layout a paste reads', () => {
-		expect(copyBlock(base(), 0, 0, 2, 3)).toBe('120\t122\t118\n7.1\t7.2\t');
+		expect(copyBlock(base(), 0, 0, 2, 3, 'en-US')).toBe('120\t122\t118\n7.1\t7.2\t');
 	});
 
 	it('takes the block the selection covers, not the whole row', () => {
-		expect(copyBlock(base(), 0, 1, 1, 2)).toBe('122\t118');
+		expect(copyBlock(base(), 0, 1, 1, 2, 'en-US')).toBe('122\t118');
 	});
 
 	it('writes a repeat that was not measured as an empty cell', () => {
 		const rows = applyPaste(base(), 0, 0, '120\t\t118', 'en-US').rows;
-		expect(copyBlock(rows, 0, 0, 1, 3)).toBe('120\t\t118');
+		expect(copyBlock(rows, 0, 0, 1, 3, 'en-US')).toBe('120\t\t118');
 	});
 
 	it('copies what a computed row shows, which a paste back onto it will not write', () => {
 		const rows = gridFromVisit(
 			visit([cell({ parameter_id: 'p-dom', parameter_code: 'DOM', written_by: 'dom', replicates: [stored(0, 4.2)] })]),
 		);
-		expect(copyBlock(rows, 0, 0, 1, 1)).toBe('4.2');
+		expect(copyBlock(rows, 0, 0, 1, 1, 'en-US')).toBe('4.2');
 	});
 
 	it('round trips: the block pasted back where it was copied from changes nothing', () => {
 		const rows = base();
-		const pasted = applyPaste(rows, 0, 0, copyBlock(rows, 0, 0, 2, 3), 'en-US').rows;
+		const pasted = applyPaste(rows, 0, 0, copyBlock(rows, 0, 0, 2, 3, 'en-US'), 'en-US').rows;
 		expect(pasted.map((r) => r.replicates.map((c) => c.value))).toEqual(
 			rows.map((r) => r.replicates.map((c) => c.value)),
 		);
@@ -572,7 +583,7 @@ describe('the statistics beside a row', () => {
 		)[0];
 
 	it('takes the precision the slot declares', () => {
-		expect(rowStats(withSample(), 2)).toEqual({
+		expect(rowStats(withSample(), 2, 'en-US')).toEqual({
 			n: '3',
 			mean: '100.80',
 			stdev: '0.15',
@@ -582,23 +593,29 @@ describe('the statistics beside a row', () => {
 	});
 
 	it('leaves an undeclared slot at what was measured, rounded to no precision nobody chose', () => {
-		const stats = rowStats(withSample(), null);
+		const stats = rowStats(withSample(), null, 'en-US');
 		expect(stats.mean).toBe('100.8');
 		expect(stats.stdev).toBe('0.152753');
+	});
+
+	// The statistics are read beside the cells, so they are written the way the cells are.
+	it('writes a statistic in the locale of the machine reading it', () => {
+		expect(rowStats(withSample(), 2, 'fr-CH').mean).toBe('100,80');
+		expect(rowStats(withSample(), null, 'fr-CH').stdev).toBe('0,152753');
 	});
 
 	// A lone measurement forms no sample row, and the serving arm reports it as n = 1. The
 	// statistics a single value does not have stay absent.
 	it('counts a row with no sample as the one measurement it holds', () => {
 		const rows = gridFromVisit(visit([cell({ replicates: [stored(0, 120)] })]));
-		expect(rowStats(rows[0], 2)).toEqual({ n: '1', mean: '-', stdev: '-', min: '-', max: '-' });
+		expect(rowStats(rows[0], 2, 'en-US')).toEqual({ n: '1', mean: '-', stdev: '-', min: '-', max: '-' });
 	});
 
 	it('counts nothing where the lone replicate is excluded from the mean', () => {
 		const rows = gridFromVisit(
 			visit([cell({ replicates: [{ ...stored(0, 120), flagged: true }] })]),
 		);
-		expect(rowStats(rows[0], 2).n).toBe('0');
+		expect(rowStats(rows[0], 2, 'en-US').n).toBe('0');
 	});
 });
 

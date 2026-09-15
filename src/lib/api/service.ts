@@ -1317,8 +1317,6 @@ export const createToolScript = (body: {
 	created_by?: string;
 	/** `script` (the default) or `formula`; the engine is a property of the calculation. */
 	engine?: 'script' | 'formula';
-	/** The parameter group whose members a formula calculation reads and writes. */
-	parameter_group_id?: string;
 }) => POST<ToolScriptSummary>(`${ADMIN}/tool_scripts`, body);
 
 export const updateToolScript = (

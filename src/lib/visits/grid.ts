@@ -1,6 +1,6 @@
 import type { EventCell, EventDetailResponse, ProvenanceRecord } from '$api/service';
-import { NO_VALUE, formatCount, formatMeasurement } from '$lib/format';
-import { readNumber } from './number';
+import { NO_VALUE, formatCount } from '$lib/format';
+import { readNumber, writeNumber, writeStatistic } from './number';
 import { cellRole, cellWritable, type CellRole } from './role';
 
 // The visit as a grid (M50, oriented by I18): one row per parameter, replicate columns beside the
@@ -65,18 +65,29 @@ export interface GridRow {
  */
 export function rowStats(
 	row: GridRow,
-	decimals?: number | null,
+	decimals: number | null,
+	locale: string,
 ): { n: string; mean: string; stdev: string; min: string; max: string } {
 	if (!row.stats) {
 		return { n: NO_VALUE, mean: NO_VALUE, stdev: NO_VALUE, min: NO_VALUE, max: NO_VALUE };
 	}
+	// The statistics sit in the same sheet as the cells, so they are written the same way.
+	const stat = (value: number | undefined) =>
+		value === undefined || !Number.isFinite(value)
+			? NO_VALUE
+			: writeStatistic(value, locale, decimals);
 	return {
 		n: formatCount(row.stats.n),
-		mean: formatMeasurement(row.stats.mean, decimals),
-		stdev: formatMeasurement(row.stats.stdev, decimals),
-		min: formatMeasurement(row.stats.min, decimals),
-		max: formatMeasurement(row.stats.max, decimals),
+		mean: stat(row.stats.mean),
+		stdev: stat(row.stats.stdev),
+		min: stat(row.stats.min),
+		max: stat(row.stats.max),
 	};
+}
+
+/** What a cell draws: the number as this machine writes one, so it reads back as it was typed. */
+export function cellText(value: number | null, locale: string): string {
+	return value === null ? '' : writeNumber(value, locale);
 }
 
 /**
@@ -427,6 +438,7 @@ export function copyBlock(
 	atColumn: number,
 	height: number,
 	width: number,
+	locale: string,
 ): string {
 	const lines: string[] = [];
 	for (let dy = 0; dy < height; dy += 1) {
@@ -435,7 +447,7 @@ export function copyBlock(
 		const line: string[] = [];
 		for (let dx = 0; dx < width; dx += 1) {
 			const value = row.replicates[atColumn + dx]?.value ?? null;
-			line.push(value === null ? '' : String(value));
+			line.push(cellText(value, locale));
 		}
 		lines.push(line.join('\t'));
 	}

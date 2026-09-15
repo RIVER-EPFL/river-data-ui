@@ -348,6 +348,28 @@
 							</p>
 						{/if}
 						<RunResultsTable tables={resultTables} />
+						<SaveResultsPanel
+							bind:open={showSaveDialog}
+							contextSiteId={contextSiteId || null}
+							contextTime={contextIso || null}
+							visitLocked={!!stagedVisit.current}
+							visitRecompute={stagedVisit.detail?.recompute}
+							onsaved={() => stagedVisit.refresh()}
+							runId={result?.run_id ?? null}
+							toolName={activeTool?.name ?? ''}
+							toolTitle={activeTool?.label ?? ''}
+							results={result?.results ?? null}
+							outputs={activeTool?.outputs ?? []}
+							toolParams={activeTool?.params ?? []}
+							eventInputs={activeTool?.event_inputs ?? []}
+							visitCells={stagedVisit.detail?.cells ?? []}
+							toolVersion={result?.tool_version ?? null}
+							calcInputs={resultInputs}
+							curvesUsed={resultCurves}
+							serverConstants={result?.constants ?? null}
+							serverCurves={result?.curves ?? []}
+							{appliedCurveLabel}
+						/>
 					</div>
 				{:else}
 					<div class="rounded-md border border-brand-divider bg-brand-surface p-4 flex items-center justify-center h-40 text-sm text-brand-muted">
@@ -359,24 +381,3 @@
 	{/if}
 </div>
 
-<SaveResultsPanel
-	bind:open={showSaveDialog}
-	contextSiteId={contextSiteId || null}
-	contextTime={contextIso || null}
-	visitLocked={!!stagedVisit.current}
-	onsaved={() => stagedVisit.refresh()}
-	runId={result?.run_id ?? null}
-	toolName={activeTool?.name ?? ''}
-	toolTitle={activeTool?.label ?? ''}
-	results={result?.results ?? null}
-	outputs={activeTool?.outputs ?? []}
-	toolParams={activeTool?.params ?? []}
-	eventInputs={activeTool?.event_inputs ?? []}
-	visitCells={stagedVisit.detail?.cells ?? []}
-	toolVersion={result?.tool_version ?? null}
-	calcInputs={resultInputs}
-	curvesUsed={resultCurves}
-	serverConstants={result?.constants ?? null}
-	serverCurves={result?.curves ?? []}
-	{appliedCurveLabel}
-/>

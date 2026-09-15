@@ -77,3 +77,38 @@ export function readNumber(text: string, locale: string): number | null {
 	const value = Number(plain);
 	return Number.isFinite(value) ? value : null;
 }
+
+/**
+ * A number as the locale writes it: the locale's decimal separator, and its grouping on a value
+ * large enough to take one. This is what `readNumber` reads back, and what a spreadsheet on the
+ * same machine expects from a copied block.
+ *
+ * `decimals` is the slot's declared precision; undeclared writes the number as it stands, which is
+ * what a cell being typed into needs.
+ */
+export function writeNumber(value: number, locale: string, decimals?: number | null): string {
+	if (!Number.isFinite(value)) return '';
+	const precision =
+		typeof decimals === 'number' && Number.isInteger(decimals) && decimals >= 0
+			? { minimumFractionDigits: decimals, maximumFractionDigits: decimals }
+			: { maximumFractionDigits: 20 };
+	return new Intl.NumberFormat(locale, { useGrouping: true, ...precision }).format(value);
+}
+
+/** Significant digits a statistic falls back to where its slot declares no precision. */
+const FALLBACK_DIGITS = 6;
+
+/**
+ * A statistic beside the cells: the slot's precision where it declares one, six significant
+ * digits where it does not, in the locale's own form.
+ */
+export function writeStatistic(
+	value: number,
+	locale: string,
+	decimals?: number | null,
+): string {
+	if (typeof decimals === 'number' && Number.isInteger(decimals) && decimals >= 0) {
+		return writeNumber(value, locale, decimals);
+	}
+	return writeNumber(Number(value.toPrecision(FALLBACK_DIGITS)), locale);
+}

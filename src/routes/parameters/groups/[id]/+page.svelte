@@ -5,6 +5,7 @@
 	import { page } from '$app/state';
 	import { api, type Parameter, type ParameterGroup, type ParameterGroupMember } from '$api/crud';
 	import { getGroupDefinition, type GroupDefinitionMember } from '$api/service';
+	import type { components } from '$api/schema';
 	import { assignBody, assignmentError, replicateSpec, roleLabel, suggestedCount } from '$lib/parameters/groups';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Badge from '$components/ui/Badge.svelte';
@@ -19,6 +20,9 @@
 	let group = $state<ParameterGroup | null>(null);
 	let groups = $state<ParameterGroup[]>([]);
 	let columns = $state<GroupDefinitionMember[]>([]);
+	// The calculations that read or publish one of these columns. A calculation belongs to no group
+	// (Q169); what ties the two is the parameters they share, which the server computes.
+	let calculations = $state<components['schemas']['GroupCalculation'][]>([]);
 	let members = $state<ParameterGroupMember[]>([]);
 	let parameters = $state<Parameter[]>([]);
 	let loading = $state(true);
@@ -41,6 +45,7 @@
 		group = g;
 		groups = all.data;
 		columns = definition.members;
+		calculations = definition.calculations;
 		members = memberRows.data;
 		parameters = catalog.data;
 	}
@@ -171,6 +176,22 @@
 		</div>
 
 		{#if error}<ErrorNotice message={error} />{/if}
+
+		<div class="rounded-md border border-brand-divider bg-brand-surface px-4 py-3 text-sm">
+			<p class="font-semibold">Calculations over these columns</p>
+			{#if calculations.length === 0}
+				<p class="text-brand-muted text-xs mt-0.5">No calculation reads or publishes one of these parameters.</p>
+			{:else}
+				<ul class="mt-2 space-y-1">
+					{#each calculations as calculation (calculation.id)}
+						<li>
+							<a href="{base}/calculations/{calculation.id}" class="text-brand-primary no-underline hover:underline">{calculation.label || calculation.name}</a>
+							<span class="text-brand-muted text-xs font-mono"> {calculation.name}</span>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</div>
 
 		<div class="border border-brand-divider rounded-md overflow-hidden">
 			<table class="w-full text-sm">

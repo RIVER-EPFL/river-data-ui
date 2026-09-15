@@ -4349,14 +4349,6 @@
           },
           "name": {
             "type": "string"
-          },
-          "parameter_group_id": {
-            "description": "The parameter group whose members this calculation reads and writes. One calculation per\ngroup (Q43).",
-            "format": "uuid",
-            "type": [
-              "string",
-              "null"
-            ]
           }
         },
         "required": [
@@ -7673,8 +7665,36 @@
         ],
         "type": "object"
       },
+      "GroupCalculation": {
+        "description": "One calculation of a group's columns, as the group page lists it.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "label"
+        ],
+        "type": "object"
+      },
       "GroupDefinition": {
         "properties": {
+          "calculations": {
+            "description": "The calculations that read or publish one of the members, by name. A calculation belongs to\nno group (Q169), so the tie between the two is the parameters they share.",
+            "items": {
+              "$ref": "#/components/schemas/GroupCalculation"
+            },
+            "type": "array"
+          },
           "code": {
             "type": "string"
           },
@@ -7702,7 +7722,7 @@
             "type": "integer"
           },
           "sections": {
-            "description": "The section labels, in the order their first column appears. Empty where the group's\ncalculation declares none.",
+            "description": "The section labels, in the order their first column appears. Empty where no calculation\nnaming one of these columns declares a section.",
             "items": {
               "type": "string"
             },
@@ -7716,7 +7736,8 @@
           "description",
           "ordinal",
           "members",
-          "sections"
+          "sections",
+          "calculations"
         ],
         "type": "object"
       },
@@ -12426,6 +12447,12 @@
           "needs_review": {
             "description": "Set on catalog entries created mechanically (the analyte seed); cleared by a manager\nconfirming or merging the parameter.",
             "type": "boolean"
+          },
+          "unpublished_by": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -12437,7 +12464,8 @@
           "description",
           "aliases",
           "needs_review",
-          "created_at"
+          "created_at",
+          "unpublished_by"
         ],
         "type": "object"
       },
@@ -13198,6 +13226,13 @@
           "needs_review": {
             "description": "Set on catalog entries created mechanically (the analyte seed); cleared by a manager\nconfirming or merging the parameter.",
             "type": "boolean"
+          },
+          "unpublished_by": {
+            "description": "The calculation that minted this row and no longer publishes it, where one did: a formula\nticked as a step still names this code while it publishes nothing, so the catalogue offers a\nname nothing computes. Read from the formulas on every fetch, never stored.",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -13209,7 +13244,8 @@
           "description",
           "aliases",
           "needs_review",
-          "created_at"
+          "created_at",
+          "unpublished_by"
         ],
         "type": "object"
       },
@@ -25262,14 +25298,6 @@
             "description": "The stable machine name `/tools/{name}/calculate` is reached by. Lower-cased and refused\nunless `[a-z0-9_]` (`ToolScriptOperations`).",
             "type": "string"
           },
-          "parameter_group_id": {
-            "description": "The parameter group this calculation reads and writes. One calculation per group (Q43).",
-            "format": "uuid",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "updated_at": {
             "format": "date-time",
             "type": "string"
@@ -25296,7 +25324,6 @@
           "updated_at",
           "enabled",
           "engine",
-          "parameter_group_id",
           "versions",
           "active_version_no",
           "version_count"
@@ -25356,14 +25383,6 @@
             "description": "The stable machine name `/tools/{name}/calculate` is reached by. Lower-cased and refused\nunless `[a-z0-9_]` (`ToolScriptOperations`).",
             "type": "string"
           },
-          "parameter_group_id": {
-            "description": "The parameter group this calculation reads and writes. One calculation per group (Q43).",
-            "format": "uuid",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "updated_at": {
             "format": "date-time",
             "type": "string"
@@ -25384,7 +25403,6 @@
           "updated_at",
           "enabled",
           "engine",
-          "parameter_group_id",
           "active_version_no",
           "version_count"
         ],
@@ -26035,14 +26053,6 @@
             ]
           },
           "label": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "parameter_group_id": {
-            "description": "Bind the calculation to a parameter group. Omitted leaves the binding as it is, the way\nthe other fields of this request behave.",
-            "format": "uuid",
             "type": [
               "string",
               "null"

@@ -40,6 +40,8 @@
 	import { instrumentFilter, kindLabel, measuringInstruments, retiredSuffix } from '$lib/instruments/kind';
 	import { instrumentIsChoosable, readingInstrument } from '$lib/tools/rowInstrument';
 	import { correctionNote, correctionRows, type CorrectionRow } from '$lib/tools/correctionRows';
+	import { checkState, consequenceLine } from '$lib/tools/saveBar';
+	import { computing, runOutputs, runReportLine } from '$lib/visits/recompute';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import LastUsedCurveNote from './LastUsedCurveNote.svelte';
@@ -66,6 +68,7 @@
 		toolParams = [],
 		eventInputs = [],
 		visitCells = [],
+		visitRecompute = undefined,
 		toolVersion = null,
 		calcInputs = null,
 		curvesUsed = [],
@@ -91,6 +94,8 @@
 		eventInputs?: ToolEventInput[];
 		/** What the staged visit holds, so a typed-over bound input is offered as a correction. */
 		visitCells?: EventCell[];
+		/** The staged visit's recompute state, so the run report waits for the chain it triggered. */
+		visitRecompute?: string;
 		toolVersion?: ToolVersionRef | null;
 		/** The exact calculate request body these results came from. */
 		calcInputs?: Record<string, unknown> | null;
@@ -116,7 +121,8 @@
 		 */
 		visitLocked?: boolean;
 		/** Called after a successful save, so a caller can refresh what the visit now records. */
-		onsaved?: () => void;
+		/** Re-read the staged visit. Awaited, so the run report reads what the save landed. */
+		onsaved?: () => Promise<void> | void;
 	} = $props();
 
 	interface ResultRow {
@@ -297,11 +303,22 @@
 	let previewGroups = $state<GrabExistingGroup[]>([]);
 	// The calculations this save re-runs, from the same dry run: known before the write.
 	let calculations = $state<CalculationImpact[]>([]);
+
+	// With a visit staged the site and the instant are fixed before the dialog opens, so what a
+	// save would re-run and whether it has been screened can be read beside the results (Q194).
+	// Unstaged, the dialog is where a site is chosen, and a check has nothing to check against
+	// until it is.
+	const barActive = $derived(visitLocked && results !== null);
+	// What the calculations did, once a save has run: the bar keeps the account where the results
+	// are rather than losing it with a toast.
+	let runReport = $state<string | null>(null);
 	let previewBusy = $state(false);
 	// Existing replicate groups from a refused save; confirming re-sends with mode: 'replace'.
 	let conflictGroups = $state<GrabExistingGroup[] | null>(null);
 	let previewTimer: ReturnType<typeof setTimeout> | null = null;
 	let previewGeneration = 0;
+	const RUN_POLL_MS = 400;
+	const RUN_POLL_ATTEMPTS = 50;
 
 	// What the runner actually received wins over the browser's picker state: the server resolves a
 	// slot to a curve, and only its answer can say which coefficients produced a number. The picker
@@ -392,7 +409,7 @@
 	let appliedSignature = '';
 
 	$effect(() => {
-		if (!open) return;
+		if (!open && !barActive) return;
 		if (resultSignature === appliedSignature) {
 			void loadSites();
 			return;
@@ -409,6 +426,7 @@
 			: toDatetimeLocal(Date.now(), BROWSER_ZONE);
 		collectedZone = BROWSER_ZONE;
 		check = null;
+		runReport = null;
 		label = '';
 		notes = curveNote;
 		preview = [];
@@ -683,8 +701,11 @@
 	const checkSignature = $derived(
 		`${selectedSiteId}|${JSON.stringify(checkValues)}`,
 	);
-	const checkSatisfied = $derived(check !== null && check.signature === checkSignature);
-	const checkStale = $derived(check !== null && check.signature !== checkSignature);
+	const gate = $derived(checkState(check?.signature ?? null, checkSignature));
+	const checkSatisfied = $derived(gate === 'checked');
+	const checkStale = $derived(gate === 'stale');
+
+	const consequence = $derived(consequenceLine(calculations));
 
 	// The instant these readings are written at. A staged visit's instant is used exactly as the
 	// event holds it: recomposing it from the datetime-local field would round to the minute and
@@ -788,7 +809,7 @@
 	}
 
 	$effect(() => {
-		if (!open || !canSave) {
+		if ((!open && !barActive) || !canSave) {
 			preview = [];
 			previewGroups = [];
 			calculations = [];
@@ -811,8 +832,40 @@
 		return params.find((p) => p.id === parameterId)?.name ?? parameterId.slice(0, 8);
 	}
 
+	/** The value each parameter serves at the visit, as the grid reads it. */
+	function servedByCode(cells: EventCell[]): Record<string, number | null> {
+		return Object.fromEntries(cells.map((c) => [c.parameter_code, c.served_value ?? null]));
+	}
+
+	/** The finding standing on each parameter, so an output that did not move says why. */
+	function findingByCode(cells: EventCell[]): Record<string, string | undefined> {
+		return Object.fromEntries(cells.map((c) => [c.parameter_code, c.finding?.kind]));
+	}
+
+	/**
+	 * Read the visit until the calculations this save triggered have finished writing, then say
+	 * what they did beside the results. The chain is a tracked job, so the save returns before its
+	 * outputs are in the store and one read shows the numbers it replaced.
+	 */
+	async function reportTheRun(
+		expected: CalculationImpact[],
+		before: Record<string, number | null>,
+	) {
+		await onsaved?.();
+		for (let attempt = 0; attempt < RUN_POLL_ATTEMPTS && computing(visitRecompute); attempt++) {
+			await new Promise((resolve) => setTimeout(resolve, RUN_POLL_MS));
+			await onsaved?.();
+		}
+		runReport = runReportLine(
+			runOutputs(expected, before, servedByCode(visitCells), findingByCode(visitCells)),
+		);
+	}
+
 	async function handleSave(replace = false) {
 		if (!canSave) return;
+		// The calculations and the values on each side of them are what the report is built from,
+		// and the save is about to replace the second.
+		const expectedOutputs = calculations;
 		saving = true;
 		try {
 			const res = await saveGrabSample({
@@ -838,7 +891,7 @@
 			}
 			conflictGroups = null;
 			open = false;
-			onsaved?.();
+			await reportTheRun(expectedOutputs, servedByCode(visitCells));
 		} catch (e) {
 			const groups = grabConflictGroups(e);
 			if (groups) {
@@ -851,6 +904,40 @@
 		}
 	}
 </script>
+
+<!-- The bar beside the results: what a save would re-run, where the screening stands, and what
+     the calculations did once it has run. The dialog below is the save form, not the place a
+     person first reads any of this (Q194). -->
+{#if barActive}
+	<div class="mt-3 rounded-md border border-brand-divider bg-brand-bg p-2.5 space-y-1.5 text-xs">
+		{#if consequence}
+			<p>{consequence}</p>
+		{/if}
+		<div class="flex items-center justify-between gap-2">
+			<span class="font-semibold">Seasonal check</span>
+			<Button size="sm" onclick={runCheck} disabled={checking || !canSave}>
+				{checking ? 'Checking…' : checkSatisfied ? 'Re-check' : 'Check against site history'}
+			</Button>
+		</div>
+		{#if checkStale}
+			<p class="text-severity-warning-text">
+				Values changed since the last check; check again before saving.
+			</p>
+		{:else if check}
+			{#each check.findings as f}
+				<p class={f.warning ? 'text-severity-warning-text' : 'text-brand-muted'}>{findingLabel(f)}</p>
+			{/each}
+		{:else}
+			<p class="text-brand-muted">
+				Screens each value against this site's history for the entry month ±2 across all years
+				(replicates pooled). Advisory, but saving requires a check of exactly these values.
+			</p>
+		{/if}
+		{#if runReport}
+			<p class="border-t border-brand-divider pt-1.5">{runReport}</p>
+		{/if}
+	</div>
+{/if}
 
 <Dialog bind:open title="Save to Site{toolTitle ? `: ${toolTitle}` : ''}" maxWidth="lg">
 	{#snippet children()}
@@ -1116,20 +1203,8 @@
 							at this timestamp; saving will ask before replacing them.
 						</p>
 					{/if}
-					{#if calculations.length > 0}
-						<div class="mt-1.5 text-xs">
-							<span class="font-semibold">Saving re-runs</span>
-							{#each calculations as c (c.tool)}
-								<span class="block">
-									{c.label}
-									{#if c.outputs.length > 0}
-										<span class="text-brand-muted">
-											rewriting {c.outputs.map((o) => o.parameter_code).join(', ')} at this visit
-										</span>
-									{/if}
-								</span>
-							{/each}
-						</div>
+					{#if !barActive && consequence}
+						<p class="mt-1.5 text-xs">{consequence}</p>
 					{/if}
 				</div>
 			{/if}
@@ -1152,7 +1227,7 @@
 				</div>
 			{/if}
 
-			{#if canSave}
+			{#if canSave && !barActive}
 				<div class="rounded-md border border-brand-divider bg-brand-bg p-2.5 space-y-1.5">
 					<div class="flex items-center justify-between">
 						<span class="flex items-center gap-1 text-xs font-semibold">

@@ -2,15 +2,19 @@
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
-	import { api, type Constant, type DerivedParameter, type Parameter } from '$api/crud';
+	import {
+		api,
+		type Constant,
+		type DerivedParameter,
+		type Parameter,
+		type ParameterGroupMember,
+	} from '$api/crud';
 	import {
 		draftRunFormulas,
-		getGroupDefinition,
 		getStepDependents,
 		getToolScript,
 		listSiteVisits,
 		type FormulaDraftRunResponse,
-		type GroupDefinition,
 		type StepDependents,
 		type ToolScriptDetail,
 		type VisitRow,
@@ -31,6 +35,7 @@
 		scalarOverrides,
 		type EditableFormula,
 	} from '$lib/calculations/editor';
+	import { portalReference, replicatedCodes } from '$lib/calculations/members';
 	import { perReplicateChoices } from '$lib/derivedParameters';
 	import { identifiers } from '$lib/formula/lint';
 	import { curveField } from '$lib/tools/form';
@@ -83,13 +88,10 @@
 	let run = $state<FormulaDraftRunResponse | null>(null);
 	let runError = $state('');
 
-	// What the source computed each of the group's columns with, carried by the pairing plan
-	// (Q149). It is the reference the formulas are written against, not something this page edits.
-	let portalReference = $state<Array<{ code: string; function: string; inputs: string[] }>>([]);
-
-	// The group's members entered several times at one visit. A source of one of those that a
-	// per-replicate formula walks is the family, not its mean (Q155).
-	let replicatedCodes = $state<string[]>([]);
+	// The group memberships of the catalog: what a parameter is entered several times as, and what
+	// the source computed it with. A calculation names no group (Q169), so both are read per
+	// parameter, for the parameters this set reads and writes.
+	let members = $state<ParameterGroupMember[]>([]);
 
 	// Steps this calculation reads but does not own (Q156), and the ones it could bring in.
 	let shareable = $state<DerivedParameter[]>([]);
@@ -98,7 +100,10 @@
 	let expanded = $state<string | null>(null);
 
 	const ordered = $derived(dependencyOrder(formulas));
-	const inputs = $derived(inputRows(formulas, parameters, constants, replicatedCodes));
+	// A source of a replicated parameter that a per-replicate formula walks is the family, not its
+	// mean (Q155); replicate-ness is the parameter's, in whichever group holds it.
+	const replicated = $derived(replicatedCodes(members, parameters));
+	const inputs = $derived(inputRows(formulas, parameters, constants, replicated));
 	const outputs = $derived(outputRows(formulas));
 	const families = $derived(inputs.filter((i) => i.kind === 'replicates').map((i) => i.name));
 	const scalars = $derived(scalarInputs(inputs));
@@ -121,16 +126,16 @@
 			: null,
 	);
 
-	// The portal calculations a group's members were computed with, in member order.
-	function sourceCalculations(definition: GroupDefinition) {
-		return definition.members.flatMap((m) => {
-			const declared = m.source_calculation as
-				| { function?: string; inputs?: string[] }
-				| undefined;
-			if (!declared?.function) return [];
-			return [{ code: m.code, function: declared.function, inputs: declared.inputs ?? [] }];
-		});
-	}
+	// The codes this set names: what its formulas read, and what they publish.
+	const namedCodes = $derived([
+		...new Set([
+			...inputs.filter((i) => i.kind === 'parameter' || i.kind === 'replicates').map((i) => i.name),
+			...formulas.map((f) => f.code.trim()).filter(Boolean),
+		]),
+	]);
+	// What the source computed each of those with, as its pairing plan recorded it (Q149). It is
+	// the reference the formulas are written against, not something this page edits.
+	const reference = $derived(portalReference(members, parameters, namedCodes));
 
 	function isDirty(f: EditableFormula): boolean {
 		const was = stored.find((s) => s.id === f.id);
@@ -210,7 +215,7 @@
 		loading = true;
 		error = '';
 		try {
-			const [script, rows, params, consts, steps] = await Promise.all([
+			const [script, rows, params, consts, steps, memberRows] = await Promise.all([
 				getToolScript(calculationId),
 				api.derivedParameters.list({
 					perPage: 500,
@@ -224,6 +229,7 @@
 					filter: { intermediate: true },
 					sort: ['code', 'ASC'],
 				}),
+				listAll<ParameterGroupMember>(api.parameterGroupMembers, { perPage: 500 }),
 			]);
 			calculation = script;
 			const declared = await declaredSteps(steps);
@@ -231,16 +237,10 @@
 			formulas = [...rows.data.map(editableFormula), ...declared];
 			parameters = params;
 			constants = consts;
+			members = memberRows;
 			// A step this calculation already reads, or already owns, is not one to bring in.
 			const own = new Set(stored.map((f) => f.id));
 			shareable = steps.filter((s) => !own.has(s.id));
-			const definition = script.parameter_group_id
-				? await getGroupDefinition(script.parameter_group_id)
-				: null;
-			portalReference = definition ? sourceCalculations(definition) : [];
-			replicatedCodes = definition
-				? definition.members.filter((m) => m.replicates).map((m) => m.code)
-				: [];
 		} catch (e) {
 			error =
 				e instanceof ApiError && (e.status === 401 || e.status === 403)
@@ -375,9 +375,6 @@
 					{#if calculation.description}<p class="text-sm text-brand-muted mt-1">{calculation.description}</p>{/if}
 				{/if}
 			</div>
-			{#if calculation?.parameter_group_id}
-				<a href="{base}/parameters/groups/{calculation.parameter_group_id}" class="text-sm text-brand-primary no-underline hover:underline">Parameter group</a>
-			{/if}
 		</div>
 	</div>
 
@@ -566,7 +563,7 @@
 			</section>
 		</div>
 
-		{#if portalReference.length > 0}
+		{#if reference.length > 0}
 			<!-- What the source computed these columns with, carried by the plan that paired them. -->
 			<section class="rounded-md border border-brand-divider bg-brand-surface">
 				<div class="px-3 py-2 border-b border-brand-divider">
@@ -574,11 +571,11 @@
 					<p class="text-xs text-brand-muted">What the source computed each column with, as its pairing plan recorded it. Nothing here runs; it is the statement the formulas above are written against.</p>
 				</div>
 				<ul class="divide-y divide-brand-divider">
-					{#each portalReference as reference (reference.code)}
+					{#each reference as recorded (recorded.code)}
 						<li class="px-3 py-2 text-sm">
-							<span class="font-mono">{reference.code}</span>
+							<span class="font-mono">{recorded.code}</span>
 							<span class="text-brand-muted"> = </span>
-							<span class="font-mono">{reference.function}({reference.inputs.join(', ')})</span>
+							<span class="font-mono">{recorded.function}({recorded.inputs.join(', ')})</span>
 						</li>
 					{/each}
 				</ul>

@@ -190,6 +190,9 @@ export interface ParameterGroupMember {
 	parameter_id: string;
 	ordinal: number;
 	replicates: Record<string, unknown> | null;
+	/** What the source computed this member with: `{ function, inputs }`, the portal's own
+	 *  calculation and the columns it reads. Null where nothing computed the column. */
+	source_calculation: { function?: string; inputs?: string[] } | null;
 	label: string | null;
 	units: string | null;
 	decimal_places: number | null;

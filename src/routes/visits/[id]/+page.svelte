@@ -26,6 +26,7 @@
 		copyBlock,
 		duplicatedParameters,
 		entryGroups,
+		cellText,
 		expectedReplicates,
 		rowKey,
 		rowStats,
@@ -394,7 +395,7 @@
 		const block = bounds(focused);
 		if (block.height * block.width === 1) return;
 		event.preventDefault();
-		const text = copyBlock(rows, block.row, block.column, block.height, block.width);
+		const text = copyBlock(rows, block.row, block.column, block.height, block.width, locale);
 		navigator.clipboard?.writeText(text).catch(() => {});
 	}
 
@@ -765,7 +766,7 @@
 				<tbody>
 					{#each rows as row, rowIndex (rowKey(row))}
 						{#if shown.has(row.parameterId)}
-						{@const stats = rowStats(row, slotDisplay[row.parameterId]?.decimals ?? null)}
+						{@const stats = rowStats(row, slotDisplay[row.parameterId]?.decimals ?? null, locale)}
 						<tr class="border-t border-gray-100 dark:border-gray-800">
 							<th
 								scope="row"
@@ -902,7 +903,7 @@
 												? covers(focused, rowIndex, column)
 												: false}
 											class:text-severity-warning={cell?.unverified}
-											value={cell?.value ?? ''}
+											value={cellText(cell?.value ?? null, locale)}
 											title={cellStateTitle(cell)}
 											onfocus={() => (focused = onFocusMoved(focused, rowIndex, column))}
 											onkeydown={(e) => onCellKey(e, rowIndex, column)}
