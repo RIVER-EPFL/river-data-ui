@@ -15,7 +15,16 @@ vi.mock("$api/service", () => ({
   pollJob: (id: string) => pollJob(id),
 }));
 
-vi.mock("$auth/me.svelte", () => ({ me: { can: () => true, data: null } }));
+const level = { value: 3 };
+vi.mock("$auth/me.svelte", () => ({
+  me: {
+    can: () => true,
+    get level() {
+      return level.value;
+    },
+    data: null,
+  },
+}));
 
 const SiteVisitsTab = (await import("./SiteVisitsTab.svelte")).default;
 
@@ -48,6 +57,17 @@ const cell = (id: string) => ({
   max: null,
   sd_estimator: null,
   sd_estimator_source: null,
+  has_provenance: false,
+  replicates: [
+    {
+      replicate_index: 0,
+      value: STORED,
+      stream_id: `stream-${id}`,
+      flagged: false,
+      withdrawn: false,
+      unverified: false,
+    },
+  ],
 });
 
 const props = (declared: Record<string, number | null>) => ({
@@ -93,11 +113,11 @@ describe("SiteVisitsTab", () => {
 
     render(SiteVisitsTab, props({ declared: 2, undeclared: null }));
 
-    // The declaration the lab made is what the grid shows.
-    expect(await screen.findByText("100.80")).toBeTruthy();
+    // The declaration the lab made is what the grid shows, in the cell the lab types into.
+    expect(await screen.findByDisplayValue("100.80")).toBeTruthy();
     // A slot nobody declared for is not rounded to a precision nobody chose.
-    expect(screen.getByText("100.8")).toBeTruthy();
-    expect(screen.queryByText("100.800003")).toBeNull();
+    expect(screen.getByDisplayValue("100.8")).toBeTruthy();
+    expect(screen.queryByDisplayValue("100.800003")).toBeNull();
   });
 
   it("tells a portal-synced visit that no calculation runs there", async () => {
@@ -173,5 +193,36 @@ describe("SiteVisitsTab", () => {
       site_id: "site-1",
       only_findings: false,
     });
+  });
+
+  // Expected behaviour: an intern enters measurements and does not change stored ones (Q21), so
+  // the table offers them a cell to read, not one to type in.
+  it("offers an intern no input over a value the store already holds", async () => {
+    level.value = 1;
+    listSiteVisits.mockResolvedValue({
+      site_id: "site-1",
+      page: 1,
+      page_size: 50,
+      total: 1,
+      expected_parameters: [column("declared", "DOC", 2)],
+      visits: [
+        {
+          id: "visit-1",
+          collected_at: "2025-06-01T08:00:00Z",
+          created_by: "tester",
+          source: "manual",
+          notes: null,
+          parameters_filled: 1,
+          findings_open: 0,
+          recompute: "current",
+          cells: [cell("declared")],
+        },
+      ],
+    });
+
+    render(SiteVisitsTab, props({ declared: 2 }));
+    expect(await screen.findByText("100.80")).toBeTruthy();
+    expect(screen.queryByDisplayValue("100.80")).toBeNull();
+    level.value = 3;
   });
 });

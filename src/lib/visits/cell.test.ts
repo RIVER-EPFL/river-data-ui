@@ -22,6 +22,8 @@ function cell(over: Partial<VisitCell>): VisitCell {
 		n_flagged: 0,
 		n_withdrawn: 0,
 		n_unverified: 0,
+		replicates: [],
+		has_provenance: false,
 		...over,
 	};
 }

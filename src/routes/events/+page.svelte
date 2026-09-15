@@ -123,8 +123,8 @@
 			<td class="px-4 py-2 text-xs whitespace-nowrap">
 				<a
 					class="text-brand-primary hover:underline"
-					href="{base}/visits/{item.id}"
-					onclick={(e) => e.stopPropagation()}>Open the grid</a
+					href="{base}/sites/{item.site_id}?tab=visits&event={item.id}"
+					onclick={(e) => e.stopPropagation()}>Open the visit</a
 				>
 			</td>
 		{/snippet}

@@ -1036,6 +1036,12 @@ export type VisitRow = components['schemas']['VisitRow'];
 
 export type VisitsResponse = components['schemas']['VisitsResponse'];
 
+/** One column of the visits grid: the parameter, its units and the decimals its slot declares. */
+export type ExpectedParameter = components['schemas']['ExpectedParameter'];
+
+/** One replicate behind a listed cell. */
+export type VisitReplicate = components['schemas']['VisitReplicate'];
+
 export const listSiteVisits = (
 	siteId: string,
 	opts: { start?: string; end?: string; page?: number; page_size?: number } = {},

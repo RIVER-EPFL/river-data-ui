@@ -111,9 +111,10 @@
 						{#each added as event (event.id)}
 							<li class="flex items-center justify-between gap-2 px-2 py-1.5 text-xs">
 								<span>{siteRefs.name(event.site_id)} · {formatDateTime(event.collected_at)}</span>
-								<a class="text-brand-primary hover:underline" href="{base}/visits/{event.id}">
-									Open the grid
-								</a>
+								<a
+									class="text-brand-primary hover:underline"
+									href="{base}/sites/{event.site_id}?tab=visits&event={event.id}"
+								>Open the visit</a>
 							</li>
 						{/each}
 					</ul>

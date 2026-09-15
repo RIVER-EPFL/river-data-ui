@@ -15,6 +15,7 @@ const ENTERED = 10;
 const CURVE_SLOT = 'corr';
 
 interface Fixture {
+	siteId: string;
 	eventId: string;
 	siteName: string;
 	calculation: string;
@@ -127,26 +128,23 @@ async function seedComputedVisit(request: APIRequestContext): Promise<Fixture> {
 		)
 		.toBe(ENTERED * 2);
 
-	return { eventId: staged.id, siteName, calculation, inputName, outputName };
+	return { siteId: site.id, eventId: staged.id, siteName, calculation, inputName, outputName };
 }
 
 test('the save says what each output holds before it moves it', async ({ page, request }) => {
-	const { eventId, calculation, outputName } = await seedComputedVisit(request);
+	const { siteId, calculation, inputName, outputName } = await seedComputedVisit(request);
 	await signIn(page);
-	await page.goto(`${BASE_PATH}/visits/${eventId}`);
+	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
+	await expect(page.getByText('1 visit')).toBeVisible();
 
-	await page.getByTestId('grid-cell-0-0').fill('12');
+	await page.getByRole('textbox', { name: new RegExp(`^${inputName}`) }).fill('12');
 
-	// The consequence is on the entry bar while the values are typed, so it is read before the
-	// save form is opened rather than inside it.
-	await expect(
-		page.getByText(`${calculation} rewrites ${outputName} (now ${ENTERED * 2})`),
-	).toBeVisible();
-
-	// Typing over a stored value is a correction, not an entry, so no seasonal check gates it.
-	await page.getByRole('button', { name: /^Save .*value/ }).click();
+	// Typing over a stored value is a correction, not an entry, so no seasonal check gates it, and
+	// the save says what it will rewrite before it does.
+	await page.getByRole('button', { name: /^Save \d+ value/ }).click();
 	const dialog = page.getByRole('dialog');
 	await expect(dialog).toContainText('1 value will be written');
+	await expect(dialog).toContainText(`${calculation} rewrites ${outputName} (now ${ENTERED * 2})`);
 	await dialog.getByRole('button', { name: 'Cancel' }).click();
 });
 
@@ -154,21 +152,23 @@ test('a computed row opens its calculation at this visit, and its point record i
 	page,
 	request,
 }) => {
-	const { eventId, siteName, calculation, inputName, outputName } = await seedComputedVisit(request);
+	const { siteId, siteName, calculation, inputName, outputName } = await seedComputedVisit(request);
 	await signIn(page);
-	await page.goto(`${BASE_PATH}/visits/${eventId}`);
+	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
+	await expect(page.getByText('1 visit')).toBeVisible();
+	await page.locator('button[title="Expand this visit"]').click();
 
-	// The marker opens the record beside the row rather than navigating away.
-	const outputRow = page.getByRole('row', { name: new RegExp(`^${outputName}`) });
-	await outputRow.getByTestId('provenance-marker').click();
+	// The record opens beside the row rather than navigating away.
+	const outputRow = page.getByRole('row').filter({ hasText: outputName });
+	await outputRow.getByRole('button', { name: outputName }).click();
 	const record = page.getByRole('button', { name: 'Close' });
 	await expect(record).toBeVisible();
-	await expect(page).toHaveURL(new RegExp(`/visits/${eventId}$`));
+	await expect(page).toHaveURL(new RegExp(`tab=visits`));
 	await record.click();
 	await expect(record).toBeHidden();
 
-	// The row header opens the calculation with this visit staged and what it reads loaded.
-	await outputRow.getByRole('button', { name: `computed by ${calculation}` }).click();
+	// The calculation chip opens it with this visit chosen and what it reads loaded.
+	await outputRow.getByRole('button', { name: calculation, exact: true }).click();
 	await expect(page).toHaveURL(new RegExp(`/tools\\?tool=${calculation}`));
 	await expect(page.getByText('Field visit')).toBeVisible();
 	await expect(page.getByText(siteName).first()).toBeVisible();
@@ -189,9 +189,9 @@ test('a computed row opens its calculation at this visit, and its point record i
 	await save.getByRole('button', { name: 'Save', exact: true }).click();
 	await save.getByRole('button', { name: 'Replace existing' }).click();
 	await expect(save).toBeHidden();
-	await page.goto(`${BASE_PATH}/visits/${eventId}`);
-	await expect(page.getByTestId('grid-cell-0-0')).toHaveValue('14');
-	await expect(page.getByRole('row', { name: new RegExp(`^${outputName}`) })).toContainText('28');
+	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
+	await expect(page.getByRole('textbox', { name: new RegExp(`^${inputName}`) })).toHaveValue('14');
+	await expect(page.getByRole('button', { name: /^28\b/ })).toBeVisible();
 });
 
 /**
@@ -303,7 +303,7 @@ async function seedCurveRun(request: APIRequestContext) {
 		],
 	});
 
-	return { eventId: staged.id, calculation, outputName, curveName };
+	return { siteId: site.id, eventId: staged.id, calculation, outputName, curveName };
 }
 
 // Scenario: a calculation whose formula corrects with a standard curve, already run at this visit.
@@ -314,12 +314,14 @@ test('the row header reopens a calculation on the curve its last run here used',
 	page,
 	request,
 }) => {
-	const { eventId, calculation, outputName, curveName } = await seedCurveRun(request);
+	const { siteId, calculation, outputName, curveName } = await seedCurveRun(request);
 	await signIn(page);
-	await page.goto(`${BASE_PATH}/visits/${eventId}`);
+	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
+	await expect(page.getByText('1 visit')).toBeVisible();
+	await page.locator('button[title="Expand this visit"]').click();
 
-	const outputRow = page.getByRole('row', { name: new RegExp(`^${outputName}`) });
-	await outputRow.getByRole('button', { name: `computed by ${calculation}` }).click();
+	const outputRow = page.getByRole('row').filter({ hasText: outputName });
+	await outputRow.getByRole('button', { name: calculation, exact: true }).click();
 
 	await expect(page).toHaveURL(new RegExp(`/tools\\?tool=${calculation}&reload=`));
 	await expect(page.getByText('Opened with the curve this visit’s last run used.')).toBeVisible();

@@ -7424,7 +7424,8 @@ export interface paths {
          *     created, and a stored formula the set leaves out is deleted. One version is minted from the
          *     resulting set and activated, whatever the save touched, so an author's version history reads as
          *     their decisions rather than as their keystrokes (Q186). `migrate_stored` chooses what happens to
-         *     the values the superseded version produced (Q170). Requires Administrator.
+         *     the values the superseded version produced (Q170). Requires Administrator, or a token with
+         *     `write_metadata`, which is what a formula row is written under.
          */
         post: operations["save_formula_set"];
         delete?: never;
@@ -17813,6 +17814,12 @@ export interface components {
             finding_count?: number;
             /** @description Every replicate in the group is flagged. */
             flagged: boolean;
+            /**
+             * @description A tool run stands behind this measurement. Q8 sends such a value back into its tool to be
+             *     corrected, and a value with none through the edit primitive, so the grid needs to know
+             *     which arm a cell takes before it offers an edit.
+             */
+            has_provenance: boolean;
             /** Format: double */
             max?: number;
             /** Format: double */
@@ -17844,11 +17851,18 @@ export interface components {
             n_withdrawn: number;
             /** Format: uuid */
             parameter_id: string;
+            /**
+             * @description Every stored replicate, in index order, singletons included. The listing carries them so a
+             *     parameter's column opens to its repeats from what the grid already holds (Q200).
+             */
+            replicates: components["schemas"]["VisitReplicate"][];
             /** @description Which divisor produced `stdev`, and what chose it. */
             sd_estimator?: string;
             sd_estimator_source?: string;
             /** Format: double */
             stdev?: number;
+            /** @description The blob's tool name, when one exists. */
+            tool?: string;
             /**
              * Format: double
              * @description The served value: sample mean, else the lowest live replicate.
@@ -17891,6 +17905,31 @@ export interface components {
              * @description When the visit was rejected, its readings withdrawn beside it.
              */
             withdrawn_at?: string;
+        };
+        /**
+         * @description One replicate of a listing's cell: enough to draw the expanded column and to seed the edit
+         *     model, and no more. The curves, instruments and flag reasons behind it stay on
+         *     `/collection_events/{id}/detail`, which is what the point record reads.
+         */
+        VisitReplicate: {
+            flagged: boolean;
+            /** Format: int32 */
+            replicate_index: number;
+            /**
+             * Format: uuid
+             * @description The feed this replicate came in on. With the instant and the index it is the key a
+             *     correction is made against, so it sits on the replicate rather than on the cell: two
+             *     streams can serve one slot and a correction must name the right one.
+             */
+            stream_id: string;
+            /** @description A pending entry: stored and shown, counted by no statistic and served nowhere. */
+            unverified: boolean;
+            /**
+             * Format: double
+             * @description The corrected value where the reading carries one, else the raw value.
+             */
+            value: number;
+            withdrawn: boolean;
         };
         VisitRow: {
             /** @description One cell per parameter measured at the visit (the wide portal row). */

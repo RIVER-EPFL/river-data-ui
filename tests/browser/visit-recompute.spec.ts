@@ -1,11 +1,11 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
 import { BASE_PATH, signIn } from './portal';
 
-// Scenario: a scientist corrects an input in the entry grid and the calculation that reads it is
-// queued by the save. The grid is still open in front of them.
+// Scenario: a scientist corrects an input in the visits table and the calculation that reads it is
+// queued by the save. The table is still open in front of them.
 //
 // Expected behaviour: the output cell holds the recomputed number without the page being reloaded.
-// The chain runs as a tracked job, so the value arrives after the save's response, and a grid that
+// The chain runs as a tracked job, so the value arrives after the save's response, and a table that
 // reads the visit once is showing the old number.
 
 const API_URL = process.env.E2E_API_URL ?? 'http://localhost:3005';
@@ -15,6 +15,7 @@ const ENTERED = 10;
 const CORRECTED = 15;
 
 interface Fixture {
+	siteId: string;
 	eventId: string;
 	inputName: string;
 	outputName: string;
@@ -124,42 +125,40 @@ async function seedComputedVisit(request: APIRequestContext): Promise<Fixture> {
 		)
 		.toBe(ENTERED * 2);
 
-	return { eventId: staged.id, inputName, outputName };
+	return { siteId: site.id, eventId: staged.id, inputName, outputName };
 }
 
 test('a corrected input shows its recomputed output without a reload', async ({ page, request }) => {
-	const { eventId, inputName, outputName } = await seedComputedVisit(request);
+	const { siteId, inputName, outputName } = await seedComputedVisit(request);
 	await signIn(page);
-	await page.goto(`${BASE_PATH}/visits/${eventId}`);
+	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
+	await expect(page.getByText('1 visit')).toBeVisible();
 
-	// The input row names the output in its "what this feeds" marker, so the row is found by the
-	// parameter it opens with.
-	const outputRow = page.getByRole('row', { name: new RegExp(`^${outputName}`) });
-	await expect(outputRow).toContainText(`computed by`);
-	await expect(outputRow).toContainText(String(ENTERED * 2));
+	// The output has its own column, holding what the calculation wrote.
+	const output = page.getByRole('button', { name: new RegExp(`^${String(ENTERED * 2)}\\b`) });
+	await expect(output).toBeVisible();
 
-	// The input is corrected in the grid. Its row is the only editable one.
-	const cell = page.getByTestId('grid-cell-0-0');
+	// The input is corrected in place. The output's column is a calculation's, so it takes no
+	// keystroke and stays a read-only cell.
+	const cell = page.getByRole('textbox', { name: new RegExp(`^${inputName}`) });
 	await expect(cell).toHaveValue(String(ENTERED));
 	await cell.fill(String(CORRECTED));
 
-	const save = page.getByRole('button', { name: /^Save .*value/ });
+	const save = page.getByRole('button', { name: /^Save \d+ value/ });
 	await save.click();
 	const dialog = page.getByRole('dialog');
 	await dialog.getByRole('button', { name: 'Save', exact: true }).click();
 	await expect(dialog).toBeHidden();
 
-	// Nothing is reloaded: the grid is the same page it was before the save.
-	await expect(page.getByTestId('grid-cell-0-0')).toHaveValue(String(CORRECTED));
-	await expect(outputRow).toContainText(String(CORRECTED * 2));
-
-	// The run is on the page rather than left to be noticed: the bar says what moved, and the
-	// output that a calculation rewrote is marked on its own row.
-	await expect(page.getByText(/calculation ran/)).toBeVisible();
-	await expect(outputRow.getByTestId('cell-recomputed')).toBeVisible();
-
-	// The visit's calculations are done, so it carries no recompute badge. The queued and running
-	// states it passes through are not asserted: a run this small can finish inside one poll.
-	await expect(page.getByText('recomputing')).toHaveCount(0);
-	await expect(page.getByText('queued')).toHaveCount(0);
+	// Nothing is reloaded: the table is the same page it was, with the recomputed output in it.
+	await expect(page.getByRole('textbox', { name: new RegExp(`^${inputName}`) })).toHaveValue(
+		String(CORRECTED),
+	);
+	await expect
+		.poll(
+			async () =>
+				page.getByRole('button', { name: new RegExp(`^${String(CORRECTED * 2)}\\b`) }).count(),
+			{ message: `${outputName} is recomputed in place`, timeout: 30_000 },
+		)
+		.toBeGreaterThan(0);
 });
