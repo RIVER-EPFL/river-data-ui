@@ -1,5 +1,6 @@
 import type { EventCell, EventDetailResponse, ProvenanceRecord } from '$api/service';
 import { NO_VALUE, formatCount, formatMeasurement } from '$lib/format';
+import { readNumber } from './number';
 import { cellRole, cellWritable, type CellRole } from './role';
 
 // The visit as a grid (M50, oriented by I18): one row per parameter, replicate columns beside the
@@ -358,9 +359,8 @@ export function withColumns(rows: GridRow[], count: number): GridRow[] {
  * columns when it is wider than what is drawn, and stops at the last row rather than inventing
  * parameters.
  *
- * A cell that is neither blank nor a number is left alone and counted: a sheet written with comma
- * decimals reads as no numbers at all, and the row it lands on may already hold the values of an
- * earlier visit.
+ * A cell that is neither blank nor a number under the operator's locale is left alone and
+ * counted: the row it lands on may already hold the values of an earlier visit.
  */
 export interface PasteResult {
 	rows: GridRow[];
@@ -373,6 +373,7 @@ export function applyPaste(
 	atRow: number,
 	atColumn: number,
 	block: string,
+	locale: string,
 ): PasteResult {
 	const lines = block.replace(/\r\n?/g, '\n').replace(/\n+$/, '').split('\n');
 	const cells = lines.map((line) => line.split('\t'));
@@ -392,8 +393,8 @@ export function applyPaste(
 				cell.value = null;
 				return;
 			}
-			const parsed = Number(text);
-			if (Number.isNaN(parsed)) {
+			const parsed = readNumber(text, locale);
+			if (parsed === null) {
 				unreadable += 1;
 				return;
 			}
@@ -408,7 +409,7 @@ export function applyPaste(
 export function unreadablePasteNotice(unreadable: number): string | null {
 	if (unreadable < 1) return null;
 	const cells = unreadable === 1 ? '1 pasted cell was not a number' : `${unreadable} pasted cells were not numbers`;
-	return `${cells} and the cells were left as they stood. A sheet written with comma decimals reads this way.`;
+	return `${cells} and the cells were left as they stood. A cell holding a unit, or a separator this machine's locale does not write, reads this way.`;
 }
 
 /**

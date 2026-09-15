@@ -86,7 +86,7 @@ describe('the visits a block describes', () => {
 	const layout = inferLayout(block[0], parameters);
 
 	it('is one per row, with a gap left where a repeat was not measured', () => {
-		const visits = batchVisits(block, layout, sites);
+		const visits = batchVisits(block, layout, sites, 'en-US');
 		expect(visits).toHaveLength(3);
 		expect(visits[0]).toEqual({
 			site: 'FP1',
@@ -104,30 +104,37 @@ describe('the visits a block describes', () => {
 	});
 
 	it('names the row it cannot resolve rather than dropping it', () => {
-		const visits = batchVisits(block, layout, sites);
+		const visits = batchVisits(block, layout, sites, 'en-US');
 		expect(visits[2].problem).toBe('no site called FP9');
 		expect(batchParameters(visits)).toEqual(['p-doc', 'p-ph']);
 	});
 
-	// A sheet written with comma decimals reads as no numbers at all: without the count the row
-	// saves short, or reports only that it held no values.
+	// A cell the locale cannot read counts: without the count the row saves short, or reports
+	// only that it held no values.
 	it('counts the value cells it could not read and says so', () => {
 		const commas = parseBlock('site\tdate\tDOC_1\tDOC_2\nFP1\t2026-06-01\t12,5\t13,1');
-		const visits = batchVisits(commas, inferLayout(commas[0], parameters), sites);
+		const visits = batchVisits(commas, inferLayout(commas[0], parameters), sites, 'en-US');
 		expect(visits[0].unreadable).toBe(2);
 		expect(visits[0].problem).toBe('no values (2 cells were not numbers)');
 	});
 
+	it('reads the block in the locale of the machine pasting it', () => {
+		const commas = parseBlock("site\tdate\tDOC_1\tDOC_2\nFP1\t2026-06-01\t12,5\t1'026");
+		const visits = batchVisits(commas, inferLayout(commas[0], parameters), sites, 'fr-CH');
+		expect(visits[0].unreadable).toBe(0);
+		expect(visits[0].values.map((v) => v.value)).toEqual([12.5, 1026]);
+	});
+
 	it('names an unreadable cell on a row that still carries values', () => {
 		const mixed = parseBlock('site\tdate\tDOC_1\tDOC_2\nFP1\t2026-06-01\t120\t13,1');
-		const visits = batchVisits(mixed, inferLayout(mixed[0], parameters), sites);
+		const visits = batchVisits(mixed, inferLayout(mixed[0], parameters), sites, 'en-US');
 		expect(visits[0].unreadable).toBe(1);
 		expect(visits[0].problem).toBeNull();
 	});
 
 	it('says what is missing when a row carries no values or no date', () => {
 		const thin = parseBlock('site\tdate\tDOC_1\nFP1\t2026-06-01\t\nFP2\tnot a date\t9');
-		const visits = batchVisits(thin, inferLayout(thin[0], parameters), sites);
+		const visits = batchVisits(thin, inferLayout(thin[0], parameters), sites, 'en-US');
 		expect(visits.map((v) => v.problem)).toEqual(['no values', 'no date read']);
 	});
 });

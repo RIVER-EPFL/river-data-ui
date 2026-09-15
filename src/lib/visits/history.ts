@@ -17,3 +17,8 @@ export function undo<T>(history: History<T>): { history: History<T>; value: T } 
 	if (history.length === 0) return null;
 	return { history: history.slice(0, -1), value: history[history.length - 1] };
 }
+
+/** No snapshots. What is on the server is not an edit the grid can take back. */
+export function empty<T>(): History<T> {
+	return [];
+}

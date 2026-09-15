@@ -159,20 +159,20 @@ describe('pasting a spreadsheet block', () => {
 		);
 
 	it('fills rightward and downward from the focused cell', () => {
-		const rows = applyPaste(base(), 0, 0, '120\t122\t118\n7.1\t7.2\t7.3').rows;
+		const rows = applyPaste(base(), 0, 0, '120\t122\t118\n7.1\t7.2\t7.3', 'en-US').rows;
 		expect(rows[0].replicates.map((c) => c.value)).toEqual([120, 122, 118]);
 		expect(rows[1].replicates.map((c) => c.value)).toEqual([7.1, 7.2, 7.3]);
 	});
 
 	it('grows only the rows the block covers, and each to its own line', () => {
-		const rows = applyPaste(base(), 0, 0, '120\t122\t118\t121').rows;
+		const rows = applyPaste(base(), 0, 0, '120\t122\t118\t121', 'en-US').rows;
 		expect(columnCount(rows)).toBe(4);
 		expect(rows[0].replicates).toHaveLength(4);
 		expect(rows[1].replicates).toHaveLength(1);
 	});
 
 	it('leaves a blank cell as a gap rather than shifting what follows', () => {
-		const rows = applyPaste(base(), 0, 0, '120\t\t118').rows;
+		const rows = applyPaste(base(), 0, 0, '120\t\t118', 'en-US').rows;
 		expect(rows[0].replicates.map((c) => c.value)).toEqual([120, null, 118]);
 	});
 
@@ -183,37 +183,48 @@ describe('pasting a spreadsheet block', () => {
 				cell({ replicates: [stored(0, 1)] }),
 			]),
 		);
-		const pasted = applyPaste(rows, 0, 0, '5\n6\n7\n8').rows;
+		const pasted = applyPaste(rows, 0, 0, '5\n6\n7\n8', 'en-US').rows;
 		expect(pasted[0].replicates).toEqual([]);
 		expect(pasted[1].replicates[0].value).toBe(6);
 	});
 
 	it('starts where the paste was made, not at the first cell of the row', () => {
-		const rows = applyPaste(base(), 0, 2, '120\t122').rows;
+		const rows = applyPaste(base(), 0, 2, '120\t122', 'en-US').rows;
 		expect(rows[0].replicates.map((c) => c.value)).toEqual([1, null, 120, 122]);
 	});
 
 	it('starts at the row the paste was made on, leaving the rows above it alone', () => {
-		const rows = applyPaste(base(), 1, 0, '7.4\t7.5').rows;
+		const rows = applyPaste(base(), 1, 0, '7.4\t7.5', 'en-US').rows;
 		expect(rows[0].replicates.map((c) => c.value)).toEqual([1]);
 		expect(rows[1].replicates.map((c) => c.value)).toEqual([7.4, 7.5]);
 	});
 
 	it('ignores a cell that is not a number rather than writing NaN', () => {
-		const rows = applyPaste(base(), 0, 0, 'n/a').rows;
+		const rows = applyPaste(base(), 0, 0, 'n/a', 'en-US').rows;
 		expect(rows[0].replicates[0].value).toBe(1);
 	});
 
-	// A sheet exported with comma decimals reads as no numbers at all, and the row it lands on may
+	// A cell the locale cannot read leaves the row as it stands, and the row it lands on may
 	// already hold the last visit's values: silence there is a stale value saved as this visit's.
 	it('counts the cells it could not read, so the paste does not look like it worked', () => {
-		const pasted = applyPaste(base(), 0, 0, '12,5\t13,1\t12,8');
+		const pasted = applyPaste(base(), 0, 0, '12,5\t13,1\t12,8', 'en-US');
 		expect(pasted.unreadable).toBe(3);
 		expect(pasted.rows[0].replicates.map((c) => c.value)).toEqual([1]);
 	});
 
+	// The lab's own machines are fr-CH, where Excel writes 12,5 and 1'026.
+	it('reads a sheet written in the locale of the machine pasting it', () => {
+		const pasted = applyPaste(base(), 0, 0, '12,5\t13,1\t12,8', 'fr-CH');
+		expect(pasted.unreadable).toBe(0);
+		expect(pasted.rows[0].replicates.map((c) => c.value)).toEqual([12.5, 13.1, 12.8]);
+
+		const grouped = applyPaste(base(), 0, 0, "1'026\t1'030", 'de-CH');
+		expect(grouped.unreadable).toBe(0);
+		expect(grouped.rows[0].replicates.map((c) => c.value)).toEqual([1026, 1030]);
+	});
+
 	it('counts nothing when every cell is a number or a deliberate gap', () => {
-		expect(applyPaste(base(), 0, 0, '120\t\t118').unreadable).toBe(0);
+		expect(applyPaste(base(), 0, 0, '120\t\t118', 'en-US').unreadable).toBe(0);
 	});
 
 	it('says nothing about a paste that was read in full', () => {
@@ -223,7 +234,7 @@ describe('pasting a spreadsheet block', () => {
 	});
 
 	it('accepts the line endings a spreadsheet pastes', () => {
-		const rows = applyPaste(base(), 0, 0, '120\r\n7.5\r\n').rows;
+		const rows = applyPaste(base(), 0, 0, '120\r\n7.5\r\n', 'en-US').rows;
 		expect(rows[0].replicates[0].value).toBe(120);
 		expect(rows[1].replicates[0].value).toBe(7.5);
 	});
@@ -251,7 +262,7 @@ describe('copying a selection out of the grid', () => {
 	});
 
 	it('writes a repeat that was not measured as an empty cell', () => {
-		const rows = applyPaste(base(), 0, 0, '120\t\t118').rows;
+		const rows = applyPaste(base(), 0, 0, '120\t\t118', 'en-US').rows;
 		expect(copyBlock(rows, 0, 0, 1, 3)).toBe('120\t\t118');
 	});
 
@@ -264,7 +275,7 @@ describe('copying a selection out of the grid', () => {
 
 	it('round trips: the block pasted back where it was copied from changes nothing', () => {
 		const rows = base();
-		const pasted = applyPaste(rows, 0, 0, copyBlock(rows, 0, 0, 2, 3)).rows;
+		const pasted = applyPaste(rows, 0, 0, copyBlock(rows, 0, 0, 2, 3), 'en-US').rows;
 		expect(pasted.map((r) => r.replicates.map((c) => c.value))).toEqual(
 			rows.map((r) => r.replicates.map((c) => c.value)),
 		);
@@ -275,7 +286,7 @@ describe('what a save would write', () => {
 	it('is only the cells that moved, and says which are corrections', () => {
 		let rows = gridFromVisit(visit([cell({ replicates: [stored(0, 120)] })]));
 		expect(pendingWrites(rows)).toEqual([]);
-		rows = applyPaste(rows, 0, 0, '125\t130').rows;
+		rows = applyPaste(rows, 0, 0, '125\t130', 'en-US').rows;
 		expect(pendingWrites(rows)).toEqual([
 			{
 				parameterId: 'p-doc',
@@ -303,6 +314,7 @@ describe('what a save would write', () => {
 			0,
 			0,
 			'42',
+			'en-US',
 		).rows;
 		expect(pendingWrites(rows)).toEqual([]);
 	});
@@ -337,7 +349,7 @@ describe('entering a parameter the visit does not hold yet', () => {
 		expect(rows[1].parameterId).toBe('p-ph');
 		expect(rows[1].replicates).toEqual([]);
 
-		rows = applyPaste(rows, 1, 0, '7.1\t7.3').rows;
+		rows = applyPaste(rows, 1, 0, '7.1\t7.3', 'en-US').rows;
 		expect(pendingWrites(rows)).toEqual([
 			{
 				parameterId: 'p-ph',
@@ -365,7 +377,7 @@ describe('the curve a row is read against', () => {
 	it('is shown but never written by the grid', () => {
 		let rows = gridFromVisit(visit([cell({ replicates: [stored(0, 120)] })]));
 		rows[0].standardCurveId = 'curve-4';
-		rows = applyPaste(rows, 0, 0, '125\t130').rows;
+		rows = applyPaste(rows, 0, 0, '125\t130', 'en-US').rows;
 		expect(rows[0].standardCurveId).toBe('curve-4');
 		expect(pendingWrites(rows)).toHaveLength(2);
 		for (const write of pendingWrites(rows)) {
@@ -486,7 +498,7 @@ describe('the instrument a row was measured with', () => {
 			visit([cell({ replicates: [{ ...stored(0, 120), sensor_id: 'probe-1' }] })]),
 		);
 		expect(rows[0].sensorId).toBe('probe-1');
-		rows = applyPaste(rows, 0, 0, '125\t130').rows;
+		rows = applyPaste(rows, 0, 0, '125\t130', 'en-US').rows;
 		expect(pendingWrites(rows).map((w) => w.sensorId)).toEqual(['probe-1', 'probe-1']);
 	});
 

@@ -53,7 +53,7 @@
 		onFocusMoved,
 		type Selection,
 	} from '$lib/visits/keys';
-	import { push, undo, type History } from '$lib/visits/history';
+	import { empty, push, undo, type History } from '$lib/visits/history';
 	import { api, type ParameterGroup, type Sensor } from '$api/crud';
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { stagedVisit } from '$lib/stores/visit.svelte';
@@ -64,13 +64,18 @@
 	import { me } from '$auth/me.svelte';
 	import { cellRecord, findingLabel, recordMarkerTitle, showsProvenanceMarker } from '$lib/visits/cell';
 	import { cellWritable, editConsequence } from '$lib/visits/role';
+	import { browserLocale, readNumber } from '$lib/visits/number';
 	import { seasonalFindingLabel } from '$lib/seasonal';
 	import {
 		computedHere,
 		computing,
 		entryNoticeFor,
+		movedOutputs,
+		runOutputs,
+		runReportLine,
 		visitBadge,
 		visitSourceLabel,
+		type RunOutput,
 	} from '$lib/visits/recompute';
 	import { formatDateTime } from '$lib/utils';
 	import { toastStore } from '$lib/stores/toast.svelte';
@@ -101,9 +106,14 @@
 	let confirmOpen = $state(false);
 	let consequence = $state<string | null>(null);
 	let calculations = $state<CalculationImpact[]>([]);
+	// What saving what is typed now would recompute, read while the cells are being typed rather
+	// than at the confirmation, and what the last save's calculations actually did.
+	let pendingConsequence = $state<string | null>(null);
+	let pendingCalculations = $state<CalculationImpact[]>([]);
+	let lastRun = $state<RunOutput[]>([]);
 	let focused = $state<Selection | null>(null);
 	// What the grid held before each edit, so one mistyped cell costs the cell and not the block.
-	let history = $state<History<GridRow[]>>([]);
+	let history = $state<History<GridRow[]>>(empty());
 	let configured = $state<ConfiguredParameter[]>([]);
 	/** The group each parameter belongs to, and the groups themselves, for the grid's filter. */
 	let groups = $state<ParameterGroup[]>([]);
@@ -175,6 +185,15 @@
 	const RECOMPUTE_POLL_MS = 400;
 	const RECOMPUTE_POLL_ATTEMPTS = 50;
 	const cleared = $derived(clearedCells(rows));
+	/** The outputs the last save's calculations moved, by code, with what they moved from. */
+	const recomputed = $derived(
+		new Map(
+			movedOutputs(lastRun).map((o) => [
+				o.code,
+				`${o.label} rewrote this: ${o.before ?? 'no value'} → ${o.after ?? 'no value'}`,
+			]),
+		),
+	);
 	/** The rows a refusal names, so it is read beside the values that caused it. */
 	const refusedRows = $derived(refusal ? saveErrors(refusal, rows) : {});
 	/** What the header says about the visit's calculations, and what entering a value here means. */
@@ -288,6 +307,8 @@
 	// Record what the grid holds before changing it. Every edit replaces `rows` wholesale, so the
 	// value being replaced is the snapshot.
 	function remember() {
+		// The last save's report described the values on screen before this edit.
+		lastRun = [];
 		history = push(history, rows);
 	}
 
@@ -303,10 +324,14 @@
 		curveRefs.ensureCurveCounts([sensorId]);
 	}
 
+	// Numbers are read the way this machine writes them: a comma decimal on fr-CH, an apostrophe
+	// between thousands, and a plain number to the API (Q185).
+	const locale = browserLocale();
+
 	function setCell(rowIndex: number, column: number, raw: string) {
 		const text = raw.trim();
-		const parsed = text === '' ? null : Number(text);
-		if (parsed !== null && Number.isNaN(parsed)) return;
+		const parsed = text === '' ? null : readNumber(text, locale);
+		if (text !== '' && parsed === null) return;
 		remember();
 		rows = setCellValue(rows, rowIndex, column, parsed);
 	}
@@ -365,7 +390,7 @@
 		if (!text.includes('\t') && !text.includes('\n')) return;
 		event.preventDefault();
 		remember();
-		const pasted = applyPaste(rows, rowIndex, column, text);
+		const pasted = applyPaste(rows, rowIndex, column, text, locale);
 		rows = pasted.rows;
 		pasteNotice = unreadablePasteNotice(pasted.unreadable);
 	}
@@ -376,22 +401,34 @@
 		rows = gridFromVisit(detail);
 	}
 
-	/** What saving would recompute, read before the write rather than discovered after it. */
-	async function askToSave() {
-		consequence = null;
-		calculations = [];
-		const parameters = touchedParameters(rows);
-		if (parameters.length > 0) {
-			try {
-				const closure = await getCalculationClosure({ parameter_ids: parameters.join(',') });
-				calculations = closure.calculations;
-				consequence = editConsequence(closure.calculations, servedByCode);
-			} catch {
-				consequence = null;
-			}
-		}
+	function askToSave() {
 		confirmOpen = true;
 	}
+
+	// The consequence follows the cells, so what a save would recompute is on the bar while the
+	// values are being typed. The closure is keyed on the set of touched parameters, which moves
+	// when a parameter is first touched and not on every keystroke.
+	let closureKey = '';
+	$effect(() => {
+		const parameters = touchedParameters(rows);
+		const key = parameters.join(',');
+		if (key === closureKey) return;
+		closureKey = key;
+		if (parameters.length === 0) {
+			pendingCalculations = [];
+			pendingConsequence = null;
+			return;
+		}
+		getCalculationClosure({ parameter_ids: key })
+			.then((closure) => {
+				pendingCalculations = closure.calculations;
+				pendingConsequence = editConsequence(closure.calculations, servedByCode);
+			})
+			.catch(() => {
+				pendingCalculations = [];
+				pendingConsequence = null;
+			});
+	});
 
 	async function runCheck() {
 		const visit = detail;
@@ -491,13 +528,22 @@
 			}
 			confirmOpen = false;
 			check = null;
+			history = empty();
+			const expected = pendingCalculations;
+			const before = servedByCode;
 			await refreshWhileComputing();
+			lastRun = runOutputs(expected, before, servedByCode, findingByCode(rows));
 		} catch (e) {
 			refusal = e instanceof Error ? e.message : String(e);
 			confirmOpen = false;
 		} finally {
 			saving = false;
 		}
+	}
+
+	/** The finding standing on each parameter's row, so an output that did not move says why. */
+	function findingByCode(current: GridRow[]): Record<string, string | undefined> {
+		return Object.fromEntries(current.map((r) => [r.parameterCode, r.finding]));
 	}
 
 	async function refresh() {
@@ -726,6 +772,11 @@
 										<Badge variant="warning">{findingLabel(row.finding)}</Badge>
 									</span>
 								{/if}
+								{#if recomputed.has(row.parameterCode)}
+									<span class="ml-1" data-testid="cell-recomputed">
+										<Badge variant="accent" title={recomputed.get(row.parameterCode)}>recomputed</Badge>
+									</span>
+								{/if}
 								{#if refusedRows[row.parameterId]}
 									<span
 										class="ml-1 text-xs text-severity-alarm"
@@ -906,8 +957,47 @@
 			</p>
 		{/if}
 
+		{#if pendingConsequence}
+			<p class="text-sm text-brand-muted">{pendingConsequence}</p>
+		{:else if writes.length > 0 && pendingCalculations.length === 0}
+			<p class="text-sm text-brand-muted">No calculation reads what this save changes.</p>
+		{/if}
+		{#if checkValues.length > 0}
+			<div class="flex flex-wrap items-center gap-2 text-sm">
+				<Button size="sm" onclick={runCheck} disabled={checking}>
+					{checking ? 'Checking…' : checkSatisfied ? 'Re-check' : 'Check against site history'}
+				</Button>
+				{#if checkStale}
+					<span class="text-xs text-severity-warning-text">
+						Values changed since the last check; check again before saving.
+					</span>
+				{:else if check}
+					<span class="flex flex-wrap gap-2">
+						{#each check.response.findings as finding (finding.parameter_id + finding.value)}
+							<span class="text-xs {finding.warning ? 'text-severity-warning-text' : 'text-brand-muted'}">
+								{seasonalLabel(finding)}
+							</span>
+						{/each}
+					</span>
+				{:else}
+					<span class="text-xs text-brand-muted">
+						Screens each entered value against this site's history for the entry month ±2 across
+						all years (replicates pooled). Advisory, but saving requires a check of exactly these
+						values.
+					</span>
+				{/if}
+			</div>
+		{/if}
+		{#if runReportLine(lastRun)}
+			<p class="text-sm text-brand-muted">{runReportLine(lastRun)}</p>
+		{/if}
 		<div class="flex flex-wrap items-center gap-3">
-			<Button variant="primary" disabled={writes.length === 0} onclick={askToSave}>
+			<Button
+				variant="primary"
+				disabled={writes.length === 0 || !checkSatisfied}
+				title={checkSatisfied ? undefined : 'Check these values against the site history first'}
+				onclick={askToSave}
+			>
 				Save {writes.length || ''} {writes.length === 1 ? 'value' : 'values'}
 			</Button>
 			<Button disabled={history.length === 0} onclick={undoEdit} title="Undo the last edit (Ctrl+Z)"
@@ -936,38 +1026,6 @@
 			{writes.filter((w) => w.corrects).length} corrected in place,
 			{writes.filter((w) => !w.corrects).length} entered.
 		</p>
-		{#if consequence}
-			<p class="text-brand-muted">{consequence}</p>
-		{:else if calculations.length === 0}
-			<p class="text-brand-muted">No calculation reads what this save changes.</p>
-		{/if}
-		{#if checkValues.length > 0}
-			<div class="space-y-1 border-t border-brand-divider pt-2">
-				<div class="flex flex-wrap items-center justify-between gap-2">
-					<span class="font-medium">Check against site history</span>
-					<Button size="sm" onclick={runCheck} disabled={checking}>
-						{checking ? 'Checking…' : checkSatisfied ? 'Re-check' : 'Check'}
-					</Button>
-				</div>
-				{#if checkStale}
-					<p class="text-xs text-severity-warning-text">
-						Values changed since the last check; check again before saving.
-					</p>
-				{:else if check}
-					{#each check.response.findings as finding (finding.parameter_id + finding.value)}
-						<p class="text-xs {finding.warning ? 'text-severity-warning-text' : 'text-brand-muted'}">
-							{seasonalLabel(finding)}
-						</p>
-					{/each}
-				{:else}
-					<p class="text-xs text-brand-muted">
-						Screens each entered value against this site's history for the entry month ±2 across
-						all years (replicates pooled). Advisory, but saving requires a check of exactly these
-						values.
-					</p>
-				{/if}
-			</div>
-		{/if}
 	</div>
 	{#snippet actions()}
 		<Button onclick={() => (confirmOpen = false)}>Cancel</Button>

@@ -55,3 +55,71 @@ export function visitSourceLabel(source: string | undefined, createdBy?: string 
 	if (source === 'portal_sync') return 'Synced from the portal';
 	return createdBy ? `Entered manually by ${createdBy}` : 'Entered manually';
 }
+
+/** An output a calculation was expected to write, and what the save did to it. */
+export interface RunOutput {
+	code: string;
+	label: string;
+	before: number | null;
+	after: number | null;
+	/** The finding standing on the row afterwards, when the calculation did not write it. */
+	finding?: string;
+}
+
+/**
+ * What the calculations did to the visit, read from the values on each side of the save rather
+ * than from the job. An output that moved is the calculation's answer; one that did not, with a
+ * finding on its row, is a step that did not run and says why.
+ */
+export function runOutputs(
+	expected: { label: string; outputs: { parameter_code: string }[] }[],
+	before: Record<string, number | null | undefined>,
+	after: Record<string, number | null | undefined>,
+	findings: Record<string, string | undefined> = {},
+): RunOutput[] {
+	const outputs: RunOutput[] = [];
+	for (const calculation of expected) {
+		for (const output of calculation.outputs) {
+			const code = output.parameter_code;
+			outputs.push({
+				code,
+				label: calculation.label,
+				before: before[code] ?? null,
+				after: after[code] ?? null,
+				...(findings[code] ? { finding: findings[code] } : {}),
+			});
+		}
+	}
+	return outputs;
+}
+
+/** The outputs whose served value moved, which are the cells the save changed without being typed. */
+export function movedOutputs(outputs: RunOutput[]): RunOutput[] {
+	return outputs.filter((o) => o.before !== o.after);
+}
+
+/**
+ * What the action bar says once the calculations have finished: which outputs moved, and which
+ * did not with the reason standing on the row. Nothing at all when no calculation was expected.
+ */
+export function runReportLine(outputs: RunOutput[]): string | null {
+	if (outputs.length === 0) return null;
+	const moved = movedOutputs(outputs);
+	const still = outputs.filter((o) => o.before === o.after);
+	const parts: string[] = [];
+	if (moved.length > 0) {
+		parts.push(
+			`${moved.map((o) => `${o.code} ${o.before ?? 'no value'} → ${o.after ?? 'no value'}`).join(', ')}`,
+		);
+	}
+	for (const output of still) {
+		parts.push(
+			output.finding
+				? `${output.code} did not run (${output.finding.replace(/_/g, ' ')})`
+				: `${output.code} unchanged`,
+		);
+	}
+	const ran = new Set(moved.map((o) => o.label)).size;
+	const head = moved.length > 0 ? `${ran} calculation${ran === 1 ? '' : 's'} ran: ` : 'No output moved: ';
+	return `${head}${parts.join('; ')}.`;
+}

@@ -20,6 +20,7 @@
 		type ParameterColumn,
 	} from '$lib/visits/batch';
 	import { editConsequence } from '$lib/visits/role';
+	import { browserLocale } from '$lib/visits/number';
 	import { formatDateTime } from '$lib/utils';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
@@ -44,7 +45,9 @@
 	/** What the save did to each row, in the block's order: the per-row result column. */
 	let results = $state<Record<number, string>>({});
 
-	const visits = $derived(batchVisits(block, layout, sites));
+	// The sheet is read the way this machine writes numbers (Q185).
+	const locale = browserLocale();
+	const visits = $derived(batchVisits(block, layout, sites, locale));
 	const savable = $derived(visits.filter((v) => v.problem === null));
 	const headers = $derived(block[0] ?? []);
 

@@ -2,6 +2,8 @@
 // (M51, shape decided by Q42). The lab pastes its sheet, names its columns once, and each visit is
 // staged and saved on its own, so a station the Check refuses leaves its neighbours saved.
 
+import { readNumber } from './number';
+
 /** One column of the pasted block, and what the operator says it holds. */
 export type ColumnRole =
 	| { kind: 'ignored' }
@@ -98,7 +100,12 @@ export function readInstant(cell: string): string | null {
 }
 
 /** The visits a block describes under a layout, one per data row, in the order they were pasted. */
-export function batchVisits(block: string[][], layout: Layout, sites: SiteChoice[]): BatchVisit[] {
+export function batchVisits(
+	block: string[][],
+	layout: Layout,
+	sites: SiteChoice[],
+	locale: string,
+): BatchVisit[] {
 	const byName = new Map(sites.map((s) => [s.name.trim().toLowerCase(), s.id]));
 	const byId = new Set(sites.map((s) => s.id));
 	return block.slice(1).map((row) => {
@@ -112,8 +119,8 @@ export function batchVisits(block: string[][], layout: Layout, sites: SiteChoice
 			else if (role.kind === 'collected_at') collectedAt = readInstant(cell);
 			else if (role.kind === 'value') {
 				if (cell === '') return;
-				const value = Number(cell);
-				if (Number.isNaN(value)) {
+				const value = readNumber(cell, locale);
+				if (value === null) {
 					unreadable += 1;
 					return;
 				}

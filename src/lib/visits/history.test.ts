@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { HISTORY_LIMIT, push, undo, type History } from './history';
+import { HISTORY_LIMIT, empty, push, undo, type History } from './history';
 
 describe('undoing an edit to the grid', () => {
 	it('undoes to the paste, not to the stored visit', () => {
@@ -22,5 +22,14 @@ describe('undoing an edit to the grid', () => {
 		for (let i = 0; i <= HISTORY_LIMIT; i += 1) history = push(history, i);
 		expect(history).toHaveLength(HISTORY_LIMIT);
 		expect(history[0]).toBe(1);
+	});
+
+	it('has nothing to undo once the edits are saved', () => {
+		let history: History<string> = push<string>([], 'stored');
+		history = push(history, 'typed');
+
+		history = empty();
+
+		expect(undo(history)).toBeNull();
 	});
 });

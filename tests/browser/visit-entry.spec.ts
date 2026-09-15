@@ -117,21 +117,22 @@ test('a visit is entered, its consequence read, and its saved value comes back',
 	// A row is as wide as the repeats it holds, so the cell after the last one is where a third
 	// replicate is entered. It is an entry, not a correction, and the save counts only what moved.
 	await cell(page, 0, 2).fill('14');
-	await expect(save).toBeEnabled();
 	await expect(save).toContainText('Save 1 value');
 
-	// The save states its consequence before it is taken, and screens what is entered against the
-	// site's history: a save may go past a warning, but not past an unchecked value.
+	// The consequence and the screening are on the bar, beside the values: a save may go past a
+	// warning, but not past an unchecked value, so Save stays shut until the check has run.
+	await expect(save).toBeDisabled();
+	await page.getByRole('button', { name: 'Check against site history' }).click();
+	await expect(page.getByText('Entry grid parameter:')).toBeVisible();
+	await expect(save).toBeEnabled();
+
+	// What is left in the dialog is the count and the corrected/entered split, and nothing else.
 	await save.click();
 	const dialog = page.getByRole('dialog');
 	await expect(dialog).toContainText('1 value will be written');
 	await expect(dialog).toContainText('0 corrected in place');
-	const confirm = dialog.getByRole('button', { name: 'Save', exact: true });
-	await expect(confirm).toBeDisabled();
-	await dialog.getByRole('button', { name: 'Check', exact: true }).click();
-	await expect(dialog).toContainText('Entry grid parameter:');
-	await expect(confirm).toBeEnabled();
-	await confirm.click();
+	await expect(dialog.getByRole('button', { name: /^Check/ })).toHaveCount(0);
+	await dialog.getByRole('button', { name: 'Save', exact: true }).click();
 
 	// The value comes back from the store, and the trigger's mean moves with it.
 	await expect(dialog).toBeHidden();

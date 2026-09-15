@@ -155,6 +155,11 @@ test('a corrected input shows its recomputed output without a reload', async ({ 
 	await expect(page.getByTestId('grid-cell-0-0')).toHaveValue(String(CORRECTED));
 	await expect(outputRow).toContainText(String(CORRECTED * 2));
 
+	// The run is on the page rather than left to be noticed: the bar says what moved, and the
+	// output that a calculation rewrote is marked on its own row.
+	await expect(page.getByText(/calculation ran/)).toBeVisible();
+	await expect(outputRow.getByTestId('cell-recomputed')).toBeVisible();
+
 	// The visit's calculations are done, so it carries no recompute badge. The queued and running
 	// states it passes through are not asserted: a run this small can finish inside one poll.
 	await expect(page.getByText('recomputing')).toHaveCount(0);
