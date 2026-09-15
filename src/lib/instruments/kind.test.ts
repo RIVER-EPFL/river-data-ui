@@ -42,7 +42,10 @@ describe('instrument kinds', () => {
 
 describe('what an instrument picker offers', () => {
 	const row = (id: string, kind: string, is_active = true) =>
-		({ id, kind, is_lab_instrument: false, is_active }) as never;
+		({ id, kind, is_lab_instrument: false, is_active }) as Pick<
+			Sensor,
+			'id' | 'kind' | 'is_lab_instrument' | 'is_active'
+		>;
 
 	it('leaves out the bookkeeping rows a CNET plan mints and the retired instruments', () => {
 		const offered = pickerOptions([
