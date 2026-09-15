@@ -167,4 +167,19 @@ test('a computed row opens its calculation at this visit, and its point record i
 	await expect(page.getByText('Field visit')).toBeVisible();
 	await expect(page.getByText(siteName).first()).toBeVisible();
 	await expect(page.getByRole('spinbutton', { name: inputName })).toHaveValue(String(ENTERED));
+
+	await page.getByRole('spinbutton', { name: inputName }).fill('14');
+	await page.getByRole('button', { name: 'Calculate', exact: true }).click();
+	await page.getByRole('button', { name: 'Save to Site', exact: true }).click();
+	const save = page.getByRole('dialog');
+	// The typed-over input is a measurement of this visit, so the save carries it as a correction
+	// of what the visit holds and the stored output is computed from a value the grid shows.
+	await expect(save).toContainText(`corrects ${inputName} ${ENTERED} to 14`);
+	await save.getByRole('button', { name: 'Check against site history' }).click();
+	await save.getByRole('button', { name: 'Save', exact: true }).click();
+	await save.getByRole('button', { name: 'Replace existing' }).click();
+	await expect(save).toBeHidden();
+	await page.goto(`${BASE_PATH}/visits/${eventId}`);
+	await expect(page.getByTestId('grid-cell-0-0')).toHaveValue('14');
+	await expect(page.getByRole('row', { name: new RegExp(`^${outputName}`) })).toContainText('28');
 });
