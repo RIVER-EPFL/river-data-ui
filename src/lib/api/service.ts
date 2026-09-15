@@ -243,14 +243,6 @@ export type StreamPreview = components['schemas']['StreamPreviewResponse'];
 export const getStreamPreview = (streamId: string, limit = 3) =>
 	GET<StreamPreview>(`${ADMIN}/streams/${streamId}/preview?limit=${limit}`);
 
-export type ImportStreamResponse = components['schemas']['ImportStreamResponse'];
-
-/** Import a stream's device into the sensor inventory (creates the sensor and stamps its existing
- *  readings) WITHOUT pairing it to a site. Separate from pairing/adopt. No curve is created: the
- *  readings resolve whatever calibration windows the sensor already has, which may be none. */
-export const importStream = (streamId: string) =>
-	POST<ImportStreamResponse>(`${SERVICE}/streams/${streamId}/import`, {});
-
 // Actions. A route that enqueues one job answers with the row it enqueued.
 export type QueuedJobResponse = components['schemas']['QueuedJobResponse'];
 export type RecalculateResponse = components['schemas']['RecalculateResponse'];

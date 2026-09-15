@@ -4875,28 +4875,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/sensors/register": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Upsert an instrument by provenance. Requires `write_metadata` (sync session tokens carry it).
-         * @description A source that has no stream for an instrument has no other way to introduce it: every other
-         *     instrument in the system is minted as a side effect of registering the stream that names it.
-         *     A portal's instrument register is exactly that case, so this is its wire.
-         */
-        post: operations["register_sensor"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/sensors/retag_frequency": {
         parameters: {
             query?: never;
@@ -5828,30 +5806,6 @@ export interface paths {
          *     classification on). Requires `write_metadata`.
          */
         post: operations["retag_streams"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/streams/{id}/import": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Import a stream's sensor into inventory WITHOUT deploying it to a site. Creates or reuses the
-         *     sensor by serial number alone (import is parameter-free; a parameter is bound at deploy or grab
-         *     time), links it to the stream, and stamps `sensor_id` plus whichever curve covers each reading
-         *     on the stream's site-less readings (an instrument with no curve leaves them uncorrected; the
-         *     readings stay un-attributed to any site until an explicit adopt). Idempotent: re-import reuses
-         *     the same sensor and only fills readings missing this attribution. Requires `write_metadata`.
-         */
-        post: operations["import_stream"];
         delete?: never;
         options?: never;
         head?: never;
@@ -11162,26 +11116,6 @@ export interface components {
              */
             standard_curve_id: string | null;
         };
-        ImportStreamRequest: {
-            /**
-             * Format: uuid
-             * @description Legacy field, ignored: a sensor is imported parameter-free (parameter is bound at
-             *     deploy/grab time). Retained so existing callers keep deserializing.
-             */
-            parameter_id?: string | null;
-        };
-        ImportStreamResponse: {
-            /**
-             * Format: int64
-             * @description Readings the import moved: newly owned by the instrument, or re-corrected because the
-             *     window resolved a different curve. Zero where the stream's rows already say what the import
-             *     would say, which is the ordinary case now that registration attaches an instrument.
-             */
-            attributed: number;
-            /** Format: uuid */
-            sensor_id: string;
-            stream: components["schemas"]["DataStream"];
-        };
         IngestReading: {
             /** Format: uuid */
             calibration_id?: string | null;
@@ -14312,32 +14246,6 @@ export interface components {
             endpoint: string;
             p256dh: string;
             user_agent?: string | null;
-        };
-        /**
-         * @description One instrument from a source's own register. The instrument's own fields are
-         *     `river_data_core::models::SensorUpsert`, which the sync services build from; the API adds the
-         *     source the caller is speaking for, and supplies the `is_lab_instrument` default this route has
-         *     always accepted an omitted flag under.
-         */
-        RegisterSensorRequest: components["schemas"]["SensorUpsert"] & {
-            /** @description The sync source the instrument comes from, e.g. "metalp". */
-            source_system: string;
-        };
-        RegisterSensorResponse: {
-            /**
-             * @description False when the provenance key already named an instrument, in which case nothing on it was
-             *     changed.
-             */
-            created: boolean;
-            /** Format: uuid */
-            id: string;
-            /**
-             * Format: uuid
-             * @description The instrument already holding the serial this registration offered, when that is why the
-             *     serial was not claimed. The source's register is wrong or the two rows are one instrument;
-             *     either way it is a person's call, so the registration succeeds and says so.
-             */
-            serial_claimed_by: string | null;
         };
         /**
          * @description One portal standard curve to register. The curve's own fields are
@@ -31643,30 +31551,6 @@ export interface operations {
             };
         };
     };
-    register_sensor: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RegisterSensorRequest"];
-            };
-        };
-        responses: {
-            /** @description Instrument registered (created or already present) */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RegisterSensorResponse"];
-                };
-            };
-        };
-    };
     retag_frequency: {
         parameters: {
             query?: never;
@@ -34276,40 +34160,6 @@ export interface operations {
             };
             /** @description Invalid measurement_type or empty scope */
             400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    import_stream: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Stream UUID */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ImportStreamRequest"];
-            };
-        };
-        responses: {
-            /** @description Sensor imported; attribution count returned */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ImportStreamResponse"];
-                };
-            };
-            /** @description Stream not found */
-            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -38777,6 +38627,13 @@ export interface operations {
             };
             /** @description Unknown tool name */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The calculation is switched off */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

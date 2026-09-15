@@ -49,7 +49,6 @@
 	import PairSkipToggle from '$components/ui/PairSkipToggle.svelte';
 	import MappingSelect, { type MappingGroup } from '$components/ui/MappingSelect.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
-	import ImportSensorDialog from '$components/streams/ImportSensorDialog.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import { formatClockTime, formatDateTime, formatSignificant } from '$lib/utils';
@@ -181,10 +180,6 @@
 	let pairStream_ = $state<DataStream | null>(null);
 	let selectedSiteParam = $state('');
 	let pairing = $state(false);
-
-	// ── Import dialog (register the stream's device into inventory, no site) ──
-	let importDialogOpen = $state(false);
-	let importStream_ = $state<DataStream | null>(null);
 
 	// ── Stats dialog ──
 	let statsDialogOpen = $state(false);
@@ -1447,8 +1442,6 @@
 		finally { pairing = false; }
 	}
 
-	function openImportDialog(stream: DataStream) { importStream_ = stream; importDialogOpen = true; }
-
 	async function handleUnpair(streamId: string) {
 		try {
 			const res = await unpairStream(streamId);
@@ -2041,7 +2034,6 @@
 										</ConfirmPopover>
 									{:else}
 										<Button variant="ghost" size="sm" onclick={() => openPairDialog(stream)} class="text-brand-primary">Pair</Button>
-										<Button variant="ghost" size="sm" onclick={() => openImportDialog(stream)} class="text-brand-primary">Import</Button>
 									{/if}
 								</td>
 							</tr>
@@ -2574,8 +2566,6 @@
 		<Button variant="primary" onclick={handlePair} disabled={!selectedSiteParam || pairing}>{pairing ? 'Pairing…' : 'Pair'}</Button>
 	{/snippet}
 </Dialog>
-
-<ImportSensorDialog bind:open={importDialogOpen} stream={importStream_} onimported={load} />
 
 <Dialog bind:open={statsDialogOpen} title="Stream Stats" maxWidth={receipts?.length ? 'sm' : 'xs'}>
 	{#snippet children()}
