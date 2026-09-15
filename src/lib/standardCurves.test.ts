@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	composedCurve,
+	curveCountLabel,
 	curveIdentity,
 	curveOrigin,
 	parseCurveForm,
@@ -117,5 +118,20 @@ describe('uniqueCurveName', () => {
 	it('suffixes until the name is free on the instrument', () => {
 		expect(uniqueCurveName('Plate 7', [])).toBe('Plate 7 (copy)');
 		expect(uniqueCurveName('Plate 7', ['Plate 7 (copy)'])).toBe('Plate 7 (copy 2)');
+	});
+});
+
+describe('curveCountLabel', () => {
+	it('names an instrument with no curve by what that means for its values', () => {
+		expect(curveCountLabel(0)).toBe('no curves, served uncorrected');
+	});
+
+	it('counts, and agrees with itself on one', () => {
+		expect(curveCountLabel(1)).toBe('1 curve');
+		expect(curveCountLabel(4)).toBe('4 curves');
+	});
+
+	it('says nothing definite while the count is still being read', () => {
+		expect(curveCountLabel(null)).toBe('curves…');
 	});
 });

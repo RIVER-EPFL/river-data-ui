@@ -161,3 +161,14 @@ export function apiMessage(e: unknown): string {
 	}
 	return raw;
 }
+
+/**
+ * What an instrument's curve count reads as beside a declaration of it. An instrument with no
+ * curve corrects nothing, so its readings are served as they were measured; saying "0 curves"
+ * leaves that to be worked out.
+ */
+export function curveCountLabel(count: number | null): string {
+	if (count === null) return 'curves…';
+	if (count === 0) return 'no curves, served uncorrected';
+	return `${count} curve${count === 1 ? '' : 's'}`;
+}

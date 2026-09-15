@@ -36,6 +36,7 @@
 	import { goto } from '$app/navigation';
 	import { stagedVisit } from '$lib/stores/visit.svelte';
 	import { curveRefs } from '$lib/curveRefs.svelte';
+	import { curveCountLabel } from '$lib/standardCurves';
 	import { me } from '$auth/me.svelte';
 	import { cellRecord, recordMarkerTitle } from '$lib/visits/cell';
 	import { cellWritable, editConsequence } from '$lib/visits/role';
@@ -136,6 +137,7 @@
 		rows = rows.map((r) =>
 			r.sensorId ? r : { ...r, sensorId: slotInstruments[r.parameterId] },
 		);
+		curveRefs.ensureCurveCounts(rows.map((r) => r.sensorId));
 		const byId = new Map(catalog.data.map((p) => [p.id, p]));
 		slotDisplay = Object.fromEntries(
 			slots.data.map((slot) => [
@@ -214,6 +216,7 @@
 
 	function declareRowInstrument(rowIndex: number, sensorId: string) {
 		rows = rows.map((r, i) => (i === rowIndex ? { ...r, sensorId: sensorId || undefined } : r));
+		curveRefs.ensureCurveCounts([sensorId]);
 	}
 
 	function setCell(rowIndex: number, column: number, raw: string) {
@@ -536,6 +539,16 @@
 											<option value={sensor.id}>{sensor.name ?? sensor.serial_number ?? sensor.id.slice(0, 8)}</option>
 										{/each}
 									</select>
+									{#if row.sensorId}
+										{@const curveCount = curveRefs.curveCount(row.sensorId)}
+										<a
+											class="block text-[11px] no-underline hover:underline {curveCount === 0
+												? 'text-severity-warning'
+												: 'text-brand-muted'}"
+											href="{base}/sensors/{row.sensorId}?tab=curves"
+											title="The standard curves this instrument holds. A value entered here is corrected with one chosen in the tool that computes it, never in the grid."
+										>{curveCountLabel(curveCount)}</a>
+									{/if}
 								{/if}
 							</td>
 							<td class="px-2 py-1">

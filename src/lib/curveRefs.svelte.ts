@@ -14,6 +14,7 @@ import { composedCurve, curveEquation, curveLabel, type Coefficients } from '$li
 
 const calibrations = new SvelteMap<string, SensorCalibration | null>();
 const curves = new SvelteMap<string, StandardCurve | null>();
+const curveCounts = new SvelteMap<string, number>();
 const inflight = new Set<string>();
 
 async function fetchOne<T>(
@@ -97,5 +98,27 @@ export const curveRefs = {
 	/** The instrument a curve belongs to, for deep links into its Standard curves tab. */
 	standardCurveSensorId(id: string | null | undefined): string | null {
 		return (id ? curves.get(id)?.sensor_id : null) ?? null;
+	},
+
+	/**
+	 * How many standard curves each instrument holds. An instrument with none corrects nothing, so
+	 * a surface that lets somebody declare one has to be able to say that where the declaration is
+	 * made (Q58).
+	 */
+	ensureCurveCounts(sensorIds: Iterable<string | null | undefined>): void {
+		for (const id of distinct(sensorIds)) {
+			if (curveCounts.has(id) || inflight.has(`count:${id}`)) continue;
+			inflight.add(`count:${id}`);
+			void api.standardCurves
+				.list({ perPage: 1, filter: { sensor_id: id } })
+				.then((page) => curveCounts.set(id, page.total))
+				.catch(() => curveCounts.set(id, 0))
+				.finally(() => inflight.delete(`count:${id}`));
+		}
+	},
+
+	/** The count, or null while it is still being read. */
+	curveCount(sensorId: string | null | undefined): number | null {
+		return sensorId ? (curveCounts.get(sensorId) ?? null) : null;
 	},
 };
