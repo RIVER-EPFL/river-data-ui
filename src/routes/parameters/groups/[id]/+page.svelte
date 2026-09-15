@@ -6,7 +6,7 @@
 	import { api, type Parameter, type ParameterGroup, type ParameterGroupMember } from '$api/crud';
 	import { getGroupDefinition, type GroupDefinitionMember } from '$api/service';
 	import type { components } from '$api/schema';
-	import { assignBody, assignmentError, replicateSpec, roleLabel, suggestedCount } from '$lib/parameters/groups';
+	import { assignBody, assignmentError, replicateSpec, replicated, roleLabel } from '$lib/parameters/groups';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
@@ -31,7 +31,7 @@
 	let busy = $state(false);
 
 	let assignParameterId = $state('');
-	let assignReplicates = $state<number | null>(null);
+	let assignReplicated = $state(false);
 
 	// The definition is the server's own column order; the member rows carry the ids a reorder patches.
 	async function load() {
@@ -75,10 +75,10 @@
 		try {
 			const nextOrdinal = members.reduce((max, m) => Math.max(max, m.ordinal), -1) + 1;
 			await api.parameterGroupMembers.create(
-				assignBody(groupId, assignParameterId, nextOrdinal, assignReplicates),
+				assignBody(groupId, assignParameterId, nextOrdinal, assignReplicated),
 			);
 			assignParameterId = '';
-			assignReplicates = null;
+			assignReplicated = false;
 			await load();
 		} catch (e) {
 			assignError = assignmentError(e, groups);
@@ -107,10 +107,10 @@
 
 	// Replicate-ness is the parameter's, and the group's member row is where it is declared: a
 	// calculation reads a declared source as the whole family, an undeclared one as its mean (Q155).
-	async function declareReplicates(member: ParameterGroupMember, count: number | null) {
+	async function declareReplicates(member: ParameterGroupMember, isReplicated: boolean) {
 		busy = true;
 		try {
-			await api.parameterGroupMembers.update(member.id, { replicates: replicateSpec(count) });
+			await api.parameterGroupMembers.update(member.id, { replicates: replicateSpec(isReplicated) });
 			await load();
 		} catch (e) {
 			toastStore.error(assignmentError(e, groups));
@@ -166,13 +166,16 @@
 					{group.code} · order {group.ordinal}{group.description ? ` · ${group.description}` : ''}
 				</p>
 			</div>
-			<ConfirmPopover
-				message="Delete this group? A group with members is refused; move them out first."
-				confirmLabel="Delete"
-				onconfirm={removeGroup}
-			>
-				<Button variant="danger" size="sm" disabled={busy}>Delete group</Button>
-			</ConfirmPopover>
+			<div class="flex items-center gap-2">
+				<a href="{base}/parameters/groups/{groupId}/edit" class="px-3 py-1 text-sm border border-brand-divider bg-brand-surface rounded-md no-underline text-brand-text hover:bg-brand-bg">Edit group</a>
+				<ConfirmPopover
+					message="Delete this group? A group with members is refused; move them out first."
+					confirmLabel="Delete"
+					onconfirm={removeGroup}
+				>
+					<Button variant="danger" size="sm" disabled={busy}>Delete group</Button>
+				</ConfirmPopover>
+			</div>
 		</div>
 
 		{#if error}<ErrorNotice message={error} />{/if}
@@ -201,7 +204,7 @@
 						<th class="text-left px-3 py-2 font-medium">Parameter</th>
 						<th class="text-left px-3 py-2 font-medium">Units</th>
 						<th class="text-left px-3 py-2 font-medium">Role</th>
-						<th class="text-left px-3 py-2 font-medium">Replicates</th>
+						<th class="text-left px-3 py-2 font-medium">Replicated</th>
 						<th class="text-right px-3 py-2 font-medium">Actions</th>
 					</tr>
 				</thead>
@@ -221,24 +224,14 @@
 							<td class="px-3 py-2 text-brand-muted">{roleLabel(column.role)}</td>
 							<td class="px-3 py-2">
 								{#if member}
-									{@const count = suggestedCount(member.replicates)}
 									<label class="flex items-center gap-2">
 										<input
 											type="checkbox"
-											checked={member.replicates !== null}
+											checked={replicated(member.replicates)}
 											disabled={busy}
-											onchange={(e) => declareReplicates(member, e.currentTarget.checked ? (count ?? 3) : null)}
+											onchange={(e) => declareReplicates(member, e.currentTarget.checked)}
 										/>
-										{#if member.replicates !== null}
-											<input
-												type="number"
-												min="1"
-												value={count ?? 3}
-												disabled={busy}
-												class="border border-brand-divider rounded px-2 py-1 bg-brand-surface w-16"
-												onchange={(e) => declareReplicates(member, Number(e.currentTarget.value))}
-											/>
-										{:else}
+										{#if !replicated(member.replicates)}
 											<span class="text-brand-muted">Entered once</span>
 										{/if}
 									</label>
@@ -279,20 +272,13 @@
 						{/each}
 					</select>
 				</label>
-				<label class="text-sm">
-					<span class="block text-brand-muted mb-1">Replicates per visit</span>
-					<input
-						type="number"
-						min="1"
-						placeholder="Entered once"
-						value={assignReplicates ?? ''}
-						onchange={(e) => (assignReplicates = e.currentTarget.value === '' ? null : Number(e.currentTarget.value))}
-						class="border border-brand-divider rounded px-2 py-1 bg-brand-surface w-32"
-					/>
+				<label class="text-sm flex items-center gap-2 pb-1">
+					<input type="checkbox" bind:checked={assignReplicated} />
+					<span>Replicated</span>
 				</label>
 				<Button variant="primary" loading={busy} disabled={!assignParameterId} onclick={assign}>Assign</Button>
 			</div>
-			<p class="text-xs text-brand-muted">A parameter belongs to one group; assigning one that is already grouped is refused, naming the group that holds it. Its role is read from the calculations that write and read it, not chosen here. A replicate count says the parameter is entered several times at one visit, which is what lets a calculation read the whole family rather than its mean.</p>
+			<p class="text-xs text-brand-muted">A parameter belongs to one group; assigning one that is already grouped is refused, naming the group that holds it. Its role is read from the calculations that write and read it, not chosen here. Replicated says the parameter is entered several times at one visit, which is what lets a calculation read the whole family rather than its mean; how many repeats a visit records is typed on the entry grid, which opens at the width the site last used.</p>
 			{#if assignError}<ErrorNotice message={assignError} />{/if}
 		</div>
 

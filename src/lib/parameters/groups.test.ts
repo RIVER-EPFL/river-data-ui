@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ApiError } from '$api/client';
-import { assignBody, assignmentError, replicateSpec, roleLabel, suggestedCount } from './groups';
+import { assignBody, assignmentError, replicateSpec, replicated, roleLabel } from './groups';
 
 const groups = [
 	{ id: '11111111-1111-4111-8111-111111111111', code: 'field_data', label: 'Field data' },
@@ -41,28 +41,27 @@ describe('roleLabel', () => {
 });
 
 describe('the replicate declaration', () => {
-	it('writes the suggested count, and null where the member is entered once', () => {
-		expect(replicateSpec(2)).toEqual({ suggested: 2 });
-		expect(replicateSpec(null)).toBeNull();
-		expect(replicateSpec(0)).toBeNull();
+	it('carries no count: the width belongs to the grid, not the definition', () => {
+		expect(replicateSpec(true)).toEqual({});
+		expect(replicateSpec(false)).toBeNull();
 	});
 
-	it('reads the count back, and treats a spec without one as declared', () => {
-		expect(suggestedCount({ suggested: 2 })).toBe(2);
-		expect(suggestedCount({})).toBeNull();
-		expect(suggestedCount(null)).toBeNull();
+	it('reads a declaration back, including a legacy spec that still carries a count', () => {
+		expect(replicated({})).toBe(true);
+		expect(replicated({ suggested: 2 })).toBe(true);
+		expect(replicated(null)).toBe(false);
 	});
 
 	it('carries the declaration in the body a member is assigned with', () => {
 		const group = '11111111-1111-4111-8111-111111111111';
 		const parameter = '44444444-4444-4444-8444-444444444444';
-		expect(assignBody(group, parameter, 3, 2)).toEqual({
+		expect(assignBody(group, parameter, 3, true)).toEqual({
 			group_id: group,
 			parameter_id: parameter,
 			ordinal: 3,
-			replicates: { suggested: 2 },
+			replicates: {},
 		});
-		expect(assignBody(group, parameter, 3, null)).toEqual({
+		expect(assignBody(group, parameter, 3, false)).toEqual({
 			group_id: group,
 			parameter_id: parameter,
 			ordinal: 3,

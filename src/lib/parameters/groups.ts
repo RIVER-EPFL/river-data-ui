@@ -39,25 +39,25 @@ export function assignmentError(e: unknown, groups: NamedGroup[]): string {
 	});
 }
 
-/** What the member column holds for a parameter entered several times at one visit. */
-export interface ReplicateSpec extends Record<string, unknown> {
-	suggested: number;
-}
+/**
+ * What the member column holds for a parameter entered several times at one visit. The spec is the
+ * declaration itself and carries nothing: how many repeats a visit records is the entry grid's,
+ * seeded from what the site last did at that parameter (Q61).
+ */
+export type ReplicateSpec = Record<string, unknown>;
 
 /**
- * The declaration a member row writes: a count the entry form opens with, or null where the
- * parameter is entered once. Replicate-ness is the parameter's, and it is what a calculation
- * manifest reads to declare a source the whole family rather than its mean (Q155).
+ * The declaration a member row writes: an empty spec where the parameter is entered several times
+ * at one visit, null where it is entered once. Replicate-ness is the parameter's, and it is what a
+ * calculation manifest reads to declare a source the whole family rather than its mean (Q155).
  */
-export function replicateSpec(count: number | null): ReplicateSpec | null {
-	if (count === null || !Number.isFinite(count) || count < 1) return null;
-	return { suggested: Math.floor(count) };
+export function replicateSpec(replicated: boolean): ReplicateSpec | null {
+	return replicated ? {} : null;
 }
 
-/** The count a stored spec suggests. A spec carrying none still declares the member replicated. */
-export function suggestedCount(replicates: Record<string, unknown> | null): number | null {
-	const suggested = replicates?.suggested;
-	return typeof suggested === 'number' && Number.isFinite(suggested) ? suggested : null;
+/** Whether a stored spec declares the member replicated. Any spec does, including an empty one. */
+export function replicated(replicates: Record<string, unknown> | null): boolean {
+	return replicates !== null && replicates !== undefined;
 }
 
 /** The body a parameter is assigned to a group with, carrying its replicate declaration. */
@@ -65,12 +65,12 @@ export function assignBody(
 	groupId: string,
 	parameterId: string,
 	ordinal: number,
-	count: number | null,
+	replicated: boolean,
 ) {
 	return {
 		group_id: groupId,
 		parameter_id: parameterId,
 		ordinal,
-		replicates: replicateSpec(count),
+		replicates: replicateSpec(replicated),
 	};
 }
