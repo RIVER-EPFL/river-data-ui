@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DerivedParameter } from '$api/crud';
-import { formulaOwnership, formulaShape, fromNum, perReplicateChoices, thresholdPatch, toNum } from './derivedParameters';
+import { formulaOwnership, formulaReads, formulaShape, fromNum, perReplicateChoices, thresholdPatch, toNum } from './derivedParameters';
 
 const blank = { warningMin: '', warningMax: '', alarmMin: '', alarmMax: '' };
 
@@ -41,24 +41,11 @@ describe('formulaOwnership', () => {
 		({ id, tool_script_id, ordinal }) as unknown as DerivedParameter;
 
 	it('leaves a formula authored from the definition list standalone', () => {
-		expect(formulaOwnership(null, null, [])).toEqual({ tool_script_id: null, ordinal: 0 });
-	});
-
-	it('gives the first formula of a calculation ordinal 1', () => {
-		expect(formulaOwnership('calc', null, [])).toEqual({ tool_script_id: 'calc', ordinal: 1 });
-	});
-
-	it('takes the next free ordinal, counting only that calculation own formulas', () => {
-		const siblings = [formula('a', 'calc', 1), formula('b', 'calc', 4), formula('c', 'other', 9)];
-		expect(formulaOwnership('calc', null, siblings)).toEqual({
-			tool_script_id: 'calc',
-			ordinal: 5,
-		});
+		expect(formulaOwnership(null)).toEqual({ tool_script_id: null, ordinal: 0 });
 	});
 
 	it('keeps what an existing definition already says rather than re-deciding it', () => {
-		const existing = formula('a', 'calc', 3);
-		expect(formulaOwnership('other', existing, [])).toEqual({
+		expect(formulaOwnership(formula('a', 'calc', 3))).toEqual({
 			tool_script_id: 'calc',
 			ordinal: 3,
 		});
@@ -87,5 +74,16 @@ describe('formula shape', () => {
 			curve_slot: null,
 			intermediate: true,
 		});
+	});
+});
+
+describe('formulaReads', () => {
+	it('leaves out every name the language defines', () => {
+		expect(formulaReads('coalesce(lab_temp, na) + 273.15', [])).toEqual(['lab_temp']);
+		expect(formulaReads('if(gt(Depth, 0), ln(Depth), na)', [])).toEqual(['Depth']);
+	});
+
+	it('leaves out a declared constant and keeps a step', () => {
+		expect(formulaReads('CO2_HS_Um * Rgas', ['Rgas'])).toEqual(['CO2_HS_Um']);
 	});
 });

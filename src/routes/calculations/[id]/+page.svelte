@@ -20,15 +20,20 @@
 		blankFormula,
 		dependencyOrder,
 		draftOutputs,
+		curveSlots,
 		draftRunBody,
 		editableFormula,
 		formulaBody,
+		formulaVariables,
 		inputRows,
 		outputRows,
+		scalarInputs,
+		scalarOverrides,
 		type EditableFormula,
 	} from '$lib/calculations/editor';
 	import { perReplicateChoices } from '$lib/derivedParameters';
 	import { identifiers } from '$lib/formula/lint';
+	import { curveField } from '$lib/tools/form';
 	import { runTables } from '$lib/tools/runTable';
 	import { formatDateTime } from '$lib/utils';
 	import { toastStore } from '$lib/stores/toast.svelte';
@@ -40,7 +45,10 @@
 	import SiteSelect from '$components/SiteSelect.svelte';
 	import VisualFormulaBuilder from '$components/formula/VisualFormulaBuilder.svelte';
 	import RunResultsTable from '$components/tools/RunResultsTable.svelte';
+	import CurvePicker, { emptyCurveSelection, type CurveSelection } from '$components/tools/CurvePicker.svelte';
 	import type { Diagnostic } from '$lib/formula/lint';
+	import { AUTHORING_REFUSED } from '$lib/toolbox/authoring';
+	import { ApiError } from '$api/client';
 
 	// A calculation whole: what it reads on the left, its formulas in order in the middle, what
 	// it publishes on the right, and below them a run of the set as it stands at a real visit.
@@ -65,6 +73,12 @@
 	let visitId = $state('');
 	let visitsLoading = $state(false);
 	let replicateText = $state<Record<string, string>>({});
+	// A number typed in place of what the visit or the catalog holds, so a set can be checked
+	// against its golden figures before any visit carries them. Blank reads the stored value.
+	let scalarText = $state<Record<string, string>>({});
+	// One selection per declared curve slot: what binds `curve_slope` and `curve_intercept` for
+	// the run. Unbound, the slot's formulas are skipped for want of coefficients.
+	let curveChoice = $state<Record<string, CurveSelection>>({});
 	let running = $state(false);
 	let run = $state<FormulaDraftRunResponse | null>(null);
 	let runError = $state('');
@@ -73,6 +87,10 @@
 	// (Q149). It is the reference the formulas are written against, not something this page edits.
 	let portalReference = $state<Array<{ code: string; function: string; inputs: string[] }>>([]);
 
+	// The group's members entered several times at one visit. A source of one of those that a
+	// per-replicate formula walks is the family, not its mean (Q155).
+	let replicatedCodes = $state<string[]>([]);
+
 	// Steps this calculation reads but does not own (Q156), and the ones it could bring in.
 	let shareable = $state<DerivedParameter[]>([]);
 	let declaring = $state('');
@@ -80,20 +98,23 @@
 	let expanded = $state<string | null>(null);
 
 	const ordered = $derived(dependencyOrder(formulas));
-	const inputs = $derived(inputRows(formulas, parameters, constants));
+	const inputs = $derived(inputRows(formulas, parameters, constants, replicatedCodes));
 	const outputs = $derived(outputRows(formulas));
 	const families = $derived(inputs.filter((i) => i.kind === 'replicates').map((i) => i.name));
+	const scalars = $derived(scalarInputs(inputs));
+	// What the last run read for each scalar, shown as the box's placeholder so a blank box says
+	// which number it stands for.
+	const resolved = $derived(
+		Object.fromEntries(
+			[...(run?.event_inputs ?? []), ...(run?.site_inputs ?? [])]
+				.filter((i) => i.value !== null && i.value !== undefined)
+				.map((i) => [i.param, String(i.value)]),
+		) as Record<string, string>,
+	);
+	const slots = $derived(curveSlots(formulas));
 	const unsaved = $derived(formulas.some((f) => f.id === null || isDirty(f)));
 	const visit = $derived(visits.find((v) => v.id === visitId) ?? null);
-	const paramVars = $derived(
-		parameters
-			.filter((p) => p.category !== 'device_health')
-			.map((p) => ({
-				name: p.code,
-				label: `${p.name}${p.default_units ? ' (' + p.default_units + ')' : ''}`,
-				category: p.category,
-			})),
-	);
+	const paramVars = $derived(formulaVariables(parameters));
 	const tables = $derived(
 		run?.ran
 			? runTables(run.results ?? {}, draftOutputs(run.manifest), run.skipped ?? [], run.trace ?? [])
@@ -213,11 +234,20 @@
 			// A step this calculation already reads, or already owns, is not one to bring in.
 			const own = new Set(stored.map((f) => f.id));
 			shareable = steps.filter((s) => !own.has(s.id));
-			portalReference = script.parameter_group_id
-				? sourceCalculations(await getGroupDefinition(script.parameter_group_id))
+			const definition = script.parameter_group_id
+				? await getGroupDefinition(script.parameter_group_id)
+				: null;
+			portalReference = definition ? sourceCalculations(definition) : [];
+			replicatedCodes = definition
+				? definition.members.filter((m) => m.replicates).map((m) => m.code)
 				: [];
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to load the calculation';
+			error =
+				e instanceof ApiError && (e.status === 401 || e.status === 403)
+					? AUTHORING_REFUSED
+					: e instanceof Error
+						? e.message
+						: 'Failed to load the calculation';
 		} finally {
 			loading = false;
 		}
@@ -298,7 +328,13 @@
 		try {
 			run = await draftRunFormulas(
 				calculationId,
-				draftRunBody(formulas, { siteId, collectedAt: visit.collected_at }, replicateText),
+				draftRunBody(
+					formulas,
+					{ siteId, collectedAt: visit.collected_at },
+					replicateText,
+					Object.fromEntries(slots.map((slot) => [slot, curveField(curveChoice[slot])])),
+					scalarOverrides(inputs, scalarText),
+				),
 			);
 		} catch (e) {
 			run = null;
@@ -413,6 +449,9 @@
 											<input bind:value={f.units} placeholder="uM" class={inputCls} />
 										</label>
 									</div>
+									<label class="text-xs text-brand-muted block">Description
+										<input bind:value={f.description} placeholder="The portal function this transcribes, and what it assumes" class={inputCls} />
+									</label>
 									<VisualFormulaBuilder
 										bind:value={f.formula}
 										bind:diagnostics
@@ -464,6 +503,7 @@
 											{#if f.id === null || isDirty(f)}<Badge variant="warning">unsaved</Badge>{/if}
 										</p>
 										<p class="font-mono text-xs text-brand-muted break-all">{f.formula || '—'}</p>
+										{#if f.description}<p class="text-xs text-brand-muted">{f.description}</p>{/if}
 										{#if f.declarationId && f.id && expanded === f.id}
 											{@const feeds = dependents[f.id]}
 											<div class="mt-1 rounded-md border border-brand-divider bg-brand-bg px-2 py-1">
@@ -569,8 +609,27 @@
 							<input bind:value={replicateText[family]} placeholder="410, 415" class="block mt-0.5 {inputCls} w-40" />
 						</label>
 					{/each}
+					{#each scalars as scalar (scalar.name)}
+						<label class="text-xs text-brand-muted">{scalar.name}
+							<input bind:value={scalarText[scalar.name]} placeholder={resolved[scalar.name] ?? (scalar.kind === 'constant' ? 'catalog' : 'from the visit')} class="block mt-0.5 {inputCls} w-28" />
+						</label>
+					{/each}
 					<Button size="sm" variant="primary" loading={running} disabled={!visit || ordered.length === 0} onclick={runAtVisit}>Run</Button>
 				</div>
+				{#if slots.length > 0}
+					<div class="grid gap-3 sm:grid-cols-2">
+						{#each slots as slot (slot)}
+							<CurvePicker
+								title="Curve slot {slot}"
+								siteId={siteId || null}
+								bind:value={
+									() => curveChoice[slot] ?? emptyCurveSelection(),
+									(v) => (curveChoice = { ...curveChoice, [slot]: v })
+								}
+							/>
+						{/each}
+					</div>
+				{/if}
 				{#if runError}<ErrorNotice message={runError} />{/if}
 				{#if run && !run.ran && run.failure}
 					<ErrorNotice message={run.failure.message} />

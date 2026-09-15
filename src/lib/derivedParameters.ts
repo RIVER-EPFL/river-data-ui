@@ -1,4 +1,5 @@
 import type { DerivedParameter } from '$api/crud';
+import { FORMULA_CONSTANTS, FORMULA_FUNCTIONS, identifiers } from '$lib/formula/lint';
 
 /** The four bounds as the number inputs bind them; `bind:value` on `type="number"` yields a number
  *  as soon as anything is typed, so each is read as text. */
@@ -50,24 +51,16 @@ export interface FormulaOwnership {
 }
 
 /**
- * The calculation a formula being authored belongs to, and where it sits in that calculation's
- * order. A formula authored from a calculation takes the next free ordinal in it; one authored
- * from the definition list belongs to no calculation and is standalone, which is the per-reading
- * continuous kind. An edit keeps what the definition already says rather than re-deciding it.
+ * The calculation a formula belongs to, and where it sits in that calculation's order. The form
+ * authors a standalone definition or a shared step, both of which belong to no calculation; a
+ * calculation's own formulas are authored on its page. An edit keeps what the definition already
+ * says rather than re-deciding it.
  */
-export function formulaOwnership(
-	calculationId: string | null,
-	existing: DerivedParameter | null,
-	siblings: DerivedParameter[],
-): FormulaOwnership {
+export function formulaOwnership(existing: DerivedParameter | null): FormulaOwnership {
 	if (existing) {
 		return { tool_script_id: existing.tool_script_id, ordinal: existing.ordinal };
 	}
-	if (!calculationId) return { tool_script_id: null, ordinal: 0 };
-	const taken = siblings
-		.filter((f) => f.tool_script_id === calculationId)
-		.map((f) => f.ordinal);
-	return { tool_script_id: calculationId, ordinal: taken.length === 0 ? 1 : Math.max(...taken) + 1 };
+	return { tool_script_id: null, ordinal: 0 };
 }
 
 /// The variables a formula may be evaluated per replicate over.
@@ -75,6 +68,21 @@ export function formulaOwnership(
 /// A formula runs over one input's replicate vector, so the choice is among the variables the
 /// formula itself names. The curve coefficients are supplied by the curve slot rather than read
 /// from a parameter, so neither is a replicate to iterate.
+/// What a formula reads: every name in it the language does not define and no constant carries,
+/// so its parameters, its steps and its curve coefficients, in the order they are written.
+export function formulaReads(formula: string, constantNames: Iterable<string>): string[] {
+	const defined = new Set<string>([
+		...Object.keys(FORMULA_FUNCTIONS),
+		...FORMULA_CONSTANTS,
+		...constantNames,
+	]);
+	const reads = new Set<string>();
+	for (const { name } of identifiers(formula)) {
+		if (!defined.has(name)) reads.add(name);
+	}
+	return [...reads];
+}
+
 export function perReplicateChoices(variableNames: string[]): string[] {
 	return variableNames
 		.filter((n) => n !== 'curve_slope' && n !== 'curve_intercept')

@@ -12,12 +12,9 @@ import { BASE_PATH, signIn } from './portal';
 // The set is `field_data`'s CO2 correction at its golden visit (VAD 2019-06-25, row 16 of
 // `river-data-api/tests/fixtures/cnet_formula_sets.json`): the pressure guard `bp`, which belongs
 // to no calculation and is brought in as a dependency, and the correction that reads it. The case
-// stores no Vaisala curve, so the identity curve stands in and the correction is the arithmetic
-// without it.
+// stores no Vaisala curve, so the identity curve is what the run is given.
 //
-// Two constructs of the set are left out because the page cannot carry them today: the site
-// property `altitude_m` that `Field_BP_altitude` reads (B268) and the curve slot the corrections
-// declare (B270). The stored `Field_BP_altitude` reading stands in for the first.
+// A separate output reads the site's altitude directly.
 
 const API_URL = process.env.E2E_API_URL ?? 'http://localhost:3005';
 const KEYCLOAK_URL = process.env.E2E_KEYCLOAK_URL ?? 'http://localhost:8180/';
@@ -27,6 +24,7 @@ const WTW_TEMP = 7.6;
 const FIELD_BP = 836;
 const FIELD_BP_ALTITUDE = 798;
 const VAISALA_CO2_AVG = 320;
+const ALTITUDE = 1234;
 
 interface Fixture {
 	stamp: string;
@@ -67,12 +65,14 @@ async function seedCatalog(request: APIRequestContext): Promise<Fixture> {
 	};
 
 	const codes = {
+		curveSlot: `vaisala_${stamp}`,
 		temp: `WTW_Temp_degC_1_${stamp}`,
 		fieldBp: `Field_BP_${stamp}`,
 		altitudeBp: `Field_BP_altitude_${stamp}`,
 		vaisala: `Vaisala_CO2_avg_${stamp}`,
 		step: `bp_${stamp}`,
 		output: `Vaisala_CO2_avg_corr_${stamp}`,
+		altitude: `altitude_${stamp}`,
 	};
 	const values: Record<string, number> = {
 		[codes.temp]: WTW_TEMP,
@@ -83,7 +83,7 @@ async function seedCatalog(request: APIRequestContext): Promise<Fixture> {
 
 	const project = await post('/projects', { name: `Field data ${stamp}` });
 	const siteName = `Field data ${stamp}`;
-	const site = await post('/sites', { name: siteName, project_id: project.id });
+	const site = await post('/sites', { name: siteName, project_id: project.id, altitude_m: ALTITUDE });
 	const groupLabel = `Field data ${stamp}`;
 	const group = await post('/parameter_groups', {
 		code: `field_data_${stamp}`,
@@ -133,12 +133,17 @@ async function seedCatalog(request: APIRequestContext): Promise<Fixture> {
 /** One formula typed into the editor as the lab types it, then saved. */
 async function addFormula(
 	page: Page,
-	formula: { code: string; name: string; units: string; text: string },
+	formula: { code: string; name: string; units: string; text: string; curveSlot?: string },
 ) {
 	await page.getByRole('button', { name: 'Add formula', exact: true }).click();
 	await page.getByRole('textbox', { name: 'Code' }).fill(formula.code);
 	await page.getByRole('textbox', { name: 'Name', exact: true }).fill(formula.name);
 	await page.getByRole('textbox', { name: 'Units' }).fill(formula.units);
+	// The slot is declared before the formula is typed: the two coefficients it binds are unknown
+	// identifiers until it is, and the lint holds Save while one stands.
+	if (formula.curveSlot) {
+		await page.getByRole('textbox', { name: 'Curve slot' }).fill(formula.curveSlot);
+	}
 	await page.getByPlaceholder('Type formula directly').fill(formula.text);
 	await expect(page.getByRole('button', { name: 'Add', exact: true })).toBeEnabled();
 	await page.getByRole('button', { name: 'Add', exact: true }).click();
@@ -173,7 +178,8 @@ test('a CNET formula set is authored on the page and reproduces its golden visit
 		code: codes.output,
 		name: 'Vaisala CO2 avg corrected',
 		units: 'ppm',
-		text: `${codes.vaisala} * ${codes.step} * 298 / (1013 * (273 + ${codes.temp}))`,
+		text: `(${codes.vaisala} * curve_slope + curve_intercept) * ${codes.step} * 298 / (1013 * (273 + ${codes.temp}))`,
+		curveSlot: codes.curveSlot,
 	});
 
 	// The set reads in dependency order, and the step is marked as one.
@@ -184,6 +190,13 @@ test('a CNET formula set is authored on the page and reproduces its golden visit
 	await expect(order.nth(0)).toContainText('shared');
 	await expect(order.nth(1)).toContainText(codes.output);
 
+	await addFormula(page, {
+		code: codes.altitude,
+		name: 'Site altitude',
+		units: 'm',
+		text: 'altitude_m',
+	});
+
 	// What the set reads, classified: an earlier formula's value, and the parameters read from the
 	// visit. A row is found by the code it opens with, so `bp_x` does not match `Field_BP_x`.
 	const inputs = page.locator('section', { has: page.getByRole('heading', { name: 'Inputs' }) });
@@ -192,17 +205,29 @@ test('a CNET formula set is authored on the page and reproduces its golden visit
 	await expect(reads(codes.step)).toContainText('step');
 	await expect(reads(codes.temp)).toContainText('parameter');
 	await expect(reads(codes.fieldBp)).toContainText('parameter');
+	await expect(reads('altitude_m')).toContainText('site');
+	await expect(reads('curve_slope')).toContainText(`slot ${codes.curveSlot}`);
 
-	// A step publishes nothing, so only the correction is an output.
+	// A shared step publishes nothing.
 	const outputs = page.locator('section', { has: page.getByRole('heading', { name: 'Outputs' }) });
 	const publishes = (code: string) =>
 		outputs.getByRole('listitem').filter({ hasText: new RegExp(`^${code}`) });
 	await expect(publishes(codes.output)).toHaveCount(1);
+	await expect(publishes(codes.altitude)).toHaveCount(1);
 	await expect(publishes(codes.step)).toHaveCount(0);
 
 	// Run at the visit the catalog was seeded with. Nothing is written; the numbers come back.
 	await page.getByRole('combobox', { name: 'Site' }).selectOption({ label: siteName });
 	await page.getByLabel('Visit').selectOption({ index: 1 });
+
+	// The slot needs coefficients or the correction is skipped for want of them. The golden case
+	// stores no Vaisala curve, so the identity is what the portal read it against.
+	const slot = `Curve slot ${codes.curveSlot}`;
+	await expect(page.getByText(slot).first()).toBeVisible();
+	await page.getByRole('button', { name: 'Manual', exact: true }).click();
+	await page.getByRole('spinbutton', { name: `${slot} slope` }).fill('1');
+	await page.getByRole('spinbutton', { name: `${slot} intercept` }).fill('0');
+
 	await page.getByRole('button', { name: 'Run', exact: true }).click();
 
 	// The step takes the field pressure, which is inside the guard's range, and the correction is
@@ -211,4 +236,5 @@ test('a CNET formula set is authored on the page and reproduces its golden visit
 	await expect(stepRow).toContainText(String(FIELD_BP));
 	const outputRow = page.locator(`#run-row-${codes.output}`);
 	await expect(outputRow).toContainText('280.463');
+	await expect(page.locator(`#run-row-${codes.altitude}`)).toContainText(String(ALTITUDE));
 });

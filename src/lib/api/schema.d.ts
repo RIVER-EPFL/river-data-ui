@@ -2921,14 +2921,12 @@ export interface paths {
          *     Additional sortable columns:
          *     - group_id
          *     - ordinal
-         *     - role
          *     - created_at.
          *
          *     Additional filterable columns:
          *     - group_id
          *     - parameter_id
-         *     - ordinal
-         *     - role.
+         *     - ordinal.
          */
         get: operations["get_all_parameter_group_members"];
         put?: never;
@@ -12706,7 +12704,6 @@ export interface components {
             /** Format: uuid */
             parameter_id: string;
             replicates?: unknown;
-            role: string;
             source_calculation?: unknown;
             units?: string | null;
         };
@@ -12730,14 +12727,9 @@ export interface components {
             /** @description The replicate spec for a member entered several times at one visit. */
             replicates: unknown;
             /**
-             * @description `measured`, `entry_only` or `output`, held by a DB CHECK and by
-             *     [`super::rules::Role`].
-             */
-            role: string;
-            /**
-             * @description What the source computed an `output` member with: `{ function, inputs }`, the portal's
-             *     own calculation and the columns it reads. NULL where nothing computed the column, or
-             *     where the source declares no calculation.
+             * @description What the source computed this member with: `{ function, inputs }`, the portal's own
+             *     calculation and the columns it reads. NULL where nothing computed the column, or where
+             *     the source declares no calculation.
              */
             source_calculation: unknown;
             units: string | null;
@@ -12762,14 +12754,9 @@ export interface components {
             /** @description The replicate spec for a member entered several times at one visit. */
             replicates: unknown;
             /**
-             * @description `measured`, `entry_only` or `output`, held by a DB CHECK and by
-             *     [`super::rules::Role`].
-             */
-            role: string;
-            /**
-             * @description What the source computed an `output` member with: `{ function, inputs }`, the portal's
-             *     own calculation and the columns it reads. NULL where nothing computed the column, or
-             *     where the source declares no calculation.
+             * @description What the source computed this member with: `{ function, inputs }`, the portal's own
+             *     calculation and the columns it reads. NULL where nothing computed the column, or where
+             *     the source declares no calculation.
              */
             source_calculation: unknown;
             units: string | null;
@@ -12784,7 +12771,6 @@ export interface components {
             /** Format: uuid */
             parameter_id?: string | null;
             replicates?: unknown;
-            role?: string | null;
             source_calculation?: unknown;
             units?: string | null;
         };
@@ -13002,11 +12988,11 @@ export interface components {
         /** @description The objects the review has accepted, as the column holds them. */
         PlanAcceptedObjects: components["schemas"]["PlanAcceptedObject"][];
         /**
-         * @description What the source computed an `output` column with: its own calculation function and the columns
-         *     that function reads.
+         * @description What the source computed a column with: its own calculation function and the columns that
+         *     function reads.
          *
-         *     The role says a column is computed; this says what computed it, which is the statement a
-         *     formula set is authored against and the one an output still waiting for one is missing.
+         *     It is the statement a formula set is authored against, and the one an output still waiting for
+         *     one is missing.
          */
         PlanCalculationRef: {
             /** @description The source's own function name, verbatim (`calcPCO2`). */
@@ -13258,8 +13244,6 @@ export interface components {
              * @description The member's position within the group.
              */
             ordinal: number;
-            /** @description `measured` | `entry_only` | `output`, as the source's calculations make it. */
-            role: string;
         };
         /**
          * @description One instrument decision in a pairing plan: the instrument, what it covers, and the curves it

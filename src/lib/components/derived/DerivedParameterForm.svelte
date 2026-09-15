@@ -15,6 +15,7 @@
 	import { listToolScripts, type ToolScriptSummary } from '$api/service';
 	import {
 		formulaOwnership,
+		formulaReads,
 		formulaShape,
 		fromNum,
 		perReplicateChoices,
@@ -27,22 +28,18 @@
 
 	// The derived-parameter form in both modes. The bounds live on the output parameter's global
 	// threshold row, and a create only learns that parameter's id after the after-create hook.
-	// `calculationId` is what makes this the calculation's formula rather than a standalone
-	// definition: M67 gave a formula calculation its formulas as definitions carrying
-	// `tool_script_id` and an `ordinal`, and until now the form sent neither.
-	let {
-		mode,
-		defId = null,
-		calculationId = null,
-	}: { mode: 'create' | 'edit'; defId?: string | null; calculationId?: string | null } = $props();
+	// A create authors a standalone definition or a shared step; a calculation's own formulas are
+	// authored on its page.
+	let { mode, defId = null }: { mode: 'create' | 'edit'; defId?: string | null } = $props();
 
 	let def = $state<DerivedParameter | null>(null);
 	let allParams = $state<Parameter[]>([]);
 	let allSites = $state<Site[]>([]);
 	let allSiteParams = $state<SiteParameter[]>([]);
 	let constants = $state<Constant[]>([]);
-	let siblings = $state<DerivedParameter[]>([]);
 	let calculations = $state<ToolScriptSummary[]>([]);
+	/** The codes the owning calculation's other formulas publish, readable by this one. */
+	let steps = $state<string[]>([]);
 	let loading = $state(true);
 	let saving = $state(false);
 
@@ -64,6 +61,23 @@
 	/** The output parameter's own bounds: its `alarm_thresholds` row with no site. */
 	let globalThreshold = $state<AlarmThreshold | null>(null);
 
+	/// The codes a formula of `calculationId` may read: every other formula of that calculation,
+	/// its own and the steps it declares from elsewhere.
+	async function loadSteps(calculationId: string, selfId: string): Promise<string[]> {
+		const [own, declarations] = await Promise.all([
+			api.derivedParameters.list({ perPage: 500, filter: { tool_script_id: calculationId } }),
+			api.calculationSharedSteps.list({ perPage: 200, filter: { tool_script_id: calculationId } }),
+		]);
+		const declared = declarations.data.map((d) => d.formula_id);
+		const shared = declared.length
+			? (await api.derivedParameters.list({ perPage: 500, filter: { intermediate: true } })).data
+			: [];
+		return [
+			...own.data.filter((f) => f.id !== selfId),
+			...shared.filter((f) => declared.includes(f.id)),
+		].map((f) => f.code);
+	}
+
 	async function loadGlobalThreshold(parameterId: string): Promise<AlarmThreshold | null> {
 		const res = await api.alarmThresholds.list({ perPage: 200, filter: { parameter_id: parameterId } });
 		return res.data.find((t) => t.site_id === null) ?? null;
@@ -71,10 +85,9 @@
 
 	const editing = untrack(() => mode === 'edit');
 	const backHref = $derived(editing ? `${base}/derived/${defId}` : `${base}/parameters?type=derived`);
-	/** The calculation this formula belongs to, once it is known: the one being authored for, or
-	 *  the one the definition already names. */
+	/** The calculation an edited formula belongs to, where the definition names one. */
 	const ownedBy = $derived.by(() => {
-		const id = def?.tool_script_id ?? calculationId;
+		const id = def?.tool_script_id;
 		return id ? (calculations.find((c) => c.id === id) ?? null) : null;
 	});
 
@@ -84,16 +97,14 @@
 			.map((p) => ({ name: p.code, label: `${p.name}${p.default_units ? ' (' + p.default_units + ')' : ''}`, category: p.category }))
 	);
 
-	const variableNamesInFormula = $derived.by(() => {
-		const constantNames = new Set(constants.map((c) => c.name));
-		const fns = new Set(['sqrt', 'abs', 'ln', 'log', 'sin', 'cos', 'tan', 'exp', 'floor', 'ceil', 'round', 'min', 'max', 'pi', 'e']);
-		const ids = new Set<string>();
-		for (const m of formula.matchAll(/[a-zA-Z_]\w*/g)) {
-			const n = m[0];
-			if (!fns.has(n) && !constantNames.has(n)) ids.add(n);
-		}
-		return [...ids];
-	});
+	const variableNamesInFormula = $derived(
+		formulaReads(
+			formula,
+			constants.map((c) => c.name)
+		)
+	);
+	/** What the preview asks a site for: a step is computed by the run, not measured there. */
+	const previewVariableNames = $derived(variableNamesInFormula.filter((n) => !steps.includes(n)));
 
 	const sitesWithAvailability = $derived(
 		allSites.map((s) => {
@@ -109,20 +120,18 @@
 
 	onMount(async () => {
 		try {
-			const [d, p, s, sp, c, f, ts] = await Promise.all([
+			const [d, p, s, sp, c, ts] = await Promise.all([
 				editing && defId ? api.derivedParameters.get(defId) : Promise.resolve(null),
 				api.parameters.list({ perPage: 500, sort: ['name', 'ASC'] }),
 				api.sites.list({ perPage: 200, sort: ['name', 'ASC'] }),
 				api.siteParameters.list({ perPage: 1000 }),
 				api.constants.list({ perPage: 200, sort: ['name', 'ASC'] }),
-				api.derivedParameters.list({ perPage: 500 }),
 				listToolScripts().catch(() => [] as ToolScriptSummary[]),
 			]);
 			allParams = p.data;
 			allSites = s.data;
 			allSiteParams = sp.data;
 			constants = c.data;
-			siblings = f.data;
 			calculations = ts;
 			if (!d) return;
 			def = d;
@@ -135,6 +144,7 @@
 			curveSlot = d.curve_slot ?? '';
 			intermediate = d.intermediate ?? false;
 			outputParameterId = d.output_parameter_id;
+			if (d.tool_script_id) steps = await loadSteps(d.tool_script_id, d.id);
 			if (d.output_parameter_id) {
 				globalThreshold = await loadGlobalThreshold(d.output_parameter_id);
 				thresholds = {
@@ -160,7 +170,7 @@
 				formula,
 				description: description || undefined,
 				...formulaShape(perReplicate, curveSlot, intermediate),
-				...formulaOwnership(calculationId, def, siblings),
+				...formulaOwnership(def),
 			};
 			// The output parameter is created by an after-create hook, so a create re-fetches the
 			// definition to learn its id before it can write its bounds.
@@ -240,10 +250,11 @@
 				bind:diagnostics={formulaDiagnostics}
 				variables={paramVars}
 				{constants}
+				{steps}
 				hasCurve={curveSlot.trim().length > 0}
 				ownCode={code || undefined}
 			/>
-			<LivePreview {formula} sites={sitesWithAvailability} variableNames={variableNamesInFormula} />
+			<LivePreview {formula} sites={sitesWithAvailability} variableNames={previewVariableNames} />
 		</div>
 
 		<!-- What shape the formula runs in. A formula over a replicate vector writes one reading per
@@ -274,10 +285,11 @@
 				<label class="flex items-start gap-2 text-sm">
 					<input type="checkbox" bind:checked={intermediate} class="mt-1" />
 					<span>
-						A step of the calculation
+						{ownedBy ? 'A step of the calculation' : 'A step any calculation may read'}
 						<span class="block text-xs text-brand-muted">
-							Its value reaches the formulas after it under this code, and is stored nowhere: no
-							catalog parameter is created for it and nothing offers to save it.
+							{ownedBy
+								? 'Its value reaches the formulas after it under this code, and is stored nowhere: no catalog parameter is created for it and nothing offers to save it.'
+								: 'Its value reaches the formulas of every calculation that declares it, under this code, and is stored nowhere: no catalog parameter is created for it and nothing offers to save it.'}
 						</span>
 					</span>
 				</label>

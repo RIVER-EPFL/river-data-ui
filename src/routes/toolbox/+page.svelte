@@ -18,6 +18,8 @@
 	import { listAll } from '$api/paged';
 	import { calculationRows, unconfiguredInputs, type CalculationRow } from '$lib/calculations/rows';
 	import { newCalculationRequest, unboundGroups } from '$lib/toolbox/newCalculation';
+	import { AUTHOR_CALCULATIONS, authoringState, loadCatalog } from '$lib/toolbox/authoring';
+	import { me } from '$auth/me.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
@@ -32,6 +34,7 @@
 	let applying = $state<string | null>(null);
 	let loading = $state(true);
 	let loadError = $state<string | null>(null);
+	let refused = $state(false);
 	let engineFilter = $state<'all' | 'formula' | 'script'>('all');
 
 	// A new formula calculation. The engine is chosen here because it is a property of the
@@ -43,6 +46,9 @@
 	let newGroupId = $state('');
 	let creating = $state(false);
 	const availableGroups = $derived(unboundGroups(groups, scripts));
+	const access = $derived(
+		authoringState({ permitted: me.can(AUTHOR_CALCULATIONS), refused })
+	);
 
 	async function createCalculation() {
 		const made = newCalculationRequest({
@@ -87,22 +93,25 @@
 			const [d, t, s, p, closure, g, h] = await Promise.all([
 				listAll<DerivedParameter>(api.derivedParameters),
 				listTools().catch(() => [] as ToolDescriptor[]),
-				listToolScripts().catch(() => [] as ToolScriptSummary[]),
+				loadCatalog(listToolScripts),
 				listAll<Parameter>(api.parameters),
 				getCalculationClosure({ include_coverage: true }).catch(() => ({
 					calculations: [],
 					coverage: [],
 				})),
-				listAll<ParameterGroup>(api.parameterGroups).catch(() => [] as ParameterGroup[]),
+				loadCatalog(() => listAll<ParameterGroup>(api.parameterGroups)),
 				getCalculationHealth().catch(() => [] as CalculationHealth[]),
 			]);
 			formulas = d;
 			tools = t;
-			scripts = s;
+			scripts = s.status === 'loaded' ? s.items : [];
 			parameters = p;
 			coverage = closure.coverage ?? [];
-			groups = g;
+			groups = g.status === 'loaded' ? g.items : [];
 			health = h;
+			refused = s.status === 'refused' || g.status === 'refused';
+			loadError =
+				(s.status === 'failed' && s.message) || (g.status === 'failed' && g.message) || null;
 		} catch (e) {
 			loadError = e instanceof Error ? e.message : 'Failed to load calculations.';
 		} finally {
@@ -184,64 +193,68 @@
 	{:else if loading}
 		<p class="text-sm text-brand-muted">Loading…</p>
 	{:else}
-		<!-- A formula calculation is made here: Manage Tools authors R scripts, and a definition made
-		     from the parameter list belongs to no calculation. -->
-		<div class="rounded-md border border-brand-divider bg-brand-surface px-4 py-3 text-sm">
-			<div class="flex items-center justify-between gap-3">
-				<div>
-					<p class="font-semibold">New formula calculation</p>
-					<p class="text-brand-muted text-xs mt-0.5">
-						Reads and writes the members of one parameter group, and holds an ordered set of
-						formulas. Its formulas are authored on its own page.
-					</p>
+		{#if !access.authorable}
+			<p class="text-sm text-brand-muted">{access.notice}</p>
+		{:else}
+			<!-- A formula calculation is made here: Manage Tools authors R scripts, and a definition made
+			     from the parameter list belongs to no calculation. -->
+			<div class="rounded-md border border-brand-divider bg-brand-surface px-4 py-3 text-sm">
+				<div class="flex items-center justify-between gap-3">
+					<div>
+						<p class="font-semibold">New formula calculation</p>
+						<p class="text-brand-muted text-xs mt-0.5">
+							Reads and writes the members of one parameter group, and holds an ordered set of
+							formulas. Its formulas are authored on its own page.
+						</p>
+					</div>
+					{#if !composing}
+						<Button size="sm" onclick={() => (composing = true)} disabled={availableGroups.length === 0}
+							>New calculation</Button
+						>
+					{/if}
 				</div>
-				{#if !composing}
-					<Button size="sm" onclick={() => (composing = true)} disabled={availableGroups.length === 0}
-						>New calculation</Button
-					>
+				{#if composing}
+					<div class="mt-3 flex flex-wrap items-end gap-2">
+						<label class="text-xs text-brand-muted">
+							Name
+							<input
+								bind:value={newName}
+								placeholder="pco2"
+								class="block mt-0.5 px-2 py-1 rounded border border-brand-divider bg-brand-surface text-sm text-brand-text w-40"
+							/>
+						</label>
+						<label class="text-xs text-brand-muted">
+							Label
+							<input
+								bind:value={newLabel}
+								placeholder="pCO2"
+								class="block mt-0.5 px-2 py-1 rounded border border-brand-divider bg-brand-surface text-sm text-brand-text w-40"
+							/>
+						</label>
+						<label class="text-xs text-brand-muted">
+							Parameter group
+							<select
+								bind:value={newGroupId}
+								class="block mt-0.5 px-2 py-1 rounded border border-brand-divider bg-brand-surface text-sm text-brand-text"
+							>
+								<option value="">Choose a group…</option>
+								{#each availableGroups as g (g.id)}
+									<option value={g.id}>{g.label}</option>
+								{/each}
+							</select>
+						</label>
+						<Button size="sm" onclick={createCalculation} disabled={creating}
+							>{creating ? 'Creating…' : 'Create and open it'}</Button
+						>
+						<Button size="sm" variant="ghost" onclick={() => (composing = false)}>Cancel</Button>
+					</div>
+				{:else if availableGroups.length === 0}
+					<p class="text-brand-muted text-xs mt-2">
+						Every parameter group already holds a calculation. A new one needs a new group.
+					</p>
 				{/if}
 			</div>
-			{#if composing}
-				<div class="mt-3 flex flex-wrap items-end gap-2">
-					<label class="text-xs text-brand-muted">
-						Name
-						<input
-							bind:value={newName}
-							placeholder="pco2"
-							class="block mt-0.5 px-2 py-1 rounded border border-brand-divider bg-brand-surface text-sm text-brand-text w-40"
-						/>
-					</label>
-					<label class="text-xs text-brand-muted">
-						Label
-						<input
-							bind:value={newLabel}
-							placeholder="pCO2"
-							class="block mt-0.5 px-2 py-1 rounded border border-brand-divider bg-brand-surface text-sm text-brand-text w-40"
-						/>
-					</label>
-					<label class="text-xs text-brand-muted">
-						Parameter group
-						<select
-							bind:value={newGroupId}
-							class="block mt-0.5 px-2 py-1 rounded border border-brand-divider bg-brand-surface text-sm text-brand-text"
-						>
-							<option value="">Choose a group…</option>
-							{#each availableGroups as g (g.id)}
-								<option value={g.id}>{g.label}</option>
-							{/each}
-						</select>
-					</label>
-					<Button size="sm" onclick={createCalculation} disabled={creating}
-						>{creating ? 'Creating…' : 'Create and open it'}</Button
-					>
-					<Button size="sm" variant="ghost" onclick={() => (composing = false)}>Cancel</Button>
-				</div>
-			{:else if availableGroups.length === 0}
-				<p class="text-brand-muted text-xs mt-2">
-					Every parameter group already holds a calculation. A new one needs a new group.
-				</p>
-			{/if}
-		</div>
+		{/if}
 
 		{#if formulaCalculations.length > 0}
 			<div class="rounded-md border border-brand-divider bg-brand-surface px-4 py-3 text-sm">

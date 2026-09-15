@@ -131,6 +131,30 @@ export interface Site {
 	discovered_at: string | null;
 }
 
+/**
+ * The columns of a site's own row, which is what a formula's site source may name (D13): any
+ * column resolves, and the kind check at calculate time is what refuses a text one in a number
+ * input. The type check below is what keeps this list level with `Site`.
+ */
+export const SITE_PROPERTIES = [
+	'id',
+	'project_id',
+	'subproject_id',
+	'name',
+	'description',
+	'latitude',
+	'longitude',
+	'altitude_m',
+	'public_code',
+	'created_at',
+	'discovered_at',
+] as const satisfies ReadonlyArray<keyof Site>;
+
+type UnlistedSiteColumn = Exclude<keyof Site, (typeof SITE_PROPERTIES)[number]>;
+// A column added to `Site` and not to `SITE_PROPERTIES` fails here rather than in a formula.
+const _everySiteColumnIsListed: UnlistedSiteColumn extends never ? true : never = true;
+void _everySiteColumnIsListed;
+
 export interface Parameter {
 	id: string;
 	code: string;
@@ -156,14 +180,12 @@ export interface ParameterGroup {
 	created_at: string;
 }
 
-/** One parameter's membership of a group, carrying its role and the group's presentation overrides. */
+/** One parameter's membership of a group, carrying the group's presentation overrides. */
 export interface ParameterGroupMember {
 	id: string;
 	group_id: string;
 	parameter_id: string;
 	ordinal: number;
-	/** 'measured', 'entry_only' or 'output'. */
-	role: string;
 	replicates: Record<string, unknown> | null;
 	label: string | null;
 	units: string | null;

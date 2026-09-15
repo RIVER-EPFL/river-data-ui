@@ -5,7 +5,7 @@
 	import { page } from '$app/state';
 	import { api, type Parameter, type ParameterGroup, type ParameterGroupMember } from '$api/crud';
 	import { getGroupDefinition, type GroupDefinitionMember } from '$api/service';
-	import { assignmentError, roleLabel } from '$lib/parameters/groups';
+	import { assignBody, assignmentError, replicateSpec, roleLabel, suggestedCount } from '$lib/parameters/groups';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
@@ -27,6 +27,7 @@
 	let busy = $state(false);
 
 	let assignParameterId = $state('');
+	let assignReplicates = $state<number | null>(null);
 
 	// The definition is the server's own column order; the member rows carry the ids a reorder patches.
 	async function load() {
@@ -68,15 +69,11 @@
 		busy = true;
 		try {
 			const nextOrdinal = members.reduce((max, m) => Math.max(max, m.ordinal), -1) + 1;
-			await api.parameterGroupMembers.create({
-				group_id: groupId,
-				parameter_id: assignParameterId,
-				// The stored role is vestigial: every read derives it from the calculations (Q135),
-				// and the column is NOT NULL until the migration that drops it.
-				role: 'entry_only',
-				ordinal: nextOrdinal,
-			});
+			await api.parameterGroupMembers.create(
+				assignBody(groupId, assignParameterId, nextOrdinal, assignReplicates),
+			);
 			assignParameterId = '';
+			assignReplicates = null;
 			await load();
 		} catch (e) {
 			assignError = assignmentError(e, groups);
@@ -95,6 +92,20 @@
 		try {
 			await api.parameterGroupMembers.update(order[index].id, { ordinal: order[target].ordinal });
 			await api.parameterGroupMembers.update(order[target].id, { ordinal: order[index].ordinal });
+			await load();
+		} catch (e) {
+			toastStore.error(assignmentError(e, groups));
+		} finally {
+			busy = false;
+		}
+	}
+
+	// Replicate-ness is the parameter's, and the group's member row is where it is declared: a
+	// calculation reads a declared source as the whole family, an undeclared one as its mean (Q155).
+	async function declareReplicates(member: ParameterGroupMember, count: number | null) {
+		busy = true;
+		try {
+			await api.parameterGroupMembers.update(member.id, { replicates: replicateSpec(count) });
 			await load();
 		} catch (e) {
 			toastStore.error(assignmentError(e, groups));
@@ -169,6 +180,7 @@
 						<th class="text-left px-3 py-2 font-medium">Parameter</th>
 						<th class="text-left px-3 py-2 font-medium">Units</th>
 						<th class="text-left px-3 py-2 font-medium">Role</th>
+						<th class="text-left px-3 py-2 font-medium">Replicates</th>
 						<th class="text-right px-3 py-2 font-medium">Actions</th>
 					</tr>
 				</thead>
@@ -186,6 +198,33 @@
 							<!-- The role is what the calculations make of the parameter, not a choice
 							     taken here (Q135). -->
 							<td class="px-3 py-2 text-brand-muted">{roleLabel(column.role)}</td>
+							<td class="px-3 py-2">
+								{#if member}
+									{@const count = suggestedCount(member.replicates)}
+									<label class="flex items-center gap-2">
+										<input
+											type="checkbox"
+											checked={member.replicates !== null}
+											disabled={busy}
+											onchange={(e) => declareReplicates(member, e.currentTarget.checked ? (count ?? 3) : null)}
+										/>
+										{#if member.replicates !== null}
+											<input
+												type="number"
+												min="1"
+												value={count ?? 3}
+												disabled={busy}
+												class="border border-brand-divider rounded px-2 py-1 bg-brand-surface w-16"
+												onchange={(e) => declareReplicates(member, Number(e.currentTarget.value))}
+											/>
+										{:else}
+											<span class="text-brand-muted">Entered once</span>
+										{/if}
+									</label>
+								{:else}
+									<span class="text-brand-muted">—</span>
+								{/if}
+							</td>
 							<td class="px-3 py-2 text-right whitespace-nowrap">
 								<Button size="sm" variant="ghost" disabled={busy || index === 0} onclick={() => move(column.parameter_id, -1)}>Up</Button>
 								<Button size="sm" variant="ghost" disabled={busy || index === columns.length - 1} onclick={() => move(column.parameter_id, 1)}>Down</Button>
@@ -201,7 +240,7 @@
 							</td>
 						</tr>
 					{:else}
-						<tr><td colspan="5" class="px-3 py-4 text-brand-muted">No parameters in this group yet.</td></tr>
+						<tr><td colspan="6" class="px-3 py-4 text-brand-muted">No parameters in this group yet.</td></tr>
 					{/each}
 				</tbody>
 			</table>
@@ -219,9 +258,20 @@
 						{/each}
 					</select>
 				</label>
+				<label class="text-sm">
+					<span class="block text-brand-muted mb-1">Replicates per visit</span>
+					<input
+						type="number"
+						min="1"
+						placeholder="Entered once"
+						value={assignReplicates ?? ''}
+						onchange={(e) => (assignReplicates = e.currentTarget.value === '' ? null : Number(e.currentTarget.value))}
+						class="border border-brand-divider rounded px-2 py-1 bg-brand-surface w-32"
+					/>
+				</label>
 				<Button variant="primary" loading={busy} disabled={!assignParameterId} onclick={assign}>Assign</Button>
 			</div>
-			<p class="text-xs text-brand-muted">A parameter belongs to one group; assigning one that is already grouped is refused, naming the group that holds it. Its role is read from the calculations that write and read it, not chosen here.</p>
+			<p class="text-xs text-brand-muted">A parameter belongs to one group; assigning one that is already grouped is refused, naming the group that holds it. Its role is read from the calculations that write and read it, not chosen here. A replicate count says the parameter is entered several times at one visit, which is what lets a calculation read the whole family rather than its mean.</p>
 			{#if assignError}<ErrorNotice message={assignError} />{/if}
 		</div>
 

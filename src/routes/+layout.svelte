@@ -4,6 +4,7 @@
 	import { page } from '$app/state';
 	import { auth } from '$auth/keycloak.svelte';
 	import { me, type Capability } from '$auth/me.svelte';
+	import { AUTHOR_CALCULATIONS } from '$lib/toolbox/authoring';
 	import { onMount } from 'svelte';
 	import Button from '$components/ui/Button.svelte';
 	import ToastContainer from '$components/ui/ToastContainer.svelte';
@@ -128,7 +129,7 @@
 			items: [
 				{ href: `${base}/sensors`, label: 'Sensors & Instruments', icon: 'cpu', also: [`${base}/instruments`] },
 				{ href: `${base}/parameters`, label: 'Parameters', icon: 'sliders', minCap: 'writeCatalog', also: [`${base}/constants`, `${base}/derived`] },
-				{ href: `${base}/toolbox`, label: 'Toolbox', icon: 'wrench', minCap: 'writeCatalog' },
+				{ href: `${base}/toolbox`, label: 'Toolbox', icon: 'wrench', minCap: AUTHOR_CALCULATIONS },
 			],
 		},
 		{

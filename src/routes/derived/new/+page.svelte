@@ -1,10 +1,13 @@
 <script lang="ts">
-	import { page } from '$app/state';
 	import DerivedParameterForm from '$components/derived/DerivedParameterForm.svelte';
-
-	// `?calculation=` is how the Toolbox opens this form for one calculation: the formula it
-	// authors belongs to that calculation instead of standing alone.
-	const calculationId = $derived(page.url.searchParams.get('calculation'));
+	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
+	import { me } from '$auth/me.svelte';
+	import { AUTHOR_CALCULATIONS, authoringState } from '$lib/toolbox/authoring';
+	const access = $derived(authoringState({ permitted: me.can(AUTHOR_CALCULATIONS), refused: false }));
 </script>
 
-<DerivedParameterForm mode="create" {calculationId} />
+{#if access.authorable}
+	<DerivedParameterForm mode="create" />
+{:else}
+	<ErrorNotice message={access.notice} />
+{/if}

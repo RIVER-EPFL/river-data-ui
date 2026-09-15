@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ApiError } from '$api/client';
-import { assignmentError, roleLabel } from './groups';
+import { assignBody, assignmentError, replicateSpec, roleLabel, suggestedCount } from './groups';
 
 const groups = [
 	{ id: '11111111-1111-4111-8111-111111111111', code: 'field_data', label: 'Field data' },
@@ -37,5 +37,36 @@ describe('roleLabel', () => {
 		expect(roleLabel('measured')).toBe('Measured');
 		expect(roleLabel('entry_only')).toBe('Entry only');
 		expect(roleLabel('output')).toBe('Output');
+	});
+});
+
+describe('the replicate declaration', () => {
+	it('writes the suggested count, and null where the member is entered once', () => {
+		expect(replicateSpec(2)).toEqual({ suggested: 2 });
+		expect(replicateSpec(null)).toBeNull();
+		expect(replicateSpec(0)).toBeNull();
+	});
+
+	it('reads the count back, and treats a spec without one as declared', () => {
+		expect(suggestedCount({ suggested: 2 })).toBe(2);
+		expect(suggestedCount({})).toBeNull();
+		expect(suggestedCount(null)).toBeNull();
+	});
+
+	it('carries the declaration in the body a member is assigned with', () => {
+		const group = '11111111-1111-4111-8111-111111111111';
+		const parameter = '44444444-4444-4444-8444-444444444444';
+		expect(assignBody(group, parameter, 3, 2)).toEqual({
+			group_id: group,
+			parameter_id: parameter,
+			ordinal: 3,
+			replicates: { suggested: 2 },
+		});
+		expect(assignBody(group, parameter, 3, null)).toEqual({
+			group_id: group,
+			parameter_id: parameter,
+			ordinal: 3,
+			replicates: null,
+		});
 	});
 });

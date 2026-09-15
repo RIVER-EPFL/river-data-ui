@@ -1,3 +1,4 @@
+import { SITE_PROPERTIES } from '$api/crud';
 import type { Constant, DerivedParameter, Parameter } from '$api/crud';
 import type { FormulaDraft, FormulaDraftRunRequest, ToolOutput } from '$api/service';
 import { CURVE_VARIABLES, FORMULA_CONSTANTS, FORMULA_FUNCTIONS, identifiers } from '$lib/formula/lint';
@@ -10,6 +11,8 @@ export interface EditableFormula extends FormulaDraft {
 	id: string | null;
 	name: string;
 	units: string;
+	/** What the formula transcribes, and from where: the provenance line, as the author wrote it. */
+	description: string;
 	curve_slot: string;
 	per_replicate: string;
 	intermediate: boolean;
@@ -26,6 +29,7 @@ export function editableFormula(stored: DerivedParameter): EditableFormula {
 		code: stored.code,
 		name: stored.name ?? '',
 		units: stored.units ?? '',
+		description: stored.description ?? '',
 		formula: stored.formula,
 		ordinal: stored.ordinal,
 		curve_slot: stored.curve_slot ?? '',
@@ -42,6 +46,7 @@ export function blankFormula(existing: EditableFormula[]): EditableFormula {
 		code: '',
 		name: '',
 		units: '',
+		description: '',
 		formula: '',
 		ordinal: last + 1,
 		curve_slot: '',
@@ -99,6 +104,7 @@ export function formulaBody(formula: EditableFormula, calculationId: string) {
 		code: formula.code.trim(),
 		name: formula.name.trim() || formula.code.trim(),
 		units: formula.units.trim(),
+		description: formula.description.trim() || null,
 		formula: formula.formula,
 		tool_script_id: calculationId,
 		ordinal: formula.ordinal,
@@ -126,14 +132,29 @@ const LANGUAGE = new Set<string>([...Object.keys(FORMULA_FUNCTIONS), ...FORMULA_
  * Everything the formula set reads, classified: a family the run takes as a list, a catalog
  * parameter read from the visit, a constant, an earlier formula's value, a curve coefficient, or
  * a name the server resolves as a site property (or refuses).
+ *
+ * `replicated` names the catalog codes the calculation's parameter group holds several values of
+ * per visit. A source of one of those, read by a formula that walks the replicates, is the family
+ * at the same letter rather than a number; one only ever read by a scalar formula stays a number
+ * and resolves to the group's served value, which is its mean (Q155). This mirrors the manifest
+ * the server builds.
  */
 export function inputRows(
 	formulas: Array<Pick<EditableFormula, 'code' | 'formula' | 'per_replicate' | 'curve_slot'>>,
 	parameters: Parameter[],
 	constants: Constant[],
+	replicated: string[] = [],
 ): InputRow[] {
 	const codes = new Set(formulas.map((f) => f.code.trim()).filter(Boolean));
 	const families = new Set(formulas.map((f) => f.per_replicate.trim()).filter(Boolean));
+	const declared = new Set(replicated.map((c) => c.toLowerCase()));
+	const walked = new Set(
+		formulas
+			.filter((f) => f.per_replicate.trim())
+			.flatMap((f) => identifiers(f.formula).map((i) => i.name)),
+	);
+	const isFamily = (name: string) =>
+		families.has(name) || (walked.has(name) && declared.has(name.toLowerCase()));
 	const byCode = new Map(parameters.map((p) => [p.code, p]));
 	const constantByName = new Map(constants.map((c) => [c.name, c]));
 	const rows = new Map<string, InputRow>();
@@ -160,7 +181,7 @@ export function inputRows(
 				detail = c.units ? `${c.value} ${c.units}` : String(c.value);
 			} else if (byCode.has(name)) {
 				const p = byCode.get(name)!;
-				kind = families.has(name) ? 'replicates' : 'parameter';
+				kind = isFamily(name) ? 'replicates' : 'parameter';
 				detail = p.default_units ? `${p.name} (${p.default_units})` : p.name;
 			}
 			rows.set(name, { name, kind, detail, readBy: own ? [own] : [] });
@@ -197,18 +218,73 @@ export function parseReplicates(text: string): Array<number | null> {
 	});
 }
 
-/** The request a run at a visit carries: the set as it stands, the visit, and each family's list. */
+/** The rows a run can be handed a number for: everything but a family, a step and a curve slot. */
+export function scalarInputs(rows: InputRow[]): InputRow[] {
+	return rows.filter((r) => r.kind === 'parameter' || r.kind === 'constant' || r.kind === 'other');
+}
+
+/** Typed values a run carries in place of what it would otherwise read. */
+export interface ScalarOverrides {
+	/** Manifest params: a catalog parameter read from the visit, or a site property. */
+	inputs: Record<string, number>;
+	/** Catalog constants, supplied in the catalog's place. */
+	constants: Record<string, number>;
+}
+
+/**
+ * Split the typed boxes by where the run body carries them: a constant goes in `constants`, a
+ * parameter or a site property is a manifest param. A blank box is no override, and the run reads
+ * the visit and the catalog as before.
+ */
+export function scalarOverrides(rows: InputRow[], text: Record<string, string>): ScalarOverrides {
+	const overrides: ScalarOverrides = { inputs: {}, constants: {} };
+	for (const row of scalarInputs(rows)) {
+		const entry = (text[row.name] ?? '').trim();
+		if (entry === '') continue;
+		const value = Number(entry);
+		if (!Number.isFinite(value)) continue;
+		if (row.kind === 'constant') overrides.constants[row.name] = value;
+		else overrides.inputs[row.name] = value;
+	}
+	return overrides;
+}
+
+/** The curve slots the set declares, in the order the formulas name them. */
+export function curveSlots(formulas: Array<Pick<EditableFormula, 'curve_slot'>>): string[] {
+	const slots: string[] = [];
+	for (const f of formulas) {
+		const slot = f.curve_slot.trim();
+		if (slot && !slots.includes(slot)) slots.push(slot);
+	}
+	return slots;
+}
+
+/**
+ * The request a run at a visit carries: the set as it stands, the visit, each family's list, the
+ * curve each declared slot is bound to, and any value typed in place of what the visit or the
+ * catalog holds. A slot left unbound is sent nothing, and its formulas are skipped for want of
+ * coefficients rather than refused.
+ */
 export function draftRunBody(
 	formulas: EditableFormula[],
 	visit: { siteId: string; collectedAt: string },
 	replicates: Record<string, string>,
+	curves: Record<string, Record<string, unknown> | null> = {},
+	overrides: ScalarOverrides = { inputs: {}, constants: {} },
 ): FormulaDraftRunRequest {
 	const inputs: Record<string, unknown> = { site_id: visit.siteId, collected_at: visit.collectedAt };
 	for (const [name, text] of Object.entries(replicates)) {
 		const values = parseReplicates(text);
 		if (values.length > 0) inputs[name] = values;
 	}
+	for (const slot of curveSlots(formulas)) {
+		const field = curves[slot];
+		if (field) inputs[slot] = field;
+	}
+	Object.assign(inputs, overrides.inputs);
+	const constants = Object.keys(overrides.constants).length > 0 ? overrides.constants : undefined;
 	return {
+		constants,
 		formulas: dependencyOrder(formulas)
 			.filter((f) => f.code.trim().length > 0)
 			.map((f) => ({
@@ -230,4 +306,23 @@ export function draftOutputs(manifest: unknown): ToolOutput[] {
 	const outputs = (manifest as { outputs?: unknown[] } | null)?.outputs;
 	if (!Array.isArray(outputs)) return [];
 	return outputs.map((o) => ({ ...(o as object), parameter: null }) as ToolOutput);
+}
+
+/**
+ * Everything the builder offers and the lint accepts as a variable: the measurement catalog, and
+ * the site's own columns, which a formula reads through the server's site sources (D13).
+ */
+export function formulaVariables(
+	parameters: Parameter[]
+): Array<{ name: string; label: string; category: string }> {
+	return [
+		...parameters
+			.filter((p) => p.category !== 'device_health')
+			.map((p) => ({
+				name: p.code,
+				label: `${p.name}${p.default_units ? ' (' + p.default_units + ')' : ''}`,
+				category: p.category,
+			})),
+		...SITE_PROPERTIES.map((name) => ({ name, label: name, category: 'site property' })),
+	];
 }

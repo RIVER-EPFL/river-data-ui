@@ -38,3 +38,39 @@ export function assignmentError(e: unknown, groups: NamedGroup[]): string {
 		return group ? `${group.label} (${group.code})` : id;
 	});
 }
+
+/** What the member column holds for a parameter entered several times at one visit. */
+export interface ReplicateSpec extends Record<string, unknown> {
+	suggested: number;
+}
+
+/**
+ * The declaration a member row writes: a count the entry form opens with, or null where the
+ * parameter is entered once. Replicate-ness is the parameter's, and it is what a calculation
+ * manifest reads to declare a source the whole family rather than its mean (Q155).
+ */
+export function replicateSpec(count: number | null): ReplicateSpec | null {
+	if (count === null || !Number.isFinite(count) || count < 1) return null;
+	return { suggested: Math.floor(count) };
+}
+
+/** The count a stored spec suggests. A spec carrying none still declares the member replicated. */
+export function suggestedCount(replicates: Record<string, unknown> | null): number | null {
+	const suggested = replicates?.suggested;
+	return typeof suggested === 'number' && Number.isFinite(suggested) ? suggested : null;
+}
+
+/** The body a parameter is assigned to a group with, carrying its replicate declaration. */
+export function assignBody(
+	groupId: string,
+	parameterId: string,
+	ordinal: number,
+	count: number | null,
+) {
+	return {
+		group_id: groupId,
+		parameter_id: parameterId,
+		ordinal,
+		replicates: replicateSpec(count),
+	};
+}
