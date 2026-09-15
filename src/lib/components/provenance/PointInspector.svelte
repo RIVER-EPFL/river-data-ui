@@ -18,7 +18,7 @@
 	import type { SampleReplicate } from '$api/types';
 	import { replicatesOf } from '$lib/provenance/replicates';
 	import { curveLabel, formatEquation } from '$lib/standardCurves';
-	import { provenanceKindLabel } from '$lib/origin';
+	import { classificationLabel, originPhrase, provenanceKindLabel } from '$lib/origin';
 	import { NO_VALUE, formatCount, formatMeasurement, numericCell } from '$lib/format';
 	import { formatDateTime } from '$lib/utils';
 	import { toastStore } from '$lib/stores/toast.svelte';
@@ -34,6 +34,7 @@
 		undoable,
 		type DecisionEntry,
 	} from '$lib/provenance/decisions';
+	import { ledgerLine, ledgerWeight } from '$lib/provenance/ledger';
 
 	// The record of one measured instant, pinned in place under its chart or table row.
 	let {
@@ -88,9 +89,34 @@
 	let decisions = $state<Record<number, ReadingDecision[]>>({});
 	let historyError = $state<Record<number, string>>({});
 	let severity = $state<'all' | 'error' | 'warning'>('all');
+	// The administrative half of a history, folded to its newest few until a reader asks for it.
+	let showAllAdmin = $state<Set<number>>(new Set());
 	let rollingBack = $state<string | null>(null);
 	let editOpen = $state(false);
 	let editSelection = $state<{ keys: { stream_id: string; time: string }[] } | null>(null);
+
+	// How many administrative entries a folded history shows before the rest are behind the count.
+	const ADMIN_SHOWN = 3;
+
+	function valueEntries(i: number): LedgerEntry[] {
+		return (history[i] ?? []).filter((e) => ledgerWeight(e) === 'value');
+	}
+
+	function adminEntries(i: number): LedgerEntry[] {
+		return (history[i] ?? []).filter((e) => ledgerWeight(e) === 'administrative');
+	}
+
+	function shownAdmin(i: number): LedgerEntry[] {
+		const all = adminEntries(i);
+		return showAllAdmin.has(i) ? all : all.slice(0, ADMIN_SHOWN);
+	}
+
+	function toggleAdmin(i: number) {
+		const next = new Set(showAllAdmin);
+		if (next.has(i)) next.delete(i);
+		else next.add(i);
+		showAllAdmin = next;
+	}
 
 	async function toggleHistory(i: number, rec: ProvenanceRecord) {
 		const next = new Set(showHistory);
@@ -123,11 +149,16 @@
 	/** Where an entry lives, for the records that have a page of their own. */
 	function entryHref(rec: ProvenanceRecord, entry: LedgerEntry): string | null {
 		switch (entry.source) {
+			// A timeline line is keyed by its job, so both arms open the same run with its log.
 			case 'job':
 			case 'job_log':
-				return `${base}/system?tab=jobs`;
-			case 'hold':
-				return `${base}/streams?tab=audits`;
+				return `${base}/system?tab=jobs&job=${entry.id}`;
+			case 'hold': {
+				// The record knows this hold's status where it still holds it, and the queue view
+				// follows from the status.
+				const held = rec.holds.find((h) => h.id === entry.id);
+				return held ? holdHref(rec, held) : `${base}/streams?tab=audits&holds_id=${entry.id}`;
+			}
 			case 'ingest':
 				return `${base}/streams?q=${encodeURIComponent(rec.origin.source_key)}`;
 			case 'alarm':
@@ -207,14 +238,6 @@
 		editOpen = true;
 	}
 
-	const ORIGIN_LABEL: Record<string, string> = {
-		sync: 'Synced',
-		manual: 'Manual entry',
-		csv: 'CSV import',
-		api: 'API batch',
-		derived: 'Computed',
-	};
-
 	// The server may name a kind this build does not know, so the lookup falls back to it.
 	const HOLD_LABEL: Record<string, string> = {
 		replicate_stats: 'Statistics disagreement',
@@ -239,6 +262,10 @@
 	function fmt(v: number | null | undefined): string {
 		return formatMeasurement(v, decimals);
 	}
+
+	const unitSuffix = $derived(units ? ` (${units})` : '');
+	const gridClass =
+		'mt-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 sm:grid-cols-[auto_minmax(0,1fr)_auto_minmax(0,1fr)]';
 
 	function cadence(rec: ProvenanceRecord): string {
 		return rec.readings[0]?.measurement_type ?? 'continuous';
@@ -270,6 +297,11 @@
 
 	// Every reading says where it came from, whether its story is stored on the row (a tool run, a
 	// chain, a CSV import, a hand entry, a batch) or resolved from what the row points at.
+	function recordArrivedText(rec: ProvenanceRecord): string {
+		const at = rec.origin.value_arrived_at ?? rec.origin.ingested_at;
+		return at ? formatDateTime(at) : NO_VALUE;
+	}
+
 	function originText(r: ProvenanceReading): string {
 		return provenanceKindLabel(r.provenance_kind) ?? NO_VALUE;
 	}
@@ -313,6 +345,14 @@
 		const src = rec.computation?.sd_estimator_source;
 		if (!rec.computation?.sd_estimator) return 'No standard deviation is served for this instant.';
 		return ESTIMATOR_TIP[src ?? 'default'] ?? '';
+	}
+
+	// The served standard deviation is a number; which divisor made it, and what chose that, is the
+	// tip behind it.
+	function sdTip(rec: ProvenanceRecord): string {
+		const est = estimatorText(rec);
+		const why = estimatorTip(rec);
+		return est === NO_VALUE ? why : `${est}: ${why}`;
 	}
 
 	function computationText(rec: ProvenanceRecord): string {
@@ -421,9 +461,8 @@
 	}
 
 	function originBadge(rec: ProvenanceRecord): { label: string; variant: 'accent' | 'muted' } {
-		if (rec.origin.classification === 'sync')
-			return { label: `${rec.origin.source_system} sync`, variant: 'accent' };
-		return { label: ORIGIN_LABEL[rec.origin.classification] ?? rec.origin.classification, variant: 'muted' };
+		const label = classificationLabel(rec.origin.classification, rec.origin.source_system);
+		return { label, variant: rec.origin.classification === 'sync' ? 'accent' : 'muted' };
 	}
 </script>
 
@@ -474,16 +513,71 @@
 	{/if}
 {/snippet}
 
-{#snippet recordFields(rec: ProvenanceRecord)}
-	{@render field('Instrument', instrumentText(rec), 'The instrument and deployment attributed to this measurement.', false)}
-	{@render field('Standard deviation', estimatorText(rec), estimatorTip(rec), false)}
-	{@render field('Computation', computationText(rec), computationTip(rec), false)}
-	{#if rec.computation?.created_by}
-		{@render field('Entered by', rec.computation.created_by, undefined, false)}
+{#snippet optional(label: string, value: string, tip: string | undefined, numeric: boolean)}
+	{#if value !== NO_VALUE}{@render field(label, value, tip, numeric)}{/if}
+{/snippet}
+
+{#snippet statistics(rec: ProvenanceRecord)}
+	{@const c = rec.computation}
+	{#if c && typeof c.n === 'number'}
+		<dl class={gridClass}>
+			{@render field('Replicates', formatCount(c.n), 'How many replicates these statistics count.', true)}
+			{@render optional(`Mean${unitSuffix}`, fmt(c.mean), undefined, true)}
+			{@render optional('Standard deviation', fmt(c.stdev), sdTip(rec), true)}
+			{@render optional('Minimum', fmt(c.min), undefined, true)}
+			{@render optional('Maximum', fmt(c.max), undefined, true)}
+		</dl>
 	{/if}
-	{#if rec.origin.receipt}
-		{@render field('Reconciliation', receiptText(rec.origin.receipt), 'The latest windowed pass whose claimed window covers this instant.', false)}
+{/snippet}
+
+{#snippet calculation(rec: ProvenanceRecord)}
+	{@const author = rec.computation?.created_by ?? NO_VALUE}
+	{@const what = computationText(rec)}
+	{#if what !== NO_VALUE || author !== NO_VALUE}
+		<dl class={gridClass}>
+			{@render optional('Computation', what, computationTip(rec), false)}
+			{@render optional('Entered by', author, undefined, false)}
+		</dl>
 	{/if}
+{/snippet}
+
+{#snippet instrument(rec: ProvenanceRecord)}
+	{@const r = rec.readings.length === 1 ? rec.readings[0] : undefined}
+	{@const named = instrumentText(rec)}
+	{#if named !== NO_VALUE || r?.calibration || r?.standard_curve}
+		<dl class={gridClass}>
+			{@render optional('Instrument', named, 'The instrument and deployment attributed to this measurement.', false)}
+			{#if r?.calibration}
+				<div class="contents" title="The windowed calibration applied to the measurement.">
+					<dt class="py-0.5 text-xs text-brand-muted">Calibration</dt>
+					<dd class="py-0.5 text-brand-text">{@render calibrationCell(r, rec.chain.sensor?.id)}</dd>
+				</div>
+			{/if}
+			{#if r?.standard_curve}
+				<div class="contents" title="The lab curve chosen for this measurement.">
+					<dt class="py-0.5 text-xs text-brand-muted">Standard curve</dt>
+					<dd class="py-0.5 text-brand-text">{@render curveCell(r)}</dd>
+				</div>
+			{/if}
+		</dl>
+	{/if}
+{/snippet}
+
+{#snippet administrative(rec: ProvenanceRecord)}
+	<details class="mt-2">
+		<summary class="cursor-pointer text-xs text-brand-muted">Administrative</summary>
+		<dl class={gridClass}>
+			{@render optional('Arrived', recordArrivedText(rec), 'When the value on display reached the store.', false)}
+			{@render optional('Paired', rec.origin.paired_at ? formatDateTime(rec.origin.paired_at) : NO_VALUE, 'When this stream was paired to the slot.', false)}
+			{#if rec.readings[0]}
+				{@render optional('Origin', originText(rec.readings[0]), 'Which write path produced this value.', false)}
+			{/if}
+			{@render optional('Stream', `${rec.origin.source_system} · ${rec.origin.source_key}`, undefined, false)}
+			{#if rec.origin.receipt}
+				{@render field('Reconciliation', receiptText(rec.origin.receipt), 'The latest windowed pass whose claimed window covers this instant.', false)}
+			{/if}
+		</dl>
+	</details>
 {/snippet}
 
 <div class="mt-2 rounded-lg border border-brand-divider bg-brand-surface px-3 py-2 text-sm">
@@ -522,17 +616,6 @@
 					<span class="text-brand-muted" title={rec.origin.source_key}>
 						{rec.origin.source_name ?? rec.origin.source_key}
 					</span>
-					{#if rec.origin.value_arrived_at ?? rec.origin.ingested_at}
-						<span
-							class="text-brand-muted"
-							title={rec.origin.ingested_at ? `First arrived ${formatDateTime(rec.origin.ingested_at)}` : undefined}
-						>
-							arrived {formatDateTime((rec.origin.value_arrived_at ?? rec.origin.ingested_at) as string)}
-						</span>
-					{/if}
-					{#if rec.origin.paired_at}
-						<span class="text-brand-muted">paired {formatDateTime(rec.origin.paired_at)}</span>
-					{/if}
 					{#if rec.origin.receipt?.braked}<Badge variant="warning">brake fired</Badge>{/if}
 					{#each rec.holds as h (h.id)}
 						<a href={holdHref(rec, h)} class="inline-flex" title={holdTip(h)}>
@@ -545,34 +628,18 @@
 
 				{#if rec.readings.length === 1}
 					{@const r = rec.readings[0]}
-					<dl class="mt-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 sm:grid-cols-[auto_minmax(0,1fr)_auto_minmax(0,1fr)]">
-						{@render field(`Measured${units ? ` (${units})` : ''}`, fmt(r.raw_value), undefined, true)}
-						{@render field(
-							`Corrected${units ? ` (${units})` : ''}`,
-							fmt(r.calibrated_value),
-							undefined,
-							true,
-						)}
-						<div class="contents" title="The windowed calibration applied to the measurement.">
-							<dt class="py-0.5 text-xs text-brand-muted">Calibration</dt>
-							<dd class="py-0.5 text-brand-text">{@render calibrationCell(r, rec.chain.sensor?.id)}</dd>
-						</div>
-						<div class="contents" title="The lab curve chosen for this measurement.">
-							<dt class="py-0.5 text-xs text-brand-muted">Standard curve</dt>
-							<dd class="py-0.5 text-brand-text">{@render curveCell(r)}</dd>
-						</div>
-						{@render field('State', stateText(r), stateTip(r), false)}
-						{@render field('Arrived', arrivedText(r), 'When this value reached the store.', false)}
-						{@render field('Origin', originText(r), 'Which write path produced this value.', false)}
-						{@render recordFields(rec)}
+					<dl class={gridClass}>
+						{@render field(`Measured${unitSuffix}`, fmt(r.raw_value), undefined, true)}
+						{@render optional(`Corrected${unitSuffix}`, fmt(r.calibrated_value), undefined, true)}
+						{@render optional('State', stateText(r), stateTip(r), false)}
 					</dl>
 				{:else}
 					<table class="mt-1 w-full text-left">
 						<thead class="text-xs text-brand-muted">
 							<tr>
 								<th class="py-0.5 pr-3 font-medium">Replicate</th>
-								<th class="py-0.5 pr-3 text-right font-medium">Measured{units ? ` (${units})` : ''}</th>
-								<th class="py-0.5 pr-3 text-right font-medium">Corrected{units ? ` (${units})` : ''}</th>
+								<th class="py-0.5 pr-3 text-right font-medium">Measured{unitSuffix}</th>
+								<th class="py-0.5 pr-3 text-right font-medium">Corrected{unitSuffix}</th>
 								<th class="py-0.5 pr-3 font-medium">Applied</th>
 								<th class="py-0.5 pr-3 font-medium">State</th>
 								<th class="py-0.5 font-medium">Arrived</th>
@@ -614,10 +681,11 @@
 							{/each}
 						</tbody>
 					</table>
-					<dl class="mt-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 sm:grid-cols-[auto_minmax(0,1fr)_auto_minmax(0,1fr)]">
-						{@render recordFields(rec)}
-					</dl>
+					{@render statistics(rec)}
 				{/if}
+				{@render calculation(rec)}
+				{@render instrument(rec)}
+				{@render administrative(rec)}
 
 				<div
 					role="group"
@@ -635,8 +703,8 @@
 							class="text-brand-primary hover:underline"
 							href="{base}/sites/{siteId}?tab=visits&event={rec.event.id}"
 							title="Visit of {formatDateTime(rec.event.collected_at)}, {rec.event.source === 'portal_sync'
-								? 'synced from the portal'
-								: 'entered by hand'}{rec.event.created_by ? ` by ${rec.event.created_by}` : ''}."
+								? `synced from the portal${rec.event.created_by ? ` by ${rec.event.created_by}` : ''}`
+								: originPhrase('entry', { actor: rec.event.created_by ?? undefined })}."
 							>Open visit</a
 						>
 					{/if}
@@ -698,50 +766,30 @@
 							</p>
 						{:else}
 							<ul class="space-y-1">
-								{#each history[i] ?? [] as entry (entry.source + entry.id + entry.at)}
-									{@const decision = decisionFor(i, entry)}
-									{@const href = entryHref(rec, entry)}
-									<li class="flex flex-wrap items-baseline gap-x-2">
-										<span class="font-medium">
-											{decision ? decisionLabel(decision.head.kind) : entry.what}
-										</span>
-										{#if decision && decision.members.length > 1}
-											<span class="text-gray-500" title={memberRows(decision)}
-												>{formatCount(decision.members.length)} readings</span
-											>
-										{/if}
-										{#if entry.severity !== 'info'}
-											<Badge variant={entry.severity === 'error' ? 'alarm' : 'warning'}
-												>{entry.severity}</Badge
-											>
-										{/if}
-										<span class="text-gray-500">
-											{formatDateTime(entry.at)}{entry.actor ? ` · ${entry.actor}` : ''} · {entry.source}
-										</span>
-										{#each decision ? changedFields(decision.head) : [] as c (c.field)}
-											<span class="text-gray-500">
-												{fieldLabel(c.field)}
-												{cellText(c.from)} → {cellText(c.to)}
-											</span>
-										{/each}
-										{#if decision?.head.reason}
-											<span class="text-gray-500">“{decision.head.reason}”</span>
-										{/if}
-										{#if href}
-											<a class="text-brand-primary hover:underline" {href}>Open</a>
-										{/if}
-										{#if decision?.head.rolled_back_by}
-											<span class="text-gray-400">rolled back</span>
-										{:else if decision && undoable(decision.head)}
-											<button
-												class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline disabled:opacity-50"
-												disabled={rollingBack === decision.head.id}
-												onclick={() => rollBack(i, rec, decision)}>Roll back</button
-											>
-										{/if}
-									</li>
+								{#each valueEntries(i) as entry (entry.source + entry.id + entry.at)}
+									{@render line(i, rec, entry, false)}
 								{/each}
 							</ul>
+							{#if adminEntries(i).length > 0}
+								<div class="mt-2 border-t border-gray-200 pt-1">
+									{#if adminEntries(i).length > ADMIN_SHOWN}
+										<button
+											class="cursor-pointer border-none bg-transparent p-0 text-gray-500 hover:underline"
+											onclick={() => toggleAdmin(i)}
+											>Administrative ({formatCount(adminEntries(i).length)}), {showAllAdmin.has(i)
+												? 'show fewer'
+												: 'show all'}</button
+										>
+									{:else}
+										<span class="text-gray-500">Administrative</span>
+									{/if}
+									<ul class="mt-1 space-y-1 text-gray-500">
+										{#each shownAdmin(i) as entry (entry.source + entry.id + entry.at)}
+											{@render line(i, rec, entry, true)}
+										{/each}
+									</ul>
+								</div>
+							{/if}
 						{/if}
 					</div>
 				{/if}
@@ -754,6 +802,48 @@
 		{/each}
 	{/if}
 </div>
+
+{#snippet line(i: number, rec: ProvenanceRecord, entry: LedgerEntry, muted: boolean)}
+	{@const decision = decisionFor(i, entry)}
+	{@const href = entryHref(rec, entry)}
+	<li class="flex flex-wrap items-baseline gap-x-2">
+		<span class:font-medium={!muted}>
+			{decision ? decisionLabel(decision.head.kind) : ledgerLine(entry).text}
+		</span>
+		{#if decision && decision.members.length > 1}
+			<span class="text-gray-500" title={memberRows(decision)}
+				>{formatCount(decision.members.length)} readings</span
+			>
+		{/if}
+		{#if entry.severity !== 'info'}
+			<Badge variant={entry.severity === 'error' ? 'alarm' : 'warning'}>{entry.severity}</Badge>
+		{/if}
+		<span class="text-gray-500">
+			{formatDateTime(entry.at)}{entry.actor ? ` · ${entry.actor}` : ''}
+		</span>
+		{#each decision ? changedFields(decision.head) : [] as c (c.field)}
+			<span class="text-gray-500">
+				{fieldLabel(c.field)}
+				{cellText(c.from)} → {cellText(c.to)}
+			</span>
+		{/each}
+		{#if decision?.head.reason}
+			<span class="text-gray-500">“{decision.head.reason}”</span>
+		{/if}
+		{#if href}
+			<a class="text-brand-primary hover:underline" {href}>Open</a>
+		{/if}
+		{#if decision?.head.rolled_back_by}
+			<span class="text-gray-400">rolled back</span>
+		{:else if decision && undoable(decision.head)}
+			<button
+				class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline disabled:opacity-50"
+				disabled={rollingBack === decision.head.id}
+				onclick={() => rollBack(i, rec, decision)}>Roll back</button
+			>
+		{/if}
+	</li>
+{/snippet}
 
 {#if editSelection}
 	<EditReadingDialog

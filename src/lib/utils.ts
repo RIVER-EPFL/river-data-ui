@@ -267,7 +267,12 @@ export function triggerLabel(triggerType: string): string {
 		case 'plan_revert': return 'Reverting pairing plan';
 		case 'replicate_reconciliation': return 'Replicate migration';
 		case 'replicate_reconciliation_delete': return 'Replicate migration cleanup';
-		default: return triggerType;
+		case 'event_recompute': return 'Visit recompute';
+		// A job kind with no label of its own still reads as words rather than as its code.
+		default: {
+			const words = triggerType.replace(/_/g, ' ');
+			return words.charAt(0).toUpperCase() + words.slice(1);
+		}
 	}
 }
 

@@ -25,7 +25,7 @@ export const EDIT_METHODS: Record<EditOptionKind, EditMethod> = {
 	detach: {
 		label: 'Detach from the calculation',
 		changes:
-			'Takes this output slot at this visit away from its calculation, so the value becomes a manual entry.',
+			'Takes this output slot at this visit away from its calculation, so the value becomes one entered in the grid.',
 		leaves:
 			'The stored value stands. The calculation takes the slot back when an input at the visit changes, or when the slot is returned.',
 		reversible: true,

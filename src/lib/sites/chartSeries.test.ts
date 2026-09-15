@@ -180,7 +180,7 @@ describe('sampleCurve', () => {
 describe('origins and annotations', () => {
 	it('names every distinct source a series arrived through', () => {
 		expect(originLabelOf([{ source_system: 'cnet' }, { source_system: 'grab_sample' }])).toBe(
-			'via cnet sync + manual entry',
+			'cnet sync + entered in the grid',
 		);
 		expect(originLabelOf(undefined)).toBe('');
 	});

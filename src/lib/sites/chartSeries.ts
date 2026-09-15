@@ -9,6 +9,7 @@ import type {
 	SampleStat,
 } from '$lib/api/types';
 import type { Annotation } from '$api/crud';
+import { originLabel } from '$lib/origin';
 
 /// A site chart's series, assembled from what the readings, aggregates and annotation fetches
 /// returned. Every function here is of its arguments alone.
@@ -46,16 +47,7 @@ export function nullPct(vals: (number | null)[]): number {
 /** Where a series came from, for the tooltip's origin line. */
 export function originLabelOf(origins: { source_system: string }[] | undefined): string {
 	if (!origins?.length) return '';
-	const label = (s: string) =>
-		s === 'grab_sample'
-			? 'manual entry'
-			: s === 'csv' || s === 'csv_import'
-				? 'CSV import'
-				: s === 'api'
-					? 'API'
-					: `${s} sync`;
-	const systems = [...new Set(origins.map((o) => label(o.source_system)))];
-	return `via ${systems.join(' + ')}`;
+	return [...new Set(origins.map((o) => originLabel(o.source_system)))].join(' + ');
 }
 
 // A sample may carry different curves, which is reported rather than reduced to the first one.

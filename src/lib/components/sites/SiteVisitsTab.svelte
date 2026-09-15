@@ -1,7 +1,7 @@
 <script lang="ts">
 	// The Visits tab: the portal's wide data row, one per (site, date), with the per-visit grid
 	// under an expanded row. The page hosts it and owns the flag dialog it opens.
-	import { untrack } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import { downloadBlob } from '$lib/download';
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
@@ -41,6 +41,7 @@
 	} from '$lib/visits/recompute';
 	import { verificationBadge, verificationNoticeFor } from '$lib/visits/verification';
 	import { cellRole } from '$lib/visits/role';
+	import { holdInPlace } from '$lib/visits/anchor';
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
@@ -215,15 +216,22 @@
 		}
 	}
 
+	let recordEl = $state<HTMLElement | null>(null);
+
 	// A cell of the wide table is the click target: it expands the visit and selects the parameter,
-	// so the record opens on what was clicked.
-	function openVisitCell(id: string, parameterId: string) {
+	// so the record opens on what was clicked. Opening one closes whatever row was open above it,
+	// so the clicked cell is held where it sits and the record is brought just into view.
+	async function openVisitCell(id: string, parameterId: string, clicked: HTMLElement) {
+		const hold = holdInPlace(clicked);
 		if (expandedVisit === id && visitDetail) {
 			const c = visitDetail.cells.find((c) => c.parameter_id === parameterId);
 			visitCell = c ? { parameterId: c.parameter_id, parameterName: c.parameter_name } : null;
-			return;
+		} else {
+			await openVisit(id, true, parameterId);
 		}
-		void openVisit(id, true, parameterId);
+		await tick();
+		hold();
+		recordEl?.scrollIntoView({ block: 'nearest' });
 	}
 
 	function visitJobSummary(kind: 'recompute' | 'audit', job: ReprocessingJob): string {
@@ -479,7 +487,7 @@
 														class="cursor-pointer border-none bg-transparent p-0 text-inherit hover:underline"
 														aria-pressed={expandedVisit === v.id && visitCell?.parameterId === col.parameter_id}
 														title={[visitCellStatistics(cell, col.decimal_places, col.units), `Open the record of ${col.name} at this visit`].filter(Boolean).join('\n')}
-														onclick={() => openVisitCell(v.id, col.parameter_id)}
+														onclick={(e) => void openVisitCell(v.id, col.parameter_id, e.currentTarget)}
 													>
 														{#if cell.finding === 'missing_output' && cell.value == null}
 															<Badge variant="warning">missing</Badge>
@@ -507,7 +515,7 @@
 														class="cursor-pointer border-none bg-transparent p-0 text-inherit hover:underline"
 														aria-pressed={expandedVisit === v.id && visitCell?.parameterId === cell.parameter_id}
 														title="Open the record of {paramName(cell.parameter_id)} at this visit"
-														onclick={() => openVisitCell(v.id, cell.parameter_id)}
+														onclick={(e) => void openVisitCell(v.id, cell.parameter_id, e.currentTarget)}
 													>{formatMeasurement(cell.value, decimalsForParameter(cell.parameter_id))}</button>
 												{:else}
 													-
@@ -639,20 +647,22 @@
 														<p class="mt-1 text-[11px] text-brand-muted">* flagged · † withdrawn at source · ? pending verification</p>
 													{/if}
 													{#if visitCell}
-														<PointInspector
-															siteId={siteId}
-															parameterId={visitCell.parameterId}
-															parameterName={visitCell.parameterName}
-															units={unitsForParameter(visitCell.parameterId)}
-															decimals={decimalsForParameter(visitCell.parameterId)}
-															timeIso={visitDetail.collected_at}
-															measurementType="spot"
-															preloaded={cellRecord(visitDetail, visitCell.parameterId)}
-															link={visitPointLink(v.id, visitCell.parameterId)}
-															onclose={() => (visitCell = null)}
-															onchange={() => void refreshVisitDetail(v.id)}
-															onflag={(reps) => openVisitFlag(v.id, reps)}
-														/>
+														<div bind:this={recordEl}>
+															<PointInspector
+																siteId={siteId}
+																parameterId={visitCell.parameterId}
+																parameterName={visitCell.parameterName}
+																units={unitsForParameter(visitCell.parameterId)}
+																decimals={decimalsForParameter(visitCell.parameterId)}
+																timeIso={visitDetail.collected_at}
+																measurementType="spot"
+																preloaded={cellRecord(visitDetail, visitCell.parameterId)}
+																link={visitPointLink(v.id, visitCell.parameterId)}
+																onclose={() => (visitCell = null)}
+																onchange={() => void refreshVisitDetail(v.id)}
+																onflag={(reps) => openVisitFlag(v.id, reps)}
+															/>
+														</div>
 													{/if}
 												{/if}
 											</td>

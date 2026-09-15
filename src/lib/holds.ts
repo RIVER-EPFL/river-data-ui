@@ -48,7 +48,7 @@ export const KIND_TIP: Record<HoldKind, string> = {
 	curve_claim_stripped:
 		"The source named a standard curve this reading cannot carry (fitted on a different instrument, or not a spot measurement). The values were stored uncorrected; the claim is recorded here. Fix the curve's instrument or the stream's, then re-sync to apply the correction.",
 	unverified_entry:
-		'A value entered by hand that nobody has ruled on yet. It is stored and shown as pending, and it is not served until someone verifies it. Verify accepts the value as it stands; Reject withdraws it with a reason.',
+		'A value entered in the grid that nobody has ruled on yet. It is stored and shown as pending, and it is not served until someone verifies it. Verify accepts the value as it stands; Reject withdraws it with a reason.',
 	unverified_visit:
 		'An intern opened this field day and nobody has ruled on whether it should exist. Verifying it says the visit happened, and no more: each measurement in it is still verified on its own. Rejecting it withdraws the visit with every reading entered there; nothing is deleted.',
 	source_identity_changed:

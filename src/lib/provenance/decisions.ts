@@ -1,9 +1,38 @@
 import type { ReadingDecision } from '$api/service';
 
-/// Every kind `reading_decisions` records, as a person reads it. The edit options an operator
-/// chooses are a different vocabulary (`EDIT_METHODS`): a decision the chain or a merge wrote was
-/// never offered as an option, and still has to be readable in the timeline.
-const LABELS: Record<string, string> = {
+/// Every kind `reading_decisions` records, mirroring `Kind::as_str` in
+/// `river-data-api/src/routes/private/readings/models.rs`. Declared so a kind with no label fails
+/// the check rather than printing its code in the timeline.
+export const DECISION_KINDS = [
+	'flag',
+	'unflag',
+	'withdraw',
+	'reassert',
+	'curve',
+	'calibration_pin',
+	'instrument_pin',
+	'slot_move',
+	'value_correction',
+	'unverified_entry',
+	'verify',
+	'reject',
+	'chain',
+	'detach',
+	'return',
+	'curve_retire',
+	'formula_transition',
+	'curve_recompose',
+	'derived_computed',
+	'reprocess',
+	'rollback',
+] as const;
+
+export type DecisionKind = (typeof DECISION_KINDS)[number];
+
+/// Each kind as a person reads it. The edit options an operator chooses are a different
+/// vocabulary (`EDIT_METHODS`): a decision the chain or a merge wrote was never offered as an
+/// option, and still has to be readable in the timeline.
+const LABELS: Record<DecisionKind, string> = {
 	flag: 'Flagged',
 	unflag: 'Unflagged',
 	withdraw: 'Withdrawn',
@@ -19,12 +48,16 @@ const LABELS: Record<string, string> = {
 	chain: 'Calculated by a chain run',
 	detach: 'Detached from its calculation',
 	return: 'Returned to its calculation',
+	curve_retire: 'Standard curve retired, the value moved off it',
 	formula_transition: 'Recomputed under a new formula version',
+	curve_recompose: 'Recomposed from the curves it names',
+	derived_computed: 'Computed where nothing was stored',
+	reprocess: 'Re-derived by a reprocess',
 	rollback: 'Rolled back',
 };
 
 export function decisionLabel(kind: string): string {
-	return LABELS[kind] ?? kind;
+	return LABELS[kind as DecisionKind] ?? kind;
 }
 
 export interface FieldChange {

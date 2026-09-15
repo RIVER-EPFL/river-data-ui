@@ -82,8 +82,16 @@ describe('PointInspector', () => {
 		const { container } = open(handEntered());
 		expect(await screen.findByText('8.005')).toBeTruthy();
 		expect(container.querySelector('table')).toBeNull();
-		for (const label of ['Measured', 'Corrected', 'Calibration', 'Standard curve', 'State']) {
-			expect(screen.getByText(label)).toBeTruthy();
+		expect(screen.getByText('Measured')).toBeTruthy();
+	});
+
+	// Every row the record can print reads `-` for this measurement, and a screen of hyphens is
+	// what buried the value.
+	it('leaves out a row the record has no value for', async () => {
+		open(handEntered());
+		await screen.findByText('8.005');
+		for (const label of ['Corrected', 'Calibration', 'Standard curve', 'State', 'Instrument']) {
+			expect(screen.queryByText(label)).toBeNull();
 		}
 	});
 
@@ -168,7 +176,7 @@ describe('PointInspector', () => {
 					id: 'job-1',
 					source: 'job',
 					severity: 'error',
-					what: 'reprocess failed',
+					what: 'manual_reprocess failed: the pool timed out',
 					at: '2026-08-03T10:00:00Z',
 				},
 				{
@@ -184,17 +192,129 @@ describe('PointInspector', () => {
 		open(handEntered());
 		await screen.findByText('8.005');
 		(await screen.findByText('Show history')).click();
-		expect(await screen.findByText('reprocess failed')).toBeTruthy();
-		expect(screen.getByText('replicate_stats (pending)')).toBeTruthy();
+		expect(await screen.findByText('Manual reprocess failed: the pool timed out')).toBeTruthy();
+		const held = 'Statistics disagreement raised, waiting for a ruling';
+		expect(screen.getByText(held)).toBeTruthy();
 
 		(await screen.findByText('Failures')).click();
-		await vi.waitFor(() => expect(screen.queryByText('replicate_stats (pending)')).toBeNull());
-		expect(screen.getByText('reprocess failed')).toBeTruthy();
+		await vi.waitFor(() => expect(screen.queryByText(held)).toBeNull());
+		expect(screen.getByText('Manual reprocess failed: the pool timed out')).toBeTruthy();
+	});
+
+	// Scenario: a fresh value whose history is a recompute that moved nothing and two catalogue
+	// inserts. Expected behaviour: no arm code reaches the screen, and the three sit under
+	// Administrative rather than above the decision that set the value.
+	it('leads on what moved the value and fades what only administers it', async () => {
+		getReadingDecisions.mockResolvedValue([
+			{
+				id: 'd1',
+				stream_id: 'stream',
+				time: '2026-07-14T09:00:00Z',
+				kind: 'value_correction',
+				old: { raw_value: 8.005 },
+				new: { raw_value: 8.11 },
+				actor: 'lab',
+				at: '2026-08-02T11:00:00Z',
+				origin: 'manual',
+				reversible: true,
+			},
+		]);
+		getReadingLedger.mockResolvedValue({
+			time: '2026-07-14T09:00:00Z',
+			entries: [
+				decisionEntry('d1', 'value_correction', '2026-08-02T11:00:00Z'),
+				{
+					id: 'job-1',
+					source: 'job',
+					severity: 'info',
+					what: 'event_recompute completed',
+					at: '2026-08-01T10:00:00Z',
+					new: { readings_updated: 0 },
+				},
+				{
+					id: 'c1',
+					source: 'change',
+					severity: 'info',
+					actor: 'admin@local.dev',
+					what: 'site_parameter_insert',
+					at: '2026-07-10T10:00:00Z',
+				},
+				{
+					id: 'c2',
+					source: 'change',
+					severity: 'info',
+					actor: 'admin@local.dev',
+					what: 'parameter_insert',
+					at: '2026-07-09T10:00:00Z',
+				},
+			],
+			truncated: false,
+		});
+		const { container } = open(handEntered());
+		await screen.findByText('8.005');
+		(await screen.findByText('Show history')).click();
+		await screen.findByText('Value corrected');
+
+		const text = container.textContent ?? '';
+		expect(text).not.toContain('site_parameter_insert');
+		expect(text).not.toContain('parameter_insert');
+		expect(text).not.toContain('event_recompute');
+		expect(screen.getByText('Parameter added at this site')).toBeTruthy();
+		expect(screen.getByText('Visit recompute completed')).toBeTruthy();
+
+		const corrected = text.indexOf('Value corrected');
+		expect(corrected).toBeLessThan(text.indexOf('Visit recompute completed'));
+		expect(corrected).toBeLessThan(text.indexOf('Parameter added at this site'));
+	});
+
+	it('folds an administrative history past the newest three behind its count', async () => {
+		getReadingDecisions.mockResolvedValue([]);
+		getReadingLedger.mockResolvedValue({
+			time: '2026-07-14T09:00:00Z',
+			entries: Array.from({ length: 5 }, (_, n) => ({
+				id: `c${n}`,
+				source: 'change',
+				severity: 'info',
+				what: 'site_parameter_update',
+				at: `2026-07-1${n}T10:00:00Z`,
+			})),
+			truncated: false,
+		});
+		const slot = 'How this site serves the parameter changed';
+		open(handEntered());
+		await screen.findByText('8.005');
+		(await screen.findByText('Show history')).click();
+		await screen.findByText('Administrative (5), show all');
+		expect(screen.getAllByText(slot)).toHaveLength(3);
+
+		(await screen.findByText('Administrative (5), show all')).click();
+		await screen.findByText('Administrative (5), show fewer');
+		expect(screen.getAllByText(slot)).toHaveLength(5);
+	});
+
+	it('opens a job entry on the job it names, and a hold entry on that hold', async () => {
+		getReadingDecisions.mockResolvedValue([]);
+		getReadingLedger.mockResolvedValue({
+			time: '2026-07-14T09:00:00Z',
+			entries: [
+				{ id: 'job-1', source: 'job', severity: 'info', what: 'event_recompute completed', at: '2026-08-03T10:00:00Z' },
+				{ id: 'job-1', source: 'job_log', severity: 'warning', what: 'step skipped', at: '2026-08-03T10:01:00Z' },
+				{ id: 'hold-5', source: 'hold', severity: 'warning', what: 'replicate_stats (pending)', at: '2026-08-02T10:00:00Z' },
+			],
+			truncated: false,
+		});
+		const { container } = open(syncedGroup());
+		await screen.findAllByText('41.2');
+		(await screen.findByText('Show history')).click();
+		await screen.findByText('Visit recompute completed');
+		const hrefs = Array.from(container.querySelectorAll('li a')).map((a) => a.getAttribute('href'));
+		expect(hrefs.filter((h) => h === '/admin/system?tab=jobs&job=job-1')).toHaveLength(2);
+		expect(hrefs.some((h) => h?.includes('holds_id=hold-5'))).toBe(true);
 	});
 
 	it('writes an absent value as a plain hyphen and never an em dash', async () => {
-		const { container } = open(handEntered());
-		await screen.findByText('8.005');
+		const { container } = open(syncedGroup());
+		await screen.findAllByText('41.2');
 		expect(container.textContent).not.toContain('—');
 		expect(screen.getAllByText('-').length).toBeGreaterThan(0);
 	});
@@ -206,15 +326,13 @@ describe('PointInspector', () => {
 		expect(cell.className).toContain('tabular-nums');
 	});
 
-	it('carries the estimator and no-tool-run explanations as tips rather than paragraphs', async () => {
-		open(handEntered());
-		await screen.findByText('8.005');
-		expect(screen.queryByText(/not declared for this parameter/)).toBeNull();
-		expect(screen.queryByText(/Hand-entered measurement, no tool run recorded/)).toBeNull();
+	it('carries the estimator explanation as a tip on the number rather than a paragraph', async () => {
+		open(syncedGroup());
+		await screen.findAllByText('41.2');
+		expect(screen.queryByText(/Declared for this parameter/)).toBeNull();
 		const estimator = screen.getByText('Standard deviation').closest('div')!;
-		expect(estimator.getAttribute('title')).toContain('Not declared');
-		const computation = screen.getByText('Computation').closest('div')!;
-		expect(computation.getAttribute('title')).toContain('no tool run');
+		expect(estimator.getAttribute('title')).toContain('sample (n-1)');
+		expect(estimator.getAttribute('title')).toContain('Declared for this parameter');
 	});
 
 	// A continuous value computed by a standalone formula: no run, and the formula version the
@@ -344,7 +462,16 @@ describe('PointInspector', () => {
 						deployed_until: '2026-08-01T00:00:00Z',
 					},
 				},
-				computation: { sd_estimator: 'sample', sd_estimator_source: 'slot', created_by: 'evan' },
+				computation: {
+					sd_estimator: 'sample',
+					sd_estimator_source: 'slot',
+					created_by: 'evan',
+					n: 2,
+					mean: 41.3,
+					stdev: 0.1414,
+					min: 41.2,
+					max: 41.4,
+				},
 				holds: [{ id: 'hold-5', kind: 'replicate_stats', status: 'pending', created_at: '2026-07-15T05:00:00Z' }],
 			},
 		]);
@@ -353,7 +480,7 @@ describe('PointInspector', () => {
 	describe('renders what the record serves', () => {
 		it('prints the withdrawal reason beside the withdrawn state', async () => {
 			open(syncedGroup());
-			await screen.findByText('41.2');
+			await screen.findAllByText('41.2');
 			expect(screen.getByText(/absent from source window/)).toBeTruthy();
 		});
 
@@ -383,14 +510,14 @@ describe('PointInspector', () => {
 
 		it('prints the calibration window and the curve name as visible text', async () => {
 			const { container } = open(syncedGroup());
-			await screen.findByText('41.2');
+			await screen.findAllByText('41.2');
 			expect(screen.getByText('Plate 7')).toBeTruthy();
 			expect(container.textContent).toContain(`valid ${formatDateTime('2026-01-01T00:00:00Z')} to ${formatDateTime('2026-12-31T00:00:00Z')}`);
 		});
 
 		it('prints the receipt as its counters and window bounds', async () => {
 			const { container } = open(syncedGroup());
-			await screen.findByText('41.2');
+			await screen.findAllByText('41.2');
 			const text = container.textContent ?? '';
 			for (const part of ['42 submitted', '3 new', '1 changed', '37 unchanged', '1 withdrawn', '1 rejected']) {
 				expect(text).toContain(part);
@@ -398,23 +525,46 @@ describe('PointInspector', () => {
 			expect(text).toContain(formatDateTime('2026-07-01T00:00:00Z'));
 		});
 
-		it('tags the record with its cadence, source name, pairing date, instrument window and author', async () => {
+		it('tags the record with its cadence, source name, instrument window and author', async () => {
 			const { container } = open(syncedGroup());
-			await screen.findByText('41.2');
+			await screen.findAllByText('41.2');
 			const text = container.textContent ?? '';
 			expect(screen.getByText('spot')).toBeTruthy();
 			expect(text).toContain('DOC replicates');
-			expect(text).toContain(`paired ${formatDateTime('2026-05-02T10:00:00Z')}`);
 			expect(text).toMatch(/25284027/);
 			expect(text).toContain(formatDateTime('2026-08-01T00:00:00Z'));
 			expect(text).toContain('evan');
+		});
+
+		// What a scientist opens the record for: the replicates, then what they compute to. The
+		// arrival and pairing stamps are administrative and follow.
+		it('leads with the replicates and their statistics, before any metadata row', async () => {
+			const { container } = open(syncedGroup());
+			await screen.findAllByText('41.2');
+			const text = container.textContent ?? '';
+			for (const value of ['41.2', '41.4', '62', '0.1414', '41.3']) {
+				expect(text).toContain(value);
+			}
+			expect(text.indexOf('0.1414')).toBeLessThan(text.indexOf('Instrument'));
+			expect(text.indexOf('41.2')).toBeLessThan(text.indexOf('Administrative'));
+		});
+
+		it('files the arrival and pairing stamps under the administrative block, not the header', async () => {
+			const { container } = open(syncedGroup());
+			await screen.findAllByText('41.2');
+			const admin = container.querySelector('details')!;
+			expect(admin.open).toBe(false);
+			const text = admin.textContent ?? '';
+			expect(text).toContain(formatDateTime('2026-05-02T10:00:00Z'));
+			expect(text).toContain('cnet · FP15:DOC_avg_ppb:reps');
+			expect(container.textContent).not.toContain(`paired ${formatDateTime('2026-05-02T10:00:00Z')}`);
 		});
 	});
 
 	describe('links each curve to its record', () => {
 		it('wraps the calibration equation in a link to the calibration', async () => {
 			const { container } = open(syncedGroup());
-			await screen.findByText('41.2');
+			await screen.findAllByText('41.2');
 			const cal = container.querySelector('a[href="/admin/sensors/sensor-1?tab=calibrations&cal=cal-1"]');
 			expect(cal).not.toBeNull();
 			expect(cal!.textContent).toContain('1.043');
@@ -422,7 +572,7 @@ describe('PointInspector', () => {
 
 		it('links the standard curve to the instrument that owns it', async () => {
 			const { container } = open(syncedGroup());
-			await screen.findByText('41.2');
+			await screen.findAllByText('41.2');
 			const curve = container.querySelector('a[href="/admin/sensors/lab-3?tab=curves&curve=curve-9"]');
 			expect(curve).not.toBeNull();
 			expect(curve!.textContent).toContain('Plate 7');
@@ -431,7 +581,7 @@ describe('PointInspector', () => {
 
 	it('links a hold to the queue narrowed to that stream and hold', async () => {
 		const { container } = open(syncedGroup());
-		await screen.findByText('41.2');
+		await screen.findAllByText('41.2');
 		const link = container.querySelector('a[href*="tab=audits"]')!;
 		expect(link.getAttribute('href')).toContain('holds_streams=stream-7');
 		expect(link.getAttribute('href')).toContain('holds_id=hold-5');
@@ -447,7 +597,7 @@ describe('PointInspector', () => {
 				measurementType: 'spot',
 				preloaded: syncedGroup() as unknown as ProvenanceResponse,
 			});
-			expect(await screen.findByText('41.2')).toBeTruthy();
+			expect(await screen.findAllByText('41.2')).toBeTruthy();
 			expect(getReadingProvenance).not.toHaveBeenCalled();
 		});
 
@@ -462,7 +612,7 @@ describe('PointInspector', () => {
 				preloaded: syncedGroup() as unknown as ProvenanceResponse,
 				onflag,
 			});
-			await screen.findByText('41.2');
+			await screen.findAllByText('41.2');
 			(screen.getByText('Flag replicates') as HTMLButtonElement).click();
 			expect(onflag).toHaveBeenCalledTimes(1);
 			const reps = onflag.mock.calls[0][0];

@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
+	classificationLabel,
 	originFilter,
 	originLabel,
 	originSource,
 	provenanceKindLabel,
 	rowProvenanceLabel,
 } from './origin';
+
+// What the API emits, from `classify_source` and `PROVENANCE_KINDS` in
+// river-data-api/src/routes/private/readings/service.rs.
+const CLASSIFICATIONS = ['manual', 'csv', 'api', 'derived', 'sync'];
+const PROVENANCE_KINDS = ['tool_run', 'chain', 'csv_import', 'manual', 'batch', 'sync', 'derived'];
 
 describe('originFilter', () => {
 	it('asks for nothing when no origin is chosen', () => {
@@ -33,14 +39,18 @@ describe('originFilter', () => {
 });
 
 describe('originLabel', () => {
-	it('names the entry channels in the words the site page already uses', () => {
-		expect(originLabel('grab_sample')).toBe('manual entry');
+	it('says where the value came from rather than how it was typed', () => {
+		expect(originLabel('grab_sample')).toBe('entered in the grid');
 		expect(originLabel('csv_import')).toBe('CSV import');
-		expect(originLabel('api')).toBe('API');
+		expect(originLabel('api')).toBe('API batch');
 	});
 
 	it('calls anything else a sync of that source', () => {
 		expect(originLabel('cnet')).toBe('cnet sync');
+	});
+
+	it('names the actor where the surface knows one', () => {
+		expect(originLabel('grab_sample', { actor: 'nora' })).toBe('entered in the grid by nora');
 	});
 });
 
@@ -54,9 +64,13 @@ describe('originSource', () => {
 
 describe('provenanceKindLabel', () => {
 	it('names each stored origin in the words a reader uses', () => {
-		expect(provenanceKindLabel('tool_run')).toBe('tool run');
-		expect(provenanceKindLabel('manual')).toBe('hand entry');
-		expect(provenanceKindLabel('derived')).toBe('derived parameter');
+		expect(provenanceKindLabel('tool_run')).toBe('computed by a tool');
+		expect(provenanceKindLabel('manual')).toBe('entered in the grid');
+		expect(provenanceKindLabel('derived')).toBe('computed by a derived parameter');
+	});
+
+	it('names the calculation where the surface knows one', () => {
+		expect(provenanceKindLabel('tool_run', { calculation: 'doc' })).toBe('computed by doc');
 	});
 
 	it('passes an unknown kind through and says nothing about a row that carries none', () => {
@@ -76,5 +90,33 @@ describe('rowProvenanceLabel', () => {
 
 	it('says nothing about a row that names neither', () => {
 		expect(rowProvenanceLabel(undefined, undefined)).toBeUndefined();
+	});
+});
+
+// The defect this vocabulary closes: one origin was spelled 'manual entry' on the chart tooltip,
+// 'hand entry' on the record's history and 'Manual entry' in its header.
+describe('one origin, one phrase', () => {
+	it('spells an entry the same way whichever column names it', () => {
+		const phrase = 'entered in the grid';
+		expect(originLabel('grab_sample')).toBe(phrase);
+		expect(provenanceKindLabel('manual')).toBe(phrase);
+		expect(classificationLabel('manual')).toBe(phrase);
+	});
+
+	it('spells a sync the same way whichever column names it', () => {
+		expect(originLabel('cnet')).toBe('cnet sync');
+		expect(classificationLabel('sync', 'cnet')).toBe('cnet sync');
+	});
+
+	it('gives every classification the API emits a phrase of its own', () => {
+		const phrases = CLASSIFICATIONS.map((c) => classificationLabel(c));
+		expect(phrases).not.toContain(undefined);
+		expect(new Set(phrases).size).toBe(CLASSIFICATIONS.length);
+	});
+
+	it('gives every provenance kind the API emits a phrase of its own', () => {
+		const phrases = PROVENANCE_KINDS.map((k) => provenanceKindLabel(k));
+		expect(phrases).not.toContain(undefined);
+		expect(new Set(phrases).size).toBe(PROVENANCE_KINDS.length);
 	});
 });
