@@ -4,8 +4,10 @@
 	import { listVisits, type VisitListRow, type VisitListSort } from '$api/service';
 	import EventPanel from '$components/logs/EventPanel.svelte';
 	import Badge from '$components/ui/Badge.svelte';
+	import Button from '$components/ui/Button.svelte';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
 	import SiteSelect from '$components/SiteSelect.svelte';
+	import NewVisitDialog from '$components/visits/NewVisitDialog.svelte';
 	import { RECOMPUTE_BADGE } from '$lib/visits/recompute';
 	import { verificationBadge } from '$lib/visits/verification';
 	import { formatDateTime } from '$lib/utils';
@@ -16,6 +18,7 @@
 	let sort = $state<VisitListSort>('collected_at');
 	let order = $state<'asc' | 'desc'>('desc');
 	let panel = $state<{ reload: () => Promise<void> } | null>(null);
+	let newVisitOpen = $state(false);
 
 	async function loadPage({ page, perPage }: { page: number; perPage: number }) {
 		const r = await listVisits({
@@ -63,9 +66,11 @@
 					placeholder="All sites"
 					class="px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm"
 				/>
+				<Button size="sm" variant="primary" onclick={() => (newVisitOpen = true)}>New visit</Button>
 				<a class="text-sm text-brand-primary hover:underline" href="{base}/visits/new">
-					Enter a field day
+					Paste a sheet
 				</a>
+				<NewVisitDialog bind:open={newVisitOpen} onadded={() => reload()} />
 			</div>
 		{/snippet}
 		{#snippet head({ reload })}

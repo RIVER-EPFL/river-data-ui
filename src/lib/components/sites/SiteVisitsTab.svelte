@@ -45,6 +45,7 @@
 	import Badge from '$components/ui/Badge.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import PointInspector from '$components/provenance/PointInspector.svelte';
+	import NewVisitDialog from '$components/visits/NewVisitDialog.svelte';
 
 	interface FlagTarget {
 		parameterId: string;
@@ -108,6 +109,7 @@
 	let visitsStart = $state<string | null>(null);
 	let visitsEnd = $state<string | null>(null);
 	let visitsDownloading = $state(false);
+	let newVisitOpen = $state(false);
 
 	function visitsRange(): { start?: string; end?: string } {
 		return {
@@ -364,6 +366,10 @@
 					</div>
 					{#if visitsStart || visitsEnd}
 						<Button size="sm" onclick={() => { visitsStart = null; visitsEnd = null; }}>All dates</Button>
+					{/if}
+					{#if me.can('writeData')}
+						<Button size="sm" variant="primary" onclick={() => (newVisitOpen = true)}>New visit</Button>
+						<NewVisitDialog bind:open={newVisitOpen} {siteId} onadded={() => loadVisits()} />
 					{/if}
 					<span class="text-sm text-brand-muted">{visits.length} visit{visits.length === 1 ? '' : 's'}{visitsStart || visitsEnd ? ' in range' : ''}</span>
 					<span class="ml-auto flex items-center gap-1">

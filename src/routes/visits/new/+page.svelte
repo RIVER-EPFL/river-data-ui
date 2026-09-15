@@ -183,11 +183,11 @@
 	}
 </script>
 
-<svelte:head><title>Enter a field day | RIVER Data</title></svelte:head>
+<svelte:head><title>Paste a sheet | RIVER Data</title></svelte:head>
 
 <div class="space-y-4">
 	<div class="flex flex-wrap items-baseline justify-between gap-2">
-		<h2 class="text-xl font-semibold">Enter a field day</h2>
+		<h2 class="text-xl font-semibold">Paste a sheet</h2>
 		<a class="text-sm text-brand-primary hover:underline" href="{base}/events">Visits</a>
 	</div>
 
@@ -321,7 +321,7 @@
 <Dialog bind:open={confirmOpen} title="Save this field day">
 	<div class="space-y-2 text-sm">
 		<p>
-			{savable.length} visit{savable.length === 1 ? '' : 's'} will be staged and saved, one at a
+			{savable.length} visit{savable.length === 1 ? '' : 's'} will be created and saved, one at a
 			time. A visit the API refuses leaves the visits already saved alone, and its row says why.
 		</p>
 		{#if consequence}

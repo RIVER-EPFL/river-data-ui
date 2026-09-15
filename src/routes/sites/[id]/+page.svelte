@@ -6,9 +6,11 @@
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
-	import { api, type Site, type Project, type SiteParameter, type Parameter, type Sensor, type SensorDeployment, type SensorCalibration, type Note, type AlarmThreshold, type DerivedParameter, type ParameterGroup, type Sample, type Annotation, type Subproject } from '$api/crud';
+	import { api, type Site, type Project, type SiteParameter, type Parameter, type Sensor, type SensorDeployment, type SensorCalibration, type Note, type AlarmThreshold, type DerivedParameter, type ParameterGroup, type ParameterGroupMember, type Sample, type Annotation, type Subproject } from '$api/crud';
 	import { GET, POST, PATCH } from '$api/client';
-	import { applyParameterGroup, recomputeDerived, getThresholds, getActiveAlarms, getSiteExportSummary, type ThresholdWithValue, type ActiveAlarm, type ExportSummary } from '$api/service';
+	import { listAll } from '$api/paged';
+	import { calculationsBySlot, groupSlots, type SlotCalculation } from '$lib/calculations/siteSlots';
+	import { applyParameterGroup, recomputeDerived, getThresholds, getActiveAlarms, getCalculationClosure, getGroupDefinition, getSiteExportSummary, type ThresholdWithValue, type ActiveAlarm, type ExportSummary } from '$api/service';
 	import { getSiteSensorIdentity, type SensorIdentityResponse } from '$api/sensors';
 	import {
 		annotationsByParameter,
@@ -45,6 +47,7 @@
 	import DeployMoveSensorDialog from '$components/dialogs/DeployMoveSensorDialog.svelte';
 	import MergeSiteParameterDialog from '$components/dialogs/MergeSiteParameterDialog.svelte';
 	import ConfirmSiteParameterButton from '$components/parameters/ConfirmSiteParameterButton.svelte';
+	import CalculationChip from '$components/calculations/CalculationChip.svelte';
 	import PointInspector from '$components/provenance/PointInspector.svelte';
 	import ReplicateFlagDialog from '$components/dialogs/ReplicateFlagDialog.svelte';
 	import ParameterChart, { type ChartData } from '$components/charts/ParameterChart.svelte';
@@ -85,6 +88,9 @@
 	let thresholds = $state<AlarmThreshold[]>([]);
 	let derivedDefs = $state<DerivedParameter[]>([]);
 	let parameterGroups = $state<ParameterGroup[]>([]);
+	let groupMembers = $state<ParameterGroupMember[]>([]);
+	let slotCalculations = $state<Map<string, SlotCalculation[]>>(new Map());
+	let collapsedGroups = $state<string[]>([]);
 	let samples = $state<Sample[]>([]);
 	let samplesLoading = $state(false);
 	const SAMPLES_PER_PAGE = 50;
@@ -960,6 +966,53 @@
 
 
 
+	// The slots under the group that brought them in, and the calculation over each. A calculation
+	// belongs to no group, so what ties the two is the parameters they share: the closure names the
+	// calculations this site's slots feed, and a group's definition names the page each one lives on.
+	const slotGroups = $derived(groupSlots(siteParameters, groupMembers, parameterGroups, slotCalculations));
+
+	function toggleGroup(key: string) {
+		collapsedGroups = collapsedGroups.includes(key)
+			? collapsedGroups.filter((k) => k !== key)
+			: [...collapsedGroups, key];
+	}
+
+	async function loadSlotCalculations(parameterIds: string[]) {
+		if (parameterIds.length === 0) {
+			slotCalculations = new Map();
+			return;
+		}
+		try {
+			if (groupMembers.length === 0) {
+				groupMembers = await listAll<ParameterGroupMember>(api.parameterGroupMembers, { perPage: 500 });
+			}
+			const held = new Set(
+				groupMembers.filter((m) => parameterIds.includes(m.parameter_id)).map((m) => m.group_id),
+			);
+			const [closure, definitions] = await Promise.all([
+				getCalculationClosure({ parameter_ids: parameterIds.join(','), site_id: siteId }),
+				Promise.all([...held].map((groupId) => getGroupDefinition(groupId, siteId))),
+			]);
+			const ids = new Map(
+				definitions.flatMap((d) => d.calculations.map((c) => [c.name, c.id] as const)),
+			);
+			slotCalculations = calculationsBySlot(closure.calculations, ids);
+		} catch {
+			// The tab reads without the chips.
+		}
+	}
+
+	// Applying a group, adding a parameter and assigning a definition each reload the slots, and
+	// what is calculated here follows whenever that set moves.
+	let loadedSlotKey = '';
+	$effect(() => {
+		const parameterIds = [...new Set(siteParameters.map((sp) => sp.parameter_id))].sort();
+		const key = `${siteId}|${parameterIds.join(',')}`;
+		if (key === loadedSlotKey) return;
+		loadedSlotKey = key;
+		untrack(() => loadSlotCalculations(parameterIds));
+	});
+
 	// Derived parameters
 	const siteParameterIds = $derived(new Set(siteParameters.map((sp) => sp.parameter_id)));
 	// A computed slot names no definition: the one that fills it is the definition whose output is
@@ -1549,7 +1602,7 @@
 			<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 				<div class="flex items-center justify-between px-4 py-3 bg-brand-bg border-b border-brand-divider">
 					<span class="text-sm font-semibold">
-						Parameters ({siteParameters.filter((sp) => sp.entry_mode !== 'tool').length})
+						Parameters ({siteParameters.length})
 						{#if siteParameters.some((sp) => sp.needs_review)}
 							<span class="ml-2 rounded bg-severity-warning-soft px-1.5 py-0.5 text-xs font-medium text-severity-warning-text" title="Added by a tool save, awaiting confirmation">
 								{siteParameters.filter((sp) => sp.needs_review).length} need review
@@ -1626,133 +1679,163 @@
 						<th class="text-right px-4 py-2 font-semibold">Actions</th>
 					</tr></thead>
 					<tbody>
-						{#each siteParameters.filter((sp) => sp.entry_mode !== 'tool') as sp}
-							{@const th = effectiveThreshold(sp.parameter_id)}
-							{@const disabled = th != null && isThresholdDisabled(th)}
-							{@const warn = th && !disabled ? formatThresholdRange(th.warning_min, th.warning_max, paramUnits(sp)) : null}
-							{@const alarm = th && !disabled ? formatThresholdRange(th.alarm_min, th.alarm_max, paramUnits(sp)) : null}
-							<tr class="border-b border-brand-divider last:border-b-0">
-								<td class="px-4 py-2 font-mono text-xs">{paramCode(sp.parameter_id)}</td>
-								<td class="px-4 py-2 font-semibold">
-									{paramName(sp.parameter_id)}
-									{#if sp.needs_review}
-										<span class="ml-1 rounded bg-severity-warning-soft px-1.5 py-0.5 text-xs font-medium text-severity-warning-text" title="Added by a tool save, awaiting confirmation">Needs review</span>
-									{/if}
-								</td>
-								<td class="px-4 py-2">
-									<input
-										class="w-24 rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
-										title="Overrides the parameter's default units at this site"
-										aria-label="Display units for {paramName(sp.parameter_id)}"
-										placeholder={parameters.find((p) => p.id === sp.parameter_id)?.default_units ?? ''}
-										value={sp.display_units ?? ''}
-										onchange={(e) => updateSlot(sp, { display_units: e.currentTarget.value.trim() || null }, 'units')}
-									/>
-								</td>
-								<td class="px-4 py-2">
-									<input
-										type="number"
-										min="0"
-										class="w-24 rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
-										title="Expected seconds between readings"
-										aria-label="Sample interval in seconds for {paramName(sp.parameter_id)}"
-										placeholder="None"
-										value={sp.sample_interval_sec ?? ''}
-										onchange={(e) => {
-											const v = slotNumber(e.currentTarget.value);
-											if (v !== undefined) updateSlot(sp, { sample_interval_sec: v }, 'sample interval');
-										}}
-									/>
-								</td>
-								<td class="px-4 py-2">
-									<input
-										type="number"
-										class="w-20 rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
-										title="The channel identifier this slot carries in its source system"
-										aria-label="Channel identifier for {paramName(sp.parameter_id)}"
-										placeholder="None"
-										value={sp.channel_id ?? ''}
-										onchange={(e) => {
-											const v = slotNumber(e.currentTarget.value);
-											if (v !== undefined) updateSlot(sp, { channel_id: v }, 'channel');
-										}}
-									/>
-								</td>
-								<td class="px-4 py-2">
-									<input
-										type="number"
-										min="0"
-										max="10"
-										class="w-16 rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
-										title="How many decimal places this slot is shown and published at. Stored readings keep their full precision either way."
-										aria-label="Decimal places for {paramName(sp.parameter_id)}"
-										placeholder="Default"
-										value={sp.decimal_places ?? ''}
-										onchange={(e) => {
-											const v = slotNumber(e.currentTarget.value);
-											if (v !== undefined) updateSlot(sp, { decimal_places: v }, 'decimal places');
-										}}
-									/>
-								</td>
-								<td class="px-4 py-2">
-									<select
-										class="rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
-										title="What measures this parameter here. A value entered or calculated at this site names it; undeclared leaves the entry channel's own marker."
-										aria-label="Instrument for {paramName(sp.parameter_id)}"
-										value={sp.instrument_sensor_id ?? ''}
-										onchange={(e) => declareInstrument(sp, e.currentTarget.value)}
+						{#each slotGroups as slotGroup (slotGroup.id ?? 'ungrouped')}
+							{@const key = slotGroup.id ?? 'ungrouped'}
+							{@const collapsed = collapsedGroups.includes(key)}
+							<tr class="border-b border-brand-divider bg-brand-bg/60">
+								<td colspan="11" class="px-4 py-2">
+									<button
+										type="button"
+										class="inline-flex items-center gap-2 text-sm font-semibold"
+										aria-expanded={!collapsed}
+										onclick={() => toggleGroup(key)}
 									>
-										<option value="">Undeclared</option>
-										{#each sensors as sensor}
-											<option value={sensor.id}>{sensor.name}</option>
+										<span class="text-brand-muted" aria-hidden="true">{collapsed ? '▸' : '▾'}</span>
+										{slotGroup.label}
+										{#if slotGroup.code}<span class="font-mono text-xs font-normal text-brand-muted">{slotGroup.code}</span>{/if}
+										<span class="text-xs font-normal text-brand-muted">{slotGroup.slots.length} parameter{slotGroup.slots.length === 1 ? '' : 's'}</span>
+									</button>
+									{#if slotGroup.declared.length > 0}
+										<span class="ml-2 text-xs text-brand-muted">Declared here:</span>
+										{#each slotGroup.declared as calculation}
+											<CalculationChip {calculation} />
 										{/each}
-									</select>
-								</td>
-								{#if disabled}
-									<td class="px-4 py-2 text-xs text-brand-muted italic" colspan="2">Disabled</td>
-								{:else}
-									<td class="px-4 py-2 text-xs text-severity-warning">{#if warn}{warn}{:else}<span class="text-brand-muted">None</span>{/if}</td>
-									<td class="px-4 py-2 text-xs text-severity-alarm">{#if alarm}{alarm}{:else}<span class="text-brand-muted">None</span>{/if}</td>
-								{/if}
-								<td class="px-4 py-2">
-									<input
-										type="checkbox"
-										title="A retired slot keeps its readings and its configuration, and stops being alarmed on or listed as a place this parameter is measured"
-										aria-label="Active at this site: {paramName(sp.parameter_id)}"
-										checked={sp.is_active ?? false}
-										onchange={(e) => updateSlot(sp, { is_active: e.currentTarget.checked }, e.currentTarget.checked ? 'active' : 'retired')}
-									/>
-								</td>
-								<td class="px-4 py-2 text-right space-x-1">
-									<ConfirmSiteParameterButton
-										siteParameter={sp}
-										label={paramName(sp.parameter_id)}
-										onconfirmed={reloadSiteParameters}
-									/>
-									<Button
-										size="sm"
-										onclick={() => openThresholdDialog(sp.parameter_id, paramName(sp.parameter_id))}
-									>{th && !disabled ? 'Edit' : 'Set'} thresholds</Button>
-									{#if !disabled}
-										<Button
-											size="sm"
-											onclick={() => disableAlarms(sp.parameter_id)}
-											class="border-severity-alarm-border text-severity-alarm"
-										>Disable alarms</Button>
 									{/if}
-									<Button
-										size="sm"
-										onclick={() => openMergeSiteParameter(sp)}
-									>Merge…</Button>
-									<Button
-										size="sm"
-										onclick={() => removeParameter(sp.id)}
-										class="text-severity-alarm"
-									>Remove</Button>
 								</td>
 							</tr>
+							{#if !collapsed}
+								{#each slotGroup.slots as sp}
+								{@const th = effectiveThreshold(sp.parameter_id)}
+								{@const disabled = th != null && isThresholdDisabled(th)}
+								{@const warn = th && !disabled ? formatThresholdRange(th.warning_min, th.warning_max, paramUnits(sp)) : null}
+								{@const alarm = th && !disabled ? formatThresholdRange(th.alarm_min, th.alarm_max, paramUnits(sp)) : null}
+								<tr class="border-b border-brand-divider last:border-b-0">
+									<td class="px-4 py-2 font-mono text-xs">{paramCode(sp.parameter_id)}</td>
+									<td class="px-4 py-2 font-semibold">
+										{paramName(sp.parameter_id)}
+										{#if sp.needs_review}
+											<span class="ml-1 rounded bg-severity-warning-soft px-1.5 py-0.5 text-xs font-medium text-severity-warning-text" title="Added by a tool save, awaiting confirmation">Needs review</span>
+										{/if}
+										{#each slotCalculations.get(sp.parameter_id) ?? [] as calculation}
+											<CalculationChip {calculation} />
+										{/each}
+									</td>
+									<td class="px-4 py-2">
+										<input
+											class="w-24 rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
+											title="Overrides the parameter's default units at this site"
+											aria-label="Display units for {paramName(sp.parameter_id)}"
+											placeholder={parameters.find((p) => p.id === sp.parameter_id)?.default_units ?? ''}
+											value={sp.display_units ?? ''}
+											onchange={(e) => updateSlot(sp, { display_units: e.currentTarget.value.trim() || null }, 'units')}
+										/>
+									</td>
+									<td class="px-4 py-2">
+										<input
+											type="number"
+											min="0"
+											class="w-24 rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
+											title="Expected seconds between readings"
+											aria-label="Sample interval in seconds for {paramName(sp.parameter_id)}"
+											placeholder="None"
+											value={sp.sample_interval_sec ?? ''}
+											onchange={(e) => {
+												const v = slotNumber(e.currentTarget.value);
+												if (v !== undefined) updateSlot(sp, { sample_interval_sec: v }, 'sample interval');
+											}}
+										/>
+									</td>
+									<td class="px-4 py-2">
+										<input
+											type="number"
+											class="w-20 rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
+											title="The channel identifier this slot carries in its source system"
+											aria-label="Channel identifier for {paramName(sp.parameter_id)}"
+											placeholder="None"
+											value={sp.channel_id ?? ''}
+											onchange={(e) => {
+												const v = slotNumber(e.currentTarget.value);
+												if (v !== undefined) updateSlot(sp, { channel_id: v }, 'channel');
+											}}
+										/>
+									</td>
+									<td class="px-4 py-2">
+										<input
+											type="number"
+											min="0"
+											max="10"
+											class="w-16 rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
+											title="How many decimal places this slot is shown and published at. Stored readings keep their full precision either way."
+											aria-label="Decimal places for {paramName(sp.parameter_id)}"
+											placeholder="Default"
+											value={sp.decimal_places ?? ''}
+											onchange={(e) => {
+												const v = slotNumber(e.currentTarget.value);
+												if (v !== undefined) updateSlot(sp, { decimal_places: v }, 'decimal places');
+											}}
+										/>
+									</td>
+									<td class="px-4 py-2">
+										<select
+											class="rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
+											title="What measures this parameter here. A value entered or calculated at this site names it; undeclared leaves the entry channel's own marker."
+											aria-label="Instrument for {paramName(sp.parameter_id)}"
+											value={sp.instrument_sensor_id ?? ''}
+											onchange={(e) => declareInstrument(sp, e.currentTarget.value)}
+										>
+											<option value="">Undeclared</option>
+											{#each sensors as sensor}
+												<option value={sensor.id}>{sensor.name}</option>
+											{/each}
+										</select>
+									</td>
+									{#if disabled}
+										<td class="px-4 py-2 text-xs text-brand-muted italic" colspan="2">Disabled</td>
+									{:else}
+										<td class="px-4 py-2 text-xs text-severity-warning">{#if warn}{warn}{:else}<span class="text-brand-muted">None</span>{/if}</td>
+										<td class="px-4 py-2 text-xs text-severity-alarm">{#if alarm}{alarm}{:else}<span class="text-brand-muted">None</span>{/if}</td>
+									{/if}
+									<td class="px-4 py-2">
+										<input
+											type="checkbox"
+											title="A retired slot keeps its readings and its configuration, and stops being alarmed on or listed as a place this parameter is measured"
+											aria-label="Active at this site: {paramName(sp.parameter_id)}"
+											checked={sp.is_active ?? false}
+											onchange={(e) => updateSlot(sp, { is_active: e.currentTarget.checked }, e.currentTarget.checked ? 'active' : 'retired')}
+										/>
+									</td>
+									<td class="px-4 py-2 text-right space-x-1">
+										<ConfirmSiteParameterButton
+											siteParameter={sp}
+											label={paramName(sp.parameter_id)}
+											onconfirmed={reloadSiteParameters}
+										/>
+										<Button
+											size="sm"
+											onclick={() => openThresholdDialog(sp.parameter_id, paramName(sp.parameter_id))}
+										>{th && !disabled ? 'Edit' : 'Set'} thresholds</Button>
+										{#if !disabled}
+											<Button
+												size="sm"
+												onclick={() => disableAlarms(sp.parameter_id)}
+												class="border-severity-alarm-border text-severity-alarm"
+											>Disable alarms</Button>
+										{/if}
+										<Button
+											size="sm"
+											onclick={() => openMergeSiteParameter(sp)}
+										>Merge…</Button>
+										<Button
+											size="sm"
+											onclick={() => removeParameter(sp.id)}
+											class="text-severity-alarm"
+										>Remove</Button>
+									</td>
+								</tr>
+								{/each}
+							{/if}
 						{/each}
-						{#if siteParameters.filter((sp) => sp.entry_mode !== 'tool').length === 0}
+						{#if siteParameters.length === 0}
 							<tr><td colspan="11" class="px-4 py-6 text-center text-brand-muted">No parameters configured</td></tr>
 						{/if}
 					</tbody>

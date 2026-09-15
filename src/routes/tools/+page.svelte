@@ -298,15 +298,15 @@
 										...(activeTool.site_inputs ?? []).map((si) => `the site's ${si.property}`),
 										...(activeTool.event_inputs ?? []).map((ei) => `${ei.parameter_code} from the same visit`),
 									].join(', ')}. Values you type below always win; the rest resolve from the
-									staged visit.
+									chosen visit.
 								</p>
 								{#if !contextSiteId}
 									<div class="flex items-center gap-2">
 										<p class="text-xs text-severity-warning-text">
-											No visit is staged, so nothing resolves from the site or the visit.
+											No visit is chosen, so nothing resolves from the site or the visit.
 										</p>
 										<Button variant="secondary" size="sm" onclick={() => visitBar?.begin()}>
-											Stage a field visit
+											Choose a field visit
 										</Button>
 									</div>
 								{/if}

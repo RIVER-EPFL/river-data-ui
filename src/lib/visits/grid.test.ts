@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { at, nextCell } from './keys';
+
 import type { EventCell, EventDetailResponse } from '$api/service';
 import {
 	addParameterRow,
@@ -458,22 +460,37 @@ describe('a row is as wide as the repeats it holds', () => {
 			]),
 		);
 
-	it('draws one column past the widest row, so every row has a cell to add a repeat in', () => {
+	it('draws as many columns as the widest row holds, and no spare', () => {
 		expect(columnCount(grid())).toBe(3);
-		expect(headerCount(grid())).toBe(4);
+		expect(headerCount(grid())).toBe(3);
 	});
 
-	it('offers an input on a row\'s own replicates and one past them, and nowhere else', () => {
+	it('offers an input on a row\'s own replicates and nowhere else', () => {
 		const rows = grid();
-		expect([0, 1, 2, 3].map((c) => isEditable(rows[1], c))).toEqual([true, true, false, false]);
-		expect([0, 1, 2, 3].map((c) => isEditable(rows[0], c))).toEqual([true, true, true, true]);
+		expect([0, 1, 2, 3].map((c) => isEditable(rows[1], c))).toEqual([true, false, false, false]);
+		expect([0, 1, 2, 3].map((c) => isEditable(rows[0], c))).toEqual([true, true, true, false]);
+	});
+
+	it('leaves a row past its last replicate, so Tab reaches the next row rather than a new column', () => {
+		const rows = grid();
+		const width = headerCount(rows);
+		const navigable = (row: number, column: number) => rendersInput(rows[row], column, 3);
+		expect(nextCell(at(0, 2), 'Tab', { rows: rows.length, columns: width }, navigable)).toEqual(
+			at(1, 0),
+		);
+		expect(rows[0].replicates).toHaveLength(3);
+	});
+
+	it('takes one value in a row that holds no replicate yet', () => {
+		const [fresh] = addParameterRow([], { parameterId: 'p-new', code: 'new', name: 'New' });
+		expect([0, 1].map((c) => isEditable(fresh, c))).toEqual([true, false]);
 	});
 
 	it('draws no input where an intern would be overwriting a stored value', () => {
 		const rows = grid();
 		expect(rendersInput(rows[1], 0, 2)).toBe(true);
 		expect(rendersInput(rows[1], 0, 1)).toBe(false);
-		expect(rendersInput(rows[1], 1, 1)).toBe(true);
+		expect(rendersInput(setReplicateCount(rows, 1, 2)[1], 1, 1)).toBe(true);
 		expect(rendersInput(rows[1], 2, 2)).toBe(false);
 	});
 
@@ -482,7 +499,7 @@ describe('a row is as wide as the repeats it holds', () => {
 		expect(isEditable(computed, 0)).toBe(false);
 	});
 
-	it('grows one row alone when its trailing cell is typed into', () => {
+	it('grows one row alone when a paste reaches past its replicates', () => {
 		const rows = setCellValue(grid(), 1, 1, 7.4);
 		expect(rows[1].replicates.map((c) => c.value)).toEqual([7.1, 7.4]);
 		expect(rows[0].replicates).toHaveLength(3);

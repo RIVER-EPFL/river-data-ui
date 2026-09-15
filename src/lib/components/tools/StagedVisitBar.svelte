@@ -1,28 +1,25 @@
 <script lang="ts">
 	import { base } from '$app/paths';
 	import { api, type CollectionEvent } from '$api/crud';
-	import { stageCollectionEvent } from '$api/service';
+	import type { StagedEvent } from '$api/service';
 	import { stagedVisit } from '$lib/stores/visit.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { SYNCED_VISIT_NOTICE } from '$lib/visits/recompute';
-	import { formatDateTime, toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
+	import { formatDateTime } from '$lib/utils';
 	import Badge from '$components/ui/Badge.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import SiteSelect from '$components/SiteSelect.svelte';
+	import NewVisitDialog from '$components/visits/NewVisitDialog.svelte';
 	import { siteRefs } from '$lib/siteRefs.svelte';
 
-	// Staging a field visit before running a tool: the site and instant are chosen once, and
-	// every tool run and save on this page attaches to that visit. An existing visit at the chosen
-	// instant is adopted rather than duplicated, so a second tool lands on the same row.
-
-	const BROWSER_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
+	// The field visit a tool run attaches to: one is chosen from the site's visits, and every run
+	// and save on this page writes into it. New visit adds one to the same table the Visits page
+	// lists.
 
 	let open = $state(false);
 	let siteId = $state('');
-	let when = $state(toDatetimeLocal(Date.now(), BROWSER_ZONE));
-	let notes = $state('');
-	let staging = $state(false);
+	let newVisitOpen = $state(false);
 	let recent = $state<CollectionEvent[]>([]);
 	let recentLoading = $state(false);
 
@@ -30,7 +27,7 @@
 	const detail = $derived(stagedVisit.detail);
 	const recordedCells = $derived((detail?.cells ?? []).filter((c) => c.served_value != null));
 
-	// A visit restored from the session has no grid yet; load it once per staged event.
+	// A visit restored from the session has no grid yet; load it once per chosen event.
 	let summarised = '';
 	$effect(() => {
 		const id = visit?.eventId;
@@ -42,14 +39,12 @@
 	export function begin() {
 		open = true;
 		siteId = visit?.siteId ?? siteId;
-		when = visit ? toDatetimeLocal(Date.parse(visit.collectedAt), BROWSER_ZONE) : when;
-		notes = '';
 		void siteRefs.ensure().catch((e) =>
 			toastStore.error(e instanceof Error ? e.message : 'Failed to load sites'),
 		);
+		void loadRecent();
 	}
 
-	// The site's recent visits, so a return trip to an already-staged date is a click.
 	async function loadRecent() {
 		recent = [];
 		if (!siteId) return;
@@ -72,7 +67,7 @@
 		return siteRefs.name(id);
 	}
 
-	function adopt(event: CollectionEvent) {
+	function choose(event: CollectionEvent | StagedEvent) {
 		stagedVisit.set({
 			eventId: event.id,
 			siteId: event.site_id,
@@ -80,35 +75,6 @@
 			collectedAt: event.collected_at,
 		});
 		open = false;
-	}
-
-	// Staging is find-or-create server-side, so entering a visit that already stands joins it
-	// rather than colliding with the unique key.
-	async function stage() {
-		if (!siteId || !when) {
-			toastStore.error('Choose a site and a collection time');
-			return;
-		}
-		staging = true;
-		try {
-			const event = await stageCollectionEvent({
-				site_id: siteId,
-				collected_at: fromDatetimeLocal(when, BROWSER_ZONE),
-				...(notes.trim() ? { notes: notes.trim() } : {}),
-			});
-			stagedVisit.set({
-				eventId: event.id,
-				siteId: event.site_id,
-				siteName: siteName(event.site_id),
-				collectedAt: event.collected_at,
-			});
-			toastStore.success(event.created ? 'Field visit staged' : 'Staged the existing visit');
-			open = false;
-		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Failed to stage the visit');
-		} finally {
-			staging = false;
-		}
 	}
 </script>
 
@@ -143,62 +109,43 @@
 	{:else}
 		<div class="flex flex-wrap items-center gap-3">
 			<div>
-				<p class="text-sm font-semibold">No field visit staged</p>
+				<p class="text-sm font-semibold">No field visit chosen</p>
 				<p class="text-xs text-brand-muted">
-					Stage a site and collection time, then every tool you run writes its parameters
-					into that visit.
+					Choose the site and date you are working on, then every tool you run writes its
+					parameters into that visit.
 				</p>
 			</div>
 			<div class="ml-auto">
-				<Button variant="primary" size="sm" onclick={begin}>Stage a field visit</Button>
+				<Button variant="primary" size="sm" onclick={begin}>Choose a field visit</Button>
 			</div>
 		</div>
 	{/if}
 </div>
 
-<Dialog bind:open title="Stage a field visit" maxWidth="sm">
+<Dialog bind:open title="Choose a field visit" maxWidth="sm">
 	{#snippet children()}
 		<div class="space-y-3">
-			<div class="grid grid-cols-2 gap-3">
-				<div class="flex flex-col gap-1">
-					<label for="svb-site" class="text-sm font-medium">Site <span class="text-severity-alarm">*</span></label>
-					<SiteSelect id="svb-site" bind:value={siteId} onchange={loadRecent} />
-				</div>
-				<div class="flex flex-col gap-1">
-					<label for="svb-time" class="text-sm font-medium">Collection time <span class="text-severity-alarm">*</span></label>
-					<input
-						id="svb-time"
-						type="datetime-local"
-						bind:value={when}
-						class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
-					/>
-					<span class="text-xs text-brand-muted">{BROWSER_ZONE}</span>
-				</div>
-			</div>
 			<div class="flex flex-col gap-1">
-				<label for="svb-notes" class="text-sm font-medium">
-					Notes <span class="text-brand-muted font-normal">(optional)</span>
-				</label>
-				<input
-					id="svb-notes"
-					bind:value={notes}
-					class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
-				/>
+				<label for="svb-site" class="text-sm font-medium">Site <span class="text-severity-alarm">*</span></label>
+				<SiteSelect id="svb-site" bind:value={siteId} onchange={loadRecent} />
 			</div>
 
 			{#if siteId}
 				<div class="space-y-1">
-					<p class="text-xs font-semibold">Recent visits at this site</p>
+					<div class="flex items-center justify-between gap-2">
+						<p class="text-xs font-semibold">Visits at this site</p>
+						<Button size="sm" variant="secondary" onclick={() => (newVisitOpen = true)}>New visit</Button>
+					</div>
 					{#if recentLoading}
 						<p class="text-xs text-brand-muted">Loading…</p>
 					{:else if recent.length === 0}
-						<p class="text-xs text-brand-muted">None yet.</p>
+						<p class="text-xs text-brand-muted">None yet. New visit adds the first.</p>
 					{:else}
 						<div class="max-h-40 overflow-y-auto divide-y divide-brand-divider border border-brand-divider rounded-md">
 							{#each recent as e (e.id)}
 								<button
 									type="button"
-									onclick={() => adopt(e)}
+									onclick={() => choose(e)}
 									title={e.source === 'portal_sync' ? SYNCED_VISIT_NOTICE : undefined}
 									class="w-full text-left px-2 py-1.5 text-xs hover:bg-brand-bg cursor-pointer flex items-center justify-between gap-2"
 								>
@@ -219,8 +166,7 @@
 	{/snippet}
 	{#snippet actions()}
 		<Button variant="secondary" onclick={() => (open = false)}>Cancel</Button>
-		<Button variant="primary" loading={staging} onclick={stage}>
-			{staging ? 'Staging…' : 'Stage visit'}
-		</Button>
 	{/snippet}
 </Dialog>
+
+<NewVisitDialog bind:open={newVisitOpen} {siteId} onadded={(event) => { newVisitOpen = false; choose(event); }} />

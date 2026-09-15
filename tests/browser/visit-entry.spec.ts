@@ -114,8 +114,9 @@ test('a visit is entered, its consequence read, and its saved value comes back',
 	const save = page.getByRole('button', { name: /^Save .*value/ });
 	await expect(save).toBeDisabled();
 
-	// A row is as wide as the repeats it holds, so the cell after the last one is where a third
-	// replicate is entered. It is an entry, not a correction, and the save counts only what moved.
+	// A row is as wide as the repeats it holds, so a third replicate is a column the row's plus
+	// adds. It is an entry, not a correction, and the save counts only what moved.
+	await page.getByRole('button', { name: 'One repeat more for Entry grid parameter' }).click();
 	await cell(page, 0, 2).fill('14');
 	await expect(save).toContainText('Save 1 value');
 
@@ -168,6 +169,7 @@ test('a typed value is not lost to a link out of the grid', async ({ page, reque
 	await signIn(page);
 	await page.goto(`${BASE_PATH}/visits/${visit.eventId}`);
 
+	await page.getByRole('button', { name: 'One repeat more for Entry grid parameter' }).click();
 	await cell(page, 0, 2).fill('14');
 	await expect(page.getByRole('button', { name: /^Save .*value/ })).toBeEnabled();
 

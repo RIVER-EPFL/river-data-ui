@@ -145,20 +145,24 @@ export function columnCount(rows: GridRow[]): number {
 }
 
 /**
- * The replicate columns the header draws: one past the widest row, because every row carries one
- * empty cell after its own replicates as the place a further repeat is typed.
+ * The replicate columns the header draws: as many as the widest row holds.
  *
  * Rows keep their own widths. A parameter measured once does not draw the four empty inputs its
  * neighbour's five replicates would otherwise impose on it, and tabbing across it crosses one cell
  * rather than five.
  */
 export function headerCount(rows: GridRow[]): number {
-	return columnCount(rows) + 1;
+	return columnCount(rows);
 }
 
-/** Whether the grid draws an input at this position: a row's own replicates, plus one. */
+/**
+ * Whether the grid draws an input at this position: a row's own replicates, and never a column
+ * past them. A repeat is added by the row's plus, so the count is what somebody asked for. A row
+ * holding none still takes one value, which is what makes a parameter entered for the first time
+ * reachable.
+ */
 export function isEditable(row: GridRow, column: number): boolean {
-	return !row.writtenBy && column <= row.replicates.length;
+	return !row.writtenBy && column < Math.max(1, row.replicates.length);
 }
 
 /**
