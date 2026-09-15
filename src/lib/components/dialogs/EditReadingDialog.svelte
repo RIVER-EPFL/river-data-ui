@@ -10,6 +10,8 @@
 		type EditSelection,
 		type InspectedRow,
 	} from '$api/service';
+	import { goto } from '$app/navigation';
+	import { base } from '$app/paths';
 	import {
 		EDIT_METHODS,
 		commonOptions,
@@ -150,7 +152,7 @@
 			const run = await reloadToolRun(toolRunId);
 			sessionStorage.setItem('tool-reload', JSON.stringify(run));
 			open = false;
-			window.location.href = `/tools?tool=${encodeURIComponent(run.tool)}&reload=${toolRunId}`;
+			await goto(`${base}/tools?tool=${encodeURIComponent(run.tool)}&reload=${toolRunId}`);
 		} catch (e) {
 			previewError = e instanceof Error ? e.message : String(e);
 		}

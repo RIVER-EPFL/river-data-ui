@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { EditOptionKind, InspectedRow } from '$api/service';
@@ -7,6 +7,11 @@ const inspectEdits = vi.fn();
 const previewEdit = vi.fn();
 const commitEdit = vi.fn();
 const reloadToolRun = vi.fn();
+const goto = vi.fn();
+
+vi.mock('$app/navigation', () => ({
+	goto: (url: string) => goto(url),
+}));
 
 vi.mock('$api/service', () => ({
 	inspectEdits: (s: unknown) => inspectEdits(s),
@@ -46,6 +51,7 @@ beforeEach(() => {
 	previewEdit.mockReset();
 	commitEdit.mockReset();
 	reloadToolRun.mockReset();
+	goto.mockReset();
 });
 
 describe('the edit dialog', () => {
@@ -68,6 +74,19 @@ describe('the edit dialog', () => {
 		await waitFor(() => expect(screen.getByText('Reopen the calculation')).toBeTruthy());
 		expect(screen.queryByText('Correct the value')).toBeNull();
 		expect(screen.getByText(/corrected by reopening the run/)).toBeTruthy();
+	});
+
+	it('reopens the run through the app, which is served under a base path', async () => {
+		inspectEdits.mockResolvedValue({ rows: [row(['reopen_run', 'flag'], true, 'run-1')] });
+		reloadToolRun.mockResolvedValue({ tool: 'doc', inputs: {} });
+		render(EditReadingDialog, { props: { open: true, selection } });
+
+		await waitFor(() => expect(screen.getByText('Reopen the calculation')).toBeTruthy());
+		await fireEvent.click(screen.getByRole('radio', { name: /Reopen the calculation/ }));
+		await fireEvent.click(await screen.findByText('Open the calculation'));
+
+		await waitFor(() => expect(goto).toHaveBeenCalled());
+		expect(goto.mock.calls[0][0]).toBe('/admin/tools?tool=doc&reload=run-1');
 	});
 
 	it('offers only what every reading in a mixed selection allows, and says so', async () => {
