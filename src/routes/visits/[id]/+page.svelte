@@ -39,8 +39,10 @@
 	import { me } from '$auth/me.svelte';
 	import { cellRecord, recordMarkerTitle } from '$lib/visits/cell';
 	import { cellWritable, editConsequence } from '$lib/visits/role';
+	import { RECOMPUTE_BADGE, computing } from '$lib/visits/recompute';
 	import { formatDateTime } from '$lib/utils';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import Badge from '$components/ui/Badge.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import PointInspector from '$components/provenance/PointInspector.svelte';
@@ -85,6 +87,10 @@
 	const width = $derived(headerCount(rows));
 	const shown = $derived(new Set(rowsInGroup(rows, groupOf, groupFilter).map((r) => r.parameterId)));
 	const writes = $derived(pendingWrites(rows));
+
+	/** How long the grid follows a visit's calculations before leaving it to the next read. */
+	const RECOMPUTE_POLL_MS = 400;
+	const RECOMPUTE_POLL_ATTEMPTS = 50;
 	const cleared = $derived(clearedCells(rows));
 
 	$effect(() => {
@@ -319,7 +325,7 @@
 				toastStore.success(saved);
 			}
 			confirmOpen = false;
-			await refresh();
+			await refreshWhileComputing();
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 			confirmOpen = false;
@@ -332,6 +338,23 @@
 		const fresh = await getCollectionEventDetail(eventId);
 		detail = fresh;
 		rows = gridFromVisit(fresh);
+	}
+
+	/**
+	 * Read the visit until its calculations have finished writing.
+	 *
+	 * The chain is a tracked job, so a write returns before the outputs it triggers are in the
+	 * store and one read of the visit shows the numbers the save replaced. The visit reports its
+	 * own state, so the grid follows that rather than a fixed wait. A cell typed while it runs
+	 * stops the polling: what the person is holding is not thrown away to show a computed value.
+	 */
+	async function refreshWhileComputing() {
+		await refresh();
+		for (let attempt = 0; attempt < RECOMPUTE_POLL_ATTEMPTS; attempt++) {
+			if (!computing(detail?.recompute) || writes.length > 0) return;
+			await new Promise((resolve) => setTimeout(resolve, RECOMPUTE_POLL_MS));
+			await refresh();
+		}
 	}
 
 	async function askToWithdraw() {
@@ -368,7 +391,7 @@
 				`${committed.rows_decided} reading${committed.rows_decided === 1 ? '' : 's'} withdrawn`,
 			);
 			withdrawOpen = false;
-			await refresh();
+			await refreshWhileComputing();
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 			withdrawOpen = false;
@@ -386,7 +409,7 @@
 			toastStore.success(
 				`${rolled.rolled_back} reading${rolled.rolled_back === 1 ? '' : 's'} re-asserted`,
 			);
-			await refresh();
+			await refreshWhileComputing();
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 		} finally {
@@ -411,9 +434,16 @@
 			<h2 class="text-xl font-semibold">
 				Visit of {formatDateTime(detail.collected_at)}
 			</h2>
-			<a class="text-sm text-brand-primary hover:underline" href="{base}/sites/{detail.site_id}?tab=visits&event={detail.id}"
-				>Back to the site</a
-			>
+			<div class="flex items-center gap-2">
+				{#if RECOMPUTE_BADGE[detail.recompute]}
+					<Badge variant={RECOMPUTE_BADGE[detail.recompute].variant}
+						>{RECOMPUTE_BADGE[detail.recompute].label}</Badge
+					>
+				{/if}
+				<a class="text-sm text-brand-primary hover:underline" href="{base}/sites/{detail.site_id}?tab=visits&event={detail.id}"
+					>Back to the site</a
+				>
+			</div>
 		</div>
 
 		<div class="flex flex-wrap items-center gap-2 text-sm">

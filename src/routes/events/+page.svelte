@@ -6,6 +6,7 @@
 	import Badge from '$components/ui/Badge.svelte';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
 	import SiteSelect from '$components/SiteSelect.svelte';
+	import { RECOMPUTE_BADGE } from '$lib/visits/recompute';
 	import { formatDateTime } from '$lib/utils';
 
 	// One row per collection event (field visit) across sites, with the fill and open-finding
@@ -41,12 +42,6 @@
 		return order === 'desc' ? ' ↓' : ' ↑';
 	}
 
-	const recomputeBadge: Record<string, { label: string; variant: 'muted' | 'accent' | 'alarm' | 'warning' }> = {
-		queued: { label: 'queued', variant: 'muted' },
-		running: { label: 'recomputing', variant: 'accent' },
-		failed: { label: 'recompute failed', variant: 'alarm' },
-		stale: { label: 'stale', variant: 'warning' },
-	};
 
 	function open(item: VisitListRow) {
 		goto(`${base}/sites/${item.site_id}?tab=visits&event=${item.id}`);
@@ -93,8 +88,8 @@
 		{#snippet row(item)}
 			<td class="px-4 py-2 text-xs whitespace-nowrap">
 				{formatDateTime(item.collected_at)}
-				{#if recomputeBadge[item.recompute]}
-					<Badge variant={recomputeBadge[item.recompute].variant}>{recomputeBadge[item.recompute].label}</Badge>
+				{#if RECOMPUTE_BADGE[item.recompute]}
+					<Badge variant={RECOMPUTE_BADGE[item.recompute].variant}>{RECOMPUTE_BADGE[item.recompute].label}</Badge>
 				{/if}
 			</td>
 			<td class="px-4 py-2 text-xs">{item.site_name}</td>

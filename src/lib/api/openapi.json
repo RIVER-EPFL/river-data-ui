@@ -2859,6 +2859,40 @@
         },
         "type": "object"
       },
+      "CalculationHealth": {
+        "description": "How one calculation is standing: the open event-audit findings against its outputs, and the\nvisits they sit on, which is the set an \"apply to the stale visits\" run would cover.",
+        "properties": {
+          "missing_outputs": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "skipped_outputs": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "stale_outputs": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "stale_visits": {
+            "description": "Visits carrying at least one open finding this calculation raised.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "tool": {
+            "description": "The calculation's name, as the findings record it.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool",
+          "stale_visits",
+          "missing_outputs",
+          "stale_outputs",
+          "skipped_outputs"
+        ],
+        "type": "object"
+      },
       "CalculationImpact": {
         "description": "One calculation a set of parameters feeds.",
         "properties": {
@@ -6687,6 +6721,13 @@
       "EventRecomputeRequest": {
         "additionalProperties": false,
         "properties": {
+          "calculation": {
+            "description": "Hold the findings to the ones one calculation raised. A narrowing, so it needs a scope\nbeside it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "end": {
             "description": "Visits collected at or before this instant.",
             "format": "date-time",
@@ -29325,6 +29366,30 @@
           }
         },
         "summary": "The calculations a set of parameters feeds, and where each calculation's data lives.",
+        "tags": [
+          "tools"
+        ]
+      }
+    },
+    "/api/calculations/health": {
+      "get": {
+        "operationId": "get_calculation_health",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CalculationHealth"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Open findings per calculation"
+          }
+        },
+        "summary": "The open event-audit findings each calculation is carrying, and how many visits they sit on.",
         "tags": [
           "tools"
         ]

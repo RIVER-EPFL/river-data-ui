@@ -23,6 +23,9 @@ export interface CalculationRow {
 	key: string;
 	engine: CalculationEngine;
 	label: string;
+	/** The calculation's name, as a finding and a scoped recompute name it. Null for a standalone
+	 *  continuous definition, which belongs to no calculation and raises none. */
+	calculation: string | null;
 	/** The parameter this calculation writes, by code. */
 	output_code: string;
 	output_parameter_id: string | null;
@@ -81,12 +84,14 @@ export function calculationRows(args: {
 }): CalculationRow[] {
 	const { derived, tools, scripts, parameters, coverage, base } = args;
 	const codeOf = new Map(parameters.map((p) => [p.id, p.code]));
+	const nameOf = new Map(scripts.map((s) => [s.id, s.name]));
 	const rows: CalculationRow[] = [];
 
 	for (const d of derived) {
 		rows.push({
 			key: `formula:${d.id}`,
 			engine: 'formula',
+			calculation: d.tool_script_id ? (nameOf.get(d.tool_script_id) ?? null) : null,
 			label: d.name || d.code,
 			output_code: d.output_parameter_id ? (codeOf.get(d.output_parameter_id) ?? d.code) : d.code,
 			output_parameter_id: d.output_parameter_id,
@@ -111,6 +116,7 @@ export function calculationRows(args: {
 			rows.push({
 				key: `script:${t.name}:${output.key}`,
 				engine: 'script',
+				calculation: t.name,
 				label: t.outputs.length > 1 ? `${t.label} (${output.label})` : t.label,
 				output_code: code,
 				output_parameter_id: cover?.parameter_id ?? null,

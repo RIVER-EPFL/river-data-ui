@@ -1111,6 +1111,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/calculations/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The open event-audit findings each calculation is carrying, and how many visits they sit on. */
+        get: operations["get_calculation_health"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/change_audit": {
         parameters: {
             query?: never;
@@ -8868,6 +8885,25 @@ export interface components {
             tool_script_id?: string | null;
             units?: string | null;
         };
+        /**
+         * @description How one calculation is standing: the open event-audit findings against its outputs, and the
+         *     visits they sit on, which is the set an "apply to the stale visits" run would cover.
+         */
+        CalculationHealth: {
+            /** Format: int64 */
+            missing_outputs: number;
+            /** Format: int64 */
+            skipped_outputs: number;
+            /** Format: int64 */
+            stale_outputs: number;
+            /**
+             * Format: int64
+             * @description Visits carrying at least one open finding this calculation raised.
+             */
+            stale_visits: number;
+            /** @description The calculation's name, as the findings record it. */
+            tool: string;
+        };
         /** @description One calculation a set of parameters feeds. */
         CalculationImpact: {
             label: string;
@@ -10292,6 +10328,11 @@ export interface components {
             source: string;
         };
         EventRecomputeRequest: {
+            /**
+             * @description Hold the findings to the ones one calculation raised. A narrowing, so it needs a scope
+             *     beside it.
+             */
+            calculation?: string | null;
             /**
              * Format: date-time
              * @description Visits collected at or before this instant.
@@ -20310,6 +20351,26 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    get_calculation_health: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Open findings per calculation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalculationHealth"][];
+                };
             };
         };
     };

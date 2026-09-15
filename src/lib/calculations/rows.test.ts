@@ -119,3 +119,25 @@ describe('unconfiguredInputs', () => {
 		expect(unconfiguredInputs(rows())).toEqual([]);
 	});
 });
+
+describe('the calculation a row belongs to', () => {
+	it('is the script name for a script row', () => {
+		expect(rows().find((r) => r.engine === 'script')?.calculation).toBe('dom');
+	});
+
+	it('is null for a standalone definition, which raises no finding', () => {
+		expect(rows().find((r) => r.engine === 'formula')?.calculation).toBeNull();
+	});
+
+	it('is the owning calculation for a formula that belongs to one', () => {
+		const owned = calculationRows({
+			derived: [{ ...derived[0], tool_script_id: 'ts-pco2' }] as DerivedParameter[],
+			tools,
+			scripts: [...scripts, { id: 'ts-pco2', name: 'pco2' } as ToolScriptSummary],
+			parameters,
+			coverage,
+			base: '',
+		});
+		expect(owned.find((r) => r.engine === 'formula')?.calculation).toBe('pco2');
+	});
+});

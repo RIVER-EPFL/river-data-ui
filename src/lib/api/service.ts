@@ -1082,6 +1082,7 @@ export const runEventRecompute = (req: {
 	start?: string;
 	end?: string;
 	only_findings?: boolean;
+	calculation?: string;
 }) => POST<{ job_id: string | null }>(`${SERVICE}/actions/event_recompute`, req);
 
 // Replicate reconciliation: migrate readings from legacy per-`_avg`-column streams onto their
@@ -1583,6 +1584,11 @@ export const getCalculationClosure = (params: {
 	site_id?: string;
 	include_coverage?: boolean;
 }) => GET<ClosureResponse>(`${ADMIN}/calculations/closure`, params);
+
+export type CalculationHealth = components['schemas']['CalculationHealth'];
+
+/** The open findings standing against each calculation, and the visits an apply would cover. */
+export const getCalculationHealth = () => GET<CalculationHealth[]>(`${ADMIN}/calculations/health`);
 
 // The edit primitive (Q8, M60): the one path a stored measurement is changed by. Every edit is
 // routed by what produced the value, previewed before it is written, and reversible after.

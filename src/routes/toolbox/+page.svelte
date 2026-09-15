@@ -5,8 +5,11 @@
 	import {
 		createToolScript,
 		getCalculationClosure,
+		getCalculationHealth,
 		listTools,
 		listToolScripts,
+		runEventRecompute,
+		type CalculationHealth,
 		type SlotCoverage,
 		type ToolDescriptor,
 		type ToolScriptSummary,
@@ -25,6 +28,8 @@
 	let scripts = $state<ToolScriptSummary[]>([]);
 	let parameters = $state<Parameter[]>([]);
 	let coverage = $state<SlotCoverage[]>([]);
+	let health = $state<CalculationHealth[]>([]);
+	let applying = $state<string | null>(null);
 	let loading = $state(true);
 	let loadError = $state<string | null>(null);
 	let engineFilter = $state<'all' | 'formula' | 'script'>('all');
@@ -79,7 +84,7 @@
 
 	onMount(async () => {
 		try {
-			const [d, t, s, p, closure, g] = await Promise.all([
+			const [d, t, s, p, closure, g, h] = await Promise.all([
 				listAll<DerivedParameter>(api.derivedParameters),
 				listTools().catch(() => [] as ToolDescriptor[]),
 				listToolScripts().catch(() => [] as ToolScriptSummary[]),
@@ -89,6 +94,7 @@
 					coverage: [],
 				})),
 				listAll<ParameterGroup>(api.parameterGroups).catch(() => [] as ParameterGroup[]),
+				getCalculationHealth().catch(() => [] as CalculationHealth[]),
 			]);
 			formulas = d;
 			tools = t;
@@ -96,12 +102,46 @@
 			parameters = p;
 			coverage = closure.coverage ?? [];
 			groups = g;
+			health = h;
 		} catch (e) {
 			loadError = e instanceof Error ? e.message : 'Failed to load calculations.';
 		} finally {
 			loading = false;
 		}
 	});
+
+	const healthOf = $derived(new Map(health.map((h) => [h.tool, h])));
+
+	/** The findings standing against the calculation this row's output belongs to, if any. */
+	function standing(row: CalculationRow): CalculationHealth | undefined {
+		const h = row.calculation ? healthOf.get(row.calculation) : undefined;
+		return h && h.stale_visits > 0 ? h : undefined;
+	}
+
+	function healthTitle(h: CalculationHealth): string {
+		return [
+			`${h.stale_outputs} stale output${h.stale_outputs === 1 ? '' : 's'}`,
+			`${h.missing_outputs} missing`,
+			`${h.skipped_outputs} skipped`,
+		].join(', ');
+	}
+
+	/// The apply C22 deferred to M24: the scoped recompute, held to the visits this calculation
+	/// has findings on.
+	async function applyStale(calculation: string, visits: number) {
+		applying = calculation;
+		try {
+			await runEventRecompute({ only_findings: true, calculation });
+			toastStore.success(
+				`Recomputing ${calculation} at ${visits} visit${visits === 1 ? '' : 's'}`
+			);
+			health = await getCalculationHealth();
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'The recompute was not queued.');
+		} finally {
+			applying = null;
+		}
+	}
 
 	function inputTitle(row: CalculationRow): string {
 		return row.inputs
@@ -249,6 +289,7 @@
 						<th class="px-3 py-2 font-semibold">Fires on</th>
 						<th class="px-3 py-2 font-semibold text-right">Stored</th>
 						<th class="px-3 py-2 font-semibold">From</th>
+						<th class="px-3 py-2 font-semibold">Health</th>
 						<th class="px-3 py-2 font-semibold">State</th>
 					</tr>
 				</thead>
@@ -285,6 +326,24 @@
 								{row.output_sources.length > 0 ? row.output_sources.join(', ') : '-'}
 							</td>
 							<td class="px-3 py-2">
+								{#if standing(row)}
+									{@const h = standing(row)!}
+									<div class="flex items-center gap-1.5">
+										<Badge variant="warning" title={healthTitle(h)}>
+											{h.stale_visits} stale visit{h.stale_visits === 1 ? '' : 's'}
+										</Badge>
+										<Button
+											size="sm"
+											variant="secondary"
+											disabled={applying === h.tool}
+											onclick={() => applyStale(h.tool, h.stale_visits)}
+										>{applying === h.tool ? 'Queueing…' : 'Recompute them'}</Button>
+									</div>
+								{:else}
+									<span class="text-xs text-brand-muted">-</span>
+								{/if}
+							</td>
+							<td class="px-3 py-2">
 								{#if row.enabled === false}
 									<Badge variant="muted">off</Badge>
 								{:else if row.enabled === true}
@@ -296,7 +355,7 @@
 						</tr>
 					{:else}
 						<tr>
-							<td colspan="8" class="px-3 py-6 text-center text-sm text-brand-muted">
+							<td colspan="9" class="px-3 py-6 text-center text-sm text-brand-muted">
 								No calculations defined.
 							</td>
 						</tr>
