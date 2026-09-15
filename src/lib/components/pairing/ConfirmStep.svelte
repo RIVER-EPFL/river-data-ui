@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { base } from '$app/paths';
 	import type { PairingPlan } from '$api/service';
-	import type { Creations, InstrumentBinding, SiteCreation } from '$lib/pairing/planGroups';
+	import type { Creations, GroupCreation, InstrumentBinding, SiteCreation } from '$lib/pairing/planGroups';
 	import Button from '$components/ui/Button.svelte';
 	import { formatCount } from '$lib/format';
 	import { applyBlockedReason } from '$lib/pairing/applyGate';
@@ -17,6 +17,7 @@
 		openInstrumentQuestions,
 		created,
 		onsiteattribute,
+		ongroupattribute,
 		undeclaredEstimatorCount,
 		undeclaredEstimatorFamilies,
 		applying,
@@ -53,6 +54,12 @@
 		openInstrumentQuestions: number;
 		/** What the apply will create, as rows: a count says how many, only these say which. */
 		created: Creations;
+		/** Rename or describe a category the apply has not created yet. */
+		ongroupattribute: (
+			group: GroupCreation,
+			field: 'label' | 'description',
+			value: string,
+		) => void;
 		/** Correct one attribute of a site the apply has not created yet. */
 		onsiteattribute: (
 			site: SiteCreation,
@@ -105,6 +112,17 @@
 	</div>
 {/snippet}
 
+{#snippet groupField(group: GroupCreation, field: 'label' | 'description', value: string)}
+	<td class="py-1 pr-2">
+		<input
+			class="w-full rounded border border-brand-divider bg-brand-surface px-1 py-0.5 text-xs"
+			aria-label="{field === 'label' ? 'Name' : 'Description'} for {group.label}"
+			{value}
+			onchange={(e) => ongroupattribute(group, field, (e.currentTarget as HTMLInputElement).value)}
+		/>
+	</td>
+{/snippet}
+
 {#snippet coordinate(site: SiteCreation, field: 'latitude' | 'longitude' | 'altitudeM', value: number | null)}
 	<td class="py-1 pr-2">
 		<input
@@ -151,8 +169,6 @@
 				summary.newParams,
 				created.parameters.map((p) => (p.units ? `${p.name} (${p.units})` : p.name)),
 			)}
-			<!-- The source's own categories. A group is created once and every column of its
-			     category is placed in it, at the position the registry gives. -->
 			{#if created.groups.length > 0}
 				{@render countCard(
 					'Create parameter groups',
@@ -215,6 +231,37 @@
 								{@render coordinate(site, 'longitude', site.longitude)}
 								{@render coordinate(site, 'altitudeM', site.altitudeM)}
 								<td class="py-1 text-brand-muted">{site.streamCount}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</details>
+		{/if}
+
+		<!-- The source's own categories. A group is created once and every column of its category
+		     is placed in it, at the position the registry gives. -->
+		{#if created.groups.length > 0}
+			<details class="rounded-md border border-brand-divider bg-brand-bg p-3 text-xs">
+				<summary class="cursor-pointer text-brand-primary">
+					Name the {created.groups.length === 1 ? 'category' : `${created.groups.length} categories`} before they are created
+				</summary>
+				<p class="text-brand-muted mt-2">
+					A category is created once and every column it holds is placed in it. The name is the
+					source's own; renaming it here renames it for every column, and a name the database
+					already carries joins that group instead of creating a second one.
+				</p>
+				<table class="w-full mt-2">
+					<thead><tr class="text-brand-muted text-left">
+						<th class="py-1 pr-2 font-semibold">Name</th>
+						<th class="py-1 pr-2 font-semibold">Description</th>
+						<th class="py-1 font-semibold">Parameters</th>
+					</tr></thead>
+					<tbody>
+						{#each created.groups as group (group.code)}
+							<tr class="border-t border-brand-divider">
+								{@render groupField(group, 'label', group.label)}
+								{@render groupField(group, 'description', group.description ?? '')}
+								<td class="py-1 text-brand-muted" title={group.members.join(', ')}>{group.members.length}</td>
 							</tr>
 						{/each}
 					</tbody>

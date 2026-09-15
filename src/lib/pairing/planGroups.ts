@@ -274,6 +274,9 @@ export interface ParameterCreation {
 export interface GroupCreation {
 	code: string;
 	label: string;
+	description: string | null;
+	/** Any entry of this category: the one a rename is sent on, since it renames all of them. */
+	anchorStreamId: string;
 	/** The parameters this apply would place in it, in the registry's order. */
 	members: string[];
 }
@@ -337,7 +340,14 @@ export function creations(entries: PairingPlanEntry[]): Creations {
 		const seen =
 			groups.get(g.code) ??
 			groups
-				.set(g.code, { code: g.code, label: g.label, members: [], placed: new Map() })
+				.set(g.code, {
+					code: g.code,
+					label: g.label,
+					description: g.description ?? null,
+					anchorStreamId: e.stream_id,
+					members: [],
+					placed: new Map(),
+				})
 				.get(g.code)!;
 		if (!seen.placed.has(e.parameter.name)) seen.placed.set(e.parameter.name, g.ordinal);
 	}
@@ -345,9 +355,11 @@ export function creations(entries: PairingPlanEntry[]): Creations {
 	return {
 		projects: projects.sort((a, b) => a.localeCompare(b)),
 		groups: [...groups.values()]
-			.map(({ code, label, placed }) => ({
+			.map(({ code, label, description, anchorStreamId, placed }) => ({
 				code,
 				label,
+				description,
+				anchorStreamId,
 				members: [...placed.entries()]
 					.sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
 					.map(([name]) => name),

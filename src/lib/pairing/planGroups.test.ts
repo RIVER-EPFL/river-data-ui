@@ -324,6 +324,7 @@ describe('instrumentBindings', () => {
 	it('collects a group once behind every column of its category, in the registry order', () => {
 		const withGroup = (param: string, ordinal: number) =>
 			entry({
+				stream_id: param,
 				parameter: {
 					id: null,
 					name: param,
@@ -336,8 +337,7 @@ describe('instrumentBindings', () => {
 						code: 'field_data',
 						label: 'Field data',
 						ordinal,
-						role: 'measured',
-						description: null,
+						description: 'from the field sheet',
 						create: true,
 					},
 					calculation: null,
@@ -346,7 +346,14 @@ describe('instrumentBindings', () => {
 			} as Partial<PairingPlanEntry>);
 		const made = creations([withGroup('Field_BP', 8), withGroup('WTW_pH_1', 3)]);
 		expect(made.groups).toEqual([
-			{ code: 'field_data', label: 'Field data', members: ['WTW_pH_1', 'Field_BP'] },
+			{
+				code: 'field_data',
+				label: 'Field data',
+				description: 'from the field sheet',
+				// Any column of the category: a rename sent on it renames all of them.
+				anchorStreamId: 'Field_BP',
+				members: ['WTW_pH_1', 'Field_BP'],
+			},
 		]);
 	});
 

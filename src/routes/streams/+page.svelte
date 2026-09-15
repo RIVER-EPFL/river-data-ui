@@ -7,7 +7,7 @@
 	import { api, type DataStream, type SiteParameter, type Site, type Parameter } from '$api/crud';
 	import {
 		pairStream, unpairStream, getStreamStats, listStreamReceipts, retagStreams, createPairingPlan, updatePairingPlan,
-		applyPairingPlan, revertPairingPlan, pollJob, getUnpairedSummary, getPlanSiteMetadata,
+		applyPairingPlan, revertPairingPlan, getUnpairedSummary, getPlanSiteMetadata,
 		replicateSpec, getPendingAuditSummary, getReconciliationCandidates, getStreamPreview, declareSdEstimator,
 		getPlanInstruments, listPairingPlans, supersedePairingPlan, getPairingPlan, bulkUpdatePairingPlan,
 		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type PlanObjectUpdate, type PlanProposalUpdate, type SdEstimator, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
@@ -31,6 +31,7 @@
 		type InstrumentDecision,
 		creations,
 		type ParamGroup,
+		type GroupCreation,
 		type SiteCreation,
 		type SiteGroup,
 	} from '$lib/pairing/planGroups';
@@ -83,7 +84,12 @@
 	let params = $state<Parameter[]>([]);
 	let total = $state(0);
 	let loading = $state(true);
-	let listFilter = $state<'all' | 'paired' | 'unpaired'>('all');
+	// The source audit links here with the source it just audited and the rows it flagged, so both
+	// are read from the URL rather than reset to the page's own defaults.
+	const linkedSource = page.url.searchParams.get('source');
+	let listFilter = $state<'all' | 'paired' | 'unpaired'>(
+		(page.url.searchParams.get('list_filter') as 'all' | 'paired' | 'unpaired') ?? 'all',
+	);
 	let currentPage = $state(1);
 	const perPage = 25;
 	const totalPages = $derived(Math.ceil(total / perPage));
@@ -215,6 +221,8 @@
 	let applyJobId = $state('');
 	// The plan this session started applying, so its row says so while the job runs.
 	let applyingPlanId = $state('');
+	// The same for a revert, which is handed back the same way an apply is (Q88).
+	let revertingPlanId = $state('');
 	// Plans already applied, per source system: the way back to the counts of a run nobody watched.
 	let appliedPlans = $state<PairingPlanListing[]>([]);
 	let reverting = $state(false);
@@ -504,6 +512,16 @@
 	) {
 		const key = { latitude: 'site_latitude', longitude: 'site_longitude', altitudeM: 'site_altitude_m' }[field];
 		queueUpdate([{ stream_id: site.anchorStreamId, [key]: value }]);
+		void flushUpdates().catch(() => {
+			/* the toast from the failed flush is the signal */
+		});
+	}
+
+	// A category is one decision behind every column it holds, so the rename goes on any one of
+	// them and the server carries it to the rest.
+	function renameProposedGroup(group: GroupCreation, field: 'label' | 'description', value: string) {
+		const key = field === 'label' ? 'group_label' : 'group_description';
+		queueUpdate([{ stream_id: group.anchorStreamId, [key]: value }]);
 		void flushUpdates().catch(() => {
 			/* the toast from the failed flush is the signal */
 		});
@@ -1118,17 +1136,19 @@
 
 	// A decision is one PATCH: only text edits wait for the debounce.
 	// A register row's decision is one PATCH of its own, like an object's.
-	function queueProposal(sourceKey: string, admit: boolean) {
+	function queueProposal(sourceKey: string, admit: boolean, attachTo: string | null = null) {
 		if (plan) {
 			plan = {
 				...plan,
 				instrument_proposals: (plan.instrument_proposals ?? []).map((p) =>
-					p.source_key === sourceKey ? { ...p, admit } : p,
+					p.source_key === sourceKey ? { ...p, admit, attach_to: attachTo } : p,
 				),
 			};
 		}
 		editGeneration++;
-		draftQueue.enqueue([{ source_key: sourceKey, admit }], { immediate: true });
+		draftQueue.enqueue([{ source_key: sourceKey, admit, attach_to: attachTo }], {
+			immediate: true,
+		});
 	}
 
 	// An object decision is one PATCH of its own: it is a click, and the card must say it landed.
@@ -1490,6 +1510,11 @@
 
 	async function enterSourceSelect() {
 		setMode('source-select');
+		await loadSourceSelect();
+	}
+
+	/** The sources, their drafts and their applied plans: what the source step is made of. */
+	async function loadSourceSelect() {
 		planLoading = true;
 		try {
 			const [summary, drafts, applied] = await Promise.all([
@@ -1673,20 +1698,11 @@
 	async function revertPlan() {
 		if (!plan) return;
 		reverting = true;
+		const planId = plan.id;
 		try {
-			const { job_id } = await revertPairingPlan(plan.id);
-			const job = await pollJob(job_id);
-			if (job.status !== 'completed') {
-				throw new Error(job.error_message ?? 'Revert job did not complete');
-			}
-			// The job records what it undid; "Plan reverted" is the same sentence whether it
-			// unpaired forty streams or none.
-			const counts = (job.detail?.counts ?? {}) as Record<string, number>;
-			const undone = Object.entries(counts)
-				.filter(([, n]) => typeof n === 'number' && n > 0)
-				.map(([k, n]) => `${n} ${k.replace(/_/g, ' ')}`)
-				.join(', ');
-			toastStore.success(undone ? `Plan reverted: ${undone}` : 'Plan reverted, nothing to undo');
+			await revertPairingPlan(planId);
+			revertingPlanId = planId;
+			toastStore.success('Reverting the plan. Its progress is in the operations panel; what it undid is recorded there.');
 			plan = null; planEntries = []; applyResult = null;
 			setMode('list'); load();
 		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Failed to revert plan'); }
@@ -1709,7 +1725,9 @@
 		try {
 			sourceSummary = await getUnpairedSummary();
 			selectedSources = new Set(
-				sourceSummary.map((s) => s.source_system).filter((s) => !NON_INSTRUMENT_SOURCES.includes(s)),
+				linkedSource !== null
+					? sourceSummary.map((s) => s.source_system).filter((s) => s === linkedSource)
+					: sourceSummary.map((s) => s.source_system).filter((s) => !NON_INSTRUMENT_SOURCES.includes(s)),
 			);
 			sourcesInitialized = true;
 		} catch {
@@ -1726,7 +1744,9 @@
 		// A reload or a bookmark on ?step=review&plan=<id> reopens that review; the draft on the
 		// server is the record, so the page rebuilds from it rather than rendering nothing.
 		const resumeId = page.url.searchParams.get('plan');
-		if (mode === 'review' && resumeId && !plan) await resumePlan(resumeId);
+		// A link from the source audit lands on the step directly, so it loads its own sources.
+		if (mode === 'source-select' && unpairedSummary.length === 0) await loadSourceSelect();
+		else if (mode === 'review' && resumeId && !plan) await resumePlan(resumeId);
 		else if (mode === 'review' && !resumeId) setMode('list');
 		// The same for ?step=results&plan=<id>: the counts belong to the plan, not to the call
 		// that started the job, so they survive the tab that started it.
@@ -2075,7 +2095,7 @@
 						<tbody>
 							{#each withUnpaired as s}
 								{@const draft = draftFor(s.source_system)}
-								<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 {draft ? '' : 'cursor-pointer'}" onclick={() => { if (!draft) createPlan(s.source_system); }}>
+								<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 {draft ? '' : 'cursor-pointer'} {s.source_system === linkedSource ? 'bg-brand-primary/5' : ''}" onclick={() => { if (!draft) createPlan(s.source_system); }}>
 									<td class="px-4 py-3 font-semibold">
 										{s.source_system}
 										{#if draft}
@@ -2119,7 +2139,7 @@
 										{#if appliedFor(s.source_system)}
 											{@const done = appliedFor(s.source_system)}
 											<Button size="sm" variant="ghost" onclick={(e) => { e.stopPropagation(); openResults(done!.id); }}>
-												{done!.id === applyingPlanId ? 'Applying…' : 'Results'}
+												{#if done!.id === applyingPlanId}Applying…{:else if done!.id === revertingPlanId}Reverting…{:else}Results{/if}
 											</Button>
 										{/if}
 									</td>
@@ -2506,6 +2526,7 @@
 		{summary}
 		{created}
 		onsiteattribute={correctSiteAttribute}
+		ongroupattribute={renameProposedGroup}
 		{reviewProgress}
 		{familySummary}
 		instruments={instrumentBindings}

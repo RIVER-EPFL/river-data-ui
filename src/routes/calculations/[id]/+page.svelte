@@ -5,10 +5,12 @@
 	import { api, type Constant, type DerivedParameter, type Parameter } from '$api/crud';
 	import {
 		draftRunFormulas,
+		getGroupDefinition,
 		getStepDependents,
 		getToolScript,
 		listSiteVisits,
 		type FormulaDraftRunResponse,
+		type GroupDefinition,
 		type StepDependents,
 		type ToolScriptDetail,
 		type VisitRow,
@@ -67,6 +69,10 @@
 	let run = $state<FormulaDraftRunResponse | null>(null);
 	let runError = $state('');
 
+	// What the source computed each of the group's columns with, carried by the pairing plan
+	// (Q149). It is the reference the formulas are written against, not something this page edits.
+	let portalReference = $state<Array<{ code: string; function: string; inputs: string[] }>>([]);
+
 	// Steps this calculation reads but does not own (Q156), and the ones it could bring in.
 	let shareable = $state<DerivedParameter[]>([]);
 	let declaring = $state('');
@@ -93,6 +99,17 @@
 			? runTables(run.results ?? {}, draftOutputs(run.manifest), run.skipped ?? [], run.trace ?? [])
 			: null,
 	);
+
+	// The portal calculations a group's members were computed with, in member order.
+	function sourceCalculations(definition: GroupDefinition) {
+		return definition.members.flatMap((m) => {
+			const declared = m.source_calculation as
+				| { function?: string; inputs?: string[] }
+				| undefined;
+			if (!declared?.function) return [];
+			return [{ code: m.code, function: declared.function, inputs: declared.inputs ?? [] }];
+		});
+	}
 
 	function isDirty(f: EditableFormula): boolean {
 		const was = stored.find((s) => s.id === f.id);
@@ -196,6 +213,9 @@
 			// A step this calculation already reads, or already owns, is not one to bring in.
 			const own = new Set(stored.map((f) => f.id));
 			shareable = steps.filter((s) => !own.has(s.id));
+			portalReference = script.parameter_group_id
+				? sourceCalculations(await getGroupDefinition(script.parameter_group_id))
+				: [];
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load the calculation';
 		} finally {
@@ -505,6 +525,25 @@
 				{/if}
 			</section>
 		</div>
+
+		{#if portalReference.length > 0}
+			<!-- What the source computed these columns with, carried by the plan that paired them. -->
+			<section class="rounded-md border border-brand-divider bg-brand-surface">
+				<div class="px-3 py-2 border-b border-brand-divider">
+					<h3 class="text-sm font-semibold">Portal reference</h3>
+					<p class="text-xs text-brand-muted">What the source computed each column with, as its pairing plan recorded it. Nothing here runs; it is the statement the formulas above are written against.</p>
+				</div>
+				<ul class="divide-y divide-brand-divider">
+					{#each portalReference as reference (reference.code)}
+						<li class="px-3 py-2 text-sm">
+							<span class="font-mono">{reference.code}</span>
+							<span class="text-brand-muted"> = </span>
+							<span class="font-mono">{reference.function}({reference.inputs.join(', ')})</span>
+						</li>
+					{/each}
+				</ul>
+			</section>
+		{/if}
 
 		<!-- Run at a visit: the set as it stands, saved or not, against stored values. -->
 		<section class="rounded-md border border-brand-divider bg-brand-surface">

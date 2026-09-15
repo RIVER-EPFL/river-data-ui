@@ -9917,6 +9917,14 @@ export interface components {
              *     labels a run of columns and never reorders them.
              */
             section?: string;
+            /**
+             * @description What the source computed this column with: `{ function, inputs }`, the portal's own
+             *     calculation name and the columns it reads. It is the reference an author writes the formula
+             *     against (Q149). Absent where nothing computed the column.
+             */
+            source_calculation?: {
+                [key: string]: unknown;
+            };
             /** @description The mean and sd columns a replicated member also shows. Absent on a member entered once. */
             statistics?: components["schemas"]["MemberStatistics"];
             units: string | null;
@@ -10691,6 +10699,12 @@ export interface components {
              */
             replaced: number;
             samples_created: number;
+            /**
+             * @description Replicates stored at the instant that `mode: replace` withdrew because the save no longer
+             *     carries them: a cleared cell, or a pasted block narrower than what is there. The value
+             *     stays readable and the stamp is reversible; nothing deletes.
+             */
+            withdrawn: number;
         };
         /** @enum {string} */
         GrabWriteMode: "replace";
@@ -13218,6 +13232,18 @@ export interface components {
             acknowledged?: boolean | null;
             action?: string | null;
             /**
+             * @description Describe the proposed group. Applied to the same set as `group_label`; an empty string
+             *     clears the source's own description.
+             */
+            group_description?: string | null;
+            /**
+             * @description Rename the parameter group the source's registry proposes for this column. The code is
+             *     re-slugged from the new label, so a rename onto an existing group's label joins that group
+             *     instead of creating one. Applied to every entry the same category placed, since a category
+             *     is one decision behind every column it holds.
+             */
+            group_label?: string | null;
+            /**
              * @description Detach the instrument from every entry this one groups with. Attaching is `instrument_id`;
              *     this is its inverse, since an absent `instrument_id` means "unchanged", not "none".
              */
@@ -13342,9 +13368,17 @@ export interface components {
         PlanInstrumentProposal: {
             /**
              * @description Whether the apply creates it. Proposed admitted: the register is the lab's own record, so
-             *     the question is which rows to leave behind rather than which to take.
+             *     the question is which rows to leave behind rather than which to take. A row that collides
+             *     with an instrument already in the inventory is proposed unadmitted instead, because taking
+             *     it would leave two rows for one probe (Q76).
              */
             admit: boolean;
+            /**
+             * Format: uuid
+             * @description The instrument the review chose to merge this register row onto instead of creating one.
+             */
+            attach_to: string | null;
+            conflict: null | components["schemas"]["InstrumentNameConflict"];
             is_lab_instrument: boolean;
             manufacturer: string | null;
             /**
@@ -13453,6 +13487,12 @@ export interface components {
         };
         PlanProposalUpdate: {
             admit: boolean;
+            /**
+             * Format: uuid
+             * @description The instrument to merge this register row onto instead of creating one. Sent in place of
+             *     `admit` where the review answered a conflict by attaching.
+             */
+            attach_to?: string | null;
             source_key: string;
         };
         /** @description Replicate-family summary carried on a plan entry, from the stream's registered spec. */

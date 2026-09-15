@@ -50,7 +50,7 @@
 		instrumentRowId: (scope: string) => string;
 		/** The source's own instrument register, waiting for this plan to admit it. */
 		proposals?: PlanInstrumentProposal[];
-		onadmit?: (sourceKey: string, admit: boolean) => void;
+		onadmit?: (sourceKey: string, admit: boolean, attachTo?: string | null) => void;
 		onchoose: (d: InstrumentDecision, value: string) => void;
 		/** Attach the named existing instrument, the other half of a name collision. */
 		onattach: (d: InstrumentDecision, instrumentId: string) => void;
@@ -333,7 +333,8 @@
 			<span class="text-sm font-semibold">From the source's instrument register</span>
 			<span class="text-xs text-brand-muted ml-2">
 				{proposals.filter((p) => p.admit).length} of {proposals.length} will be created by this
-				apply. A row left out stays offered, and the next plan asks again.
+				apply, {proposals.filter((p) => p.attach_to).length} merged onto an instrument that is
+				already there. A row left out stays offered, and the next plan asks again.
 			</span>
 		</div>
 		<table class="w-full text-sm">
@@ -348,10 +349,44 @@
 			</thead>
 			<tbody>
 				{#each proposals as proposal (proposal.source_key)}
-					<tr class="border-b border-brand-divider last:border-b-0 {proposal.admit ? '' : 'opacity-60'}">
+					<tr class="border-b border-brand-divider last:border-b-0 {proposal.admit || proposal.attach_to ? '' : 'opacity-60'}">
 						<td class="px-3 py-2">
 							{proposal.name}
 							<span class="block text-[11px] text-brand-muted font-mono">{proposal.source_key}</span>
+							{#if proposal.conflict}
+								<div class="mt-1.5 rounded border border-severity-warning-border bg-severity-warning-soft p-2 text-[11px] text-severity-warning-text space-y-1.5">
+									<div>
+										<span class="font-semibold">{proposal.conflict.name}</span> is already in the
+										inventory{proposal.conflict.source_system
+											? ` (from ${proposal.conflict.source_system})`
+											: ''}, under this name or this serial.
+										{#if proposal.conflict.has_readings}
+											<strong>It already holds readings.</strong>
+										{/if}
+										Creating this row leaves two of one probe.
+									</div>
+									<div class="flex flex-wrap gap-1.5">
+										<Button
+											size="sm"
+											onclick={() => onadmit?.(proposal.source_key, false, proposal.conflict!.id)}
+											title="The register's serial, model and metadata are merged onto the instrument that is already there"
+										>
+											Attach to it
+										</Button>
+										<Button
+											size="sm"
+											variant="ghost"
+											onclick={() => onadmit?.(proposal.source_key, true, null)}
+											title="A second instrument is created from the register row"
+										>
+											Create a second one
+										</Button>
+									</div>
+									{#if proposal.attach_to}
+										<div>Attaching to it when this plan is applied.</div>
+									{/if}
+								</div>
+							{/if}
 						</td>
 						<td class="px-3 py-2 font-mono text-xs">{proposal.serial_number ?? '--'}</td>
 						<td class="px-3 py-2 text-xs">{proposal.model ?? '--'}</td>
@@ -368,7 +403,8 @@
 							<input
 								type="checkbox"
 								checked={proposal.admit}
-								onchange={(e) => onadmit?.(proposal.source_key, e.currentTarget.checked)}
+								disabled={proposal.attach_to !== null}
+								onchange={(e) => onadmit?.(proposal.source_key, e.currentTarget.checked, null)}
 								aria-label="Create {proposal.name}"
 							/>
 						</td>

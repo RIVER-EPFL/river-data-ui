@@ -1,5 +1,8 @@
 <script lang="ts">
+	import { base } from '$app/paths';
+
 	import type { SourceAuditReport } from '$api/service';
+	import { pairingPlanHref, unpairedStreamsHref } from '$lib/sync/sourceAudit';
 
 	let { report }: { report: SourceAuditReport } = $props();
 
@@ -80,6 +83,18 @@
 				</tbody>
 			</table>
 		</div>
+		{#if report.totals.unregistered > 0 || report.totals.unpaired > 0}
+			<p class="text-brand-muted">
+				What to do about them:
+				<a class="text-brand-primary hover:underline" href={pairingPlanHref(base, report.source_system)}
+					>plan this source</a
+				>, which registers what is missing and pairs what is unpaired, or
+				<a
+					class="text-brand-primary hover:underline"
+					href={unpairedStreamsHref(base, report.source_system)}>its unpaired streams</a
+				>, to pair one on its own.
+			</p>
+		{/if}
 	{/if}
 
 	{#if report.curves.at_source > 0 || report.curves.registered > 0}
