@@ -24,7 +24,7 @@ export interface PlanGate {
   sites: Progress;
   parameters: Progress;
   instruments: Progress;
-  curves: { total: number };
+  curves: Progress;
 }
 
 function reviewItem(tab: ReviewTab, label: string, p: Progress): GateItem {
@@ -49,7 +49,7 @@ export function planGateItems(gate: PlanGate): GateItem[] {
     reviewItem("sites", "Sites", gate.sites),
     reviewItem("parameters", "Parameters", gate.parameters),
     reviewItem("instruments", "Instruments", gate.instruments),
-    { tab: "curves", label: "Standard curves", detail: formatCount(gate.curves.total), state: "none" },
+    reviewItem("curves", "Standard curves", gate.curves),
   ];
 }
 

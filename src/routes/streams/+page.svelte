@@ -13,6 +13,7 @@
 		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
 		type PlanReplicateSummary, type StreamReceipt, type PlanWarning, type PlanInstrumentRef,
 		type PlanInstruments, type PlanInstrumentGroup, type PlanDeviceGroup, type PlanCurveAssignment,
+		type PlanHeldCurve,
 		type PairingPlanListing,
 	type StreamPreview,
 	} from '$api/service';
@@ -49,6 +50,7 @@
 	import { NO_PLAN_RUNS, runsAfterJob, type PlanRuns } from '$lib/pairing/planRuns';
 	import { eventBus } from '$lib/stores/events.svelte';
 	import { objectDecisions, type ObjectDecision } from '$lib/pairing/objectDecisions';
+	import { curveReviewBlocked, curveRows, type CurveRow } from '$lib/pairing/curveRows';
 	import { activeReviewTab, type ReviewTab } from '$lib/pairing/reviewTabs';
 	import PairSkipToggle from '$components/ui/PairSkipToggle.svelte';
 	import MappingSelect, { type MappingGroup } from '$components/ui/MappingSelect.svelte';
@@ -66,8 +68,8 @@
 	import DiscrepancyBrowse from '$components/logs/DiscrepancyBrowse.svelte';
 	import { readTagParams } from '$lib/discrepancies';
 	import { AUDIT_QUEUE_KINDS } from '$lib/holds';
-	import InstrumentCurvesPanel from '$components/streams/InstrumentCurvesPanel.svelte';
 	import SyncServicesPanel from '$components/sync/SyncServicesPanel.svelte';
+	import { legacyInstrumentTabHref } from '$lib/instruments/inspection';
 	import { formatCount } from '$lib/format';
 	import ConfirmStep from '$components/pairing/ConfirmStep.svelte';
 	import ApplyResults from '$components/pairing/ApplyResults.svelte';
@@ -124,7 +126,7 @@
 	const streamLink = ['list_filter', 'q', 'stats'].some((name) => page.url.searchParams.has(name));
 	const requestedListTab = page.url.searchParams.get('tab');
 	const tab = createUrlTab({
-		keys: ['pair', 'streams', 'review', 'instruments', 'services'],
+		keys: ['pair', 'streams', 'review', 'services'],
 		aliases: { audits: 'review', discrepancies: 'review' },
 		initial: streamLink ? 'streams' : 'pair',
 	});
@@ -157,11 +159,15 @@
 					'Discover & Pair',
 					'Streams',
 					auditQueue > 0 ? `Review (${auditQueue})` : 'Review',
-					'Instruments',
 					...(isAdmin ? ['Services'] : []),
 				]
 			: ['Discover & Pair', 'Streams'],
 	);
+
+	onMount(() => {
+		const destination = legacyInstrumentTabHref(page.url.searchParams.get('tab'), base);
+		if (destination) void goto(destination, { replaceState: true });
+	});
 	// Expanded replicate-routing blocks in the plan review, keyed by stream id or `param:{name}`.
 	let expandedReplicates = $state<Set<string>>(new Set());
 	// The stream's own recent rows, fetched once per stream when a routing block is first opened.
@@ -589,6 +595,27 @@
 		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Could not move the curve'); }
 	}
 
+	// A held curve is created on apply, under whichever instrument it is attached to, so the
+	// attachment is a decision on the plan like every other one and goes through the same queue.
+	async function attachHeldCurve(curve: PlanHeldCurve, target: string) {
+		if (!plan) return;
+		const planned = target.startsWith(PLAN_INSTRUMENT_PREFIX)
+			? target.slice(PLAN_INSTRUMENT_PREFIX.length)
+			: null;
+		draftQueue.enqueue(
+			[
+				{
+					proposal_id: curve.id,
+					instrument_source_key: planned,
+					instrument_id: planned || !target ? null : target,
+				},
+			],
+			{ immediate: true },
+		);
+		await draftQueue.flush().catch(() => {});
+		await loadPlanInstruments();
+	}
+
 	// The instruments this plan will create, one option each however many parameters share one.
 	const plannedInstruments = $derived.by(() => {
 		const seen = new Map<string, string>();
@@ -840,6 +867,7 @@
 					split.curves,
 					split.objects,
 					split.proposals,
+					split.heldCurves,
 				);
 				if (editGeneration === generation) {
 					plan = updated;
@@ -943,6 +971,7 @@
 	});
 	const planProjects = $derived(objectDecisions(planEntries, 'project', reviewedKeys));
 	const planParameters = $derived(objectDecisions(planEntries, 'parameter', reviewedKeys));
+	const planCurves = $derived(curveRows(planInstruments, reviewedKeys));
 
 	function reviewProject(project: ObjectDecision, reviewed: boolean) {
 		queueObject(project.key, reviewed);
@@ -950,6 +979,12 @@
 
 	function reviewParameter(name: string, reviewed: boolean) {
 		queueObject(`parameter:${name}`, reviewed);
+	}
+
+	// A curve is reviewed on the instrument it sits on; a held one waits until it has one.
+	function reviewCurve(row: CurveRow, reviewed: boolean) {
+		if (curveReviewBlocked(row)) return;
+		queueObject(row.key, reviewed);
 	}
 
 	// "Mark all reviewed" and "Mark all unreviewed" act on the open tab only, and the toast carries
@@ -983,13 +1018,17 @@
 		reviewed: boolean,
 	): Promise<{ message: string; run: () => Promise<void> } | null> {
 		if (!plan) return null;
-		if (tab === 'projects' || tab === 'parameters') {
-			const moved = (tab === 'projects' ? planProjects : planParameters).filter((o) => o.reviewed !== reviewed);
+		if (tab === 'projects' || tab === 'parameters' || tab === 'curves') {
+			const objects: Array<{ key: string; reviewed: boolean }> =
+				tab === 'projects' ? planProjects
+				: tab === 'parameters' ? planParameters
+				: planCurves.filter((r) => curveReviewBlocked(r) === null);
+			const moved = objects.filter((o) => o.reviewed !== reviewed);
 			if (moved.length === 0) return null;
 			for (const o of moved) queueObject(o.key, reviewed);
 			await flushUpdates();
 			return {
-				message: markedMessage(moved.length, tab === 'projects' ? 'project' : 'parameter', reviewed),
+				message: markedMessage(moved.length, tab === 'projects' ? 'project' : tab === 'parameters' ? 'parameter' : 'curve', reviewed),
 				run: async () => {
 					for (const o of moved) queueObject(o.key, !reviewed);
 					await flushUpdates();
@@ -1507,7 +1546,7 @@
 				reviewed: instrumentDecisions.length + planDeviceDecisions.length - openInstrumentQuestions,
 				total: instrumentDecisions.length + planDeviceDecisions.length,
 			},
-			curves: { total: planInstruments?.curves.length ?? 0 },
+			curves: reviewCount(planCurves, (r) => r.reviewed),
 		}),
 	);
 	const applyBlocked = $derived(applyBlockedReason(gateItems));
@@ -1775,12 +1814,6 @@
 				</p>
 				<DiscrepancyBrowse initial={readTagParams(page.url.searchParams)} />
 			{/if}
-		{:else if tab.key === 'instruments' && canAudit}
-		<p class="text-sm text-brand-muted">
-			The instruments the sync and the inventory know, the standard curves each one owns, and
-			the incoming values those curves corrected.
-		</p>
-		<InstrumentCurvesPanel />
 		{:else if tab.key === 'services' && isAdmin}
 		<SyncServicesPanel />
 		{:else}
@@ -1874,6 +1907,12 @@
 										{/if}
 									{:else}
 										<Badge variant="muted">Unpaired</Badge>
+									{/if}
+									{#if stream.sensor_id}
+										<a
+											href="{base}/sensors/{stream.sensor_id}?tab=curves"
+											class="ml-2 text-brand-primary no-underline hover:underline"
+										>Instrument</a>
 									{/if}
 								</td>
 								<td class="px-4 py-2 text-xs text-brand-muted">{stream.last_data_time ? formatRelativeTime(stream.last_data_time) : '--'}</td>
@@ -2040,8 +2079,14 @@
 						bind:editValue={curveEditValue}
 						oncommitname={commitCurveName}
 						onrehome={rehomeCurve}
+						onattach={attachHeldCurve}
+						{reviewedKeys}
+						onreview={reviewCurve}
 						bind:query={tableQuery}
+						bind:filter={tableFilter}
 						bind:page={tablePage}
+						onmarkall={markTabReviewed}
+						marking={markingReviewed}
 					/>
 
 				<!-- ── SITES TAB ── -->

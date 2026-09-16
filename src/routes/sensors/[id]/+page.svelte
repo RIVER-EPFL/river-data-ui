@@ -370,7 +370,7 @@
 	<div class="space-y-4">
 		<div class="flex items-center justify-between">
 			<div>
-				<Breadcrumbs items={[{ label: 'Sensors', href: `${base}/sensors` }]} />
+				<Breadcrumbs items={[{ label: 'Sensors & Instruments', href: `${base}/sensors` }]} />
 				<h2 class="text-xl font-semibold mt-1">{sensor.name ?? sensor.serial_number ?? 'Sensor'}</h2>
 				{#if sensor.manufacturer || sensor.model}
 					<p class="text-sm text-brand-muted">{[sensor.manufacturer, sensor.model].filter(Boolean).join(' ')}</p>
@@ -405,7 +405,7 @@
 
 		<IdentityChanges sensorId={sensor.id} canAcknowledge={me.can('manageSensors')} />
 
-		<Tabs tabs={['Overview', 'Deployments', 'Calibrations', 'Standard curves']} bind:active={tab.index} />
+		<Tabs tabs={['Overview', 'Deployments', 'Calibrations', 'Curves & streams']} bind:active={tab.index} />
 
 		{#if tab.key === 'overview'}
 			{#if needsBackdate && currentDeployment}

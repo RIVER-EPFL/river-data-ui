@@ -417,6 +417,7 @@ export interface DataStream {
 	source_path: string | null;
 	metadata: Record<string, unknown>;
 	site_parameter_id: string | null;
+	sensor_id: string | null;
 	/** Stream-level default for readings.measurement_type ('continuous' | 'spot' | 'derived'); null defers to the sensor. */
 	measurement_type: string | null;
 	is_active: boolean;

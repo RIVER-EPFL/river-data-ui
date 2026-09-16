@@ -16,6 +16,7 @@ const stored = {
 	streams_paired: 1891,
 	readings_backfilled: 2_400_000,
 	curves_assigned: 0,
+	curves_created: 0,
 	streams_skipped: 0,
 	groups_created: 2,
 	group_members_created: 17,

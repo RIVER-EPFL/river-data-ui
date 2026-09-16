@@ -1,9 +1,15 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
+	import { base } from '$app/paths';
 	import { api, type StandardCurve } from '$api/crud';
 	import {
+		getCurveUsage,
+		getInstrumentsOverview,
 		getSensorCurveUsage,
 		retireStandardCurve,
 		unretireStandardCurve,
+		type CurveUsageResponse,
+		type InstrumentStreamRef,
 		type SensorCurveUsage,
 	} from '$api/service';
 	import { ApiError } from '$api/client';
@@ -16,6 +22,7 @@
 	import CrudList from '$components/crud/CrudList.svelte';
 	import OriginFilter from '$components/crud/OriginFilter.svelte';
 	import { originFilter, type Origin } from '$lib/origin';
+	import { instrumentInspection, streamInspectionHref } from '$lib/instruments/inspection';
 	import type { Column, PageRequest } from '$components/crud/CrudList.svelte';
 	import CopyStandardCurvesDialog from '$components/dialogs/CopyStandardCurvesDialog.svelte';
 	import NewStandardCurveForm from './NewStandardCurveForm.svelte';
@@ -47,6 +54,13 @@
 	let curves = $state<StandardCurve[]>([]);
 	let copyOpen = $state(false);
 	let usage = $state<Record<string, SensorCurveUsage>>({});
+	let usageDetails = $state<Record<string, CurveUsageResponse>>({});
+	let usageDetailError = $state<Record<string, string>>({});
+	let openUsageId = $state<string | null>(null);
+	let usageDetailLoading = $state<string | null>(null);
+	let streams = $state<InstrumentStreamRef[]>([]);
+	let streamsLoading = $state(true);
+	let streamsError = $state<string | null>(null);
 	let list = $state<ReturnType<typeof CrudList> | null>(null);
 	let origin = $state<Origin>('any');
 	// The source systems these curves were replicated from, which is what the filter can offer.
@@ -55,7 +69,23 @@
 	]);
 
 	const canWrite = $derived(me.can('writeFieldMetadata'));
+	const canInspect = $derived(me.can('manageSensors'));
 	const existingNames = $derived(curves.map((c) => c.name).filter((n): n is string => !!n));
+
+	onMount(() => {
+		if (canInspect) void loadStreams();
+	});
+
+	async function loadStreams() {
+		try {
+			const response = await getInstrumentsOverview();
+			streams = instrumentInspection(response.instruments, sensorId)?.streams ?? [];
+		} catch (e) {
+			streamsError = e instanceof Error ? e.message : 'Failed to load incoming streams';
+		} finally {
+			streamsLoading = false;
+		}
+	}
 
 	const columns: Column[] = [
 		{ key: 'name', label: 'Name', sortable: false },
@@ -103,6 +133,27 @@
 		return n > 0
 			? `${n} reading${n === 1 ? ' was' : 's were'} corrected with this curve, so its coefficients are frozen and it cannot be deleted. Duplicate it and re-enter those measurements against the copy.`
 			: undefined;
+	}
+
+	async function toggleUsageDetails(curve: StandardCurve) {
+		if (openUsageId === curve.id) {
+			openUsageId = null;
+			return;
+		}
+		openUsageId = curve.id;
+		if (usageDetails[curve.id] || usedCount(curve) === 0) return;
+		usageDetailLoading = curve.id;
+		try {
+			usageDetails = { ...usageDetails, [curve.id]: await getCurveUsage(curve.id) };
+			usageDetailError = { ...usageDetailError, [curve.id]: '' };
+		} catch (e) {
+			usageDetailError = {
+				...usageDetailError,
+				[curve.id]: e instanceof Error ? e.message : 'Failed to load corrected readings',
+			};
+		} finally {
+			usageDetailLoading = null;
+		}
 	}
 
 	// ─── Create, which is also duplicate and corrected copy ───
@@ -268,13 +319,45 @@
 		{/key}
 	{/if}
 
+	{#if canInspect}
+		<div class="rounded-md border border-brand-divider bg-brand-surface p-4 space-y-2">
+			<h3 class="text-sm font-semibold">Incoming streams</h3>
+			{#if streamsLoading}
+				<p class="text-xs text-brand-muted">Loading streams…</p>
+			{:else if streamsError}
+				<ErrorNotice message={streamsError} />
+			{:else if streams.length === 0}
+				<p class="text-xs text-brand-muted">No sync streams feed this instrument.</p>
+			{:else}
+				<ul class="space-y-1 text-xs">
+					{#each streams as stream (stream.id)}
+						<li class="flex flex-wrap items-center gap-x-2 gap-y-1">
+							<a
+								href={streamInspectionHref(stream, base)}
+								class="font-mono text-brand-primary no-underline hover:underline"
+							>{stream.source_system}:{stream.source_key}</a>
+							{#if stream.site_name}
+								<span class="text-brand-muted">→ {stream.site_name} / {stream.parameter_code}</span>
+							{:else}
+								<span class="text-brand-muted">Unpaired</span>
+							{/if}
+							{#if stream.measurement_type}
+								<span class="text-brand-muted">{stream.measurement_type}</span>
+							{/if}
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</div>
+	{/if}
+
 	<CrudList
 		bind:this={list}
 		load={loadCurves}
 		{columns}
 		title="Standard curves"
 		showHeader={false}
-		actions={canWrite ? rowActions : undefined}
+		actions={canInspect || canWrite ? rowActions : undefined}
 		actionsLabel="Actions"
 		rowClass={(c: StandardCurve) => (c.id === focusCurveId ? 'bg-brand-primary/5' : '')}
 	>
@@ -326,6 +409,52 @@
 		{/snippet}
 
 		{#snippet rowDetail({ row, colCount }: { row: StandardCurve; colCount: number })}
+			{#if openUsageId === row.id}
+				<tr class="border-b border-brand-divider bg-brand-bg/40">
+					<td colspan={colCount} class="px-4 py-3">
+						<div class="sticky left-0 w-max max-w-[calc(100vw-3rem)] space-y-2">
+							{#if usageDetailLoading === row.id}
+								<p class="text-xs text-brand-muted">Loading readings…</p>
+							{:else if usageDetailError[row.id]}
+								<ErrorNotice message={usageDetailError[row.id]} />
+							{:else if usageDetails[row.id]}
+								{@const detail = usageDetails[row.id]}
+								<p class="text-xs text-brand-muted">
+									{detail.reading_count} readings corrected{detail.reading_count > detail.points.length ? `, most recent ${detail.points.length} shown` : ''}
+								</p>
+								<div class="max-h-56 overflow-y-auto">
+									<table class="w-full text-xs">
+										<thead>
+											<tr class="text-brand-muted">
+												<th class="text-left py-0.5 pr-4 font-medium">Time</th>
+												<th class="text-left py-0.5 pr-4 font-medium">Site</th>
+												<th class="text-left py-0.5 pr-4 font-medium">Parameter</th>
+												<th class="text-right py-0.5 px-2 font-medium">Rep</th>
+												<th class="text-right py-0.5 px-2 font-medium">Raw</th>
+												<th class="text-right py-0.5 pl-2 font-medium">Corrected</th>
+											</tr>
+										</thead>
+										<tbody>
+											{#each detail.points as point (point.time + ':' + point.replicate_index)}
+												<tr class={point.is_flagged ? 'text-severity-warning-text' : ''}>
+													<td class="py-0.5 pr-4">{formatDateTime(point.time)}</td>
+													<td class="py-0.5 pr-4">{point.site_name ?? '-'}</td>
+													<td class="py-0.5 pr-4">{point.parameter_code ?? '-'}</td>
+													<td class="py-0.5 px-2 text-right font-mono">{point.replicate_index}</td>
+													<td class="py-0.5 px-2 text-right font-mono">{point.raw_value}</td>
+													<td class="py-0.5 pl-2 text-right font-mono">{point.calibrated_value ?? '-'}</td>
+												</tr>
+											{/each}
+										</tbody>
+									</table>
+								</div>
+							{:else}
+								<p class="text-xs text-brand-muted">No corrected readings.</p>
+							{/if}
+						</div>
+					</td>
+				</tr>
+			{/if}
 			{#if editingId === row.id}
 				<tr class="border-b border-brand-divider bg-brand-bg/40">
 					<td colspan={colCount} class="px-4 py-3 space-y-3">
@@ -371,9 +500,15 @@
 
 {#snippet rowActions(curve: StandardCurve)}
 	<div class="flex gap-3">
-		<Button variant="ghost" size="sm" class="text-brand-primary" onclick={() => openDuplicate(curve)}>Duplicate</Button>
-		<Button variant="ghost" size="sm" class="text-brand-primary" disabled={!!curve.source_system} title={curve.source_system ? `Replicated from ${curve.source_system}; the next sync cycle re-asserts its coefficients, so an edit here would not survive. Correct it in the portal.` : frozenTitle(curve)} onclick={() => (editingId === curve.id ? (editingId = null) : startEdit(curve))}>{editingId === curve.id ? 'Close' : 'Edit'}</Button>
-		{#if curve.retired_at}
+		{#if canInspect && usedCount(curve) > 0}
+			<Button variant="ghost" size="sm" class="text-brand-primary" onclick={() => toggleUsageDetails(curve)}>
+				{openUsageId === curve.id ? 'Close readings' : 'Inspect readings'}
+			</Button>
+		{/if}
+		{#if canWrite}
+			<Button variant="ghost" size="sm" class="text-brand-primary" onclick={() => openDuplicate(curve)}>Duplicate</Button>
+			<Button variant="ghost" size="sm" class="text-brand-primary" disabled={!!curve.source_system} title={curve.source_system ? `Replicated from ${curve.source_system}; the next sync cycle re-asserts its coefficients, so an edit here would not survive. Correct it in the portal.` : frozenTitle(curve)} onclick={() => (editingId === curve.id ? (editingId = null) : startEdit(curve))}>{editingId === curve.id ? 'Close' : 'Edit'}</Button>
+			{#if curve.retired_at}
 			<ConfirmPopover
 				message="Offer this curve again? It returns to the picker for new measurements. Nothing stored changes."
 				confirmLabel="Unretire"
@@ -381,7 +516,7 @@
 			>
 				<Button variant="ghost" size="sm" class="text-brand-primary">Unretire</Button>
 			</ConfirmPopover>
-		{:else}
+			{:else}
 			<ConfirmPopover
 				message={`Retire this curve? It stops being offered for new measurements. The ${usedCount(curve)} reading${usedCount(curve) === 1 ? '' : 's'} corrected with it keep it and keep their values, the row and its provenance stay, and retiring is reversible.`}
 				confirmLabel="Retire"
@@ -389,17 +524,18 @@
 			>
 				<Button variant="ghost" size="sm" class="text-brand-primary">Retire</Button>
 			</ConfirmPopover>
-		{/if}
-		{#if usedCount(curve) > 0}
-			<Button variant="ghost" size="sm" class="text-severity-alarm" disabled title={frozenTitle(curve)}>Delete</Button>
-		{:else}
-			<ConfirmPopover
-				message="Delete this standard curve? Nothing was corrected with it."
-				confirmLabel="Delete"
-				onconfirm={() => deleteCurve(curve)}
-			>
-				<Button variant="ghost" size="sm" class="text-severity-alarm">Delete</Button>
-			</ConfirmPopover>
+			{/if}
+			{#if usedCount(curve) > 0}
+				<Button variant="ghost" size="sm" class="text-severity-alarm" disabled title={frozenTitle(curve)}>Delete</Button>
+			{:else}
+				<ConfirmPopover
+					message="Delete this standard curve? Nothing was corrected with it."
+					confirmLabel="Delete"
+					onconfirm={() => deleteCurve(curve)}
+				>
+					<Button variant="ghost" size="sm" class="text-severity-alarm">Delete</Button>
+				</ConfirmPopover>
+			{/if}
 		{/if}
 	</div>
 {/snippet}

@@ -654,6 +654,11 @@ export type PlanCurveAssignment = components['schemas']['PlanCurveAssignment'];
 // an instrument.
 export type PlanCurveUpdate = components['schemas']['PlanCurveUpdate'];
 
+// A curve the source holds until this plan attaches it to one of its instruments, and the
+// attachment the review makes: an instrument the plan creates, by source key, or one that exists.
+export type PlanHeldCurve = components['schemas']['PlanHeldCurve'];
+export type PlanHeldCurveUpdate = components['schemas']['PlanHeldCurveUpdate'];
+
 // One object decision the review takes: a project, site or parameter the plan creates, keyed the
 // way the card names it.
 export type PlanObjectUpdate = components['schemas']['PlanObjectUpdate'];
@@ -682,6 +687,7 @@ export const updatePairingPlan = (
 	curves: PlanCurveUpdate[] = [],
 	objects: PlanObjectUpdate[] = [],
 	instruments: PlanProposalUpdate[] = [],
+	heldCurves: PlanHeldCurveUpdate[] = [],
 ) =>
 	PATCH<PairingPlan>(`${ADMIN}/sync/pairing-plans/${id}`, {
 		expected_version: expectedVersion,
@@ -689,6 +695,7 @@ export const updatePairingPlan = (
 		curves,
 		objects,
 		instruments,
+		held_curves: heldCurves,
 	});
 
 // A plan-wide decision: the server selects on the predicate and applies the action, so the round

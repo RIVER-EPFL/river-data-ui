@@ -24,8 +24,30 @@ describe('splitPlanUpdates', () => {
 		expect(splitPlanUpdates(batch).curves).toHaveLength(1);
 	});
 
-	it('returns four empty lists for an empty batch', () => {
-		expect(splitPlanUpdates([])).toEqual({ entries: [], curves: [], objects: [], proposals: [] });
+	it('carries a held curve attachment in its own list, apart from a stored curve move', () => {
+		const batch = [
+			{ proposal_id: 'h1', instrument_source_key: 'cnet:DOC' },
+			{ proposal_id: 'h2', instrument_id: 'sensor-1' },
+			{ curve_id: 'c1', instrument_source_key: 'cnet:DOC' },
+		] as unknown as PlanUpdate[];
+
+		const split = splitPlanUpdates(batch);
+
+		expect(split.heldCurves).toEqual([
+			{ proposal_id: 'h1', instrument_source_key: 'cnet:DOC' },
+			{ proposal_id: 'h2', instrument_id: 'sensor-1' },
+		]);
+		expect(split.curves).toEqual([{ curve_id: 'c1', instrument_source_key: 'cnet:DOC' }]);
+	});
+
+	it('returns five empty lists for an empty batch', () => {
+		expect(splitPlanUpdates([])).toEqual({
+			entries: [],
+			curves: [],
+			heldCurves: [],
+			objects: [],
+			proposals: [],
+		});
 	});
 });
 

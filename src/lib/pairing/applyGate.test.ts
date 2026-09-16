@@ -8,7 +8,7 @@ const cnet: PlanGate = {
   sites: { reviewed: 0, total: 31 },
   parameters: { reviewed: 0, total: 23 },
   instruments: { reviewed: 0, total: 92 },
-  curves: { total: 14 },
+  curves: { reviewed: 0, total: 14 },
 };
 
 describe("planGateItems", () => {
@@ -18,14 +18,14 @@ describe("planGateItems", () => {
       { tab: "sites", label: "Sites", detail: "0 of 31 reviewed", state: "blocking" },
       { tab: "parameters", label: "Parameters", detail: "0 of 23 reviewed", state: "blocking" },
       { tab: "instruments", label: "Instruments", detail: "0 of 92 reviewed", state: "blocking" },
-      { tab: "curves", label: "Standard curves", detail: "14", state: "none" },
+      { tab: "curves", label: "Standard curves", detail: "0 of 14 reviewed", state: "blocking" },
     ]);
   });
 
   it("turns a tab to done once everything on it is reviewed, leaving Apply on the rest", () => {
     const items = planGateItems({ ...cnet, projects: { reviewed: 1, total: 1 } });
     expect(items[0]?.state).toBe("done");
-    expect(gateBlocking(items).map((i) => i.tab)).toEqual(["sites", "parameters", "instruments"]);
+    expect(gateBlocking(items).map((i) => i.tab)).toEqual(["sites", "parameters", "instruments", "curves"]);
   });
 
   it("states no review on a tab with nothing on it", () => {
@@ -36,7 +36,7 @@ describe("planGateItems", () => {
 
 describe("applyBlockedReason", () => {
   it("names each tab still to review", () => {
-    const items = planGateItems({ ...cnet, projects: { reviewed: 1, total: 1 }, instruments: { reviewed: 92, total: 92 } });
+    const items = planGateItems({ ...cnet, projects: { reviewed: 1, total: 1 }, instruments: { reviewed: 92, total: 92 }, curves: { reviewed: 14, total: 14 } });
     expect(applyBlockedReason(items)).toBe(
       "Still to review: Sites (0 of 31 reviewed), Parameters (0 of 23 reviewed)",
     );
@@ -46,7 +46,7 @@ describe("applyBlockedReason", () => {
     const all = (total: number) => ({ reviewed: total, total });
     expect(
       applyBlockedReason(
-        planGateItems({ projects: all(1), sites: all(31), parameters: all(23), instruments: all(92), curves: { total: 0 } }),
+        planGateItems({ projects: all(1), sites: all(31), parameters: all(23), instruments: all(92), curves: all(14) }),
       ),
     ).toBeNull();
   });

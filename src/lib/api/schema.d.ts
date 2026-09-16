@@ -8464,6 +8464,11 @@ export interface components {
              * @description Standard curves moved onto instruments this apply minted.
              */
             curves_assigned: number;
+            /**
+             * Format: int32
+             * @description Held curves this apply created under the instruments the review attached them to.
+             */
+            curves_created: number;
             /** Format: int32 */
             group_members_created: number;
             /**
@@ -8638,8 +8643,9 @@ export interface components {
             stream_id?: string | null;
         };
         BulkAction: {
+            acknowledged?: boolean | null;
             /** @description `pair` or `skip`. */
-            action: string;
+            action?: string | null;
             where?: components["schemas"]["BulkWhere"];
         };
         /**
@@ -8648,6 +8654,8 @@ export interface components {
          *     than one update per entry (1891 for CNET, 29,400 for NOMIS).
          */
         BulkWhere: {
+            /** @description `pair` or `skip`, what the entry is set to now. */
+            action?: string | null;
             /** @description `exact` when the project, site and parameter all resolved, `none` otherwise. */
             confidence?: string | null;
             has_warnings?: boolean | null;
@@ -12250,6 +12258,11 @@ export interface components {
              *     instrument_source_key}]`, moved in the apply transaction that mints them.
              */
             curve_assignments: components["schemas"]["PlanCurveIntents"];
+            /**
+             * @description Held curves the review attached to one of this plan's instruments, `[{proposal_id,
+             *     instrument_source_key | instrument_id}]`, created by the apply under that instrument.
+             */
+            curve_attachments: components["schemas"]["PlanCurveAttachments"];
             entries: components["schemas"]["PlanEntries"];
             /** Format: uuid */
             id: string;
@@ -12292,6 +12305,11 @@ export interface components {
              *     instrument_source_key}]`, moved in the apply transaction that mints them.
              */
             curve_assignments: components["schemas"]["PlanCurveIntents"];
+            /**
+             * @description Held curves the review attached to one of this plan's instruments, `[{proposal_id,
+             *     instrument_source_key | instrument_id}]`, created by the apply under that instrument.
+             */
+            curve_attachments: components["schemas"]["PlanCurveAttachments"];
             entries: components["schemas"]["PlanEntries"];
             /** Format: uuid */
             id: string;
@@ -12327,6 +12345,11 @@ export interface components {
              *     instrument_source_key}]`, moved in the apply transaction that mints them.
              */
             curve_assignments: components["schemas"]["PlanCurveIntents"];
+            /**
+             * @description Held curves the review attached to one of this plan's instruments, `[{proposal_id,
+             *     instrument_source_key | instrument_id}]`, created by the apply under that instrument.
+             */
+            curve_attachments: components["schemas"]["PlanCurveAttachments"];
             entries: components["schemas"]["PlanEntries"];
             /** Format: uuid */
             id: string;
@@ -12933,6 +12956,20 @@ export interface components {
             source_key: string | null;
         };
         /**
+         * @description A held curve the review attached to one of the plan's instruments: one the plan creates, by
+         *     `instrument_source_key`, or one that already exists, by `instrument_id`. The apply creates the
+         *     curve under it (Q195).
+         */
+        PlanCurveAttachment: {
+            /** Format: uuid */
+            instrument_id: string | null;
+            instrument_source_key: string | null;
+            /** Format: uuid */
+            proposal_id: string;
+        };
+        /** @description The held curves the review attached, as the column holds them. */
+        PlanCurveAttachments: components["schemas"]["PlanCurveAttachment"][];
+        /**
          * @description A standard curve the review assigned to an instrument the plan creates, keyed by the
          *     instrument's `source_key` because the row does not exist until the apply mints it.
          */
@@ -12995,6 +13032,8 @@ export interface components {
             /** Format: uuid */
             id: string | null;
             name: string;
+            /** @description The name the source sends, which the apply links to the resolved row. */
+            source_name?: string | null;
         };
         /**
          * @description The plan's entry list as the column holds it, so the row carries the entries themselves rather
@@ -13128,6 +13167,44 @@ export interface components {
              * @description The member's position within the group.
              */
             ordinal: number;
+        };
+        /** @description A source's curve held until this plan attaches it to one of its instruments (Q195). */
+        PlanHeldCurve: {
+            attached: null | components["schemas"]["PlanHeldCurveTarget"];
+            /** Format: date */
+            fitted_on: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: double */
+            intercept: number;
+            /** @description The source's own label, the curve's parameter cell. It names no instrument. */
+            label: string;
+            name: string | null;
+            /** Format: double */
+            r_squared: number | null;
+            /** Format: double */
+            slope: number;
+            source_key: string;
+        };
+        /** @description The instrument a held curve is attached to. */
+        PlanHeldCurveTarget: {
+            /** @description True when the instrument is one this plan creates. */
+            create: boolean;
+            /** Format: uuid */
+            instrument_id: string | null;
+            instrument_name: string;
+            instrument_source_key: string | null;
+        };
+        PlanHeldCurveUpdate: {
+            /**
+             * Format: uuid
+             * @description An instrument that already exists. Naming neither clears the attachment.
+             */
+            instrument_id?: string | null;
+            /** @description The `source_key` of an instrument the plan proposes creating. */
+            instrument_source_key?: string | null;
+            /** Format: uuid */
+            proposal_id: string;
         };
         /**
          * @description One instrument decision in a pairing plan: the instrument, what it covers, and the curves it
@@ -13268,6 +13345,7 @@ export interface components {
             curves: components["schemas"]["PlanCurveAssignment"][];
             devices: components["schemas"]["PlanDeviceGroup"][];
             groups: components["schemas"]["PlanInstrumentGroup"][];
+            held_curves: components["schemas"]["PlanHeldCurve"][];
             unassigned: components["schemas"]["PlanUnassignedParameter"][];
         };
         /** @description A plan action that runs as a tracked job: the row to watch, and the state it starts in. */
@@ -13361,6 +13439,8 @@ export interface components {
             /** Format: double */
             longitude: number | null;
             name: string;
+            /** @description The name the source sends, which the apply links to the resolved row. */
+            source_name?: string | null;
         };
         /** @description A plan whose status this request moved, with no job behind it. */
         PlanStatusChanged: {
@@ -14120,10 +14200,21 @@ export interface components {
             source_system: string;
         };
         RegisterStandardCurveResponse: {
-            /** Format: uuid */
-            id: string;
-            /** Format: uuid */
-            sensor_id: string;
+            /**
+             * Format: uuid
+             * @description The stored curve, or null while it is held for a pairing plan.
+             */
+            id: string | null;
+            /**
+             * @description True when no stored curve carries this provenance, so the curve is held until a pairing
+             *     plan attaches it to one of its instruments.
+             */
+            proposed: boolean;
+            /**
+             * Format: uuid
+             * @description The instrument the curve was fitted on, or null while it is held for a pairing plan.
+             */
+            sensor_id: string | null;
             /**
              * @description True when the stored coefficients differed and the curve was already applied to readings,
              *     so a new row was minted under this provenance. History keeps the old row.
@@ -14312,12 +14403,6 @@ export interface components {
             curve_ref_column?: string | null;
             portal_mean_column?: string | null;
             portal_sd_column?: string | null;
-            /**
-             * @description The sd divisor the source's own sd column uses ('sample' | 'population'),
-             *     when the source declares one. Never inferred; None leaves the slot's
-             *     declaration (or the audit gate) to decide.
-             */
-            sd_estimator?: string | null;
             source_columns: string[];
         };
         ReplicatesResponse: {
@@ -16402,8 +16487,9 @@ export interface components {
              */
             fitted_on?: string | null;
             /**
-             * @description The portal curve's parameter label; the API finds-or-creates one lab
-             *     instrument per (source_system, instrument_label).
+             * @description The portal curve's parameter label. The portal names no instrument for a
+             *     curve, so this is where a pairing plan suggests the attachment from; the
+             *     API holds the curve until a plan attaches it to one of its instruments.
              */
             instrument_label: string;
             /** Format: double */
@@ -17350,6 +17436,11 @@ export interface components {
              * @description The version the client read. The write is refused if the plan has moved on since.
              */
             expected_version: number;
+            /**
+             * @description Held curves to attach to one of this plan's instruments, created under it when the plan is
+             *     applied.
+             */
+            held_curves?: components["schemas"]["PlanHeldCurveUpdate"][];
             /** @description Register rows the review has decided to admit or leave behind, by the source's own key. */
             instruments?: components["schemas"]["PlanProposalUpdate"][];
             /** @description Objects the review has accepted or taken back, `{kind}:{name}` as the card names them. */

@@ -116,6 +116,10 @@
 					{/if}
 				</div>
 				<div class="flex flex-wrap gap-1.5">
+					<a
+						href="{base}/sensors/{d.nameConflict.id}?tab=curves"
+						class="px-2 py-1 text-brand-primary no-underline hover:underline"
+					>Open inventory</a>
 					<Button
 						size="sm"
 						onclick={() => onattach(d, d.nameConflict!.id)}
@@ -131,7 +135,7 @@
 			</div>
 		{/if}
 	{:else if row.device?.instrument_id}
-		<a href="{base}/sensors/{row.device.instrument_id}" class="text-brand-primary no-underline hover:underline">{row.device.instrument_name ?? row.device.serial}</a>
+		<a href="{base}/sensors/{row.device.instrument_id}?tab=curves" class="text-brand-primary no-underline hover:underline">{row.device.instrument_name ?? row.device.serial}</a>
 	{:else}
 		<span class="text-brand-muted">Created when the plan is applied</span>
 	{/if}

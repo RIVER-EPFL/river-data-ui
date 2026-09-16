@@ -18,7 +18,7 @@
 </script>
 
 <InstrumentsTab
-	planInstruments={{ groups: [], unassigned: [], devices: [], curves: [] }}
+	planInstruments={{ groups: [], unassigned: [], devices: [], curves: [], held_curves: [] }}
 	{planDevices}
 	{deviceDecisions}
 	{instrumentDecisions}
