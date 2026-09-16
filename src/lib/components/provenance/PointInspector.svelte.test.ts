@@ -127,8 +127,8 @@ describe('PointInspector', () => {
 		]);
 		const { container } = open(resp);
 		await screen.findByText('8.005');
-		expect(container.textContent).toContain('2 Aug 2026');
-		expect(container.textContent).not.toContain('arrived 15 Jul 2026');
+		expect(container.textContent).toContain(formatDateTime('2026-08-02T11:00:00Z'));
+		expect(container.textContent).not.toContain(formatDateTime('2026-07-15T04:00:00Z'));
 	});
 
 	it('offers Roll back only where the API says the kind can be rolled back', async () => {

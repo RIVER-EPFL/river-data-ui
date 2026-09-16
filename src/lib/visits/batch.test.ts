@@ -10,6 +10,7 @@ import {
 	type BatchVisit,
 	type ParameterColumn,
 } from './batch';
+import { writeNumber } from './number';
 
 const parameters: ParameterColumn[] = [
 	{ parameterId: 'p-doc', code: 'DOC', name: 'DOC' },
@@ -119,7 +120,8 @@ describe('the visits a block describes', () => {
 	});
 
 	it('reads the block in the locale of the machine pasting it', () => {
-		const commas = parseBlock("site\tdate\tDOC_1\tDOC_2\nFP1\t2026-06-01\t12,5\t1'026");
+		const grouped = writeNumber(1026, 'fr-CH');
+		const commas = parseBlock(`site\tdate\tDOC_1\tDOC_2\nFP1\t2026-06-01\t12,5\t${grouped}`);
 		const visits = batchVisits(commas, inferLayout(commas[0], parameters), sites, 'fr-CH');
 		expect(visits[0].unreadable).toBe(0);
 		expect(visits[0].values.map((v) => v.value)).toEqual([12.5, 1026]);
