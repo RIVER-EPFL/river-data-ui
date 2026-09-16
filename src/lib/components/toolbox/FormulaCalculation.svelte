@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
+	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import {
 		api,
@@ -43,7 +44,7 @@
 	import { perReplicateChoices } from '$lib/derivedParameters';
 	import { identifiers } from '$lib/formula/lint';
 	import { curveField } from '$lib/tools/form';
-	import { runTables } from '$lib/tools/runTable';
+	import { runInputTables, runTables } from '$lib/tools/runTable';
 	import { formatDateTime } from '$lib/utils';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Badge from '$components/ui/Badge.svelte';
@@ -63,7 +64,7 @@
 	// it publishes on the right, and below them a run of the set as it stands at a real visit.
 	// Nothing on the page is specific to one calculation.
 
-	const calculationId = page.params.id!;
+	let { calculationId }: { calculationId: string } = $props();
 
 	let calculation = $state<ToolScriptDetail | null>(null);
 	// What each version has already produced, so the save says what it moves before it is made.
@@ -79,9 +80,9 @@
 	let editing = $state<number | null>(null);
 	let diagnostics = $state<Diagnostic[]>([]);
 
-	let siteId = $state('');
+	let siteId = $state(page.url.searchParams.get('site') ?? '');
 	let visits = $state<VisitRow[]>([]);
-	let visitId = $state('');
+	let visitId = $state(page.url.searchParams.get('visit') ?? '');
 	let visitsLoading = $state(false);
 	let replicateText = $state<Record<string, string>>({});
 	// A number typed in place of what the visit or the catalog holds, so a set can be checked
@@ -141,6 +142,18 @@
 		run?.ran
 			? runTables(run.results ?? {}, draftOutputs(run.manifest), run.skipped ?? [], run.trace ?? [])
 			: null,
+	);
+	// What the run was given, in the same table shape: the visit's own values, then the numbers
+	// that are the same at every visit.
+	const given = $derived(
+		run?.ran
+			? runInputTables(
+					run.event_inputs ?? [],
+					run.site_inputs ?? [],
+					run.constants ?? {},
+					(run.curves ?? []) as Parameters<typeof runInputTables>[3],
+				)
+			: undefined,
 	);
 
 	// The codes this set names: what its formulas read, and what they publish.
@@ -275,17 +288,22 @@
 		}
 	}
 
-	onMount(load);
+	onMount(async () => {
+		await load();
+		if (siteId) await loadVisits(siteId, page.url.searchParams.get('visit') ?? '');
+	});
 
 	function add() {
 		formulas = [...formulas, blankFormula(formulas)];
 		editing = formulas.length - 1;
 	}
 
-	/** Close the editor on a formula the set will carry. Nothing is written until the set is saved. */
+	/** Close the editor on a formula the set will carry. Nothing is written until the set is saved;
+	 *  the visit is read again, so the edit is seen moving through the steps to the outputs. */
 	function done(f: EditableFormula) {
 		if (!f.code.trim() || !f.formula.trim() || diagnostics.length > 0) return;
 		editing = null;
+		if (visit) void runAtVisit();
 	}
 
 	/**
@@ -324,20 +342,49 @@
 		editing = null;
 	}
 
-	async function loadVisits(site: string) {
+	/** Keep the site and the visit in the URL, so a calculation read at a visit is a link. */
+	function rememberVisit() {
+		const url = new URL(page.url);
+		for (const [key, value] of [
+			['site', siteId],
+			['visit', visitId],
+		]) {
+			if (value) url.searchParams.set(key, value);
+			else url.searchParams.delete(key);
+		}
+		void goto(url, { replaceState: true, noScroll: true, keepFocus: true });
+	}
+
+	async function loadVisits(site: string, keep = '') {
 		visits = [];
 		visitId = '';
 		run = null;
-		if (!site) return;
+		if (!site) {
+			rememberVisit();
+			return;
+		}
 		visitsLoading = true;
 		try {
 			const res = await listSiteVisits(site, { page_size: 50 });
 			visits = res.visits;
+			// A visit named in the URL is the one to open, if the site still holds it.
+			if (keep && visits.some((v) => v.id === keep)) {
+				visitId = keep;
+				await runAtVisit();
+			}
 		} catch (e) {
 			runError = e instanceof Error ? e.message : 'Failed to load visits';
 		} finally {
 			visitsLoading = false;
+			rememberVisit();
 		}
+	}
+
+	/** Choosing a visit reads the calculation over it at once: the numbers are the page. */
+	async function chooseVisit() {
+		rememberVisit();
+		run = null;
+		if (visitId) await runAtVisit();
 	}
 
 	async function runAtVisit() {
@@ -402,31 +449,79 @@
 	{:else if loading}
 		<p class="text-sm text-brand-muted">Loading…</p>
 	{:else}
-		<div class="grid grid-cols-1 xl:grid-cols-[minmax(220px,1fr)_minmax(420px,2fr)_minmax(220px,1fr)] gap-4 items-start">
-			<!-- Inputs: everything the set reads, and how a run supplies it. -->
-			<section class="rounded-md border border-brand-divider bg-brand-surface">
-				<h3 class="px-3 py-2 text-sm font-semibold border-b border-brand-divider">Inputs</h3>
-				{#if inputs.length === 0}
-					<p class="px-3 py-3 text-sm text-brand-muted">Nothing read yet.</p>
-				{:else}
-					<ul class="divide-y divide-brand-divider">
-						{#each inputs as input (input.name)}
-							<li class="px-3 py-2 text-sm">
-								<div class="flex items-center justify-between gap-2">
-									<span class="font-mono">{input.name}</span>
-									<Badge variant={input.kind === 'replicates' ? 'accent' : 'default'}>{kindLabel[input.kind]}</Badge>
-								</div>
-								<p class="text-xs text-brand-muted">
-									{input.detail}
-									{#if input.kind === 'replicates'}· one value per replicate, A, B, …{/if}
-								</p>
-								<p class="text-xs text-brand-muted">read by {input.readBy.join(', ') || '—'}</p>
-							</li>
+		<!-- The visit the calculation is read at. Choosing one runs the set as it stands,
+		     saved or not, against the visit's stored values. Nothing is written. -->
+		<section class="rounded-md border border-brand-divider bg-brand-surface">
+			<div class="px-3 py-3 space-y-3">
+				<div class="flex flex-wrap items-end gap-2">
+					<label class="text-xs text-brand-muted">Site
+						<SiteSelect bind:value={siteId} class="block mt-0.5 {inputCls}" onchange={(s) => loadVisits(s)} />
+					</label>
+					<label class="text-xs text-brand-muted">Visit
+						<select bind:value={visitId} onchange={chooseVisit} disabled={!siteId || visitsLoading} class="block mt-0.5 {inputCls} min-w-56">
+							<option value="">{visitsLoading ? 'Loading…' : visits.length === 0 ? 'No visits' : 'Choose a visit…'}</option>
+							{#each visits as v (v.id)}
+								<option value={v.id}>{formatDateTime(v.collected_at)} · {v.parameters_filled} filled</option>
+							{/each}
+						</select>
+					</label>
+					{#each families as family (family)}
+						<label class="text-xs text-brand-muted">{family} (A, B, …)
+							<input bind:value={replicateText[family]} placeholder="410, 415" class="block mt-0.5 {inputCls} w-40" />
+						</label>
+					{/each}
+					{#each scalars as scalar (scalar.name)}
+						<label class="text-xs text-brand-muted">{scalar.name}
+							<input bind:value={scalarText[scalar.name]} placeholder={resolved[scalar.name] ?? (scalar.kind === 'constant' ? 'catalog' : 'from the visit')} class="block mt-0.5 {inputCls} w-28" />
+						</label>
+					{/each}
+					<Button size="sm" variant="primary" loading={running} disabled={!visit || ordered.length === 0} onclick={runAtVisit}>Run</Button>
+				</div>
+				{#if slots.length > 0}
+					<div class="grid gap-3 sm:grid-cols-2">
+						{#each slots as slot (slot)}
+							<CurvePicker
+								title="Curve slot {slot}"
+								siteId={siteId || null}
+								bind:value={
+									() => curveChoice[slot] ?? emptyCurveSelection(),
+									(v) => (curveChoice = { ...curveChoice, [slot]: v })
+								}
+							/>
 						{/each}
-					</ul>
+					</div>
 				{/if}
-			</section>
+			</div>
+		</section>
 
+		<div class="grid grid-cols-1 xl:grid-cols-[minmax(420px,3fr)_minmax(320px,2fr)] gap-4 items-start">
+			<!-- The visit's data, in the portal's order: what was read, what is fixed, the steps,
+			     then what the calculation publishes. -->
+			<section class="rounded-md border border-brand-divider bg-brand-surface">
+				<div class="px-3 py-2 border-b border-brand-divider">
+					<h3 class="text-sm font-semibold">At this visit</h3>
+					<p class="text-xs text-brand-muted">The formulas as they stand{unsaved ? ', unsaved edits included' : ''}, over the visit's stored values. Nothing is written.</p>
+				</div>
+				<div class="px-3 py-3 space-y-3">
+					{#if !visit}
+						<p class="text-sm text-brand-muted">Choose a site and a visit to read the calculation over its values.</p>
+					{/if}
+					{#if runError}<ErrorNotice message={runError} />{/if}
+					{#if run && !run.ran && run.failure}
+						<ErrorNotice message={run.failure.message} />
+					{/if}
+					{#if run?.ran}
+						{#if tables}<RunResultsTable {tables} inputs={given} trace={run?.trace ?? []} />{/if}
+						{#if (run.skipped?.length ?? 0) > 0}
+							<ul class="text-xs text-brand-muted">
+								{#each run.skipped ?? [] as s, i (i)}
+									<li><span class="font-mono">{s.output}</span> not run: {s.reason}</li>
+								{/each}
+							</ul>
+						{/if}
+					{/if}
+				</div>
+			</section>
 			<!-- Formulas, in evaluation order, edited in place. -->
 			<section class="rounded-md border border-brand-divider bg-brand-surface">
 				<div class="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-brand-divider">
@@ -531,7 +626,7 @@
 													<ul class="text-xs">
 														{#each feeds.calculations as reader (reader.tool_script_id)}
 															<li>
-																<a href="{base}/calculations/{reader.tool_script_id}" class="text-brand-primary no-underline hover:underline">{reader.label || reader.name}</a>
+																<a href="{base}/toolbox/{reader.tool_script_id}" class="text-brand-primary no-underline hover:underline">{reader.label || reader.name}</a>
 																<span class="text-brand-muted">
 																	{reader.formulas.map((r) => r.code).join(', ') || 'no formula names it yet'}
 																</span>
@@ -586,35 +681,62 @@
 					{/if}
 				</div>
 			</section>
-
-			<!-- Outputs: what a run publishes, in order. -->
-			<section class="rounded-md border border-brand-divider bg-brand-surface">
-				<h3 class="px-3 py-2 text-sm font-semibold border-b border-brand-divider">Outputs</h3>
-				{#if outputs.length === 0}
-					<p class="px-3 py-3 text-sm text-brand-muted">Nothing published yet.</p>
-				{:else}
-					<ul class="divide-y divide-brand-divider">
-						{#each outputs as output (output.code)}
-							<li class="px-3 py-2 text-sm">
-								<div class="flex items-center justify-between gap-2">
-									<span class="font-mono">{output.code}</span>
-									{#if output.perReplicate}<Badge variant="accent">A, B, …</Badge>{/if}
-								</div>
-								<p class="text-xs text-brand-muted">{output.label}{output.units ? ` (${output.units})` : ''}{output.perReplicate ? ' · one reading per replicate; mean and sd derived' : ''}</p>
-							</li>
-						{/each}
-					</ul>
-				{/if}
-			</section>
 		</div>
+
+		<details class="rounded-md border border-brand-divider bg-brand-surface">
+			<summary class="px-3 py-2 text-sm font-semibold cursor-pointer">Inputs<span class="ml-2 text-xs font-normal text-brand-muted">what the set reads, and how a run supplies it</span></summary>
+				<!-- Inputs: everything the set reads, and how a run supplies it. -->
+				<section class="rounded-md border border-brand-divider bg-brand-surface">
+					<h3 class="px-3 py-2 text-sm font-semibold border-b border-brand-divider">Inputs</h3>
+					{#if inputs.length === 0}
+						<p class="px-3 py-3 text-sm text-brand-muted">Nothing read yet.</p>
+					{:else}
+						<ul class="divide-y divide-brand-divider">
+							{#each inputs as input (input.name)}
+								<li class="px-3 py-2 text-sm">
+									<div class="flex items-center justify-between gap-2">
+										<span class="font-mono">{input.name}</span>
+										<Badge variant={input.kind === 'replicates' ? 'accent' : 'default'}>{kindLabel[input.kind]}</Badge>
+									</div>
+									<p class="text-xs text-brand-muted">
+										{input.detail}
+										{#if input.kind === 'replicates'}· one value per replicate, A, B, …{/if}
+									</p>
+									<p class="text-xs text-brand-muted">read by {input.readBy.join(', ') || '—'}</p>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				</section>
+		</details>
+
+		<details class="rounded-md border border-brand-divider bg-brand-surface">
+			<summary class="px-3 py-2 text-sm font-semibold cursor-pointer">Outputs<span class="ml-2 text-xs font-normal text-brand-muted">what a run publishes</span></summary>
+				<!-- Outputs: what a run publishes, in order. -->
+				<section class="rounded-md border border-brand-divider bg-brand-surface">
+					<h3 class="px-3 py-2 text-sm font-semibold border-b border-brand-divider">Outputs</h3>
+					{#if outputs.length === 0}
+						<p class="px-3 py-3 text-sm text-brand-muted">Nothing published yet.</p>
+					{:else}
+						<ul class="divide-y divide-brand-divider">
+							{#each outputs as output (output.code)}
+								<li class="px-3 py-2 text-sm">
+									<div class="flex items-center justify-between gap-2">
+										<span class="font-mono">{output.code}</span>
+										{#if output.perReplicate}<Badge variant="accent">A, B, …</Badge>{/if}
+									</div>
+									<p class="text-xs text-brand-muted">{output.label}{output.units ? ` (${output.units})` : ''}{output.perReplicate ? ' · one reading per replicate; mean and sd derived' : ''}</p>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				</section>
+		</details>
 
 		{#if reference.length > 0}
 			<!-- What the source computed these columns with, carried by the plan that paired them. -->
-			<section class="rounded-md border border-brand-divider bg-brand-surface">
-				<div class="px-3 py-2 border-b border-brand-divider">
-					<h3 class="text-sm font-semibold">Portal reference</h3>
-					<p class="text-xs text-brand-muted">What the source computed each column with, as its pairing plan recorded it. Nothing here runs; it is the statement the formulas above are written against.</p>
-				</div>
+			<details class="rounded-md border border-brand-divider bg-brand-surface">
+				<summary class="px-3 py-2 text-sm font-semibold cursor-pointer">Portal reference<span class="ml-2 text-xs font-normal text-brand-muted">what the source computed each column with, as its pairing plan recorded it</span></summary>
 				<ul class="divide-y divide-brand-divider">
 					{#each reference as recorded (recorded.code)}
 						<li class="px-3 py-2 text-sm">
@@ -624,16 +746,13 @@
 						</li>
 					{/each}
 				</ul>
-			</section>
+			</details>
 		{/if}
 
 		{#if calculation && calculation.versions.length > 0}
 			<!-- Version history: which of them the record's values were computed under. -->
-			<section class="rounded-md border border-brand-divider bg-brand-surface">
-				<div class="px-3 py-2 border-b border-brand-divider">
-					<h3 class="text-sm font-semibold">Versions</h3>
-					<p class="text-xs text-brand-muted">Every save mints one, and each holds the values computed while it was active until a recompute moves them.</p>
-				</div>
+			<details class="rounded-md border border-brand-divider bg-brand-surface">
+				<summary class="px-3 py-2 text-sm font-semibold cursor-pointer">Versions<span class="ml-2 text-xs font-normal text-brand-muted">every save mints one, and each holds the values computed while it was active</span></summary>
 				<ul class="divide-y divide-brand-divider">
 					{#each calculation.versions as version (version.id)}
 						<li class="px-3 py-2 text-sm flex items-start justify-between gap-3 flex-wrap">
@@ -647,80 +766,7 @@
 						</li>
 					{/each}
 				</ul>
-			</section>
+			</details>
 		{/if}
-
-		<!-- Run at a visit: the set as it stands, saved or not, against stored values. -->
-		<section class="rounded-md border border-brand-divider bg-brand-surface">
-			<div class="px-3 py-2 border-b border-brand-divider">
-				<h3 class="text-sm font-semibold">Run at a visit</h3>
-				<p class="text-xs text-brand-muted">Evaluates the formulas as they stand{unsaved ? ', unsaved edits included' : ''}, reading the visit's stored values. Nothing is written.</p>
-			</div>
-			<div class="px-3 py-3 space-y-3">
-				<div class="flex flex-wrap items-end gap-2">
-					<label class="text-xs text-brand-muted">Site
-						<SiteSelect bind:value={siteId} class="block mt-0.5 {inputCls}" onchange={(s) => loadVisits(s)} />
-					</label>
-					<label class="text-xs text-brand-muted">Visit
-						<select bind:value={visitId} disabled={!siteId || visitsLoading} class="block mt-0.5 {inputCls} min-w-56">
-							<option value="">{visitsLoading ? 'Loading…' : visits.length === 0 ? 'No visits' : 'Choose a visit…'}</option>
-							{#each visits as v (v.id)}
-								<option value={v.id}>{formatDateTime(v.collected_at)} · {v.parameters_filled} filled</option>
-							{/each}
-						</select>
-					</label>
-					{#each families as family (family)}
-						<label class="text-xs text-brand-muted">{family} (A, B, …)
-							<input bind:value={replicateText[family]} placeholder="410, 415" class="block mt-0.5 {inputCls} w-40" />
-						</label>
-					{/each}
-					{#each scalars as scalar (scalar.name)}
-						<label class="text-xs text-brand-muted">{scalar.name}
-							<input bind:value={scalarText[scalar.name]} placeholder={resolved[scalar.name] ?? (scalar.kind === 'constant' ? 'catalog' : 'from the visit')} class="block mt-0.5 {inputCls} w-28" />
-						</label>
-					{/each}
-					<Button size="sm" variant="primary" loading={running} disabled={!visit || ordered.length === 0} onclick={runAtVisit}>Run</Button>
-				</div>
-				{#if slots.length > 0}
-					<div class="grid gap-3 sm:grid-cols-2">
-						{#each slots as slot (slot)}
-							<CurvePicker
-								title="Curve slot {slot}"
-								siteId={siteId || null}
-								bind:value={
-									() => curveChoice[slot] ?? emptyCurveSelection(),
-									(v) => (curveChoice = { ...curveChoice, [slot]: v })
-								}
-							/>
-						{/each}
-					</div>
-				{/if}
-				{#if runError}<ErrorNotice message={runError} />{/if}
-				{#if run && !run.ran && run.failure}
-					<ErrorNotice message={run.failure.message} />
-				{/if}
-				{#if run?.ran}
-					{#if (run.event_inputs?.length ?? 0) + (run.site_inputs?.length ?? 0) > 0}
-						<p class="text-xs text-brand-muted">
-							Read from the visit:
-							{#each run.event_inputs ?? [] as e (e.param)}
-								<span class="font-mono">{e.param}</span> = {e.value ?? '—'}{' '}
-							{/each}
-							{#each run.site_inputs ?? [] as s (s.param)}
-								<span class="font-mono">{s.param}</span> = {s.value ?? '—'} (site){' '}
-							{/each}
-						</p>
-					{/if}
-					{#if tables}<RunResultsTable {tables} />{/if}
-					{#if (run.skipped?.length ?? 0) > 0}
-						<ul class="text-xs text-brand-muted">
-							{#each run.skipped ?? [] as s, i (i)}
-								<li><span class="font-mono">{s.output}</span> not run: {s.reason}</li>
-							{/each}
-						</ul>
-					{/if}
-				{/if}
-			</div>
-		</section>
 	{/if}
 </div>

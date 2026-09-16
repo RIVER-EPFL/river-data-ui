@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import type { EventCell, ToolDescriptor, ToolParam } from '$api/service';
-import { hasVisitPrefill, lastRunOfCalculation, openedFrom, prefillFromVisit } from './visitPrefill';
+import {
+	hasVisitPrefill,
+	lastRunOfCalculation,
+	openedFrom,
+	prefillFromVisit,
+	reopenStaging,
+	runVisit,
+} from './visitPrefill';
 
 function param(over: Partial<ToolParam>): ToolParam {
 	return {
@@ -176,5 +183,49 @@ describe('which arm filled the tool form', () => {
 	it('is fresh for a first run at a visit that has never run it', () => {
 		expect(from('tool=doc')).toBe('fresh');
 		expect(from('tool=doc&replay=visit')).toBe('fresh');
+	});
+});
+
+describe('the visit a reopened run is staged at', () => {
+	const staged = (siteId: string, collectedAt: string) => ({
+		eventId: `event-${siteId}`,
+		siteId,
+		siteName: siteId,
+		collectedAt,
+	});
+
+	it('reads the visit from the context the reload body carries', () => {
+		expect(runVisit({ site_id: 'site-b', collected_at: '2026-09-16T09:45:00Z', doc: 1 })).toEqual({
+			siteId: 'site-b',
+			collectedAt: '2026-09-16T09:45:00Z',
+		});
+		expect(runVisit({ doc: 1 })).toBeNull();
+		expect(runVisit({ site_id: 'site-b' })).toBeNull();
+	});
+
+	it('stages the run’s visit when none is staged', () => {
+		const run = { siteId: 'site-b', collectedAt: '2026-09-16T09:45:00Z' };
+		expect(reopenStaging(run, null)).toEqual({ action: 'stage', visit: run, replaced: null });
+	});
+
+	it('keeps the staged visit when it is the run’s, however the instant is written', () => {
+		const run = { siteId: 'site-b', collectedAt: '2026-09-16T09:45:00Z' };
+		expect(reopenStaging(run, staged('site-b', '2026-09-16T09:45:00.000Z'))).toEqual({
+			action: 'keep',
+		});
+	});
+
+	it('replaces a different staged visit, and names the one it replaced', () => {
+		const run = { siteId: 'site-b', collectedAt: '2026-09-16T09:45:00Z' };
+		const other = staged('site-a', '2026-09-16T09:45:00Z');
+		expect(reopenStaging(run, other)).toEqual({ action: 'stage', visit: run, replaced: other });
+		const earlier = staged('site-b', '2026-09-15T09:45:00Z');
+		expect(reopenStaging(run, earlier)).toEqual({ action: 'stage', visit: run, replaced: earlier });
+	});
+
+	it('clears a staged visit for a run computed at none, so its save cannot land there', () => {
+		const other = staged('site-a', '2026-09-16T09:45:00Z');
+		expect(reopenStaging(null, other)).toEqual({ action: 'clear', replaced: other });
+		expect(reopenStaging(null, null)).toEqual({ action: 'keep' });
 	});
 });

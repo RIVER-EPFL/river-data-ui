@@ -1,10 +1,7 @@
 <script lang="ts">
-	import { base } from '$app/paths';
 	import { page } from '$app/state';
 	import {
-		listToolScripts,
 		getToolScript,
-		createToolScript,
 		updateToolScript,
 		createToolVersion,
 		getToolVersion,
@@ -14,7 +11,6 @@
 		listToolVersionUsage,
 		inspectToolScript,
 		toolLintFindings,
-		type ToolScriptSummary,
 		type ToolScriptDetail,
 		type ToolVersionSummary,
 		type ToolVersionDetail,
@@ -43,7 +39,6 @@
 	import ManifestConstantsEditor from '$components/tools/ManifestConstantsEditor.svelte';
 	import ManifestCurvesEditor from '$components/tools/ManifestCurvesEditor.svelte';
 	import ScriptDetectionPanel from '$components/tools/ScriptDetectionPanel.svelte';
-	import ToolScriptSelect from '$components/tools/ToolScriptSelect.svelte';
 	import RScriptEditor from '$components/tools/RScriptEditor.svelte';
 	import { describeScript } from '$components/tools/preludeBoundary';
 	import JsonEditor from '$components/tools/JsonEditor.svelte';
@@ -83,7 +78,9 @@
 		splitRepName,
 	} from '$lib/tools/replicates';
 
-	let scripts = $state<ToolScriptSummary[]>([]);
+	// The R engine's authoring: script, manifest, test cases and versions of one calculation.
+	let { scriptId }: { scriptId: string } = $props();
+
 	let loading = $state(true);
 	let loadError = $state('');
 
@@ -160,35 +157,23 @@
 		activateDialogOpen = true;
 	}
 
-	let showNewScript = $state(false);
-	let newName = $state('');
-	let newLabel = $state('');
-	let newDescription = $state('');
-	let creatingScript = $state(false);
-
 	let metaLabel = $state('');
 	let metaDescription = $state('');
 	let savingMeta = $state(false);
 
 	$effect(() => {
 		if (me.status !== 'ready' || !me.can('admin')) return;
-		void refreshList().then(applyDeepLink);
+		void openScript().then(applyVersionLink);
 		void loadCatalogs();
 	});
 
-	// Arrived at from elsewhere: `?script=` names the tool and `?version=` a version number, the
-	// pair the provenance card and the tool page link with. Applied once, so a later reload of the
-	// list does not pull the author back off whatever they since selected.
-	let deepLinkApplied = false;
+	// `?version=` names a version number, the one the provenance card links with. Applied once, so
+	// a later reload does not pull the author back off whatever they since selected.
+	let versionLinkApplied = false;
 
-	async function applyDeepLink() {
-		if (deepLinkApplied) return;
-		deepLinkApplied = true;
-		const wanted = page.url.searchParams.get('script');
-		if (!wanted) return;
-		const match = scripts.find((s) => s.name === wanted || s.id === wanted);
-		if (!match) return;
-		await selectScript(match.id);
+	async function applyVersionLink() {
+		if (versionLinkApplied) return;
+		versionLinkApplied = true;
 		const wantedVersion = Number(page.url.searchParams.get('version'));
 		if (!Number.isInteger(wantedVersion) || wantedVersion <= 0) return;
 		const version = detail?.versions.find((v) => v.version_no === wantedVersion);
@@ -216,10 +201,10 @@
 			parameterCatalog = [...parameterCatalog, parameter];
 	}
 
-	async function refreshList() {
+	async function openScript() {
 		loading = true;
 		try {
-			scripts = await listToolScripts();
+			await selectScript(scriptId);
 			loadError = '';
 		} catch (e) {
 			loadError = apiMessage(e);
@@ -461,7 +446,6 @@
 			});
 			toastStore.success(`Saved version ${res.version.version_no}`);
 			await selectScript(detail.id);
-			await refreshList();
 		} catch (e) {
 			const found = toolLintFindings(e);
 			if (found) lintFindings = found;
@@ -535,7 +519,6 @@
 			activateDialogOpen = false;
 			confirmActivate = null;
 			await selectScript(detail.id);
-			await refreshList();
 		} catch (e) {
 			toastStore.error(apiMessage(e));
 		} finally {
@@ -550,7 +533,6 @@
 		try {
 			await updateToolScript(detail.id, { enabled });
 			toastStore.success(enabled ? 'Calculation switched on' : 'Calculation switched off');
-			await refreshList();
 			await selectScript(detail.id);
 		} catch (e) {
 			toastStore.error(apiMessage(e));
@@ -568,37 +550,13 @@
 				description: metaDescription || undefined,
 			});
 			toastStore.success('Saved');
-			await refreshList();
 		} catch (e) {
 			toastStore.error(apiMessage(e));
 		} finally {
 			savingMeta = false;
 		}
 	}
-
-	async function doCreateScript() {
-		creatingScript = true;
-		try {
-			const s = await createToolScript({
-				name: newName.trim(),
-				label: newLabel.trim() || newName.trim(),
-				...(newDescription.trim() ? { description: newDescription.trim() } : {}),
-			});
-			showNewScript = false;
-			newName = '';
-			newLabel = '';
-			newDescription = '';
-			await refreshList();
-			await selectScript(s.id);
-		} catch (e) {
-			toastStore.error(apiMessage(e));
-		} finally {
-			creatingScript = false;
-		}
-	}
 </script>
-
-<svelte:head><title>Manage Tools | RIVER Data</title></svelte:head>
 
 {#snippet countChips(c: SectionCount)}
 	{#if c.blocking > 0}
@@ -613,24 +571,11 @@
 	<p class="text-sm text-brand-muted">Tool script authoring requires the Administrator role.</p>
 {:else}
 	<div class="space-y-3">
-		<div class="flex flex-wrap items-center justify-between gap-2">
-			<h2 class="text-xl font-semibold">Manage Tools</h2>
-			<a href="{base}/tools" class="text-sm text-brand-primary hover:underline">Tools</a>
-		</div>
-
 		{#if loadError}
 			<ErrorNotice message={loadError} />
 		{:else if loading}
 			<p class="text-sm text-brand-muted">Loading…</p>
 		{:else}
-			<div class="flex items-center gap-2">
-				<ToolScriptSelect {scripts} selectedId={detail?.id ?? null} onSelect={selectScript} />
-				<Button variant="primary" size="sm" onclick={() => (showNewScript = true)}>New script</Button>
-			</div>
-			{#if scripts.length === 0}
-				<p class="text-sm text-brand-muted">No tool scripts.</p>
-			{/if}
-
 			{#if detail}
 				<div class="space-y-3 min-w-0">
 					<!-- Kept in view: a version is saved from wherever the author is on the page -->
@@ -1044,40 +989,12 @@
 				</div>
 			{:else}
 				<div class="rounded-md border border-brand-divider bg-brand-surface p-6 text-sm text-brand-muted">
-					Select a tool script to author its script, manifest and test cases.
+					This script could not be loaded.
 				</div>
 			{/if}
 		{/if}
 	</div>
 {/if}
-
-<Dialog bind:open={showNewScript} title="New tool script" maxWidth="xs">
-	{#snippet children()}
-		<div class="space-y-3">
-			<div class="flex flex-col gap-1">
-				<label for="tm-new-name" class="text-sm font-medium">Name <span class="text-severity-alarm">*</span></label>
-				<input id="tm-new-name" type="text" bind:value={newName} placeholder="a-z, 0-9, underscore" class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm font-mono" />
-			</div>
-			<div class="flex flex-col gap-1">
-				<label for="tm-new-label" class="text-sm font-medium">Label</label>
-				<input id="tm-new-label" type="text" bind:value={newLabel} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" />
-			</div>
-			<div class="flex flex-col gap-1">
-				<label for="tm-new-desc" class="text-sm font-medium">Description</label>
-				<input id="tm-new-desc" type="text" bind:value={newDescription} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" />
-			</div>
-			<p class="text-xs text-brand-muted">
-				The tool lists on the Tools page once a version is saved, validated and activated.
-			</p>
-		</div>
-	{/snippet}
-	{#snippet actions()}
-		<Button onclick={() => (showNewScript = false)}>Cancel</Button>
-		<Button variant="primary" onclick={doCreateScript} disabled={creatingScript || !newName.trim()}>
-			{creatingScript ? 'Creating…' : 'Create'}
-		</Button>
-	{/snippet}
-</Dialog>
 
 <Dialog
 	bind:open={activateDialogOpen}

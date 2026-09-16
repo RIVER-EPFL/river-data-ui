@@ -119,8 +119,7 @@
 				{ href: `${base}/explore`, label: 'Explore', icon: 'chart', minCap: 'readData', also: [`${base}/compare`, `${base}/scatter`, `${base}/day-of-year`] },
 				{ href: `${base}/events`, label: 'Visits', icon: 'pin', minCap: 'readData' },
 				{ href: `${base}/alarms`, label: 'Alarms', icon: 'bell' },
-				{ href: `${base}/tools`, label: 'Tools', icon: 'wrench' },
-				{ href: `${base}/tools/manage`, label: 'Manage Tools', icon: 'settings', minCap: 'admin' },
+				{ href: `${base}/data-entry`, label: 'Data entry', icon: 'wrench' },
 				{ href: `${base}/upload`, label: 'Upload', icon: 'upload', minCap: 'writeData' },
 			],
 		},
@@ -129,7 +128,7 @@
 			items: [
 				{ href: `${base}/sensors`, label: 'Sensors & Instruments', icon: 'cpu', also: [`${base}/instruments`] },
 				{ href: `${base}/parameters`, label: 'Parameters', icon: 'sliders', minCap: 'writeCatalog', also: [`${base}/constants`, `${base}/derived`] },
-				{ href: `${base}/toolbox`, label: 'Toolbox', icon: 'wrench', minCap: AUTHOR_CALCULATIONS },
+				{ href: `${base}/toolbox`, label: 'Toolbox', icon: 'wrench', minCap: AUTHOR_CALCULATIONS, also: [`${base}/calculations`, `${base}/tools/manage`] },
 			],
 		},
 		{

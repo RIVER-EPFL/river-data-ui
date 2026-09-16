@@ -1,9 +1,19 @@
 <script lang="ts">
-	import type { RunCell, RunRow, RunTables } from '$lib/tools/runTable';
+	import type { RunTraceStep } from '$api/service';
+	import CellEquation from './CellEquation.svelte';
+	import type { RunCell, RunInputTables, RunRow, RunTables } from '$lib/tools/runTable';
 
-	// A run as the portal reads it: parameters down, replicates across, the steps of the
-	// calculation above what it publishes, and the statistics in a table of their own.
-	let { tables }: { tables: RunTables } = $props();
+	// A run as the portal reads it: parameters down, replicates across. Four tables in the order the
+	// portal draws them: what the visit held, the numbers that are the same at every visit, the
+	// steps of the calculation, and what it publishes with the statistics of the repeats.
+	//
+	// The role colours are the grid's (`$lib/visits/role.ts`): a value read is primary, a value
+	// written is accent, and a step that is stored nowhere is muted.
+	let {
+		tables,
+		inputs,
+		trace = [],
+	}: { tables: RunTables; inputs?: RunInputTables; trace?: RunTraceStep[] } = $props();
 
 	function fmt(value: number | null): string {
 		if (value === null) return '--';
@@ -26,25 +36,46 @@
 {#snippet equation(cell: RunCell)}
 	{#if cell.trace}
 		<div
-			class="absolute z-40 right-0 top-full mt-1 bg-brand-surface border border-brand-divider rounded-md shadow-lg p-3 min-w-[220px] max-w-sm w-max text-left font-sans font-normal whitespace-normal"
+			class="absolute z-40 right-0 top-full mt-1 bg-brand-surface border border-brand-divider rounded-md shadow-lg p-3 min-w-[220px] max-w-sm w-max"
 		>
-			<p class="font-mono text-xs break-all mb-2">{cell.trace.formula}</p>
-			{#if cell.trace.bindings.length > 0}
-				<dl class="grid grid-cols-[auto_auto] gap-x-3 gap-y-0.5 text-xs">
-					{#each cell.trace.bindings as b (b.name)}
-						<dt class="font-mono">
-							{#if b.step}
-								<a href="#run-row-{b.step}" class="text-brand-primary hover:underline">{b.name}</a>
-							{:else}
-								{b.name}
-							{/if}
-						</dt>
-						<dd class="font-mono text-right">{fmt(b.value)}</dd>
-					{/each}
-				</dl>
-			{/if}
-			<p class="font-mono text-xs mt-2 pt-2 border-t border-brand-divider">= {fmt(cell.value)}</p>
+			<CellEquation
+				steps={trace}
+				code={cell.trace.code}
+				index={cell.trace.index}
+				anchor={(step) => `#run-row-${step}`}
+			/>
 		</div>
+	{/if}
+{/snippet}
+
+{#snippet givenTable(title: string, rows: RunRow[], columns: string[])}
+	{#if rows.length > 0}
+		<table class="w-full mb-3">
+			<thead>
+				<tr class="border-b border-brand-divider">
+					<th class="text-left px-2 py-1 text-xs font-semibold text-brand-muted">{title}</th>
+					{#if columns.length > 0}
+						{#each columns as column (column)}
+							<th class="text-right px-2 py-1 text-xs font-semibold text-brand-muted">{column}</th>
+						{/each}
+					{:else}
+						<th class="text-right px-2 py-1 text-xs font-semibold text-brand-muted">Value</th>
+					{/if}
+				</tr>
+			</thead>
+			<tbody>
+				{#each rows as row (row.key)}
+					<tr class="border-b border-brand-divider last:border-b-0 border-l-2 border-l-brand-primary">
+						<td class="px-2 py-1 text-sm">
+							{row.label}{#if row.note}&nbsp;<span class="text-xs text-brand-muted">({row.note})</span>{/if}
+						</td>
+						{#each row.cells as cell, i (i)}
+							<td class="px-2 py-1 text-right font-mono text-sm whitespace-nowrap">{fmt(cell.value)}</td>
+						{/each}
+					</tr>
+				{/each}
+			</tbody>
+		</table>
 	{/if}
 {/snippet}
 
@@ -62,7 +93,9 @@
 		{#each rows as row (row.key)}
 			<tr
 				id="run-row-{row.key}"
-				class="border-b border-brand-divider last:border-b-0 {muted ? 'text-brand-muted' : ''}"
+				class="border-b border-brand-divider last:border-b-0 border-l-2 {muted
+					? 'text-brand-muted border-l-brand-divider'
+					: 'border-l-brand-accent'}"
 			>
 				<td class="px-2 py-1 text-sm">
 					{row.label}{#if row.units}&nbsp;<span class="text-xs text-brand-muted">({row.units})</span
@@ -92,6 +125,11 @@
 		{/each}
 	{/if}
 {/snippet}
+
+{#if inputs}
+	{@render givenTable('Read at the visit', inputs.visit, inputs.columns)}
+	{@render givenTable('Constants, site and curves', inputs.fixed, [])}
+{/if}
 
 {#if hasRows}
 	<table class="w-full">

@@ -3,8 +3,15 @@
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { api } from '$api/crud';
+	import { getToolRunTrace, type ToolRunTrace } from '$api/service';
 	import { formatEquation } from '$lib/standardCurves';
+	import { indexLetter } from '$lib/tools/runTable';
+	import { equationChain, inputOrigin } from '$lib/tools/equation';
+	import { formatDateTime } from '$lib/utils';
+	import { toolboxHref } from '$lib/toolbox/route';
+	import { reopenRunHref } from '$lib/dataEntry/entry';
 	import Button from '$components/ui/Button.svelte';
+	import CellEquation from '$components/tools/CellEquation.svelte';
 
 	// Renders a sample's tool-run provenance blob: which script version and runner produced the
 	// numbers, the exact inputs, the constants and curves consumed, and which outputs were saved
@@ -12,10 +19,13 @@
 	let {
 		provenance,
 		paramName,
+		parameterCode,
 	}: {
 		provenance: Record<string, unknown>;
 		/** Resolver for saved parameter ids. Omitted, the card resolves the names it needs itself. */
 		paramName?: (id: string) => string;
+		/** The parameter the reader is looking at, whose calculation the card opens on. */
+		parameterCode?: string;
 	} = $props();
 
 	interface ProvCurve {
@@ -28,6 +38,30 @@
 
 	const tool = $derived(typeof provenance.tool === 'string' ? provenance.tool : '');
 	const runId = $derived(typeof provenance.run_id === 'string' ? provenance.run_id : null);
+
+	// The run replayed under its pinned version. A script run has no formulas to replay, and then
+	// the card shows what the run was given and returned instead.
+	let trace = $state<ToolRunTrace | null>(null);
+	$effect(() => {
+		const id = runId;
+		trace = null;
+		if (!id || !parameterCode) return;
+		getToolRunTrace(id)
+			.then((t) => {
+				if (id === runId) trace = t;
+			})
+			.catch(() => {
+				// A script run, or a version no longer stored: the tables below stand.
+			});
+	});
+	const focusIndexes = $derived.by((): (number | null)[] => {
+		if (!trace || !parameterCode) return [];
+		const opened = equationChain(trace.trace, parameterCode);
+		if (opened.length === 0) return [];
+		const step = trace.trace.find((t) => t.code === opened[0]!.code);
+		return step?.per_replicate ? step.cells.map((c) => c.index ?? null) : [null];
+	});
+	const showsTrace = $derived(trace !== null && focusIndexes.length > 0);
 	const version = $derived.by(() => {
 		const v = provenance.tool_version;
 		if (typeof v !== 'object' || v === null) return null;
@@ -129,20 +163,14 @@
 		return /^r\b/i.test(v) ? v : `R ${v}`;
 	});
 
-	// The authoring page is keyed by script name and version number; both are what the blob records.
+	// The calculation's page takes its name and a version number; both are what the blob records.
 	const versionHref = $derived(
 		tool && version?.versionNo != null
-			? `${base}/tools/manage?script=${encodeURIComponent(tool)}&version=${version.versionNo}`
+			? toolboxHref(base, tool, version.versionNo)
 			: null,
 	);
 
-	function reloadIntoTool() {
-		sessionStorage.setItem(
-			'tool-prefill',
-			JSON.stringify({ tool, inputs: provenance.inputs ?? {} }),
-		);
-		goto(`${base}/tools?tool=${encodeURIComponent(tool)}&prefill=session`);
-	}
+	const reopenHref = $derived(reopenRunHref(base, provenance));
 </script>
 
 <div class="rounded-md border border-brand-divider bg-brand-bg p-3 space-y-2.5 text-xs">
@@ -170,12 +198,30 @@
 				</div>
 			{/if}
 		</div>
-		{#if tool}
-			<Button size="sm" onclick={reloadIntoTool}>Reload into tool</Button>
+		{#if reopenHref}
+			<Button size="sm" onclick={() => goto(reopenHref)}>Reload into tool</Button>
 		{/if}
 	</div>
 
-	{#if inputs.length > 0}
+	{#if trace && parameterCode && showsTrace}
+		<div>
+			<div class="font-semibold text-brand-muted uppercase tracking-wide mb-1">Calculation</div>
+			{#each focusIndexes as index (index)}
+				<div class="py-1.5 border-t border-brand-divider">
+					{#if index !== null}
+						<p class="text-[11px] text-brand-muted mb-1">Replicate {indexLetter(index)}</p>
+					{/if}
+					<CellEquation
+						steps={trace.trace}
+						code={parameterCode}
+						{index}
+						walk
+						origin={inputOrigin(trace, formatDateTime)}
+					/>
+				</div>
+			{/each}
+		</div>
+	{:else if inputs.length > 0}
 		<div>
 			<div class="font-semibold text-brand-muted uppercase tracking-wide mb-1">Inputs</div>
 			<table class="w-full">
@@ -191,7 +237,7 @@
 		</div>
 	{/if}
 
-	{#if constants.length > 0}
+	{#if !showsTrace && constants.length > 0}
 		<div>
 			<div class="font-semibold text-brand-muted uppercase tracking-wide mb-1" title="Values resolved from the constants table when the tool ran">Constants</div>
 			<table class="w-full">

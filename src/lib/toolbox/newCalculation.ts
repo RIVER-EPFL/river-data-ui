@@ -1,17 +1,20 @@
-/// What a new formula calculation needs before it can be created, and what the request carries.
+/// What a new calculation needs before it can be created, and what the request carries.
 ///
 /// A calculation's engine is a property of the calculation, so it is chosen once here rather than
 /// switched afterwards. It names no parameter group: a group organises the grid's columns, and a
 /// calculation reads and writes parameters by code (Q169).
+export type CalculationEngine = 'formula' | 'script';
+
 export interface NewCalculationInput {
 	name: string;
 	label: string;
+	engine?: CalculationEngine;
 }
 
 export interface NewCalculationRequest {
 	name: string;
 	label: string;
-	engine: 'formula';
+	engine: CalculationEngine;
 }
 
 /**
@@ -29,7 +32,7 @@ export function newCalculationRequest(
 		request: {
 			name,
 			label: input.label.trim() || name,
-			engine: 'formula',
+			engine: input.engine ?? 'formula',
 		},
 	};
 }

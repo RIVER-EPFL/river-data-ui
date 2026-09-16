@@ -18,7 +18,7 @@
 
 {#if calculation.id}
 	<a
-		href="{base}/calculations/{calculation.id}"
+		href="{base}/toolbox/{calculation.id}"
 		{title}
 		class="inline-flex items-center whitespace-nowrap px-2 py-0.5 text-xs font-medium rounded-full no-underline hover:underline {tone}"
 	>{calculation.label}</a>

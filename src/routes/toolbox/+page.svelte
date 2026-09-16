@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import {
 		createToolScript,
 		getCalculationClosure,
@@ -17,12 +18,18 @@
 	import { api, type DerivedParameter, type Parameter } from '$api/crud';
 	import { listAll } from '$api/paged';
 	import { calculationRows, unconfiguredInputs, type CalculationRow } from '$lib/calculations/rows';
-	import { labelFollowingName, newCalculationRequest } from '$lib/toolbox/newCalculation';
+	import {
+		labelFollowingName,
+		newCalculationRequest,
+		type CalculationEngine,
+	} from '$lib/toolbox/newCalculation';
+	import { toolboxHref } from '$lib/toolbox/route';
 	import { AUTHOR_CALCULATIONS, authoringState, loadCatalog } from '$lib/toolbox/authoring';
 	import { me } from '$auth/me.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
+	import CalculationFindings from '$components/tools/CalculationFindings.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 
 	let formulas = $state<DerivedParameter[]>([]);
@@ -32,14 +39,16 @@
 	let coverage = $state<SlotCoverage[]>([]);
 	let health = $state<CalculationHealth[]>([]);
 	let applying = $state<string | null>(null);
+	let findingsOpen = $state<string | null>(null);
 	let loading = $state(true);
 	let loadError = $state<string | null>(null);
 	let refused = $state(false);
 	let engineFilter = $state<'all' | 'formula' | 'script'>('all');
 
-	// A new formula calculation. The engine is chosen here because it is a property of the
-	// calculation; a parameter group is not one of its properties (Q169).
+	// A new calculation. The engine is chosen here because it is a property of the calculation; a
+	// parameter group is not one of its properties (Q169).
 	let composing = $state(false);
+	let newEngine = $state<CalculationEngine>('formula');
 	let newName = $state('');
 	let newLabel = $state('');
 	let labelEdited = $state(false);
@@ -49,7 +58,7 @@
 	);
 
 	async function createCalculation() {
-		const made = newCalculationRequest({ name: newName, label: newLabel });
+		const made = newCalculationRequest({ name: newName, label: newLabel, engine: newEngine });
 		if ('error' in made) {
 			toastStore.error(made.error);
 			return;
@@ -57,7 +66,7 @@
 		creating = true;
 		try {
 			const created = await createToolScript(made.request);
-			await goto(`${base}/calculations/${created.id}`);
+			await goto(toolboxHref(base, created.id));
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'The calculation was not created.');
 		} finally {
@@ -71,15 +80,13 @@
 		)
 	);
 	const missingInputs = $derived(unconfiguredInputs(rows));
-	/** A formula calculation holds an ordered set of formulas, and this is where one is added to
-	 *  it: authoring a formula from the definition list makes a standalone definition instead. */
-	const formulaCalculations = $derived(
-		scripts
-			.filter((s) => s.engine === 'formula')
-			.map((s) => ({
-				...s,
-				formulas: formulas.filter((f) => f.tool_script_id === s.id).length,
-			}))
+	/** Every calculation, whichever engine, including an R script with no version active yet,
+	 *  which serves no output and so has no row in the table below. */
+	const calculations = $derived(
+		scripts.map((s) => ({
+			...s,
+			formulas: formulas.filter((f) => f.tool_script_id === s.id).length,
+		}))
 	);
 
 	onMount(async () => {
@@ -101,6 +108,9 @@
 			parameters = p;
 			coverage = closure.coverage ?? [];
 			health = h;
+			// A finding chip on a reading opens its calculation's findings.
+			const linked = page.url.searchParams.get('findings');
+			if (linked) findingsOpen = rows.find((r) => r.calculation === linked)?.key ?? null;
 			refused = s.status === 'refused';
 			loadError = (s.status === 'failed' && s.message) || null;
 		} catch (e) {
@@ -163,8 +173,7 @@
 			<p class="text-sm text-brand-muted">
 				Every calculation: input parameters in, output parameters out, re-run at a visit when an
 				input changes. The engine is a property of the calculation, a formula or an R script,
-				not a separate surface. A formula calculation's formulas are authored from here; an R
-				script's versions from the tool pages.
+				and Edit opens its formulas or its script.
 			</p>
 		</div>
 		<div class="flex items-center gap-1.5 text-xs">
@@ -187,15 +196,16 @@
 		{#if !access.authorable}
 			<p class="text-sm text-brand-muted">{access.notice}</p>
 		{:else}
-			<!-- A formula calculation is made here: Manage Tools authors R scripts, and a definition made
-			     from the parameter list belongs to no calculation. -->
+			<!-- A calculation of either engine is made here; a definition made from the parameter list
+			     belongs to no calculation. -->
 			<div class="rounded-md border border-brand-divider bg-brand-surface px-4 py-3 text-sm">
 				<div class="flex items-center justify-between gap-3">
 					<div>
-						<p class="font-semibold">New formula calculation</p>
+						<p class="font-semibold">New calculation</p>
 						<p class="text-brand-muted text-xs mt-0.5">
-							Holds an ordered set of formulas over the parameters they name. Its formulas are
-							authored on its own page.
+							A formula calculation holds an ordered set of formulas over the parameters they
+							name; an R script defines <span class="font-mono">tool</span>. Either is authored on
+							its own page.
 						</p>
 					</div>
 					{#if !composing}
@@ -204,6 +214,16 @@
 				</div>
 				{#if composing}
 					<div class="mt-3 flex flex-wrap items-end gap-2">
+						<label class="text-xs text-brand-muted">
+							Engine
+							<select
+								bind:value={newEngine}
+								class="block mt-0.5 px-2 py-1 rounded border border-brand-divider bg-brand-surface text-sm text-brand-text"
+							>
+								<option value="formula">Formulas</option>
+								<option value="script">R script</option>
+							</select>
+						</label>
 						<label class="text-xs text-brand-muted">
 							Name
 							<input
@@ -237,25 +257,31 @@
 			</div>
 		{/if}
 
-		{#if formulaCalculations.length > 0}
+		{#if calculations.length > 0}
 			<div class="rounded-md border border-brand-divider bg-brand-surface px-4 py-3 text-sm">
-				<p class="font-semibold">Formula calculations</p>
-				<p class="text-brand-muted text-xs mt-0.5">
-					Each holds an ordered set of formulas over its group's members and records one run.
-				</p>
+				<p class="font-semibold">Calculations</p>
 				<ul class="mt-2 space-y-1">
-					{#each formulaCalculations as calculation}
+					{#each calculations as calculation (calculation.id)}
 						<li class="flex items-center justify-between gap-3">
 							<span>
 								{calculation.label || calculation.name}
+								<Badge variant={calculation.engine === 'formula' ? 'muted' : 'accent'}>
+									{calculation.engine === 'formula' ? 'formula' : 'R'}
+								</Badge>
 								<span class="text-brand-muted text-xs">
-									({calculation.formulas} formula{calculation.formulas === 1 ? '' : 's'})
+									{#if calculation.engine === 'formula'}
+										{calculation.formulas} formula{calculation.formulas === 1 ? '' : 's'}
+									{:else if calculation.active_version_no != null}
+										version {calculation.active_version_no}
+									{:else}
+										no version active
+									{/if}
 								</span>
 							</span>
 							<a
-								href="{base}/calculations/{calculation.id}"
+								href={toolboxHref(base, calculation.id)}
 								class="text-brand-primary no-underline hover:underline text-xs"
-							>Open</a>
+							>Edit</a>
 						</li>
 					{/each}
 				</ul>
@@ -332,6 +358,12 @@
 											disabled={applying === h.tool}
 											onclick={() => applyStale(h.tool, h.stale_visits)}
 										>{applying === h.tool ? 'Queueing…' : 'Recompute them'}</Button>
+										<Button
+											size="sm"
+											variant="ghost"
+											aria-expanded={findingsOpen === row.key}
+											onclick={() => (findingsOpen = findingsOpen === row.key ? null : row.key)}
+										>Findings {findingsOpen === row.key ? '▾' : '▸'}</Button>
 									</div>
 								{:else}
 									<span class="text-xs text-brand-muted">-</span>
@@ -347,6 +379,16 @@
 								{/if}
 							</td>
 						</tr>
+						{#if findingsOpen === row.key && standing(row)}
+							<tr class="border-b border-brand-divider bg-brand-bg/40">
+								<td colspan="9" class="px-3 py-2">
+									<CalculationFindings
+										calculation={standing(row)!.tool}
+										onchange={async () => (health = await getCalculationHealth())}
+									/>
+								</td>
+							</tr>
+						{/if}
 					{:else}
 						<tr>
 							<td colspan="9" class="px-3 py-6 text-center text-sm text-brand-muted">

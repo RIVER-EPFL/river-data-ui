@@ -1,12 +1,12 @@
 // One list of everything that computes a parameter, whichever engine does it.
 //
-// A formula on `/derived` and an R script under Manage Tools are two definitions of one concept,
-// and an admin asked "what computes DOM at Saxon, and is it current" was reading two pages, neither
-// of which answered the second half. This folds both into rows with the same columns, so the
-// question is asked once. Authoring stays where it is; this is the listing.
+// A formula and an R script are two engines of one concept, and an admin asking "what computes DOM
+// at Saxon, and is it current" reads one list for both. Each row links to where it is authored: a
+// calculation's page for either engine, and `/derived` for a definition that belongs to none.
 
 import type { DerivedParameter, Parameter } from '$api/crud';
 import type { SlotCoverage, ToolDescriptor, ToolScriptSummary } from '$api/service';
+import { toolboxHref } from '$lib/toolbox/route';
 
 export type CalculationEngine = 'formula' | 'script';
 
@@ -101,7 +101,7 @@ export function calculationRows(args: {
 			fires_on: 'each source reading',
 			definition: d.formula,
 			enabled: null,
-			href: `${base}/derived/${d.id}`,
+			href: d.tool_script_id ? `${base}/toolbox/${d.tool_script_id}` : `${base}/derived/${d.id}`,
 			output_reading_count: null,
 			output_sources: [],
 		});
@@ -110,6 +110,8 @@ export function calculationRows(args: {
 	const scriptByName = new Map(scripts.map((s) => [s.name, s]));
 	for (const t of tools) {
 		const script = scriptByName.get(t.name);
+		// A formula calculation is served as a tool too; its formulas are already rows above.
+		if (script?.engine === 'formula') continue;
 		for (const output of t.outputs) {
 			const code = output.suggested_parameter_code ?? output.label ?? output.key;
 			const cover = coverageOf(coverage, (c) => c.parameter_code.toLowerCase() === code.toLowerCase());
@@ -126,7 +128,7 @@ export function calculationRows(args: {
 				fires_on: 'each write at a visit',
 				definition: `${t.name} v${t.version_no}`,
 				enabled: script?.enabled ?? true,
-				href: `${base}/tools/manage`,
+				href: toolboxHref(base, script?.id ?? t.name),
 				output_reading_count: cover?.reading_count ?? null,
 				output_sources: cover?.source_systems ?? [],
 			});

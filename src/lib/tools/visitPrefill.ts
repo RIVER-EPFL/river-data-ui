@@ -1,4 +1,5 @@
 import type { EventCell, ToolDescriptor } from '$api/service';
+import type { StagedVisit } from '$lib/stores/visit.svelte';
 
 /**
  * A tool form opened on a visit that already holds values (M4).
@@ -99,4 +100,39 @@ export type OpenedFrom = 'visit-last-run' | 'fresh';
 export function openedFrom(params: URLSearchParams): OpenedFrom {
 	const replaying = params.get('reload') !== null && params.get('replay') === 'visit';
 	return replaying ? 'visit-last-run' : 'fresh';
+}
+
+/** The visit a stored run was computed at, as its reload body names it. */
+export interface RunVisit {
+	siteId: string;
+	collectedAt: string;
+}
+
+/** The reload body carries the run's context as `site_id` and `collected_at`; either missing is none. */
+export function runVisit(body: Record<string, unknown>): RunVisit | null {
+	const siteId = body.site_id;
+	const collectedAt = body.collected_at;
+	if (typeof siteId !== 'string' || typeof collectedAt !== 'string') return null;
+	return { siteId, collectedAt };
+}
+
+export type ReopenStaging =
+	| { action: 'keep' }
+	| { action: 'stage'; visit: RunVisit; replaced: StagedVisit | null }
+	| { action: 'clear'; replaced: StagedVisit };
+
+/**
+ * What reopening a run does to the staged visit. Data entry saves at the staged visit, so a run
+ * reopened anywhere else would be saved at a visit it was never computed at.
+ */
+export function reopenStaging(run: RunVisit | null, staged: StagedVisit | null): ReopenStaging {
+	if (!run) return staged ? { action: 'clear', replaced: staged } : { action: 'keep' };
+	if (
+		staged &&
+		staged.siteId === run.siteId &&
+		Date.parse(staged.collectedAt) === Date.parse(run.collectedAt)
+	) {
+		return { action: 'keep' };
+	}
+	return { action: 'stage', visit: run, replaced: staged };
 }

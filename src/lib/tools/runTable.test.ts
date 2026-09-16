@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ToolOutput } from '$api/service';
-import { runTables } from './runTable';
+import { runInputTables, runTables } from './runTable';
 
 const output = (over: Partial<ToolOutput>): ToolOutput =>
 	({ label: over.key, units: null, per_replicate: false, aggregate_of: null, ...over }) as ToolOutput;
@@ -59,7 +59,7 @@ describe('run tables', () => {
 		expect(tables.outputs[1]?.cells[0]?.value).toBe(5);
 	});
 
-	it('bands from the trace and gives each cell its formula with what it read', () => {
+	it('bands from the trace and points each cell at the step and index that produced it', () => {
 		const tables = runTables(
 			{ bp: 2, S1: [2, 6], S2: [12, 16] },
 			[
@@ -72,6 +72,7 @@ describe('run tables', () => {
 					code: 'bp',
 					label: 'BP',
 					units: 'hPa',
+					output_parameter_code: null,
 					formula: 'field_bp * 1.0',
 					intermediate: true,
 					per_replicate: false,
@@ -81,6 +82,7 @@ describe('run tables', () => {
 					code: 'S1',
 					label: 'S1',
 					units: null,
+					output_parameter_code: 'S1',
 					formula: 'peak * bp',
 					intermediate: false,
 					per_replicate: true,
@@ -93,6 +95,7 @@ describe('run tables', () => {
 					code: 'S2',
 					label: 'S2',
 					units: null,
+					output_parameter_code: 'S2',
 					formula: 's1 + k',
 					intermediate: false,
 					per_replicate: true,
@@ -107,26 +110,61 @@ describe('run tables', () => {
 		expect(tables.steps[0]?.label).toBe('BP');
 		expect(tables.steps[0]?.units).toBe('hPa');
 		expect(tables.outputs.map((r) => r.key)).toEqual(['S1', 'S2']);
-		// The stage-2 cell at B read the stage-1 value at B, and bp is a step it can open.
-		const atB = tables.outputs[1]?.cells[1];
-		expect(atB?.trace?.formula).toBe('s1 + k');
-		expect(atB?.trace?.bindings).toEqual([
-			{ name: 's1', value: 6, step: null },
-			{ name: 'k', value: 10, step: null },
-		]);
-		expect(tables.outputs[0]?.cells[0]?.trace?.bindings).toContainEqual({
-			name: 'bp',
-			value: 2,
-			step: 'bp',
-		});
-		// The scalar step's one cell has its own trace.
-		expect(tables.steps[0]?.cells[0]?.trace?.bindings).toEqual([
-			{ name: 'field_bp', value: 2, step: null },
-		]);
+		expect(tables.outputs[1]?.cells[1]?.trace).toEqual({ code: 'S2', index: 1 });
+		// The scalar step's one cell has no index.
+		expect(tables.steps[0]?.cells[0]?.trace).toEqual({ code: 'bp', index: null });
 	});
 
 	it('leaves a cell without a trace as a plain number', () => {
 		const tables = runTables({ doc: 4.2 }, [output({ key: 'doc', label: 'DOC', units: 'ppb' })]);
 		expect(tables.outputs[0]?.cells[0]?.trace).toBeUndefined();
+	});
+});
+
+describe('the tables of what a run was given', () => {
+	it('pivots the visit values into replicate columns and names where each came from', () => {
+		const tables = runInputTables(
+			[
+				{ param: 'lab_co2_co2ppm', parameter_code: 'lab_co2_co2ppm', value: [410, 415] },
+				{ param: 'lab_temp', parameter_code: 'Lab_Temperature', value: 21.4 },
+			],
+			[],
+			{},
+			[],
+		);
+		expect(tables.columns).toEqual(['A', 'B']);
+		expect(tables.visit.map((r) => r.key)).toEqual(['lab_co2_co2ppm', 'lab_temp']);
+		expect(tables.visit[0]?.cells.map((c) => c.value)).toEqual([410, 415]);
+		// A scalar the visit holds once sits under the first column and leaves the rest empty.
+		expect(tables.visit[1]?.cells.map((c) => c.value)).toEqual([21.4, null]);
+		expect(tables.visit[1]?.note).toBe('Lab_Temperature');
+	});
+
+	it('gathers the site properties, the constants and each curve slot into one table', () => {
+		const tables = runInputTables(
+			[],
+			[{ property: 'elevation_m', param: 'altitude', value: 1480 }],
+			{ R: 8.314, kh_a: 0.034 },
+			[
+				{
+					name: 'chla_curve',
+					curve: { slope: 3, intercept: 1, standard_curve_id: null, label: 'Bench 2026-04' },
+				},
+			],
+		);
+		expect(tables.columns).toEqual([]);
+		expect(tables.fixed.map((r) => [r.key, r.cells[0]?.value])).toEqual([
+			['altitude', 1480],
+			['R', 8.314],
+			['kh_a', 0.034],
+			['chla_curve.slope', 3],
+			['chla_curve.intercept', 1],
+		]);
+		expect(tables.fixed[0]?.note).toBe('elevation_m');
+		expect(tables.fixed[3]?.note).toBe('Bench 2026-04');
+	});
+
+	it('is empty tables when a run read nothing', () => {
+		expect(runInputTables()).toEqual({ columns: [], visit: [], fixed: [] });
 	});
 });

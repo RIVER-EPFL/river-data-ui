@@ -1,7 +1,7 @@
 <script lang="ts">
 	// The manifest under construction, rendered as the form it produces, and run as it stands.
 	//
-	// The form is the same component the Tools page renders, so what an author sees here is what
+	// The form is the same component the Data entry page renders, so what an author sees here is what
 	// an operator will meet. The run goes through `POST /tool_scripts/draft_run`, which applies
 	// the same manifest validation, constant resolution and curve resolution as a saved tool.
 	import { untrack } from 'svelte';

@@ -188,7 +188,7 @@
 				<ul class="mt-2 space-y-1">
 					{#each calculations as calculation (calculation.id)}
 						<li>
-							<a href="{base}/calculations/{calculation.id}" class="text-brand-primary no-underline hover:underline">{calculation.label || calculation.name}</a>
+							<a href="{base}/toolbox/{calculation.id}" class="text-brand-primary no-underline hover:underline">{calculation.label || calculation.name}</a>
 							<span class="text-brand-muted text-xs font-mono"> {calculation.name}</span>
 						</li>
 					{/each}

@@ -13,6 +13,11 @@ describe('new formula calculation', () => {
 		expect(made).toEqual({ request: { name: 'pco2', label: 'pco2', engine: 'formula' } });
 	});
 
+	it('declares an R script when that is the engine chosen', () => {
+		const made = newCalculationRequest({ name: 'doc', label: 'DOC', engine: 'script' });
+		expect(made).toEqual({ request: { name: 'doc', label: 'DOC', engine: 'script' } });
+	});
+
 	it('says what is missing instead of posting an incomplete calculation', () => {
 		expect(newCalculationRequest({ name: ' ', label: 'x' })).toEqual({
 			error: 'A calculation needs a name.',

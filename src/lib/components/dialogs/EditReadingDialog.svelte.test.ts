@@ -86,7 +86,7 @@ describe('the edit dialog', () => {
 		await fireEvent.click(await screen.findByText('Open the calculation'));
 
 		await waitFor(() => expect(goto).toHaveBeenCalled());
-		expect(goto.mock.calls[0][0]).toBe('/admin/tools?tool=doc&reload=run-1');
+		expect(goto.mock.calls[0][0]).toBe('/admin/data-entry?tool=doc&reload=run-1');
 	});
 
 	it('offers only what every reading in a mixed selection allows, and says so', async () => {

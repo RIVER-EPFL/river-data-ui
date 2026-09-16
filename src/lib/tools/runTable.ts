@@ -7,18 +7,10 @@ import type { RunTraceStep, ToolOutput } from '$api/service';
 /// that into a table of outputs against replicate letters, with the steps of the calculation above
 /// the values it publishes, and the mean and standard deviation in a table of their own.
 
-/** One variable a formula read: its name, its value, and the row it came from when that row is
- *  a step of the same run. */
-export interface CellBinding {
-	name: string;
-	value: number | null;
-	step: string | null;
-}
-
-/** The equation behind a cell: the formula text and what it read. */
+/** Which step of the run's trace produced a cell, for the equation behind it. */
 export interface CellTrace {
-	formula: string;
-	bindings: CellBinding[];
+	code: string;
+	index: number | null;
 }
 
 /** One cell: a value, a reason it never ran, or nothing at that index. */
@@ -32,6 +24,9 @@ export interface RunRow {
 	key: string;
 	label: string;
 	units: string | null;
+	/** Where the row's numbers came from: the catalog code behind a variable, the site property a
+	 *  value was read from, the curve filling a slot. Null when the label says it already. */
+	note?: string;
 	/** One cell per replicate column, in column order. */
 	cells: RunCell[];
 }
@@ -83,19 +78,112 @@ function asNumber(value: unknown): number | null {
 	return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-function cellTrace(step: RunTraceStep, index: number, stepCodes: Set<string>): CellTrace | null {
-	const cell = step.per_replicate
-		? step.cells.find((c) => c.index === index)
-		: step.cells[0];
+function cellTrace(step: RunTraceStep, index: number): CellTrace | null {
+	const cell = step.per_replicate ? step.cells.find((c) => c.index === index) : step.cells[0];
 	if (!cell || cell.skipped) return null;
-	return {
-		formula: step.formula,
-		bindings: Object.entries(cell.bindings).map(([name, value]) => ({
-			name,
-			value: asNumber(value),
-			step: stepCodes.has(name) ? name : null,
-		})),
+	return { code: step.code, index: cell.index ?? null };
+}
+
+/** One value the run read from the visit, as the draft run reports it. */
+export interface RunEventInput {
+	param: string;
+	parameter_code?: string;
+	value: unknown;
+}
+
+/** One value the run read from the site's own row. */
+export interface RunSiteInput {
+	property: string;
+	param: string;
+	value: unknown;
+}
+
+/** One curve slot the run was given, and the curve that filled it. */
+export interface RunCurveSlot {
+	name: string;
+	curve: {
+		slope: number;
+		intercept: number;
+		standard_curve_id?: string | null;
+		label?: string | null;
 	};
+}
+
+/** The two tables of what a run was given, in the portal's order: the visit's own values first,
+ *  then the numbers that are the same at every visit. */
+export interface RunInputTables {
+	/** The replicate letters the visit's values span. Empty when every value is a single number. */
+	columns: string[];
+	visit: RunRow[];
+	fixed: RunRow[];
+}
+
+function valueRow(key: string, label: string, value: number | null, note?: string): RunRow {
+	return {
+		key,
+		label,
+		units: null,
+		...(note ? { note } : {}),
+		cells: [{ value, skipped: null }],
+	};
+}
+
+/**
+ * Shape what a run was given into the tables above its results.
+ *
+ * The visit's values are pivoted the same way the outputs are, so a family entered as repeats
+ * reads across the same letters its outputs are computed under. Everything else is one number per
+ * row: a site property, a constant of the catalog, and the slope and intercept of each curve slot.
+ */
+export function runInputTables(
+	eventInputs: RunEventInput[] = [],
+	siteInputs: RunSiteInput[] = [],
+	constants: Record<string, number> = {},
+	curves: RunCurveSlot[] = [],
+): RunInputTables {
+	const width = eventInputs.reduce(
+		(widest, i) => (Array.isArray(i.value) ? Math.max(widest, i.value.length) : widest),
+		0,
+	);
+	const columns = Array.from({ length: width }, (_, i) => indexLetter(i));
+	const cells = () =>
+		Array.from({ length: Math.max(1, columns.length) }, () => ({ value: null, skipped: null }));
+
+	const visit = eventInputs.map((input) => {
+		const row: RunRow = {
+			key: input.param,
+			label: input.param,
+			units: null,
+			...(input.parameter_code && input.parameter_code !== input.param
+				? { note: input.parameter_code }
+				: {}),
+			cells: cells(),
+		};
+		if (Array.isArray(input.value)) {
+			input.value.forEach((value, index) => {
+				if (index < row.cells.length) row.cells[index] = { value: asNumber(value), skipped: null };
+			});
+		} else {
+			row.cells[0] = { value: asNumber(input.value), skipped: null };
+		}
+		return row;
+	});
+
+	const fixed: RunRow[] = [
+		...siteInputs.map((s) => valueRow(s.param, s.param, asNumber(s.value), s.property)),
+		...Object.entries(constants).map(([name, value]) => valueRow(name, name, asNumber(value))),
+		...curves.flatMap((slot) =>
+			(['slope', 'intercept'] as const).map((coefficient) =>
+				valueRow(
+					`${slot.name}.${coefficient}`,
+					`${slot.name} ${coefficient}`,
+					asNumber(slot.curve[coefficient]),
+					slot.curve.label ?? undefined,
+				),
+			),
+		),
+	];
+	return { columns, visit, fixed };
 }
 
 /**
@@ -113,7 +201,6 @@ export function runTables(
 ): RunTables {
 	const declaration = declarationFor(outputs);
 	const traced = new Map(trace.map((t) => [t.code, t]));
-	const stepCodes = new Set(trace.map((t) => t.code));
 	const reasons = new Map<string, string>();
 	for (const entry of skipped) {
 		const key = typeof entry.output === 'string' ? entry.output : null;
@@ -183,7 +270,7 @@ export function runTables(
 			band,
 		);
 		const withTrace = (cell: RunCell, index: number): RunCell => {
-			const t = step ? cellTrace(step, index, stepCodes) : null;
+			const t = step ? cellTrace(step, index) : null;
 			return t ? { ...cell, trace: t } : cell;
 		};
 		const list = results[key];

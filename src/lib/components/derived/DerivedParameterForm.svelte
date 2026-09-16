@@ -215,7 +215,7 @@
 		</h2>
 		{#if ownedBy}
 			<p class="text-sm text-brand-muted mt-1">
-				A formula of <a href="{base}/calculations/{ownedBy.id}" class="text-brand-primary no-underline hover:underline">{ownedBy.label || ownedBy.name}</a>,
+				A formula of <a href="{base}/toolbox/{ownedBy.id}" class="text-brand-primary no-underline hover:underline">{ownedBy.label || ownedBy.name}</a>,
 				which runs its formulas together and records one run.
 			</p>
 		{:else if !editing}

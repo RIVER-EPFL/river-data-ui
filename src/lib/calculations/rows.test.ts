@@ -52,7 +52,7 @@ const tools = [
 	},
 ] as unknown as ToolDescriptor[];
 
-const scripts = [{ name: 'dom', enabled: false }] as ToolScriptSummary[];
+const scripts = [{ id: 'sc-dom', name: 'dom', enabled: false, engine: 'script' }] as ToolScriptSummary[];
 
 function rows() {
 	return calculationRows({ derived, tools, scripts, parameters, coverage, base: '' });
@@ -139,5 +139,33 @@ describe('the calculation a row belongs to', () => {
 			base: '',
 		});
 		expect(owned.find((r) => r.engine === 'formula')?.calculation).toBe('pco2');
+	});
+
+	it("links each row to where it is authored: a script's page, a calculation's formulas", () => {
+		const [standalone, script] = rows();
+		expect(script.href).toBe('/toolbox/sc-dom');
+		expect(standalone.href).toBe('/derived/d1');
+		const owned = calculationRows({
+			derived: [{ ...derived[0], tool_script_id: 'sc-pco2' }],
+			tools: [],
+			scripts: [],
+			parameters,
+			coverage,
+			base: '',
+		});
+		expect(owned[0].href).toBe('/toolbox/sc-pco2');
+	});
+
+	it('lists a formula calculation once, by its formulas, not again as a script', () => {
+		const pco2 = { ...tools[0], name: 'pco2_demo', label: 'pCO2' } as ToolDescriptor;
+		const listed = calculationRows({
+			derived,
+			tools: [pco2],
+			scripts: [{ id: 'sc-pco2', name: 'pco2_demo', engine: 'formula' }] as ToolScriptSummary[],
+			parameters,
+			coverage,
+			base: '',
+		});
+		expect(listed.map((r) => r.engine)).toEqual(['formula']);
 	});
 });

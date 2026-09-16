@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { BASE_PATH, signIn } from './portal';
+import { API_URL, BASE_PATH, signIn, token } from './portal';
 
 // Scenario: the lab authors a CNET calculator by hand, which Q149 made the only path a deployment
 // has to one, and the calculation page is the surface it is typed on. `tests/tools/cnet_authoring.rs`
@@ -16,37 +16,20 @@ import { BASE_PATH, signIn } from './portal';
 //
 // A separate output reads the site's altitude directly.
 
-const API_URL = process.env.E2E_API_URL ?? 'http://localhost:3005';
-const KEYCLOAK_URL = process.env.E2E_KEYCLOAK_URL ?? 'http://localhost:8180/';
-
 /** The golden visit's values, row 16 of the fixture's `field_data` case. */
 const WTW_TEMP = 7.6;
 const FIELD_BP = 836;
 const FIELD_BP_ALTITUDE = 798;
 const VAISALA_CO2_AVG = 320;
 const ALTITUDE = 1234;
+/** The one value the second story's visit holds. */
+const ENTERED_INPUT = 12;
 
 interface Fixture {
 	stamp: string;
 	siteName: string;
 	groupLabel: string;
 	codes: Record<string, string>;
-}
-
-async function token(request: APIRequestContext): Promise<string> {
-	const response = await request.post(
-		`${KEYCLOAK_URL.replace(/\/$/, '')}/realms/river-data/protocol/openid-connect/token`,
-		{
-			form: {
-				client_id: 'river-data-ui-local',
-				username: 'admin',
-				password: 'admin',
-				grant_type: 'password',
-			},
-		},
-	);
-	expect(response.ok(), 'the seeded realm issues a token for admin').toBeTruthy();
-	return (await response.json()).access_token;
 }
 
 /**
@@ -145,8 +128,8 @@ async function addFormula(
 		await page.getByRole('textbox', { name: 'Curve slot' }).fill(formula.curveSlot);
 	}
 	await page.getByPlaceholder('Type formula directly').fill(formula.text);
-	await expect(page.getByRole('button', { name: 'Add', exact: true })).toBeEnabled();
-	await page.getByRole('button', { name: 'Add', exact: true }).click();
+	await expect(page.getByRole('button', { name: 'Done', exact: true })).toBeEnabled();
+	await page.getByRole('button', { name: 'Done', exact: true }).click();
 	await expect(page.getByRole('button', { name: 'Add formula', exact: true })).toBeEnabled();
 }
 
@@ -157,14 +140,14 @@ test('a CNET formula set is authored on the page and reproduces its golden visit
 	const { stamp, siteName, groupLabel, codes } = await seedCatalog(request);
 	await signIn(page);
 
-	// The calculation is made in the Toolbox, which is where the engine and the group are chosen.
+	// The calculation is made in the Toolbox from a name and a label. It names no parameter group
+	// (Q169): the group holds the catalog's members, and the formulas name the parameters.
 	await page.goto(`${BASE_PATH}/toolbox`);
 	await page.getByRole('button', { name: 'New calculation' }).click();
 	await page.getByRole('textbox', { name: 'Name' }).fill(`field_data_${stamp}`);
 	await page.getByRole('textbox', { name: 'Label' }).fill(groupLabel);
-	await page.getByLabel('Parameter group').selectOption({ label: groupLabel });
 	await page.getByRole('button', { name: 'Create and open it' }).click();
-	await expect(page).toHaveURL(/\/calculations\/[0-9a-f-]{36}/);
+	await expect(page).toHaveURL(/\/toolbox\/[0-9a-f-]{36}/);
 	await expect(page.getByRole('heading', { name: groupLabel })).toBeVisible();
 
 	// The step is not retyped: the calculation declares that it reads the one already written.
@@ -198,8 +181,12 @@ test('a CNET formula set is authored on the page and reproduces its golden visit
 	});
 
 	// What the set reads, classified: an earlier formula's value, and the parameters read from the
-	// visit. A row is found by the code it opens with, so `bp_x` does not match `Field_BP_x`.
-	const inputs = page.locator('section', { has: page.getByRole('heading', { name: 'Inputs' }) });
+	// visit. The declarations fold under the visit's numbers, so the fold is opened first. A row is
+	// found by the code it opens with, so `bp_x` does not match `Field_BP_x`.
+	const fold = (name: string) =>
+		page.locator('details').filter({ has: page.locator('summary', { hasText: name }) });
+	const inputs = fold('Inputs');
+	await inputs.locator('summary').click();
 	const reads = (code: string) =>
 		inputs.getByRole('listitem').filter({ hasText: new RegExp(`^${code}`) });
 	await expect(reads(codes.step)).toContainText('step');
@@ -209,7 +196,8 @@ test('a CNET formula set is authored on the page and reproduces its golden visit
 	await expect(reads('curve_slope')).toContainText(`slot ${codes.curveSlot}`);
 
 	// A shared step publishes nothing.
-	const outputs = page.locator('section', { has: page.getByRole('heading', { name: 'Outputs' }) });
+	const outputs = fold('Outputs');
+	await outputs.locator('summary').click();
 	const publishes = (code: string) =>
 		outputs.getByRole('listitem').filter({ hasText: new RegExp(`^${code}`) });
 	await expect(publishes(codes.output)).toHaveCount(1);
@@ -237,4 +225,102 @@ test('a CNET formula set is authored on the page and reproduces its golden visit
 	const outputRow = page.locator(`#run-row-${codes.output}`);
 	await expect(outputRow).toContainText('280.463');
 	await expect(page.locator(`#run-row-${codes.altitude}`)).toContainText(String(ALTITUDE));
+});
+
+/**
+ * A calculation over one visit, authored through the routes rather than through the page: what the
+ * second story is about is the page's own shape, so nothing here is typed.
+ */
+async function seedVisitCalculation(request: APIRequestContext) {
+	const stamp = `${Date.now()}`;
+	const bearer = await token(request);
+	const headers = { Authorization: `Bearer ${bearer}` };
+	const post = async (path: string, data: unknown) => {
+		const response = await request.post(`${API_URL}/api${path}`, { headers, data });
+		expect(response.ok(), `${path} -> ${response.status()} ${await response.text()}`).toBeTruthy();
+		return response.json();
+	};
+
+	const inputCode = `m252_in_${stamp}`;
+	const stepCode = `m252_step_${stamp}`;
+	const outputCode = `m252_out_${stamp}`;
+	const project = await post('/projects', { name: `Tool view ${stamp}` });
+	const site = await post('/sites', {
+		name: `Tool view ${stamp}`,
+		project_id: project.id,
+		altitude_m: ALTITUDE,
+	});
+	const input = await post('/parameters', {
+		code: inputCode,
+		name: inputCode,
+		category: 'measurement',
+		aliases: [],
+	});
+	await post('/site_parameters', { site_id: site.id, parameter_id: input.id, name: inputCode });
+
+	const calculation = await post('/tool_scripts', {
+		name: `m252_${stamp}`,
+		label: `Tool view ${stamp}`,
+		engine: 'formula',
+	});
+	// The step and the output in one save: a formula reading a step the set does not yet carry is
+	// refused, and a save is the whole set (Q186).
+	await post(`/tool_scripts/${calculation.id}/formulas`, {
+		formulas: [
+			{
+				code: stepCode,
+				name: 'Step',
+				units: '',
+				formula: `${inputCode} + 1`,
+				ordinal: 1,
+				intermediate: true,
+			},
+			{ code: outputCode, name: outputCode, units: 'ppm', formula: `${stepCode} * 2`, ordinal: 2 },
+		],
+	});
+
+	const collectedAt = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+	await post('/grab_samples', {
+		site_id: site.id,
+		mode: 'replace',
+		readings: [
+			{ parameter_id: input.id, value: ENTERED_INPUT, time: collectedAt, replicate_index: 0 },
+		],
+	});
+	const visit = await post('/collection_events/stage', {
+		site_id: site.id,
+		collected_at: collectedAt,
+	});
+	return { calculationId: calculation.id, siteId: site.id, visitId: visit.id, inputCode, stepCode, outputCode };
+}
+
+// Scenario: a manager opens a calculation to see what it did at one visit (M252). The page is the
+// visit's data, not the calculation's metadata.
+//
+// Expected behaviour: the site and the visit are in the URL, so the page opens on the four tables
+// the portal draws, in its order, with the visit's numbers in them and nothing clicked.
+test('a calculation opened at a visit shows the visit\'s numbers in the portal\'s tables', async ({
+	page,
+	request,
+}) => {
+	const { calculationId, siteId, visitId, inputCode, stepCode, outputCode } =
+		await seedVisitCalculation(request);
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/toolbox/${calculationId}?site=${siteId}&visit=${visitId}`);
+
+	// What the visit held, before the calculation touched it.
+	await expect(page.getByRole('columnheader', { name: 'Read at the visit' })).toBeVisible();
+	await expect(page.getByRole('row').filter({ hasText: inputCode })).toContainText(
+		String(ENTERED_INPUT),
+	);
+	// The step, then what the calculation publishes from it.
+	await expect(page.locator(`#run-row-${stepCode}`)).toContainText(String(ENTERED_INPUT + 1));
+	await expect(page.locator(`#run-row-${outputCode}`)).toContainText(
+		String((ENTERED_INPUT + 1) * 2),
+	);
+
+	// The declarations are under the tables, folded, rather than above them.
+	const declared = page.locator('details').filter({ has: page.locator('summary', { hasText: 'Inputs' }) });
+	await expect(declared).toHaveCount(1);
+	await expect(declared.getByRole('listitem').first()).toBeHidden();
 });

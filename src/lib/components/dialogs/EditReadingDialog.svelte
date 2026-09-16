@@ -152,7 +152,7 @@
 			const run = await reloadToolRun(toolRunId);
 			sessionStorage.setItem('tool-reload', JSON.stringify(run));
 			open = false;
-			await goto(`${base}/tools?tool=${encodeURIComponent(run.tool)}&reload=${toolRunId}`);
+			await goto(`${base}/data-entry?tool=${encodeURIComponent(run.tool)}&reload=${toolRunId}`);
 		} catch (e) {
 			previewError = e instanceof Error ? e.message : String(e);
 		}

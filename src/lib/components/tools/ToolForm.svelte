@@ -1,5 +1,5 @@
 <script lang="ts">
-	// The one input form a tool manifest produces. Both the Tools page and the manifest editor's
+	// The one input form a tool manifest produces. Both the Data entry page and the manifest editor's
 	// live preview render through here, so the preview is the form an operator will meet rather
 	// than an approximation of it.
 	import Button from '$components/ui/Button.svelte';
