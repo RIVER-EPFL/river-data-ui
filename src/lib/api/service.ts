@@ -589,10 +589,9 @@ export const setSyncInterval = (serviceId: string, seconds: number | null) =>
 export const setFullReassert = (serviceId: string, enabled: boolean) =>
 	PATCH<SyncService>(`${SERVICE}/sync_services/${serviceId}`, { full_reassert_enabled: enabled });
 
-export const createServiceCredential = (serviceType: string, sourceSystem?: string) =>
+export const createServiceCredential = (serviceType: string) =>
 	POST<{ client_id: string; client_secret: string }>(`${ADMIN}/sync/credentials`, {
 		service_type: serviceType,
-		source_system: sourceSystem || null,
 	});
 
 export type RevokedResponse = components['schemas']['RevokedResponse'];

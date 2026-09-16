@@ -21,6 +21,15 @@ export function resyncServiceFor(
 	);
 }
 
+// The services feeding a source system: those of that type, else those whose instance names it.
+// The portal services share one type, so a portal source is told apart by its instance name.
+export function servicesForSource(services: SyncService[], sourceSystem: string): SyncService[] {
+	const byType = services.filter((s) => s.service_type === sourceSystem);
+	if (byType.length) return byType;
+	const name = sourceSystem.toLowerCase();
+	return services.filter((s) => s.instance_id.toLowerCase().includes(name));
+}
+
 // What a full sync actually does, which is not the same on both kinds of source: a portal declares
 // the window it re-asserts, so its diff applies corrections; an append-only source is only asked
 // for history again and the rows already stored are left alone.

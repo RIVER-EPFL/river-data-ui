@@ -6686,7 +6686,6 @@ export interface paths {
          *     Additional filterable columns:
          *     - client_id
          *     - service_type
-         *     - source_system
          *     - service_id
          *     - revoked.
          */
@@ -6799,7 +6798,6 @@ export interface paths {
          *
          *     Additional filterable columns:
          *     - service_type
-         *     - source_system
          *     - instance_id
          *     - status
          *     - paused
@@ -9364,11 +9362,6 @@ export interface components {
         };
         CreateCredentialRequest: {
             service_type: string;
-            /**
-             * @description The source system a service on this credential speaks for, e.g. "metalp". Its registrations
-             *     are written under it, so it is declared here rather than sent with each call.
-             */
-            source_system?: string | null;
         };
         CreateCredentialResponse: {
             client_id: string;
@@ -10672,7 +10665,7 @@ export interface components {
             kind: string;
             status: string;
             /** @description The calculation a chain finding is against, so its chip opens that calculation. */
-            tool?: string | null;
+            tool: string | null;
         };
         HoldRow: {
             /** Format: date-time */
@@ -16823,7 +16816,6 @@ export interface components {
             /** Format: uuid */
             service_id?: string | null;
             service_type: string;
-            source_system?: string | null;
         };
         SyncServiceCredentialList: {
             client_id: string;
@@ -16835,13 +16827,6 @@ export interface components {
             /** Format: uuid */
             service_id: string | null;
             service_type: string;
-            /**
-             * @description The source system a service enrolled on this credential speaks for, e.g. "metalp". It is
-             *     the provenance its registrations are written under; `service_type` is the kind of service,
-             *     which for the three portals is one value. NULL on a credential minted before it was
-             *     declared.
-             */
-            source_system: string | null;
         };
         SyncServiceCredentialResponse: {
             client_id: string;
@@ -16853,13 +16838,6 @@ export interface components {
             /** Format: uuid */
             service_id: string | null;
             service_type: string;
-            /**
-             * @description The source system a service enrolled on this credential speaks for, e.g. "metalp". It is
-             *     the provenance its registrations are written under; `service_type` is the kind of service,
-             *     which for the three portals is one value. NULL on a credential minted before it was
-             *     declared.
-             */
-            source_system: string | null;
         };
         SyncServiceCredentialUpdate: {
             client_id?: string | null;
@@ -16867,7 +16845,6 @@ export interface components {
             /** Format: uuid */
             service_id?: string | null;
             service_type?: string | null;
-            source_system?: string | null;
         };
         SyncServiceList: {
             /** Format: date-time */
@@ -16890,11 +16867,6 @@ export interface components {
             last_sync_completed_at: string | null;
             paused: boolean;
             service_type: string;
-            /**
-             * @description Copied from the credential at enrolment: the source system this service's registrations are
-             *     written under. Not a CRUD field, it belongs to the credential.
-             */
-            source_system: string | null;
             status: string;
             /**
              * Format: int32
@@ -16927,11 +16899,6 @@ export interface components {
             last_sync_completed_at: string | null;
             paused: boolean;
             service_type: string;
-            /**
-             * @description Copied from the credential at enrolment: the source system this service's registrations are
-             *     written under. Not a CRUD field, it belongs to the credential.
-             */
-            source_system: string | null;
             status: string;
             /**
              * Format: int32

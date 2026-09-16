@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resyncConfirmation, resyncServiceFor, serviceReachable } from './resync';
+import { resyncConfirmation, resyncServiceFor, serviceReachable, servicesForSource } from './resync';
 import type { SyncService } from '$api/service';
 
 const NOW = Date.parse('2026-09-04T12:00:00Z');
@@ -57,6 +57,24 @@ describe('resyncServiceFor', () => {
 
 	it('offers nothing when no service is registered at all', () => {
 		expect(resyncServiceFor([], 'vaisala', NOW)).toBeNull();
+	});
+});
+
+describe('servicesForSource', () => {
+	const vaisala = service({ id: 'v' });
+	const cnet = service({ id: 'c', service_type: 'rshiny', instance_id: 'river-data-sync-cnet-dev' });
+	const metalp = service({ id: 'm', service_type: 'rshiny', instance_id: 'river-data-sync-metalp-dev' });
+
+	it('matches a source by service type', () => {
+		expect(servicesForSource([vaisala, cnet], 'vaisala')).toEqual([vaisala]);
+	});
+
+	it('tells the portal services apart by instance name', () => {
+		expect(servicesForSource([vaisala, cnet, metalp], 'cnet')).toEqual([cnet]);
+	});
+
+	it('matches nothing for a source no service feeds', () => {
+		expect(servicesForSource([vaisala, cnet], 'grab_sample')).toEqual([]);
 	});
 });
 
