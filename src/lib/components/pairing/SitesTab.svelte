@@ -5,13 +5,12 @@
 		PairingPlanEntry,
 		PlanEntryUpdate,
 		PlanReplicateSummary,
-		SdEstimator,
 	} from '$api/service';
 	import type { Parameter, Site } from '$api/crud';
 	import type { SiteMetadata } from '$api/service';
 	import Button from '$components/ui/Button.svelte';
 	import PairSkipToggle from '$components/ui/PairSkipToggle.svelte';
-	import type { ParamGroup, SdDecision, SiteGroup } from '$lib/pairing/planGroups';
+	import type { ParamGroup, SiteGroup } from '$lib/pairing/planGroups';
 	import type { EntryFilter, EntryStatus, ReviewState } from '$lib/pairing/entryStatus';
 	import {
 		filterSelectionState,
@@ -35,7 +34,6 @@
 		expandedReplicates,
 		existingParams,
 		paramGroups,
-		sdDisputedByParam,
 		siteMetadataMap,
 		editingParam = $bindable(),
 		siteSearch = $bindable(),
@@ -54,7 +52,6 @@
 		statusLabel,
 		queueUpdate,
 		setEntryAction,
-		setEntryEstimator,
 		setEntryAcknowledged,
 		selection,
 		ontoggleentry,
@@ -87,7 +84,6 @@
 		existingParams: Parameter[];
 		paramGroups: ParamGroup[];
 		/** The sd decision each parameter still owes, by parameter name. */
-		sdDisputedByParam: Map<string, SdDecision>;
 		siteMetadataMap: Map<string, SiteMetadata>;
 		/** The stream whose parameter is being edited, or null. */
 		editingParam: { site: string; streamId: string } | null;
@@ -109,7 +105,6 @@
 		statusLabel: (status: EntryStatus) => string;
 		queueUpdate: (updates: PlanEntryUpdate[], opts?: { immediate?: boolean }) => void;
 		setEntryAction: (entry: PairingPlanEntry, action: 'pair' | 'skip') => void;
-		setEntryEstimator: (entry: PairingPlanEntry, value: SdEstimator | '') => void;
 		setEntryAcknowledged: (entry: PairingPlanEntry, acknowledged: boolean) => void;
 		/** The rows a bulk action is about. Held by the page so it survives a tab change. */
 		selection: Selection;
@@ -210,20 +205,6 @@
 			<Button size="sm" onclick={() => onbulk({ field: 'action', value: 'skip' })}>Skip</Button>
 			<Button size="sm" onclick={() => onbulk({ field: 'acknowledged', value: true })}>Mark checked</Button>
 			<Button size="sm" onclick={() => onbulk({ field: 'acknowledged', value: false })}>Unmark</Button>
-			<select
-				value=""
-				onchange={(e) => {
-					const value = e.currentTarget.value as SdEstimator | '';
-					e.currentTarget.value = '';
-					if (value) onbulk({ field: 'sd_estimator', value });
-				}}
-				aria-label="Standard deviation divisor for the selected rows"
-				class="px-2 py-1 border border-brand-divider rounded bg-brand-surface"
-			>
-				<option value="">sd divisor…</option>
-				<option value="sample">sample (n-1)</option>
-				<option value="population">population (n)</option>
-			</select>
 			<select
 				bind:value={bulkInstrument}
 				onchange={() => {
@@ -431,22 +412,6 @@
 								{@render valuesChip(entry.stream_id)}
 							{/if}
 						</div>
-						<!-- Only where the divisor is still in question: a family nothing disputes
-						     carries the sample declaration silently. -->
-						{#if entryReplicates?.portal_sd_column && sdDisputedByParam.has(entry.parameter.name)}
-							{@const declared = (entry as { sd_estimator?: SdEstimator | null }).sd_estimator ?? ''}
-							<select
-								value={declared}
-								onchange={(e) => setEntryEstimator(entry, e.currentTarget.value as SdEstimator | '')}
-								aria-label="Standard deviation formula for {entry.parameter.name}"
-								title="Divisor for the sd computed from this family's replicates. The source ships its own {entryReplicates.portal_sd_column}; declare the one it used, or leave it undeclared and decide from the audit queue."
-								class="px-1.5 py-0.5 rounded border text-[10px] shrink-0 cursor-pointer bg-brand-surface {declared ? 'border-brand-divider text-brand-text' : 'border-severity-warning-border text-severity-warning-text'}"
-							>
-								<option value="">sd: not declared</option>
-								<option value="sample">sd: sample (n-1)</option>
-								<option value="population">sd: population (n)</option>
-							</select>
-						{/if}
 						<span
 							class="px-1.5 py-0.5 rounded text-[10px] shrink-0 {status.matched ? 'bg-severity-ok-soft text-severity-ok' : 'bg-brand-bg text-brand-muted'}"
 							title={status.matched

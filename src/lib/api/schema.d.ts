@@ -383,22 +383,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/actions/retag_sd_estimator": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["retag_sd_estimator"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/actions/rollback_deployment": {
         parameters: {
             query?: never;
@@ -453,33 +437,6 @@ export interface paths {
          *     start the incoming sensor's at the same instant, in one transaction. Requires `write_metadata`.
          */
         post: operations["swap_sensors"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/actions/undeclared_sd_estimators": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Slots serving replicate statistics under no declared sd estimator.
-         * @description The sources stored both divisors over the years, row by row within one stream, so the
-         *     convention cannot be inferred and is declared per slot instead. Until a slot declares one, its
-         *     samples are computed with the sample divisor and stamped `default`, which is what this lists.
-         *     No write path can notice this shape on its own: every ingest is individually valid, and the gap
-         *     is in what nobody stated.
-         *
-         *     Read-only. Which divisor a slot publishes is a question about this lab's practice and the
-         *     source's, so nothing here decides one.
-         */
-        get: operations["undeclared_sd_estimators"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1311,9 +1268,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Stage a trip: one visit per site named, all at `collected_at`, in one transaction. A site
-         *     named twice is staged once; an unknown site refuses the whole trip, so no partial trip lands.
-         *     Each visit is find-or-create exactly as `/collection_events/stage`. Requires `write_data`.
+         * Stage a field day: one visit per row, each at its own site and instant, in one transaction.
+         *     A row repeating another's site and instant refuses the day, as does an unknown site, so no
+         *     partial day lands. Each visit is find-or-create exactly as `/collection_events/stage`.
+         *     Requires `write_data`.
          */
         post: operations["stage_collection_events"];
         delete?: never;
@@ -3858,7 +3816,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Preview a replicate group's statistics after flagging, restoring or switching the sd divisor.
+         * Preview a replicate group's statistics after flagging or restoring replicates.
          *     Nothing is written. Requires `read_data`.
          */
         post: operations["sample_preview"];
@@ -4200,9 +4158,7 @@ export interface paths {
          *     Additional filterable columns:
          *     - site_id
          *     - parameter_id
-         *     - collected_at
-         *     - sd_estimator
-         *     - sd_estimator_source.
+         *     - collected_at.
          */
         get: operations["get_all_samples"];
         put?: never;
@@ -5046,7 +5002,6 @@ export interface paths {
          *     - is_active
          *     - is_public
          *     - needs_review
-         *     - sd_estimator
          *     - entry_mode
          *     - instrument_sensor_id
          *     - discovered_at.
@@ -5135,22 +5090,6 @@ export interface paths {
          *     This resource manages site_parameter items
          */
         delete: operations["delete_one_site_parameter"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/site_parameters/{id}/declare_sd_estimator": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["declare_sd_estimator"];
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -6442,86 +6381,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/sync/replicate_reconciliation": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Start the migrate + verify job. Non-destructive: pairs family streams to their slots and
-         *     materialises samples; a family failing verification rolls back untouched.
-         */
-        post: operations["start_reconciliation"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/sync/replicate_reconciliation/candidates": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** The replicate families of a source and their migration state. */
-        get: operations["reconciliation_candidates"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/sync/replicate_reconciliation/delete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Start the delete job: re-verifies each migrated family and removes the obsolete avg streams
-         *     and their readings. The destructive step of the migration; run only after reviewing the
-         *     migrate job's verification report.
-         */
-        post: operations["start_reconciliation_delete"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/sync/replicate_reconciliation/duplicate_slots": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * The (site, parameter) slots where two streams carry the same instant. Serving returns one row
-         *     per instant, so a duplicated slot is invisible on the chart; this is the list the operator
-         *     reconciles from. Two streams sharing a slot without ever sharing an instant (a sensor feed
-         *     beside a grab feed) is the normal case and is not listed.
-         */
-        get: operations["duplicate_slots"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/sync/services/{id}/commands": {
         parameters: {
             query?: never;
@@ -7286,6 +7145,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tool_runs/{id}/trace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Replay a stored run under the version it pinned, so a computed value shows its formula, its
+         *     intermediates and the values each of them read. Requires `read_data`.
+         */
+        get: operations["trace_run"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tool_scripts": {
         parameters: {
             query?: never;
@@ -7626,6 +7505,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tools/{tool_name}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run a tool calculation without storing it, for a form computing as values are typed. The
+         *     response has no `run_id`, so a save cannot name it; `calculate` stores the run a save names.
+         *     Requires `read_data`.
+         */
+        post: operations["preview_tool"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/users": {
         parameters: {
             query?: never;
@@ -7792,13 +7692,6 @@ export interface components {
              *     count is what keeps `acknowledged` from reading as the whole queue.
              */
             skipped_no_stream?: number;
-            /**
-             * Format: int64
-             * @description Holds this call deliberately left pending: their disagreement is the population-divisor
-             *     signature on a slot that has not declared an estimator, so accepting them would record a
-             *     decision about which formula this slot publishes without anyone having made one.
-             */
-            skipped_undeclared_estimator?: number;
         };
         /** @description Returned by `POST /api/alarms/{event_id}/acknowledge`. */
         AcknowledgedAlarmResponse: {
@@ -8939,6 +8832,11 @@ export interface components {
             name: string;
             /**
              * Format: uuid
+             * @description The calculation the formula belongs to, absent for a standalone derived parameter.
+             */
+            tool_script_id?: string;
+            /**
+             * Format: uuid
              * @description The version the stored value names, absent when the value predates versioning.
              */
             version_id?: string;
@@ -9092,10 +8990,6 @@ export interface components {
         CancelResponse: {
             status: string;
         };
-        CandidatesResponse: {
-            families: components["schemas"]["FamilyCandidate"][];
-            total_old_streams: number;
-        };
         CaseResult: {
             /** @description The runner's error text when the script itself failed. */
             error: string | null;
@@ -9162,19 +9056,11 @@ export interface components {
             n: number;
             /** Format: uuid */
             sample_id: string;
-            /** @description 'sample' | 'population', and what chose it ('default' is the fallback having applied). */
-            sd_estimator: string;
-            sd_estimator_source: string;
             /**
              * Format: double
-             * @description The sd under the divisor the slot declares. `sd_estimator` names which that is; the other
-             *     travels beside it so a reviewer can read both without declaring anything first.
+             * @description The sample standard deviation (n-1).
              */
             stdev?: number;
-            /** Format: double */
-            stdev_population?: number;
-            /** Format: double */
-            stdev_sample?: number;
         };
         ChainInfo: {
             deployment?: components["schemas"]["DeploymentRef"];
@@ -9379,7 +9265,7 @@ export interface components {
             /**
              * Format: int32
              * @description The group's statistics, the numbers the chart plotted and drew its bar from. Without these
-             *     the record shows the replicates and a sentence about the divisor, and never what was served.
+             *     the record shows the replicates and never what was served.
              */
             n?: number;
             notes?: string;
@@ -9394,20 +9280,8 @@ export interface components {
              * @description The statistics row, when the instant carries two or more replicates.
              */
             sample_id?: string;
-            /**
-             * @description Which divisor this group's served standard deviation uses ('sample' = n-1, 'population' =
-             *     n) and what chose it. `sd_estimator_source` 'default' means nothing declared one, so the
-             *     number is served under a convention nobody stated. Absent on a single measurement, which
-             *     has no standard deviation.
-             */
-            sd_estimator?: string;
-            sd_estimator_source?: string;
             /** Format: double */
             stdev?: number;
-            /** Format: double */
-            stdev_population?: number;
-            /** Format: double */
-            stdev_sample?: number;
         };
         ComputeDerivedRequest: {
             site_timestamps: components["schemas"]["SiteTimestamps"][];
@@ -9870,30 +9744,6 @@ export interface components {
             /** Format: date-time */
             time: string;
         };
-        DeclareSdEstimatorRequest: {
-            /**
-             * @description 'sample' (divisor n-1), 'population' (divisor n), or null to clear the declaration.
-             *     Clearing leaves the slot undeclared: new statistics fall back to sample recorded as
-             *     'default', and stored samples keep the estimator they were computed with.
-             */
-            estimator?: string | null;
-        };
-        DeclareSdEstimatorResponse: {
-            estimator: string | null;
-            /**
-             * Format: uuid
-             * @description The tracked `sd_estimator_retag` job, present when a recompute was enqueued.
-             */
-            job_id?: string;
-            previous: string | null;
-            /**
-             * Format: int64
-             * @description Samples the retag will recompute; 0 when clearing or nothing disagrees.
-             */
-            samples_affected: number;
-            /** Format: uuid */
-            site_parameter_id: string;
-        };
         DefinitionMember: {
             /** @description The catalog code; the stable machine identity and the CSV column header. */
             code: string;
@@ -10147,37 +9997,6 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        DuplicateSlot: {
-            /**
-             * Format: int64
-             * @description Instants at this slot carrying readings from more than one stream.
-             */
-            duplicated_instants: number;
-            /** Format: uuid */
-            parameter_id: string;
-            parameter_name: string;
-            /** Format: uuid */
-            site_id: string;
-            site_name: string;
-            /** Format: uuid */
-            site_parameter_id: string;
-            streams: components["schemas"]["DuplicateSlotStream"][];
-        };
-        DuplicateSlotStream: {
-            /** Format: date-time */
-            first_reading: string | null;
-            /** Format: date-time */
-            last_reading: string | null;
-            /** Format: int64 */
-            readings: number;
-            source_key: string;
-            source_system: string;
-            /** Format: uuid */
-            stream_id: string;
-        };
-        DuplicateSlotsResponse: {
-            slots: components["schemas"]["DuplicateSlot"][];
-        };
         /**
          * @description A detection the parse tree cannot complete: `any` is what a caller branches on, the
          *     expressions are what it shows when it does.
@@ -10318,6 +10137,12 @@ export interface components {
             /** @description The blob's tool name, when one exists. */
             tool?: string;
             /**
+             * Format: uuid
+             * @description The run behind the value, when a tool computed it. The trace endpoint replays it, which is
+             *     what lets a cell show the formula rather than only the name of what ran.
+             */
+            tool_run_id?: string;
+            /**
              * @description The calculation that writes this parameter, when one does. Its value is a computed output,
              *     not a measurement, and editing it is a different act from editing an input.
              */
@@ -10444,6 +10269,12 @@ export interface components {
              *     catalog default otherwise. A grid of bare numbers cannot be read without it.
              */
             units?: string;
+            /**
+             * @description The calculation that writes this parameter, when one does. The column's values are computed
+             *     outputs, so the grid reads them and sends a correction back through the calculation (Q8)
+             *     rather than offering a keystroke.
+             */
+            written_by?: string;
         };
         ExportSummaryResponse: {
             /** Format: int64 */
@@ -10470,25 +10301,6 @@ export interface components {
             station: string;
             /** @description The feed, as its rows are keyed (`meteoswiss`). */
             system: string;
-        };
-        FamilyCandidate: {
-            family_source_key: string;
-            /** Format: uuid */
-            family_stream_id: string;
-            migrated: boolean;
-            /**
-             * Format: int64
-             * @description Old-stream instants the family stream has no readings for. Zero = ready for cutover.
-             */
-            missing_instants: number;
-            /** Format: int64 */
-            old_readings: number;
-            old_source_key: string;
-            /** Format: uuid */
-            old_stream_id: string;
-            ready: boolean;
-            /** Format: uuid */
-            site_parameter_id: string | null;
         };
         /** @description A field whose value is the difference of two other fields of the same row. */
         FieldFormula: {
@@ -10673,15 +10485,6 @@ export interface components {
             mode?: null | components["schemas"]["GrabWriteMode"];
             notes?: string | null;
             readings: components["schemas"]["GrabSampleReading"][];
-            /**
-             * @description Which divisor the samples this request creates compute their standard deviation with:
-             *     `sample` (n-1) or `population` (n). Present when a tool's manifest fixes it or its operator
-             *     chose one; omitted, the slot's declaration decides, and absent that the group is recorded
-             *     undeclared. It never changes a group that already exists: the estimator a stored sample was
-             *     computed with is changed through the audit resolution or the retag job, where the decision
-             *     is recorded.
-             */
-            sd_estimator?: string | null;
             /** Format: uuid */
             site_id: string;
             /**
@@ -10821,8 +10624,6 @@ export interface components {
             n: number;
             /** Format: double */
             sd: number | null;
-            /** @description The divisor `sd` was computed under. Absent on a hold that predates the record. */
-            sd_estimator?: components["schemas"]["SdEstimator"];
             values?: components["schemas"]["HoldValue"][];
         };
         /** @description Source minus computed, per statistic. */
@@ -10870,14 +10671,17 @@ export interface components {
             id: string;
             kind: string;
             status: string;
+            /** @description The calculation a chain finding is against, so its chip opens that calculation. */
+            tool?: string | null;
         };
         HoldRow: {
             /** Format: date-time */
             acknowledged_at: string | null;
             acknowledged_by: string | null;
             /**
-             * @description Signature of the disagreement: `n_mismatch` | `population_sd` | `stale_subset` |
-             *     `unexplained`. Computed from the stored expectation and recompute, never persisted.
+             * @description Signature of the disagreement: `n_mismatch` | `source_sd_matches_n_divisor` |
+             *     `stale_subset` | `unexplained`. Computed from the stored expectation and recompute, never
+             *     persisted.
              */
             classification: string;
             computed: components["schemas"]["HoldComputed"];
@@ -10910,7 +10714,6 @@ export interface components {
             relative_delta: number;
             /** @description The decision record: latest action plus prior actions under `history`. */
             resolution: Record<string, never>;
-            sd_estimator: null | components["schemas"]["SdEstimator"];
             /**
              * Format: double
              * @description `|Δsd|` over the same mean-magnitude denominator as `mean_relative_delta`.
@@ -10923,6 +10726,11 @@ export interface components {
              */
             site_id: string | null;
             site_name: string | null;
+            /**
+             * Format: uuid
+             * @description The slot the hold is about, which a point record is opened on.
+             */
+            site_parameter_id: string | null;
             source_key: string | null;
             /** @description The stream's human name as registered by the source. */
             source_name: string | null;
@@ -11320,11 +11128,6 @@ export interface components {
              *     written for them (Q84); `proposed` says how many are waiting for a person.
              */
             changed?: number;
-            /**
-             * @description Always 0: the replicate audit admits every group and records disagreements for review.
-             *     Retained because the sync protocol (`river-data-core`) reports a held count per cycle.
-             */
-            held?: number;
             inserted: number;
             paired: boolean;
             /** @description Windowed diff: changed keys recorded as proposals this pass, each awaiting a decision. */
@@ -11449,6 +11252,11 @@ export interface components {
              */
             tool_run_id?: string;
         };
+        /**
+         * @description How many instruments a source's channels stand for, declared by the connector.
+         * @enum {string}
+         */
+        InstrumentGranularity: "per_parameter" | "per_site_parameter";
         /** @description The instrument a proposed name collides with, enough of it to choose by. */
         InstrumentNameConflict: {
             /** @description True when it already carries readings; attaching adds to them. */
@@ -11704,7 +11512,7 @@ export interface components {
             /**
              * @description `mean` or `sd`: the engine computes this output over the curve-applied values of the
              *     `replicates` param `aggregate_of` names, so the preview a technician sees is the number
-             *     the database will later serve, divisor included. The script never computes it; a script
+             *     the database will later serve. The script never computes it; a script
              *     value under the same key is discarded.
              */
             aggregate?: string;
@@ -11714,15 +11522,6 @@ export interface components {
             /** Format: uuid */
             parameter_id?: string | null;
             per_replicate?: boolean;
-            /**
-             * @description Which divisor the samples saved from this output compute their standard deviation with:
-             *     `sample` (n-1), `population` (n), or `selectable` to let the operator choose per run.
-             *     Absent takes the slot's declaration, which is the usual case: the estimator is a property
-             *     of the parameter, and only a tool that genuinely reports both conventions has cause to
-             *     override it. Never reaches the R runner: it governs how the saved replicates are
-             *     aggregated, not the calculation.
-             */
-            sd_estimator?: string | null;
             suggested_parameter_code?: string | null;
             units?: string | null;
         };
@@ -11872,8 +11671,6 @@ export interface components {
              */
             decimal_places: number | null;
             mean_label: string;
-            /** @description The divisor the slot declares, NULL where it declares none. Never inferred. */
-            sd_estimator: string | null;
             sd_label: string;
         };
         MergeParametersRequest: {
@@ -12973,7 +12770,7 @@ export interface components {
             id: string;
             name: string;
         };
-        /** @description The portal's eight rows for one parameter, with both standard deviations rather than one. */
+        /** @description The portal's eight rows for one parameter. */
         ParameterStatistics: {
             code: string;
             /** Format: int32 */
@@ -12999,12 +12796,9 @@ export interface components {
             nulls: number;
             /** Format: uuid */
             parameter_id: string;
-            /** Format: double */
-            stdev_population?: number;
             /**
              * Format: double
-             * @description Both divisors, named. Which one a slot declares governs its replicate groups, not a period
-             *     summary, so neither is presented as the answer here.
+             * @description The sample standard deviation (n-1), R's `sd()`.
              */
             stdev_sample?: number;
             /**
@@ -13105,11 +12899,25 @@ export interface components {
          *     only inside the instrument that happens to own them.
          */
         PlanCurveAssignment: {
+            /** @description The parameters of the plan's streams whose readings this curve corrects. */
+            corrected_parameters: string[];
+            /** @description The stations of the plan's streams whose readings this curve corrects. */
+            corrected_sites: string[];
+            /**
+             * Format: date-time
+             * @description The earliest reading this curve corrects.
+             */
+            first_corrected: string | null;
             /** Format: uuid */
             id: string;
             instrument_name: string;
             /** Format: double */
             intercept: number;
+            /**
+             * Format: date-time
+             * @description The latest reading this curve corrects.
+             */
+            last_corrected: string | null;
             name: string | null;
             pending_instrument_name: string | null;
             /**
@@ -13236,20 +13044,10 @@ export interface components {
             project: components["schemas"]["PlanEntityRef"];
             replicates?: null | components["schemas"]["PlanReplicates"];
             /**
-             * @description The divisor this slot will publish its replicate standard deviation with, chosen in the
-             *     review. Applied to the `site_parameters` row when the plan is applied; left unset, the slot
-             *     stays undeclared and its audit disagreements are held for a decision instead.
-             */
-            sd_estimator?: string | null;
-            /**
              * Format: int64
-             * @description The evidence for that choice: open replicate-statistics holds on this stream, and how many
-             *     of them match the population signature. Written at plan creation so the review shows what
-             *     the incoming data reports rather than only that a question exists.
+             * @description Open replicate-statistics holds on this stream, written at plan creation.
              */
             sd_holds: number;
-            /** Format: int64 */
-            sd_population_holds: number;
             site: components["schemas"]["PlanSiteRef"];
             source_key: string;
             source_name: string | null;
@@ -13300,12 +13098,6 @@ export interface components {
             parameter_name?: string | null;
             parameter_units?: string | null;
             project_name?: string | null;
-            /**
-             * @description Declare which divisor this slot publishes its replicate standard deviation with,
-             *     `sample` or `population`. Applied to the `site_parameters` row when the plan is applied.
-             *     Never inferred: absent leaves the slot undeclared and the audit gate asks later.
-             */
-            sd_estimator?: string | null;
             /** Format: double */
             site_altitude_m?: number | null;
             /**
@@ -13639,7 +13431,7 @@ export interface components {
          */
         PlanWarning: {
             existing?: null | components["schemas"]["ExistingParamRef"];
-            /** @description `units_mismatch` | `empty_name` | `near_duplicate` | `sd_estimator_undeclared`. */
+            /** @description `units_mismatch` | `empty_name` | `near_duplicate`. */
             kind: string;
             message: string;
             parameter?: string | null;
@@ -13717,8 +13509,6 @@ export interface components {
             n: number;
             /** Format: double */
             sd: number | null;
-            /** @description 'sample' (divisor n-1) or 'population' (divisor n). */
-            sd_estimator: components["schemas"]["SdEstimator"];
         };
         ProjectCreate: {
             data_source?: string | null;
@@ -14353,6 +14143,7 @@ export interface components {
              * @description The source's decimal places for this channel (0 to 10). None declares nothing.
              */
             decimal_places?: number | null;
+            instrument_granularity?: null | components["schemas"]["InstrumentGranularity"];
             /** @description Stream-level classification declared at discovery. None never clears an operator-set value. */
             measurement_type?: string | null;
             metadata: unknown;
@@ -14703,16 +14494,9 @@ export interface components {
         };
         ResolveHoldRequest: {
             /**
-             * @description `estimator` mode: the divisor to declare, `sample` (n-1) or `population` (n). Either is a
-             *     real answer; declaring `sample` states that ours is the number this slot publishes even
-             *     though the source computed the other one.
-             */
-            estimator?: string | null;
-            /**
              * @description `ours` (accept the recomputed statistics; identical to acknowledge) | `flag` (flag the
-             *     named replicates so the sample statistics recompute over the rest) | `estimator` (declare
-             *     which standard-deviation divisor this slot, or this one instant, publishes) | `verify` /
-             *     `reject` (rule on an intern's entry: accept it as it stands, or withdraw it).
+             *     named replicates so the sample statistics recompute over the rest) | `verify` / `reject`
+             *     (rule on an intern's entry: accept it as it stands, or withdraw it).
              */
             mode: string;
             /** @description Recorded as the readings' flag_reason; defaults to a reference to this hold. */
@@ -14722,23 +14506,11 @@ export interface components {
              *     hold recorded and unflagged, and at least one unflagged replicate must remain after.
              */
             replicate_indexes?: number[] | null;
-            /**
-             * @description `estimator` mode: `slot` declares it for the parameter at this site and recomputes its
-             *     existing samples; `instant` sets it for this one collection group and leaves the parameter
-             *     undeclared. Defaults to `slot`.
-             */
-            scope?: string | null;
         };
         ResolveHoldResponse: {
             /**
-             * Format: uuid
-             * @description `estimator` mode: the tracked `sd_estimator_retag` recomputing the slot's samples.
-             */
-            job_id?: string;
-            /**
              * Format: int64
-             * @description `estimator` mode: samples this declaration changed, counted before the job for `slot`
-             *     scope and exactly one for `instant`.
+             * @description `verify` / `reject`: the readings the ruling decided.
              */
             samples_affected?: number;
             /** @description The status the hold moved to: `acknowledged` | `remediated`. */
@@ -14812,52 +14584,6 @@ export interface components {
             job_id: string | null;
             /** Format: int64 */
             sensors_updated: number;
-        };
-        RetagSdEstimatorRequest: {
-            /**
-             * @description Count what the retag would touch and enqueue nothing. The declaration check is skipped,
-             *     so a slot can be previewed under the divisor it is about to declare.
-             */
-            dry_run?: boolean;
-            /** Format: date-time */
-            end?: string | null;
-            /**
-             * @description 'sample' (divisor n-1) or 'population' (divisor n). Every slot in scope must already
-             *     declare it: the retag applies a declaration to the stored samples, it does not make one.
-             */
-            estimator: string;
-            /**
-             * @description Also retag samples whose estimator a person chose for that one instant
-             *     (`sd_estimator_source = 'sample'`). Off by default, as the declaration's own retag is.
-             */
-            override_instants?: boolean;
-            site_parameter_ids?: string[];
-            /**
-             * Format: date-time
-             * @description Inclusive bounds on `samples.collected_at`.
-             */
-            start?: string | null;
-            /** @description Streams reach their slot through their pairing; an unpaired stream reaches none. */
-            stream_ids?: string[];
-        };
-        RetagSdEstimatorResponse: {
-            estimator: string;
-            /**
-             * Format: int64
-             * @description Samples in scope carrying an instant-chosen estimator that differs from the target:
-             *     counted inside `samples_affected` with `override_instants`, skipped without.
-             */
-            instant_decisions: number;
-            /**
-             * Format: uuid
-             * @description The tracked `sd_estimator_retag` job, present when something needed recomputing.
-             */
-            job_id?: string;
-            /**
-             * Format: int64
-             * @description Samples the retag will recompute.
-             */
-            samples_affected: number;
         };
         RetagStreamsRequest: {
             /**
@@ -15014,6 +14740,37 @@ export interface components {
             job_id: string | null;
         };
         /**
+         * @description A stored run replayed under the version it pinned, so a value computed months ago still shows
+         *     the formula behind it and the numbers that formula read.
+         */
+        RunTrace: {
+            /** Format: date-time */
+            collected_at: string | null;
+            /** @description The constant values the run resolved, by name. */
+            constants: {
+                [key: string]: number;
+            };
+            /** @description The visit's stored values the run read, as `{param, parameter_code, parameter_id, value}`. */
+            event_inputs: unknown[];
+            /** @description The pinned version's label, which is what a reader recognises the calculation by. */
+            label: string;
+            /** Format: uuid */
+            run_id: string;
+            /**
+             * Format: uuid
+             * @description The visit the run read its values at, when it named one. A binding that is neither a step
+             *     nor a constant was read here, which is the answer to "where did this number come from".
+             */
+            site_id: string | null;
+            /** @description The station properties the run read, as `{property, param, value}`. */
+            site_inputs: unknown[];
+            /** @description The calculation's name, as the run recorded it. */
+            tool: string;
+            trace: components["schemas"]["TraceStep"][];
+            /** Format: int32 */
+            version_no: number;
+        };
+        /**
          * @description One kind a person may run off-cadence, as the page lists it: what it needs, and the cadence it
          *     also runs on where it has one.
          */
@@ -15055,22 +14812,14 @@ export interface components {
             n: number;
             /** Format: uuid */
             parameter_id: string;
-            sd_estimator: string;
-            sd_estimator_source: string;
             /** Format: uuid */
             site_id: string;
             /** Format: double */
             stdev: number | null;
-            /** Format: double */
-            stdev_population: number | null;
-            /** Format: double */
-            stdev_sample: number | null;
             /** Format: date-time */
             updated_at: string | null;
         };
         SamplePreviewRequest: {
-            /** @description The divisor to compute the proposed sd under; absent keeps the group's current one. */
-            estimator?: string | null;
             /** @description Replicates to leave out, as a flag would. */
             exclude_replicate_indexes?: number[];
             /**
@@ -15119,16 +14868,10 @@ export interface components {
             n: number;
             /** Format: uuid */
             parameter_id: string;
-            sd_estimator: string;
-            sd_estimator_source: string;
             /** Format: uuid */
             site_id: string;
             /** Format: double */
             stdev: number | null;
-            /** Format: double */
-            stdev_population: number | null;
-            /** Format: double */
-            stdev_sample: number | null;
             /** Format: date-time */
             updated_at: string | null;
         };
@@ -15147,19 +14890,11 @@ export interface components {
             replicates: components["schemas"]["ReplicateOut"][];
             /** Format: uuid */
             sample_id: string;
-            /** @description 'sample' | 'population', and what chose it ('default' is the fallback having applied). */
-            sd_estimator: string;
-            sd_estimator_source: string;
             /**
              * Format: double
-             * @description The sd under the divisor the slot declares; `sd_estimator` names which. Both divisors are
-             *     served beside it, so the one not declared stays readable.
+             * @description The sample standard deviation (n-1).
              */
             stdev?: number;
-            /** Format: double */
-            stdev_population?: number;
-            /** Format: double */
-            stdev_sample?: number;
         };
         SampleUpdate: Record<string, never>;
         /** @description Save a formula calculation's whole set, as one version (Q186). */
@@ -15329,15 +15064,6 @@ export interface components {
              */
             script_functions_used: string[];
         };
-        /**
-         * @description The two values an estimator field carries, for the document.
-         *
-         *     The estimator itself travels as a string, because it is a column value the whole ingest path
-         *     compares against [`SAMPLE`] and [`POPULATION`]. This names the pair so a schema field declares
-         *     what it may hold rather than "a string", and a generated client reads the two.
-         * @enum {string}
-         */
-        SdEstimator: "sample" | "population";
         SearchResponse: {
             query: string;
             results: components["schemas"]["SearchResults"];
@@ -16183,7 +15909,6 @@ export interface components {
             parameter_id: string;
             /** Format: int32 */
             sample_interval_sec?: number | null;
-            sd_estimator?: string | null;
             sensor_type?: string | null;
             /** Format: uuid */
             site_id: string;
@@ -16247,15 +15972,6 @@ export interface components {
             parameter_id: string;
             /** Format: int32 */
             sample_interval_sec: number | null;
-            /**
-             * @description How this slot's replicate standard deviation is defined: 'sample' (divisor n-1) or
-             *     'population' (divisor n). NULL is UNDECLARED, not a synonym for 'sample': the sources use
-             *     both conventions and which one a slot publishes is a decision, so an undeclared slot is
-             *     reported and its population-signature audit holds cannot be waved through.
-             *     Excluded from update: a declaration change must recompute the slot's stored samples, so it
-             *     goes through `POST /site_parameters/{id}/declare_sd_estimator`, which enqueues the retag.
-             */
-            sd_estimator: string | null;
             sensor_type: string;
             /** Format: uuid */
             site_id: string;
@@ -16335,15 +16051,6 @@ export interface components {
             parameter_id: string;
             /** Format: int32 */
             sample_interval_sec: number | null;
-            /**
-             * @description How this slot's replicate standard deviation is defined: 'sample' (divisor n-1) or
-             *     'population' (divisor n). NULL is UNDECLARED, not a synonym for 'sample': the sources use
-             *     both conventions and which one a slot publishes is a decision, so an undeclared slot is
-             *     reported and its population-signature audit holds cannot be waved through.
-             *     Excluded from update: a declaration change must recompute the slot's stored samples, so it
-             *     goes through `POST /site_parameters/{id}/declare_sd_estimator`, which enqueues the retag.
-             */
-            sd_estimator: string | null;
             sensor_type: string;
             /** Format: uuid */
             site_id: string;
@@ -16514,12 +16221,17 @@ export interface components {
             /** Format: uuid */
             site_id: string;
         };
-        /** @description A trip: one visit per site named, all at one instant. */
+        /** @description A field day: the visits it covers, each at its own site and instant. */
         StageEventsRequest: {
+            notes?: string | null;
+            visits: components["schemas"]["StageVisitRow"][];
+        };
+        /** @description One visit of a field day: a site and the instant it was sampled. */
+        StageVisitRow: {
             /** Format: date-time */
             collected_at: string;
-            notes?: string | null;
-            site_ids: string[];
+            /** Format: uuid */
+            site_id: string;
         };
         StagedEvent: {
             /** Format: date-time */
@@ -16712,19 +16424,6 @@ export interface components {
             slope: number;
             source_key: string;
         };
-        StartReconciliationRequest: {
-            dry_run?: boolean;
-            source_system: string;
-            /**
-             * Format: double
-             * @description Relative verification tolerance; defaults to the sync audit's.
-             */
-            tolerance?: number | null;
-        };
-        StartReconciliationResponse: {
-            /** Format: uuid */
-            job_id: string;
-        };
         /**
          * @description One station offered to a picker: what the list holds, plus how far it is from the site being
          *     configured where that site has coordinates.
@@ -16837,13 +16536,6 @@ export interface components {
         };
         StreamPreviewResponse: {
             instants: components["schemas"]["PreviewInstant"][];
-            /**
-             * @description The divisor the standard deviations below were computed under, resolved the way the write
-             *     path resolves it: the stream's spec, then the slot's declaration, else the fallback.
-             */
-            sd_estimator: components["schemas"]["SdEstimator"];
-            /** @description What chose it: 'stream', 'slot', or 'default' for the undeclared fallback. */
-            sd_estimator_source: string;
             source_key: string;
             /** Format: uuid */
             stream_id: string;
@@ -17315,34 +17007,8 @@ export interface components {
             /** Format: int32 */
             status_code: number;
         };
-        /** @description One tool as `GET /tools` lists it: the manifest plus the identity of the version serving it. */
-        ToolDescriptor: {
-            constants: string[];
-            curves: components["schemas"]["ManifestCurve"][];
-            description: string | null;
-            endpoint: string;
-            event_inputs?: components["schemas"]["ManifestEventInput"][];
-            label: string;
-            match_keywords: string[];
-            name: string;
-            outputs: components["schemas"]["ToolOutput"][];
-            params: components["schemas"]["ManifestParam"][];
-            /** Format: uuid */
-            script_version_id: string;
-            sections?: components["schemas"]["ManifestSection"][];
-            site_inputs?: components["schemas"]["ManifestSiteInput"][];
-            /** Format: int32 */
-            version_no: number;
-        };
-        /**
-         * @description One manifest output as `GET /tools` serves it: the declaration as authored, plus the parameter
-         *     it resolves to now. `parameter` is null when the output names none, or names one this database
-         *     does not hold.
-         */
-        ToolOutput: components["schemas"]["ManifestOutput"] & {
-            parameter: null | components["schemas"]["ResolvedParameter"];
-        };
-        ToolResult: {
+        /** @description A calculation's result as the runner returned it, stored nowhere. */
+        ToolCalculation: {
             /**
              * @description Outputs the script computed as NA. The portal blanked such a column rather than leaving
              *     the previous number standing, so these name the stored values a save must clear.
@@ -17375,12 +17041,6 @@ export interface components {
             results: {
                 [key: string]: unknown;
             };
-            /**
-             * Format: uuid
-             * @description The stored `tool_runs` row for this calculation. A grab save names it as `tool_run_id`
-             *     and the server builds the provenance blob from that row, never from the client.
-             */
-            run_id: string;
             /** @description Station properties resolved from the site named by `site_id`, as `{property, param, value}`. */
             site_inputs?: {
                 [key: string]: unknown;
@@ -17403,6 +17063,42 @@ export interface components {
              *     run, which returns only what the script returns.
              */
             trace?: components["schemas"]["TraceStep"][];
+        };
+        /** @description One tool as `GET /tools` lists it: the manifest plus the identity of the version serving it. */
+        ToolDescriptor: {
+            constants: string[];
+            curves: components["schemas"]["ManifestCurve"][];
+            description: string | null;
+            endpoint: string;
+            event_inputs?: components["schemas"]["ManifestEventInput"][];
+            label: string;
+            match_keywords: string[];
+            name: string;
+            outputs: components["schemas"]["ToolOutput"][];
+            params: components["schemas"]["ManifestParam"][];
+            /** Format: uuid */
+            script_version_id: string;
+            sections?: components["schemas"]["ManifestSection"][];
+            site_inputs?: components["schemas"]["ManifestSiteInput"][];
+            /** Format: int32 */
+            version_no: number;
+        };
+        /**
+         * @description One manifest output as `GET /tools` serves it: the declaration as authored, plus the parameter
+         *     it resolves to now. `parameter` is null when the output names none, or names one this database
+         *     does not hold.
+         */
+        ToolOutput: components["schemas"]["ManifestOutput"] & {
+            parameter: null | components["schemas"]["ResolvedParameter"];
+        };
+        /** @description A calculation and the `tool_runs` row it was stored as. */
+        ToolResult: components["schemas"]["ToolCalculation"] & {
+            /**
+             * Format: uuid
+             * @description The stored `tool_runs` row for this calculation. A grab save names it as `tool_run_id`
+             *     and the server builds the provenance blob from that row, never from the client.
+             */
+            run_id: string;
         };
         ToolRunList: {
             /** Format: date-time */
@@ -17596,6 +17292,11 @@ export interface components {
             formula: string;
             intermediate: boolean;
             label: string;
+            /**
+             * @description The catalog parameter this formula writes, when it writes one. A reader arrives at a trace
+             *     holding a parameter, so this is what says which step produced the value in front of them.
+             */
+            output_parameter_code: string | null;
             per_replicate: boolean;
             units: string | null;
         };
@@ -17629,50 +17330,6 @@ export interface components {
              * @description Inclusive bounds for an integer or a duration in seconds.
              */
             min: number | null;
-        };
-        UndeclaredEstimatorSlot: {
-            /**
-             * Format: int64
-             * @description Open holds at this slot, and how many carry the population-divisor signature. That second
-             *     number is the evidence for the decision; this report states it and rules on nothing.
-             */
-            open_holds: number;
-            parameter_code: string;
-            /** Format: uuid */
-            parameter_id: string;
-            parameter_name: string;
-            /** Format: int64 */
-            population_signature_holds: number;
-            /** Format: uuid */
-            site_id: string;
-            site_name: string;
-            /** Format: uuid */
-            site_parameter_id: string;
-            /**
-             * @description Whether any stream feeding the slot ships a precomputed sd column. A slot whose source
-             *     states an sd is one whose convention is answerable from the evidence; one that does not is
-             *     a choice about what this lab publishes.
-             */
-            source_reports_sd: boolean;
-            /** @description Every stream feeding the slot, as `source_system/source_key`. */
-            streams: unknown;
-            /**
-             * Format: int64
-             * @description Samples at this slot computed under no declaration, ie. `sd_estimator_source = 'default'`.
-             */
-            undeclared_samples: number;
-        };
-        UndeclaredEstimatorsResponse: {
-            slots: components["schemas"]["UndeclaredEstimatorSlot"][];
-            /**
-             * Format: int64
-             * @description Open holds across these slots that the population divisor would explain. Every one of them
-             *     is blocked from plain acknowledgement until its slot declares an estimator.
-             */
-            total_population_signature_holds: number;
-            total_slots: number;
-            /** Format: int64 */
-            total_undeclared_samples: number;
         };
         UnflagRangeRequest: {
             /** @description Report the count the write would return and change nothing. */
@@ -17856,13 +17513,16 @@ export interface components {
              *     parameter's column opens to its repeats from what the grid already holds (Q200).
              */
             replicates: components["schemas"]["VisitReplicate"][];
-            /** @description Which divisor produced `stdev`, and what chose it. */
-            sd_estimator?: string;
-            sd_estimator_source?: string;
             /** Format: double */
             stdev?: number;
             /** @description The blob's tool name, when one exists. */
             tool?: string;
+            /**
+             * Format: uuid
+             * @description The run behind the value, when a tool computed it. The trace endpoint replays it, which is
+             *     what lets a cell show the formula rather than only the name of what ran.
+             */
+            tool_run_id?: string;
             /**
              * Format: double
              * @description The served value: sample mean, else the lowest live replicate.
@@ -18513,36 +18173,6 @@ export interface operations {
             };
         };
     };
-    retag_sd_estimator: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RetagSdEstimatorRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RetagSdEstimatorResponse"];
-                };
-            };
-            /** @description Unknown estimator, no slot or stream named, a window that ends before it starts, or a slot in scope that does not declare the estimator */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     rollback_deployment: {
         parameters: {
             query?: never;
@@ -18646,26 +18276,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-        };
-    };
-    undeclared_sd_estimators: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Slots with no declared sd estimator */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UndeclaredEstimatorsResponse"];
-                };
             };
         };
     };
@@ -21074,7 +20684,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The staged visits, one per site in the order named */
+            /** @description The staged visits, one per row in the order given */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -21083,7 +20693,7 @@ export interface operations {
                     "application/json": components["schemas"]["StagedEvent"][];
                 };
             };
-            /** @description No site named */
+            /** @description No visit given, or a row repeats another's site and instant */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -27060,7 +26670,7 @@ export interface operations {
     group_definition: {
         parameters: {
             query?: {
-                /** @description The site the group is rendered for; it is what declares the sd estimator. */
+                /** @description The site the group is rendered for; it is what declares the decimal places. */
                 site_id?: string | null;
             };
             header?: never;
@@ -28924,7 +28534,7 @@ export interface operations {
                     "application/json": components["schemas"]["SamplePreviewResponse"];
                 };
             };
-            /** @description Neither key form, an unknown estimator, or an index the group does not hold */
+            /** @description Neither key form, or an index the group does not hold */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -32493,45 +32103,6 @@ export interface operations {
             };
         };
     };
-    declare_sd_estimator: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DeclareSdEstimatorRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DeclareSdEstimatorResponse"];
-                };
-            };
-            /** @description Estimator is not 'sample', 'population' or null */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description No site parameter with this id */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     get_all_sites: {
         parameters: {
             query?: {
@@ -35567,7 +35138,7 @@ export interface operations {
                 stream_id?: string;
                 /** @description Comma-separated stream UUIDs */
                 stream_ids?: string;
-                /** @description pending | deferred | acknowledged | remediated | superseded | resolved; omit for pending */
+                /** @description pending | deferred | acknowledged | remediated | superseded | resolved | any; omit for pending */
                 status?: string;
                 /** @description Filter to one source system */
                 source_system?: string;
@@ -35579,6 +35150,18 @@ export interface operations {
                 max_sd_relative_delta?: number;
                 /** @description relative_delta_desc | relative_delta_asc | created_at_desc */
                 sort?: string;
+                /** @description Comma-separated hold kinds */
+                kind?: string;
+                /** @description Filter to holds raised against one calculation */
+                tool?: string;
+                /** @description Holds at one site, through the pairing or the finding */
+                site_id?: string;
+                /** @description Holds on one parameter, through the pairing or the finding */
+                parameter_id?: string;
+                /** @description Holds whose instant is at or after this */
+                from?: string;
+                /** @description Holds whose instant is before this */
+                to?: string;
                 /** @description 1-based page */
                 page?: number;
                 /** @description Default 50, max 500 */
@@ -35715,107 +35298,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-        };
-    };
-    start_reconciliation: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StartReconciliationRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["StartReconciliationResponse"];
-                };
-            };
-            /** @description A reconciliation for this source is already running */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    reconciliation_candidates: {
-        parameters: {
-            query: {
-                /** @description e.g. cnet */
-                source_system: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CandidatesResponse"];
-                };
-            };
-        };
-    };
-    start_reconciliation_delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StartReconciliationRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["StartReconciliationResponse"];
-                };
-            };
-            /** @description A delete for this source is already running */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    duplicate_slots: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DuplicateSlotsResponse"];
-                };
             };
         };
     };
@@ -38385,6 +37867,43 @@ export interface operations {
             };
         };
     };
+    trace_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tool run id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Each formula as the run evaluated it */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunTrace"];
+                };
+            };
+            /** @description No such run */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A script run, or a version that is no longer stored */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     list_scripts: {
         parameters: {
             query?: never;
@@ -38587,7 +38106,7 @@ export interface operations {
                     "application/json": components["schemas"]["SaveFormulaSetResponse"];
                 };
             };
-            /** @description A formula the set refuses, or a calculation that is not formula-engined */
+            /** @description A formula the set refuses, a code another calculation holds, or a calculation that is not formula-engined */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -38839,6 +38358,62 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ToolResult"];
+                };
+            };
+            /** @description Invalid input for this tool, or a script error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unknown tool name */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The calculation is switched off */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The tool runner is not configured or unreachable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    preview_tool: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tool name (e.g. 'doc', 'dic', 'pco2') */
+                tool_name: string;
+            };
+            cookie?: never;
+        };
+        /** @description Per-tool request body (see GET /tools for schemas) */
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description The calculation, stored nowhere */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolCalculation"];
                 };
             };
             /** @description Invalid input for this tool, or a script error */

@@ -9,7 +9,6 @@ import {
 	instrumentGroups,
 	parameterIndex,
 	paramGroups,
-	sdDecisions,
 	siteGroups,
 	sitesWithoutCoordinates,
 	type SiteCreation,
@@ -135,41 +134,6 @@ describe('paramGroups', () => {
 			warnings: ['same'],
 			pairCount: 1,
 		});
-	});
-});
-
-describe('sdDecisions', () => {
-	const withSd = (over: Partial<PairingPlanEntry> = {}, estimator?: string) =>
-		entry({
-			replicates: { member_columns: ['a', 'b'], portal_sd_column: 'DOC_sd' } as never,
-			...over,
-			...(estimator ? ({ sd_estimator: estimator } as object) : {}),
-		});
-
-	it('reads one declaration for the parameter when every station agrees', () => {
-		const decisions = sdDecisions([
-			withSd({ stream_id: 'a', sd_holds: 2 } as never, 'population'),
-			withSd({ stream_id: 'b', sd_population_holds: 1 } as never, 'population'),
-		]);
-		expect(decisions).toHaveLength(1);
-		expect(decisions[0]).toMatchObject({
-			paramName: 'Depth',
-			declared: 'population',
-			holds: 2,
-			population: 1,
-		});
-	});
-
-	it('reports mixed declarations as undeclared, which is what the operator is asked', () => {
-		const decisions = sdDecisions([
-			withSd({ stream_id: 'a' }, 'population'),
-			withSd({ stream_id: 'b' }, 'sample'),
-		]);
-		expect(decisions[0].declared).toBe('');
-	});
-
-	it('ignores a family whose source ships no sd column', () => {
-		expect(sdDecisions([entry({ replicates: { member_columns: ['a'] } as never })])).toEqual([]);
 	});
 });
 

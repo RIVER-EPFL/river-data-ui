@@ -85,14 +85,13 @@
 		</div>
 		{#if report.totals.unregistered > 0 || report.totals.unpaired > 0}
 			<p class="text-brand-muted">
-				What to do about them:
 				<a class="text-brand-primary hover:underline" href={pairingPlanHref(base, report.source_system)}
-					>plan this source</a
-				>, which registers what is missing and pairs what is unpaired, or
+					>Plan this source</a
+				>, or pair one at a time from
 				<a
 					class="text-brand-primary hover:underline"
 					href={unpairedStreamsHref(base, report.source_system)}>its unpaired streams</a
-				>, to pair one on its own.
+				>.
 			</p>
 		{/if}
 	{/if}

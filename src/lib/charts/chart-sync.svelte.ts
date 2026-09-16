@@ -2,7 +2,6 @@ import type uPlot from 'uplot';
 import type { AlarmThreshold, Annotation } from '$api/crud';
 import type { SensorIdentityBand, CalibrationMarker } from '$api/sensors';
 import type { SpotPointStats } from './spotMarkers';
-import type { SdEstimator } from '$lib/sdEstimator';
 
 export interface ChartRegistration {
 	id: string;
@@ -26,8 +25,6 @@ export interface ChartRegistration {
 	spotFlags?: Map<number, boolean> | null;
 	// One-line ingestion origin for the series, e.g. "via cnet portal sync".
 	originLabel?: string;
-	/** The divisor the slot declares, which is what any printed sd was computed under. */
-	sdEstimator?: SdEstimator | null;
 }
 
 export interface CursorState {

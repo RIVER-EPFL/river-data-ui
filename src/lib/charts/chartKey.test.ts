@@ -8,14 +8,9 @@ describe('chartKeyEntries', () => {
 		]);
 	});
 
-	it('states which divisor the bar was computed under', () => {
-		const [entry] = chartKeyEntries({ sdBar: true, sdEstimator: 'population', units: 'ppb' });
-		expect(entry.label).toBe('±1 standard deviation, population (divisor n), ppb');
-	});
-
-	it('says the divisor is the sample formula when the slot declares none', () => {
-		const [entry] = chartKeyEntries({ sdBar: true, sdEstimator: null });
-		expect(entry.label).toContain('sample (divisor n-1)');
+	it('names the bar as the sample standard deviation, in the slot\'s units', () => {
+		const [entry] = chartKeyEntries({ sdBar: true, units: 'ppb' });
+		expect(entry.label).toBe('±1 sample standard deviation, ppb');
 	});
 
 	it('names each annotation category present, with the colour it is painted', () => {

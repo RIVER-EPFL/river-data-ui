@@ -1,13 +1,11 @@
 // What each mark on a chart means, named on screen.
 //
 // A vertical bar through a point could be a range, an interquartile range, a standard deviation or
-// a confidence interval, and a standard deviation's divisor is itself a declared property of the
-// slot. Two readers of the same plot must not be able to reach opposite conclusions about whether
-// a grab and a sensor value agree, so every mark drawn is named, and only the marks actually drawn
-// in that render are listed.
+// a confidence interval. Two readers of the same plot must not be able to reach opposite
+// conclusions about whether a grab and a sensor value agree, so every mark drawn is named, and
+// only the marks actually drawn in that render are listed.
 
 import { tokens } from './tokens';
-import { estimatorLabel, type SdEstimator } from '$lib/sdEstimator';
 
 export type ChartMark =
 	| 'line'
@@ -31,7 +29,7 @@ export interface ChartKeyEntry {
 	color?: string;
 }
 
-/** Which marks a single render actually drew, and what the slot declares about them. */
+/** Which marks a single render actually drew. */
 export interface ChartKeyPresence {
 	line?: boolean;
 	spot?: boolean;
@@ -47,8 +45,6 @@ export interface ChartKeyPresence {
 	alarmBands?: boolean;
 	/** Annotation categories present in the window, in the order they should be listed. */
 	annotationCategories?: string[];
-	/** The slot's declared divisor, which is what the sd bar was computed under. */
-	sdEstimator?: SdEstimator | null;
 	units?: string | null;
 }
 
@@ -69,7 +65,7 @@ export function chartKeyEntries(p: ChartKeyPresence): ChartKeyEntry[] {
 	if (p.sdBar)
 		entries.push({
 			mark: 'sdBar',
-			label: withUnits(`±1 standard deviation, ${estimatorLabel(p.sdEstimator)}`, p.units),
+			label: withUnits('±1 sample standard deviation', p.units),
 		});
 	if (p.replicateDots) entries.push({ mark: 'replicateDot', label: 'Individual replicate value' });
 	if (p.flagged) entries.push({ mark: 'flagged', label: 'Flagged, excluded from statistics' });

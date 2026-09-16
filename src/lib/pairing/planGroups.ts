@@ -4,12 +4,12 @@ import type {
 	PairingPlanEntry,
 	PlanInstrumentGroup,
 	PlanInstrumentRef,
+	PlanEntryUpdate,
 	PlanReplicateSummary,
-	SdEstimator,
 } from '$api/service';
 
-/// The plan's entries as the review tabs read them: by site, by instrument, by parameter, and by
-/// the divisor decision a parameter's family still owes. Each is a function of the entries alone.
+/// The plan's entries as the review tabs read them: by site, by instrument and by parameter. Each is
+/// a function of the entries alone.
 
 /// One instrument the plan puts to the operator: an instrument it has bound and a source parameter
 /// still without one are the same decision at two stages, so they are one row either way.
@@ -25,6 +25,30 @@ export interface InstrumentDecision {
 	anchorStreamId: string;
 	/** An instrument already carrying the proposed name, when the proposal collides with one. */
 	nameConflict: InstrumentNameConflict | null;
+}
+
+/** A row still asking: nothing attached, or a suggestion nobody has confirmed. */
+export function isAskingInstrument(d: InstrumentDecision): boolean {
+	return d.group === null || (d.group.create && !d.group.confirmed);
+}
+
+/**
+ * The one PATCH that accepts every suggestion still asking, and how many are held back because
+ * their name is already an instrument's, which is a choice between attaching and a second one.
+ */
+export function suggestionAcceptance(decisions: InstrumentDecision[]): {
+	updates: PlanEntryUpdate[];
+	held: number;
+} {
+	const asking = decisions.filter(isAskingInstrument);
+	const updates = asking
+		.filter((d) => !d.nameConflict)
+		.map((d): PlanEntryUpdate =>
+			d.group === null
+				? { stream_id: d.anchorStreamId, instrument_name: d.proposedName, instrument_confirmed: true }
+				: { stream_id: d.anchorStreamId, instrument_confirmed: true },
+		);
+	return { updates, held: asking.length - updates.length };
 }
 
 export interface SiteGroup {
@@ -216,39 +240,6 @@ export function paramGroups(entries: PairingPlanEntry[]): ParamGroup[] {
 		});
 	}
 	return groups.sort((a, b) => a.name.localeCompare(b.name) || a.units.localeCompare(b.units));
-}
-
-export interface SdDecision {
-	paramName: string;
-	entries: PairingPlanEntry[];
-	declared: SdEstimator | '';
-	holds: number;
-	population: number;
-}
-
-/** One row per parameter whose source ships its own sd column, with the declaration the whole group
- *  currently carries ('' = mixed or undeclared) and the audit evidence summed over its streams.
- *  Declaring here writes every entry of that parameter, so one choice settles all of its stations. */
-export function sdDecisions(entries: PairingPlanEntry[]): SdDecision[] {
-	const map = new Map<string, SdDecision>();
-	for (const e of entries) {
-		if (!e.replicates?.portal_sd_column) continue;
-		let g = map.get(e.parameter.name);
-		if (!g) {
-			g = { paramName: e.parameter.name, entries: [], declared: '', holds: 0, population: 0 };
-			map.set(e.parameter.name, g);
-		}
-		g.entries.push(e);
-		g.holds += e.sd_holds ?? 0;
-		g.population += e.sd_population_holds ?? 0;
-	}
-	for (const g of map.values()) {
-		const values = new Set(
-			g.entries.map((e) => (e as { sd_estimator?: SdEstimator | null }).sd_estimator ?? ''),
-		);
-		g.declared = values.size === 1 ? [...values][0] : '';
-	}
-	return [...map.values()].sort((a, b) => a.paramName.localeCompare(b.paramName));
 }
 
 /// What the apply will create, as rows rather than as counts. A count says how many; only the rows

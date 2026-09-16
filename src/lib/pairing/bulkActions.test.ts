@@ -94,20 +94,6 @@ describe("bulkUpdates", () => {
     expect(updates).toEqual([{ stream_id: "a", action: "skip" }]);
   });
 
-  it("clears an estimator with the empty string rather than dropping the field", () => {
-    const entries = [
-      entry({
-        stream_id: "a",
-        sd_estimator: "sample",
-      } as Partial<PairingPlanEntry>),
-    ];
-    const updates = bulkUpdates(entries, new Set(["a"]), {
-      field: "sd_estimator",
-      value: "",
-    });
-    expect(updates).toEqual([{ stream_id: "a", sd_estimator: "" }]);
-  });
-
   it("attaches an instrument only where a different one, or none, is bound", () => {
     const entries = [
       entry({

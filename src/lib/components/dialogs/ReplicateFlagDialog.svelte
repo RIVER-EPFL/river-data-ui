@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { PATCH } from '$api/client';
 	import { getReadingProvenance, previewSample, type SamplePreviewResponse } from '$api/service';
-	import { sdFormulaTitle, sdRowLabel } from '$lib/sdEstimator';
 	import type { SampleReplicate } from '$api/types';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { curveRefs } from '$lib/curveRefs.svelte';
@@ -294,9 +293,7 @@
 									<td class="text-right">{formatMeasurement(preview.delta.mean, decimals)}</td>
 								</tr>
 								<tr>
-									<td class="font-sans text-brand-muted py-0.5" title={sdFormulaTitle(preview.proposed.sd_estimator)}>
-										{sdRowLabel(preview.proposed.sd_estimator)}
-									</td>
+									<td class="font-sans text-brand-muted py-0.5" title="STDDEV_SAMP: sqrt(Σ(x - x̄)² / (n - 1)), matching sd() at source">SD (sample, n-1)</td>
 									<td class="text-right">{formatMeasurement(preview.current.sd, decimals)}</td>
 									<td class="text-right">{formatMeasurement(preview.proposed.sd, decimals)}</td>
 									<td class="text-right">{formatMeasurement(preview.delta.sd, decimals)}</td>

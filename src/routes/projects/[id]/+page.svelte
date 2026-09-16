@@ -705,8 +705,7 @@
 					</div>
 					<div class="max-w-2xl text-xs text-brand-muted">
 						<span class="font-medium text-brand-text">Replicate statistics:</span>
-						partners opt in with <code>include_sample_stats=true</code> on the readings endpoint (n, mean, sd, min, max per point).
-						The sd is published only for slots that declare an sd estimator; an undeclared slot publishes n and no sd.
+						partners opt in with <code>include_sample_stats=true</code> on the readings endpoint (n, mean, the sample sd as <code>sd_sample</code>, min, max per point).
 						Values are expressed at each slot's declared decimal places, unrounded where none is declared.
 					</div>
 				</div>

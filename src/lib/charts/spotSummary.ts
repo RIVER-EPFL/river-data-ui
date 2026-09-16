@@ -5,11 +5,9 @@
 
 import type { SpotPointStats } from './spotMarkers';
 import { formatMeasurement } from '$lib/format';
-import { estimatorLabel, type SdEstimator } from '$lib/sdEstimator';
 
 /** What the slot declares about the numbers being printed. */
 export interface SpotSummaryContext {
-	sdEstimator?: SdEstimator | null;
 	units?: string | null;
 }
 
@@ -45,12 +43,9 @@ export function spotSampleLine(
 				(r.withdrawn ? '†' : r.flagged ? '*' : '')
 		)
 		.join(', ');
-	// The bar is one standard deviation and its divisor is a declared property of the slot, so the
-	// number is never printed without saying which formula produced it.
 	const sd =
 		stat.stdev != null && stat.stdev > 0
-			? ` ±${formatMeasurement(stat.stdev, decimals)}${context.units ? ` ${context.units}` : ''}` +
-				` SD, ${estimatorLabel(stat.sdEstimator ?? context.sdEstimator)}`
+			? ` ±${formatMeasurement(stat.stdev, decimals)}${context.units ? ` ${context.units}` : ''} SD`
 			: '';
 	// The listing shows every stored replicate, the mean counts only the ones that survive
 	// curation, so the excluded ones are named rather than left to an unexplained mark against a

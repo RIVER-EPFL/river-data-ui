@@ -25,7 +25,7 @@ describe('series statistics', () => {
 		expect(nullPct(vals)).toBe(50);
 	});
 
-	it('has no sd below two values, and uses the sample divisor above it', () => {
+	it('has no sd below two values, and uses the sample sd above it', () => {
 		expect(stddev([5, null])).toBeNull();
 		// 2 and 4 about a mean of 3: sqrt(2) under n-1, 1 under n.
 		expect(stddev([2, 4])).toBeCloseTo(Math.SQRT2, 12);
@@ -103,8 +103,6 @@ describe('spotSeries', () => {
 						stdev: 0.5,
 						min: 412,
 						max: 413,
-						sd_estimator: 'population',
-						sd_estimator_source: 'slot',
 						replicates: [
 							{ replicate_index: 0, raw_value: 412, standard_curve_id: 'curveA', calibration_id: 'cal1' },
 							{ replicate_index: 1, raw_value: 413, standard_curve_id: 'curveA', calibration_id: 'cal1' },
@@ -122,7 +120,6 @@ describe('spotSeries', () => {
 			mean: 412.5,
 			n: 2,
 			stdev: 0.5,
-			sdEstimator: 'population',
 			sampleId: 'sam1',
 			withdrawn: false,
 			calibrationId: 'cal1',
@@ -154,8 +151,6 @@ describe('sampleCurve', () => {
 		const curve = sampleCurve({
 			sample_id: 's',
 			n: 2,
-			sd_estimator: 'sample',
-			sd_estimator_source: 'slot',
 			replicates: [
 				{ replicate_index: 0, raw_value: 1, standard_curve_id: 'a', flagged: false, withdrawn: false },
 				{ replicate_index: 1, raw_value: 2, standard_curve_id: 'b', flagged: false, withdrawn: false },
@@ -169,8 +164,6 @@ describe('sampleCurve', () => {
 			sampleCurve({
 				sample_id: 's',
 				n: 1,
-				sd_estimator: 'sample',
-				sd_estimator_source: 'slot',
 				replicates: [],
 			}),
 		).toMatchObject({ curveId: null, mixed: false });

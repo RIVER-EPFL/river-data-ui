@@ -22,10 +22,6 @@ export interface SpotPointStats {
 	// The whole group is retracted at source: served only when asked for, and drawn as a state
 	// rather than an absence, because a retraction is reversible.
 	withdrawn?: boolean;
-	// The divisor this group's sd was computed with. A per-instant audit decision overrides the
-	// slot's declaration, so the group's own value wins over the slot's wherever the sd is printed.
-	sdEstimator?: 'sample' | 'population' | null;
-	sdEstimatorSource?: string | null;
 	// Individual replicate values behind the mean, each carrying its own curve references.
 	replicates?: SampleReplicate[];
 	// The `samples` row behind the point. Carried so a chart click can reach the sample's tool-run
@@ -311,8 +307,6 @@ export function spotPointStats(
 		n?: number | null;
 		min?: number | null;
 		max?: number | null;
-		sd_estimator?: 'sample' | 'population' | null;
-		sd_estimator_source?: string | null;
 		replicates?: SampleReplicate[];
 		sample_id?: string;
 	} | null,
@@ -330,8 +324,6 @@ export function spotPointStats(
 		n: sample?.n ?? 1,
 		min: sample?.min ?? null,
 		max: sample?.max ?? null,
-		sdEstimator: sample?.sd_estimator ?? null,
-		sdEstimatorSource: sample?.sd_estimator_source ?? null,
 		replicates: sample?.replicates,
 		sampleId: sample?.sample_id,
 		calibrationId: point.calibrationId ?? null,

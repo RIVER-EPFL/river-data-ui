@@ -173,9 +173,8 @@
 	});
 
 	/**
-	 * The period statistics, computed server-side over the values the API serves. The browser used
-	 * to compute them here with a divisor it neither chose nor named, which is how the same range
-	 * could read differently in the portal and in Explore.
+	 * The period statistics, computed server-side over the values the API serves, so the same range
+	 * reads the same in the portal and in Explore.
 	 */
 	interface PeriodStatsRow {
 		site: string;
@@ -408,7 +407,6 @@
 									<th class="text-right py-1.5 font-semibold">Median</th>
 									<th class="text-right py-1.5 font-semibold">Mean</th>
 									<th class="text-right py-1.5 font-semibold" title="Divides by n-1, matching R's sd()">SD (sample, n-1)</th>
-									<th class="text-right py-1.5 font-semibold" title="Divides by n">SD (population, n)</th>
 									<th class="text-right py-1.5 font-semibold">Min</th>
 									<th class="text-right py-1.5 font-semibold">Max</th>
 								</tr>
@@ -428,7 +426,6 @@
 										<td class="py-1.5 text-right font-mono text-xs">{s?.n ? formatMeasurement(s.median, d) : NO_VALUE}</td>
 										<td class="py-1.5 text-right font-mono text-xs">{s?.n ? formatMeasurement(s.mean, d) : NO_VALUE}</td>
 										<td class="py-1.5 text-right font-mono text-xs">{s?.n ? formatMeasurement(s.stdev_sample, d) : NO_VALUE}</td>
-										<td class="py-1.5 text-right font-mono text-xs">{s?.n ? formatMeasurement(s.stdev_population, d) : NO_VALUE}</td>
 										<td class="py-1.5 text-right font-mono text-xs">{s?.n ? formatMeasurement(s.min, d) : NO_VALUE}</td>
 										<td class="py-1.5 text-right font-mono text-xs">{s?.n ? formatMeasurement(s.max, d) : NO_VALUE}</td>
 									</tr>

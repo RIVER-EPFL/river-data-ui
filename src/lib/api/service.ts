@@ -623,8 +623,7 @@ export type PairingPlan = components['schemas']['PairingPlan'];
 
 export type PairingPlanApplyResult = components['schemas']['ApplyResult'];
 
-// The PATCH body's per-entry update, as the route's own request struct. `sd_estimator` is a string
-// on the wire because an empty one clears the choice and leaves the slot undeclared.
+// The PATCH body's per-entry update, as the route's own request struct.
 export type PlanEntryUpdate = components['schemas']['PlanEntryUpdate'];
 
 export const createPairingPlan = (sourceSystem: string) =>
@@ -838,16 +837,17 @@ export type ReplicateAuditHold = Omit<
 		| 'consumed'
 		| 'superseded';
 	// Detected disagreement signature.
-	classification: 'n_mismatch' | 'population_sd' | 'stale_subset' | 'quantization' | 'unexplained';
-	// What a remediation did: which replicate indexes were flagged, or which estimator was
-	// declared and what it replaced.
+	classification:
+		| 'n_mismatch'
+		| 'source_sd_matches_n_divisor'
+		| 'stale_subset'
+		| 'quantization'
+		| 'unexplained';
+	// What a remediation did: which replicate indexes were flagged.
 	resolution: {
 		action?: string;
 		replicate_indexes?: number[];
 		reason?: string | null;
-		estimator?: SdEstimator;
-		scope?: 'slot' | 'instant';
-		previous_estimator?: SdEstimator | null;
 	} | null;
 };
 
@@ -873,21 +873,24 @@ export const listReplicateAudits = (
 		max_mean_relative_delta?: number;
 		max_sd_relative_delta?: number;
 		sort?: 'relative_delta_desc' | 'relative_delta_asc' | 'created_at_desc';
-		// Only these two are filterable: 'population_sd' is the one signature with a SQL spelling
-		// and 'not_population_sd' is its exact complement, so both filter and page without
-		// dropping rows out of an already-counted page.
-		classification?: 'population_sd' | 'not_population_sd';
-		// Holds whose slot has (true) or has not (false) declared an sd estimator. `false` is the
-		// set the resolution gate blocks from plain acknowledgement.
-		estimator_declared?: boolean;
+		// Only these two are filterable: 'source_sd_matches_n_divisor' is the one signature with a
+		// SQL spelling and 'not_source_sd_matches_n_divisor' is its exact complement, so both filter
+		// and page without dropping rows out of an already-counted page.
+		classification?: 'source_sd_matches_n_divisor' | 'not_source_sd_matches_n_divisor';
+		// Comma-separated hold kinds.
+		kind?: string;
+		// Holds raised against one calculation.
+		tool?: string;
+		site_id?: string;
+		parameter_id?: string;
+		// Inclusive start and exclusive end of the holds' instants.
+		from?: string;
+		to?: string;
 		page?: number;
 		page_size?: number;
 	} = {},
 ) => GET<ReplicateAuditListResponse>(`${ADMIN}/sync/replicate_audit_holds`, { ...filter });
 
-// `skipped_undeclared_estimator` counts holds deliberately left pending: their disagreement is
-// the population-divisor signature on a parameter that has not declared which formula it
-// publishes, so accepting would record that decision without anyone having made it.
 // `skipped_no_stream` counts the ones the sweep could not reach at all: an event finding is keyed
 // on its slot rather than a stream, and the sweep and its filters are about streams.
 export type AcknowledgeResult = components['schemas']['AcknowledgeResponse'];
@@ -905,35 +908,21 @@ export const acknowledgeReplicateAuditsBulk = (req: {
 	max_sd_relative_delta?: number;
 }) => POST<AcknowledgeResult>(`${ADMIN}/sync/replicate_audit_holds/acknowledge_bulk`, req);
 
-// Which divisor a replicate group's standard deviation uses: 'sample' is n-1, 'population' is n.
-export type SdEstimator = components['schemas']['SdEstimator'];
-
 export type ResolveHoldResult = components['schemas']['ResolveHoldResponse'];
 
 // Resolve a pending hold. 'ours' records that the recomputed statistics stand. 'flag' flags the
 // named replicate indexes; the sample's mean/sd/n recompute immediately from the rest.
-// 'estimator' declares which divisor the parameter (scope 'slot') or this one collection group
-// (scope 'instant') publishes. Statistics are never entered directly: a resolution changes the
-// input set or the specification, and the trigger recomputes. 'verify' and 'reject' rule on what
+// Statistics are never entered directly: a resolution changes the input set, and the trigger
+// recomputes. 'verify' and 'reject' rule on what
 // somebody entered: a pending measurement, or the field day it was entered at.
 export const resolveReplicateAudit = (
 	id: string,
 	body:
 		| { mode: 'ours' }
 		| { mode: 'flag'; replicate_indexes: number[]; reason?: string }
-		| { mode: 'estimator'; estimator: SdEstimator; scope: 'slot' | 'instant' }
 		| { mode: 'verify' }
 		| { mode: 'reject'; reason?: string },
 ) => POST<ResolveHoldResult>(`${ADMIN}/sync/replicate_audit_holds/${id}/resolve`, body);
-
-// One slot serving replicate statistics under no declared sd estimator. `population_signature_holds`
-// is the evidence the operator rules on: holds whose disagreement is exactly the divisor.
-export type UndeclaredEstimatorSlot = components['schemas']['UndeclaredEstimatorSlot'];
-
-export type UndeclaredEstimatorsResponse = components['schemas']['UndeclaredEstimatorsResponse'];
-
-export const listUndeclaredSdEstimators = () =>
-	GET<UndeclaredEstimatorsResponse>(`${ADMIN}/actions/undeclared_sd_estimators`);
 
 export type CurationDriftResponse = components['schemas']['CurationDriftResponse'];
 export type CurationDriftRow = components['schemas']['CurationDriftRow'];
@@ -943,37 +932,12 @@ export type CurationDriftRow = components['schemas']['CurationDriftRow'];
 export const getCurationDrift = (limit?: number) =>
 	GET<CurationDriftResponse>(`${ADMIN}/actions/curation_drift${limit ? `?limit=${limit}` : ''}`);
 
-export type DeclareSdEstimatorResponse = components['schemas']['DeclareSdEstimatorResponse'];
-
-// The one path for changing a slot's declaration: writes the column and enqueues the tracked
-// retag recomputing the slot's stored samples. The CRUD update excludes the field.
-export const declareSdEstimator = (siteParameterId: string, estimator: SdEstimator | null) =>
-	POST<DeclareSdEstimatorResponse>(
-		`${ADMIN}/site_parameters/${siteParameterId}/declare_sd_estimator`,
-		{ estimator },
-	);
-
-export type RetagSdEstimatorResponse = components['schemas']['RetagSdEstimatorResponse'];
-
-// The sd_estimator_retag job's own options: bring stored samples into line with a declaration
-// the slot already carries, optionally over a window, optionally overriding instant decisions.
-// dry_run counts without enqueueing and skips the declaration check, so it previews a change.
-export const retagSdEstimator = (body: {
-	estimator: SdEstimator;
-	site_parameter_ids?: string[];
-	stream_ids?: string[];
-	start?: string;
-	end?: string;
-	override_instants?: boolean;
-	dry_run?: boolean;
-}) => POST<RetagSdEstimatorResponse>(`${ADMIN}/actions/retag_sd_estimator`, body);
-
 export type SamplePreviewStats = components['schemas']['PreviewStats'];
 
 export type SamplePreviewResponse = components['schemas']['SamplePreviewResponse'];
 
 // What a replicate group's statistics become without the replicates about to be flagged, with
-// the ones about to be restored, or under the other divisor. Writes nothing.
+// the ones about to be restored. Writes nothing.
 export const previewSample = (body: {
 	stream_id?: string;
 	site_id?: string;
@@ -981,7 +945,6 @@ export const previewSample = (body: {
 	time: string;
 	exclude_replicate_indexes?: number[];
 	include_replicate_indexes?: number[];
-	estimator?: SdEstimator;
 	hold_id?: string;
 }) => POST<SamplePreviewResponse>(`${ADMIN}/readings/sample_preview`, body);
 
@@ -992,9 +955,11 @@ export const reopenReplicateAudit = (id: string) =>
 export const getSyncCommand = (id: string) =>
 	GET<SyncCommand>(`${SERVICE}/sync_commands/${id}`);
 
-/** Pending review items and their per-kind breakdown, for the entry-point wording. */
-export const getPendingAuditSummary = async (): Promise<{ pending: number; byKind: Record<string, number> }> => {
-	const res = await listReplicateAudits({ page_size: 1 });
+/** Pending review items of the given kinds and their per-kind breakdown, for the entry-point wording. */
+export const getPendingAuditSummary = async (
+	kinds: readonly string[],
+): Promise<{ pending: number; byKind: Record<string, number> }> => {
+	const res = await listReplicateAudits({ page_size: 1, kind: kinds.join(',') });
 	return { pending: res.pending, byKind: res.pending_by_kind ?? {} };
 };
 
@@ -1080,8 +1045,11 @@ export type StagedEvent = components['schemas']['StagedEvent'];
 export const stageCollectionEvent = (req: { site_id: string; collected_at: string; notes?: string }) =>
 	POST<StagedEvent>(`${SERVICE}/collection_events/stage`, req);
 
-/** Stage a trip: one visit per site named, all at one instant, in one call. */
-export const stageCollectionEvents = (req: { site_ids: string[]; collected_at: string; notes?: string }) =>
+/** Stage a field day: one visit per row, each at its own site and instant, in one call. */
+export const stageCollectionEvents = (req: {
+	visits: { site_id: string; collected_at: string }[];
+	notes?: string;
+}) =>
 	POST<StagedEvent[]>(`${SERVICE}/collection_events/stage_many`, req);
 
 export const recomputeCollectionEvent = (id: string) =>
@@ -1098,31 +1066,6 @@ export const runEventRecompute = (req: {
 	only_findings?: boolean;
 	calculation?: string;
 }) => POST<{ job_id: string | null }>(`${SERVICE}/actions/event_recompute`, req);
-
-// Replicate reconciliation: migrate readings from legacy per-`_avg`-column streams onto their
-// replicate-family streams (tracked job, migrate + verify, never deletes), then a separate
-// re-verify + delete pass for the obsolete avg streams.
-export type ReconciliationFamily = components['schemas']['FamilyCandidate'];
-
-export type ReconciliationCandidatesResponse = components['schemas']['CandidatesResponse'];
-
-export const getReconciliationCandidates = (sourceSystem: string) =>
-	GET<ReconciliationCandidatesResponse>(`${ADMIN}/sync/replicate_reconciliation/candidates`, {
-		source_system: sourceSystem,
-	});
-
-export const startReplicateReconciliation = (sourceSystem: string, dryRun = false) =>
-	POST<{ job_id: string }>(`${ADMIN}/sync/replicate_reconciliation`, {
-		source_system: sourceSystem,
-		...(dryRun ? { dry_run: true } : {}),
-	});
-
-export type DuplicateSlotStream = components['schemas']['DuplicateSlotStream'];
-
-export type DuplicateSlot = components['schemas']['DuplicateSlot'];
-
-export const getDuplicateSlots = () =>
-	GET<{ slots: DuplicateSlot[] }>(`${ADMIN}/sync/replicate_reconciliation/duplicate_slots`);
 
 /** A value the source changed after river-data stored it, awaiting a decision (Q84). */
 export type ChangeProposal = components['schemas']['ReadingChangeProposalList'];
@@ -1152,11 +1095,6 @@ export const decideChangeProposals = (
 		ids,
 		decision,
 		...(reason ? { reason } : {}),
-	});
-
-export const startReconciliationDelete = (sourceSystem: string) =>
-	POST<{ job_id: string }>(`${ADMIN}/sync/replicate_reconciliation/delete`, {
-		source_system: sourceSystem,
 	});
 
 // Roles
@@ -1285,6 +1223,12 @@ export const listTools = () => GET<ToolDescriptor[]>(`${SERVICE}/tools`);
 
 export const calculateTool = (name: string, body: Record<string, unknown>) =>
 	POST<ToolCalculateResponse>(`${SERVICE}/tools/${encodeURIComponent(name)}/calculate`, body);
+
+/** The calculation without a stored run: nothing a save can name (Q212). */
+export type ToolPreviewResponse = components['schemas']['ToolCalculation'];
+
+export const previewTool = (name: string, body: Record<string, unknown>) =>
+	POST<ToolPreviewResponse>(`${SERVICE}/tools/${encodeURIComponent(name)}/preview`, body);
 
 // Tool script authoring (admin-only). Versions are immutable; activation flips the pointer and
 // activating an older version is the rollback.
@@ -1722,6 +1666,12 @@ export type ToolRunReload = components['schemas']['ReloadResponse'];
 
 export const reloadToolRun = (runId: string) =>
 	GET<ToolRunReload>(`${SERVICE}/tool_runs/${runId}/reload`);
+
+/** A stored run replayed under the version it pinned: each formula with the values it read. */
+export type ToolRunTrace = components['schemas']['RunTrace'];
+
+export const getToolRunTrace = (runId: string) =>
+	GET<ToolRunTrace>(`${SERVICE}/tool_runs/${runId}/trace`);
 
 export type ReadingDecision = components['schemas']['DecisionRow'];
 

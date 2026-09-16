@@ -84,12 +84,3 @@ export function statusLabel(status: EntryStatus): string {
 	return `new ${status.creates.join(', ')}`;
 }
 
-/**
- * What declaring a divisor on one analyte will write. The declaration covers every entry of the
- * analyte at once, so the control says how far it reaches before it is used.
- */
-export function estimatorScopeLabel(entries: PairingPlanEntry[]): string {
-	const streams = `${entries.length} stream${entries.length === 1 ? '' : 's'}`;
-	const sites = new Set(entries.map((e) => e.site.name).filter(Boolean));
-	return sites.size > 1 ? `${streams} at ${sites.size} sites` : streams;
-}

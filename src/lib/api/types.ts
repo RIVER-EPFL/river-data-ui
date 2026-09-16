@@ -19,13 +19,6 @@ export interface SampleStat {
 	min?: number | null;
 	max?: number | null;
 	median?: number | null;
-	/** Both divisors, so the one the slot did not declare stays readable. */
-	stdev_sample?: number | null;
-	stdev_population?: number | null;
-	/** The divisor this group's `stdev` was computed with, and what chose it. A per-instant audit
-	 *  decision overrides the slot, so the group's own value is the one to print. */
-	sd_estimator: 'sample' | 'population';
-	sd_estimator_source: string;
 	replicates: SampleReplicate[];
 }
 

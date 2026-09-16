@@ -28,7 +28,6 @@
 		type ToolParam,
 		type ToolEventInput,
 		type EventCell,
-		type SdEstimator,
 		type ToolVersionRef,
 		getLastUsedCurve,
 		type LastUsedCurve,
@@ -172,12 +171,6 @@
 		const usable = letters.every((n) => n >= 0) && new Set(letters).size === letters.length;
 		return usable ? letters : suffixes.map((_, i) => i);
 	}
-
-	// An output whose manifest says the operator chooses which divisor the saved replicates'
-	// standard deviation uses. A manifest that fixes one is applied server-side from the run, so
-	// nothing here repeats it.
-	const estimatorSelectable = $derived(outputs.some((o) => o.sd_estimator === 'selectable'));
-	let sdEstimator = $state<SdEstimator>('sample');
 
 	// Rows follow the manifest: per_replicate outputs group their suffixed result keys
 	// ({base}_{rep}). An output that names no catalog parameter has nowhere to be written and is
@@ -440,6 +433,7 @@
 		}
 		included = inc;
 		paramChoices = pc;
+		defaulted = new Set(saveableRows.map((r) => r.id));
 		void loadSites();
 		if (contextSiteId) void loadSiteParameters(contextSiteId);
 		void preselectInputCurve();
@@ -658,10 +652,15 @@
 
 	// A row can appear after the dialog opened: the staged visit's cells load asynchronously, and a
 	// correction row exists only once they have. It takes its own default rather than staying
-	// untickable, and the choices the operator already made are left alone.
+	// untickable, and the choices the operator already made are left alone. A row is fresh until it
+	// has been given its default, not while its value is unset: a checkbox mounted in the same update
+	// writes its unticked state back first.
+	// Plain, not reactive: the effect below writes it.
+	let defaulted = new Set<string>();
 	$effect(() => {
-		const fresh = saveableRows.filter((r) => included[r.id] === undefined);
+		const fresh = saveableRows.filter((r) => !defaulted.has(r.id));
 		if (fresh.length === 0) return;
+		for (const r of fresh) defaulted.add(r.id);
 		included = { ...included, ...Object.fromEntries(fresh.map((r) => [r.id, r.defaultInclude])) };
 		paramChoices = { ...paramChoices, ...Object.fromEntries(fresh.map((r) => [r.id, ''])) };
 		if (siteParams.length > 0) applyDefaultMappings(fresh);
@@ -875,7 +874,6 @@
 				...(replace ? { mode: 'replace' as const } : {}),
 				...(runId ? { tool_run_id: runId } : {}),
 				...(checkSatisfied && check ? { check_id: check.id } : {}),
-				...(estimatorSelectable ? { sd_estimator: sdEstimator } : {}),
 				readings: buildReadings(),
 			});
 			const saved =
@@ -1285,26 +1283,6 @@
 				</div>
 			{/if}
 
-			{#if estimatorSelectable}
-				<div class="flex flex-col gap-1">
-					<span class="text-sm font-medium">Standard deviation formula</span>
-					<div class="flex items-center gap-4 text-sm">
-						{#each [
-							{ value: 'sample' as SdEstimator, label: 'Sample (n-1)' },
-							{ value: 'population' as SdEstimator, label: 'Population (n)' },
-						] as choice}
-							<label class="flex items-center gap-1.5 cursor-pointer">
-								<input type="radio" value={choice.value} bind:group={sdEstimator} />
-								{choice.label}
-							</label>
-						{/each}
-					</div>
-					<p class="text-xs text-brand-muted">
-						This tool reports both conventions, so the divisor is recorded per save. It applies
-						to the samples this save creates and overrides the parameter's own setting.
-					</p>
-				</div>
-			{/if}
 
 			<div class="grid grid-cols-2 gap-3">
 				<div class="flex flex-col gap-1">

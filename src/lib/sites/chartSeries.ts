@@ -20,7 +20,7 @@ export function mean(vals: (number | null)[]): number | null {
 	return nums.reduce((a, b) => a + b, 0) / nums.length;
 }
 
-/** The sample divisor (n-1), matching what the API serves for a group with no declaration. */
+/** The sample standard deviation (n-1), which is what the API serves. */
 export function stddev(vals: (number | null)[]): number | null {
 	const nums = vals.filter((v): v is number => v != null);
 	if (nums.length < 2) return null;

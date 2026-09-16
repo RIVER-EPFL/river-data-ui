@@ -2,10 +2,8 @@ import { fireEvent, render, screen } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getCurationDrift = vi.fn();
-const listUndeclaredSdEstimators = vi.fn();
 vi.mock("$api/service", () => ({
   getCurationDrift: (limit?: number) => getCurationDrift(limit),
-  listUndeclaredSdEstimators: () => listUndeclaredSdEstimators(),
 }));
 
 const InvariantReportsPanel = (await import("./InvariantReportsPanel.svelte"))
@@ -13,12 +11,6 @@ const InvariantReportsPanel = (await import("./InvariantReportsPanel.svelte"))
 
 const clean = () => {
   getCurationDrift.mockResolvedValue({ total: 0, rows: [] });
-  listUndeclaredSdEstimators.mockResolvedValue({
-    total_slots: 0,
-    total_undeclared_samples: 0,
-    total_population_signature_holds: 0,
-    slots: [],
-  });
 };
 
 beforeEach(() => vi.clearAllMocks());
@@ -54,12 +46,6 @@ describe("InvariantReportsPanel", () => {
         },
       ],
     });
-    listUndeclaredSdEstimators.mockResolvedValue({
-      total_slots: 0,
-      total_undeclared_samples: 0,
-      total_population_signature_holds: 0,
-      slots: [],
-    });
     render(InvariantReportsPanel, {});
     const heading = await screen.findByText(
       /Readings that disagree with their decision record/,
@@ -69,11 +55,10 @@ describe("InvariantReportsPanel", () => {
     expect(link.getAttribute("href")).toContain("/sites/site-1?focus=param-1");
   });
 
-  it("reports both counts without asking the user to run anything", async () => {
+  it("reports the count without asking the user to run anything", async () => {
     clean();
     render(InvariantReportsPanel, {});
     await screen.findByText(/Readings that disagree/);
     expect(getCurationDrift).toHaveBeenCalled();
-    expect(listUndeclaredSdEstimators).toHaveBeenCalled();
   });
 });

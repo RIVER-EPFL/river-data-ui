@@ -1,7 +1,6 @@
 import type {
   PairingPlanEntry,
   PlanEntryUpdate,
-  SdEstimator,
 } from "$api/service";
 import { selectedEntries, type Selection } from "./selection";
 
@@ -16,7 +15,6 @@ import { selectedEntries, type Selection } from "./selection";
 export type BulkDecision =
   | { field: "action"; value: "pair" | "skip" }
   | { field: "acknowledged"; value: boolean }
-  | { field: "sd_estimator"; value: SdEstimator | "" }
   | { field: "instrument_id"; value: string }
   | { field: "instrument_clear" };
 
@@ -27,8 +25,6 @@ function unchanged(entry: PairingPlanEntry, decision: BulkDecision): boolean {
       return entry.action === decision.value;
     case "acknowledged":
       return (entry.acknowledged ?? false) === decision.value;
-    case "sd_estimator":
-      return (entry.sd_estimator ?? "") === decision.value;
     case "instrument_id":
       return entry.instrument?.id === decision.value;
     case "instrument_clear":
@@ -46,8 +42,6 @@ function update(
       return { stream_id, action: decision.value };
     case "acknowledged":
       return { stream_id, acknowledged: decision.value };
-    case "sd_estimator":
-      return { stream_id, sd_estimator: decision.value };
     case "instrument_id":
       return { stream_id, instrument_id: decision.value };
     case "instrument_clear":

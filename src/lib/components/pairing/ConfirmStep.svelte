@@ -19,13 +19,10 @@
 		created,
 		onsiteattribute,
 		ongroupattribute,
-		undeclaredEstimatorCount,
-		undeclaredEstimatorFamilies,
 		applying,
 		applyJobId,
 		onback,
 		onapply,
-		ongotoparam,
 		ongotoinstruments,
 		ongotosites,
 	}: {
@@ -67,15 +64,11 @@
 			field: 'latitude' | 'longitude' | 'altitudeM',
 			value: number | null,
 		) => void;
-		/** Parameters whose divisor nobody declared; the apply leaves them undeclared. */
-		undeclaredEstimatorCount: number;
-		undeclaredEstimatorFamilies: Array<{ paramName: string; sdColumn: string; sites: number }>;
 		applying: boolean;
 		/** The tracked job the apply runs as, once it has one. */
 		applyJobId: string | null;
 		onback: () => void;
 		onapply: () => void;
-		ongotoparam: (paramName: string) => void;
 		ongotoinstruments: () => void;
 		/** Back to the Sites tab under one review filter, at its first page. */
 		ongotosites: (filter: 'needs_checking' | 'self_validated') => void;
@@ -285,36 +278,8 @@
 		{#if familySummary.streams > 0}
 			<p class="text-xs text-brand-muted">
 				{familySummary.streams} of these streams are replicate families ({familySummary.columns}
-				readings columns collapse into them). Replicates are stored per instant at indices
-				0..n-1; the source's averages and standard deviations are audited, not stored.
+				readings columns collapse into them); the source's statistics are audited, not stored.
 			</p>
-		{/if}
-		{#if undeclaredEstimatorFamilies.length > 0}
-			<div class="px-3 py-2 rounded-md bg-severity-warning-soft border border-severity-warning-border text-xs text-severity-warning-text space-y-1">
-				<p>
-					{undeclaredEstimatorCount} replicate famil{undeclaredEstimatorCount === 1 ? 'y' : 'ies'}
-					will be paired undeclared: their statistics use sample (n-1) meanwhile, and every
-					disagreement the population divisor (n) explains is held in the audit queue until you
-					declare one.
-				</p>
-				<ul class="space-y-0.5">
-					{#each undeclaredEstimatorFamilies.slice(0, 6) as fam (fam.paramName)}
-						<li>
-							<button
-								onclick={() => { onback(); ongotoparam(fam.paramName); }}
-								class="bg-transparent border-none p-0 cursor-pointer font-semibold underline-offset-2 hover:underline text-severity-warning-text"
-							>{fam.paramName}</button>
-							<span class="text-brand-muted">
-								(source ships {fam.sdColumn}, {fam.sites} site{fam.sites === 1 ? '' : 's'})
-							</span>
-						</li>
-					{/each}
-					{#if undeclaredEstimatorFamilies.length > 6}
-						<li class="text-brand-muted">and {undeclaredEstimatorFamilies.length - 6} more</li>
-					{/if}
-				</ul>
-				<p class="text-brand-muted">Set the divisor in Review now, or leave it and decide from the audit queue.</p>
-			</div>
 		{/if}
 		<p class="text-xs text-brand-muted">Readings will be backfilled with site and parameter IDs. Continuous aggregates will refresh in the background. Reverting unpairs the streams and takes the site and parameter back off their readings; sites, slots, parameters, parameter groups, instruments and deployments the apply creates stay, and a reverted plan cannot be applied again.</p>
 

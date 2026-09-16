@@ -120,7 +120,6 @@ export function fromManifest(raw: unknown): BuilderManifest {
 				aggregate: optStr(o.aggregate) as ManifestOutput['aggregate'],
 				parameter_id: optStr(o.parameter_id),
 				suggested_parameter_code: optStr(o.suggested_parameter_code),
-				sd_estimator: optStr(o.sd_estimator) as ManifestOutput['sd_estimator'],
 			};
 		}),
 		constants: arr(m.constants).filter((c): c is string => typeof c === 'string'),
@@ -286,7 +285,6 @@ export function blankOutput(key = '', per_replicate = false): ManifestOutput {
 		aggregate_of: null,
 		parameter_id: null,
 		suggested_parameter_code: null,
-		sd_estimator: null,
 	};
 }
 

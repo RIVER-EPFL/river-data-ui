@@ -218,8 +218,6 @@ export interface SiteParameter {
 	is_public: boolean;
 	/** Slot minted by a verified tool save; a manager confirms it from the site's Parameters tab. */
 	needs_review: boolean;
-	/** 'sample' | 'population' | null (undeclared). Changed only through the declare endpoint. */
-	sd_estimator: string | null;
 	created_at: string;
 	/** Stamped when a sync minted the slot; null means it was entered by hand. */
 	discovered_at: string | null;

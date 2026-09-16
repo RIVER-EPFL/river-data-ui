@@ -45,8 +45,8 @@ function open() {
 beforeEach(() => {
 	vi.clearAllMocks();
 	previewSample.mockResolvedValue({
-		current: { n: 2, mean: 8.061, sd: 0.0792, sd_estimator: 'sample' },
-		proposed: { n: 1, mean: 8.005, sd: null, sd_estimator: 'sample' },
+		current: { n: 2, mean: 8.061, sd: 0.0792 },
+		proposed: { n: 1, mean: 8.005, sd: null },
 		delta: { n: -1, mean: -0.056, sd: null },
 		replicates: [],
 	});

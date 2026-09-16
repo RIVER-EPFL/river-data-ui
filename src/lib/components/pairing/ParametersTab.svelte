@@ -10,12 +10,11 @@
 		PairingPlanEntry,
 		PlanInstrumentGroup,
 		PlanReplicateSummary,
-		SdEstimator,
 	} from '$api/service';
 	import type { Parameter } from '$api/crud';
 	import Button from '$components/ui/Button.svelte';
 	import PairSkipToggle from '$components/ui/PairSkipToggle.svelte';
-	import type { ParamGroup, SdDecision } from '$lib/pairing/planGroups';
+	import type { ParamGroup } from '$lib/pairing/planGroups';
 	import { formatCount } from '$lib/format';
 	import { focusOnMount } from '$lib/focus';
 
@@ -53,8 +52,6 @@
 		expandedReplicates,
 		groupStatus,
 		rowWarnings,
-		showDivisorHolds,
-		setParamEstimator,
 		goToInstrument,
 		mapParamToExisting,
 		renameGlobalParam,
@@ -70,8 +67,6 @@
 		splitParamInput = $bindable(),
 		splitParamValue = $bindable(),
 		existingParams,
-		sdDisputedByParam,
-		estimatorScopeLabel,
 		editingLabel = $bindable(),
 		editLabelValue = $bindable(),
 		matchParam,
@@ -83,6 +78,7 @@
 		ongoinstruments,
 		replicateChip,
 		replicateRouting,
+		unitConflicts,
 		paramPage = $bindable(0),
 	}: {
 		paramGroups: ParamGroup[];
@@ -101,11 +97,6 @@
 		expandedReplicates: Set<string>;
 		groupStatus: (pg: ParamGroup) => { total: number; unmatched: number; warnings: number };
 		rowWarnings: (pg: ParamGroup) => string[];
-		showDivisorHolds: (
-			group: { paramName: string; entries: PairingPlanEntry[] },
-			classification: 'population_sd' | 'not_population_sd',
-		) => void;
-		setParamEstimator: (group: { entries: PairingPlanEntry[] }, value: SdEstimator | '') => void;
 		goToInstrument: (scope: string) => void;
 		mapParamToExisting: (oldName: string, existingParam: Parameter) => void;
 		renameGlobalParam: (oldName: string, newName: string, newUnits?: string) => void;
@@ -123,9 +114,6 @@
 		splitParamInput: { groupName: string; sourceName: string } | null;
 		splitParamValue: string;
 		existingParams: Parameter[];
-		/** The sd decision each parameter still owes, by parameter name. */
-		sdDisputedByParam: Map<string, SdDecision>;
-		estimatorScopeLabel: (entries: PairingPlanEntry[]) => string;
 		/** The parameter whose plotting label is being edited, or null. */
 		editingLabel: string | null;
 		editLabelValue: string;
@@ -142,6 +130,8 @@
 		replicateRouting: Snippet<[PlanReplicateSummary, string]>;
 		/** The page of parameter rows on show, held by the page so it can turn to a row. */
 		paramPage: number;
+		/** Source parameters whose units disagree with the catalog entry they match. */
+		unitConflicts: Snippet;
 	} = $props();
 
 
@@ -158,6 +148,7 @@
 	);
 </script>
 
+	{@render unitConflicts()}
 	<div class="flex flex-wrap items-baseline gap-2">
 		<p class="text-xs text-brand-muted">Map source parameters to existing DB parameters, rename, or change units. Changes apply across all {siteCount} sites.</p>
 		{#if openInstrumentQuestions > 0}
@@ -196,11 +187,10 @@
 			<tbody>
 				{#each pagedGroups as pg}
 					{@const matched = matchParam(pg.name)}
-					{@const sd = sdDisputedByParam.get(pg.name)}
 					{@const status = groupStatus(pg)}
 					<tr
 						id="param-row-{pg.name}"
-						class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 transition-shadow {sd ? (sd.declared ? 'bg-severity-ok-soft' : 'bg-severity-warning-soft') : ''}"
+						class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 transition-shadow"
 					>
 						<td class="px-3 py-2 text-xs text-brand-muted font-mono max-w-[250px]">
 						{#if pg.originalNames.length > 1}
@@ -289,41 +279,6 @@
 										{@render replicateRouting(pg.replicates, pg.streamIds[0])}
 									</div>
 								{/if}
-							{/if}
-							{#if sd}
-								{@const unexplained = sd.holds - sd.population}
-								<div class="mt-1 flex items-center gap-2 text-[11px]">
-									<select
-										value={sd.declared}
-										onchange={(e) => setParamEstimator(sd, e.currentTarget.value as SdEstimator | '')}
-										aria-label="Standard deviation divisor for {pg.name}"
-										title="The divisor the sd computed from this family's replicates uses. The source ships its own; declare the one it used."
-										class="px-1 py-0.5 rounded border text-[11px] cursor-pointer bg-brand-surface {sd.declared ? 'border-brand-divider text-brand-text' : 'border-severity-warning-border text-severity-warning-text'}"
-									>
-										<option value="">sd: not declared</option>
-										<option value="sample">sd: sample (n-1)</option>
-										<option value="population">sd: population (n)</option>
-									</select>
-									<span class="text-brand-muted">writes {estimatorScopeLabel(sd.entries)}</span>
-									<span class="text-brand-muted">
-										{#if sd.population > 0}
-											<button
-												onclick={() => showDivisorHolds(sd, 'population_sd')}
-												class="bg-transparent border-none p-0 cursor-pointer text-brand-primary underline-offset-2 hover:underline"
-												title="Open these holds in the audit queue"
-											>{sd.population} incoming sd match population (n)</button>
-										{/if}
-										{#if unexplained > 0}
-											{sd.population > 0 ? ', ' : ''}
-											<button
-												onclick={() => showDivisorHolds(sd, 'not_population_sd')}
-												class="bg-transparent border-none p-0 cursor-pointer text-brand-primary underline-offset-2 hover:underline"
-												title="Open these holds in the audit queue"
-											>{unexplained} match neither</button>
-										{/if}
-										{#if sd.holds === 0}divisor differs between this parameter's streams{/if}
-									</span>
-								</div>
 							{/if}
 							{#if rowWarnings(pg).length > 0}
 								<div class="text-xs text-severity-warning mt-0.5">{rowWarnings(pg)[0]}</div>

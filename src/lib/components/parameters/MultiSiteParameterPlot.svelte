@@ -290,8 +290,7 @@
 		return merged;
 	});
 
-	// One key for the plot: the marks are the same across the sites drawn on it. The sd divisor is
-	// a per-slot declaration and this plot spans slots, so it is named only when they agree.
+	// One key for the plot: the marks are the same across the sites drawn on it.
 	const keyPresence = $derived.by<ChartKeyPresence>(() => {
 		const stats = loaded.flatMap((s) => [...s.spotStats.values()]);
 		const dispersions = new Set(stats.map((st) => spotDispersion(st)));

@@ -29,12 +29,8 @@ const readings = {
 					n: 2,
 					mean: 412.5,
 					stdev: 0.7071067811865476,
-					stdev_sample: 0.7071067811865476,
-					stdev_population: 0.5,
 					min: 412,
 					max: 413,
-					sd_estimator: 'sample',
-					sd_estimator_source: 'slot',
 					replicates: [
 						{ replicate_index: 0, raw_value: 412, flagged: false, withdrawn: false },
 						{ replicate_index: 1, raw_value: 413, flagged: false, withdrawn: false },
@@ -72,9 +68,9 @@ describe('readings response', () => {
 		expect(readings.parameters[0].decimal_places).toBe(2);
 	});
 
-	it('names the divisor of every sample it serves', () => {
+	it('carries the statistics and replicates of every sample it serves', () => {
 		const stat = readings.parameters[0].samples[0] as SampleStat;
-		assertKeys(stat, ['sample_id', 'n', 'sd_estimator', 'sd_estimator_source', 'replicates']);
+		assertKeys(stat, ['sample_id', 'n', 'stdev', 'replicates']);
 		assertKeys(stat.replicates[0], ['replicate_index', 'raw_value', 'flagged', 'withdrawn']);
 	});
 });
