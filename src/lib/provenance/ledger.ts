@@ -91,7 +91,7 @@ function labelled(
 
 /// The kind a composed `what` was built from. Each arm writes its kind as the leading token, so
 /// the reader takes it back rather than matching on the whole sentence.
-function leadingToken(what: string): string {
+export function leadingToken(what: string): string {
 	return what.split(/[\s:(]/, 1)[0] ?? what;
 }
 

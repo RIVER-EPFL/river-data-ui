@@ -19,6 +19,7 @@
 		'sync_stale',
 		'streams_unpaired',
 		'holds_open',
+		'import_tags',
 		'job_failed',
 		'test',
 	];

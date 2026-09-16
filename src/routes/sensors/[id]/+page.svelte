@@ -20,6 +20,8 @@
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
 	import AdoptSensorDialog from '$components/dialogs/AdoptSensorDialog.svelte';
 	import StandardCurvesTab from '$components/sensors/StandardCurvesTab.svelte';
+	import IdentityChanges from '$components/sensors/IdentityChanges.svelte';
+	import { me } from '$auth/me.svelte';
 	import { createUrlTab } from '$lib/urlTab.svelte';
 	import ResolutionChips from '$components/charts/ResolutionChips.svelte';
 	import { autoResolution, formatWindowLabel } from '$lib/charts/multiSiteSeries';
@@ -400,6 +402,8 @@
 				</span>
 			</div>
 		</div>
+
+		<IdentityChanges sensorId={sensor.id} canAcknowledge={me.can('manageSensors')} />
 
 		<Tabs tabs={['Overview', 'Deployments', 'Calibrations', 'Standard curves']} bind:active={tab.index} />
 

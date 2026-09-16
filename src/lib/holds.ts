@@ -6,7 +6,26 @@
 // `HoldKind`, so a kind the API starts raising reaches the queue with a label rather than blank.
 
 import { type HoldKind } from '$api/service';
+import { readingTagsHref } from '$lib/discrepancies';
 import { holdKindLabel } from '$lib/utils';
+
+/** A manager's ruling on what an intern entered, worked on the Visits page. */
+export const VERIFICATION_KINDS: HoldKind[] = ['unverified_visit', 'unverified_entry'];
+
+/** What the chain and the event audit raise, worked under their calculation on the Toolbox. */
+export const CALCULATION_FINDING_KINDS: HoldKind[] = ['missing_output', 'stale_output', 'skipped_output'];
+
+/** What a sync pass holds on one stream, released from that stream's own dialog. */
+export const STREAM_KINDS: HoldKind[] = ['brake_fired'];
+
+/** A feed reporting a different device, worked on the instrument's page. */
+export const INSTRUMENT_KINDS: HoldKind[] = ['source_identity_changed'];
+
+/** Tags an import recorded on the data, read on the discrepancy browse and never worked. */
+export const TAG_KINDS: HoldKind[] = ['replicate_stats', 'curve_claim_stripped'];
+
+/** The kinds the audits queue lists: every kind not worked or browsed on a page of its own. */
+export const AUDIT_QUEUE_KINDS: HoldKind[] = ['source_modified'];
 
 export const KIND_LABEL: Record<HoldKind, string> = {
 	replicate_stats: holdKindLabel('replicate_stats'),
@@ -83,4 +102,52 @@ export function identityChanges(expected: unknown, computed: unknown): IdentityC
 		was: textOf(was[field]),
 		now: textOf(now[field]),
 	}));
+}
+
+/** What a fired brake held back, as one sentence, from the counts the pass recorded. */
+export function brakeSummary(expected: unknown): string | null {
+	const e = expected as { would_change?: number; would_withdraw?: number; stored_in_window?: number } | null;
+	if (e?.would_change == null || e.would_withdraw == null || e.stored_in_window == null) return null;
+	return `The pass would change ${e.would_change} and withdraw ${e.would_withdraw} of ${e.stored_in_window} stored readings.`;
+}
+
+/** A hold as a reading's record names it. */
+export interface HoldLink {
+	id: string;
+	kind: string;
+	status: string;
+	tool?: string | null;
+}
+
+/** The reading a hold chip sits on, and what its record names around it. */
+export interface HoldLinkContext {
+	siteId: string;
+	parameterId: string;
+	timeIso: string;
+	eventId?: string;
+	streamId?: string;
+	sensorId?: string;
+}
+
+/** Where a hold is listed: each kind opens the page it is worked or browsed on. */
+export function holdHref(base: string, hold: HoldLink, at: HoldLinkContext): string {
+	const kind = hold.kind as HoldKind;
+	if (TAG_KINDS.includes(kind)) return readingTagsHref(at.siteId, at.parameterId, at.timeIso, kind);
+	if (VERIFICATION_KINDS.includes(kind)) {
+		return at.eventId
+			? `${base}/sites/${at.siteId}?tab=visits&event=${at.eventId}`
+			: `${base}/events?pending=1`;
+	}
+	if (CALCULATION_FINDING_KINDS.includes(kind)) {
+		return hold.tool ? `${base}/toolbox?findings=${encodeURIComponent(hold.tool)}` : `${base}/toolbox`;
+	}
+	if (STREAM_KINDS.includes(kind)) {
+		return at.streamId ? `${base}/streams?stats=${at.streamId}` : `${base}/streams`;
+	}
+	if (INSTRUMENT_KINDS.includes(kind)) {
+		return at.sensorId ? `${base}/sensors/${at.sensorId}` : `${base}/sensors`;
+	}
+	const params = new URLSearchParams({ tab: 'audits', holds_id: hold.id });
+	if (hold.status !== 'pending') params.set('view', 'resolved');
+	return `${base}/streams?${params}`;
 }

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { listVisits, type VisitListRow, type VisitListSort } from '$api/service';
 	import EventPanel from '$components/logs/EventPanel.svelte';
 	import Badge from '$components/ui/Badge.svelte';
@@ -8,6 +9,8 @@
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
 	import SiteSelect from '$components/SiteSelect.svelte';
 	import NewVisitDialog from '$components/visits/NewVisitDialog.svelte';
+	import PendingVerifications from '$components/visits/PendingVerifications.svelte';
+	import { me } from '$auth/me.svelte';
 	import { RECOMPUTE_BADGE } from '$lib/visits/recompute';
 	import { verificationBadge } from '$lib/visits/verification';
 	import { formatDateTime } from '$lib/utils';
@@ -19,6 +22,10 @@
 	let order = $state<'asc' | 'desc'>('desc');
 	let panel = $state<{ reload: () => Promise<void> } | null>(null);
 	let newVisitOpen = $state(false);
+	// A manager rules on what an intern entered here: the pending field days and values.
+	const canVerify = $derived(me.can('manageSensors'));
+	// A hold chip on a pending reading lands here on the pending list.
+	let pendingView = $state(page.url.searchParams.has('pending'));
 
 	async function loadPage({ page, perPage }: { page: number; perPage: number }) {
 		const r = await listVisits({
@@ -57,6 +64,16 @@
 <div class="space-y-4">
 	<Breadcrumbs items={[{ label: 'Visits' }]} />
 
+	{#if canVerify}
+		<div class="flex items-center gap-1" role="group" aria-label="Which visits">
+			<Button size="sm" variant={pendingView ? 'ghost' : 'primary'} onclick={() => (pendingView = false)}>All visits</Button>
+			<Button size="sm" variant={pendingView ? 'primary' : 'ghost'} onclick={() => (pendingView = true)}>Pending verification</Button>
+		</div>
+	{/if}
+
+	{#if canVerify && pendingView}
+		<PendingVerifications />
+	{:else}
 	<EventPanel bind:this={panel} load={loadPage} perPage={100} colCount={7} onRowClick={open} emptyText="No visits">
 		{#snippet filterBar({ reload })}
 			<div class="flex items-center gap-2">
@@ -129,4 +146,5 @@
 			</td>
 		{/snippet}
 	</EventPanel>
+	{/if}
 </div>

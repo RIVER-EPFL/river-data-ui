@@ -117,11 +117,6 @@
 		if ((job.trigger_type === 'plan_apply' || job.trigger_type === 'plan_revert') && job.trigger_id) {
 			return { label: 'Pairing plan', href: `${base}/streams?step=results&plan=${job.trigger_id}` };
 		}
-		if (job.trigger_type === 'replicate_reconciliation' || job.trigger_type === 'replicate_reconciliation_delete') {
-			const scope = job.detail?.scope as Record<string, unknown> | undefined;
-			const source = typeof scope?.source_system === 'string' ? scope.source_system : 'Streams';
-			return { label: source, href: `${base}/streams/reconciliation?job=${job.id}` };
-		}
 		if (job.sensor_id) {
 			return { label: sensorMap.get(job.sensor_id) ?? job.sensor_id, href: `${base}/sensors/${job.sensor_id}` };
 		}

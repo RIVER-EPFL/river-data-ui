@@ -3,6 +3,7 @@
 	import { base } from '$app/paths';
 	import { api, type ReprocessingJob } from '$api/crud';
 	import { getPendingAuditSummary } from '$api/service';
+	import { AUDIT_QUEUE_KINDS } from '$lib/holds';
 	import { me } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { eventBus } from '$lib/stores/events.svelte';
@@ -92,7 +93,7 @@
 		}
 		if (me.can('manageSensors')) {
 			try {
-				const summary = await getPendingAuditSummary();
+				const summary = await getPendingAuditSummary(AUDIT_QUEUE_KINDS);
 				pendingAudits = summary.pending;
 				pendingByKind = summary.byKind;
 			} catch {
