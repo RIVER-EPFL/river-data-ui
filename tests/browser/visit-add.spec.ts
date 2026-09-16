@@ -1,32 +1,16 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
-import { BASE_PATH, signIn } from './portal';
+import { API_URL, BASE_PATH, signIn, token } from './portal';
+import { frozenButton, sheetCell } from './sheet';
 
 // Scenario: a field day is typed from the Visits table itself, not staged elsewhere first. Adding
-// is the table's own control, a site and a date, and it takes several in a row.
-
-const API_URL = process.env.E2E_API_URL ?? 'http://localhost:3005';
-const KEYCLOAK_URL = process.env.E2E_KEYCLOAK_URL ?? 'http://localhost:8180/';
+// is the table's own control: rows of a site and a time, saved together.
 
 let seeded = 0;
 
-async function token(request: APIRequestContext): Promise<string> {
-	const response = await request.post(
-		`${KEYCLOAK_URL.replace(/\/$/, '')}/realms/river-data/protocol/openid-connect/token`,
-		{
-			form: {
-				client_id: 'river-data-ui-local',
-				username: 'admin',
-				password: 'admin',
-				grant_type: 'password',
-			},
-		},
-	);
-	expect(response.ok(), 'the seeded realm issues a token for admin').toBeTruthy();
-	return (await response.json()).access_token;
-}
-
 /** A site holding one spot parameter and no visits at all. */
-async function seedSite(request: APIRequestContext): Promise<{ siteId: string; siteName: string }> {
+async function seedSite(
+	request: APIRequestContext,
+): Promise<{ siteId: string; siteName: string; parameterCode: string }> {
 	const stamp = `${Date.now()}_${(seeded += 1)}`;
 	const headers = { Authorization: `Bearer ${await token(request)}` };
 	const post = async (path: string, data: unknown) => {
@@ -38,8 +22,9 @@ async function seedSite(request: APIRequestContext): Promise<{ siteId: string; s
 	const project = await post('/projects', { name: `New visit ${stamp}` });
 	const name = `New visit ${stamp}`;
 	const site = await post('/sites', { name, project_id: project.id });
+	const parameterCode = `new_visit_${stamp}`;
 	const parameter = await post('/parameters', {
-		code: `new_visit_${stamp}`,
+		code: parameterCode,
 		name: 'New visit parameter',
 		category: 'measurement',
 		aliases: [],
@@ -49,7 +34,7 @@ async function seedSite(request: APIRequestContext): Promise<{ siteId: string; s
 		parameter_id: parameter.id,
 		name: 'New visit parameter',
 	});
-	return { siteId: site.id, siteName: name };
+	return { siteId: site.id, siteName: name, parameterCode };
 }
 
 /** Today at the given hour, in the browser's own zone, as a datetime-local input takes it. */
@@ -59,11 +44,11 @@ function todayAt(hour: number): string {
 	return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(hour)}:00`;
 }
 
-test('two visits are added from the Visits list and both stand on the site', async ({
+test('two visits of one field day are added in one save and both stand on the site', async ({
 	page,
 	request,
 }) => {
-	const { siteId, siteName } = await seedSite(request);
+	const { siteId, siteName, parameterCode } = await seedSite(request);
 	const morning = todayAt(8);
 	const afternoon = todayAt(14);
 
@@ -72,27 +57,32 @@ test('two visits are added from the Visits list and both stand on the site', asy
 	await page.getByRole('button', { name: 'New visit' }).click();
 
 	const dialog = page.getByRole('dialog');
-	await dialog.locator('#nv-site').selectOption(siteId);
-	await dialog.locator('#nv-time').fill(morning);
-	await dialog.getByRole('button', { name: 'Add visit' }).click();
-	await expect(dialog.getByRole('link', { name: 'Open the grid' })).toHaveCount(1);
+	await dialog.locator('#nv-site-0').selectOption(siteId);
+	await dialog.getByLabel('Date and time, row 1').fill(morning);
+	await dialog.getByRole('button', { name: 'Add another' }).click();
+	await dialog.locator('#nv-site-1').selectOption(siteId);
 
-	// The dialog stays open for the next station of the same day.
-	await dialog.locator('#nv-time').fill(afternoon);
-	await dialog.getByRole('button', { name: 'Add visit' }).click();
-	const added = dialog.getByRole('link', { name: 'Open the grid' });
+	// The new row keeps the first row's time, so it repeats it until the time is changed.
+	await expect(dialog.getByText('Same site and time as row 1')).toBeVisible();
+	await expect(dialog.getByRole('button', { name: 'Add 2 visits' })).toBeDisabled();
+	await dialog.getByLabel('Date and time, row 2').fill(afternoon);
+	await dialog.getByRole('button', { name: 'Add 2 visits' }).click();
+	const added = dialog.getByRole('link', { name: 'Open the visit' });
 	await expect(added).toHaveCount(2);
 
-	// The second one opens on the site's slots, with nothing entered.
+	// The second one opens the site's table at that visit: the site's one slot is a column, and
+	// nothing is entered under it at either visit.
 	await added.nth(1).click();
-	await expect(page).toHaveURL(/\/visits\/[0-9a-f-]{36}$/);
-	await expect(page.getByRole('row').filter({ hasText: 'New visit parameter' })).toHaveCount(1);
+	await expect(page).toHaveURL(new RegExp(`/sites/${siteId}\\?tab=visits&event=[0-9a-f-]{36}`));
+	const cells = sheetCell(page, new RegExp(`^${parameterCode} at`));
+	await expect(cells).toHaveCount(2);
+	await expect(cells.first()).toHaveText('');
 
 	// Both are on the site's Visits tab, which is the same table filtered to the site.
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
 	await expect(page.getByText('2 visits')).toBeVisible();
 	// The hour is rendered in the browser's own locale, so match the clock rather than the format.
-	await expect(page.getByRole('button', { name: /\b0?8:00/ })).toBeVisible();
-	await expect(page.getByRole('button', { name: /\b(14|0?2):00/ })).toBeVisible();
+	await expect(frozenButton(page, { name: /\b0?8:00/ })).toBeVisible();
+	await expect(frozenButton(page, { name: /\b(14|0?2):00/ })).toBeVisible();
 	await expect(page.getByText(siteName).first()).toBeVisible();
 });

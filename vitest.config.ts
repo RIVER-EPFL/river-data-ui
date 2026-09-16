@@ -25,7 +25,7 @@ export default defineConfig({
 				test: {
 					name: 'unit',
 					environment: 'node',
-					include: ['src/**/*.test.ts'],
+					include: ['src/**/*.test.ts', 'tests/browser/*.test.ts'],
 					exclude: ['src/**/*.svelte.test.ts'],
 				},
 			},

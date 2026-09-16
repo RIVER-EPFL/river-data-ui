@@ -1,30 +1,13 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
-import { BASE_PATH, signIn } from './portal';
+import { API_URL, BASE_PATH, signIn, token } from './portal';
+import { frozenButton } from './sheet';
 
 // Scenario: a site with a long list of visits, one of them open, and the reader scrolled down it.
 //
-// Expected behaviour: clicking a value opens its record without moving the table under the reader.
-// Opening one closes whatever row was open above it, which is what used to carry the page upwards.
+// Expected behaviour: opening a visit's record leaves the table where the reader left it. Opening
+// one closes whatever row was open above it, which is what used to carry the page upwards.
 
-const API_URL = process.env.E2E_API_URL ?? 'http://localhost:3005';
-const KEYCLOAK_URL = process.env.E2E_KEYCLOAK_URL ?? 'http://localhost:8180/';
 const VISITS = 30;
-
-async function token(request: APIRequestContext): Promise<string> {
-	const response = await request.post(
-		`${KEYCLOAK_URL.replace(/\/$/, '')}/realms/river-data/protocol/openid-connect/token`,
-		{
-			form: {
-				client_id: 'river-data-ui-local',
-				username: 'admin',
-				password: 'admin',
-				grant_type: 'password',
-			},
-		},
-	);
-	expect(response.ok(), 'the seeded realm issues a token for admin').toBeTruthy();
-	return (await response.json()).access_token;
-}
 
 /** A site holding `VISITS` one-parameter visits, so the table is longer than the viewport. */
 async function seedVisits(request: APIRequestContext) {
@@ -58,37 +41,41 @@ async function seedVisits(request: APIRequestContext) {
 		});
 		await post('/collection_events/stage', { site_id: site.id, collected_at: collectedAt });
 	}
-	return { siteId: site.id };
+	return { siteId: site.id, code };
 }
 
-test('opening a record from a value leaves the reader where they were', async ({ page, request }) => {
-	const { siteId } = await seedVisits(request);
+test('opening a record leaves the reader where they were', async ({ page, request }) => {
+	const { siteId, code } = await seedVisits(request);
 	await signIn(page);
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
 
 	// The newest visit is at the top of the table, open with a record of its own, and the reader
-	// has scrolled past all of it.
-	await page.getByRole('button', { name: /Jan 30, 2026/ }).click();
+	// has scrolled past all of it. A value the account may overwrite is typed in place, so the
+	// record is opened from the date rather than from the number.
+	await frozenButton(page, { name: /Jan 30, 2026/ }).click();
 	await expect(page.getByText(/1 parameter/)).toBeVisible();
-	await page.getByRole('button', { name: '39', exact: true }).click();
+	await page.getByRole('button', { name: code, exact: true }).click();
 	await expect(page.getByRole('button', { name: 'Close' })).toBeVisible();
 	await page.evaluate(() => {
 		const main = document.querySelector('main')!;
 		main.scrollTop = main.scrollHeight;
 	});
 
-	// The oldest visit's value, at the bottom of the same table.
-	const value = page.getByRole('button', { name: '10', exact: true });
-	await value.scrollIntoViewIfNeeded();
+	// The oldest visit, at the bottom of the same table.
+	const oldest = frozenButton(page, { name: /Jan 1, 2026/ });
+	await oldest.scrollIntoViewIfNeeded();
 	expect(
 		await page.evaluate(() => document.querySelector('main')!.scrollTop),
 		'the table is longer than the viewport',
 	).toBeGreaterThan(0);
 
-	await value.click();
+	await oldest.click();
 
-	// The record opens under the value that was clicked, and both are on screen: closing the row
-	// above used to carry the table upwards and leave the record below the fold.
-	await expect(value).toBeInViewport();
+	// Opening this one replaces the record below the grid; the row the reader clicked stays where it
+	// was.
+	await expect(oldest).toBeInViewport();
+	const parameter = page.getByRole('button', { name: code, exact: true });
+	await parameter.scrollIntoViewIfNeeded();
+	await parameter.click();
 	await expect(page.getByRole('button', { name: 'Close' })).toBeInViewport();
 });

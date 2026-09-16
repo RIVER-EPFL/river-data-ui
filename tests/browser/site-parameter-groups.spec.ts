@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
-import { BASE_PATH, signIn } from './portal';
+import { API_URL, BASE_PATH, saveFormulaSet, signIn, token } from './portal';
 
 // Scenario: applying a parameter group at a site. The group brings in the columns entered at a
 // visit and the ones its calculations publish, and U61 requires the tab to say so afterwards.
@@ -8,9 +8,6 @@ import { BASE_PATH, signIn } from './portal';
 // named on the group header as declared here, and each slot it reads or publishes carries a chip
 // linking to the calculation.
 
-const API_URL = process.env.E2E_API_URL ?? 'http://localhost:3005';
-const KEYCLOAK_URL = process.env.E2E_KEYCLOAK_URL ?? 'http://localhost:8180/';
-
 interface Fixture {
 	siteId: string;
 	groupLabel: string;
@@ -18,22 +15,6 @@ interface Fixture {
 	calculationId: string;
 	inputName: string;
 	outputName: string;
-}
-
-async function token(request: APIRequestContext): Promise<string> {
-	const response = await request.post(
-		`${KEYCLOAK_URL.replace(/\/$/, '')}/realms/river-data/protocol/openid-connect/token`,
-		{
-			form: {
-				client_id: 'river-data-ui-local',
-				username: 'admin',
-				password: 'admin',
-				grant_type: 'password',
-			},
-		},
-	);
-	expect(response.ok(), 'the seeded realm issues a token for admin').toBeTruthy();
-	return (await response.json()).access_token;
 }
 
 /** A site holding no slots, and a group of one entered column and one a calculation publishes. */
@@ -75,12 +56,11 @@ async function seedGroup(request: APIRequestContext): Promise<Fixture> {
 		engine: 'formula',
 		parameter_group_id: group.id,
 	});
-	const derived = await post('/derived_parameters', {
+	const derived = await saveFormulaSet(request, headers, script.id, {
 		code: outputName,
 		name: outputName,
 		units: '',
 		formula: `${inputName} * 2`,
-		tool_script_id: script.id,
 		ordinal: 1,
 	});
 	await post('/parameter_group_members', {
@@ -120,7 +100,7 @@ test('applying a group shows its columns together and names the calculation decl
 	await expect(headerRow).toContainText('Declared here:');
 	await expect(headerRow.getByRole('link', { name: fixture.calculation })).toHaveAttribute(
 		'href',
-		`${BASE_PATH}/calculations/${fixture.calculationId}`,
+		`${BASE_PATH}/toolbox/${fixture.calculationId}`,
 	);
 
 	// Both what the calculation reads and what it publishes are chipped with it.

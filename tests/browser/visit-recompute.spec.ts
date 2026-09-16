@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
-import { BASE_PATH, signIn } from './portal';
+import { API_URL, BASE_PATH, saveFormulaSet, signIn, token } from './portal';
+import { frozenButton, sheetCell, typeInto } from './sheet';
 
 // Scenario: a scientist corrects an input in the visits table and the calculation that reads it is
 // queued by the save. The table is still open in front of them.
@@ -7,9 +8,6 @@ import { BASE_PATH, signIn } from './portal';
 // Expected behaviour: the output cell holds the recomputed number without the page being reloaded.
 // The chain runs as a tracked job, so the value arrives after the save's response, and a table that
 // reads the visit once is showing the old number.
-
-const API_URL = process.env.E2E_API_URL ?? 'http://localhost:3005';
-const KEYCLOAK_URL = process.env.E2E_KEYCLOAK_URL ?? 'http://localhost:8180/';
 
 const ENTERED = 10;
 const CORRECTED = 15;
@@ -19,22 +17,6 @@ interface Fixture {
 	eventId: string;
 	inputName: string;
 	outputName: string;
-}
-
-async function token(request: APIRequestContext): Promise<string> {
-	const response = await request.post(
-		`${KEYCLOAK_URL.replace(/\/$/, '')}/realms/river-data/protocol/openid-connect/token`,
-		{
-			form: {
-				client_id: 'river-data-ui-local',
-				username: 'admin',
-				password: 'admin',
-				grant_type: 'password',
-			},
-		},
-	);
-	expect(response.ok(), 'the seeded realm issues a token for admin').toBeTruthy();
-	return (await response.json()).access_token;
 }
 
 /** A visit holding one entered value and one output a formula calculation writes from it. */
@@ -83,12 +65,11 @@ async function seedComputedVisit(request: APIRequestContext): Promise<Fixture> {
 		engine: 'formula',
 		parameter_group_id: group.id,
 	});
-	const derived = await post('/derived_parameters', {
+	const derived = await saveFormulaSet(request, headers, calculation.id, {
 		code: outputName,
 		name: outputName,
 		units: '',
 		formula: `${inputName} * 2`,
-		tool_script_id: calculation.id,
 		ordinal: 1,
 	});
 	await declare(derived.output_parameter_id, outputName, 'output', 1);
@@ -135,14 +116,14 @@ test('a corrected input shows its recomputed output without a reload', async ({ 
 	await expect(page.getByText('1 visit')).toBeVisible();
 
 	// The output has its own column, holding what the calculation wrote.
-	const output = page.getByRole('button', { name: new RegExp(`^${String(ENTERED * 2)}\\b`) });
-	await expect(output).toBeVisible();
+	const output = sheetCell(page, new RegExp(`^${outputName} at`));
+	await expect(output).toHaveText(new RegExp(`^${ENTERED * 2}\\b`));
 
 	// The input is corrected in place. The output's column is a calculation's, so it takes no
 	// keystroke and stays a read-only cell.
-	const cell = page.getByRole('textbox', { name: new RegExp(`^${inputName}`) });
-	await expect(cell).toHaveValue(String(ENTERED));
-	await cell.fill(String(CORRECTED));
+	const cell = sheetCell(page, new RegExp(`^${inputName} at`));
+	await expect(cell).toHaveText(String(ENTERED));
+	await typeInto(page, new RegExp(`^${inputName} at`), String(CORRECTED));
 
 	const save = page.getByRole('button', { name: /^Save \d+ value/ });
 	await save.click();
@@ -151,14 +132,6 @@ test('a corrected input shows its recomputed output without a reload', async ({ 
 	await expect(dialog).toBeHidden();
 
 	// Nothing is reloaded: the table is the same page it was, with the recomputed output in it.
-	await expect(page.getByRole('textbox', { name: new RegExp(`^${inputName}`) })).toHaveValue(
-		String(CORRECTED),
-	);
-	await expect
-		.poll(
-			async () =>
-				page.getByRole('button', { name: new RegExp(`^${String(CORRECTED * 2)}\\b`) }).count(),
-			{ message: `${outputName} is recomputed in place`, timeout: 30_000 },
-		)
-		.toBeGreaterThan(0);
+	await expect(cell).toHaveText(String(CORRECTED));
+	await expect(output).toHaveText(new RegExp(`^${CORRECTED * 2}\\b`), { timeout: 30_000 });
 });

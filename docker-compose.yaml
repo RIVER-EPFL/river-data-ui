@@ -390,12 +390,18 @@ services:
     # the stack detached (`docker compose up -d`) while claims are held: a `down`, a `stop` of this
     # service, or an interrupt of a foreground `up` wipes every run in flight and waits for an idle
     # fleet.
-    # log_min_messages: `error` and no lower, so materialization and refresh chatter stays out of
-    # the log while a deadlock or a constraint the suite hit is in it. At `fatal` a deadlock in a
-    # test run left no trace anywhere. A change here reaches the server only on a recreate, which
-    # wipes every database on it and every run in flight, so it waits for an idle fleet. It is
-    # never itself a reason to recreate: for one database now, `ALTER DATABASE <db> SET
-    # log_min_messages = 'error'` beats this and needs no restart.
+    # log_min_messages: `error` keeps a deadlock or a constraint the suite hit in the log. It does
+    # not quiet the refresh chatter: `log_min_messages` ranks LOG above ERROR, so TimescaleDB's
+    # per-refresh `inserted N row(s) into materialization table` passes at every setting except
+    # `fatal`, and at `fatal` a deadlock in a test run left no trace anywhere. logging_collector
+    # is what separates the two: the server writes the whole log to a file in the container
+    # instead of to stdout, so `docker compose logs` carries the dev stack alone and a run's
+    # errors are still there, under $PGDATA/log, which this image puts at
+    # /var/lib/postgresql/18/docker/log (tmpfs, so per-container).
+    # A change here reaches the server only on a recreate, which wipes every database on it and
+    # every run in flight, so it waits for an idle fleet. It is never itself a reason to recreate:
+    # for one database now, `ALTER DATABASE <db> SET log_min_messages = 'error'` beats this and
+    # needs no restart.
     # max_connections: every agent working the audit queue runs its own database on this one
     # server, each suite holding a 25-connection pool, so the Postgres default of 100 is spent by
     # the fourth of them and the runs over the ceiling fail in unrelated tests.
@@ -408,12 +414,79 @@ services:
         "log_statement=none",
         "-c",
         "max_connections=200",
+        "-c",
+        "logging_collector=on",
       ]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 5
+
+  # ── Browser suite API (its own database; the stories never seed the dev one) ──
+  river-browser-db-init:
+    image: timescale/timescaledb:${TIMESCALEDB_VERSION:-2.23.0-pg18}
+    depends_on:
+      river-db-test-db:
+        condition: service_healthy
+    environment:
+      - PGPASSWORD=psql
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        psql -h river-db-test-db -U postgres -d postgres -tc \
+          "SELECT 1 FROM pg_database WHERE datname = 'river_browser'" | grep -q 1 \
+          || psql -h river-db-test-db -U postgres -d postgres -c "CREATE DATABASE river_browser"
+    restart: "no"
+
+  # The browser stories drive this API, not the one on :3005. Its database is on the tmpfs test
+  # server under its own name, which `setup_test_db`'s per-database advisory lock leaves alone, so
+  # a story's project, streams, tool scripts and plans never reach the dev stack a person browses.
+  river-browser-api:
+    networks:
+      - default
+      - tools
+    build:
+      context: ../river-data-api
+      dockerfile: Dockerfile.dev
+    environment:
+      - DB_USER=postgres
+      - DB_PASSWORD=psql
+      - DB_HOST=river-db-test-db
+      - DB_PORT=5432
+      - DB_NAME=river_browser
+      - API_HOST=0.0.0.0
+      - API_PORT=3000
+      - DISABLE_RATE_LIMITING=true
+      - DEPLOYMENT=dev
+      - RUST_LOG=${LOG_LEVEL:-warn}
+      - TOOLS_RUNNER_URL=http://river-tools-r/ocpu
+      - KEYCLOAK_URL=http://river-db-keycloak:8080/
+      - KEYCLOAK_REALM=river-data
+      - KEYCLOAK_CLIENT_ID=river-data-ui-local
+      - KEYCLOAK_ADMIN_CLIENT_ID=river-data-api-local
+      - KEYCLOAK_ADMIN_CLIENT_SECRET=river-data-api-local-secret
+      - DASHBOARD_BASE_URL=${E2E_BASE_URL:-http://localhost:5174}
+    ports:
+      - "${BROWSER_API_EXTERNAL_PORT:-3006}:3000"
+    depends_on:
+      river-browser-db-init:
+        condition: service_completed_successfully
+      river-db-keycloak:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+    volumes:
+      - ../river-data-api/src:/app/src
+      - ../river-data-api/migration:/app/migration
+      - ../river-data-api/Cargo.toml:/app/Cargo.toml
+      - ../river-data-api/Cargo.lock:/app/Cargo.lock
+      - ../river-data-api/bacon.toml:/app/bacon.toml
+      - river-db-rust-data:/app/target
 
   river-db-test-watcher:
     networks:
@@ -446,6 +519,8 @@ services:
       - ../river-data-api/src:/app/src
       - ../river-data-api/tests:/app/tests
       - ../river-data-api/migration:/app/migration
+      # The openapi guard tests include docs/openapi.json at compile time
+      - ../river-data-api/docs:/app/docs:ro
       - ../river-data-api/Cargo.toml:/app/Cargo.toml
       - ../river-data-api/Cargo.lock:/app/Cargo.lock
       - ../river-data-api/bacon.toml:/app/bacon.toml
