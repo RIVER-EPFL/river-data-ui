@@ -20,10 +20,10 @@
 	import type { SensorIdentityBand, CalibrationMarker } from '$api/sensors';
 	import { spotMarkersPlugin, spotWhiskerExtent, type SpotPointStats } from '$lib/charts/spotMarkers';
 	import { spotDispersion } from '$lib/charts/spotSummary';
-	import type { SdEstimator } from '$lib/sdEstimator';
 	import type { ChartKeyPresence } from '$lib/charts/chartKey';
 	import ChartKey from './ChartKey.svelte';
 	import { cursorPoints, stepCursor, type CursorPoint } from '$lib/charts/keyboardCursor';
+	import { continuousPointAt as continuousHit, type PointHit } from '$lib/charts/hitTest';
 	import { formatMeasurement } from '$lib/format';
 	import { spotMarkerColors, seriesColor } from '$lib/charts/legend';
 	import { base } from '$app/paths';
@@ -55,7 +55,6 @@
 		spotData = null,
 		spotStats = null,
 		showReplicates = false,
-		sdEstimator = null,
 		withdrawnCount = 0,
 		gapThreshold = 0,
 		loading: externalLoading = false,
@@ -98,8 +97,6 @@
 		spotStats?: Map<number, SpotPointStats> | null;
 		/** Plot each stored replicate as its own dot beside the group's mean. */
 		showReplicates?: boolean;
-		/** The divisor `site_parameters.sd_estimator` declares, named beside the sd bar in the key. */
-		sdEstimator?: SdEstimator | null;
 		/** Spot instants in the window the source has taken back in full, served or not. */
 		withdrawnCount?: number;
 		/** Whether `chartData.times` are the stored instants rather than aggregate bucket starts.
@@ -219,7 +216,6 @@
 			calibrationMarkers: showCalibrationMarkers && calibrationMarkers.length > 0,
 			alarmBands: showAlarmBands && alarmSeverityBands.length > 0,
 			annotationCategories: categories,
-			sdEstimator,
 			units,
 		};
 	});
@@ -699,37 +695,21 @@
 
 	/// The continuous data point under the click: nearest in x, and vertically close to the line.
 	const CONTINUOUS_CLICK_TOLERANCE_PX = 12;
+	const CONTINUOUS_TOLERANCE = { x: SPOT_CLICK_TOLERANCE_PX, y: CONTINUOUS_CLICK_TOLERANCE_PX };
 
-	function continuousPointAt(
-		u: uPlot,
-		xCss: number,
-		yCss: number,
-	): { timeMs: number; distance: number } | null {
+	function continuousPointAt(u: uPlot, xCss: number, yCss: number): PointHit | null {
 		// An aggregate bucket start is not an instant any reading sits at, so there is nothing to
 		// resolve and the affordance is withdrawn rather than offered and answered with a 404.
 		if (!exactTimes) return null;
-		if (!onpointclick || !chartData || chartData.times.length === 0) return null;
-		const targetSec = u.posToVal(xCss, 'x');
-		const times = chartData.times;
-		let lo = 0;
-		let hi = times.length - 1;
-		while (lo < hi) {
-			const mid = (lo + hi) >> 1;
-			if (times[mid] / 1000 < targetSec) lo = mid + 1;
-			else hi = mid;
-		}
-		let best: { timeMs: number; distance: number } | null = null;
-		for (let i = Math.max(0, lo - 2); i <= Math.min(times.length - 1, lo + 2); i++) {
-			const value = chartData.values[i];
-			if (value == null) continue;
-			const dx = Math.abs(u.valToPos(times[i] / 1000, 'x') - xCss);
-			const dy = Math.abs(u.valToPos(value, 'y') - yCss);
-			const distance = Math.hypot(dx, dy);
-			if (dx <= SPOT_CLICK_TOLERANCE_PX && dy <= CONTINUOUS_CLICK_TOLERANCE_PX) {
-				if (!best || distance < best.distance) best = { timeMs: times[i], distance };
-			}
-		}
-		return best;
+		if (!onpointclick || !chartData) return null;
+		return continuousHit(
+			u,
+			xCss,
+			yCss,
+			chartData.times,
+			chartData.values,
+			CONTINUOUS_TOLERANCE,
+		);
 	}
 
 	function bandStripAt(u: uPlot, xCss: number, yCss: number): SensorIdentityBand | null {
@@ -945,7 +925,6 @@
 				spotStats,
 				spotFlags: publishedSpotFlags(),
 				originLabel,
-				sdEstimator,
 			});
 			tick().then(() => renderChart());
 		} else {

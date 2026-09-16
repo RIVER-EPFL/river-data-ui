@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { SpotPointStats } from './spotMarkers';
 import { cursorPoints, stepCursor } from './keyboardCursor';
 
+// Seconds, the chart's own scale; a cursor point reports the instant in milliseconds.
 const continuous = { times: [1000, 2000, 3000, 4000], values: [1, null, 3, 4] };
 const spot = { times: [2500, 500], values: [20, 5] };
 
@@ -10,11 +11,11 @@ describe('cursorPoints', () => {
 	it('merges spot and continuous points in time order and skips gaps', () => {
 		const points = cursorPoints(continuous, spot, null, true);
 		expect(points.map((p) => [p.timeMs, p.value, p.measurementType])).toEqual([
-			[500, 5, 'spot'],
-			[1000, 1, 'continuous'],
-			[2500, 20, 'spot'],
-			[3000, 3, 'continuous'],
-			[4000, 4, 'continuous'],
+			[500_000, 5, 'spot'],
+			[1_000_000, 1, 'continuous'],
+			[2_500_000, 20, 'spot'],
+			[3_000_000, 3, 'continuous'],
+			[4_000_000, 4, 'continuous'],
 		]);
 	});
 
@@ -24,7 +25,9 @@ describe('cursorPoints', () => {
 	});
 
 	it('lands a spot point on its served mean and carries its sample', () => {
-		const stats = new Map<number, SpotPointStats>([[2500, { mean: 21.5, stdev: 0.3, n: 3, sampleId: 'smp' }]]);
+		const stats = new Map<number, SpotPointStats>([
+			[2_500_000, { mean: 21.5, stdev: 0.3, n: 3, sampleId: 'smp' }],
+		]);
 		const [, spotPoint] = cursorPoints(null, spot, stats, true);
 		expect(spotPoint.value).toBe(21.5);
 		expect(spotPoint.sampleId).toBe('smp');

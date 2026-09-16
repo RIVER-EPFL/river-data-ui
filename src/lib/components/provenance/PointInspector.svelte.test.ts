@@ -21,6 +21,11 @@ function decisionEntry(id: string, what: string, at: string) {
 	return { id, source: 'decision', severity: 'info', actor: 'lab', what, at };
 }
 
+const admin = { value: false };
+vi.mock('$auth/me.svelte', () => ({
+	me: { can: (cap: string) => cap !== 'admin' || admin.value },
+}));
+
 const PointInspector = (await import('./PointInspector.svelte')).default;
 
 function reading(index: number, value: number, extra: Record<string, unknown> = {}) {
@@ -56,7 +61,7 @@ function handEntered() {
 			},
 			readings: [reading(0, 8.005)],
 			chain: {},
-			computation: { sd_estimator: 'sample', sd_estimator_source: 'default' },
+			computation: {},
 			holds: [],
 		},
 	]);
@@ -75,7 +80,10 @@ function open(resp: unknown, props: Record<string, unknown> = {}) {
 	});
 }
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+	vi.clearAllMocks();
+	admin.value = false;
+});
 
 describe('PointInspector', () => {
 	it('renders a single measurement as a key-value grid rather than a one-row table', async () => {
@@ -113,7 +121,7 @@ describe('PointInspector', () => {
 					}),
 				],
 				chain: {},
-				computation: { sd_estimator: 'sample', sd_estimator_source: 'default' },
+				computation: {},
 				holds: [],
 			},
 		]);
@@ -292,7 +300,7 @@ describe('PointInspector', () => {
 		expect(screen.getAllByText(slot)).toHaveLength(5);
 	});
 
-	it('opens a job entry on the job it names, and a hold entry on that hold', async () => {
+	it('opens a job entry on the job it names, and a tag entry on the discrepancies at this reading', async () => {
 		getReadingDecisions.mockResolvedValue([]);
 		getReadingLedger.mockResolvedValue({
 			time: '2026-07-14T09:00:00Z',
@@ -309,7 +317,7 @@ describe('PointInspector', () => {
 		await screen.findByText('Visit recompute completed');
 		const hrefs = Array.from(container.querySelectorAll('li a')).map((a) => a.getAttribute('href'));
 		expect(hrefs.filter((h) => h === '/admin/system?tab=jobs&job=job-1')).toHaveLength(2);
-		expect(hrefs.some((h) => h?.includes('holds_id=hold-5'))).toBe(true);
+		expect(hrefs.some((h) => h?.includes('tab=discrepancies') && h.includes('tags_kind=replicate_stats'))).toBe(true);
 	});
 
 	it('writes an absent value as a plain hyphen and never an em dash', async () => {
@@ -326,13 +334,11 @@ describe('PointInspector', () => {
 		expect(cell.className).toContain('tabular-nums');
 	});
 
-	it('carries the estimator explanation as a tip on the number rather than a paragraph', async () => {
+	it('names the sample formula as a tip on the standard deviation rather than a paragraph', async () => {
 		open(syncedGroup());
 		await screen.findAllByText('41.2');
-		expect(screen.queryByText(/Declared for this parameter/)).toBeNull();
-		const estimator = screen.getByText('Standard deviation').closest('div')!;
-		expect(estimator.getAttribute('title')).toContain('sample (n-1)');
-		expect(estimator.getAttribute('title')).toContain('Declared for this parameter');
+		const sd = screen.getByText('Standard deviation').closest('div')!;
+		expect(sd.getAttribute('title')).toContain('sample standard deviation (n-1)');
 	});
 
 	// A continuous value computed by a standalone formula: no run, and the formula version the
@@ -355,6 +361,24 @@ describe('PointInspector', () => {
 		]);
 	}
 
+	it('leads a computed value with the formula that produced it', async () => {
+		const { container } = open(
+			computed({
+				definition_id: 'def-1',
+				code: 'pCO2',
+				name: 'Partial pressure of CO2',
+				version_id: 'v-1',
+				version_no: 2,
+				formula: 'DIC * 0.5',
+				content_hash: 'sha256:abc',
+				active_version_no: 3,
+			}),
+		);
+		await screen.findByText('8.005');
+		const text = container.textContent ?? '';
+		expect(text.indexOf('pCO2 v2, now at v3')).toBeLessThan(text.indexOf('Measured'));
+	});
+
 	it('names the formula behind a computed value instead of calling it a hand entry', async () => {
 		open(
 			computed({
@@ -373,6 +397,35 @@ describe('PointInspector', () => {
 		const computation = screen.getByText('Computation').closest('div')!;
 		expect(computation.getAttribute('title')).toContain('DIC * 0.5');
 		expect(computation.getAttribute('title')).not.toContain('Hand-entered');
+	});
+
+	it('opens the formula behind a computed value from its computation line', async () => {
+		open(
+			computed({
+				definition_id: 'def-1',
+				code: 'pCO2',
+				name: 'Partial pressure of CO2',
+				version_no: 2,
+				active_version_no: 2,
+			}),
+		);
+		const standalone = await screen.findByRole('link', { name: 'pCO2 v2' });
+		expect(standalone.getAttribute('href')).toContain('/derived/def-1');
+	});
+
+	it('opens the calculation a formula belongs to rather than the formula', async () => {
+		open(
+			computed({
+				definition_id: 'def-1',
+				tool_script_id: 'ts-1',
+				code: 'pCO2',
+				name: 'Partial pressure of CO2',
+				version_no: 2,
+				active_version_no: 2,
+			}),
+		);
+		const owned = await screen.findByRole('link', { name: 'pCO2 v2' });
+		expect(owned.getAttribute('href')).toContain('/toolbox/ts-1');
 	});
 
 	it('says the formula is not recoverable for a value stored before versioning', async () => {
@@ -395,6 +448,29 @@ describe('PointInspector', () => {
 		const labels = Array.from(actions.children).map((c) => (c.textContent ?? '').trim());
 		expect(labels).toContain('Flag replicates');
 		expect(labels).toContain('Open stream');
+	});
+
+	it('opens the visit on the parameter the reading is of', async () => {
+		const resp = handEntered() as ReturnType<typeof handEntered>;
+		Object.assign(resp.records[0] as Record<string, unknown>, {
+			event: { id: 'visit', collected_at: '2026-07-14T09:00:00Z', source: 'manual', created_by: 'lab' },
+		});
+		open(resp);
+		const link = await screen.findByRole('link', { name: 'Open visit' });
+		expect(link.getAttribute('href')).toMatch(/\/sites\/site\?tab=visits&event=visit&parameter=param$/);
+	});
+
+	it('links a synced origin to its sync service for an admin only', async () => {
+		admin.value = true;
+		const first = open(handEntered());
+		await screen.findByText('8.005');
+		const link = first.container.querySelector('a[href$="/system?tab=status&service=cnet"]');
+		expect(link).toBeTruthy();
+		first.unmount();
+		admin.value = false;
+		const second = open(handEntered());
+		await screen.findByText('8.005');
+		expect(second.container.querySelector('a[href*="service="]')).toBeNull();
 	});
 
 	it('keeps the table for a replicate group', async () => {
@@ -463,8 +539,6 @@ describe('PointInspector', () => {
 					},
 				},
 				computation: {
-					sd_estimator: 'sample',
-					sd_estimator_source: 'slot',
 					created_by: 'evan',
 					n: 2,
 					mean: 41.3,
@@ -499,7 +573,7 @@ describe('PointInspector', () => {
 						},
 						readings: [reading(0, 8.005, { unverified: true }), reading(1, 8.02, { unverified: true })],
 						chain: {},
-						computation: { sd_estimator: 'sample', sd_estimator_source: 'default' },
+						computation: {},
 						holds: [],
 					},
 				]),
@@ -549,6 +623,59 @@ describe('PointInspector', () => {
 			expect(text.indexOf('41.2')).toBeLessThan(text.indexOf('Administrative'));
 		});
 
+		// Scenario: a scientist clicks a spot point under a chart.
+		//
+		// Expected behaviour: the strip they land on is the value, the statistics, the instrument
+		// and the computation, and everything that explains where the row came from is one
+		// disclosure below it.
+		it('leads with a summary strip and puts the rest behind one closed disclosure', async () => {
+			const { container } = open(syncedGroup());
+			await screen.findAllByText('41.2');
+			const details = container.querySelectorAll('details');
+			expect(details).toHaveLength(1);
+			expect(details[0].open).toBe(false);
+
+			const strip = container.textContent!.slice(0, container.textContent!.indexOf('Details'));
+			for (const led of ['Replicates', 'Mean', 'Standard deviation', 'Instrument', 'Entered by']) {
+				expect(strip).toContain(led);
+			}
+			expect(strip).not.toContain('Administrative');
+			expect(details[0].querySelector('table')).not.toBeNull();
+			expect(details[0].textContent).toContain('Administrative');
+			expect(details[0].textContent).toContain('Show history');
+			const actions = screen.getByRole('group', { name: 'Actions' });
+			expect(actions.textContent).not.toContain('Show history');
+		});
+
+		it('reads the statistics as one line rather than a column of rows', async () => {
+			const { container } = open(syncedGroup());
+			await screen.findAllByText('41.2');
+			const line = screen.getByText('Standard deviation').parentElement!.parentElement!;
+			expect(line.className).toContain('flex');
+			expect(line.textContent).toContain('Replicates');
+			expect(line.textContent).toContain('41.4');
+		});
+
+		// One curve made every replicate, so the per-replicate column would repeat it three times.
+		it('carries a shared calibration on the strip and drops the table column that repeats it', async () => {
+			const resp = syncedGroup();
+			const readings = (resp.records[0] as { readings: Record<string, unknown>[] }).readings;
+			const applied = { calibration: readings[0].calibration, standard_curve: readings[0].standard_curve };
+			for (const r of readings) Object.assign(r, applied);
+			const { container } = open(resp);
+			await screen.findAllByText('41.2');
+			expect(screen.getAllByText('Plate 7')).toHaveLength(1);
+			expect(container.querySelector('thead')!.textContent).not.toContain('Applied');
+		});
+
+		it('bounds the panel so unfolding the details scrolls inside it', async () => {
+			const { container } = open(syncedGroup());
+			await screen.findAllByText('41.2');
+			const panel = container.querySelector('div')!;
+			expect(panel.className).toContain('max-h-[70vh]');
+			expect(panel.querySelector('.overflow-y-auto')).not.toBeNull();
+		});
+
 		it('files the arrival and pairing stamps under the administrative block, not the header', async () => {
 			const { container } = open(syncedGroup());
 			await screen.findAllByText('41.2');
@@ -579,12 +706,16 @@ describe('PointInspector', () => {
 		});
 	});
 
-	it('links a hold to the queue narrowed to that stream and hold', async () => {
+	it('links a discrepancy tag to the browse narrowed to this reading', async () => {
 		const { container } = open(syncedGroup());
 		await screen.findAllByText('41.2');
-		const link = container.querySelector('a[href*="tab=audits"]')!;
-		expect(link.getAttribute('href')).toContain('holds_streams=stream-7');
-		expect(link.getAttribute('href')).toContain('holds_id=hold-5');
+		const link = container.querySelector('a[href*="tab=discrepancies"]')!;
+		const params = new URL(link.getAttribute('href')!, 'http://x').searchParams;
+		expect(params.get('tags_site')).toBe('site');
+		expect(params.get('tags_parameter')).toBe('param');
+		expect(params.get('tags_kind')).toBe('replicate_stats');
+		expect(params.get('tags_from')).toBe('2026-07-14T09:00:00.000Z');
+		expect(container.querySelector('a[href*="tab=audits"]')).toBeNull();
 	});
 
 	describe('opened from a visit', () => {
@@ -660,7 +791,7 @@ describe('PointInspector', () => {
 						},
 						readings: [reading(0, 11)],
 						chain: {},
-						computation: { sd_estimator: 'sample', sd_estimator_source: 'default' },
+						computation: {},
 						holds: [],
 					},
 				]) as unknown as ProvenanceResponse,

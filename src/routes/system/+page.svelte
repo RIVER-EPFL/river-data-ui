@@ -73,6 +73,8 @@
 	// A notification links to the job it announced; read once, before the tab writeback rewrites
 	// the query.
 	const requestedJob = page.url.searchParams.get('job');
+	// A synced reading's point record links to the services of its source system.
+	const requestedService = page.url.searchParams.get('service');
 	onMount(() => {
 		if (requestedTab === 'audits' || requestedTab === 'replicate_audits' || requestedTab === 'holds') {
 			goto(`${base}/streams?tab=audits`, { replaceState: true });
@@ -120,6 +122,9 @@
 				getList<SyncServiceCredential>('/api/sync_service_credentials', { perPage: 50 }),
 			]);
 			services = svc.data;
+			if (requestedService && statusLoading) {
+				for (const s of svc.data) if (s.source_system === requestedService) expanded[s.id] = true;
+			}
 			commands = cmd.data;
 			events = evt.data as SyncEvent[];
 			credentials = cred.data as SyncServiceCredential[];

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { base } from '$app/paths';
+	import { visitHref } from '$lib/visits/link';
 	import {
 		getReadingProvenance,
 		type ProvenanceResponse,
@@ -15,6 +16,7 @@
 		type LedgerEntry,
 		type ReadingDecision,
 	} from '$api/service';
+	import { TAG_KINDS, holdHref as holdLinkHref, type HoldLink } from '$lib/holds';
 	import type { SampleReplicate } from '$api/types';
 	import { replicatesOf } from '$lib/provenance/replicates';
 	import { curveLabel, formatEquation } from '$lib/standardCurves';
@@ -34,7 +36,10 @@
 		undoable,
 		type DecisionEntry,
 	} from '$lib/provenance/decisions';
-	import { ledgerLine, ledgerWeight } from '$lib/provenance/ledger';
+	import { leadingToken, ledgerLine, ledgerWeight } from '$lib/provenance/ledger';
+	import { originServiceHref } from '$lib/provenance/serviceLink';
+	import { calculationHref } from '$lib/toolbox/route';
+	import { me } from '$auth/me.svelte';
 
 	// The record of one measured instant, pinned in place under its chart or table row.
 	let {
@@ -154,10 +159,9 @@
 			case 'job_log':
 				return `${base}/system?tab=jobs&job=${entry.id}`;
 			case 'hold': {
-				// The record knows this hold's status where it still holds it, and the queue view
-				// follows from the status.
+				// A hold the record no longer lists is terminal; its kind leads the entry's text.
 				const held = rec.holds.find((h) => h.id === entry.id);
-				return held ? holdHref(rec, held) : `${base}/streams?tab=audits&holds_id=${entry.id}`;
+				return holdHref(rec, held ?? { id: entry.id, kind: leadingToken(entry.what), status: 'resolved' });
 			}
 			case 'ingest':
 				return `${base}/streams?q=${encodeURIComponent(rec.origin.source_key)}`;
@@ -251,19 +255,13 @@
 		source_identity_changed: 'The feed reports a different device',
 	};
 
-	const ESTIMATOR_TIP: Record<string, string> = {
-		default: 'Not declared for this parameter, so the sample formula applies by default.',
-		sample: 'Chosen for this collection group.',
-		slot: 'Declared for this parameter.',
-		stream: 'Declared by the source.',
-		tool: 'Fixed by the tool that computed it.',
-	};
-
 	function fmt(v: number | null | undefined): string {
 		return formatMeasurement(v, decimals);
 	}
 
 	const unitSuffix = $derived(units ? ` (${units})` : '');
+	// One line of labelled values: the strip reads left to right, not as a column of rows.
+	const lineClass = 'mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-0.5';
 	const gridClass =
 		'mt-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 sm:grid-cols-[auto_minmax(0,1fr)_auto_minmax(0,1fr)]';
 
@@ -319,6 +317,29 @@
 		return `${label}, ${d.site_name ?? 'site'} ${formatDateTime(d.deployed_from)} to ${until}`;
 	}
 
+	// The calibration and curve the whole record was made with, where every replicate agrees on
+	// them. Null when they differ: then only the replicate table can say which is which.
+	function sharedApplied(rec: ProvenanceRecord): ProvenanceReading | null {
+		const first = rec.readings[0];
+		if (!first) return null;
+		const same = rec.readings.every(
+			(r) =>
+				(r.calibration?.id ?? null) === (first.calibration?.id ?? null) &&
+				(r.standard_curve?.id ?? null) === (first.standard_curve?.id ?? null),
+		);
+		return same ? first : null;
+	}
+
+	/** How many replicates are in each state, for the chips the strip carries instead of a column. */
+	function stateCounts(rec: ProvenanceRecord): { label: string; n: number }[] {
+		const counts = [
+			{ label: 'withdrawn', n: rec.readings.filter((r) => r.withdrawn_at).length },
+			{ label: 'flagged', n: rec.readings.filter((r) => !r.withdrawn_at && r.is_flagged).length },
+			{ label: 'pending', n: rec.readings.filter((r) => !r.withdrawn_at && !r.is_flagged && r.unverified).length },
+		];
+		return counts.filter((c) => c.n > 0);
+	}
+
 	function receiptText(rc: ReceiptSummary): string {
 		const counts = [
 			`${formatCount(rc.submitted)} submitted`,
@@ -333,26 +354,6 @@
 				? `; window ${formatDateTime(rc.window_from)} to ${formatDateTime(rc.window_to)}`
 				: '';
 		return `${formatDateTime(rc.at)}: ${counts}${window}`;
-	}
-
-	function estimatorText(rec: ProvenanceRecord): string {
-		const est = rec.computation?.sd_estimator;
-		if (!est) return NO_VALUE;
-		return est === 'population' ? 'population (n)' : 'sample (n-1)';
-	}
-
-	function estimatorTip(rec: ProvenanceRecord): string {
-		const src = rec.computation?.sd_estimator_source;
-		if (!rec.computation?.sd_estimator) return 'No standard deviation is served for this instant.';
-		return ESTIMATOR_TIP[src ?? 'default'] ?? '';
-	}
-
-	// The served standard deviation is a number; which divisor made it, and what chose that, is the
-	// tip behind it.
-	function sdTip(rec: ProvenanceRecord): string {
-		const est = estimatorText(rec);
-		const why = estimatorTip(rec);
-		return est === NO_VALUE ? why : `${est}: ${why}`;
 	}
 
 	function computationText(rec: ProvenanceRecord): string {
@@ -391,19 +392,26 @@
 		return `Computed by ${calc.name}: ${calc.formula}.${older}`;
 	}
 
-	function holdTip(h: ProvenanceRecord['holds'][number]): string {
-		return `Raised ${formatDateTime(h.created_at)}. Opens the review queue on this hold.`;
+	function isTag(h: ProvenanceRecord['holds'][number]): boolean {
+		return (TAG_KINDS as string[]).includes(h.kind);
 	}
 
-	// The queue narrowed to this one hold. Statistics holds are keyed by stream, so the stream
-	// chip travels too; slot-keyed findings carry no stream. Deferred and decided holds live in
-	// their own views.
-	function holdHref(rec: ProvenanceRecord, h: ProvenanceRecord['holds'][number]): string {
-		const params = new URLSearchParams({ tab: 'audits', holds_id: h.id });
-		if (h.kind === 'replicate_stats') params.set('holds_streams', rec.origin.stream_id);
-		if (h.status === 'deferred') params.set('view', 'deferred');
-		else if (h.status !== 'pending') params.set('view', 'resolved');
-		return `${base}/streams?${params}`;
+	function holdTip(h: ProvenanceRecord['holds'][number]): string {
+		const opens = isTag(h)
+			? 'Opens the discrepancies recorded at this instant.'
+			: 'Opens where this is worked.';
+		return `Raised ${formatDateTime(h.created_at)}. ${opens}`;
+	}
+
+	function holdHref(rec: ProvenanceRecord, h: HoldLink): string {
+		return holdLinkHref(base, h, {
+			siteId,
+			parameterId,
+			timeIso,
+			eventId: rec.event?.id,
+			streamId: rec.origin.stream_id,
+			sensorId: rec.chain.sensor?.id,
+		});
 	}
 
 	async function copyLink() {
@@ -517,16 +525,30 @@
 	{#if value !== NO_VALUE}{@render field(label, value, tip, numeric)}{/if}
 {/snippet}
 
+{#snippet inlineField(label: string, value: string, tip: string | undefined, numeric: boolean)}
+	<div class="contents" title={tip}>
+		<span class="text-xs text-brand-muted">{label}</span>
+		<span class="text-brand-text {numeric ? 'font-mono tabular-nums' : ''}">{value}</span>
+	</div>
+{/snippet}
+
+{#snippet inlineOptional(label: string, value: string, tip: string | undefined, numeric: boolean)}
+	{#if value !== NO_VALUE}{@render inlineField(label, value, tip, numeric)}{/if}
+{/snippet}
+
 {#snippet statistics(rec: ProvenanceRecord)}
 	{@const c = rec.computation}
 	{#if c && typeof c.n === 'number'}
-		<dl class={gridClass}>
-			{@render field('Replicates', formatCount(c.n), 'How many replicates these statistics count.', true)}
-			{@render optional(`Mean${unitSuffix}`, fmt(c.mean), undefined, true)}
-			{@render optional('Standard deviation', fmt(c.stdev), sdTip(rec), true)}
-			{@render optional('Minimum', fmt(c.min), undefined, true)}
-			{@render optional('Maximum', fmt(c.max), undefined, true)}
-		</dl>
+		<div class={lineClass}>
+			{@render inlineField('Replicates', formatCount(c.n), undefined, true)}
+			{@render inlineOptional(`Mean${unitSuffix}`, fmt(c.mean), undefined, true)}
+			{@render inlineOptional('Standard deviation', fmt(c.stdev), 'The sample standard deviation (n-1)', true)}
+			{@render inlineOptional('Minimum', fmt(c.min), undefined, true)}
+			{@render inlineOptional('Maximum', fmt(c.max), undefined, true)}
+			{#each stateCounts(rec) as st (st.label)}
+				<Badge variant={st.label === 'withdrawn' ? 'muted' : 'warning'}>{formatCount(st.n)} {st.label}</Badge>
+			{/each}
+		</div>
 	{/if}
 {/snippet}
 
@@ -534,54 +556,118 @@
 	{@const author = rec.computation?.created_by ?? NO_VALUE}
 	{@const what = computationText(rec)}
 	{#if what !== NO_VALUE || author !== NO_VALUE}
-		<dl class={gridClass}>
-			{@render optional('Computation', what, computationTip(rec), false)}
-			{@render optional('Entered by', author, undefined, false)}
-		</dl>
+		<div class={lineClass}>
+			{#if rec.calculation}
+				<div class="contents" title={computationTip(rec)}>
+					<span class="text-xs text-brand-muted">Computation</span>
+					<a class="text-brand-primary hover:underline" href={calculationHref(base, rec.calculation)}>{what}</a>
+				</div>
+			{:else}
+				{@render inlineOptional('Computation', what, computationTip(rec), false)}
+			{/if}
+			{@render inlineOptional('Entered by', author, undefined, false)}
+		</div>
 	{/if}
 {/snippet}
 
 {#snippet instrument(rec: ProvenanceRecord)}
-	{@const r = rec.readings.length === 1 ? rec.readings[0] : undefined}
+	{@const r = sharedApplied(rec)}
 	{@const named = instrumentText(rec)}
 	{#if named !== NO_VALUE || r?.calibration || r?.standard_curve}
-		<dl class={gridClass}>
-			{@render optional('Instrument', named, 'The instrument and deployment attributed to this measurement.', false)}
+		<div class={lineClass}>
+			{@render inlineOptional('Instrument', named, undefined, false)}
 			{#if r?.calibration}
 				<div class="contents" title="The windowed calibration applied to the measurement.">
-					<dt class="py-0.5 text-xs text-brand-muted">Calibration</dt>
-					<dd class="py-0.5 text-brand-text">{@render calibrationCell(r, rec.chain.sensor?.id)}</dd>
+					<span class="text-xs text-brand-muted">Calibration</span>
+					<span class="text-brand-text">{@render calibrationCell(r, rec.chain.sensor?.id)}</span>
 				</div>
 			{/if}
 			{#if r?.standard_curve}
 				<div class="contents" title="The lab curve chosen for this measurement.">
-					<dt class="py-0.5 text-xs text-brand-muted">Standard curve</dt>
-					<dd class="py-0.5 text-brand-text">{@render curveCell(r)}</dd>
+					<span class="text-xs text-brand-muted">Standard curve</span>
+					<span class="text-brand-text">{@render curveCell(r)}</span>
 				</div>
 			{/if}
-		</dl>
+		</div>
 	{/if}
 {/snippet}
 
+{#snippet replicateTable(rec: ProvenanceRecord)}
+	<table class="mt-1 w-full text-left">
+		<thead class="text-xs text-brand-muted">
+			<tr>
+				<th class="py-0.5 pr-3 font-medium">Replicate</th>
+				<th class="py-0.5 pr-3 text-right font-medium">Measured{unitSuffix}</th>
+				<th class="py-0.5 pr-3 text-right font-medium">Corrected{unitSuffix}</th>
+				{#if !sharedApplied(rec)}<th class="py-0.5 pr-3 font-medium">Applied</th>{/if}
+				<th class="py-0.5 pr-3 font-medium">State</th>
+				<th class="py-0.5 font-medium">Arrived</th>
+			</tr>
+		</thead>
+		<tbody>
+			{#each rec.readings as r (r.replicate_index)}
+				<tr class="border-t border-brand-divider/60 {r.withdrawn_at ? 'opacity-60' : ''}">
+					<td class="py-0.5 pr-3 text-brand-muted">{r.replicate_index}</td>
+					<td class="py-0.5 pr-3 {numericCell} {r.withdrawn_at ? 'line-through' : ''}"
+						>{fmt(r.raw_value)}</td
+					>
+					<td class="py-0.5 pr-3 {numericCell} {r.withdrawn_at ? 'line-through' : ''}">
+						{fmt(r.calibrated_value)}
+					</td>
+					{#if !sharedApplied(rec)}
+						<td class="py-0.5 pr-3 text-brand-muted">
+							{#if r.calibration || r.standard_curve}
+								{#if r.calibration}{@render calibrationCell(r, rec.chain.sensor?.id)}{/if}
+								{#if r.calibration && r.standard_curve}<span> then </span>{/if}
+								{#if r.standard_curve}{@render curveCell(r)}{/if}
+							{:else}
+								{NO_VALUE}
+							{/if}
+						</td>
+					{/if}
+					<td class="py-0.5 pr-3" title={stateTip(r)}>
+						{#if r.withdrawn_at}
+							<Badge variant="muted">withdrawn</Badge>
+							{#if r.withdrawn_reason}<span class="text-xs text-brand-muted">{r.withdrawn_reason}</span>{/if}
+						{:else if r.is_flagged}
+							<Badge variant="warning">flagged{r.flag_reason ? `: ${r.flag_reason}` : ''}</Badge>
+						{:else if r.unverified}
+							<Badge variant="warning">pending</Badge>
+						{:else}
+							<span class="text-brand-muted">{NO_VALUE}</span>
+						{/if}
+					</td>
+					<td class="py-0.5 text-xs text-brand-muted">{arrivedText(r)}</td>
+				</tr>
+			{/each}
+		</tbody>
+	</table>
+{/snippet}
+
 {#snippet administrative(rec: ProvenanceRecord)}
-	<details class="mt-2">
-		<summary class="cursor-pointer text-xs text-brand-muted">Administrative</summary>
+	<div class="mt-2">
+		<p class="text-xs text-brand-muted">Administrative</p>
 		<dl class={gridClass}>
-			{@render optional('Arrived', recordArrivedText(rec), 'When the value on display reached the store.', false)}
-			{@render optional('Paired', rec.origin.paired_at ? formatDateTime(rec.origin.paired_at) : NO_VALUE, 'When this stream was paired to the slot.', false)}
+			{@render optional('Arrived', recordArrivedText(rec), 'When it reached the store', false)}
+			{@render optional('Paired', rec.origin.paired_at ? formatDateTime(rec.origin.paired_at) : NO_VALUE, 'When the stream was paired to the slot', false)}
 			{#if rec.readings[0]}
-				{@render optional('Origin', originText(rec.readings[0]), 'Which write path produced this value.', false)}
+				{@render optional('Origin', originText(rec.readings[0]), 'The write path that produced it', false)}
 			{/if}
 			{@render optional('Stream', `${rec.origin.source_system} · ${rec.origin.source_key}`, undefined, false)}
 			{#if rec.origin.receipt}
-				{@render field('Reconciliation', receiptText(rec.origin.receipt), 'The latest windowed pass whose claimed window covers this instant.', false)}
+				{@render field('Reconciliation', receiptText(rec.origin.receipt), 'The windowed pass covering this instant', false)}
 			{/if}
 		</dl>
-	</details>
+	</div>
 {/snippet}
 
-<div class="mt-2 rounded-lg border border-brand-divider bg-brand-surface px-3 py-2 text-sm">
-	<div class="flex items-start justify-between gap-2">
+<!-- The record is bounded: unfolding its details scrolls inside the panel rather than pushing
+     whatever follows the chart off the screen. -->
+<div
+	data-testid="point-record"
+	class="mt-2 flex max-h-[70vh] flex-col rounded-lg border border-brand-divider bg-brand-surface px-3 py-2 text-sm"
+>
+	<div class="flex shrink-0 items-start justify-between gap-2">
 		<div class="flex flex-wrap items-center gap-x-2 gap-y-1">
 			<span class="font-medium text-brand-text">{parameterName}</span>
 			<span class="text-brand-muted">{formatDateTime(timeIso)}</span>
@@ -595,6 +681,7 @@
 		{/if}
 	</div>
 
+	<div class="min-h-0 flex-1 overflow-y-auto">
 	{#if loading}
 		<p class="text-brand-muted">Loading…</p>
 	{:else if error}
@@ -609,9 +696,16 @@
 			</p>
 		{/if}
 		{#each resp.records as rec, i (rec.origin.stream_id)}
+			{@const serviceHref = originServiceHref(base, rec.origin, me.can('admin'))}
 			<div class={i > 0 ? 'mt-3 border-t border-brand-divider pt-3' : 'mt-2'}>
 				<div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-					<Badge variant={originBadge(rec).variant}>{originBadge(rec).label}</Badge>
+					{#if serviceHref}
+						<a href={serviceHref} class="inline-flex" title="Open the sync service that wrote it">
+							<Badge variant={originBadge(rec).variant}>{originBadge(rec).label}</Badge>
+						</a>
+					{:else}
+						<Badge variant={originBadge(rec).variant}>{originBadge(rec).label}</Badge>
+					{/if}
 					<Badge variant="muted">{cadence(rec)}</Badge>
 					<span class="text-brand-muted" title={rec.origin.source_key}>
 						{rec.origin.source_name ?? rec.origin.source_key}
@@ -626,6 +720,7 @@
 					{/each}
 				</div>
 
+				{#if cadence(rec) === 'derived'}{@render calculation(rec)}{/if}
 				{#if rec.readings.length === 1}
 					{@const r = rec.readings[0]}
 					<dl class={gridClass}>
@@ -634,58 +729,10 @@
 						{@render optional('State', stateText(r), stateTip(r), false)}
 					</dl>
 				{:else}
-					<table class="mt-1 w-full text-left">
-						<thead class="text-xs text-brand-muted">
-							<tr>
-								<th class="py-0.5 pr-3 font-medium">Replicate</th>
-								<th class="py-0.5 pr-3 text-right font-medium">Measured{unitSuffix}</th>
-								<th class="py-0.5 pr-3 text-right font-medium">Corrected{unitSuffix}</th>
-								<th class="py-0.5 pr-3 font-medium">Applied</th>
-								<th class="py-0.5 pr-3 font-medium">State</th>
-								<th class="py-0.5 font-medium">Arrived</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each rec.readings as r (r.replicate_index)}
-								<tr class="border-t border-brand-divider/60 {r.withdrawn_at ? 'opacity-60' : ''}">
-									<td class="py-0.5 pr-3 text-brand-muted">{r.replicate_index}</td>
-									<td class="py-0.5 pr-3 {numericCell} {r.withdrawn_at ? 'line-through' : ''}"
-										>{fmt(r.raw_value)}</td
-									>
-									<td class="py-0.5 pr-3 {numericCell} {r.withdrawn_at ? 'line-through' : ''}">
-										{fmt(r.calibrated_value)}
-									</td>
-									<td class="py-0.5 pr-3 text-brand-muted">
-										{#if r.calibration || r.standard_curve}
-											{#if r.calibration}{@render calibrationCell(r, rec.chain.sensor?.id)}{/if}
-											{#if r.calibration && r.standard_curve}<span> then </span>{/if}
-											{#if r.standard_curve}{@render curveCell(r)}{/if}
-										{:else}
-											{NO_VALUE}
-										{/if}
-									</td>
-									<td class="py-0.5 pr-3" title={stateTip(r)}>
-										{#if r.withdrawn_at}
-											<Badge variant="muted">withdrawn</Badge>
-											{#if r.withdrawn_reason}<span class="text-xs text-brand-muted">{r.withdrawn_reason}</span>{/if}
-										{:else if r.is_flagged}
-											<Badge variant="warning">flagged{r.flag_reason ? `: ${r.flag_reason}` : ''}</Badge>
-										{:else if r.unverified}
-											<Badge variant="warning">pending</Badge>
-										{:else}
-											<span class="text-brand-muted">{NO_VALUE}</span>
-										{/if}
-									</td>
-									<td class="py-0.5 text-xs text-brand-muted">{arrivedText(r)}</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
 					{@render statistics(rec)}
 				{/if}
-				{@render calculation(rec)}
 				{@render instrument(rec)}
-				{@render administrative(rec)}
+				{#if cadence(rec) !== 'derived'}{@render calculation(rec)}{/if}
 
 				<div
 					role="group"
@@ -701,7 +748,7 @@
 					{#if rec.event}
 						<a
 							class="text-brand-primary hover:underline"
-							href="{base}/sites/{siteId}?tab=visits&event={rec.event.id}"
+							href="{base}{visitHref(siteId, rec.event.id, parameterId)}"
 							title="Visit of {formatDateTime(rec.event.collected_at)}, {rec.event.source === 'portal_sync'
 								? `synced from the portal${rec.event.created_by ? ` by ${rec.event.created_by}` : ''}`
 								: originPhrase('entry', { actor: rec.event.created_by ?? undefined })}."
@@ -720,13 +767,6 @@
 						href="{base}/streams?q={encodeURIComponent(rec.origin.source_key)}"
 						title="{rec.origin.source_system} · {rec.origin.source_key}">Open stream</a
 					>
-					{#if rec.computation?.provenance}
-						<button
-							class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline"
-							onclick={() => toggleToolRun(i)}
-							>{showToolRun.has(i) ? 'Hide tool run' : 'Show tool run'}</button
-						>
-					{/if}
 					{#if link && i === 0}
 						<button
 							class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline"
@@ -736,15 +776,29 @@
 					{/if}
 					<button
 						class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline"
-						title="What produced this value decides what may be done to it."
+						title="What produced it decides what may be done to it"
 						onclick={() => openEdit(rec)}>Edit</button
 					>
-					<button
-						class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline"
-						onclick={() => toggleHistory(i, rec)}
-						>{showHistory.has(i) ? 'Hide history' : 'Show history'}</button
-					>
 				</div>
+
+				<details class="mt-2">
+					<summary class="cursor-pointer text-xs text-brand-muted">Details</summary>
+					{#if rec.readings.length > 1}{@render replicateTable(rec)}{/if}
+					{@render administrative(rec)}
+					<div class="mt-2 flex flex-wrap items-center gap-x-3 text-xs">
+						<button
+							class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline"
+							onclick={() => toggleHistory(i, rec)}
+							>{showHistory.has(i) ? 'Hide history' : 'Show history'}</button
+						>
+						{#if rec.computation?.provenance}
+							<button
+								class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline"
+								onclick={() => toggleToolRun(i)}
+								>{showToolRun.has(i) ? 'Hide tool run' : 'Show tool run'}</button
+							>
+						{/if}
+					</div>
 				{#if showHistory.has(i)}
 					<div class="mt-2 text-xs">
 						<div class="mb-1 flex items-center gap-2 text-gray-500">
@@ -795,12 +849,17 @@
 				{/if}
 				{#if rec.computation?.provenance && showToolRun.has(i)}
 					<div class="mt-2">
-						<ProvenanceCard provenance={rec.computation.provenance} />
+						<ProvenanceCard
+							provenance={rec.computation.provenance}
+							parameterCode={resp.parameter_code}
+						/>
 					</div>
 				{/if}
+				</details>
 			</div>
 		{/each}
 	{/if}
+	</div>
 </div>
 
 {#snippet line(i: number, rec: ProvenanceRecord, entry: LedgerEntry, muted: boolean)}

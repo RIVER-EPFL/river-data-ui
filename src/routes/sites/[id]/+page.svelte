@@ -1,5 +1,4 @@
 <script lang="ts">
-	import type { SdEstimator } from '$lib/sdEstimator';
 	import { provenanceKindLabel } from '$lib/origin';
 	import { measuringInstruments } from '$lib/instruments/kind';
 	import { onMount, onDestroy, untrack } from 'svelte';
@@ -41,6 +40,7 @@
 	import SiteStatusTab from '$components/sites/SiteStatusTab.svelte';
 	import { buildReadingsExportParams, exportColumns } from '$lib/sites/exportParams';
 	import { readPointParams, writePointParams, type PointRef } from '$lib/provenance/pointLink';
+	import { siteLoadKey } from '$lib/sites/siteLoadKey';
 	import Badge from '$components/ui/Badge.svelte';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
 	import ThresholdDialog from '$components/dialogs/ThresholdDialog.svelte';
@@ -171,6 +171,10 @@
 	// reload. The reader runs once the site's parameters are known and before the writer may run,
 	// or the writer would erase the link it was about to restore.
 	let pointRestored = $state(false);
+	// A record opened by a click here, rather than arriving in the URL: its instant must not
+	// re-window the charts. Reset when the page moves to another site.
+	let pinnedLocally = false;
+	let windowedSiteId = '';
 	$effect(() => {
 		if (pointRestored || siteParameters.length === 0) return;
 		const ref = readPointParams(page.url.searchParams);
@@ -225,6 +229,7 @@
 		name: string,
 		p: { timeMs: number; measurementType: 'continuous' | 'spot' },
 	) {
+		pinnedLocally = true;
 		inspector = {
 			siteParameterId: sp.id,
 			parameterId: sp.parameter_id,
@@ -658,7 +663,8 @@
 			}
 		}
 		// A linked point record opens on a day around its instant unless the window was pinned too.
-		const pointRef = readPointParams(page.url.searchParams);
+		// Only a record arriving in the URL: a click on this page keeps the window the reader chose.
+		const pointRef = pinnedLocally ? null : readPointParams(page.url.searchParams);
 		if (!deepLink && pointRef) {
 			const t = new Date(pointRef.timeIso).getTime();
 			chartStart = t - 43_200_000;
@@ -774,15 +780,14 @@
 	// alarm for a different site (e.g. from the notification bell) would change the URL but not the page.
 	let loadedKey = '';
 	$effect(() => {
-		// The tab and expanded-visit params are page-local UI state, not a different site view:
-		// excluding them keeps a tab switch from refetching everything.
-		const params = new URLSearchParams(page.url.search);
-		params.delete('tab');
-		params.delete('event');
-		const key = `${siteId}|${params.toString()}`;
+		const key = siteLoadKey(siteId, page.url.search);
 		if (key === loadedKey) return;
 		loadedKey = key;
 		untrack(() => {
+			if (siteId !== windowedSiteId) {
+				windowedSiteId = siteId;
+				pinnedLocally = false;
+			}
 			loadSite();
 		});
 	});
@@ -833,12 +838,6 @@
 	}
 
 	const withdrawnTotal = $derived([...withdrawnCounts.values()].reduce((a, b) => a + b, 0));
-
-	/** The divisor the slot declares; null is undeclared, which the key names as such. */
-	function sdEstimatorFor(paramId: string): SdEstimator | null {
-		const declared = siteParameters.find((s) => s.parameter_id === paramId)?.sd_estimator;
-		return declared === 'population' || declared === 'sample' ? declared : null;
-	}
 
 	/** The precision the slot declares (`site_parameters.decimal_places`), null when it declares none. */
 	function decimalsForParameter(paramId: string): number | null {
@@ -1495,7 +1494,6 @@
 							spotData={spotDataMap.get(sp.id) ?? null}
 							spotStats={spotStatsMap.get(sp.parameter_id) ?? null}
 							{showReplicates}
-							sdEstimator={sdEstimatorFor(sp.parameter_id)}
 							withdrawnCount={withdrawnCounts.get(sp.parameter_id) ?? 0}
 							{gapThreshold}
 							loading={chartLoading}
@@ -1567,7 +1565,6 @@
 										spotData={spotDataMap.get(sp.id) ?? null}
 										spotStats={spotStatsMap.get(sp.parameter_id) ?? null}
 										{showReplicates}
-										sdEstimator={sdEstimatorFor(sp.parameter_id)}
 										withdrawnCount={withdrawnCounts.get(sp.parameter_id) ?? 0}
 										{gapThreshold}
 										loading={chartLoading}
