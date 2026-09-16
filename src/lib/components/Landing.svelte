@@ -16,13 +16,8 @@
 			River Ecosystems Laboratory, EPFL
 		</p>
 		<h1 class="mt-3 text-4xl font-semibold">RIVER Data</h1>
-		<p class="mt-4 text-base text-white/85">
-			Sensor networks and field measurements from alpine streams in Valais, one platform for the
-			NOMIS, METALP, C-NET and BREATHE campaigns.
-		</p>
-		<p class="mt-3 text-sm text-white/70">
-			The data is not publicly available yet. Access is granted to lab members and project
-			partners by an administrator.
+		<p class="mt-4 text-sm text-white/70">
+			Access is granted to lab members and project partners by an administrator.
 		</p>
 		<Button variant="secondary" onclick={() => auth.login()} class="mt-8 px-8">Sign in</Button>
 	</div>
