@@ -8,15 +8,15 @@
 	import {
 		pairStream, unpairStream, getStreamStats, listStreamReceipts, retagStreams, createPairingPlan, updatePairingPlan,
 		applyPairingPlan, revertPairingPlan, getUnpairedSummary, getPlanSiteMetadata,
-		replicateSpec, getPendingAuditSummary, getReconciliationCandidates, getStreamPreview, declareSdEstimator,
+		replicateSpec, getPendingAuditSummary, getStreamPreview,
 		getPlanInstruments, listPairingPlans, supersedePairingPlan, getPairingPlan, bulkUpdatePairingPlan,
-		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type SdEstimator, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
+		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
 		type PlanReplicateSummary, type StreamReceipt, type PlanWarning, type PlanInstrumentRef,
 		type PlanInstruments, type PlanInstrumentGroup, type PlanDeviceGroup, type PlanCurveAssignment,
 		type PairingPlanListing,
 	type StreamPreview,
 	} from '$api/service';
-	import { listReplicateAudits, issueSyncCommand, type SyncService } from '$api/service';
+	import { issueSyncCommand, type SyncService } from '$api/service';
 	import { getList } from '$api/client';
 	import { resyncConfirmation, resyncServiceFor } from '$lib/sync/resync';
 	import { me } from '$auth/me.svelte';
@@ -25,10 +25,11 @@
 		instrumentGroups as planInstrumentGroups,
 		familySummary as planFamilySummary,
 		paramGroups as planParamGroups,
-		sdDecisions as planSdDecisions,
 		parameterIndex,
 		instrumentBindings as planInstrumentBindings,
 		type InstrumentDecision,
+		isAskingInstrument,
+		suggestionAcceptance,
 		creations,
 		type ParamGroup,
 		type GroupCreation,
@@ -42,24 +43,29 @@
 	import { splitPlanUpdates, type PlanUpdate } from '$lib/pairing/planUpdates';
 	import { NO_PLAN_RUNS, runsAfterJob, type PlanRuns } from '$lib/pairing/planRuns';
 	import { eventBus } from '$lib/stores/events.svelte';
-	import { entryStatus, estimatorScopeLabel, matchesFilter, reviewState, reviewStateLabel, statusLabel, type EntryFilter } from '$lib/pairing/entryStatus';
+	import { entryStatus, matchesFilter, reviewState, reviewStateLabel, statusLabel, type EntryFilter } from '$lib/pairing/entryStatus';
 	import {
 		acceptHint,
 		entriesSettledBy,
 		objectDecisions,
 		type ObjectDecision,
 	} from '$lib/pairing/objectDecisions';
+	import { activeReviewTab, objectsTabLabel, type ReviewTab } from '$lib/pairing/reviewTabs';
 	import PairSkipToggle from '$components/ui/PairSkipToggle.svelte';
 	import MappingSelect, { type MappingGroup } from '$components/ui/MappingSelect.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import Badge from '$components/ui/Badge.svelte';
+	import StreamBrake from '$components/streams/StreamBrake.svelte';
 	import { formatClockTime, formatDateTime, formatSignificant } from '$lib/utils';
 	import Button from '$components/ui/Button.svelte';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import ReplicateFamilyBadge from '$components/streams/ReplicateFamilyBadge.svelte';
 	import ChangeProposalsPanel from '$components/logs/ChangeProposalsPanel.svelte';
 	import ReplicateAuditsPanel from '$components/logs/ReplicateAuditsPanel.svelte';
+	import DiscrepancyBrowse from '$components/logs/DiscrepancyBrowse.svelte';
+	import { readTagParams } from '$lib/discrepancies';
+	import { AUDIT_QUEUE_KINDS } from '$lib/holds';
 	import InstrumentCurvesPanel from '$components/streams/InstrumentCurvesPanel.svelte';
 	import { formatCount } from '$lib/format';
 	import ConfirmStep from '$components/pairing/ConfirmStep.svelte';
@@ -67,6 +73,7 @@
 	import CurvesTab from '$components/pairing/CurvesTab.svelte';
 	import InstrumentsTab from '$components/pairing/InstrumentsTab.svelte';
 	import ParametersTab, { PARAM_ROWS_PER_PAGE } from '$components/pairing/ParametersTab.svelte';
+	import { gateBlocking, planGateItems, type GateItem } from '$lib/pairing/applyGate';
 	import SitesTab from '$components/pairing/SitesTab.svelte';
 	import {
 		clearSelection,
@@ -109,8 +116,7 @@
 	let sourcesInitialized = $state(false);
 	const allSourceSystems = $derived(sourceSummary.map((s) => s.source_system));
 
-	// Replicate-sync surfacing: withheld audit groups banner + reconciliation entry point
-	// (shown when any source still has legacy per-avg-column streams to migrate).
+	// Replicate-sync surfacing: withheld audit groups banner.
 	let pendingAudits = $state(0);
 	// Values the source has changed and nobody has ruled on. Counted beside the holds because the
 	// tab is one queue to the person working it.
@@ -122,14 +128,13 @@
 	// The list mode is a two-tab hub: the streams table and the replicate-audit holds.
 	// The audit surface is manager-only; below that level the page is the streams table alone.
 	const canAudit = $derived(me.can('manageSensors'));
-	const tab = createUrlTab({ keys: ['streams', 'audits', 'instruments'] });
+	const tab = createUrlTab({ keys: ['streams', 'audits', 'discrepancies', 'instruments'] });
 	const auditQueue = $derived(pendingAudits + pendingProposals);
 	const tabLabels = $derived(
 		canAudit
-			? ['Streams', auditQueue > 0 ? `Audits (${auditQueue})` : 'Audits', 'Instruments']
+			? ['Streams', auditQueue > 0 ? `Audits (${auditQueue})` : 'Audits', 'Discrepancies', 'Instruments']
 			: ['Streams'],
 	);
-	let reconFamilyCount = $state(0);
 	// Expanded replicate-routing blocks in the plan review, keyed by stream id or `param:{name}`.
 	let expandedReplicates = $state<Set<string>>(new Set());
 	// The stream's own recent rows, fetched once per stream when a routing block is first opened.
@@ -158,23 +163,13 @@
 		}
 	}
 
-	async function loadReplicateSurfacing(sources: string[]) {
+	async function loadReplicateSurfacing() {
 		if (canAudit) {
 			try {
-				const summary = await getPendingAuditSummary();
+				const summary = await getPendingAuditSummary(AUDIT_QUEUE_KINDS);
 				pendingAudits = summary.pending;
 				pendingByKind = summary.byKind;
 			} catch { /* banner is best-effort */ }
-		}
-		if (canAudit) {
-			try {
-				const results = await Promise.all(
-					sources
-						.filter((s) => !NON_INSTRUMENT_SOURCES.includes(s))
-						.map((s) => getReconciliationCandidates(s).catch(() => null)),
-				);
-				reconFamilyCount = results.reduce((n, r) => n + (r?.families.length ?? 0), 0);
-			} catch { /* entry point is best-effort */ }
 		}
 	}
 
@@ -253,16 +248,14 @@
 	let paramPage = $state(0);
 	let sitePage = $state(Math.max(0, Number(reviewParam('page') ?? '1') - 1) || 0);
 	const sitesPerPage = 50;
-	// Parameters first: it is the cross-site editor, and every decision in the plan (naming, units,
-	// instruments) is made once there rather than 31 times in Sites.
-	let reviewTab = $state<'parameters' | 'sites' | 'instruments' | 'curves'>(
-		(reviewParam('review_tab') as 'parameters' | 'sites' | 'instruments' | 'curves') ??
-			'parameters',
-	);
+	// Objects first: the handful of projects, sites and parameters the plan creates is the
+	// decision behind most rows. Parameters is the cross-site editor after that, where every
+	// naming, units and instrument decision is made once rather than 31 times in Sites.
+	// `null` is a review nobody has clicked a tab on, which `activeReviewTab` opens for them.
+	let reviewTab = $state<ReviewTab | null>((reviewParam('review_tab') as ReviewTab) ?? null);
 	// The plan's instrument picture, including instruments the source registered that this plan
 	// binds to nothing. Refetched after every instrument edit, since an attach moves a whole scope.
 	let planInstruments = $state<PlanInstruments | null>(null);
-	let instrumentSaving = $state<string | null>(null);
 
 	// The review's position follows the controls into the URL. Only while the review is open: on
 	// every other step these params are noise.
@@ -280,7 +273,7 @@
 				else url.searchParams.set(name, value);
 			};
 			if (planId) url.searchParams.set('plan', planId);
-			set('review_tab', tab, 'parameters');
+			set('review_tab', tab ?? '', '');
 			set('filter', filter, 'all');
 			set('q', search.trim(), '');
 			set('page', String(pageNo + 1), '1');
@@ -346,10 +339,6 @@
 	const instrumentGroups = $derived(planInstrumentGroups(planEntries));
 	const instrumentBindings = $derived(planInstrumentBindings(planEntries));
 
-	const unresolvedInstruments = $derived(
-		instrumentGroups.filter((g) => g.instrument.create && !g.instrument.confirmed),
-	);
-
 	// ── Instrument decisions ──
 	// One list, questions first: an instrument the plan has bound and a source parameter still
 	// without one are the same decision at two stages, so they are edited in one place and only
@@ -403,8 +392,7 @@
 		).size;
 	}
 	const openInstrumentQuestions = $derived(
-		instrumentDecisions.filter((d) => d.group === null || (d.group.create && !d.group.confirmed))
-			.length,
+		instrumentDecisions.filter(isAskingInstrument).length,
 	);
 	// The apply is refused while any of these is open, one step later. Say so here, where they can
 	// still be answered, rather than only on the screen that stops.
@@ -541,27 +529,16 @@
 
 	const paramGroups = $derived(planParamGroups(planEntries));
 
-	// The divisor question is asked by the row's own control, so its warning text is not repeated
-	// as prose next to it.
-	const sdWarningMessages = $derived(
-		new Set(
-			planEntries.flatMap((e) =>
-				e.warnings.filter((w) => w.kind === 'sd_estimator_undeclared').map((w) => w.message),
-			),
-		),
-	);
 	function rowWarnings(pg: ParamGroup): string[] {
-		return pg.warnings.filter((w) => !sdWarningMessages.has(w));
+		return pg.warnings;
 	}
 
 	// One row per distinct warning, carrying the structured warning so the block can offer the
-	// resolutions rather than only naming the problem. The sd-estimator kind is excluded: it is
-	// asked on the parameter's own row in the Parameters tab, which is also where it is coloured.
+	// resolutions rather than only naming the problem.
 	const uniqueWarnings = $derived.by((): Array<{ warning: PlanWarning; paramName: string; count: number; anchorStreamId: string }> => {
 		const map = new Map<string, { warning: PlanWarning; paramName: string; count: number; anchorStreamId: string }>();
 		for (const e of planEntries) {
 			for (const w of e.warnings) {
-				if (w.kind === 'sd_estimator_undeclared') continue;
 				const existing = map.get(w.message);
 				if (existing) existing.count++;
 				else map.set(w.message, { warning: w, paramName: w.parameter ?? e.parameter.name, count: 1, anchorStreamId: e.stream_id });
@@ -570,66 +547,9 @@
 		return [...map.values()];
 	});
 
-	const sdDecisions = $derived(planSdDecisions(planEntries));
-	// Every family that has no declaration is put to the operator, plus any the audit disputes: the
-	// divisor is never inferred, so a family nothing disagrees with still has to be declared, and a
-	// disagreement the population divisor explains is the evidence shown beside the choice.
-	const sdDisputed = $derived(sdDecisions.filter((g) => g.holds > 0 || !g.declared));
-	const sdDisputedByParam = $derived(new Map(sdDisputed.map((g) => [g.paramName, g])));
-	const sdOpen = $derived(sdDisputed.filter((g) => !g.declared).length);
-
-	function auditClassParam(v: string | null): 'population_sd' | 'not_population_sd' | undefined {
-		return v === 'population_sd' || v === 'not_population_sd' ? v : undefined;
-	}
-
-	function auditViewParam(v: string | null): 'review' | 'resolved' | 'deferred' {
-		return v === 'deferred' || v === 'resolved' ? v : 'review';
-	}
-
-	// The counts quoted next to a divisor decision are the audit queue's own, so they open it on
-	// exactly the holds they counted. The holds are on unpaired streams until the plan applies,
-	// which is the queue's `deferred` view.
-	function showDivisorHolds(
-		group: { paramName: string; entries: PairingPlanEntry[] },
-		classification: 'population_sd' | 'not_population_sd',
-	) {
-		const ids = group.entries.map((e) => e.stream_id).join(',');
-		void flushUpdates();
-		tab.go(
-			'audits',
-			(url) => {
-				url.searchParams.delete('step');
-				url.searchParams.set('view', 'deferred');
-				url.searchParams.set('holds_streams', ids);
-				url.searchParams.set('holds_class', classification);
-				url.searchParams.set('holds_label', group.paramName);
-			},
-			// Pushed, not replaced: back returns to the review, which keeps the plan it was
-			// editing, rather than dropping out of the wizard entirely.
-			{ push: true },
-		);
-	}
-
-	function setParamEstimator(group: { entries: PairingPlanEntry[] }, value: SdEstimator | '') {
-		const updates: PlanEntryUpdate[] = group.entries.map((e) => {
-			(e as { sd_estimator?: SdEstimator | null }).sd_estimator = value || null;
-			return { stream_id: e.stream_id, sd_estimator: value };
-		});
-		planEntries = [...planEntries];
-		queueUpdate(updates);
-	}
-
 	// ── Instrument decisions ──
-	// All three write through the same debounced PATCH the rest of the review uses; the server
+	// These write through the same debounced PATCH the rest of the review uses; the server
 	// applies them to every entry sharing the curve column, so one click settles the whole group.
-	async function confirmInstrument(group: { key: string; anchorStreamId: string }) {
-		instrumentSaving = group.key;
-		queueUpdate([{ stream_id: group.anchorStreamId, instrument_confirmed: true }]);
-		try { await flushUpdates(); } catch { /* the toast from the failed flush is the signal */ }
-		finally { instrumentSaving = null; }
-		await loadPlanInstruments();
-	}
-
 	async function repointInstrument(streamId: string, sensorId: string) {
 		if (!sensorId) return;
 		queueUpdate([{ stream_id: streamId, instrument_id: sensorId }]);
@@ -660,10 +580,6 @@
 			if (!entry) continue;
 			if (update.action != null) entry.action = update.action;
 			if (update.acknowledged != null) entry.acknowledged = update.acknowledged;
-			if (update.sd_estimator !== undefined) {
-				(entry as { sd_estimator?: SdEstimator | null }).sd_estimator =
-					(update.sd_estimator as SdEstimator | '') || null;
-			}
 		}
 		planEntries = [...planEntries];
 		queueUpdate(updates, { immediate: true });
@@ -764,27 +680,19 @@
 		await loadPlanInstruments();
 	}
 
-	// The suggestions as a set: one click rather than one per parameter, the same decision either
-	// way since each carries its own suggested name.
+	// The suggestions as a set: one click rather than one per parameter, each row keeping its own
+	// name edit and attach choice after it.
 	async function acceptAllSuggestions() {
-		// A suggestion whose name an instrument already carries is a decision, not a suggestion:
-		// accepting it in bulk is how a second `DOC` gets created without anyone reading the row.
-		const all = planInstruments?.unassigned ?? [];
-		const rows = all.filter((u) => !u.name_conflict);
-		const held = all.length - rows.length;
+		const { updates, held } = suggestionAcceptance(instrumentDecisions);
 		if (held > 0) {
 			toastStore.info(
 				`${held} suggestion${held === 1 ? '' : 's'} left for you: the name is already an instrument, so attaching or creating a second one is your call.`,
 			);
 		}
-		if (rows.length === 0) return;
+		if (updates.length === 0) return;
 		acceptingSuggestions = true;
 		try {
-			queueUpdate(rows.map((u) => ({
-				stream_id: u.anchor_stream_id,
-				instrument_name: u.suggested_name,
-				instrument_confirmed: true,
-			})));
+			queueUpdate(updates);
 			await flushUpdates();
 			await loadPlanInstruments();
 		} catch { /* as above */ }
@@ -1173,43 +1081,6 @@
 	}
 
 	// ── Actions ──
-	// The divisor a replicate family publishes. Asked here because pairing is the first moment it
-	// can be, and left unset deliberately: the audit gate asks again rather than this guessing.
-	// Entries that will pair, whose source reports an sd, and which nobody has declared a divisor
-	// for, since sample is the default, that is the set the audit disputes. Quoted on the apply
-	// screen so leaving it unset is a stated choice rather than an oversight.
-	const undeclaredEstimatorEntries = $derived(
-		planEntries.filter(
-			(e) =>
-				e.action === 'pair' &&
-				e.replicates?.portal_sd_column &&
-				!(e as { sd_estimator?: SdEstimator | null }).sd_estimator,
-		),
-	);
-
-	// The families behind that count, so the confirm screen names them rather than leaving the
-	// operator to find them. One row per parameter, since the divisor is declared per slot and a
-	// parameter is the same decision at every site it is paired at.
-	const undeclaredEstimatorFamilies = $derived.by(() => {
-		const byParam = new Map<string, { paramName: string; sdColumn: string; sites: number }>();
-		for (const e of undeclaredEstimatorEntries) {
-			const row = byParam.get(e.parameter.name) ?? {
-				paramName: e.parameter.name,
-				sdColumn: e.replicates?.portal_sd_column ?? '',
-				sites: 0,
-			};
-			row.sites += 1;
-			byParam.set(e.parameter.name, row);
-		}
-		return [...byParam.values()].sort((a, b) => a.paramName.localeCompare(b.paramName));
-	});
-
-	function setEntryEstimator(entry: PairingPlanEntry, value: SdEstimator | '') {
-		(entry as { sd_estimator?: SdEstimator | null }).sd_estimator = value || null;
-		planEntries = [...planEntries];
-		queueUpdate([{ stream_id: entry.stream_id, sd_estimator: value }]);
-	}
-
 	function setEntryAction(entry: PairingPlanEntry, action: 'pair' | 'skip') {
 		if (entry.action === action) return;
 		entry.action = action;
@@ -1242,6 +1113,7 @@
 	});
 	const planObjects = $derived(objectDecisions(planEntries, acceptedObjectKeys));
 	const openObjects = $derived(planObjects.filter((d) => !d.accepted));
+	const activeTab = $derived(activeReviewTab(reviewTab, planObjects.length, openObjects.length));
 
 	// Accepting an object records the decision; the rows it completes are ticked with it, and a row
 	// naming an object nobody has accepted yet waits for that one.
@@ -1250,16 +1122,27 @@
 			queueObject(decision.key, false);
 			return;
 		}
-		const settled = entriesSettledBy(planEntries, decision.key, acceptedObjectKeys);
-		for (const e of settled) e.acknowledged = true;
-		planEntries = [...planEntries];
-		queueObject(decision.key, true);
-		if (settled.length > 0) {
-			queueUpdate(
-				settled.map((e) => ({ stream_id: e.stream_id, acknowledged: true })),
-				{ immediate: true },
-			);
+		acceptObjects([decision]);
+	}
+
+	// One acceptance per object, then one acknowledgement update over every row the set settles:
+	// a row naming three objects is ticked once, when the last of them is accepted.
+	function acceptObjects(decisions: ObjectDecision[]) {
+		const accepted = new Set(acceptedObjectKeys);
+		const settled = new Map<string, PairingPlanEntry>();
+		for (const d of decisions) {
+			if (d.accepted) continue;
+			accepted.add(d.key);
+			for (const e of entriesSettledBy(planEntries, d.key, accepted)) settled.set(e.stream_id, e);
+			queueObject(d.key, true);
 		}
+		if (settled.size === 0) return;
+		for (const e of settled.values()) e.acknowledged = true;
+		planEntries = [...planEntries];
+		queueUpdate(
+			[...settled.keys()].map((stream_id) => ({ stream_id, acknowledged: true })),
+			{ immediate: true },
+		);
 	}
 
 	function setSiteAction(group: SiteGroup, action: 'pair' | 'skip') {
@@ -1396,30 +1279,6 @@
 		return s ? s.paired + s.unpaired : 0;
 	}
 
-	// Slot declaration from the list, next to the family it applies to. Goes through the declare
-	// endpoint (never CRUD), which enqueues the tracked retag over the slot's stored samples.
-	let declaringSlot = $state<string | null>(null);
-	async function declareSlotEstimator(spId: string, value: SdEstimator | '') {
-		declaringSlot = spId;
-		try {
-			const r = await declareSdEstimator(spId, value === '' ? null : value);
-			const slot = siteParams.find((sp) => sp.id === spId);
-			if (slot) {
-				slot.sd_estimator = r.estimator;
-				siteParams = [...siteParams];
-			}
-			toastStore.success(
-				r.samples_affected > 0
-					? `${r.samples_affected} stored sample${r.samples_affected === 1 ? '' : 's'} recomputing under the new divisor`
-					: 'Declared; no stored samples needed recomputing',
-			);
-		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Declaration failed');
-		} finally {
-			declaringSlot = null;
-		}
-	}
-
 	function siteParamLabel(spId: string | null): string {
 		if (!spId) return 'Unpaired';
 		const sp = siteParams.find((s) => s.id === spId);
@@ -1551,18 +1410,6 @@
 		return paramIndex.get(q);
 	}
 
-	// Deferred audit holds for the plan's source: discrepancies recorded on unpaired streams that
-	// become reviewable once pairing applies. Scoped by source system (a plan covers one source).
-	let planDeferredCount = $state(0);
-	async function loadPlanDeferred(sourceSystem: string) {
-		if (!canAudit) { planDeferredCount = 0; return; }
-		try {
-			planDeferredCount = (
-				await listReplicateAudits({ status: 'deferred', source_system: sourceSystem, page_size: 1 })
-			).total;
-		} catch { planDeferredCount = 0; }
-	}
-
 	// Open a plan in the review: the catalogs the dropdowns and matched-badges read are refetched
 	// with it, since a plan created yesterday is reviewed against today's entities.
 	async function openPlan(loadPlan: () => Promise<PairingPlan>, resuming: boolean) {
@@ -1599,7 +1446,6 @@
 				paramPage = 0;
 			}
 			applyResult = null;
-			void loadPlanDeferred(loaded.source_system);
 			setMode('review');
 			void loadPlanInstruments();
 			getPlanSiteMetadata(loaded.id).then((meta) => {
@@ -1735,6 +1581,33 @@
 			if (mode === 'source-select') void loadSourceSelect();
 		});
 	});
+
+	// The gate, as one list read by both the strip and the Apply button. Every count here is a
+	// number the review already holds; nothing is decided a second time.
+	const gateItems = $derived(
+		planGateItems({
+			objects: { accepted: planObjects.length - openObjects.length, total: planObjects.length },
+			instruments: {
+				decided: instrumentDecisions.length - openInstrumentQuestions,
+				total: instrumentDecisions.length,
+			},
+			rows: { ticked: reviewProgress.acknowledged, total: reviewProgress.total },
+			unitConflicts: uniqueWarnings.length,
+		}),
+	);
+	const blockingGates = $derived(gateBlocking(gateItems));
+
+	function gateHint(item: GateItem): string {
+		if (item.state === 'blocking') return 'Apply is refused until this is settled';
+		if (item.state === 'done') return 'Settled';
+		return 'Worth knowing; it does not stop the apply';
+	}
+
+	// A gate opens the review tab that settles it.
+	function goToGate(item: GateItem) {
+		reviewTab = item.tab;
+		if (item.tab === 'sites') sitePage = 0;
+	}
 	onDestroy(() => unsubJobCompleted?.());
 
 	onMount(async () => {
@@ -1753,11 +1626,20 @@
 			sourcesInitialized = true;
 		}
 		await load();
-		void loadReplicateSurfacing(sourceSummary.map((s) => s.source_system));
+		void loadReplicateSurfacing();
 		try {
 			syncServices = (await getList<SyncService>('/api/sync_services', { perPage: 50 })).data;
 		} catch {
 			// Without the service list no repair is offered, which is the right default.
+		}
+		// A fired brake's chip on a reading opens its stream's dialog, where the brake is released.
+		const statsId = page.url.searchParams.get('stats');
+		if (statsId) {
+			try {
+				await openStats(await api.dataStreams.get(statsId));
+			} catch (e) {
+				toastStore.error(`Failed to open the stream: ${e instanceof Error ? e.message : e}`);
+			}
 		}
 		// A reload or a bookmark on ?step=review&plan=<id> reopens that review; the draft on the
 		// server is the record, so the page rebuilds from it rather than rendering nothing.
@@ -1772,6 +1654,33 @@
 		else if (mode === 'results' && !resumeId) setMode('list');
 	});
 </script>
+
+<!-- A source parameter whose units disagree with the catalog entry it matches, with both ways
+     out, beside the parameters it is about rather than above the whole review. -->
+{#snippet unitConflicts()}
+	{#each uniqueWarnings as w (w.warning.message)}
+		<div class="rounded border border-severity-warning-border bg-severity-warning-soft px-3 py-2 text-sm text-severity-warning-text">
+			<div>{w.warning.message}</div>
+			{#if w.warning.existing}
+				{@const ex = w.warning.existing}
+				<p class="text-xs mt-1 opacity-90">
+					The catalog entry is
+					<a href="{base}/parameters/{ex.id}" class="font-mono underline-offset-2 hover:underline">{ex.code}</a>
+					({ex.name}), used by {ex.site_parameter_count} site{ex.site_parameter_count === 1 ? '' : 's'}
+					and {formatCount(ex.reading_count)} reading{ex.reading_count === 1 ? '' : 's'}.
+					Affects {formatCount(w.count)} stream{w.count === 1 ? '' : 's'}.
+				</p>
+				<div class="flex flex-wrap items-center gap-2 mt-2">
+					<Button size="sm" onclick={() => adoptCatalogUnits(w)}>Keep catalog units ({ex.units})</Button>
+					<Button size="sm" onclick={() => adoptSourceUnits(w)}>Use source units ({w.warning.source_units})</Button>
+					<Button variant="ghost" size="sm" onclick={() => goToParam(w.paramName)}>Open in Parameters</Button>
+				</div>
+			{:else}
+				<p class="text-xs mt-1 opacity-90">Affects {formatCount(w.count)} stream{w.count === 1 ? '' : 's'}.</p>
+			{/if}
+		</div>
+	{/each}
+{/snippet}
 
 {#snippet replicateChip(key: string, rep: PlanReplicateSummary, streamId: string)}
 	<button
@@ -1821,38 +1730,41 @@
 		{:else if preview && preview.instants.length === 0}
 			<p class="text-brand-muted pt-1">This stream holds no readings yet.</p>
 		{:else if preview}
+			{@const indexes = [...new Set(preview.instants.flatMap((i) => i.replicates.map((r) => r.replicate_index)))].sort((a, b) => a - b)}
+			{@const labels = new Map(preview.instants.flatMap((i) => i.replicates.map((r) => [r.replicate_index, r.column ?? `rep ${r.replicate_index}`] as const)))}
 			<div class="pt-1.5">
 				<div class="text-brand-muted mb-0.5">Most recent {preview.instants.length === 1 ? 'reading' : `${preview.instants.length} readings`}, as they will be stored:</div>
-				<!-- Capped so a wide replicate family scrolls itself rather than squeezing the
-				     row's other columns out of the table. -->
-				<div class="overflow-x-auto max-w-[520px]">
-					<table class="text-[11px] tabular-nums">
-						<tbody>
-							{#each preview.instants as inst (inst.time)}
-								<tr>
-									<td class="pr-3 whitespace-nowrap text-brand-muted">{formatDateTime(inst.time)}</td>
-									{#each inst.replicates as r}
-										<td class="pr-3 whitespace-nowrap {r.is_flagged || r.withdrawn ? 'line-through opacity-60' : ''}">
-											<span class="text-brand-muted">{r.column ?? `rep ${r.replicate_index}`}</span>
-											{r.value === null || r.value === undefined ? '--' : formatSignificant(r.value)}
-										</td>
-									{/each}
-									<td class="pl-2 whitespace-nowrap text-brand-text">
-										x̄ {inst.mean?.toFixed(2) ?? '--'}
-										{#if inst.sd !== null}· s {inst.sd.toFixed(2)}{/if}
-										· n {inst.n}
-									</td>
-								</tr>
+				<!-- Long source column names break inside their header cell, so a wide family fits the
+				     row rather than scrolling it. -->
+				<table class="text-[11px] tabular-nums max-w-full">
+					<thead>
+						<tr class="text-brand-muted text-left align-bottom">
+							<th class="pr-3 font-medium">Instant</th>
+							{#each indexes as idx}
+								<th class="pr-3 font-medium text-right [overflow-wrap:anywhere]">{labels.get(idx)}</th>
 							{/each}
-						</tbody>
-					</table>
-				</div>
-				<p class="text-brand-muted pt-0.5">
-					s uses the {preview.sd_estimator === 'population' ? 'population (n)' : 'sample (n-1)'} divisor,
-					{preview.sd_estimator_source === 'default'
-						? 'the fallback: nothing has declared one for this slot'
-						: `declared by the ${preview.sd_estimator_source}`}.
-				</p>
+							<th class="pl-2 pr-3 font-medium text-right">x̄</th>
+							<th class="pr-3 font-medium text-right">s</th>
+							<th class="font-medium text-right">n</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each preview.instants as inst (inst.time)}
+							<tr>
+								<td class="pr-3 whitespace-nowrap text-brand-muted">{formatDateTime(inst.time)}</td>
+								{#each indexes as idx}
+									{@const r = inst.replicates.find((x) => x.replicate_index === idx)}
+									<td class="pr-3 text-right whitespace-nowrap {r?.is_flagged || r?.withdrawn ? 'line-through opacity-60' : ''}">
+										{r?.value === null || r?.value === undefined ? '--' : formatSignificant(r.value)}
+									</td>
+								{/each}
+								<td class="pl-2 pr-3 text-right whitespace-nowrap text-brand-text">{inst.mean?.toFixed(2) ?? '--'}</td>
+								<td class="pr-3 text-right whitespace-nowrap text-brand-text">{inst.sd?.toFixed(2) ?? '--'}</td>
+								<td class="text-right text-brand-text">{inst.n}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
 			</div>
 		{/if}
 	</div>
@@ -1892,13 +1804,6 @@
 		<div class="flex items-center justify-between">
 			<h2 class="text-xl font-semibold">Data Streams</h2>
 			<div class="flex items-center gap-3">
-				{#if reconFamilyCount > 0}
-					<a
-						href="{base}/streams/reconciliation"
-						class="text-sm text-brand-primary no-underline hover:underline"
-						title="Migrate legacy per-avg-column streams onto their replicate families"
-					>Replicate reconciliation ({reconFamilyCount})</a>
-				{/if}
 				<Button variant="primary" onclick={enterSourceSelect} class="font-semibold">Discover & Pair</Button>
 			</div>
 		</div>
@@ -1907,21 +1812,20 @@
 
 		{#if tab.key === 'audits' && canAudit}
 		<p class="text-sm text-brand-muted">
-			Review items raised by ingest: replicate statistics that disagree with what the source
-			states, a braked reconciliation pass, a stripped curve claim, and missing or stale tool
-			outputs, plus the values the source has changed since river-data stored them. A changed
-			value waits for a decision; everything else is stored and served either way and queued
-			here for one.
+			Values the source changed after river-data stored them.
 		</p>
 		<ChangeProposalsPanel onPendingChange={(n) => (pendingProposals = n)} />
 		<ReplicateAuditsPanel
-			initialView={auditViewParam(page.url.searchParams.get('view'))}
+			initialView={page.url.searchParams.get('view') === 'resolved' ? 'resolved' : 'review'}
 			initialHoldId={page.url.searchParams.get('holds_id') ?? undefined}
-			initialStreamIds={page.url.searchParams.get('holds_streams')?.split(',') ?? undefined}
-			initialClassification={auditClassParam(page.url.searchParams.get('holds_class'))}
-			initialFocusLabel={page.url.searchParams.get('holds_label') ?? undefined}
 			onPendingChange={(n) => (pendingAudits = n)}
 		/>
+		{:else if tab.key === 'discrepancies' && canAudit}
+		<p class="text-sm text-brand-muted">
+			What imports recorded about data that disagrees with its source. Each is kept with the
+			reading it concerns; nothing here needs an action.
+		</p>
+		<DiscrepancyBrowse initial={readTagParams(page.url.searchParams)} />
 		{:else if tab.key === 'instruments' && canAudit}
 		<p class="text-sm text-brand-muted">
 			The instruments the sync and the inventory know, the standard curves each one owns, and
@@ -2002,23 +1906,6 @@
 									{/if}
 									{#if replicateSpec(stream)}
 										<ReplicateFamilyBadge spec={replicateSpec(stream)!} />
-										{#if stream.site_parameter_id}
-											{@const slot = siteParams.find((sp) => sp.id === stream.site_parameter_id)}
-											{#if slot}
-												<select
-													value={slot.sd_estimator ?? ''}
-													disabled={declaringSlot === slot.id}
-													onchange={(e) => declareSlotEstimator(slot.id, e.currentTarget.value as SdEstimator | '')}
-													aria-label="Standard deviation formula for this slot"
-													title="Which divisor this parameter's replicate standard deviation uses. Changing it recomputes the stored samples."
-													class="ml-1 px-1 py-0.5 rounded border text-[10px] cursor-pointer bg-brand-surface {slot.sd_estimator ? 'border-brand-divider text-brand-text' : 'border-severity-warning-border text-severity-warning-text'}"
-												>
-													<option value="">sd: not declared</option>
-													<option value="sample">sd: sample (n-1)</option>
-													<option value="population">sd: population (n)</option>
-												</select>
-											{/if}
-										{/if}
 									{/if}
 								</td>
 								<td class="px-4 py-2 text-xs">
@@ -2203,30 +2090,33 @@
 			<Button
 				variant="primary"
 				onclick={() => setMode('confirm')}
-				disabled={summary.toPair === 0}
-				title={openInstrumentQuestions > 0
-					? `${openInstrumentQuestions} instrument${openInstrumentQuestions === 1 ? '' : 's'} still to decide; the apply is refused until each is answered`
-					: undefined}
+				disabled={summary.toPair === 0 || blockingGates.length > 0}
+				title={blockingGates.length > 0 ? blockingGates.map((g) => `${g.label}: ${g.detail}`).join('; ') : undefined}
 				class="px-4 font-semibold"
-			>
-				{#if openInstrumentQuestions > 0}
-					{formatCount(openInstrumentQuestions)} to decide &rarr;
-				{:else}
-					Apply {formatCount(summary.toPair)} pairings &rarr;
-				{/if}
-			</Button>
+			>Apply {formatCount(summary.toPair)} pairings &rarr;</Button>
 		</div>
 
-		{#if planDeferredCount > 0}
-			<div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md bg-severity-warning-soft border border-severity-warning-border text-sm text-severity-warning-text">
-				<span>{planDeferredCount} sync audit discrepanc{planDeferredCount === 1 ? 'y' : 'ies'} on these streams will need review after pairing</span>
-				<button
-					onclick={() => {
-						void flushUpdates();
-						tab.go('audits', (url) => { url.searchParams.delete('step'); url.searchParams.set('view', 'deferred'); }, { push: true });
-					}}
-					class="font-semibold text-severity-warning-text bg-transparent border-none p-0 cursor-pointer underline-offset-2 hover:underline"
-				>View audits</button>
+		<!-- ── BEFORE YOU APPLY ── One gate per thing the operator can settle, so what stops the
+		     apply and what merely informs it are told apart at a glance. The Apply button reads the
+		     same list, so the two cannot disagree. -->
+		{#if gateItems.length > 0}
+			<div class="flex flex-wrap items-center gap-2 rounded-md border border-brand-divider bg-brand-surface px-3 py-2">
+				<span class="text-sm font-semibold">Before you apply</span>
+				{#each gateItems as g (g.key)}
+					<button
+						onclick={() => goToGate(g)}
+						title={gateHint(g)}
+						class="flex items-center gap-1.5 px-2 py-1 rounded text-xs cursor-pointer border {g.state === 'blocking'
+							? 'border-severity-warning-border bg-severity-warning-soft text-severity-warning-text font-semibold'
+							: g.state === 'done'
+								? 'border-brand-divider bg-transparent text-severity-ok'
+								: 'border-brand-divider bg-transparent text-brand-muted'}"
+					>
+						{#if g.state === 'done'}<span aria-hidden="true">&#10003;</span>{/if}
+						<span>{g.label}</span>
+						<span class="opacity-90">{g.detail}</span>
+					</button>
+				{/each}
 			</div>
 		{/if}
 
@@ -2256,77 +2146,6 @@
 			{/if}
 		</div>
 
-		<!-- ── ISSUES ── Everything needing a decision, in view rather than behind a tab. -->
-		{#if unresolvedInstruments.length > 0 || uniqueWarnings.length > 0 || sdOpen > 0}
-			<div class="rounded-md border border-severity-warning-border bg-severity-warning-soft overflow-hidden">
-				<div class="px-3 py-2 text-sm font-semibold text-severity-warning-text border-b border-severity-warning-border">
-					{unresolvedInstruments.length > 0
-						? 'Must be resolved before applying'
-						: 'Worth deciding before applying'}
-				</div>
-
-				{#each unresolvedInstruments as g (g.key)}
-					<div class="px-3 py-2 border-b border-severity-warning-border/50 last:border-b-0 text-sm text-severity-warning-text">
-						<div>
-							<span class="font-mono">{g.instrument.curve_column}</span>
-							names a standard curve on every reading of
-							{g.streamCount} stream{g.streamCount === 1 ? '' : 's'}
-							({g.parameters.join(', ')}), but matches no instrument this source has registered.
-						</div>
-						<!-- The fast path only. Naming it, attaching an existing one and seeing what
-						     it covers all live on the Instruments tab, so there is one editor for the
-						     decision rather than two that can disagree. -->
-						<div class="flex flex-wrap items-center gap-2 mt-2">
-							<span class="text-xs">Proposed: <span class="font-medium">{g.instrument.name}</span></span>
-							<Button
-								variant="primary"
-								size="sm"
-								disabled={instrumentSaving === g.key}
-								onclick={() => confirmInstrument(g)}
-							>{instrumentSaving === g.key ? 'Creating…' : 'Create instrument'}</Button>
-							<Button size="sm" onclick={() => goToInstrument(g.instrument.curve_column ? `column:${g.instrument.curve_column}` : g.key)}>
-								Open in Instruments
-							</Button>
-						</div>
-					</div>
-				{/each}
-
-				{#if sdOpen > 0}
-					<div class="px-3 py-2 border-b border-severity-warning-border/50 last:border-b-0 text-sm text-severity-warning-text">
-						{sdOpen} replicate parameter{sdOpen === 1 ? '' : 's'} need{sdOpen === 1 ? 's' : ''} a
-						standard-deviation divisor, highlighted in
-						<button
-							onclick={() => { reviewTab = 'parameters'; }}
-							class="bg-transparent border-none p-0 cursor-pointer font-semibold text-severity-warning-text underline-offset-2 hover:underline"
-						>Parameters</button>.
-					</div>
-				{/if}
-
-				{#each uniqueWarnings as w (w.warning.message)}
-					<div class="px-3 py-2 border-b border-severity-warning-border/50 last:border-b-0 text-sm text-severity-warning-text">
-						<div>{w.warning.message}</div>
-						{#if w.warning.existing}
-							{@const ex = w.warning.existing}
-							<p class="text-xs mt-1 opacity-90">
-								The catalog entry is
-								<a href="{base}/parameters/{ex.id}" class="font-mono underline-offset-2 hover:underline">{ex.code}</a>
-								({ex.name}), used by {ex.site_parameter_count} site{ex.site_parameter_count === 1 ? '' : 's'}
-								and {formatCount(ex.reading_count)} reading{ex.reading_count === 1 ? '' : 's'}.
-								Affects {formatCount(w.count)} stream{w.count === 1 ? '' : 's'}.
-							</p>
-							<div class="flex flex-wrap items-center gap-2 mt-2">
-								<Button size="sm" onclick={() => adoptCatalogUnits(w)}>Keep catalog units ({ex.units})</Button>
-								<Button size="sm" onclick={() => adoptSourceUnits(w)}>Use source units ({w.warning.source_units})</Button>
-								<Button variant="ghost" size="sm" onclick={() => goToParam(w.paramName)}>Open in Parameters</Button>
-							</div>
-						{:else}
-							<p class="text-xs mt-1 opacity-90">Affects {formatCount(w.count)} stream{w.count === 1 ? '' : 's'}.</p>
-						{/if}
-					</div>
-				{/each}
-			</div>
-		{/if}
-
 		<!-- Curve columns the source declares but never fills: the plan states it rather than
 		     leaving the routing block to imply data that will not arrive. -->
 		{#each instrumentGroups.filter((g) => g.instrument.stamps_readings && g.instrument.curves.length === 0 && !g.instrument.create) as g (g.key)}
@@ -2337,65 +2156,81 @@
 			</p>
 		{/each}
 
-		<!-- What this plan creates, as the objects it creates rather than the rows that name them:
-		     one project, a dozen sites and a handful of parameters stand behind a thousand rows,
-		     and accepting one here ticks every row it was holding up. -->
-		{#if planObjects.length > 0}
-			<div class="rounded-md border border-brand-divider bg-brand-surface p-3 space-y-2">
-				<div class="flex flex-wrap items-baseline gap-2">
-					<h3 class="text-sm font-semibold">What this plan creates</h3>
-					<span class="text-xs text-brand-muted">
-						{planObjects.length} object{planObjects.length === 1 ? '' : 's'} behind
-						{formatCount(reviewProgress.total)} row{reviewProgress.total === 1 ? '' : 's'},
-						{openObjects.length} still to accept
-					</span>
-				</div>
-				<ul class="list-none p-0 m-0 divide-y divide-brand-divider">
-					{#each planObjects as d (d.key)}
-						<li class="flex flex-wrap items-center gap-2 py-1.5 text-sm">
-							<span class="text-xs uppercase tracking-wide text-brand-muted w-20">{d.kind}</span>
-							{#if d.kind === 'project'}
-								<span class="font-medium">{d.name}</span>
-							{:else}
-								<button
-									onclick={() => goToObject(d)}
-									class="font-medium bg-transparent border-0 border-b border-dashed border-brand-muted cursor-pointer text-brand-text hover:text-brand-primary hover:border-brand-primary p-0"
-									title="Open {d.name} on the {d.kind === 'site' ? 'Sites' : 'Parameters'} tab"
-								>{d.name}</button>
-							{/if}
-							<span class="text-xs text-brand-muted">
-								named by {formatCount(d.entryCount)} row{d.entryCount === 1 ? '' : 's'}
-							</span>
-							<Button
-								size="sm"
-								variant={d.accepted ? 'ghost' : 'primary'}
-								class="ml-auto"
-								title={acceptHint(d)}
-								onclick={() => acceptObject(d)}
-							>{d.accepted
-								? '✓ accepted'
-								: `Accept${d.settles > 0 ? ` (${formatCount(d.settles)} rows)` : ''}`}</Button>
-						</li>
-					{/each}
-				</ul>
-			</div>
-		{/if}
-
 		<div class="space-y-3">
 			<!-- View tabs -->
 			<div class="flex gap-1 border-b border-brand-divider pb-2">
-				{#each [['parameters', `Parameters (${paramGroups.length})`], ['sites', `Sites (${siteGroups.length})`], ['instruments', instrumentsTabLabel], ['curves', `Standard curves (${planInstruments?.curves.length ?? 0})`]] as [t, label]}
+				{#each [...(planObjects.length > 0 ? [['objects', objectsTabLabel(planObjects.length, openObjects.length)]] : []), ['parameters', `Parameters (${paramGroups.length})`], ['sites', `Sites (${siteGroups.length})`], ['instruments', instrumentsTabLabel], ['curves', `Standard curves (${planInstruments?.curves.length ?? 0})`]] as [t, label]}
 					<button
-						onclick={() => reviewTab = t as typeof reviewTab}
-						class="px-3 py-1 text-sm rounded-t cursor-pointer border-none {reviewTab === t ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
+						onclick={() => reviewTab = t as ReviewTab}
+						class="px-3 py-1 text-sm rounded-t cursor-pointer border-none {activeTab === t ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
 					>{label}</button>
 				{/each}
 			</div>
 
+				<!-- ── OBJECTS TAB ── -->
+				<!-- What this plan creates, as the objects it creates rather than the rows that name them:
+				     one project, a dozen sites and a handful of parameters stand behind a thousand rows,
+				     and accepting one here ticks every row it was holding up. -->
+				{#if activeTab === 'objects'}
+					<div class="rounded-md border border-brand-divider bg-brand-surface p-3 space-y-2">
+						<div class="flex flex-wrap items-baseline gap-2">
+							<h3 class="text-sm font-semibold">What this plan creates</h3>
+							<span class="text-xs text-brand-muted">
+								{planObjects.length} object{planObjects.length === 1 ? '' : 's'} behind
+								{formatCount(reviewProgress.total)} row{reviewProgress.total === 1 ? '' : 's'},
+								{openObjects.length} still to accept
+							</span>
+							{#if openObjects.length > 0}
+								<Button
+									size="sm"
+									variant="primary"
+									class="ml-auto"
+									title="Record every object below as accepted and tick the rows that completes"
+									onclick={() => acceptObjects(openObjects)}
+								>Accept all ({openObjects.length})</Button>
+							{/if}
+						</div>
+						{#if openObjects.length > 0}
+							<p class="m-0 rounded border border-severity-warning-border bg-severity-warning-soft px-3 py-2 text-sm text-severity-warning-text">
+								Each object has to be accepted before the plan can be applied: a row is only
+								ticked once every project, site and parameter it names is accepted, and Apply is
+								refused while any row is unticked.
+							</p>
+						{/if}
+						<ul class="list-none p-0 m-0 divide-y divide-brand-divider">
+							{#each planObjects as d (d.key)}
+								<li class="flex flex-wrap items-center gap-2 py-1.5 text-sm">
+									<span class="text-xs uppercase tracking-wide text-brand-muted w-20">{d.kind}</span>
+									{#if d.kind === 'project'}
+										<span class="font-medium">{d.name}</span>
+									{:else}
+										<button
+											onclick={() => goToObject(d)}
+											class="font-medium bg-transparent border-0 border-b border-dashed border-brand-muted cursor-pointer text-brand-text hover:text-brand-primary hover:border-brand-primary p-0"
+											title="Open {d.name} on the {d.kind === 'site' ? 'Sites' : 'Parameters'} tab"
+										>{d.name}</button>
+									{/if}
+									<span class="text-xs text-brand-muted">
+										named by {formatCount(d.entryCount)} row{d.entryCount === 1 ? '' : 's'}
+									</span>
+									<Button
+										size="sm"
+										variant={d.accepted ? 'ghost' : 'primary'}
+										class="ml-auto"
+										title={acceptHint(d)}
+										onclick={() => acceptObject(d)}
+									>{d.accepted
+										? '✓ accepted'
+										: `Accept${d.settles > 0 ? ` (${formatCount(d.settles)} rows)` : ''}`}</Button>
+								</li>
+							{/each}
+						</ul>
+					</div>
+
 				<!-- ── INSTRUMENTS TAB ── -->
 				<!-- The one place an instrument is chosen. Parameters and Sites mirror what is
 				     decided here rather than offering a second editor over the same decision. -->
-				{#if reviewTab === 'instruments'}
+				{:else if activeTab === 'instruments'}
 					<InstrumentsTab
 						proposals={plan.instrument_proposals ?? []}
 						onadmit={queueProposal}
@@ -2417,7 +2252,7 @@
 					/>
 
 				<!-- ── STANDARD CURVES TAB ── -->
-				{:else if reviewTab === 'curves'}
+				{:else if activeTab === 'curves'}
 					<CurvesTab
 						{planInstruments}
 						{labInstruments}
@@ -2430,7 +2265,7 @@
 					/>
 
 				<!-- ── SITES TAB ── -->
-				{:else if reviewTab === 'sites'}
+				{:else if activeTab === 'sites'}
 					<SitesTab
 						{planEntries}
 						{siteGroups}
@@ -2441,7 +2276,6 @@
 						{expandedReplicates}
 						{existingParams}
 						{paramGroups}
-						{sdDisputedByParam}
 						{siteMetadataMap}
 						bind:editingParam
 						bind:siteSearch
@@ -2460,7 +2294,6 @@
 						{statusLabel}
 						{queueUpdate}
 						{setEntryAction}
-						{setEntryEstimator}
 						{setEntryAcknowledged}
 						selection={planSelection}
 						ontoggleentry={(entry) => (planSelection = toggleSelected(planSelection, entry))}
@@ -2485,9 +2318,10 @@
 					/>
 
 				<!-- ── PARAMETERS TAB ── -->
-				{:else if reviewTab === 'parameters'}
+				{:else if activeTab === 'parameters'}
 					<ParametersTab
 						bind:paramPage
+						{unitConflicts}
 						{paramGroups}
 						{existingParams}
 						siteCount={siteGroups.length}
@@ -2502,8 +2336,6 @@
 						{expandedReplicates}
 						{groupStatus}
 						{rowWarnings}
-						{showDivisorHolds}
-						{setParamEstimator}
 						{goToInstrument}
 						{mapParamToExisting}
 						{renameGlobalParam}
@@ -2518,8 +2350,6 @@
 						bind:editUnitsValue
 						bind:splitParamInput
 						bind:splitParamValue
-						{sdDisputedByParam}
-						{estimatorScopeLabel}
 						bind:editingLabel
 						bind:editLabelValue
 						{matchParam}
@@ -2548,13 +2378,10 @@
 		{familySummary}
 		instruments={instrumentBindings}
 		{openInstrumentQuestions}
-		undeclaredEstimatorCount={undeclaredEstimatorEntries.length}
-		{undeclaredEstimatorFamilies}
 		{applying}
 		{applyJobId}
 		onback={() => setMode('review')}
 		onapply={applyPlan}
-		ongotoparam={goToParam}
 		ongotoinstruments={() => { setMode('review'); reviewTab = 'instruments'; }}
 		ongotosites={(filter) => { reviewFilter = filter; reviewTab = 'sites'; sitePage = 0; setMode('review'); }}
 	/>
@@ -2597,6 +2424,7 @@
 		{#if statsStream}
 			<div class="space-y-2 text-sm">
 				<div><span class="text-brand-muted">Stream:</span> <span class="font-mono">{statsStream.source_key}</span></div>
+				<StreamBrake streamId={statsStream.id} canRelease={canAudit} />
 				{#if stats}
 					<div class="grid grid-cols-2 gap-2 mt-2">
 						<div><span class="text-brand-muted block">Readings</span>{formatCount(stats.reading_count)}</div>

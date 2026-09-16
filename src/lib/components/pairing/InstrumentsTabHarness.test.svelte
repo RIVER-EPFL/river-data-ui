@@ -1,5 +1,6 @@
 <script lang="ts">
 	import InstrumentsTab from './InstrumentsTab.svelte';
+	import type { PlanDeviceGroup } from '$api/service';
 	import type { InstrumentDecision } from '$lib/pairing/planGroups';
 
 	// The tab takes the name editor as a snippet, shared with the Parameters tab. Here it is the
@@ -7,17 +8,19 @@
 	let {
 		instrumentDecisions,
 		labInstruments,
+		planDevices = [],
 		onassign,
 	}: {
 		instrumentDecisions: InstrumentDecision[];
 		labInstruments: Array<{ id: string; name: string | null; serial_number: string | null }>;
+		planDevices?: PlanDeviceGroup[];
 		onassign: (rows: InstrumentDecision[], instrumentId: string) => void;
 	} = $props();
 </script>
 
 <InstrumentsTab
 	planInstruments={{ groups: [], unassigned: [], devices: [], curves: [] }}
-	planDevices={[]}
+	{planDevices}
 	{instrumentDecisions}
 	{labInstruments}
 	openInstrumentQuestions={instrumentDecisions.length}

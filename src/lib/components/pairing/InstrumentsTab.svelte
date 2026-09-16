@@ -11,7 +11,7 @@
 	import Badge from '$components/ui/Badge.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import MappingSelect, { type MappingGroup } from '$components/ui/MappingSelect.svelte';
-	import type { InstrumentDecision } from '$lib/pairing/planGroups';
+	import { isAskingInstrument, type InstrumentDecision } from '$lib/pairing/planGroups';
 	import { formatSignificant } from '$lib/utils';
 
 	// The plan's Instruments review tab: one row per instrument the plan must bind, questions
@@ -96,6 +96,10 @@
 	}
 </script>
 
+	<p class="text-sm">
+		An instrument is what measured the values, so each feed needs one before its readings can say
+		where they came from.
+	</p>
 	<details class="text-xs text-brand-muted">
 		<summary class="cursor-pointer text-brand-primary">What an instrument, a serial and a curve are here</summary>
 		<div class="mt-1.5 space-y-1.5 max-w-4xl">
@@ -120,7 +124,7 @@
 		<div class="space-y-1">
 			<h3 class="text-sm font-semibold">Devices the source identifies by serial</h3>
 			<p class="text-xs text-brand-muted">Stationed at one site, so each is named for the slot it serves.</p>
-			<div class="rounded-md border border-brand-divider bg-brand-surface overflow-x-auto">
+			<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 				<table class="w-full text-sm">
 					<thead><tr class="bg-brand-bg border-b border-brand-divider">
 						<th class="text-left px-3 py-2 font-semibold">Site</th>
@@ -129,11 +133,11 @@
 						<th class="text-left px-3 py-2 font-semibold">In the inventory</th>
 					</tr></thead>
 					<tbody>
-						{#each planDevices as d (`${d.site}:${d.serial}`)}
+						{#each planDevices as d (d.anchor_stream_id)}
 							<tr class="border-b border-brand-divider last:border-b-0">
 								<td class="px-3 py-2">{d.site}</td>
 								<td class="px-3 py-2">
-									<span class="font-mono text-xs">{d.serial}</span>
+									<span class="font-mono text-xs break-all">{d.serial}</span>
 									{#if d.model}<span class="text-brand-muted text-xs ml-1">{d.model}</span>{/if}
 								</td>
 								<td class="px-3 py-2 text-xs text-brand-muted">
@@ -172,7 +176,7 @@
 					{openInstrumentQuestions} still to decide
 				</span>
 				<Button size="sm" disabled={acceptingSuggestions} onclick={onacceptall} class="ml-auto">
-					{acceptingSuggestions ? 'Creating…' : 'Create all suggested'}
+					{acceptingSuggestions ? 'Accepting…' : 'Accept all suggestions'}
 				</Button>
 			{/if}
 		</div>
@@ -200,7 +204,7 @@
 				</span>
 			</div>
 		{/if}
-		<div class="rounded-md border border-brand-divider bg-brand-surface overflow-x-auto">
+		<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 			<table class="w-full text-sm">
 				<thead><tr class="bg-brand-bg border-b border-brand-divider">
 					<th class="px-3 py-2 w-8">
@@ -219,7 +223,7 @@
 				</tr></thead>
 				<tbody>
 					{#each instrumentDecisions as d (d.key)}
-						{@const asking = d.group === null || (d.group.create && !d.group.confirmed)}
+						{@const asking = isAskingInstrument(d)}
 						<tr id={instrumentRowId(d.scope)} class="border-b border-brand-divider last:border-b-0 align-top {asking ? 'bg-severity-warning-soft' : ''}">
 							<td class="px-3 py-2">
 								<input
@@ -233,7 +237,7 @@
 								{@render nameField(d.scope, d.anchorStreamId, d.proposedName, d.group)}
 								{#if d.group?.curve_column}
 									<div class="text-[11px] text-brand-muted mt-0.5">
-										<span class="font-mono">{d.group.curve_column}</span> names a curve per reading
+										<span class="font-mono break-all">{d.group.curve_column}</span> names a curve per reading
 									</div>
 								{:else if d.group}
 									<div class="text-[11px] text-brand-muted mt-0.5">Corrected upstream; the curve is not re-applied</div>
@@ -294,7 +298,7 @@
 								{#if d.group && d.group.curves.length > 0}
 									<ul class="list-none p-0 m-0 space-y-0.5">
 										{#each d.group.curves as c (c.id)}
-											<li class="font-mono text-[11px]">
+											<li class="font-mono text-[11px] break-words">
 												{c.name ?? c.id}
 												<span class="text-brand-muted">y = {formatSignificant(c.slope)}x {c.intercept < 0 ? '−' : '+'} {formatSignificant(Math.abs(c.intercept))}</span>
 											</li>
@@ -352,7 +356,7 @@
 					<tr class="border-b border-brand-divider last:border-b-0 {proposal.admit || proposal.attach_to ? '' : 'opacity-60'}">
 						<td class="px-3 py-2">
 							{proposal.name}
-							<span class="block text-[11px] text-brand-muted font-mono">{proposal.source_key}</span>
+							<span class="block text-[11px] text-brand-muted font-mono break-all">{proposal.source_key}</span>
 							{#if proposal.conflict}
 								<div class="mt-1.5 rounded border border-severity-warning-border bg-severity-warning-soft p-2 text-[11px] text-severity-warning-text space-y-1.5">
 									<div>
@@ -388,7 +392,7 @@
 								</div>
 							{/if}
 						</td>
-						<td class="px-3 py-2 font-mono text-xs">{proposal.serial_number ?? '--'}</td>
+						<td class="px-3 py-2 font-mono text-xs break-all">{proposal.serial_number ?? '--'}</td>
 						<td class="px-3 py-2 text-xs">{proposal.model ?? '--'}</td>
 						<td class="px-3 py-2 text-[11px] text-brand-muted">
 							{#if proposal.metadata}

@@ -22,6 +22,20 @@ function decision(key: string, parameters: string[]) {
 
 const rows = [decision('doc', ['DOC']), decision('chla', ['Chl a']), decision('tn', ['TN'])];
 
+// A Vaisala logger serves several channels under one serial, and each channel is its own row.
+function channel(sourceKey: string, parameter: string) {
+	return {
+		site: 'Les Dailles',
+		serial: '25284028',
+		model: 'RFL100',
+		instrument_id: null,
+		instrument_name: null,
+		parameters: [parameter],
+		stream_count: 1,
+		anchor_stream_id: `stream-${sourceKey}`,
+	};
+}
+
 function mount(over: Record<string, unknown> = {}) {
 	return render(Harness, {
 		props: {
@@ -79,5 +93,17 @@ describe('InstrumentsTab bulk assignment', () => {
 		expect(screen.getByText('3 selected')).not.toBeNull();
 		await fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
 		expect(screen.queryByText(/selected$/)).toBeNull();
+	});
+});
+
+describe('InstrumentsTab devices', () => {
+	it('lists one row per channel of a multi-channel device', () => {
+		mount({
+			planDevices: [channel('DDOuM', 'Dissolved oxygen'), channel('DDOTdegC', 'Temperature')],
+		});
+		const table = screen.getByRole('columnheader', { name: 'Channels' }).closest('table');
+		expect(table?.querySelectorAll('tbody tr').length).toBe(2);
+		expect(screen.getByText('Dissolved oxygen')).not.toBeNull();
+		expect(screen.getByText('Temperature')).not.toBeNull();
 	});
 });

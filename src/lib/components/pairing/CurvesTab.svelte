@@ -3,6 +3,7 @@
 	import { formatCount } from '$lib/format';
 	import { formatSignificant } from '$lib/utils';
 	import { focusOnMount } from '$lib/focus';
+	import { curveReachLine } from '$lib/pairing/curveReach';
 
 	// The plan's Curves review tab. A curve belongs to one instrument, so this tab is where two
 	// columns of one probe are put onto the same one; the parameter's own instrument is Parameters'.
@@ -31,6 +32,10 @@
 
 </script>
 
+	<p class="text-sm">
+		A curve is the correction applied to measured values. Each row says which readings it
+		corrects, so the instrument chosen for it is the one those readings name.
+	</p>
 	<details class="text-xs text-brand-muted">
 		<summary class="cursor-pointer text-brand-primary">What moving a curve does</summary>
 		<p class="mt-1.5 max-w-4xl">
@@ -73,6 +78,7 @@
 										title="Rename this standard curve"
 									>{c.name ?? c.id}</button>
 								{/if}
+								<div class="text-[11px] text-brand-muted mt-0.5" title={c.corrected_sites.join(', ')}>{curveReachLine(c)}</div>
 							</td>
 							<td class="px-3 py-2 font-mono text-xs">
 								y = {formatSignificant(c.slope)}x {c.intercept < 0 ? '−' : '+'} {formatSignificant(Math.abs(c.intercept))}
