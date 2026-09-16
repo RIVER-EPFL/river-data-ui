@@ -55,8 +55,6 @@ const cell = (id: string) => ({
   median: null,
   min: null,
   max: null,
-  sd_estimator: null,
-  sd_estimator_source: null,
   has_provenance: false,
   replicates: [
     {
@@ -114,10 +112,11 @@ describe("SiteVisitsTab", () => {
     render(SiteVisitsTab, props({ declared: 2, undeclared: null }));
 
     // The declaration the lab made is what the grid shows, in the cell the lab types into.
-    expect(await screen.findByDisplayValue("100.80")).toBeTruthy();
+    const declared = await screen.findByText("100.80");
+    expect(declared.closest("td")?.classList.contains("htDimmed")).toBe(false);
     // A slot nobody declared for is not rounded to a precision nobody chose.
-    expect(screen.getByDisplayValue("100.8")).toBeTruthy();
-    expect(screen.queryByDisplayValue("100.800003")).toBeNull();
+    expect(screen.getByText("100.8")).toBeTruthy();
+    expect(screen.queryByText("100.800003")).toBeNull();
   });
 
   it("tells a portal-synced visit that no calculation runs there", async () => {
@@ -196,7 +195,7 @@ describe("SiteVisitsTab", () => {
   });
 
   // Expected behaviour: an intern enters measurements and does not change stored ones (Q21), so
-  // the table offers them a cell to read, not one to type in.
+  // the grid marks the cell read-only.
   it("offers an intern no input over a value the store already holds", async () => {
     level.value = 1;
     listSiteVisits.mockResolvedValue({
@@ -221,8 +220,8 @@ describe("SiteVisitsTab", () => {
     });
 
     render(SiteVisitsTab, props({ declared: 2 }));
-    expect(await screen.findByText("100.80")).toBeTruthy();
-    expect(screen.queryByDisplayValue("100.80")).toBeNull();
+    const stored = await screen.findByText("100.80");
+    expect(stored.closest("td")?.classList.contains("htDimmed")).toBe(true);
     level.value = 3;
   });
 });

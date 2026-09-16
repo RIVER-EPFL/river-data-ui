@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import type { VisitRow } from '$api/service';
 import {
-	cellText,
 	editable,
 	pendingCount,
 	pendingWrites,
@@ -13,12 +12,9 @@ import {
 	checkSignature,
 	checkSatisfied,
 	correctionKeys,
-	applyPaste,
-	copyBlock,
 	pasteNotice,
 	instrumentKey,
 } from './tableEdit';
-import { parameterColumns, slotsOf } from './columns';
 
 const LOCALE = 'en-GB';
 
@@ -69,11 +65,17 @@ describe('typing into the visits table', () => {
 		expect(editable({ width: 1, repeats: 3, expanded: false } as never)).toBe(false);
 	});
 
-	it('shows what was typed over what was stored', () => {
-		const edits = { [slotKey({ eventId: 'v1', parameterId: 'p-do', replicateIndex: 0 })]: '11' };
-		expect(cellText(edits, visits[0], 'p-do', 0, String)).toBe('11');
-		expect(cellText(edits, visits[0], 'p-do', 1, String)).toBe('12');
-		expect(cellText(edits, visits[0], 'p-do', 2, String)).toBe('');
+	it('takes no keystroke on a column a calculation writes', () => {
+		// Q8: a computed value is corrected by running its calculation again, never typed over.
+		expect(
+			editable({ width: 1, repeats: 1, expanded: false, writtenBy: 'doc' } as never),
+		).toBe(false);
+		expect(editable({ width: 3, repeats: 3, expanded: true, writtenBy: 'doc' } as never)).toBe(
+			false,
+		);
+		expect(editable({ width: 1, repeats: 1, expanded: false, writtenBy: null } as never)).toBe(
+			true,
+		);
 	});
 
 	it('drops an edit that types the stored value back', () => {
@@ -168,45 +170,17 @@ describe('the gates a table save passes', () => {
 	});
 });
 
-
-describe('a block travelling between the table and a spreadsheet', () => {
-	const slots = slotsOf(
-		parameterColumns(
-			[
-				{ parameter_id: 'p-do', code: 'DO', name: 'Dissolved oxygen' },
-				{ parameter_id: 'p-temp', code: 'Temp', name: 'Temperature' },
-			],
-			visits,
-			new Set(),
-		),
-	);
-
-	it('copies out in the order the table lists its dates', () => {
-		expect(
-			copyBlock(visits, slots, {}, { row: 0, column: 0, height: 2, width: 2 }, String),
-		).toBe('10\t4.2\n9\t');
+describe('what a paste reports', () => {
+	it('names what ran past the last listed visit', () => {
+		expect(pasteNotice({ edits: {}, unreadable: 0, overflow: 2 })).toContain(
+			'2 values ran past the visits listed',
+		);
 	});
 
-	it('fills down the visits listed below the cell it was pasted at', () => {
-		const paste = applyPaste(visits, slots, {}, 0, 0, '11\n9.5', LOCALE);
-		expect(paste.overflow).toBe(0);
-		expect(pendingWrites(visits, paste.edits, LOCALE).map((w) => w.corrections)).toEqual([
-			[{ parameterId: 'p-do', streamId: 'stream-do', replicateIndex: 0, value: 11 }],
-			[{ parameterId: 'p-do', streamId: 'stream-do', replicateIndex: 0, value: 9.5 }],
-		]);
-	});
-
-	it('counts what ran past the last listed visit rather than inventing one', () => {
-		const paste = applyPaste(visits, slots, {}, 0, 0, '11\n9.5\n8\n7', LOCALE);
-		expect(paste.overflow).toBe(2);
-		expect(pasteNotice(paste)).toContain('2 values ran past the visits listed');
-	});
-
-	it('leaves a blank cell alone and counts one it cannot read', () => {
-		const paste = applyPaste(visits, slots, {}, 0, 0, '\tnot a number', LOCALE);
-		expect(paste.edits).toEqual({});
-		expect(paste.unreadable).toBe(1);
-		expect(pasteNotice(paste)).toContain('could not be read as a number');
+	it('names a cell it could not read', () => {
+		expect(pasteNotice({ edits: {}, unreadable: 1, overflow: 0 })).toContain(
+			'could not be read as a number',
+		);
 	});
 
 	it('says nothing when a block landed whole', () => {

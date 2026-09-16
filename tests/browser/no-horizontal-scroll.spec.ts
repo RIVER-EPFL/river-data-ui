@@ -1,30 +1,12 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { BASE_PATH, signIn } from './portal';
+import { API_URL, BASE_PATH, signIn, token } from './portal';
+import { frozenButton } from './sheet';
 
 // Scenario: a section opened inside a page that has room to spare. Expected behaviour: nothing on
 // it scrolls sideways. A horizontal scrollbar is for a table wider than the viewport, never for
 // one merely wider than the box it was put in.
 
-const API_URL = process.env.E2E_API_URL ?? 'http://localhost:3005';
-const KEYCLOAK_URL = process.env.E2E_KEYCLOAK_URL ?? 'http://localhost:8180/';
-
 let seeded = 0;
-
-async function token(request: APIRequestContext): Promise<string> {
-	const response = await request.post(
-		`${KEYCLOAK_URL.replace(/\/$/, '')}/realms/river-data/protocol/openid-connect/token`,
-		{
-			form: {
-				client_id: 'river-data-ui-local',
-				username: 'admin',
-				password: 'admin',
-				grant_type: 'password',
-			},
-		},
-	);
-	expect(response.ok(), 'the seeded realm issues a token for admin').toBeTruthy();
-	return (await response.json()).access_token;
-}
 
 /** A site with twenty spot parameters and one visit holding two replicates of each. */
 async function seedVisit(request: APIRequestContext): Promise<{ siteId: string }> {
@@ -85,27 +67,16 @@ test('nothing on an expanded visit scrolls sideways in a window with room', asyn
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
 
 	await expect(page.getByText('1 visit')).toBeVisible();
-	// A site of twenty parameters is genuinely wider than the window, so its own wrapper scrolls.
-	// Nothing else may.
-	const wrapper = page.locator('div.overflow-x-auto').filter({ has: page.locator('table') }).first();
-	expect(await sideScrollers(page)).toHaveLength(1);
+	// A site of twenty parameters is genuinely wider than the window, so the grid scrolls inside
+	// itself. Nothing else may.
+	await expect.poll(() => sideScrollers(page)).toHaveLength(1);
 
-	await page.locator('button[title="Expand this visit"]').click();
+	await frozenButton(page, { name: /./ }).first().click();
 	await expect(page.getByText('Scroll parameter 0')).toBeVisible();
-	expect(await sideScrollers(page), 'the expanded visit adds no scroller').toHaveLength(1);
+	expect(await sideScrollers(page), 'the opened record adds no scroller').toHaveLength(1);
 
-	// The panel takes the width its content needs, not the table's, and stays at the window's left
-	// edge however far the table is scrolled.
-	const panel = page.locator('td[colspan] > div').first();
-	const box = async () => (await panel.boundingBox())!;
-	const room = await wrapper.evaluate((el) => el.clientWidth);
-	expect((await box()).width).toBeLessThanOrEqual(room);
-
-	const edge = (await wrapper.boundingBox())!.x;
-	await wrapper.evaluate((el) => el.scrollTo({ left: el.scrollWidth }));
-	await expect
-		.poll(async () => Math.round((await box()).x - edge), {
-			message: 'the panel is still at the left edge after the table is scrolled right',
-		})
-		.toBeLessThanOrEqual(16);
+	// The record opens below the grid, inside the window, whichever way the grid is scrolled.
+	const record = page.getByRole('button', { name: 'Withdraw this visit' });
+	const box = (await record.boundingBox())!;
+	expect(box.x + box.width).toBeLessThanOrEqual(1400);
 });

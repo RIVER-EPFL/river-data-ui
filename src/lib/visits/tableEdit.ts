@@ -1,5 +1,5 @@
 import type { VisitReplicate, VisitRow } from '$api/service';
-import type { GridSlot, ParameterColumn } from './columns';
+import type { ParameterColumn } from './columns';
 import { readNumber } from './number';
 
 // Typing into the Visits table. A row is a visit and a column is one (parameter, replicate) slot,
@@ -33,24 +33,12 @@ export function storedAt(
 
 /**
  * Whether the column takes a keystroke. A collapsed group of repeats shows the mean of them, which
- * is not a number anybody can type: open it to its replicates first.
+ * is not a number anybody can type: open it to its replicates first. A column a calculation writes
+ * holds computed values, corrected by running the calculation again (Q8), so it takes none either.
  */
 export function editable(column: ParameterColumn): boolean {
+	if (column.writtenBy) return false;
 	return column.expanded || column.repeats === 1;
-}
-
-/** The text a slot shows: what was typed there, else the stored value. */
-export function cellText(
-	edits: Edits,
-	visit: VisitRow,
-	parameterId: string,
-	replicateIndex: number,
-	format: (value: number) => string,
-): string {
-	const key = slotKey({ eventId: visit.id, parameterId, replicateIndex });
-	if (key in edits) return edits[key];
-	const stored = storedAt(visit, parameterId, replicateIndex);
-	return stored ? format(stored.value) : '';
 }
 
 /**
@@ -243,84 +231,12 @@ export function correctionKeys(
 	);
 }
 
-/**
- * A selected block copied out, in the table's own row order, which is date order. Tab-separated
- * and newline-terminated, the layout a spreadsheet gives back on a paste.
- */
-export function copyBlock(
-	visits: VisitRow[],
-	slots: GridSlot[],
-	edits: Edits,
-	block: { row: number; column: number; height: number; width: number },
-	format: (value: number) => string,
-): string {
-	const lines: string[] = [];
-	for (let dy = 0; dy < block.height; dy += 1) {
-		const visit = visits[block.row + dy];
-		if (!visit) break;
-		const line: string[] = [];
-		for (let dx = 0; dx < block.width; dx += 1) {
-			const slot = slots[block.column + dx];
-			if (!slot) break;
-			line.push(cellText(edits, visit, slot.parameterId, slot.replicateIndex, format));
-		}
-		lines.push(line.join('\t'));
-	}
-	return lines.join('\n');
-}
-
 export interface TablePaste {
 	edits: Edits;
 	/** Cells the block covered that could not be read as a number. */
 	unreadable: number;
 	/** Values that ran past the last listed visit or the last column, and landed nowhere. */
 	overflow: number;
-}
-
-/**
- * A spreadsheet block pasted at a cell, down the visits listed below it and across the slots to
- * its right.
- *
- * The table lists dates, so a column of a month's readings lands one per visit in the order they
- * are listed. A block running past the last listed visit is not a visit to create: those values
- * are counted and dropped, and the operator adds the dates first. A blank cell writes nothing,
- * because nothing here deletes.
- */
-export function applyPaste(
-	visits: VisitRow[],
-	slots: GridSlot[],
-	edits: Edits,
-	atRow: number,
-	atColumn: number,
-	block: string,
-	locale: string,
-): TablePaste {
-	const lines = block
-		.replace(/\r\n?/g, '\n')
-		.replace(/\n+$/, '')
-		.split('\n')
-		.map((line) => line.split('\t'));
-	let next = edits;
-	let unreadable = 0;
-	let overflow = 0;
-	lines.forEach((line, dy) => {
-		const visit = visits[atRow + dy];
-		line.forEach((raw, dx) => {
-			const slot = slots[atColumn + dx];
-			const text = raw.trim();
-			if (!visit || !slot) {
-				if (text !== '') overflow += 1;
-				return;
-			}
-			if (text === '') return;
-			if (readNumber(text, locale) === null) {
-				unreadable += 1;
-				return;
-			}
-			next = setCell(next, visit, slot.parameterId, slot.replicateIndex, text, locale);
-		});
-	});
-	return { edits: next, unreadable, overflow };
 }
 
 /** What a paste left behind, said in one line rather than passed as a toast that scrolls away. */

@@ -1,30 +1,12 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
-import { BASE_PATH, signIn } from './portal';
+import { API_URL, BASE_PATH, signIn, token } from './portal';
+import { frozenButton, headerButton, sheetCell, typeInto } from './sheet';
 
 // Scenario: a site whose parameter is measured in triplicate. Expected behaviour: the Visits table
 // shows one column holding the served value, and the parameter's own header opens it to the three
 // repeats behind it, without a second fetch.
 
-const API_URL = process.env.E2E_API_URL ?? 'http://localhost:3005';
-const KEYCLOAK_URL = process.env.E2E_KEYCLOAK_URL ?? 'http://localhost:8180/';
-
 let seeded = 0;
-
-async function token(request: APIRequestContext): Promise<string> {
-	const response = await request.post(
-		`${KEYCLOAK_URL.replace(/\/$/, '')}/realms/river-data/protocol/openid-connect/token`,
-		{
-			form: {
-				client_id: 'river-data-ui-local',
-				username: 'admin',
-				password: 'admin',
-				grant_type: 'password',
-			},
-		},
-	);
-	expect(response.ok(), 'the seeded realm issues a token for admin').toBeTruthy();
-	return (await response.json()).access_token;
-}
 
 /** A site holding one triplicate parameter, one measured once, and one slot with no reading. */
 async function seedVisit(
@@ -110,31 +92,29 @@ test("a parameter's header opens its column to the repeats behind it", async ({
 	await expect(page.getByText('1 visit')).toBeVisible();
 
 	// Collapsed, the group is one column holding the mean of the three.
-	const header = page.getByRole('button', { name: new RegExp(`^${code}`) });
+	const header = headerButton(page, { name: code, exact: true });
 	await expect(header).toHaveAttribute('aria-expanded', 'false');
-	await expect(page.getByRole('button', { name: /^12\b/ })).toBeVisible();
+	await expect(sheetCell(page, new RegExp(`^${code} at`))).toHaveText(/^12/);
 
 	// The header opens it to one column per repeat, and the neighbour keeps its single column.
 	await header.click();
 	await expect(header).toHaveAttribute('aria-expanded', 'true');
 	for (const [index, value] of ['10', '12', '14'].entries()) {
-		await expect(
-			page.getByRole('textbox', { name: new RegExp(`^${code} repeat ${index + 1}`) }),
-		).toHaveValue(value);
+		await expect(sheetCell(page, new RegExp(`^${code} repeat ${index + 1} at`))).toHaveText(value);
 	}
-	await expect(page.getByRole('textbox', { name: /^groups_one_/ })).toHaveValue('4.2');
+	await expect(sheetCell(page, /^groups_one_/)).toHaveText('4.2');
 
 	// And folds back.
 	await header.click();
 	await expect(header).toHaveAttribute('aria-expanded', 'false');
-	await expect(page.getByRole('textbox', { name: new RegExp(`^${code} repeat 3`) })).toBeHidden();
+	await expect(sheetCell(page, new RegExp(`^${code} repeat 3`))).toHaveCount(0);
 });
 
 test('a cell is typed in place and one Save writes every visit it touched', async ({
 	page,
 	request,
 }) => {
-	const { siteId, code, emptyCode } = await seedVisit(request);
+	const { siteId, emptyCode } = await seedVisit(request);
 	await signIn(page);
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
 	await expect(page.getByText('1 visit')).toBeVisible();
@@ -143,13 +123,16 @@ test('a cell is typed in place and one Save writes every visit it touched', asyn
 	const save = page.getByRole('button', { name: /^Save \d+ value/ });
 	await expect(save).toBeDisabled();
 
+	// Every value is a cell of the sheet, not a text box inside one.
+	await expect(page.locator('.ht_master td input')).toHaveCount(0);
+
 	// A correction on a stored value, and an entry in a slot the visit never held.
-	await page.getByRole('textbox', { name: /^groups_one_/ }).fill('4.8');
+	await typeInto(page, /^groups_one_/, '4.8');
 	await expect(save).toContainText('Save 1 value');
 	// A correction moves a value the site already holds, so nothing is screened for it.
 	await expect(save).toBeEnabled();
 
-	await page.getByRole('textbox', { name: new RegExp(`^${emptyCode}`) }).fill('7.5');
+	await typeInto(page, new RegExp(`^${emptyCode}`), '7.5');
 	await expect(save).toContainText('Save 2 values');
 
 	// An entry is screened against the site's history before the save will open.
@@ -166,41 +149,40 @@ test('a cell is typed in place and one Save writes every visit it touched', asyn
 	await expect(save).toBeDisabled();
 
 	// Both came back from the store, and the fill count moved with the new measurement.
-	await expect(page.getByRole('textbox', { name: /^groups_one_/ })).toHaveValue('4.8');
-	await expect(page.getByRole('textbox', { name: new RegExp(`^${emptyCode}`) })).toHaveValue('7.5');
-	await expect(page.getByText('3/3')).toBeVisible();
+	await expect(sheetCell(page, /^groups_one_/)).toHaveText('4.8');
+	await expect(sheetCell(page, new RegExp(`^${emptyCode}`))).toHaveText('7.5');
+	await expect(page.locator('.ht_master').getByText('3/3')).toBeVisible();
 });
 
-test('Tab runs the whole visit row and wraps to the next date', async ({ page, request }) => {
-	const { siteId, code, emptyCode } = await seedVisit(request, 2);
+test('the keyboard walks the sheet: Tab along a visit, Enter down to the next date', async ({
+	page,
+	request,
+}) => {
+	const { siteId, emptyCode } = await seedVisit(request, 2);
 	await signIn(page);
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
 	await expect(page.getByText('2 visits', { exact: true })).toBeVisible();
 
-	// Collapsed, the row is one cell per parameter and Tab walks them left to right, the portal's
-	// orientation, not one parameter's repeats. Columns run in code order, so the unmeasured slot
-	// comes before the one measured once.
-	await page.locator('#visit-cell-0-0').focus();
+	// Columns run in code order, so the unmeasured slot comes before the one measured once.
+	await sheetCell(page, new RegExp(`^${emptyCode}`)).first().click();
 	await page.keyboard.press('Tab');
-	await expect(page.locator('#visit-cell-0-1')).toBeFocused();
+	await page.keyboard.type('4.9');
+	await page.keyboard.press('Enter');
+	await page.keyboard.type('4.7');
+	await page.keyboard.press('Enter');
 
-	// The triplicate is collapsed over a mean, which is nobody's to type, so Tab crosses it and
-	// wraps to the first cell of the next date rather than into the statistics.
-	await page.keyboard.press('Tab');
-	await expect(page.locator('#visit-cell-1-0')).toBeFocused();
+	const single = sheetCell(page, /^groups_one_/);
+	await expect(single.nth(0)).toHaveText('4.9');
+	await expect(single.nth(1)).toHaveText('4.7');
+	await expect(page.getByRole('button', { name: /^Save \d+ value/ })).toContainText('Save 2 values');
 
-	// Opening the group puts its repeats in the row, and the arrows move between them.
-	await page.getByRole('button', { name: new RegExp(`^${code}`) }).click();
-	await page.locator('#visit-cell-0-2').focus();
-	await page.keyboard.press('ArrowRight');
-	await expect(page.locator('#visit-cell-0-3')).toBeFocused();
-
-	// Down moves to the same slot on the next date, so a column reads as one series.
-	await page.keyboard.press('ArrowDown');
-	await expect(page.locator('#visit-cell-1-3')).toBeFocused();
+	// Undo takes the last keystroke back, and the store's value with it.
+	await page.getByRole('button', { name: 'Undo', exact: true }).click();
+	await expect(single.nth(1)).toHaveText('4.4');
+	await expect(page.getByRole('button', { name: /^Save \d+ value/ })).toContainText('Save 1 value');
 });
 
-test('a column of dates pasted from a sheet fills one visit per line', async ({ page, request }) => {
+test('a column pasted from a sheet fills one visit per line', async ({ page, request }) => {
 	const { siteId } = await seedVisit(request, 2);
 	await signIn(page);
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
@@ -208,21 +190,49 @@ test('a column of dates pasted from a sheet fills one visit per line', async ({ 
 
 	// A block pasted at the first date fills down the dates listed under it, and the third line
 	// has no visit to land on.
-	await page.locator('#visit-cell-0-1').focus();
+	await sheetCell(page, /^groups_one_/).first().click();
 	await page.evaluate(() => {
-		const input = document.querySelector<HTMLInputElement>('#visit-cell-0-1')!;
 		const data = new DataTransfer();
 		data.setData('text/plain', '5.1\n5.2\n5.3');
-		input.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true }));
+		(document.activeElement ?? document).dispatchEvent(
+			new ClipboardEvent('paste', { clipboardData: data, bubbles: true }),
+		);
 	});
 
-	await expect(page.locator('#visit-cell-0-1')).toHaveValue('5.1');
-	await expect(page.locator('#visit-cell-1-1')).toHaveValue('5.2');
+	const single = sheetCell(page, /^groups_one_/);
+	await expect(single.nth(0)).toHaveText('5.1');
+	await expect(single.nth(1)).toHaveText('5.2');
 	await expect(page.getByText(/ran past the visits listed/)).toBeVisible();
 	await expect(page.getByRole('button', { name: /^Save \d+ value/ })).toContainText('Save 2 values');
 });
 
-test('a visit is withdrawn from its own row and the withdrawal taken back', async ({
+test("the fill handle copies a value down the dates below it", async ({ page, request }) => {
+	const { siteId, emptyCode } = await seedVisit(request, 2);
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
+	await expect(page.getByText('2 visits', { exact: true })).toBeVisible();
+
+	const cells = sheetCell(page, new RegExp(`^${emptyCode}`));
+	await typeInto(page, cells.nth(0), '3.1');
+	// Enter moved the selection down; a second click here would read as a double-click and edit.
+	await page.keyboard.press('ArrowUp');
+
+	// The handle sits on the selection's corner; dragging it onto the next date fills that cell.
+	const handle = page.locator('.ht_master .wtBorder.current.corner');
+	await expect(handle).toBeVisible();
+	const from = await handle.boundingBox();
+	const to = await cells.nth(1).boundingBox();
+	if (!from || !to) throw new Error('the handle and the cell are not laid out');
+	await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 5 });
+	await page.mouse.up();
+
+	await expect(cells.nth(1)).toHaveText('3.1');
+	await expect(page.getByRole('button', { name: /^Save \d+ value/ })).toContainText('Save 2 values');
+});
+
+test('a visit is withdrawn from its own record and the withdrawal taken back', async ({
 	page,
 	request,
 }) => {
@@ -231,7 +241,7 @@ test('a visit is withdrawn from its own row and the withdrawal taken back', asyn
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
 	await expect(page.getByText('1 visit')).toBeVisible();
 
-	await page.locator('button[title="Expand this visit"]').click();
+	await frozenButton(page, { name: /./ }).first().click();
 	await page.getByRole('button', { name: 'Withdraw this visit' }).click();
 
 	// A withdrawal is a reversible stamp, and the confirmation says so before it is taken.
@@ -241,11 +251,23 @@ test('a visit is withdrawn from its own row and the withdrawal taken back', asyn
 	await dialog.getByRole('button', { name: 'Withdraw', exact: true }).click();
 	await expect(dialog).toBeHidden();
 
-	// And it is taken back from the same row, with the readings re-asserted.
+	// And it is taken back from the same record, with the readings re-asserted.
 	const undo = page.getByRole('button', { name: 'Undo the withdrawal' });
 	await expect(undo).toBeVisible();
 	await undo.click();
 	await expect(undo).toBeHidden();
+});
+
+test('a value nobody may type opens its record on a double-click', async ({ page, request }) => {
+	const { siteId, code } = await seedVisit(request);
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
+	await expect(page.getByText('1 visit')).toBeVisible();
+
+	// The collapsed triplicate is a mean, which is not typed, so the cell opens what is behind it.
+	await sheetCell(page, new RegExp(`^${code} at`)).dblclick();
+	await expect(page.getByRole('button', { name: 'Close' })).toBeVisible();
+	await expect(page.getByText(/\d+ parameters? · /)).toBeVisible();
 });
 
 test("a group's plus adds the column a fourth measurement needs", async ({ page, request }) => {
@@ -254,12 +276,13 @@ test("a group's plus adds the column a fourth measurement needs", async ({ page,
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
 	await expect(page.getByText('1 visit')).toBeVisible();
 
-	await page.getByRole('button', { name: new RegExp(`^${code}`) }).click();
-	await expect(page.locator('#visit-cell-0-5')).toHaveCount(0);
+	await headerButton(page, { name: code, exact: true }).click();
+	const fourth = sheetCell(page, new RegExp(`^${code} repeat 4 at`));
+	await expect(fourth).toHaveCount(0);
 
 	// The plus widens the group; the value then has a slot to go in.
-	await page.getByRole('button', { name: `One repeat more for ${code}` }).click();
-	await page.locator('#visit-cell-0-5').fill('16');
+	await headerButton(page, { name: `One repeat more for ${code}` }).click();
+	await typeInto(page, new RegExp(`^${code} repeat 4 at`), '16');
 	const save = page.getByRole('button', { name: /^Save \d+ value/ });
 	await expect(save).toContainText('Save 1 value');
 	await page.getByRole('button', { name: 'Check against site history' }).click();
@@ -267,16 +290,16 @@ test("a group's plus adds the column a fourth measurement needs", async ({ page,
 	const dialog = page.getByRole('dialog');
 	await dialog.getByRole('button', { name: 'Save', exact: true }).click();
 	await expect(dialog).toBeHidden();
-	await expect(page.locator('#visit-cell-0-5')).toHaveValue('16');
+	await expect(fourth).toHaveText('16');
 
 	// The minus stops at what the store holds, so a stored repeat is not taken off the table.
 	for (let i = 0; i < 3; i += 1) {
-		await page.getByRole('button', { name: `One repeat fewer for ${code}` }).click();
+		await headerButton(page, { name: `One repeat fewer for ${code}` }).click();
 	}
-	await expect(page.locator('#visit-cell-0-5')).toHaveValue('16');
+	await expect(fourth).toHaveText('16');
 });
 
-test('the expanded row declares what measured a parameter, and the value carries it', async ({
+test("the visit's record declares what measured a parameter, and the value carries it", async ({
 	page,
 	request,
 }) => {
@@ -286,7 +309,7 @@ test('the expanded row declares what measured a parameter, and the value carries
 	await expect(page.getByText('1 visit')).toBeVisible();
 
 	// The declaration is on the visit's own record, beside the parameter it is about.
-	await page.locator('button[title="Expand this visit"]').click();
+	await frozenButton(page, { name: /./ }).first().click();
 	const picker = page.getByRole('combobox', {
 		name: 'Instrument for Triplicate parameter at this visit',
 	});
@@ -296,24 +319,24 @@ test('the expanded row declares what measured a parameter, and the value carries
 	await picker.selectOption({ index: 1 });
 
 	// A repeat entered under it saves, and the column keeps what was typed.
-	await page.getByRole('button', { name: new RegExp(`^${code}`) }).click();
-	await page.getByRole('button', { name: `One repeat more for ${code}` }).click();
-	await page.locator('#visit-cell-0-5').fill('16');
+	await headerButton(page, { name: code, exact: true }).click();
+	await headerButton(page, { name: `One repeat more for ${code}` }).click();
+	await typeInto(page, new RegExp(`^${code} repeat 4 at`), '16');
 	await page.getByRole('button', { name: 'Check against site history' }).click();
 	await page.getByRole('button', { name: /^Save \d+ value/ }).click();
 	const dialog = page.getByRole('dialog');
 	await dialog.getByRole('button', { name: 'Save', exact: true }).click();
 	await expect(dialog).toBeHidden();
-	await expect(page.locator('#visit-cell-0-5')).toHaveValue('16');
+	await expect(sheetCell(page, new RegExp(`^${code} repeat 4 at`))).toHaveText('16');
 });
 
-test('an empty visit is discarded from its own row', async ({ page, request }) => {
+test('an empty visit is discarded from its own record', async ({ page, request }) => {
 	const { siteId } = await seedVisit(request, 1, true);
 	await signIn(page);
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
 	await expect(page.getByText('1 visit')).toBeVisible();
 
-	await page.locator('button[title="Expand this visit"]').click();
+	await frozenButton(page, { name: /./ }).first().click();
 	page.once('dialog', (dialog) => dialog.accept());
 	await page.getByRole('button', { name: 'Discard this visit' }).click();
 	await expect(page.getByText('No visits recorded for this site.')).toBeVisible();

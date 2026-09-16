@@ -15,6 +15,22 @@ export interface StagedVisit {
 	collectedAt: string;
 }
 
+/**
+ * The staged visit a calculation is opened at: the tool page reads its context from the store, so
+ * opening a computation from the table means staging exactly the visit being read.
+ */
+export function stagedVisitFrom(
+	detail: { id: string; site_id: string; collected_at: string },
+	siteName: string,
+): StagedVisit {
+	return {
+		eventId: detail.id,
+		siteId: detail.site_id,
+		siteName,
+		collectedAt: detail.collected_at,
+	};
+}
+
 function load(): StagedVisit | null {
 	if (typeof sessionStorage === 'undefined') return null;
 	try {

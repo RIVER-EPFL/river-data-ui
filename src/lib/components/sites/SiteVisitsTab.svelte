@@ -1,16 +1,18 @@
 <script lang="ts">
-	// The Visits tab: the portal's wide data row, one per (site, date), with the per-visit grid
-	// under an expanded row. The page hosts it and owns the flag dialog it opens.
+	// The Visits tab: the portal's wide data row, one per (site, date), as a spreadsheet grid, with
+	// the record of the visit the operator opens below it. The page hosts it and owns the flag dialog
+	// it opens.
 	import { tick, untrack } from 'svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 	import { downloadBlob } from '$lib/download';
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
 	import { me } from '$auth/me.svelte';
-	import { stagedVisit } from '$lib/stores/visit.svelte';
+	import { stagedVisit, stagedVisitFrom } from '$lib/stores/visit.svelte';
 	import { goto } from '$app/navigation';
 	import { rowProvenanceLabel } from '$lib/origin';
-	import { stagedVisitFrom } from '$lib/visits/grid';
 	import { lastRunOfCalculation } from '$lib/tools/visitPrefill';
+	import { deepLinkParameter } from '$lib/visits/link';
 	import { pickerOptions, retiredSuffix } from '$lib/instruments/kind';
 	import {
 		api,
@@ -32,6 +34,8 @@
 		runEventAudit,
 		runEventRecompute,
 		pollJob,
+		getToolRunTrace,
+		type ToolRunTrace,
 		type VisitRow,
 		type VisitsResponse,
 		type EventDetailResponse,
@@ -42,8 +46,8 @@
 	import { formatMeasurement } from '$lib/format';
 	import {
 		cellRecord,
-		estimatorWord,
 		findingLabel,
+		recordRows,
 		statisticsParts,
 		visitCellMarker,
 		visitCellStatistics,
@@ -56,21 +60,34 @@
 		visitSourceLabel,
 	} from '$lib/visits/recompute';
 	import { verificationBadge, verificationNoticeFor } from '$lib/visits/verification';
-	import { holdInPlace } from '$lib/visits/anchor';
 	import Button from '$components/ui/Button.svelte';
 	import Badge from '$components/ui/Badge.svelte';
+	import { BADGE_BASE, BADGE_VARIANTS, type BadgeVariant } from '$components/ui/badge';
+	import SheetGrid from '$components/ui/SheetGrid.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import PointInspector from '$components/provenance/PointInspector.svelte';
+	import CellEquation from '$components/tools/CellEquation.svelte';
+	import { inputOrigin } from '$lib/tools/equation';
 	import {
 		askedWidth,
-		columnSpan,
 		columnsInGroup,
 		expandable,
 		parameterColumns,
 		slotsOf,
 		toggled,
+		type GridSlot,
+		type ParameterColumn,
 	} from '$lib/visits/columns';
-	import { at, bounds, covers, isGridKey, nextCell, onFocusMoved, type Selection } from '$lib/visits/keys';
+	import {
+		FROZEN_COLUMNS,
+		applyChanges,
+		displayText,
+		pasteOverflow,
+		sheetData,
+		sheetHeaders,
+		sheetSlot,
+	} from '$lib/visits/sheet';
+	import type { CellProperties, GridSettings, HotInstance } from 'handsontable';
 	import {
 		checkSatisfied,
 		checkSignature,
@@ -80,21 +97,16 @@
 		expectedReplicates,
 		pendingCount,
 		pendingWrites,
-		setCell,
-		slotKey,
 		storedAt,
 		instrumentKey,
-		applyPaste,
-		copyBlock,
 		pasteNotice,
 		type Edits,
 	} from '$lib/visits/tableEdit';
-	import { empty, push, undo } from '$lib/visits/history';
 	import { cellRole, cellWritable, editConsequence } from '$lib/visits/role';
 	import { seasonalFindingLabel } from '$lib/seasonal';
-	import { runOutputs, runReportLine } from '$lib/visits/recompute';
+	import { readUntilSettled, runOutputs, runReportLine } from '$lib/visits/recompute';
 	import Dialog from '$components/ui/Dialog.svelte';
-	import { browserLocale, writeNumber } from '$lib/visits/number';
+	import { browserLocale } from '$lib/visits/number';
 	import NewVisitDialog from '$components/visits/NewVisitDialog.svelte';
 
 	interface FlagTarget {
@@ -154,6 +166,20 @@
 	let visitBusy = $state<string | null>(null);
 	let visitCell = $state<{ parameterId: string; parameterName: string } | null>(null);
 
+	// The equation behind a computed cell, opened from its badge. A run's trace is fetched once
+	// and kept, keyed by run, with the error in its place when the run cannot be replayed.
+	let equationCell = $state<string | null>(null);
+	const traces = new SvelteMap<string, ToolRunTrace | string>();
+	async function toggleEquation(key: string, runId: string) {
+		equationCell = equationCell === key ? null : key;
+		if (equationCell === null || traces.has(runId)) return;
+		try {
+			traces.set(runId, await getToolRunTrace(runId));
+		} catch (e) {
+			traces.set(runId, e instanceof Error ? e.message : 'The calculation could not be replayed');
+		}
+	}
+
 	// The date range filter. Unset lists every visit at the site, which is the default: a
 	// station holds tens of visits, and the page devoted to them lists them all.
 	let visitsStart = $state<string | null>(null);
@@ -201,12 +227,6 @@
 	let edits = $state<Edits>({});
 	let saving = $state(false);
 	let saveRefusal = $state('');
-	// A cell reads at its slot's declared precision until the keyboard is in it, and then at the
-	// number the store holds: the table's display decision and the entry grid's "reads back as it
-	// was typed" are both kept, and no incidental keystroke rounds a stored value.
-	let focusedSlot = $state<string | null>(null);
-	// Every edit replaces `edits` wholesale, so the object it replaced is the snapshot (M117).
-	let editHistory = $state(empty<Edits>());
 	// One screening per visit entering a value: the server holds each save to exactly the values
 	// its own check covered, and a visit's check re-arms when that visit's entries move.
 	let checks = $state<Record<string, { id: string; signature: string }>>({});
@@ -222,127 +242,350 @@
 	let instruments = $state<Sensor[]>([]);
 
 	const writes = $derived(pendingWrites(visits, edits, locale, declaredInstruments));
-	// The grid the keyboard walks: a visit down, a (parameter, replicate) slot across. The moving
-	// itself is `keys`, which is pure over the dimensions and what is navigable.
+	// A visit down, a (parameter, replicate) slot across, after the frozen date, source and fill.
 	const slots = $derived(slotsOf(groupColumns));
-	let focused = $state<Selection | null>(null);
-	let dragging = $state(false);
 	/** What a paste left behind, held on screen until the next one rather than passed as a toast. */
 	let pasteRefusal = $state<string | null>(null);
 
-	function navigable(row: number, column: number): boolean {
-		const visit = visits[row];
-		const slot = slots[column];
-		if (!visit || !slot) return false;
-		if (!me.can('writeData') || !editable(slot.column)) return false;
-		return slotWritable(visit, slot.parameterId, slot.replicateIndex).writable;
-	}
+	// --- The grid ---
+	// Handsontable owns selection, the keyboard, the clipboard, the fill handle and undo. Every
+	// change it makes is recorded in `edits`, which is what Check and Save read.
+	let hot: HotInstance | null = null;
+	let canUndo = $state(false);
+	// Bumped where the typed cells are cleared, so the grid reloads what the store holds.
+	let dataVersion = $state(0);
+	let pasteUnreadable = 0;
+	let pasteOverflowCount = 0;
 
-	function focusCell(selection: Selection) {
-		focused = selection;
-		document.getElementById(`visit-cell-${selection.row}-${selection.column}`)?.focus();
-	}
-
-	function onCellKey(event: KeyboardEvent, row: number, column: number) {
-		if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
-			event.preventDefault();
-			undoEdit();
-			return;
-		}
-		if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
-			copySelection(event);
-			return;
-		}
-		if (!isGridKey(event.key)) return;
-		const next = nextCell(
-			focused ?? at(row, column),
-			event.key,
-			{ rows: visits.length, columns: slots.length },
-			navigable,
-			event.shiftKey,
+	function writableSlot(visit: VisitRow, slot: GridSlot): boolean {
+		return (
+			me.can('writeData') &&
+			editable(slot.column) &&
+			slotWritable(visit, slot.parameterId, slot.replicateIndex).writable
 		);
-		if (!next) return;
-		event.preventDefault();
-		focusCell(next);
 	}
 
-	// Dragging extends the selection the way a sheet does: press on the cell the block starts at,
-	// and every cell the pointer crosses while it is held moves the far corner.
-	function startDrag(row: number, column: number) {
-		dragging = true;
-		focused = at(row, column);
-	}
+	// The typed cells are read once per load: a keystroke changes the grid itself, not its data.
+	const gridData = $derived.by(() => {
+		void dataVersion;
+		return sheetData(visits, slots, untrack(() => edits), locale, writableSlot, formatDateTime);
+	});
 
-	function extendDrag(row: number, column: number) {
-		if (!dragging || !focused) return;
-		focused = { ...focused, row, column };
-	}
+	type SheetSettings = Omit<GridSettings, 'data' | 'licenseKey' | 'themeName'>;
 
-	// A block copies out in the layout a paste reads back, so a spreadsheet takes the dates the way
-	// it gave them. A selection of one cell is left to the input under the cursor, where copying
-	// part of a value is what the operator means.
-	function copySelection(event: KeyboardEvent) {
-		if (!focused) return;
-		const block = bounds(focused);
-		if (block.height * block.width === 1) return;
-		event.preventDefault();
-		const text = copyBlock(visits, slots, edits, block, (value) =>
-			writeNumber(value, locale),
-		);
-		navigator.clipboard?.writeText(text).catch(() => {});
-	}
-
-	function onCellPaste(event: ClipboardEvent, row: number, column: number) {
-		const text = event.clipboardData?.getData('text/plain') ?? '';
-		if (!text.includes('\t') && !text.includes('\n')) return;
-		event.preventDefault();
-		editHistory = push(editHistory, edits);
-		const pasted = applyPaste(visits, slots, edits, row, column, text, locale);
-		edits = pasted.edits;
-		pasteRefusal = pasteNotice(pasted);
-	}
-
-	/** Whether the selection stands on this cell, for the ring that draws the block. */
-	function selected(row: number, column: number): boolean {
-		return focused !== null && covers(focused, row, column);
-	}
-
-	/** Where a cell sits in the grid the keyboard walks. */
-	function cellPosition(row: number, parameterId: string, replicateIndex: number) {
+	const gridSettings = $derived.by((): SheetSettings => {
+		void me.level;
+		void visits;
 		return {
-			row,
-			column: slots.findIndex(
-				(slot) => slot.parameterId === parameterId && slot.replicateIndex === replicateIndex,
-			),
+			nestedHeaders: sheetHeaders(groupColumns),
+			rowHeaders: true,
+			wordWrap: false,
+			fixedColumnsStart: FROZEN_COLUMNS,
+			colWidths: (index: number) => (index === 0 ? 200 : index < FROZEN_COLUMNS ? 80 : 100),
+			width: '100%',
+			height: 'auto',
+			manualColumnResize: true,
+			fillHandle: { direction: 'vertical', autoInsertRow: false },
+			allowInsertRow: false,
+			allowInsertColumn: false,
+			allowRemoveRow: false,
+			allowRemoveColumn: false,
+			undo: true,
+			outsideClickDeselects: false,
+			contextMenu: [
+				'copy',
+				'undo',
+				'redo',
+				'---------',
+				{
+					key: 'open_record',
+					name: 'Open record',
+					callback: (_key: string, selection: { start: { row: number; col: number } }[]) => {
+						const start = selection[0]?.start;
+						if (start) void openRecordAt(start.row, start.col);
+					},
+				},
+			],
+			cells: cellMeta,
+		} as SheetSettings;
+	});
+
+	function cellMeta(row: number, column: number) {
+		if (column < FROZEN_COLUMNS) return { readOnly: true, renderer: renderFrozen };
+		const at = sheetSlot(visits, slots, row, column);
+		return { readOnly: !at || !writableSlot(at.visit, at.slot), renderer: renderValue };
+	}
+
+	const CELL_CLASSES = [
+		'htDimmed',
+		'htRight',
+		'htNumeric',
+		'sheet-struck',
+		'sheet-warning',
+		'sheet-finding',
+		'sheet-edited',
+		'sheet-open-row',
+	];
+
+	/** A cell element is reused across positions, so each render starts from nothing. */
+	function resetCell(td: HTMLTableCellElement, row: number) {
+		td.classList.remove(...CELL_CLASSES);
+		td.replaceChildren();
+		td.removeAttribute('title');
+		td.removeAttribute('aria-label');
+		if (visits[row] && visits[row].id === expandedVisit) td.classList.add('sheet-open-row');
+	}
+
+	function chip(label: string, variant: BadgeVariant): HTMLSpanElement {
+		const span = document.createElement('span');
+		span.className = `ml-1 ${BADGE_BASE} ${BADGE_VARIANTS[variant]}`;
+		span.textContent = label;
+		return span;
+	}
+
+	function mark(text: string, className: string): HTMLSpanElement {
+		const span = document.createElement('span');
+		span.className = className;
+		span.textContent = text;
+		return span;
+	}
+
+	function renderFrozen(_hot: unknown, td: HTMLTableCellElement, row: number, column: number) {
+		resetCell(td, row);
+		td.classList.add('htDimmed');
+		const visit = visits[row];
+		if (!visit) return td;
+		if (column !== 0) {
+			td.textContent = gridData[row]?.[column] ?? '';
+			return td;
+		}
+		const open = expandedVisit === visit.id;
+		const button = document.createElement('button');
+		button.type = 'button';
+		button.className = 'sheet-link';
+		button.setAttribute('aria-expanded', String(open));
+		button.title = open ? 'Collapse this visit' : 'Expand this visit';
+		button.textContent = formatDateTime(visit.collected_at);
+		button.addEventListener('click', () => void openVisit(visit.id));
+		td.append(button);
+		if (visit.findings_open > 0) {
+			td.append(chip(`${visit.findings_open} finding${visit.findings_open === 1 ? '' : 's'}`, 'warning'));
+		}
+		const calculation = visitBadge(visit.source, visit.recompute);
+		if (calculation) td.append(chip(calculation.label, calculation.variant));
+		const state = verificationBadge(visit.unverified, visit.withdrawn_at);
+		if (state) td.append(chip(state.label, state.variant));
+		return td;
+	}
+
+	function renderValue(
+		_hot: unknown,
+		td: HTMLTableCellElement,
+		row: number,
+		column: number,
+		_prop: unknown,
+		_value: unknown,
+		cellProperties: CellProperties,
+	) {
+		resetCell(td, row);
+		const at = sheetSlot(visits, slots, row, column);
+		if (!at) return td;
+		const { visit, slot, cell, replicate } = at;
+		const open = slot.column.expanded;
+		const writable = !cellProperties.readOnly;
+		const when = formatDateTime(visit.collected_at);
+		td.classList.add('htRight', 'htNumeric');
+		if (!writable) td.classList.add('htDimmed');
+		td.setAttribute(
+			'aria-label',
+			open ? `${slot.column.code} repeat ${slot.replicateIndex + 1} at ${when}` : `${slot.column.code} at ${when}`,
+		);
+		const typed = at.key in edits;
+		if (typed) td.classList.add('sheet-edited');
+		const state = open ? replicate : cell;
+		if (state?.withdrawn) td.classList.add('sheet-struck');
+		if (state?.flagged || (open && replicate?.unverified)) td.classList.add('sheet-warning');
+		if (!open && (cell?.finding === 'stale_output' || cell?.finding === 'skipped_output')) {
+			td.classList.add('sheet-finding');
+		}
+		if (writable || typed) {
+			td.append(displayText(at, edits, writable));
+			return td;
+		}
+		if (open) {
+			td.append(displayText(at, edits, writable));
+			if (replicate) {
+				td.title = [
+					`Repeat ${replicate.replicate_index + 1} of ${slot.column.name} at this visit`,
+					slotWritable(visit, slot.parameterId, slot.replicateIndex).reason,
+				]
+					.filter(Boolean)
+					.join('\n');
+			}
+			return td;
+		}
+		if (!cell) return td;
+		if (cell.finding === 'missing_output' && cell.value == null) {
+			td.append(chip('missing', 'warning'));
+		} else if (cell.value != null) {
+			td.append(displayText(at, edits, writable));
+			if ((cell.n ?? 0) > 1) td.append(mark(`n${cell.n}`, 'sheet-mark'));
+			const marker = visitCellMarker(cell);
+			if (marker) {
+				const flag = mark(marker.text, 'sheet-mark sheet-warning');
+				flag.title = marker.title;
+				td.append(flag);
+			}
+		}
+		td.title = [
+			visitCellStatistics(cell, slot.column.decimals, slot.column.units),
+			`Open the record of ${slot.column.name} at this visit`,
+		]
+			.filter(Boolean)
+			.join('\n');
+		return td;
+	}
+
+	/** The group header's own controls: open to the repeats, and one repeat fewer or more. */
+	function renderGroupHeader(column: number, th: HTMLTableCellElement, level: number) {
+		if (level !== 0 || column < FROZEN_COLUMNS) return;
+		const col = groupStartingAt(column);
+		const label = th.querySelector('.colHeader');
+		if (!col || !label) return;
+		label.replaceChildren();
+		th.title = col.name;
+		const button = (text: string, aria: string, title: string, onclick: () => void) => {
+			const b = document.createElement('button');
+			b.type = 'button';
+			b.className = 'sheet-header-button';
+			b.textContent = text;
+			b.setAttribute('aria-label', aria);
+			b.title = title;
+			b.addEventListener('mousedown', (e) => e.stopPropagation());
+			b.addEventListener('click', (e) => {
+				e.stopPropagation();
+				onclick();
+			});
+			return b;
 		};
+		if (expandable(visits, col.parameterId)) {
+			const toggle = button(
+				`${col.code}${col.expanded ? ' −' : ' +'}`,
+				col.code,
+				col.expanded ? `Fold ${col.code} back to its served value` : `Open ${col.code} to its repeats`,
+				() => (expandedColumns = toggled(expandedColumns, col.parameterId)),
+			);
+			toggle.className = 'sheet-link';
+			toggle.setAttribute('aria-expanded', String(col.expanded));
+			label.append(toggle);
+		} else {
+			label.append(col.code);
+		}
+		if (col.units) label.append(mark(` (${col.units})`, 'sheet-mark'));
+		if (col.expanded && me.can('writeData')) {
+			label.append(
+				button(
+					'−',
+					`One repeat fewer for ${col.code}`,
+					'One repeat fewer. A repeat the store holds is not dropped here: that is a withdrawal.',
+					() => (askedColumns = askedWidth(askedColumns, visits, col.parameterId, col.width - 1)),
+				),
+				button('+', `One repeat more for ${col.code}`, 'One repeat more', () =>
+					(askedColumns = askedWidth(askedColumns, visits, col.parameterId, col.width + 1)),
+				),
+			);
+		}
 	}
-	const screened = $derived(checkSatisfied(writes, checks));
-	const entering = $derived(writes.some((w) => w.entries.length > 0));
-	const moved = $derived(pendingCount(edits, locale));
 
-	function cellDisplay(key: string, value: number | null, decimals: number | null): string {
-		if (key in edits) return edits[key];
-		if (value === null) return '';
-		return focusedSlot === key ? writeNumber(value, locale) : formatMeasurement(value, decimals);
+	function groupStartingAt(column: number): ParameterColumn | null {
+		let offset = FROZEN_COLUMNS;
+		for (const col of groupColumns) {
+			if (offset === column) return col;
+			offset += col.width;
+		}
+		return null;
 	}
 
-	function typeCell(visit: VisitRow, parameterId: string, replicateIndex: number, raw: string) {
-		editHistory = push(editHistory, edits);
-		edits = setCell(edits, visit, parameterId, replicateIndex, raw, locale);
+	function gridReady(instance: HotInstance) {
+		hot = instance;
+		const undoRedo = instance.getPlugin('undoRedo');
+		instance.addHook('beforeChange', (changes, source) => {
+			const applied = applyChanges(
+				edits,
+				visits,
+				slots,
+				changes.map((c) => ({
+					row: c?.[0] ?? -1,
+					column: Number(c?.[1]),
+					raw: c?.[3] == null ? '' : String(c[3]),
+				})),
+				locale,
+				source === 'CopyPaste.paste' || source === 'Autofill.fill',
+			);
+			for (const index of applied.refused) changes[index] = null;
+			edits = applied.edits;
+			if (source === 'CopyPaste.paste') pasteUnreadable = applied.unreadable;
+			else pasteRefusal = pasteNotice({ edits, unreadable: applied.unreadable, overflow: 0 });
+		});
+		instance.addHook('afterChange', () => (canUndo = undoRedo.isUndoAvailable()));
+		instance.addHook('afterLoadData', () => (canUndo = false));
+		instance.addHook('beforePaste', (data, coords) => {
+			pasteUnreadable = 0;
+			const range = coords[0];
+			pasteOverflowCount = range
+				? pasteOverflow(
+						data.map((line) => line.map((v) => (v == null ? '' : String(v)))),
+						range.startRow,
+						range.startCol,
+						instance.countRows(),
+						instance.countCols(),
+					)
+				: 0;
+		});
+		instance.addHook('afterPaste', () => {
+			pasteRefusal = pasteNotice({ edits, unreadable: pasteUnreadable, overflow: pasteOverflowCount });
+		});
+		instance.addHook('afterGetColHeader', renderGroupHeader);
+		// Enter on a value nobody may type opens its record, as a double-click does.
+		instance.addHook('beforeKeyDown', (event: KeyboardEvent) => {
+			if (event.key !== 'Enter' || event.shiftKey) return;
+			const { row, col } = instance.getSelectedRangeLast()?.highlight ?? {};
+			if (row == null || col == null || row < 0 || col < 0) return;
+			if (!instance.getCellMeta(row, col).readOnly) return;
+			event.stopImmediatePropagation();
+			void openRecordAt(row, col);
+		});
+		instance.rootElement.addEventListener('dblclick', (event) => {
+			const td = (event.target as HTMLElement).closest('td');
+			if (!td) return;
+			const { row, col } = instance.getCoords(td) ?? {};
+			if (row == null || col == null || row < 0 || col <= 0) return;
+			if (!instance.getCellMeta(row, col).readOnly) return;
+			void openRecordAt(row, col);
+		});
 	}
 
 	function undoEdit() {
-		const previous = undo(editHistory);
-		if (!previous) return;
-		editHistory = previous.history;
-		edits = previous.value;
+		hot?.getPlugin('undoRedo').undo();
 	}
 
-	function onTableKey(event: KeyboardEvent) {
-		if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z') return;
-		event.preventDefault();
-		undoEdit();
+	function discardEdits() {
+		edits = {};
+		checks = {};
+		seasonalFindings = [];
+		pasteRefusal = null;
+		dataVersion += 1;
 	}
+
+	// The open visit's row is marked, so the record below the grid reads against its row.
+	$effect(() => {
+		void expandedVisit;
+		untrack(() => hot?.render());
+	});
+
+	const screened = $derived(checkSatisfied(writes, checks));
+	const entering = $derived(writes.some((w) => w.entries.length > 0));
+	const moved = $derived(pendingCount(edits, locale));
 
 	/** Whether this account may type over what the store holds at this slot (Q21). */
 	function slotWritable(visit: VisitRow, parameterId: string, replicateIndex: number) {
@@ -494,18 +737,24 @@
 			}
 			toastStore.success(`${moved} value${moved === 1 ? '' : 's'} saved`);
 			edits = {};
-			editHistory = empty();
+			dataVersion += 1;
 			checks = {};
 			seasonalFindings = [];
 			confirmOpen = false;
-			await loadVisits();
-			runReport = runReportLine(runOutputs(expected, before, servedNow(), findingByCode()));
-			onDataChanged();
 		} catch (e) {
 			saveRefusal = e instanceof Error ? e.message : String(e);
+			return;
 		} finally {
 			saving = false;
 		}
+		const settled = await readUntilSettled(async () => {
+			await loadVisits();
+			return visits;
+		});
+		runReport = settled
+			? runReportLine(runOutputs(expected, before, servedNow(), findingByCode()))
+			: 'The calculations are still running: reload the visits to see their outputs.';
+		onDataChanged();
 	}
 
 	/** The finding standing on each parameter now, so an output that did not move says why. */
@@ -614,7 +863,7 @@
 		stagedVisit.set(stagedVisitFrom(visit, siteName ?? ""));
 		const run = lastRunOfCalculation(tool, visit.cells);
 		const reload = run ? `&reload=${run}&replay=visit` : '';
-		await goto(`${base}/tools?tool=${encodeURIComponent(tool)}${reload}`);
+		await goto(`${base}/data-entry?tool=${encodeURIComponent(tool)}${reload}`);
 	}
 
 	function declareInstrument(eventId: string, parameterId: string, sensorId: string) {
@@ -711,11 +960,8 @@
 
 	let recordEl = $state<HTMLElement | null>(null);
 
-	// A cell of the wide table is the click target: it expands the visit and selects the parameter,
-	// so the record opens on what was clicked. Opening one closes whatever row was open above it,
-	// so the clicked cell is held where it sits and the record is brought just into view.
-	async function openVisitCell(id: string, parameterId: string, clicked: HTMLElement) {
-		const hold = holdInPlace(clicked);
+	// A value cell opens the visit's record on its parameter, below the grid.
+	async function openVisitCell(id: string, parameterId: string) {
 		if (expandedVisit === id && visitDetail) {
 			const c = visitDetail.cells.find((c) => c.parameter_id === parameterId);
 			visitCell = c ? { parameterId: c.parameter_id, parameterName: c.parameter_name } : null;
@@ -723,8 +969,16 @@
 			await openVisit(id, true, parameterId);
 		}
 		await tick();
-		hold();
 		recordEl?.scrollIntoView({ block: 'nearest' });
+	}
+
+	/** The record behind a grid position: the visit on a frozen column, the value on a slot. */
+	async function openRecordAt(row: number, column: number) {
+		const visit = visits[row];
+		if (!visit) return;
+		const at = sheetSlot(visits, slots, row, column);
+		if (at) await openVisitCell(visit.id, at.slot.parameterId);
+		else await openVisit(visit.id);
 	}
 
 	function visitJobSummary(kind: 'recompute' | 'audit', job: ReprocessingJob): string {
@@ -818,16 +1072,15 @@
 		});
 	});
 
-	// A ?event= deep link expands its visit once the tab is active; with ?point= it opens that
-	// parameter's record too.
+	// A ?event= deep link expands its visit once the tab is active; with ?parameter= or ?point= it
+	// opens that parameter's record too.
 	let consumedEventParam = '';
 	$effect(() => {
 		if (!active || siteParameters.length === 0) return;
 		const ev = page.url.searchParams.get('event');
 		if (!ev || ev === consumedEventParam) return;
 		consumedEventParam = ev;
-		const point = page.url.searchParams.get('point');
-		const selectParam = siteParameters.find((s) => s.id === point)?.parameter_id ?? null;
+		const selectParam = deepLinkParameter(page.url.searchParams, siteParameters);
 		untrack(() => void openVisit(ev, true, selectParam));
 	});
 </script>
@@ -961,12 +1214,8 @@
 								onclick={askToSave}
 							>{`Save ${moved} value${moved === 1 ? '' : 's'}`}</Button>
 							{#if moved > 0}
-								<Button size="sm" variant="ghost" onclick={undoEdit} disabled={editHistory.length === 0}>Undo</Button>
-								<Button
-									size="sm"
-									variant="ghost"
-									onclick={() => { edits = {}; editHistory = empty(); checks = {}; seasonalFindings = []; }}
-								>Discard what you typed</Button>
+								<Button size="sm" variant="ghost" onclick={undoEdit} disabled={!canUndo}>Undo</Button>
+								<Button size="sm" variant="ghost" onclick={discardEdits}>Discard what you typed</Button>
 							{/if}
 							{#if saveRefusal}
 								<span class="text-xs text-severity-alarm">{saveRefusal}</span>
@@ -986,397 +1235,229 @@
 							</div>
 						{/if}
 					{/if}
-					<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-					<div
-						class="rounded-md border border-brand-divider bg-brand-surface overflow-x-auto"
-						role="grid"
-						tabindex="-1"
-						onkeydown={onTableKey}
-						onmouseup={() => (dragging = false)}
-						onmouseleave={() => (dragging = false)}
-					>
-						<table class="w-full text-sm">
-							<thead>
-								<tr class="bg-brand-bg text-left text-xs text-brand-muted">
-									<th rowspan="2" class="sticky left-0 z-10 bg-brand-bg px-4 py-2 font-medium">Date</th>
-									<th rowspan="2" class="px-3 py-2 font-medium">Source</th>
-									<th rowspan="2" class="px-3 py-2 font-medium">Filled</th>
-									{#each groupColumns as col (col.parameterId)}
-										<th colspan={col.width} class="px-3 py-2 font-medium whitespace-nowrap" title={col.name}>
-											{#if expandable(visits, col.parameterId)}
-												<button
-													type="button"
-													class="cursor-pointer border-none bg-transparent p-0 font-medium text-inherit hover:underline"
-													aria-expanded={col.expanded}
-													title={col.expanded ? `Fold ${col.code} back to its served value` : `Open ${col.code} to its repeats`}
-													onclick={() => (expandedColumns = toggled(expandedColumns, col.parameterId))}
-												>{col.code}{col.expanded ? ' −' : ' +'}</button>
-											{:else}
-												{col.code}
-											{/if}{#if col.units}<span class="font-normal text-brand-muted"> ({col.units})</span>{/if}
-											{#if col.expanded && me.can('writeData')}
-												<button
-													type="button"
-													class="ml-1 rounded border border-brand-divider bg-transparent px-1 leading-none"
-													aria-label="One repeat fewer for {col.code}"
-													title="One repeat fewer. A repeat the store holds is not dropped here: that is a withdrawal."
-													onclick={() => (askedColumns = askedWidth(askedColumns, visits, col.parameterId, col.width - 1))}
-												>&minus;</button>
-												<button
-													type="button"
-													class="rounded border border-brand-divider bg-transparent px-1 leading-none"
-													aria-label="One repeat more for {col.code}"
-													title="One repeat more"
-													onclick={() => (askedColumns = askedWidth(askedColumns, visits, col.parameterId, col.width + 1))}
-												>&plus;</button>
-											{/if}
-										</th>
-									{/each}
-								</tr>
-								<tr class="bg-brand-bg text-left text-[10px] text-brand-muted">
-									{#each groupColumns as col (col.parameterId)}
-										{#if col.expanded}
-											{#each Array.from({ length: col.width }, (_, i) => i) as index (index)}
-												<th class="px-3 pb-1 font-normal">{index + 1}</th>
-											{/each}
-										{:else}
-											<th class="px-3 pb-1 font-normal"></th>
+					<SheetGrid data={gridData} settings={gridSettings} onready={gridReady} class="text-sm" />
+					{#if expandedVisit}
+						{@const v = { id: expandedVisit }}
+						<div class="rounded-md border border-brand-divider bg-brand-bg/50 px-4 py-3">
+						{#if visitDetailLoading}
+							<p class="text-xs text-brand-muted">Loading…</p>
+						{:else if visitDetail}
+							{@const counts = visitCounts(visitDetail.cells)}
+							<div class="mb-2 flex items-center justify-between gap-2">
+								<div class="text-xs text-brand-muted">
+									<span class="font-mono text-brand-text">
+										{counts.parameters} parameter{counts.parameters === 1 ? '' : 's'} · {counts.replicates} replicate{counts.replicates === 1 ? '' : 's'} · {counts.flagged} flagged · {counts.withdrawn} withdrawn · {counts.findings} finding{counts.findings === 1 ? '' : 's'}
+									</span>
+									·
+									{visitSourceLabel(visitDetail.source, visitDetail.created_by)}{#if entryNoticeFor(visitDetail.source)}. {SYNCED_VISIT_NOTICE}{/if}
+									{#if verificationNoticeFor(visitDetail.unverified, visitDetail.withdrawn_at)}. {verificationNoticeFor(visitDetail.unverified, visitDetail.withdrawn_at)}{/if}
+									{#if visitDetail.notes}· {visitDetail.notes}{/if}
+									{@render calculationBadge(visitDetail.source, visitDetail.recompute)}
+									{@render visitState(visitDetail.unverified, visitDetail.withdrawn_at)}
+								</div>
+								{#if me.can('enterFieldData')}
+									<div class="flex gap-2">
+										{#if me.can('writeFieldMetadata') && visitDetail.cells.length === 0}
+											<Button variant="danger" size="sm" disabled={visitBusy === v.id} onclick={(e) => { e.stopPropagation(); discardVisit(v.id); }}>Discard this visit</Button>
 										{/if}
-									{/each}
-								</tr>
-							</thead>
-							<tbody>
-								{#each visits as v, vIndex (v.id)}
-									{@const cellsById = new Map(v.cells.map((c) => [c.parameter_id, c]))}
-									{@const extraCells = v.cells.filter(
-										(c) => !visitColumns.some((col) => col.parameter_id === c.parameter_id),
-									)}
-									<tr class="border-t border-brand-divider hover:bg-brand-bg/50 {expandedVisit === v.id ? 'bg-brand-bg/50' : ''}">
-										<td class="sticky left-0 z-10 bg-brand-surface px-4 py-2 whitespace-nowrap">
-											<button
-												type="button"
-												class="cursor-pointer border-none bg-transparent p-0 text-left text-inherit hover:underline"
-												aria-expanded={expandedVisit === v.id}
-												title={expandedVisit === v.id ? 'Collapse this visit' : 'Expand this visit'}
-												onclick={() => openVisit(v.id)}
-											>{formatDateTime(v.collected_at)}</button>
-											{#if v.findings_open > 0}
-												<Badge variant="warning">{v.findings_open} finding{v.findings_open === 1 ? '' : 's'}</Badge>
-											{/if}
-											{@render calculationBadge(v.source, v.recompute)}
-											{@render visitState(v.unverified, v.withdrawn_at)}
-										</td>
-										<td class="px-3 py-2">
-											{#if v.source === 'portal_sync'}
-												<Badge variant="accent">portal</Badge>
-											{:else}
-												<span class="text-brand-muted">{v.created_by ?? 'manual'}</span>
-											{/if}
-										</td>
-										<td class="px-3 py-2 text-brand-muted whitespace-nowrap">{v.parameters_filled}/{visitColumns.length}</td>
-										{#each groupColumns as col (col.parameterId)}
-											{@const cell = cellsById.get(col.parameterId)}
-											{#if col.expanded}
-												{#each Array.from({ length: col.width }, (_, i) => i) as index (index)}
-													{@const replicate = cell?.replicates?.[index]}
-													{@const entry = slotWritable(v, col.parameterId, index)}
-													<td
-														class="px-3 py-2 tabular-nums whitespace-nowrap
-															{replicate?.withdrawn ? 'text-brand-muted line-through' : ''}
-															{replicate?.flagged ? 'text-severity-warning' : ''}
-															{replicate?.unverified ? 'text-severity-warning' : ''}"
-													>
-														{#if me.can('writeData') && entry.writable}
-															{@const key = slotKey({ eventId: v.id, parameterId: col.parameterId, replicateIndex: index })}
-															{@const at = cellPosition(vIndex, col.parameterId, index)}
-															<input
-																id="visit-cell-{at.row}-{at.column}"
-																class="w-20 rounded border px-1 py-0.5 text-right tabular-nums bg-brand-surface
-																	{key in edits ? 'border-brand-primary' : 'border-brand-divider'}
-																	{selected(at.row, at.column) ? 'ring-1 ring-brand-primary' : ''}"
-																aria-label="{col.code} repeat {index + 1} at {formatDateTime(v.collected_at)}"
-																value={cellDisplay(key, replicate?.value ?? null, col.decimals)}
-																onfocus={() => { focusedSlot = key; focused = onFocusMoved(focused, at.row, at.column); }}
-																onblur={() => { if (focusedSlot === key) focusedSlot = null; }}
-																onkeydown={(e) => onCellKey(e, at.row, at.column)}
-																onmousedown={() => startDrag(at.row, at.column)}
-																onmouseenter={() => extendDrag(at.row, at.column)}
-																onpaste={(e) => onCellPaste(e, at.row, at.column)}
-																oninput={(e) => typeCell(v, col.parameterId, index, e.currentTarget.value)}
-															/>
-														{:else if replicate}
-															<button
-																type="button"
-																class="cursor-pointer border-none bg-transparent p-0 text-inherit hover:underline"
-																title={[
-																	`Repeat ${replicate.replicate_index + 1} of ${col.name} at this visit`,
-																	entry.reason,
-																].filter(Boolean).join('\n')}
-																onclick={(e) => void openVisitCell(v.id, col.parameterId, e.currentTarget)}
-															>{formatMeasurement(replicate.value, col.decimals)}</button>
-														{:else}
-															<span class="text-brand-muted">-</span>
-														{/if}
-													</td>
-												{/each}
-											{:else}
-												{@const entry = slotWritable(v, col.parameterId, 0)}
-												<td
-													class="px-3 py-2 tabular-nums whitespace-nowrap
-														{cell?.finding === 'stale_output' || cell?.finding === 'skipped_output' ? 'bg-severity-warning-soft' : ''}
-														{cell?.withdrawn ? 'text-brand-muted line-through' : ''}
-														{cell?.flagged ? 'text-severity-warning' : ''}"
-												>
-													{#if me.can('writeData') && editable(col) && entry.writable}
-														{@const key = slotKey({ eventId: v.id, parameterId: col.parameterId, replicateIndex: 0 })}
-														{@const at = cellPosition(vIndex, col.parameterId, 0)}
-														<input
-															id="visit-cell-{at.row}-{at.column}"
-															class="w-20 rounded border px-1 py-0.5 text-right tabular-nums bg-brand-surface
-																{key in edits ? 'border-brand-primary' : 'border-brand-divider'}
-																{selected(at.row, at.column) ? 'ring-1 ring-brand-primary' : ''}"
-															aria-label="{col.code} at {formatDateTime(v.collected_at)}"
-															value={cellDisplay(key, cell?.replicates?.[0]?.value ?? null, col.decimals)}
-															onfocus={() => { focusedSlot = key; focused = onFocusMoved(focused, at.row, at.column); }}
-															onblur={() => { if (focusedSlot === key) focusedSlot = null; }}
-															onkeydown={(e) => onCellKey(e, at.row, at.column)}
-															onmousedown={() => startDrag(at.row, at.column)}
-															onmouseenter={() => extendDrag(at.row, at.column)}
-															onpaste={(e) => onCellPaste(e, at.row, at.column)}
-															oninput={(e) => typeCell(v, col.parameterId, 0, e.currentTarget.value)}
-														/>
-													{:else if !cell}
-														<span class="text-brand-muted">-</span>
-													{:else}
-														<button
-															type="button"
-															class="cursor-pointer border-none bg-transparent p-0 text-inherit hover:underline"
-															aria-pressed={expandedVisit === v.id && visitCell?.parameterId === col.parameterId}
-															title={[visitCellStatistics(cell, col.decimals, col.units), `Open the record of ${col.name} at this visit`].filter(Boolean).join('\n')}
-															onclick={(e) => void openVisitCell(v.id, col.parameterId, e.currentTarget)}
-														>
-															{#if cell.finding === 'missing_output' && cell.value == null}
-																<Badge variant="warning">missing</Badge>
-															{:else if cell.value != null}
-																{@const marker = visitCellMarker(cell)}
-																{formatMeasurement(cell.value, col.decimals)}
-																{#if (cell.n ?? 0) > 1}
-																	<span class="text-[10px] text-brand-muted align-super">n{cell.n}</span>
-																{/if}
-																{#if marker}
-																	<span class="text-severity-warning" title={marker.title}>{marker.text}</span>
-																{/if}
-															{:else}
-																<span class="text-brand-muted">-</span>
-															{/if}
-														</button>
-													{/if}
-												</td>
-											{/if}
-										{/each}
-										{#each extraCells as cell (cell.parameter_id)}
-											<td class="px-3 py-2 tabular-nums whitespace-nowrap text-brand-muted">
-												{#if cell.value != null}
+										{#if me.can('writeData') && !visitDetail.withdrawn_at && visitDetail.cells.length > 0}
+											<Button
+												variant="danger"
+												size="sm"
+												disabled={withdrawing}
+												title="Withdraw every reading this visit holds. A withdrawal is a reversible stamp, not a delete."
+												onclick={(e) => { e.stopPropagation(); void askToWithdraw(v.id); }}
+											>Withdraw this visit</Button>
+										{/if}
+										{#if withdrawnSetId && withdrawnVisitId === v.id}
+											<Button
+												variant="secondary"
+												size="sm"
+												disabled={withdrawing}
+												onclick={(e) => { e.stopPropagation(); void undoWithdrawal(v.id); }}
+											>Undo the withdrawal</Button>
+										{/if}
+										{#if me.can('writeData')}
+										<!-- Calculations do not run at a visit the sync created (Q41): the portal
+										     recomputes its own outputs, and the route refuses this. -->
+										{#if visitDetail.source !== 'portal_sync'}
+											<Button
+												size="sm"
+												variant="secondary"
+												disabled={visitBusy === v.id}
+												onclick={(e) => { e.stopPropagation(); runVisitJob(v.id, 'recompute'); }}
+											>{visitBusy === v.id ? 'Working…' : 'Recompute tools'}</Button>
+										{/if}
+										<Button
+											size="sm"
+											variant="ghost"
+											disabled={visitBusy === v.id}
+											onclick={(e) => { e.stopPropagation(); runVisitJob(v.id, 'audit'); }}
+										>Audit this visit</Button>
+										{/if}
+									</div>
+								{/if}
+							</div>
+							<table class="w-full text-xs">
+								<thead class="text-brand-muted">
+									<tr>
+										<th class="py-1 pr-3 text-left font-medium">Parameter</th>
+										<th class="py-1 pr-3 text-left font-medium">Served</th>
+										<th class="py-1 pr-3 text-left font-medium">Replicates</th>
+										<th class="py-1 pr-3 text-left font-medium">Provenance</th>
+										<th class="py-1 text-left font-medium">Finding</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each recordRows(visitDetail.cells, visitColumns) as row (row.parameterId + (row.cell?.stream_id ?? 'unmeasured'))}
+										{@const cell = row.cell}
+										<tr
+											class="border-t border-brand-divider/60 {cell ? 'cursor-pointer hover:bg-brand-bg/60' : ''} {visitCell?.parameterId === row.parameterId ? 'bg-brand-bg' : ''}"
+											aria-selected={visitCell?.parameterId === row.parameterId}
+											onclick={() => { if (cell) visitCell = { parameterId: cell.parameter_id, parameterName: cell.parameter_name }; }}
+										>
+											<td class="py-1 pr-3">
+												{#if cell}
 													<button
 														type="button"
-														class="cursor-pointer border-none bg-transparent p-0 text-inherit hover:underline"
-														aria-pressed={expandedVisit === v.id && visitCell?.parameterId === cell.parameter_id}
-														title="Open the record of {paramName(cell.parameter_id)} at this visit"
-														onclick={(e) => void openVisitCell(v.id, cell.parameter_id, e.currentTarget)}
-													>{formatMeasurement(cell.value, decimalsForParameter(cell.parameter_id))}</button>
+														class="cursor-pointer border-none bg-transparent p-0 text-left text-inherit hover:underline"
+														aria-pressed={visitCell?.parameterId === row.parameterId}
+														onclick={() => (visitCell = { parameterId: cell.parameter_id, parameterName: cell.parameter_name })}
+													>{cell.parameter_name}</button>
 												{:else}
-													-
+													<span class="text-brand-muted">{row.parameterName}</span>
+												{/if}
+												{#if unitsForParameter(row.parameterId)}<span class="text-brand-muted">({unitsForParameter(row.parameterId)})</span>{/if}
+												{#if me.can('writeData') && !cell?.written_by && instruments.length > 0}
+													{@const declared = declaredInstruments[instrumentKey(v.id, row.parameterId)] ?? ''}
+													<select
+														class="ml-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-[11px] hover:border-brand-divider"
+														title="What measured this parameter at this visit. It is stored on every value entered here."
+														aria-label="Instrument for {row.parameterName} at this visit"
+														value={declared}
+														onclick={(e) => e.stopPropagation()}
+														onchange={(e) => declareInstrument(v.id, row.parameterId, e.currentTarget.value)}
+													>
+														<option value="">Undeclared</option>
+														{#each pickerOptions(instruments, declared || undefined) as sensor (sensor.id)}
+															<option value={sensor.id}
+																>{sensor.name ?? sensor.serial_number ?? sensor.id.slice(0, 8)}{retiredSuffix(sensor)}</option
+															>
+														{/each}
+													</select>
+												{/if}
+												{#if cell && cellRole(cell).title}
+													{@const owner = cellRole(cell).role === 'output' ? cell.written_by : (cell.read_by ?? [])[0]}
+													<button
+														type="button"
+														class="ml-1.5 cursor-pointer rounded border-none px-1 text-[10px] {cellRole(cell).role === 'output'
+															? 'bg-brand-accent/15 text-brand-accent-dark'
+															: 'bg-brand-primary/10 text-brand-primary'}"
+														title={[cellRole(cell).title, owner ? `Open ${owner} at this visit, on the curve its last run here used` : null].filter(Boolean).join('\n')}
+														onclick={(e) => { e.stopPropagation(); if (owner) void openCalculation(owner, visitDetail!); }}
+													>{cellRole(cell).role === 'output' ? cell.written_by : `→ ${(cell.read_by ?? []).join(', ')}`}</button>
 												{/if}
 											</td>
-										{/each}
-									</tr>
-									{#if expandedVisit === v.id}
-										<tr class="border-t border-brand-divider">
-											<td colspan={3 + columnSpan(groupColumns)} class="bg-brand-bg/50 px-4 py-3">
-												<!-- The row spans a table wider than the window, so the panel is pinned to the
-												     window's left edge and takes only the width its content needs: reading what
-												     a visit holds is never a sideways scroll (S15). -->
-												<div class="sticky left-0 w-max max-w-[calc(100vw-3rem)]">
-												{#if visitDetailLoading}
-													<p class="text-xs text-brand-muted">Loading…</p>
-												{:else if visitDetail}
-													{@const counts = visitCounts(visitDetail.cells)}
-													<div class="mb-2 flex items-center justify-between gap-2">
-														<div class="text-xs text-brand-muted">
-															<span class="font-mono text-brand-text">
-																{counts.parameters} parameter{counts.parameters === 1 ? '' : 's'} · {counts.replicates} replicate{counts.replicates === 1 ? '' : 's'} · {counts.flagged} flagged · {counts.withdrawn} withdrawn · {counts.findings} finding{counts.findings === 1 ? '' : 's'}
-															</span>
-															·
-															{visitSourceLabel(visitDetail.source, visitDetail.created_by)}{#if entryNoticeFor(visitDetail.source)}. {SYNCED_VISIT_NOTICE}{/if}
-															{#if verificationNoticeFor(visitDetail.unverified, visitDetail.withdrawn_at)}. {verificationNoticeFor(visitDetail.unverified, visitDetail.withdrawn_at)}{/if}
-															{#if visitDetail.notes}· {visitDetail.notes}{/if}
-															{@render calculationBadge(visitDetail.source, visitDetail.recompute)}
-															{@render visitState(visitDetail.unverified, visitDetail.withdrawn_at)}
-														</div>
-														{#if me.can('enterFieldData')}
-															<div class="flex gap-2">
-																{#if me.can('writeFieldMetadata') && visitDetail.cells.length === 0}
-																	<Button variant="danger" size="sm" disabled={visitBusy === v.id} onclick={(e) => { e.stopPropagation(); discardVisit(v.id); }}>Discard this visit</Button>
-																{/if}
-																{#if me.can('writeData') && !visitDetail.withdrawn_at && visitDetail.cells.length > 0}
-																	<Button
-																		variant="danger"
-																		size="sm"
-																		disabled={withdrawing}
-																		title="Withdraw every reading this visit holds. A withdrawal is a reversible stamp, not a delete."
-																		onclick={(e) => { e.stopPropagation(); void askToWithdraw(v.id); }}
-																	>Withdraw this visit</Button>
-																{/if}
-																{#if withdrawnSetId && withdrawnVisitId === v.id}
-																	<Button
-																		variant="secondary"
-																		size="sm"
-																		disabled={withdrawing}
-																		onclick={(e) => { e.stopPropagation(); void undoWithdrawal(v.id); }}
-																	>Undo the withdrawal</Button>
-																{/if}
-																{#if me.can('writeData')}
-																<!-- Calculations do not run at a visit the sync created (Q41): the portal
-																     recomputes its own outputs, and the route refuses this. -->
-																{#if visitDetail.source !== 'portal_sync'}
-																	<Button
-																		size="sm"
-																		variant="secondary"
-																		disabled={visitBusy === v.id}
-																		onclick={(e) => { e.stopPropagation(); runVisitJob(v.id, 'recompute'); }}
-																	>{visitBusy === v.id ? 'Working…' : 'Recompute tools'}</Button>
-																{/if}
-																<Button
-																	size="sm"
-																	variant="ghost"
-																	disabled={visitBusy === v.id}
-																	onclick={(e) => { e.stopPropagation(); runVisitJob(v.id, 'audit'); }}
-																>Audit this visit</Button>
-																{/if}
-															</div>
-														{/if}
-													</div>
-													<table class="w-full text-xs">
-														<thead class="text-brand-muted">
-															<tr>
-																<th class="py-1 pr-3 text-left font-medium">Parameter</th>
-																<th class="py-1 pr-3 text-left font-medium">Served</th>
-																<th class="py-1 pr-3 text-left font-medium">Replicates</th>
-																<th class="py-1 pr-3 text-left font-medium">Provenance</th>
-																<th class="py-1 text-left font-medium">Finding</th>
-															</tr>
-														</thead>
-														<tbody>
-															{#each visitDetail.cells as cell (cell.parameter_id + cell.stream_id)}
-																<tr
-																	class="border-t border-brand-divider/60 cursor-pointer hover:bg-brand-bg/60 {visitCell?.parameterId === cell.parameter_id ? 'bg-brand-bg' : ''}"
-																	aria-selected={visitCell?.parameterId === cell.parameter_id}
-																	onclick={() => (visitCell = { parameterId: cell.parameter_id, parameterName: cell.parameter_name })}
-																>
-																	<td class="py-1 pr-3">
-																		<button
-																			type="button"
-																			class="cursor-pointer border-none bg-transparent p-0 text-left text-inherit hover:underline"
-																			aria-pressed={visitCell?.parameterId === cell.parameter_id}
-																			onclick={() => (visitCell = { parameterId: cell.parameter_id, parameterName: cell.parameter_name })}
-																		>{cell.parameter_name}</button>
-																		{#if unitsForParameter(cell.parameter_id)}<span class="text-brand-muted">({unitsForParameter(cell.parameter_id)})</span>{/if}
-																		{#if me.can('writeData') && !cell.written_by && instruments.length > 0}
-																			{@const declared = declaredInstruments[instrumentKey(v.id, cell.parameter_id)] ?? ''}
-																			<select
-																				class="ml-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-[11px] hover:border-brand-divider"
-																				title="What measured this parameter at this visit. It is stored on every value entered here."
-																				aria-label="Instrument for {cell.parameter_name} at this visit"
-																				value={declared}
-																				onclick={(e) => e.stopPropagation()}
-																				onchange={(e) => declareInstrument(v.id, cell.parameter_id, e.currentTarget.value)}
-																			>
-																				<option value="">Undeclared</option>
-																				{#each pickerOptions(instruments, declared || undefined) as sensor (sensor.id)}
-																					<option value={sensor.id}
-																						>{sensor.name ?? sensor.serial_number ?? sensor.id.slice(0, 8)}{retiredSuffix(sensor)}</option
-																					>
-																				{/each}
-																			</select>
-																		{/if}
-																		{#if cellRole(cell).title}
-																			{@const owner = cellRole(cell).role === 'output' ? cell.written_by : (cell.read_by ?? [])[0]}
-																			<button
-																				type="button"
-																				class="ml-1.5 cursor-pointer rounded border-none px-1 text-[10px] {cellRole(cell).role === 'output'
-																					? 'bg-brand-accent/15 text-brand-accent-dark'
-																					: 'bg-brand-primary/10 text-brand-primary'}"
-																				title={[cellRole(cell).title, owner ? `Open ${owner} at this visit, on the curve its last run here used` : null].filter(Boolean).join('\n')}
-																				onclick={(e) => { e.stopPropagation(); if (owner) void openCalculation(owner, visitDetail!); }}
-																			>{cellRole(cell).role === 'output' ? cell.written_by : `→ ${(cell.read_by ?? []).join(', ')}`}</button>
-																		{/if}
-																	</td>
-																	<td class="py-1 pr-3 tabular-nums">
-																		{formatMeasurement(cell.served_value, decimalsForParameter(cell.parameter_id))}
-																		{#if cell.sample && cell.sample.n >= 2 && cell.sample.stdev != null}
-																			<span
-																				class="text-brand-muted"
-																				title={statisticsParts(
-																					cell.sample,
-																					decimalsForParameter(cell.parameter_id),
-																					unitsForParameter(cell.parameter_id)
-																				).join('\n')}
-																			>±{formatMeasurement(cell.sample.stdev, decimalsForParameter(cell.parameter_id))} ({estimatorWord(cell.sample.sd_estimator)}, n={cell.sample.n})</span>
-																		{/if}
-																	</td>
-																	<td class="py-1 pr-3 tabular-nums text-brand-muted">
-																		{cell.replicates
-																			.map((r) => `${formatMeasurement(r.calibrated_value ?? r.raw_value, decimalsForParameter(cell.parameter_id))}${r.flagged ? '*' : ''}${r.withdrawn ? '†' : ''}`)
-																			.join(', ')}
-																	</td>
-																	<td class="py-1 pr-3">
-																		{#if cell.has_provenance}
-																			<Badge variant="ok">{cell.tool ?? 'tool run'}</Badge>
-																		{:else}
-																			<span class="text-brand-muted">{rowProvenanceLabel(cell.provenance_kind, cell.source_system) ?? 'unknown origin'}</span>
-																		{/if}
-																	</td>
-																	<td class="py-1">
-																		{#if cell.finding}
-																			<Badge variant="warning">{findingLabel(cell.finding.kind)}</Badge>
-																		{:else}
-																			<span class="text-brand-muted">-</span>
-																		{/if}
-																	</td>
-																</tr>
-															{/each}
-														</tbody>
-													</table>
-													{#if visitDetail.cells.some((c) => c.replicates.some((r) => r.flagged || r.withdrawn))}
-														<p class="mt-1 text-[11px] text-brand-muted">* flagged · † withdrawn at source · ? pending verification</p>
-													{/if}
-													{#if visitCell}
-														<div bind:this={recordEl}>
-															<PointInspector
-																siteId={siteId}
-																parameterId={visitCell.parameterId}
-																parameterName={visitCell.parameterName}
-																units={unitsForParameter(visitCell.parameterId)}
-																decimals={decimalsForParameter(visitCell.parameterId)}
-																timeIso={visitDetail.collected_at}
-																measurementType="spot"
-																preloaded={cellRecord(visitDetail, visitCell.parameterId)}
-																link={visitPointLink(v.id, visitCell.parameterId)}
-																onclose={() => (visitCell = null)}
-																onchange={() => void refreshVisitDetail(v.id)}
-																onflag={(reps) => openVisitFlag(v.id, reps)}
-															/>
-														</div>
-													{/if}
+											{#if !cell}
+												<!-- A slot the site declares and the visit did not measure. It has a row so a
+												     first measurement can say what took it (U69). -->
+												<td class="py-1 pr-3 text-brand-muted">-</td>
+												<td class="py-1 pr-3 text-brand-muted">-</td>
+												<td class="py-1 pr-3 text-brand-muted">not measured</td>
+												<td class="py-1 text-brand-muted">-</td>
+											{:else}
+											<td class="py-1 pr-3 tabular-nums">
+												{formatMeasurement(cell.served_value, decimalsForParameter(cell.parameter_id))}
+												{#if cell.sample && cell.sample.n >= 2 && cell.sample.stdev != null}
+													<span
+														class="text-brand-muted"
+														title={statisticsParts(
+															cell.sample,
+															decimalsForParameter(cell.parameter_id),
+															unitsForParameter(cell.parameter_id)
+														).join('\n')}
+													>±{formatMeasurement(cell.sample.stdev, decimalsForParameter(cell.parameter_id))} (n={cell.sample.n})</span>
 												{/if}
-												</div>
 											</td>
+											<td class="py-1 pr-3 tabular-nums text-brand-muted">
+												{cell.replicates
+													.map((r) => `${formatMeasurement(r.calibrated_value ?? r.raw_value, decimalsForParameter(cell.parameter_id))}${r.flagged ? '*' : ''}${r.withdrawn ? '†' : ''}`)
+													.join(', ')}
+											</td>
+											<td class="py-1 pr-3 relative">
+												{#if cell.has_provenance && cell.tool_run_id}
+													{@const key = `${cell.parameter_id}:${cell.stream_id}`}
+													{@const runId = cell.tool_run_id}
+													<button
+														type="button"
+														class="cursor-pointer"
+														title="Show the calculation"
+														aria-label="Show how {cell.tool ?? 'the tool run'} computed this value"
+														aria-expanded={equationCell === key}
+														onclick={() => toggleEquation(key, runId)}
+													><Badge variant="ok">{cell.tool ?? 'tool run'}</Badge></button>
+													{#if equationCell === key}
+														{@const trace = traces.get(runId)}
+														<div
+															class="absolute z-40 left-0 top-full mt-1 bg-brand-surface border border-brand-divider rounded-md shadow-lg p-3 min-w-[260px] max-w-md w-max"
+														>
+															{#if trace === undefined}
+																<p class="text-xs text-brand-muted">Loading…</p>
+															{:else if typeof trace === 'string'}
+																<p class="text-xs text-brand-muted">{trace}</p>
+															{:else}
+																<p class="text-xs font-semibold mb-2">{trace.label} <span class="font-normal text-brand-muted">version {trace.version_no}</span></p>
+																<CellEquation
+																	steps={trace.trace}
+																	code={cell.parameter_code}
+																	walk
+																	origin={inputOrigin(trace, formatDateTime)}
+																/>
+															{/if}
+														</div>
+													{/if}
+												{:else if cell.has_provenance}
+													<Badge variant="ok">{cell.tool ?? 'tool run'}</Badge>
+												{:else}
+													<span class="text-brand-muted">{rowProvenanceLabel(cell.provenance_kind, cell.source_system) ?? 'unknown origin'}</span>
+												{/if}
+											</td>
+											<td class="py-1">
+												{#if cell.finding}
+													<Badge variant="warning">{findingLabel(cell.finding.kind)}</Badge>
+												{:else}
+													<span class="text-brand-muted">-</span>
+												{/if}
+											</td>
+											{/if}
 										</tr>
-									{/if}
-								{/each}
-							</tbody>
-						</table>
-					</div>
+									{/each}
+								</tbody>
+							</table>
+							{#if visitDetail.cells.some((c) => c.replicates.some((r) => r.flagged || r.withdrawn))}
+								<p class="mt-1 text-[11px] text-brand-muted">* flagged · † withdrawn at source · ? pending verification</p>
+							{/if}
+							{#if visitCell}
+								<div bind:this={recordEl}>
+									<PointInspector
+										siteId={siteId}
+										parameterId={visitCell.parameterId}
+										parameterName={visitCell.parameterName}
+										units={unitsForParameter(visitCell.parameterId)}
+										decimals={decimalsForParameter(visitCell.parameterId)}
+										timeIso={visitDetail.collected_at}
+										measurementType="spot"
+										preloaded={cellRecord(visitDetail, visitCell.parameterId)}
+										link={visitPointLink(v.id, visitCell.parameterId)}
+										onclose={() => (visitCell = null)}
+										onchange={() => void refreshVisitDetail(v.id)}
+										onflag={(reps) => openVisitFlag(v.id, reps)}
+									/>
+								</div>
+							{/if}
+						{/if}
+						</div>
+					{/if}
 					{#if visits.some((v) => v.cells.some((c) => visitCellMarker(c)))}
 						<p class="text-[11px] text-brand-muted">* flagged · † withdrawn at source · ? pending verification</p>
 					{/if}

@@ -7,6 +7,7 @@ import {
 	entryNoticeFor,
 	movedOutputs,
 	runOutputs,
+	readUntilSettled,
 	runReportLine,
 	visitBadge,
 	visitSourceLabel,
@@ -83,5 +84,46 @@ describe('what the bar reports once the calculations have run', () => {
 
 	it('says nothing when no calculation reads what was saved', () => {
 		expect(runReportLine(runOutputs([], {}, {}))).toBeNull();
+	});
+});
+
+describe('readUntilSettled', () => {
+	const rows = (...states: string[]) => states.map((recompute) => ({ recompute }));
+
+	it('keeps reading while a visit is queued or running, and returns the settled read', async () => {
+		const reads = [rows('current', 'queued'), rows('running', 'current'), rows('current', 'current')];
+		let calls = 0;
+		const waits: number[] = [];
+		const settled = await readUntilSettled(async () => reads[calls++], {
+			intervalMs: 500,
+			timeoutMs: 10_000,
+			wait: async (ms) => {
+				waits.push(ms);
+			},
+		});
+		expect(settled).toBe(true);
+		expect(calls).toBe(3);
+		expect(waits).toEqual([500, 500]);
+	});
+
+	it('reads once when nothing is outstanding', async () => {
+		let calls = 0;
+		const settled = await readUntilSettled(async () => (calls++, rows('current', 'stale', 'failed')), {
+			wait: async () => {},
+		});
+		expect(settled).toBe(true);
+		expect(calls).toBe(1);
+	});
+
+	it('gives up after the timeout and says the run had not settled', async () => {
+		let calls = 0;
+		const settled = await readUntilSettled(async () => (calls++, rows('queued')), {
+			intervalMs: 1_000,
+			timeoutMs: 3_000,
+			wait: async () => {},
+		});
+		expect(settled).toBe(false);
+		// the first read, then one per interval until 3 s have been waited
+		expect(calls).toBe(4);
 	});
 });

@@ -123,3 +123,25 @@ export function runReportLine(outputs: RunOutput[]): string | null {
 	const head = moved.length > 0 ? `${ran} calculation${ran === 1 ? '' : 's'} ran: ` : 'No output moved: ';
 	return `${head}${parts.join('; ')}.`;
 }
+
+/**
+ * Reads the visits until none is queued or running, so a report after a save is of the run and
+ * not of the moment before it. Returns whether the run settled inside the timeout.
+ */
+export async function readUntilSettled(
+	read: () => Promise<{ recompute?: string }[]>,
+	{
+		intervalMs = 1_000,
+		timeoutMs = 60_000,
+		wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+	}: { intervalMs?: number; timeoutMs?: number; wait?: (ms: number) => Promise<void> } = {},
+): Promise<boolean> {
+	let waited = 0;
+	for (;;) {
+		const visits = await read();
+		if (!visits.some((v) => computing(v.recompute))) return true;
+		if (waited >= timeoutMs) return false;
+		await wait(intervalMs);
+		waited += intervalMs;
+	}
+}

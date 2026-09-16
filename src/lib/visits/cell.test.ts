@@ -2,15 +2,19 @@ import { describe, expect, it } from 'vitest';
 import {
 	cellRecord,
 	findingLabel,
-	recordMarkerTitle,
-	showsProvenanceMarker,
 	statisticsParts,
 	visitCellMarker,
 	visitCellStatistics,
+	recordRows,
 	visitCounts,
 } from './cell';
-import type { EventCell, EventCellReplicate, EventDetailResponse, VisitCell } from '$api/service';
-import type { GridRow } from './grid';
+import type {
+	EventCell,
+	EventCellReplicate,
+	EventDetailResponse,
+	ExpectedParameter,
+	VisitCell,
+} from '$api/service';
 
 function cell(over: Partial<VisitCell>): VisitCell {
 	return {
@@ -176,22 +180,15 @@ describe('visitCellStatistics', () => {
 		expect(visitCellStatistics(cell({ n: undefined }))).toBeNull();
 	});
 
-	it('names the divisor beside the sd it printed', () => {
+	it('prints the sd, the median and the range in the slot\'s units', () => {
 		const line = visitCellStatistics(
-			cell({ n: 3, stdev: 0.5, median: 2, min: 1, max: 3, sd_estimator: 'population' }),
+			cell({ n: 3, stdev: 0.5, median: 2, min: 1, max: 3 }),
 			1,
 			'ppb'
 		);
-		expect(line).toContain('SD 0.5 ppb (population, n)');
+		expect(line).toContain('SD 0.5 ppb');
 		expect(line).toContain('median 2.0 ppb');
 		expect(line).toContain('range 1.0 to 3.0 ppb');
-	});
-
-	it('says so when no divisor was declared, rather than passing the fallback off as a choice', () => {
-		const line = visitCellStatistics(
-			cell({ n: 2, stdev: 1, sd_estimator: 'sample', sd_estimator_source: 'default' })
-		);
-		expect(line).toContain('divisor not declared');
 	});
 
 	it('renders an undeclared slot the way every other surface does, not as the stored double', () => {
@@ -206,108 +203,10 @@ describe('visitCellStatistics', () => {
 });
 
 describe('statisticsParts', () => {
-	// The expanded cell serves both divisors, so the line names each one and formats it like every
-	// other number on the row.
-	it('formats both divisors to the slot\'s declared precision', () => {
-		const parts = statisticsParts(
-			{
-				n: 3,
-				sd_estimator: 'sample',
-				sd_estimator_source: 'declared',
-				stdev: 0.1 + 0.2,
-				stdev_sample: 0.1 + 0.2,
-				stdev_population: 0.2451,
-			},
-			2,
-			'mg/L'
-		);
-		expect(parts).toContain('sample, n-1: 0.30 mg/L');
-		expect(parts).toContain('population, n: 0.25 mg/L');
+	it('formats the sd to the slot\'s declared precision', () => {
+		const parts = statisticsParts({ n: 3, stdev: 0.1 + 0.2 }, 2, 'mg/L');
+		expect(parts).toContain('SD 0.30 mg/L');
 		expect(parts.join(' ')).not.toContain('0.30000000000000004');
-	});
-
-	it('leaves out a divisor the group does not carry', () => {
-		const parts = statisticsParts({ n: 3, stdev: 0.5, sd_estimator: 'sample' });
-		expect(parts.some((p) => p.startsWith('population, n:'))).toBe(false);
-	});
-});
-
-describe('recordMarkerTitle', () => {
-	const row = (over: Partial<GridRow>): GridRow =>
-		({
-			parameterId: 'p',
-			parameterCode: 'DOC_ppb',
-			parameterName: 'DOC',
-			role: 'plain',
-			roleTitle: null,
-			roleClass: '',
-			readBy: [],
-			replicates: [],
-			stats: null,
-			streamId: 's',
-			hasProvenance: true,
-			...over,
-		}) as GridRow;
-
-	it('names the tool that wrote the value ahead of the coarser origin', () => {
-		expect(recordMarkerTitle(row({ tool: 'doc', provenanceKind: 'tool_run', origin: 'manual' }))).toBe(
-			'What produced this value (written by doc)'
-		);
-	});
-
-	it('spells the kind the way the record it opens spells it', () => {
-		expect(recordMarkerTitle(row({ provenanceKind: 'csv_import', origin: 'csv' }))).toBe(
-			'What produced this value (CSV import)'
-		);
-		expect(recordMarkerTitle(row({ provenanceKind: 'sync', origin: 'sync' }))).toBe(
-			'What produced this value (sync service)'
-		);
-	});
-
-	it('falls back to the source system the stream names, as the badge spells it', () => {
-		expect(recordMarkerTitle(row({ origin: 'sync', sourceSystem: 'cnet' }))).toBe(
-			'What produced this value (cnet sync)'
-		);
-	});
-
-	it('carries an open finding, which is the reason to look', () => {
-		expect(recordMarkerTitle(row({ tool: 'doc', finding: 'stale_output' }))).toBe(
-			'What produced this value (written by doc, open finding: stale output)'
-		);
-	});
-
-	it('promises only the record when nothing about the origin is known', () => {
-		expect(recordMarkerTitle(row({}))).toBe('What produced this value');
-	});
-});
-
-describe('showsProvenanceMarker', () => {
-	const row = (over: Partial<GridRow>) =>
-		({
-			parameterId: 'p',
-			parameterCode: 'DOC_ppb',
-			parameterName: 'DOC',
-			role: 'plain',
-			roleTitle: null,
-			roleClass: '',
-			readBy: [],
-			replicates: [],
-			stats: null,
-			streamId: 's',
-			hasProvenance: true,
-			...over,
-		}) as GridRow;
-
-	it('draws on a row that carries a record', () => {
-		expect(showsProvenanceMarker(row({ record: {} as GridRow['record'] }))).toBe(true);
-	});
-
-	it('draws on a finding with no reading behind it, which would otherwise read as an empty row', () => {
-		expect(showsProvenanceMarker(row({ finding: 'missing_output' }))).toBe(true);
-	});
-
-	it('draws on nothing when the row has neither', () => {
-		expect(showsProvenanceMarker(row({}))).toBe(false);
 	});
 });
 
@@ -317,5 +216,41 @@ describe('findingLabel', () => {
 		expect(findingLabel('skipped_output')).toBe('skipped');
 		expect(findingLabel('missing_output')).toBe('missing');
 		expect(findingLabel('something_new')).toBe('missing');
+	});
+});
+
+describe('recordRows', () => {
+	const expected = (parameterId: string, name: string): ExpectedParameter => ({
+		parameter_id: parameterId,
+		code: name,
+		name,
+	});
+
+	it('gives a parameter the visit never measured a row of its own', () => {
+		const rows = recordRows(
+			[eventCell('p1', 's1', undefined)],
+			[expected('p1', 'DOC'), expected('p2', 'chla')],
+		);
+		expect(rows.map((r) => [r.parameterId, r.cell !== null])).toEqual([
+			['p1', true],
+			['p2', false],
+		]);
+		expect(rows[1].parameterName).toBe('chla');
+	});
+
+	it('keeps both rows when two streams serve one parameter at the visit', () => {
+		const rows = recordRows(
+			[eventCell('p1', 's1', undefined), eventCell('p1', 's2', undefined)],
+			[expected('p1', 'DOC')],
+		);
+		expect(rows.map((r) => r.cell?.stream_id)).toEqual(['s1', 's2']);
+	});
+
+	it('keeps a stored parameter the site no longer expects, after the expected ones', () => {
+		const rows = recordRows(
+			[eventCell('p9', 's9', undefined)],
+			[expected('p1', 'DOC')],
+		);
+		expect(rows.map((r) => r.parameterId)).toEqual(['p1', 'p9']);
 	});
 });

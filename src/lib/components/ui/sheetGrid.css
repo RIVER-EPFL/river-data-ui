@@ -1,0 +1,74 @@
+/* The grid's overlays carry their own z-index; kept inside the grid so a dialog stays above them. */
+.sheet-grid {
+	isolation: isolate;
+}
+
+/* The grid's own theme variables, taken from the brand tokens. */
+.sheet-grid.ht-theme-classic {
+	--ht-font-family: inherit;
+	--ht-font-size: 13px;
+	--ht-foreground-color: var(--color-brand-text);
+	--ht-foreground-secondary-color: var(--color-brand-muted);
+	--ht-background-color: var(--color-brand-surface);
+	--ht-border-color: var(--color-brand-divider);
+	--ht-cell-horizontal-border-color: var(--color-brand-divider);
+	--ht-cell-vertical-border-color: var(--color-brand-divider);
+	--ht-accent-color: var(--color-brand-primary);
+	--ht-cell-selection-border-color: var(--color-brand-primary);
+	--ht-cell-selection-background-color: color-mix(in srgb, var(--color-brand-primary) 12%, transparent);
+	--ht-cell-read-only-background-color: var(--color-brand-bg);
+	--ht-header-background-color: var(--color-brand-bg);
+	--ht-header-foreground-color: var(--color-brand-muted);
+	--ht-header-row-background-color: var(--color-brand-bg);
+	--ht-header-row-foreground-color: var(--color-brand-muted);
+	--ht-row-header-odd-background-color: var(--color-brand-bg);
+	--ht-header-active-background-color: var(--color-brand-primary);
+	--ht-header-active-foreground-color: var(--color-brand-surface);
+	--ht-header-highlighted-background-color: color-mix(in srgb, var(--color-brand-primary) 18%, var(--color-brand-bg));
+}
+
+/* Cell states a caller's renderer sets. Unlayered, like the grid's own rules they sit over. */
+.sheet-grid td.sheet-struck {
+	color: var(--color-brand-muted);
+	text-decoration: line-through;
+}
+.sheet-grid td.sheet-warning,
+.sheet-grid .sheet-mark.sheet-warning {
+	color: var(--color-severity-warning);
+}
+.sheet-grid td.sheet-finding {
+	background-color: var(--color-severity-warning-soft);
+}
+.sheet-grid td.sheet-edited {
+	box-shadow: inset 3px 0 0 var(--color-brand-primary);
+}
+.sheet-grid td.sheet-open-row {
+	background-color: color-mix(in srgb, var(--color-brand-primary) 6%, var(--color-brand-surface));
+}
+.sheet-grid .sheet-mark {
+	margin-left: 2px;
+	font-size: 10px;
+	color: var(--color-brand-muted);
+	vertical-align: super;
+}
+.sheet-grid .sheet-link {
+	cursor: pointer;
+	border: none;
+	background: transparent;
+	padding: 0;
+	color: inherit;
+	font: inherit;
+}
+.sheet-grid .sheet-link:hover {
+	text-decoration: underline;
+}
+.sheet-grid .sheet-header-button {
+	margin-left: 4px;
+	border: 1px solid var(--color-brand-divider);
+	border-radius: 3px;
+	background: transparent;
+	padding: 0 4px;
+	line-height: 1;
+	color: inherit;
+	cursor: pointer;
+}

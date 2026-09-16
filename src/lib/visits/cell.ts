@@ -1,7 +1,12 @@
-import type { EventCell, EventDetailResponse, ProvenanceRecord, ProvenanceResponse, VisitCell } from '$api/service';
+import type {
+	EventCell,
+	EventDetailResponse,
+	ExpectedParameter,
+	ProvenanceRecord,
+	ProvenanceResponse,
+	VisitCell,
+} from '$api/service';
 import { formatMeasurement } from '$lib/format';
-import { rowProvenanceLabel } from '$lib/origin';
-import type { GridRow } from './grid';
 
 export interface CellMarker {
 	text: string;
@@ -33,19 +38,14 @@ export function visitCellMarker(cell: VisitCell): CellMarker | null {
 export interface StatisticsGroup {
 	n?: number;
 	stdev?: number;
-	stdev_sample?: number;
-	stdev_population?: number;
 	median?: number;
 	min?: number;
 	max?: number;
-	sd_estimator?: string;
-	sd_estimator_source?: string;
 }
 
 /**
- * The statistics a group carries, one part per fact: how many vials, how far apart they were, and
- * under which divisor. An sd whose formula is not named is one two readers can compare and reach
- * opposite conclusions about, which is why the estimator travels with every number that has one.
+ * The statistics a group carries, one part per fact: how many vials and how far apart they were.
+ * The sd is the sample sd (n-1).
  */
 export function statisticsParts(
 	group: StatisticsGroup,
@@ -58,18 +58,12 @@ export function statisticsParts(
 	const unit = units ? ` ${units}` : '';
 	const parts = [`n = ${group.n}`];
 	const sd = fmt(group.stdev);
-	if (sd != null) parts.push(`SD ${sd}${unit} (${estimatorWord(group.sd_estimator)})`);
-	const sample = fmt(group.stdev_sample);
-	if (sample != null) parts.push(`sample, n-1: ${sample}${unit}`);
-	const population = fmt(group.stdev_population);
-	if (population != null) parts.push(`population, n: ${population}${unit}`);
+	if (sd != null) parts.push(`SD ${sd}${unit}`);
 	const median = fmt(group.median);
 	if (median != null) parts.push(`median ${median}${unit}`);
 	const min = fmt(group.min);
 	const max = fmt(group.max);
 	if (min != null && max != null) parts.push(`range ${min} to ${max}${unit}`);
-	if (group.sd_estimator_source === 'default')
-		parts.push('divisor not declared for this parameter');
 	return parts;
 }
 
@@ -85,11 +79,6 @@ export function visitCellStatistics(
 	if (!parts.length && cell.n_unverified > 0)
 		return `n = 0: ${cell.n_unverified} pending ${cell.n_unverified === 1 ? 'value is' : 'values are'} not counted until verified`;
 	return parts.length ? parts.join(' · ') : null;
-}
-
-/** Two words for a divisor, for a line that is already long. */
-export function estimatorWord(estimator: string | null | undefined): string {
-	return estimator === 'population' ? 'population, n' : 'sample, n-1';
 }
 
 export interface VisitCounts {
@@ -133,28 +122,6 @@ export function cellRecord(detail: EventDetailResponse, parameterId: string): Pr
 	};
 }
 
-/**
- * What the record marker promises before it is opened: who wrote the value, and how. The marker
- * is drawn wherever the row carries a record or a finding, so this says only what opening it
- * will show.
- */
-export function recordMarkerTitle(row: GridRow): string {
-	const parts: string[] = [];
-	const provenance = rowProvenanceLabel(row.provenanceKind, row.sourceSystem);
-	if (row.tool) parts.push(`written by ${row.tool}`);
-	else if (provenance) parts.push(provenance);
-	if (row.finding) parts.push(`open finding: ${row.finding.replace(/_/g, ' ')}`);
-	return parts.length ? `What produced this value (${parts.join(', ')})` : 'What produced this value';
-}
-
-/**
- * Whether the row draws the marker. A finding with no reading behind it is the case the marker
- * exists for: without it the row reads as a parameter nobody measured.
- */
-export function showsProvenanceMarker(row: GridRow): boolean {
-	return Boolean(row.record || row.finding);
-}
-
 /** An audit finding, in the word the operator reads on the cell. */
 export function findingLabel(kind: string): string {
 	switch (kind) {
@@ -165,4 +132,42 @@ export function findingLabel(kind: string): string {
 		default:
 			return 'missing';
 	}
+}
+
+/** A line of the expanded record: a parameter, and the readings the visit holds for it. */
+export interface RecordRow {
+	parameterId: string;
+	parameterName: string;
+	/** `null` when the visit holds nothing for the slot: the site declares it, nobody measured it. */
+	cell: EventCell | null;
+}
+
+/**
+ * The expanded record's rows: every parameter the site expects, whether or not the visit measured
+ * it, followed by anything the visit holds that the site no longer expects. A slot with no reading
+ * still has a row, so a first measurement can declare what took it (U69).
+ *
+ * Two streams serving one parameter are two rows, as they are in the table above.
+ */
+export function recordRows(cells: EventCell[], expected: ExpectedParameter[]): RecordRow[] {
+	const held = new Map<string, EventCell[]>();
+	for (const cell of cells) {
+		const kept = held.get(cell.parameter_id);
+		if (kept) kept.push(cell);
+		else held.set(cell.parameter_id, [cell]);
+	}
+	const rowOf = (cell: EventCell): RecordRow => ({
+		parameterId: cell.parameter_id,
+		parameterName: cell.parameter_name,
+		cell,
+	});
+	const declared = expected.flatMap((p) => {
+		const own = held.get(p.parameter_id);
+		if (own) return own.map(rowOf);
+		return [{ parameterId: p.parameter_id, parameterName: p.name, cell: null }];
+	});
+	const unexpected = cells
+		.filter((c) => !expected.some((p) => p.parameter_id === c.parameter_id))
+		.map(rowOf);
+	return [...declared, ...unexpected];
 }

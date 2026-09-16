@@ -16,6 +16,8 @@ export interface ParameterColumn {
 	/** The repeats behind the group, whatever it is drawing. */
 	repeats: number;
 	expanded: boolean;
+	/** The calculation that writes this parameter, when one does. */
+	writtenBy: string | null;
 }
 
 /**
@@ -73,6 +75,7 @@ export function parameterColumns(
 			width: open ? repeats : 1,
 			repeats,
 			expanded: open,
+			writtenBy: p.written_by ?? null,
 		};
 	});
 }
@@ -104,9 +107,8 @@ export interface GridSlot {
 }
 
 /**
- * The columns as the keyboard walks them, left to right: a collapsed group is one slot at its
- * first replicate, an expanded one is a slot per replicate. This is the `columns` dimension the
- * grid's navigation is given, and the position a selection is held in.
+ * The grid's value columns, left to right: a collapsed group is one slot at its first replicate,
+ * an expanded one is a slot per replicate.
  */
 export function slotsOf(columns: ParameterColumn[]): GridSlot[] {
 	return columns.flatMap((column) =>

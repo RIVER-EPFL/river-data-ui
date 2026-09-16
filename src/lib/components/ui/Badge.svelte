@@ -1,24 +1,17 @@
 <script lang="ts">
+	import { BADGE_BASE, BADGE_VARIANTS, type BadgeVariant } from './badge';
+
 	let {
 		variant = 'default',
 		title,
 		children,
 	}: {
-		variant?: 'default' | 'ok' | 'warning' | 'alarm' | 'muted' | 'accent';
+		variant?: BadgeVariant;
 		title?: string;
 		children: import('svelte').Snippet;
 	} = $props();
-
-	const variants: Record<string, string> = {
-		default: 'bg-brand-primary/10 text-brand-primary',
-		ok: 'bg-severity-ok-soft text-severity-ok',
-		warning: 'bg-severity-warning-soft text-severity-warning',
-		alarm: 'bg-severity-alarm-soft text-severity-alarm',
-		muted: 'bg-brand-bg text-brand-muted',
-		accent: 'bg-brand-accent/10 text-brand-accent-dark',
-	};
 </script>
 
-<span {title} class="inline-flex items-center whitespace-nowrap px-2 py-0.5 text-xs font-medium rounded-full {variants[variant]}">
+<span {title} class="{BADGE_BASE} {BADGE_VARIANTS[variant]}">
 	{@render children()}
 </span>
