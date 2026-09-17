@@ -125,18 +125,15 @@ services:
     command:
       - |
         until pg_isready -h river-db-timescale -U ${POSTGRES_USER:-postgres}; do sleep 1; done
-        psql -h river-db-timescale -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres} <<'SQL'
+        psql -v ON_ERROR_STOP=1 -h river-db-timescale -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres} <<'SQL'
           CREATE EXTENSION IF NOT EXISTS pgcrypto;
-          INSERT INTO sync_service_credentials (id, client_id, client_secret_hash, service_type, source_system, revoked, created_at)
+          INSERT INTO sync_service_credentials (id, client_id, client_secret_hash, service_type, revoked, created_at)
           VALUES
-            (gen_random_uuid(), 'svc_dev_vaisala', encode(digest('dev_vaisala_secret', 'sha256'), 'hex'), 'vaisala', 'vaisala', false, now()),
-            (gen_random_uuid(), 'svc_dev_cnet',    encode(digest('dev_cnet_secret', 'sha256'), 'hex'),    'cnet',    'cnet',    false, now()),
-            (gen_random_uuid(), 'svc_dev_metalp',  encode(digest('dev_metalp_secret', 'sha256'), 'hex'),  'metalp',  'metalp',  false, now()),
-            (gen_random_uuid(), 'svc_dev_nomis',   encode(digest('dev_nomis_secret', 'sha256'), 'hex'),   'nomis',   'nomis',   false, now())
-          -- A volume seeded before the column existed is repaired here, and the services pick the
-          -- value up on their next enrollment, which a compose restart is.
-          ON CONFLICT (client_id) DO UPDATE SET source_system = EXCLUDED.source_system
-            WHERE sync_service_credentials.source_system IS NULL;
+            (gen_random_uuid(), 'svc_dev_vaisala', encode(digest('dev_vaisala_secret', 'sha256'), 'hex'), 'vaisala', false, now()),
+            (gen_random_uuid(), 'svc_dev_cnet',    encode(digest('dev_cnet_secret', 'sha256'), 'hex'),    'cnet',    false, now()),
+            (gen_random_uuid(), 'svc_dev_metalp',  encode(digest('dev_metalp_secret', 'sha256'), 'hex'),  'metalp',  false, now()),
+            (gen_random_uuid(), 'svc_dev_nomis',   encode(digest('dev_nomis_secret', 'sha256'), 'hex'),   'nomis',   false, now())
+          ON CONFLICT (client_id) DO NOTHING;
         SQL
     restart: "no"
 
@@ -237,37 +234,37 @@ services:
       timeout: 5s
       retries: 10
 
-  portal-db-metalp:
-    image: mariadb:10.3
-    environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: metalp_db
-      MYSQL_USER: sync_reader
-      MYSQL_PASSWORD: sync_reader
-    volumes:
-      - ${PORTAL_DUMPS_DIR:-./dumps}/metalp_db_prod.sql:/docker-entrypoint-initdb.d/01-data.sql:ro
-      - portal-metalp-data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+#  portal-db-metalp:
+#    image: mariadb:10.3
+#    environment:
+#      MYSQL_ROOT_PASSWORD: root
+#      MYSQL_DATABASE: metalp_db
+#      MYSQL_USER: sync_reader
+#      MYSQL_PASSWORD: sync_reader
+#    volumes:
+#      - ${PORTAL_DUMPS_DIR:-./dumps}/metalp_db_prod.sql:/docker-entrypoint-initdb.d/01-data.sql:ro
+#      - portal-metalp-data:/var/lib/mysql
+#    healthcheck:
+#      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+#      interval: 5s
+#      timeout: 5s
+#      retries: 10
 
-  portal-db-nomis:
-    image: mariadb:10.3
-    environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: nomis_db
-      MYSQL_USER: sync_reader
-      MYSQL_PASSWORD: sync_reader
-    volumes:
-      - ${PORTAL_DUMPS_DIR:-./dumps}/nomis_db_prod.sql:/docker-entrypoint-initdb.d/01-data.sql:ro
-      - portal-nomis-data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+#  portal-db-nomis:
+#    image: mariadb:10.3
+#    environment:
+#      MYSQL_ROOT_PASSWORD: root
+#      MYSQL_DATABASE: nomis_db
+#      MYSQL_USER: sync_reader
+#      MYSQL_PASSWORD: sync_reader
+#    volumes:
+#      - ${PORTAL_DUMPS_DIR:-./dumps}/nomis_db_prod.sql:/docker-entrypoint-initdb.d/01-data.sql:ro
+#      - portal-nomis-data:/var/lib/mysql
+#    healthcheck:
+#      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+#      interval: 5s
+#      timeout: 5s
+#      retries: 10
 
   # ── Portal sync microservices ──────────────────────────────────────
   river-data-sync-cnet:
@@ -296,57 +293,57 @@ services:
       portal-db-cnet:
         condition: service_healthy
 
-  river-data-sync-metalp:
-    build:
-      context: ..
-      dockerfile: river-data-rshiny/Dockerfile.dev
-    environment:
-      - PORTAL_TYPE=metalp
-      - PORTAL_DB_HOST=portal-db-metalp
-      - PORTAL_DB_PORT=3306
-      - PORTAL_DB_USER=sync_reader
-      - PORTAL_DB_PASSWORD=sync_reader
-      - PORTAL_DB_NAME=metalp_db
-      - API_BASE_URL=http://river-data-api:${API_PORT:-3000}
-      - SERVICE_CLIENT_ID=${METALP_SERVICE_CLIENT_ID:-svc_dev_metalp}
-      - SERVICE_CLIENT_SECRET=${METALP_SERVICE_CLIENT_SECRET:-dev_metalp_secret}
-      - INSTANCE_ID=metalp-dev-01
-      - SYNC_INTERVAL_SECONDS=${PORTAL_SYNC_INTERVAL:-21600}
-      - HEARTBEAT_INTERVAL_SECONDS=30
-      - RETRY_MAX=3
-      - RETRY_DELAY_SECONDS=60
-      - RUST_LOG=${LOG_LEVEL:-warn}
-    depends_on:
-      river-data-api:
-        condition: service_healthy
-      portal-db-metalp:
-        condition: service_healthy
+#  river-data-sync-metalp:
+#    build:
+#      context: ..
+#      dockerfile: river-data-rshiny/Dockerfile.dev
+#    environment:
+#      - PORTAL_TYPE=metalp
+#      - PORTAL_DB_HOST=portal-db-metalp
+#      - PORTAL_DB_PORT=3306
+#      - PORTAL_DB_USER=sync_reader
+#      - PORTAL_DB_PASSWORD=sync_reader
+#      - PORTAL_DB_NAME=metalp_db
+#      - API_BASE_URL=http://river-data-api:${API_PORT:-3000}
+#      - SERVICE_CLIENT_ID=${METALP_SERVICE_CLIENT_ID:-svc_dev_metalp}
+#      - SERVICE_CLIENT_SECRET=${METALP_SERVICE_CLIENT_SECRET:-dev_metalp_secret}
+#      - INSTANCE_ID=metalp-dev-01
+#      - SYNC_INTERVAL_SECONDS=${PORTAL_SYNC_INTERVAL:-21600}
+#      - HEARTBEAT_INTERVAL_SECONDS=30
+#      - RETRY_MAX=3
+#      - RETRY_DELAY_SECONDS=60
+#      - RUST_LOG=${LOG_LEVEL:-warn}
+#    depends_on:
+#      river-data-api:
+#        condition: service_healthy
+#      portal-db-metalp:
+#        condition: service_healthy
 
-  river-data-sync-nomis:
-    build:
-      context: ..
-      dockerfile: river-data-rshiny/Dockerfile.dev
-    environment:
-      - PORTAL_TYPE=nomis
-      - PORTAL_DB_HOST=portal-db-nomis
-      - PORTAL_DB_PORT=3306
-      - PORTAL_DB_USER=sync_reader
-      - PORTAL_DB_PASSWORD=sync_reader
-      - PORTAL_DB_NAME=nomis_db
-      - API_BASE_URL=http://river-data-api:${API_PORT:-3000}
-      - SERVICE_CLIENT_ID=${NOMIS_SERVICE_CLIENT_ID:-svc_dev_nomis}
-      - SERVICE_CLIENT_SECRET=${NOMIS_SERVICE_CLIENT_SECRET:-dev_nomis_secret}
-      - INSTANCE_ID=nomis-dev-01
-      - SYNC_INTERVAL_SECONDS=${PORTAL_SYNC_INTERVAL:-21600}
-      - HEARTBEAT_INTERVAL_SECONDS=30
-      - RETRY_MAX=3
-      - RETRY_DELAY_SECONDS=60
-      - RUST_LOG=${LOG_LEVEL:-warn}
-    depends_on:
-      river-data-api:
-        condition: service_healthy
-      portal-db-nomis:
-        condition: service_healthy
+#  river-data-sync-nomis:
+#    build:
+#      context: ..
+#      dockerfile: river-data-rshiny/Dockerfile.dev
+#    environment:
+#      - PORTAL_TYPE=nomis
+#      - PORTAL_DB_HOST=portal-db-nomis
+#      - PORTAL_DB_PORT=3306
+#      - PORTAL_DB_USER=sync_reader
+#      - PORTAL_DB_PASSWORD=sync_reader
+#      - PORTAL_DB_NAME=nomis_db
+#      - API_BASE_URL=http://river-data-api:${API_PORT:-3000}
+#      - SERVICE_CLIENT_ID=${NOMIS_SERVICE_CLIENT_ID:-svc_dev_nomis}
+#      - SERVICE_CLIENT_SECRET=${NOMIS_SERVICE_CLIENT_SECRET:-dev_nomis_secret}
+#      - INSTANCE_ID=nomis-dev-01
+#      - SYNC_INTERVAL_SECONDS=${PORTAL_SYNC_INTERVAL:-21600}
+#      - HEARTBEAT_INTERVAL_SECONDS=30
+#      - RETRY_MAX=3
+#      - RETRY_DELAY_SECONDS=60
+#      - RUST_LOG=${LOG_LEVEL:-warn}
+#    depends_on:
+#      river-data-api:
+#        condition: service_healthy
+#      portal-db-nomis:
+#        condition: service_healthy
 
   # The realm file is imported as a Keycloak RealmRepresentation, which refuses any field it does
   # not know, so it carries no comments of its own. What would be one: brute-force protection is
