@@ -137,7 +137,7 @@
 				{ href: `${base}/projects`, label: 'Projects & Subprojects', icon: 'folder', minCap: 'admin' },
 				{ href: `${base}/users`, label: 'Users & Tokens', icon: 'users', minCap: 'admin', also: [`${base}/tokens`] },
 				{ href: `${base}/notifications`, label: 'Notifications', icon: 'mail', minCap: 'admin' },
-				{ href: `${base}/streams`, label: 'Data Streams', icon: 'rss', minCap: 'admin', badge: 'streamsAttention' },
+				{ href: `${base}/streams`, label: 'Sync services', icon: 'rss', minCap: 'admin', badge: 'streamsAttention' },
 				{ href: `${base}/system`, label: 'System', icon: 'settings', minCap: 'admin', also: [`${base}/logs`, `${base}/jobs`, `${base}/schedules`] },
 			],
 		},

@@ -185,7 +185,7 @@
 			{/if}
 			{#if pendingAudits > 0}
 				<a
-					href="{base}/streams?tab=audits"
+					href="{base}/streams?tab=review&review=actionable"
 					class="block px-3 py-2 text-xs bg-severity-warning-soft text-severity-warning-text border-b border-brand-divider no-underline hover:opacity-80"
 				>
 					{pendingAudits} item{pendingAudits === 1 ? '' : 's'} pending audit review{auditBreakdown ? ` · ${auditBreakdown}` : ''}

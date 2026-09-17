@@ -129,23 +129,25 @@ describe('where a reading\'s hold chip opens', () => {
 	});
 
 	it('opens a source change in the audits queue, resolved ones in its resolved view', () => {
-		expect(holdHref('', hold('source_modified'), at)).toBe('/streams?tab=audits&holds_id=hold-1');
+		expect(holdHref('', hold('source_modified'), at)).toBe(
+			'/streams?tab=review&review=actionable&holds_id=hold-1',
+		);
 		expect(holdHref('', { ...hold('source_modified'), status: 'accepted' }, at)).toBe(
-			'/streams?tab=audits&holds_id=hold-1&view=resolved',
+			'/streams?tab=review&review=actionable&holds_id=hold-1&view=resolved',
 		);
 	});
 
 	it('opens a tag on the discrepancy browse at the reading', () => {
 		for (const kind of TAG_KINDS) {
 			expect(holdHref('', hold(kind), at)).toContain(`tags_kind=${kind}`);
-			expect(holdHref('', hold(kind), at)).not.toContain('tab=audits');
+			expect(holdHref('', hold(kind), at)).toContain('review=discrepancies');
 		}
 	});
 
-	it('sends no kind outside the audits queue to the audits tab', () => {
+	it('sends no kind outside the audits queue to actionable review', () => {
 		for (const kind of HOLD_KINDS.filter((k) => !AUDIT_QUEUE_KINDS.includes(k))) {
 			if ((TAG_KINDS as string[]).includes(kind)) continue;
-			expect(holdHref('', hold(kind, 'doc'), at), kind).not.toContain('tab=audits');
+			expect(holdHref('', hold(kind, 'doc'), at), kind).not.toContain('review=actionable');
 		}
 	});
 });

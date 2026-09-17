@@ -8,7 +8,7 @@
 	import {
 		pairStream, unpairStream, getStreamStats, listStreamReceipts, retagStreams, createPairingPlan, updatePairingPlan,
 		applyPairingPlan, revertPairingPlan, getUnpairedSummary, getPlanSiteMetadata,
-		replicateSpec, getPendingAuditSummary, getStreamPreview,
+		replicateSpec, getPendingAuditSummary, getChangeProposals, getStreamPreview,
 		getPlanInstruments, listPairingPlans, supersedePairingPlan, getPairingPlan, bulkUpdatePairingPlan,
 		type PairingPlan, type PairingPlanEntry, type PlanEntryUpdate, type PairingPlanApplyResult, type StreamStats, type SiteMetadata,
 		type PlanReplicateSummary, type StreamReceipt, type PlanWarning, type PlanInstrumentRef,
@@ -67,6 +67,7 @@
 	import { readTagParams } from '$lib/discrepancies';
 	import { AUDIT_QUEUE_KINDS } from '$lib/holds';
 	import InstrumentCurvesPanel from '$components/streams/InstrumentCurvesPanel.svelte';
+	import SyncServicesPanel from '$components/sync/SyncServicesPanel.svelte';
 	import { formatCount } from '$lib/format';
 	import ConfirmStep from '$components/pairing/ConfirmStep.svelte';
 	import ApplyResults from '$components/pairing/ApplyResults.svelte';
@@ -118,15 +119,48 @@
 	// disagreement without opening the tab.
 	let pendingByKind = $state<Record<string, number>>({});
 	const auditBreakdown = $derived(holdKindBreakdown(pendingByKind));
-	// The list mode is a two-tab hub: the streams table and the replicate-audit holds.
-	// The audit surface is manager-only; below that level the page is the streams table alone.
 	const canAudit = $derived(me.can('manageSensors'));
-	const tab = createUrlTab({ keys: ['streams', 'audits', 'discrepancies', 'instruments'] });
+	const isAdmin = $derived(me.can('admin'));
+	const streamLink = ['list_filter', 'q', 'stats'].some((name) => page.url.searchParams.has(name));
+	const requestedListTab = page.url.searchParams.get('tab');
+	const tab = createUrlTab({
+		keys: ['pair', 'streams', 'review', 'instruments', 'services'],
+		aliases: { audits: 'review', discrepancies: 'review' },
+		initial: streamLink ? 'streams' : 'pair',
+	});
+	let reviewSectionIndex = $state(
+		requestedListTab === 'discrepancies' || page.url.searchParams.get('review') === 'discrepancies' ? 1 : 0,
+	);
+	const reviewSection = $derived(reviewSectionIndex === 1 ? 'discrepancies' : 'actionable');
+	$effect(() => {
+		const section = reviewSection;
+		if (tab.key !== 'review') return;
+		untrack(() => {
+			if (page.url.searchParams.get('review') === section) return;
+			tab.go('review', (url) => url.searchParams.set('review', section));
+		});
+	});
+	$effect(() => {
+		const requestedTab = page.url.searchParams.get('tab');
+		const requestedSection = page.url.searchParams.get('review');
+		untrack(() => {
+			if (requestedTab === 'discrepancies') reviewSectionIndex = 1;
+			else if (requestedSection === 'actionable' || requestedSection === 'discrepancies') {
+				reviewSectionIndex = requestedSection === 'discrepancies' ? 1 : 0;
+			}
+		});
+	});
 	const auditQueue = $derived(pendingAudits + pendingProposals);
 	const tabLabels = $derived(
 		canAudit
-			? ['Streams', auditQueue > 0 ? `Audits (${auditQueue})` : 'Audits', 'Discrepancies', 'Instruments']
-			: ['Streams'],
+			? [
+					'Discover & Pair',
+					'Streams',
+					auditQueue > 0 ? `Review (${auditQueue})` : 'Review',
+					'Instruments',
+					...(isAdmin ? ['Services'] : []),
+				]
+			: ['Discover & Pair', 'Streams'],
 	);
 	// Expanded replicate-routing blocks in the plan review, keyed by stream id or `param:{name}`.
 	let expandedReplicates = $state<Set<string>>(new Set());
@@ -158,11 +192,15 @@
 
 	async function loadReplicateSurfacing() {
 		if (canAudit) {
-			try {
-				const summary = await getPendingAuditSummary(AUDIT_QUEUE_KINDS);
-				pendingAudits = summary.pending;
-				pendingByKind = summary.byKind;
-			} catch { /* banner is best-effort */ }
+			const [summary, proposals] = await Promise.allSettled([
+				getPendingAuditSummary(AUDIT_QUEUE_KINDS),
+				getChangeProposals({ status: 'pending', page: 1, perPage: 1 }),
+			]);
+			if (summary.status === 'fulfilled') {
+				pendingAudits = summary.value.pending;
+				pendingByKind = summary.value.byKind;
+			}
+			if (proposals.status === 'fulfilled') pendingProposals = proposals.value.total;
 		}
 	}
 
@@ -1229,13 +1267,17 @@
 	// ── Wizard navigation ──
 	// Drafts still open per source: the way back into a review someone left half done.
 	let openDrafts = $state<PairingPlanListing[]>([]);
+	let sourceSelectLoaded = $state(false);
 	const draftFor = (sourceSystem: string) =>
 		openDrafts.find((d) => d.source_system === sourceSystem);
 	const appliedFor = (sourceSystem: string) =>
 		appliedPlans.find((p) => p.source_system === sourceSystem);
 
 	async function enterSourceSelect() {
-		setMode('source-select');
+		tab.go('pair', (url) => {
+			url.searchParams.delete('step');
+			url.searchParams.delete('plan');
+		});
 		await loadSourceSelect();
 	}
 
@@ -1253,7 +1295,7 @@
 			appliedPlans = applied;
 		}
 		catch (e) { toastStore.error(`Failed to load unpaired summary: ${e instanceof Error ? e.message : e}`); setMode('list'); }
-		finally { planLoading = false; }
+		finally { planLoading = false; sourceSelectLoaded = true; }
 	}
 
 	let existingParams = $state<Parameter[]>([]);
@@ -1507,13 +1549,22 @@
 		// server is the record, so the page rebuilds from it rather than rendering nothing.
 		const resumeId = page.url.searchParams.get('plan');
 		// A link from the source audit lands on the step directly, so it loads its own sources.
-		if (mode === 'source-select' && unpairedSummary.length === 0) await loadSourceSelect();
+		if (mode === 'source-select') {
+			setMode('list');
+			await loadSourceSelect();
+		}
 		else if (mode === 'review' && resumeId && !plan) await resumePlan(resumeId);
 		else if (mode === 'review' && !resumeId) setMode('list');
 		// The same for ?step=results&plan=<id>: the counts belong to the plan, not to the call
 		// that started the job, so they survive the tab that started it.
 		else if (mode === 'results' && resumeId && !applyResult) await openResults(resumeId);
 		else if (mode === 'results' && !resumeId) setMode('list');
+	});
+
+	$effect(() => {
+		if (mode === 'list' && tab.key === 'pair' && !sourceSelectLoaded && !planLoading) {
+			void loadSourceSelect();
+		}
 	});
 </script>
 
@@ -1631,49 +1682,117 @@
 		{/if}
 	</div>
 {/snippet}
-<svelte:head><title>Streams | RIVER Data</title></svelte:head>
+<svelte:head><title>Sync services | RIVER Data</title></svelte:head>
 
 <!-- ════════════════════ STREAM LIST MODE ════════════════════ -->
 {#if mode === 'list'}
 	<div class="space-y-4">
-		<div class="flex items-center justify-between">
-			<h2 class="text-xl font-semibold">Data Streams</h2>
-			<div class="flex items-center gap-3">
-				<Button variant="primary" onclick={enterSourceSelect} class="font-semibold">Discover & Pair</Button>
-			</div>
-		</div>
+		<h2 class="text-xl font-semibold">Sync services</h2>
 
 		<Tabs tabs={tabLabels} bind:active={tab.index} />
 
-		{#if tab.key === 'audits' && canAudit}
-		<p class="text-sm text-brand-muted">
-			Values the source changed after river-data stored them.
-		</p>
-		<ChangeProposalsPanel onPendingChange={(n) => (pendingProposals = n)} />
-		<ReplicateAuditsPanel
-			initialView={page.url.searchParams.get('view') === 'resolved' ? 'resolved' : 'review'}
-			initialHoldId={page.url.searchParams.get('holds_id') ?? undefined}
-			onPendingChange={(n) => (pendingAudits = n)}
-		/>
-		{:else if tab.key === 'discrepancies' && canAudit}
-		<p class="text-sm text-brand-muted">
-			What imports recorded about data that disagrees with its source. Each is kept with the
-			reading it concerns; nothing here needs an action.
-		</p>
-		<DiscrepancyBrowse initial={readTagParams(page.url.searchParams)} />
+		{#if tab.key === 'pair'}
+			{#if planLoading}
+				<p class="text-brand-muted">Loading sources…</p>
+			{:else}
+				{@const withUnpaired = unpairedSummary.filter((s) => s.unpaired > 0).sort((a, b) => b.unpaired - a.unpaired)}
+				{@const fullyPaired = unpairedSummary.filter((s) => s.unpaired === 0)}
+
+				{#if withUnpaired.length > 0}
+					<p class="text-sm text-brand-muted">Select a source to create a pairing plan:</p>
+					<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
+						<table class="w-full text-sm">
+							<tbody>
+								{#each withUnpaired as s}
+									{@const draft = draftFor(s.source_system)}
+									<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 {draft ? '' : 'cursor-pointer'} {s.source_system === linkedSource ? 'bg-brand-primary/5' : ''}" onclick={() => { if (!draft) createPlan(s.source_system); }}>
+										<td class="px-4 py-3 font-semibold">
+											{s.source_system}
+											{#if draft}
+												<div class="text-xs font-normal text-brand-muted pt-0.5">
+													Draft started {formatRelativeTime(draft.created_at)}:
+													{formatCount(draft.summary.will_pair)} to pair,
+													{formatCount(draft.summary.will_skip)} to skip
+												</div>
+												{#if draft.uncovered_streams}
+													<div class="text-xs font-normal text-severity-warning pt-0.5">
+														{formatCount(draft.uncovered_streams)} stream{draft.uncovered_streams === 1 ? '' : 's'}
+														registered since are not in it; start over to include them.
+													</div>
+												{/if}
+											{/if}
+										</td>
+										<td class="px-4 py-3 text-right"><span class="text-severity-warning font-semibold">{formatCount(s.unpaired)}</span> <span class="text-brand-muted">unpaired</span></td>
+										<td class="px-4 py-3 text-right text-brand-muted">{formatCount(s.paired)} paired</td>
+										<td class="px-4 py-3 text-right whitespace-nowrap">
+											{#if draft}
+												<Button size="sm" onclick={(e) => { e.stopPropagation(); resumePlan(draft.id); }}>Resume</Button>
+												<ConfirmButton label="Start over" confirmLabel="Click again to start over" consequence="The open draft keeps its decisions but can no longer be applied" onconfirm={() => startOverPlan(draft)} />
+												<ConfirmButton label="Discard" confirmLabel="Click again to discard" consequence="Its decisions are lost and its streams stay unpaired" onconfirm={() => discardPlan(draft)} />
+											{:else}
+												<Button size="sm" onclick={(e) => { e.stopPropagation(); createPlan(s.source_system); }}>Discover</Button>
+											{/if}
+											{#if appliedFor(s.source_system)}
+												{@const done = appliedFor(s.source_system)}
+												<Button size="sm" variant="ghost" onclick={(e) => { e.stopPropagation(); openResults(done!.id); }}>
+													{#if done!.id === applyingPlanId}Applying…{:else if done!.id === revertingPlanId}Reverting…{:else}Results{/if}
+												</Button>
+											{/if}
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{:else if unpairedSummary.length === 0}
+					<p class="text-brand-muted">No source has registered any streams yet. Streams appear after a sync service completes its first discovery cycle.</p>
+					<p class="text-sm"><a class="text-brand-primary" href="{base}/streams?tab=services">Check service status</a></p>
+				{:else}
+					<p class="text-severity-ok">All streams are paired.</p>
+				{/if}
+				{#if fullyPaired.length > 0}
+					<p class="text-xs text-brand-muted">{fullyPaired.map((s) => s.source_system).join(', ')} -- fully paired ({formatCount(fullyPaired.reduce((a, s) => a + s.paired, 0))} streams)</p>
+				{/if}
+			{/if}
+		{:else if tab.key === 'review' && canAudit}
+			<Tabs tabs={['Actionable', 'Discrepancies (informational)']} bind:active={reviewSectionIndex} />
+			{#if reviewSection === 'actionable'}
+				<p class="text-sm text-brand-muted">
+					Decide changed source values and review holds that require an operator.
+				</p>
+				<div class="space-y-4">
+					<ChangeProposalsPanel onPendingChange={(n) => (pendingProposals = n)} />
+					<ReplicateAuditsPanel
+						initialView={page.url.searchParams.get('view') === 'resolved' ? 'resolved' : 'review'}
+						initialHoldId={page.url.searchParams.get('holds_id') ?? undefined}
+						onPendingChange={(n) => (pendingAudits = n)}
+					/>
+				</div>
+			{:else}
+				<p class="text-sm text-brand-muted">
+					Imports recorded these discrepancies with their readings for reference. Nothing here
+					needs an action.
+				</p>
+				<DiscrepancyBrowse initial={readTagParams(page.url.searchParams)} />
+			{/if}
 		{:else if tab.key === 'instruments' && canAudit}
 		<p class="text-sm text-brand-muted">
 			The instruments the sync and the inventory know, the standard curves each one owns, and
 			the incoming values those curves corrected.
 		</p>
 		<InstrumentCurvesPanel />
+		{:else if tab.key === 'services' && isAdmin}
+		<SyncServicesPanel />
 		{:else}
 
-		{#if pendingAudits > 0 && canAudit}
+		{#if auditQueue > 0 && canAudit}
 			<div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md bg-severity-warning-soft border border-severity-warning-border text-sm text-severity-warning-text">
-				<span>{pendingAudits} item{pendingAudits === 1 ? '' : 's'} need{pendingAudits === 1 ? 's' : ''} audit review{auditBreakdown ? ` · ${auditBreakdown}` : ''}</span>
+				<span>{auditQueue} item{auditQueue === 1 ? '' : 's'} need{auditQueue === 1 ? 's' : ''} review{auditBreakdown ? ` · ${auditBreakdown}` : ''}</span>
 				<button
-					onclick={() => tab.go('audits', undefined, { push: true })}
+					onclick={() =>
+						tab.go('review', (url) => url.searchParams.set('review', 'actionable'), {
+							push: true,
+						})}
 					class="font-semibold text-severity-warning-text bg-transparent border-none p-0 cursor-pointer underline-offset-2 hover:underline"
 				>Review</button>
 			</div>
@@ -1815,85 +1934,7 @@
 
 <!-- ════════════════════ SOURCE SELECT ════════════════════ -->
 {:else if mode === 'source-select'}
-	<div class="space-y-4">
-		<div class="flex items-center gap-3">
-			<Button variant="ghost" size="sm" onclick={() => setMode('list')} class="text-brand-primary">&larr; Back to streams</Button>
-			<h2 class="text-xl font-semibold">Discover & Pair Streams</h2>
-		</div>
-
-		{#if planLoading}
-			<p class="text-brand-muted">Loading sources…</p>
-		{:else}
-			{@const withUnpaired = unpairedSummary.filter((s) => s.unpaired > 0).sort((a, b) => b.unpaired - a.unpaired)}
-			{@const fullyPaired = unpairedSummary.filter((s) => s.unpaired === 0)}
-
-			{#if withUnpaired.length > 0}
-				<p class="text-sm text-brand-muted">Select a source to create a pairing plan:</p>
-				<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
-					<table class="w-full text-sm">
-						<tbody>
-							{#each withUnpaired as s}
-								{@const draft = draftFor(s.source_system)}
-								<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/50 {draft ? '' : 'cursor-pointer'} {s.source_system === linkedSource ? 'bg-brand-primary/5' : ''}" onclick={() => { if (!draft) createPlan(s.source_system); }}>
-									<td class="px-4 py-3 font-semibold">
-										{s.source_system}
-										{#if draft}
-											<div class="text-xs font-normal text-brand-muted pt-0.5">
-												Draft started {formatRelativeTime(draft.created_at)}:
-												{formatCount(draft.summary.will_pair)} to pair,
-												{formatCount(draft.summary.will_skip)} to skip
-											</div>
-											{#if draft.uncovered_streams}
-												<div class="text-xs font-normal text-severity-warning pt-0.5">
-													{formatCount(draft.uncovered_streams)} stream{draft.uncovered_streams === 1 ? '' : 's'}
-													registered since are not in it; start over to include them.
-												</div>
-											{/if}
-										{/if}
-									</td>
-									<td class="px-4 py-3 text-right"><span class="text-severity-warning font-semibold">{formatCount(s.unpaired)}</span> <span class="text-brand-muted">unpaired</span></td>
-									<td class="px-4 py-3 text-right text-brand-muted">{formatCount(s.paired)} paired</td>
-									<td class="px-4 py-3 text-right whitespace-nowrap">
-										{#if draft}
-											<Button size="sm" onclick={(e) => { e.stopPropagation(); resumePlan(draft.id); }}>Resume</Button>
-											<ConfirmButton
-												label="Start over"
-												confirmLabel="Click again to start over"
-												consequence="The open draft keeps its decisions but can no longer be applied"
-												onconfirm={() => startOverPlan(draft)}
-											/>
-											<ConfirmButton
-												label="Discard"
-												confirmLabel="Click again to discard"
-												consequence="Its decisions are lost and its streams stay unpaired"
-												onconfirm={() => discardPlan(draft)}
-											/>
-										{:else}
-											<Button size="sm" onclick={(e) => { e.stopPropagation(); createPlan(s.source_system); }}>Discover</Button>
-										{/if}
-										{#if appliedFor(s.source_system)}
-											{@const done = appliedFor(s.source_system)}
-											<Button size="sm" variant="ghost" onclick={(e) => { e.stopPropagation(); openResults(done!.id); }}>
-												{#if done!.id === applyingPlanId}Applying…{:else if done!.id === revertingPlanId}Reverting…{:else}Results{/if}
-											</Button>
-										{/if}
-									</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-			{:else if unpairedSummary.length === 0}
-				<p class="text-brand-muted">No source has registered any streams yet. Streams appear after a sync service completes its first discovery cycle.</p>
-				<p class="text-sm"><a class="text-brand-primary" href="{base}/system?tab=status">Check service status</a></p>
-			{:else}
-				<p class="text-severity-ok">All streams are paired.</p>
-			{/if}
-			{#if fullyPaired.length > 0}
-				<p class="text-xs text-brand-muted">{fullyPaired.map((s) => s.source_system).join(', ')} -- fully paired ({formatCount(fullyPaired.reduce((a, s) => a + s.paired, 0))} streams)</p>
-			{/if}
-		{/if}
-	</div>
+	<p class="text-brand-muted">Loading sources…</p>
 
 <!-- ════════════════════ PLAN REVIEW ════════════════════ -->
 {:else if mode === 'review' && plan}

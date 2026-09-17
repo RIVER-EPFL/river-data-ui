@@ -86,7 +86,7 @@ describe('the browse link', () => {
 	it('reads back the filter it wrote', () => {
 		const filter = { kind: 'replicate_stats' as const, siteId: 's', parameterId: 'p', from: 'a', to: 'b' };
 		const href = tagBrowseHref(filter);
-		expect(href).toContain('tab=discrepancies');
+		expect(href).toContain('tab=review&review=discrepancies');
 		expect(readTagParams(new URL(href, 'http://x').searchParams)).toEqual(filter);
 	});
 

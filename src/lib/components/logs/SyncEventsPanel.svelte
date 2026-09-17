@@ -28,7 +28,9 @@
 		const svc = serviceMap.get(serviceId);
 		return {
 			label: svc?.instance_id ?? serviceId.slice(0, 8) + '…',
-			href: `${base}/system`,
+			href: svc
+				? `${base}/streams?tab=services&service=${encodeURIComponent(svc.instance_id)}`
+				: `${base}/streams?tab=services`,
 		};
 	}
 

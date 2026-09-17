@@ -3,9 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { originServiceHref } from './serviceLink';
 
 describe('origin service link', () => {
-	it('opens the status tab on the source system for an admin', () => {
+	it('opens the services tab on the source system for an admin', () => {
 		expect(originServiceHref('/app', { classification: 'sync', source_system: 'cnet' }, true)).toBe(
-			'/app/system?tab=status&service=cnet',
+			'/app/streams?tab=services&service=cnet',
 		);
 	});
 

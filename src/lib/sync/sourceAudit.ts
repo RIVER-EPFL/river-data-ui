@@ -9,12 +9,12 @@ function streamsHref(base: string, params: Record<string, string>): string {
 
 /** The plan wizard, landed on the audited source's row. */
 export function pairingPlanHref(base: string, sourceSystem: string): string {
-	return streamsHref(base, { step: 'source-select', source: sourceSystem });
+	return streamsHref(base, { tab: 'pair', source: sourceSystem });
 }
 
 /** The streams list, held to the audited source's unpaired rows. */
 export function unpairedStreamsHref(base: string, sourceSystem: string): string {
-	return streamsHref(base, { list_filter: 'unpaired', source: sourceSystem });
+	return streamsHref(base, { tab: 'streams', list_filter: 'unpaired', source: sourceSystem });
 }
 
 /** A command row as the audit reads it: the service that answered, and what it answered with. */

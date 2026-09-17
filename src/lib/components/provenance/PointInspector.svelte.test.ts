@@ -317,7 +317,7 @@ describe('PointInspector', () => {
 		await screen.findByText('Visit recompute completed');
 		const hrefs = Array.from(container.querySelectorAll('li a')).map((a) => a.getAttribute('href'));
 		expect(hrefs.filter((h) => h === '/admin/system?tab=jobs&job=job-1')).toHaveLength(2);
-		expect(hrefs.some((h) => h?.includes('tab=discrepancies') && h.includes('tags_kind=replicate_stats'))).toBe(true);
+		expect(hrefs.some((h) => h?.includes('review=discrepancies') && h.includes('tags_kind=replicate_stats'))).toBe(true);
 	});
 
 	it('writes an absent value as a plain hyphen and never an em dash', async () => {
@@ -464,7 +464,7 @@ describe('PointInspector', () => {
 		admin.value = true;
 		const first = open(handEntered());
 		await screen.findByText('8.005');
-		const link = first.container.querySelector('a[href$="/system?tab=status&service=cnet"]');
+		const link = first.container.querySelector('a[href$="/streams?tab=services&service=cnet"]');
 		expect(link).toBeTruthy();
 		first.unmount();
 		admin.value = false;
@@ -709,13 +709,13 @@ describe('PointInspector', () => {
 	it('links a discrepancy tag to the browse narrowed to this reading', async () => {
 		const { container } = open(syncedGroup());
 		await screen.findAllByText('41.2');
-		const link = container.querySelector('a[href*="tab=discrepancies"]')!;
+		const link = container.querySelector('a[href*="review=discrepancies"]')!;
 		const params = new URL(link.getAttribute('href')!, 'http://x').searchParams;
 		expect(params.get('tags_site')).toBe('site');
 		expect(params.get('tags_parameter')).toBe('param');
 		expect(params.get('tags_kind')).toBe('replicate_stats');
 		expect(params.get('tags_from')).toBe('2026-07-14T09:00:00.000Z');
-		expect(container.querySelector('a[href*="tab=audits"]')).toBeNull();
+		expect(container.querySelector('a[href*="review=actionable"]')).toBeNull();
 	});
 
 	describe('opened from a visit', () => {

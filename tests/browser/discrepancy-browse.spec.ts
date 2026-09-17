@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test';
 import { BASE_PATH, signIn } from './portal';
 
 // Scenario: a reading's point record links to the discrepancies recorded at its instant.
-// Expected behaviour: the Discrepancies tab opens narrowed to that reading, lists the tag with the
-// source's statistics beside ours and a link back to the point record, and offers no review action.
+// Expected behaviour: the informational Review section opens narrowed to that reading, lists the
+// tag with the source's statistics beside ours and a link back, and offers no review action.
 
 const TAG = {
 	id: '00000000-0000-4000-a000-00000000d001',
@@ -57,6 +57,12 @@ test('the discrepancies at one reading are listed read-only with a link back to 
 	});
 	await page.goto(`${BASE_PATH}/streams?${query}`);
 
+	await expect(page).toHaveURL(/tab=review/);
+	await expect(page).toHaveURL(/review=discrepancies/);
+	await expect(page.getByRole('button', { name: /^Review/ })).toHaveClass(/border-brand-primary/);
+	await expect(page.getByRole('button', { name: 'Discrepancies (informational)' })).toHaveClass(
+		/border-brand-primary/,
+	);
 	await expect(page.getByText('FP3 · DOC')).toBeVisible();
 	await expect(page.getByText('mean 20, sd 8.16, n 4')).toBeVisible();
 	await expect(page.getByText('mean 20.5, sd 10, n 3')).toBeVisible();
@@ -69,4 +75,33 @@ test('the discrepancies at one reading are listed read-only with a link back to 
 	const record = page.getByRole('link', { name: 'Point record' });
 	await expect(record).toHaveAttribute('href', new RegExp(`/sites/${TAG.site_id}\\?point=${TAG.site_parameter_id}`));
 	await expect(page.getByRole('button', { name: /acknowledge|mark reviewed|resolve/i })).toHaveCount(0);
+});
+
+test('legacy audit links open actionable review with its pending count and resolved hold', async ({
+	page,
+}) => {
+	const asked: URLSearchParams[] = [];
+	await page.route(
+		(url) => url.pathname.endsWith('/api/sync/replicate_audit_holds'),
+		(route) => {
+			asked.push(new URL(route.request().url()).searchParams);
+			route.fulfill({
+				json: { holds: [], total: 0, pending: 3, deferred: 0, pending_by_kind: {} },
+			});
+		},
+	);
+	await page.route(
+		(url) => url.pathname.endsWith('/api/reading_change_proposals'),
+		(route) => route.fulfill({ headers: { 'content-range': 'items 0-0/2' }, json: [] }),
+	);
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/streams?tab=audits&holds_id=hold-1&view=resolved`);
+
+	await expect(page).toHaveURL(/tab=review/);
+	await expect(page).toHaveURL(/review=actionable/);
+	await expect(page.getByRole('button', { name: 'Review (5)' })).toHaveClass(/border-brand-primary/);
+	await expect(page.getByText('No resolved holds')).toBeVisible();
+	await expect
+		.poll(() => asked.some((p) => p.get('status') === 'resolved' && p.get('id') === 'hold-1'))
+		.toBe(true);
 });

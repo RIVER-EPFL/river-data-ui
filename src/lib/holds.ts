@@ -147,7 +147,7 @@ export function holdHref(base: string, hold: HoldLink, at: HoldLinkContext): str
 	if (INSTRUMENT_KINDS.includes(kind)) {
 		return at.sensorId ? `${base}/sensors/${at.sensorId}` : `${base}/sensors`;
 	}
-	const params = new URLSearchParams({ tab: 'audits', holds_id: hold.id });
+	const params = new URLSearchParams({ tab: 'review', review: 'actionable', holds_id: hold.id });
 	if (hold.status !== 'pending') params.set('view', 'resolved');
 	return `${base}/streams?${params}`;
 }

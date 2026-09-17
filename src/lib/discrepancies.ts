@@ -52,9 +52,9 @@ export function readTagParams(params: URLSearchParams): TagFilter {
 	return filter;
 }
 
-/** The streams page's tags tab under a filter. */
+/** The streams page's informational review section under a filter. */
 export function tagBrowseHref(filter: TagFilter): string {
-	const params = new URLSearchParams({ tab: 'discrepancies' });
+	const params = new URLSearchParams({ tab: 'review', review: 'discrepancies' });
 	if (filter.kind) params.set(PARAM.kind, filter.kind);
 	for (const key of ['siteId', 'parameterId', 'from', 'to'] as const) {
 		const value = filter[key];

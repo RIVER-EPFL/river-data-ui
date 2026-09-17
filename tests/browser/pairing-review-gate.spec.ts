@@ -226,7 +226,9 @@ test('choosing another planned instrument joins the two', async ({ page, request
 test('discarding a draft asks by changing the button', async ({ page, request }) => {
 	const { sourceSystem } = await seedPlan(request);
 	await signIn(page);
-	await page.goto(`${BASE_PATH}/streams?step=source-select`);
+	await page.goto(`${BASE_PATH}/streams`);
+	await expect(page.getByRole('heading', { name: 'Sync services' })).toBeVisible();
+	await expect(page).toHaveURL(/tab=pair/);
 
 	const row = page.getByRole('row').filter({ hasText: sourceSystem });
 	await row.getByRole('button', { name: 'Discard', exact: true }).click();
