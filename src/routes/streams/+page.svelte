@@ -4,7 +4,7 @@
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { ApiError } from '$api/client';
-	import { api, type DataStream, type SiteParameter, type Site, type Parameter } from '$api/crud';
+	import { api, type DataStream, type SiteParameter, type Site, type Parameter, type Project } from '$api/crud';
 	import {
 		pairStream, unpairStream, getStreamStats, listStreamReceipts, retagStreams, createPairingPlan, updatePairingPlan,
 		applyPairingPlan, revertPairingPlan, getUnpairedSummary, getPlanSiteMetadata,
@@ -22,12 +22,16 @@
 	import { me } from '$auth/me.svelte';
 	import {
 		siteGroups as planSiteGroups,
-		instrumentGroups as planInstrumentGroups,
 		familySummary as planFamilySummary,
 		paramGroups as planParamGroups,
 		parameterIndex,
 		instrumentBindings as planInstrumentBindings,
 		type InstrumentDecision,
+		type InstrumentLabel,
+		instrumentCoverage,
+		instrumentLabel,
+		instrumentRows,
+		instrumentsOf,
 		isAskingInstrument,
 		deviceDecisions,
 		suggestionAcceptance,
@@ -44,18 +48,13 @@
 	import { movesPlanInstruments, splitPlanUpdates, type PlanUpdate } from '$lib/pairing/planUpdates';
 	import { NO_PLAN_RUNS, runsAfterJob, type PlanRuns } from '$lib/pairing/planRuns';
 	import { eventBus } from '$lib/stores/events.svelte';
-	import { entryStatus, matchesFilter, reviewState, reviewStateLabel, statusLabel, type EntryFilter } from '$lib/pairing/entryStatus';
-	import {
-		acceptHint,
-		entriesSettledBy,
-		objectDecisions,
-		type ObjectDecision,
-	} from '$lib/pairing/objectDecisions';
-	import { activeReviewTab, objectsTabLabel, type ReviewTab } from '$lib/pairing/reviewTabs';
+	import { objectDecisions, type ObjectDecision } from '$lib/pairing/objectDecisions';
+	import { activeReviewTab, type ReviewTab } from '$lib/pairing/reviewTabs';
 	import PairSkipToggle from '$components/ui/PairSkipToggle.svelte';
 	import MappingSelect, { type MappingGroup } from '$components/ui/MappingSelect.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
+	import ConfirmButton from '$components/ui/ConfirmButton.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import StreamBrake from '$components/streams/StreamBrake.svelte';
 	import { formatClockTime, formatDateTime, formatSignificant } from '$lib/utils';
@@ -72,20 +71,13 @@
 	import ConfirmStep from '$components/pairing/ConfirmStep.svelte';
 	import ApplyResults from '$components/pairing/ApplyResults.svelte';
 	import CurvesTab from '$components/pairing/CurvesTab.svelte';
+	import ProjectsTab from '$components/pairing/ProjectsTab.svelte';
 	import InstrumentsTab from '$components/pairing/InstrumentsTab.svelte';
-	import ParametersTab, { PARAM_ROWS_PER_PAGE } from '$components/pairing/ParametersTab.svelte';
-	import { gateBlocking, planGateItems, type GateItem } from '$lib/pairing/applyGate';
+	import ParametersTab from '$components/pairing/ParametersTab.svelte';
+	import { REVIEW_ROWS_PER_PAGE, type ReviewFilter } from '$components/pairing/ReviewTable.svelte';
+	import { applyBlockedReason, planGateItems } from '$lib/pairing/applyGate';
 	import SitesTab from '$components/pairing/SitesTab.svelte';
-	import {
-		clearSelection,
-		emptySelection,
-		prune,
-		selectAllInFilter,
-		selectEntries,
-		toggle as toggleSelected,
-		type Selection,
-	} from '$lib/pairing/selection';
-	import { bulkUpdates, type BulkDecision } from '$lib/pairing/bulkActions';
+	import { chunked } from '$lib/pairing/chunked';
 
 	// ── Stream list state ──
 	let streams = $state<DataStream[]>([]);
@@ -232,23 +224,14 @@
 	// The review's own position is in the URL, so a reload lands on the same tab, page and filter
 	// rather than at the top of a 1891-entry plan.
 	const reviewParam = (name: string) => page.url.searchParams.get(name);
-	let siteSearch = $state(reviewParam('q') ?? '');
-	let reviewFilter = $state<EntryFilter>((reviewParam('filter') as EntryFilter) ?? 'all');
-	/** The rows a bulk action is about. Kept beside the plan so a tab change does not lose it. */
-	let planSelection = $state<Selection>(emptySelection);
+	// One search, filter and page, for whichever tab is open. A tab change starts them afresh.
+	let tableQuery = $state(reviewParam('q') ?? '');
+	let tableFilter = $state<ReviewFilter>((reviewParam('filter') as ReviewFilter) ?? 'all');
+	let tablePage = $state(Math.max(0, Number(reviewParam('page') ?? '1') - 1) || 0);
 	let expandedSites = $state<Set<string>>(new Set());
-	let editingSite = $state<string | null>(null);
-	let editingParam = $state<{ site: string; streamId: string } | null>(null);
-	let editingGlobalParam = $state<string | null>(null);
-	let editValue = $state('');
-	let customParamInput = $state<string | null>(null);
 	let expandedParamGroups = $state<Set<string>>(new Set());
 	let splitParamInput = $state<{ groupName: string; sourceName: string } | null>(null);
 	let splitParamValue = $state('');
-	// The page of parameter rows on show, held here so goToParam can turn to the row it wants.
-	let paramPage = $state(0);
-	let sitePage = $state(Math.max(0, Number(reviewParam('page') ?? '1') - 1) || 0);
-	const sitesPerPage = 50;
 	// Objects first: the handful of projects, sites and parameters the plan creates is the
 	// decision behind most rows. Parameters is the cross-site editor after that, where every
 	// naming, units and instrument decision is made once rather than 31 times in Sites.
@@ -262,9 +245,9 @@
 	// every other step these params are noise.
 	$effect(() => {
 		const tab = reviewTab;
-		const filter = reviewFilter;
-		const search = siteSearch;
-		const pageNo = sitePage;
+		const filter = tableFilter;
+		const search = tableQuery;
+		const pageNo = tablePage;
 		const planId = plan?.id;
 		untrack(() => {
 			if (mode !== 'review') return;
@@ -286,39 +269,6 @@
 
 	const siteGroups = $derived(planSiteGroups(planEntries));
 
-	const filteredGroups = $derived.by(() => {
-		let groups = siteGroups;
-		if (siteSearch.trim()) {
-			const q = siteSearch.toLowerCase();
-			groups = groups.filter((g) => g.siteName.toLowerCase().includes(q));
-		}
-		if (reviewFilter === 'pair') groups = groups.filter((g) => g.pairCount > 0);
-		else if (reviewFilter === 'skip') groups = groups.filter((g) => g.skipCount === g.entries.length);
-		else if (reviewFilter !== 'all') {
-			// Unmatched and with-warnings read the entry's own status, the same predicate the row
-			// renders its legend from, so a filtered list and the badges on it cannot disagree.
-			groups = groups.filter((g) => g.entries.some((e) => matchesFilter(e, reviewFilter)));
-		}
-		return groups;
-	});
-
-	// What share of the plan still wants a person, over the entries it would pair. Read from the
-	// entries so it follows an unsaved tick, and rounded the same way in both chips.
-	const reviewProgress = $derived.by(() => {
-		const pairing = planEntries.filter((e) => e.action === 'pair');
-		const counts = { needs_checking: 0, self_validated: 0, acknowledged: 0 };
-		for (const e of pairing) counts[reviewState(e)]++;
-		const pct = (n: number) => (pairing.length === 0 ? 0 : Math.round((n / pairing.length) * 100));
-		return {
-			total: pairing.length,
-			...counts,
-			needsCheckingPct: pct(counts.needs_checking),
-			selfValidatedPct: pct(counts.self_validated),
-		};
-	});
-
-	const pagedGroups = $derived(filteredGroups.slice(sitePage * sitesPerPage, (sitePage + 1) * sitesPerPage));
-	const totalSitePages = $derived(Math.ceil(filteredGroups.length / sitesPerPage));
 
 	const summary = $derived.by(() => {
 		let toPair = 0, toSkip = 0, warnings = 0;
@@ -337,7 +287,6 @@
 		return { toPair, toSkip, total: planEntries.length, warnings, newSites: newSites.size, newParams: newParams.size, newProjects: newProjects.size };
 	});
 
-	const instrumentGroups = $derived(planInstrumentGroups(planEntries));
 	const instrumentBindings = $derived(planInstrumentBindings(planEntries));
 
 	// ── Instrument decisions ──
@@ -386,22 +335,35 @@
 	});
 
 	const planDevices = $derived<PlanDeviceGroup[]>(planInstruments?.devices ?? []);
-	const deviceParameters = $derived(new Set(planDevices.flatMap((d) => d.parameters)));
-	function deviceSiteCount(parameter: string): number {
-		return new Set(
-			planDevices.filter((d) => d.parameters.includes(parameter)).map((d) => d.site),
-		).size;
-	}
 	const planDeviceDecisions = $derived(deviceDecisions(planDevices));
+	// The Instruments tab's rows, and how every other tab names the row a stream belongs to.
+	const instrumentRowList = $derived(instrumentRows(planDevices, planDeviceDecisions, instrumentDecisions));
+	const instrumentLabels = $derived(new Map(instrumentRowList.map((r) => [r.key, instrumentLabel(r)])));
+	const coverage = $derived(instrumentCoverage(planEntries));
+	const entryById = $derived(new Map(planEntries.map((e) => [e.stream_id, e])));
+
+	// Empty while the instruments load, so no tab reads a stream as having none.
+	function instrumentsFor(streamIds: string[]): InstrumentLabel[] {
+		if (!planInstruments) return [];
+		const entries = streamIds.map((id) => entryById.get(id)).filter((e): e is PairingPlanEntry => !!e);
+		return instrumentsOf(entries, instrumentLabels);
+	}
+
+	// One instrument opens on its row; several open the tab searched for what they measure.
+	function goToInstruments(instruments: InstrumentLabel[], query: string) {
+		openTab('instruments');
+		if (instruments.length !== 1) {
+			tableQuery = query;
+			tablePage = 0;
+			return;
+		}
+		const at = instrumentRowList.findIndex((r) => r.key === instruments[0].key);
+		if (at >= 0) tablePage = Math.floor(at / REVIEW_ROWS_PER_PAGE);
+		flashTo(instrumentRowId(instruments[0].key));
+	}
+
 	const openInstrumentQuestions = $derived(
 		[...instrumentDecisions, ...planDeviceDecisions].filter(isAskingInstrument).length,
-	);
-	// The apply is refused while any of these is open, one step later. Say so here, where they can
-	// still be answered, rather than only on the screen that stops.
-	const instrumentsTabLabel = $derived(
-		openInstrumentQuestions > 0
-			? `Instruments (${openInstrumentQuestions} to decide)`
-			: `Instruments (${instrumentDecisions.length + planDevices.length})`,
 	);
 
 	// Every creation this plan proposes, offered on every row, so two parameters can converge on
@@ -451,11 +413,6 @@
 	// Every option is a transition: attach an existing instrument, propose a creation (which is
 	// also how an attach is undone, since naming one proposes it), or attach nothing.
 	function chooseInstrument(d: InstrumentDecision, value: string) {
-		if (value === '__custom__') {
-			editingInstrument = d.scope;
-			instrumentEditValue = d.group?.name ?? d.proposedName;
-			return;
-		}
 		if (value === '') {
 			void detachInstrument(d.anchorStreamId);
 			return;
@@ -469,7 +426,7 @@
 
 	// An instrument scope carries the source's own key, which may hold spaces ("metalp:chla acid"),
 	// and an element id may not. One helper builds the id and reads it back, so they cannot drift.
-	const instrumentRowId = (scope: string) => `instrument-row-${scope.replace(/\s+/g, '-')}`;
+	const instrumentRowId = (key: string) => `instrument-row-${key.replace(/\s+/g, '-')}`;
 
 	// Show a row the reader was sent to: the tab is switched first, so the scroll waits a tick for
 	// it to render.
@@ -481,11 +438,6 @@
 			row.classList.add('flash-highlight');
 			setTimeout(() => row.classList.remove('flash-highlight'), 1600);
 		}, 0);
-	}
-
-	function goToInstrument(scope: string) {
-		reviewTab = 'instruments';
-		flashTo(instrumentRowId(scope));
 	}
 
 	const familySummary = $derived(planFamilySummary(planEntries));
@@ -517,18 +469,6 @@
 	}
 
 	// ── Consolidated parameter view ──
-	// One parameter row's status, read from the entries under it by the predicate the site rows
-	// and the filters use, so a row's summary cannot disagree with what expanding it shows.
-	function groupStatus(pg: ParamGroup) {
-		const ids = new Set(pg.streamIds);
-		const entries = planEntries.filter((e) => ids.has(e.stream_id));
-		return {
-			total: entries.length,
-			unmatched: entries.filter((e) => matchesFilter(e, 'unmatched')).length,
-			warnings: entries.filter((e) => matchesFilter(e, 'warnings')).length,
-		};
-	}
-
 	const paramGroups = $derived(planParamGroups(planEntries));
 
 	function rowWarnings(pg: ParamGroup): string[] {
@@ -559,24 +499,8 @@
 		await loadPlanInstruments();
 	}
 
-	// One instrument over a selection: the same write the per-row picker makes, queued once per row
-	// and flushed together, so a hundred parameters onto three instruments is three actions rather
-	// than a hundred. Each row settles every entry sharing its key, as a single choice does.
-	async function assignInstrumentToRows(rows: InstrumentDecision[], instrumentId: string) {
-		if (rows.length === 0 || !instrumentId) return;
-		queueUpdate(
-			rows.map((d) => ({ stream_id: d.anchorStreamId, instrument_id: instrumentId })),
-		);
-		try { await flushUpdates(); } catch { /* the toast from the failed flush is the signal */ }
-		await loadPlanInstruments();
-	}
-
-	// One decision over the chosen rows: the same writes the per-row controls make, built once and
-	// sent as a single PATCH, which the server applies in one transaction. The local entries move
-	// with it so the review reads the way the operator just left it rather than waiting on a reload.
-	async function applyBulkDecision(decision: BulkDecision) {
-		const updates = bulkUpdates(planEntries, planSelection, decision);
-		if (updates.length === 0) return;
+	// Moves the local entries and sends the updates in requests that stay under the body limit.
+	async function sendEntryUpdates(updates: PlanEntryUpdate[]) {
 		for (const update of updates) {
 			const entry = planEntries.find((e) => e.stream_id === update.stream_id);
 			if (!entry) continue;
@@ -584,13 +508,9 @@
 			if (update.acknowledged != null) entry.acknowledged = update.acknowledged;
 		}
 		planEntries = [...planEntries];
-		queueUpdate(updates, { immediate: true });
-		try {
+		for (const batch of chunked(updates)) {
+			queueUpdate(batch, { immediate: true });
 			await flushUpdates();
-			toastStore.success(`${formatCount(updates.length)} rows updated`);
-		} catch { /* the toast from the failed flush is the signal */ }
-		if (decision.field === 'instrument_id' || decision.field === 'instrument_clear') {
-			await loadPlanInstruments();
 		}
 	}
 
@@ -600,31 +520,6 @@
 		try { await flushUpdates(); } catch { /* as above */ }
 		await loadPlanInstruments();
 	}
-
-	const boundInstruments = $derived(planInstruments?.groups.length ?? 0);
-
-	// The instrument decision for one source parameter, whichever half of the response carries it.
-	// A curve column and a bare parameter are the same decision to an operator, so the Parameters
-	// tab renders both through one lookup.
-	type ParamInstrument = {
-		scope: string;
-		anchorStreamId: string;
-		suggestion: string;
-		group: PlanInstrumentGroup | null;
-	};
-	const instrumentByParameter = $derived.by(() => {
-		const map = new Map<string, ParamInstrument>();
-		for (const g of planInstruments?.groups ?? []) {
-			if (!g.anchor_stream_id) continue;
-			for (const p of g.parameters) {
-				map.set(p, { scope: g.scope ?? p, anchorStreamId: g.anchor_stream_id, suggestion: g.name, group: g });
-			}
-		}
-		for (const u of planInstruments?.unassigned ?? []) {
-			map.set(u.parameter, { scope: u.scope, anchorStreamId: u.anchor_stream_id, suggestion: u.suggested_name, group: null });
-		}
-		return map;
-	});
 
 	// An instrument that exists takes the curve now; one this plan will create takes it when the
 	// plan is applied, so the choice is carried on the plan until then.
@@ -665,13 +560,9 @@
 		return [...seen.entries()].map(([sourceKey, name]) => ({ sourceKey, name }));
 	});
 
-	// Inline edits in the Instruments tab, keyed the same way the parameter cells are: one open
-	// editor at a time, Enter commits, Escape abandons.
-	let editingInstrument = $state<string | null>(null);
+	// The curve name editor: one open at a time, Enter commits, Escape abandons.
 	let editingCurve = $state<string | null>(null);
-	let instrumentEditValue = $state('');
 	let curveEditValue = $state('');
-	let acceptingSuggestions = $state(false);
 
 	// Naming an instrument is what creates it: the plan carries the proposal, the apply mints it,
 	// and every stream in the scope moves with it.
@@ -682,23 +573,20 @@
 		await loadPlanInstruments();
 	}
 
-	// The suggestions as a set: one click rather than one per parameter, each row keeping its own
-	// name edit and attach choice after it.
-	async function acceptAllSuggestions() {
+	// Accepts every suggestion still asking. A suggestion whose name is already an instrument's is
+	// left for a person, since attaching and a second instrument are both answers.
+	async function acceptAllSuggestions(): Promise<PlanEntryUpdate[]> {
 		const { updates, held } = suggestionAcceptance([...instrumentDecisions, ...planDeviceDecisions]);
 		if (held > 0) {
 			toastStore.info(
 				`${held} suggestion${held === 1 ? '' : 's'} left for you: the name is already an instrument, so attaching or creating a second one is your call.`,
 			);
 		}
-		if (updates.length === 0) return;
-		acceptingSuggestions = true;
-		try {
-			queueUpdate(updates);
-			await flushUpdates();
-			await loadPlanInstruments();
-		} catch { /* as above */ }
-		finally { acceptingSuggestions = false; }
+		if (updates.length === 0) return [];
+		queueUpdate(updates);
+		await flushUpdates();
+		await loadPlanInstruments();
+		return updates.map((u) => ({ stream_id: u.stream_id, instrument_confirmed: true }));
 	}
 
 	async function refreshLabInstruments() {
@@ -715,13 +603,6 @@
 	// A name the plan carries is a proposal, and naming one is what proposes it. An instrument that
 	// already exists is the inventory's: it is renamed on its own page, where what else depends on
 	// the name is visible, never as a side effect of editing a plan.
-	async function commitInstrumentName(anchorStreamId: string, group: PlanInstrumentGroup | null) {
-		const name = instrumentEditValue.trim();
-		editingInstrument = null;
-		if (!name || name === group?.name) return;
-		await proposeInstrument(anchorStreamId, name);
-	}
-
 	async function commitCurveName(curveId: string, current: string | null) {
 		const name = curveEditValue.trim();
 		editingCurve = null;
@@ -764,28 +645,29 @@
 	}
 
 	function goToParam(paramName: string) {
-		reviewTab = 'parameters';
+		openTab('parameters');
 		const at = paramGroups.findIndex((pg) => pg.name === paramName);
-		if (at >= 0) paramPage = Math.floor(at / PARAM_ROWS_PER_PAGE);
+		if (at >= 0) tablePage = Math.floor(at / REVIEW_ROWS_PER_PAGE);
 		flashTo(`param-row-${paramName}`);
+	}
+
+	function openTab(tab: ReviewTab) {
+		if (tab !== activeTab) {
+			tableQuery = '';
+			tableFilter = 'all';
+			tablePage = 0;
+		}
+		reviewTab = tab;
 	}
 
 	// A site named on the object card: the filter and search are cleared first, since a site the
 	// reader asked for must not be hidden by a filter they set for something else.
 	function goToSite(siteName: string) {
-		reviewTab = 'sites';
-		siteSearch = '';
-		reviewFilter = 'all';
+		openTab('sites');
 		const at = siteGroups.findIndex((g) => g.siteName === siteName);
-		if (at >= 0) sitePage = Math.floor(at / sitesPerPage);
+		if (at >= 0) tablePage = Math.floor(at / REVIEW_ROWS_PER_PAGE);
 		expandedSites = new Set(expandedSites).add(siteName);
 		flashTo(`site-row-${siteName}`);
-	}
-
-	/// Where an object on the card lives. A project has no tab of its own: it is the plan.
-	function goToObject(decision: ObjectDecision) {
-		if (decision.kind === 'site') goToSite(decision.name);
-		else if (decision.kind === 'parameter') goToParam(decision.name);
 	}
 
 	// A parameter that does not exist yet is created once per name, so entries converging onto it
@@ -838,17 +720,6 @@
 		queueUpdate(updates);
 		splitParamInput = null;
 		splitParamValue = '';
-	}
-
-	function startEditGlobalParam(name: string) {
-		editingGlobalParam = name;
-		editValue = name;
-	}
-
-	function commitEditGlobalParam() {
-		if (!editingGlobalParam) return;
-		renameGlobalParam(editingGlobalParam, editValue);
-		editingGlobalParam = null;
 	}
 
 	function mapParamToExisting(oldName: string, existingParam: Parameter) {
@@ -911,75 +782,6 @@
 		queueUpdate(updates);
 	}
 
-	// ── Plan-wide decisions ──
-	// A predicate the server applies, not a client-built list the size of the plan: a CNET plan is
-	// 1891 entries and a NOMIS one 29,400.
-	interface BulkActionOption {
-		key: string;
-		label: string;
-		title: string;
-		where: { confidence?: string; has_warnings?: boolean };
-		action: 'pair' | 'skip';
-		count: number;
-	}
-
-	let bulkRunning = $state<string | null>(null);
-
-	const bulkActions = $derived.by((): BulkActionOption[] => {
-		const pairable = (e: PairingPlanEntry) =>
-			e.site.name.trim() !== '' && e.parameter.name.trim() !== '';
-		const matched = planEntries.filter((e) => e.confidence === 'exact');
-		const unmatched = planEntries.filter((e) => e.confidence !== 'exact');
-		const warned = planEntries.filter((e) => e.warnings.length > 0);
-		return [
-			{
-				key: 'pair-matched',
-				label: 'Pair all matched',
-				title: 'Every entry whose project, site and parameter all resolve to existing entities',
-				where: { confidence: 'exact' },
-				action: 'pair',
-				count: matched.filter((e) => e.action !== 'pair' && pairable(e)).length,
-			},
-			{
-				key: 'skip-unmatched',
-				label: 'Skip all unmatched',
-				title: 'Every entry this plan would create a project, site or parameter for',
-				where: { confidence: 'none' },
-				action: 'skip',
-				count: unmatched.filter((e) => e.action !== 'skip').length,
-			},
-			{
-				key: 'skip-warnings',
-				label: 'Skip all with warnings',
-				title: 'Every entry the plan raised a warning on',
-				where: { has_warnings: true },
-				action: 'skip',
-				count: warned.filter((e) => e.action !== 'skip').length,
-			},
-		];
-	});
-
-	async function runBulkAction(option: BulkActionOption) {
-		if (!plan || option.count === 0) return;
-		bulkRunning = option.key;
-		try {
-			// Pending edits first: the bulk arm runs before the per-entry updates on the server,
-			// so flushing keeps the order the operator made the decisions in.
-			await flushUpdates();
-			const updated = await bulkUpdatePairingPlan(plan.id, plan.version, {
-				where: option.where,
-				action: option.action,
-			});
-			plan = updated;
-			planEntries = [...updated.entries];
-			planSelection = prune(planSelection, planEntries);
-			editGeneration++;
-			toastStore.success(`${option.label}: ${formatCount(option.count)} entries`);
-		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'The bulk action was not applied');
-		} finally { bulkRunning = null; }
-	}
-
 	// ── Unsaved decisions ──
 	// A generation counter drops server snapshots that would overwrite local edits made while the
 	// PATCH was in flight; the queue itself lives in draftQueue.ts, where it is tested.
@@ -1004,7 +806,6 @@
 				if (editGeneration === generation) {
 					plan = updated;
 					planEntries = [...updated.entries];
-			planSelection = prune(planSelection, planEntries);
 				} else {
 					// The snapshot is stale, but its version is what the next write must name.
 					plan = { ...plan, version: updated.version };
@@ -1018,7 +819,6 @@
 						const reloaded = await getPairingPlan(plan.id);
 						plan = reloaded;
 						planEntries = [...reloaded.entries];
-			planSelection = prune(planSelection, planEntries);
 						toastStore.error('Someone else edited this plan; it was reloaded and your change will be reapplied.');
 						throw new ApiError(503, 'Plan reloaded, reapplying');
 					} catch (reload) {
@@ -1091,59 +891,133 @@
 		queueUpdate([{ stream_id: entry.stream_id, action }], { immediate: true });
 	}
 
-	// Deciding is not editing: this records that a person looked and agreed, and nothing else on
-	// the entry moves.
-	function setEntryAcknowledged(entry: PairingPlanEntry, acknowledged: boolean) {
-		if ((entry.acknowledged ?? false) === acknowledged) return;
-		entry.acknowledged = acknowledged;
-		planEntries = [...planEntries];
-		queueUpdate([{ stream_id: entry.stream_id, acknowledged }], { immediate: true });
-	}
-
-	// ── Object decisions ──
-	// A project, a site or a parameter this plan creates is one decision however many rows name it,
-	// so it is accepted once here and every row it was holding up reads as checked.
-	// The plan records which objects the review accepted; the overlay is this session's clicks
-	// before their PATCH has come back.
+	// ── Reviews ──
+	// A project or parameter is reviewed once however many rows name it; the plan records the key.
+	// The overlay is this session's clicks before their PATCH has come back.
 	let objectOverlay = $state<Map<string, boolean>>(new Map());
-	const acceptedObjectKeys = $derived.by(() => {
+	const reviewedKeys = $derived.by(() => {
 		const keys = new Set((plan?.accepted_objects ?? []).map((a) => a.key));
-		for (const [key, accepted] of objectOverlay) {
-			if (accepted) keys.add(key);
+		for (const [key, reviewed] of objectOverlay) {
+			if (reviewed) keys.add(key);
 			else keys.delete(key);
 		}
 		return keys;
 	});
-	const planObjects = $derived(objectDecisions(planEntries, acceptedObjectKeys));
-	const openObjects = $derived(planObjects.filter((d) => !d.accepted));
-	const activeTab = $derived(activeReviewTab(reviewTab, planObjects.length, openObjects.length));
+	const planProjects = $derived(objectDecisions(planEntries, 'project', reviewedKeys));
+	const planParameters = $derived(objectDecisions(planEntries, 'parameter', reviewedKeys));
 
-	// Accepting an object records the decision; the rows it completes are ticked with it, and a row
-	// naming an object nobody has accepted yet waits for that one.
-	function acceptObject(decision: ObjectDecision) {
-		if (decision.accepted) {
-			queueObject(decision.key, false);
-			return;
-		}
-		acceptObjects([decision]);
+	function reviewProject(project: ObjectDecision, reviewed: boolean) {
+		queueObject(project.key, reviewed);
 	}
 
-	// One acceptance per object, then one acknowledgement update over every row the set settles:
-	// a row naming three objects is ticked once, when the last of them is accepted.
-	function acceptObjects(decisions: ObjectDecision[]) {
-		const accepted = new Set(acceptedObjectKeys);
-		const settled = new Map<string, PairingPlanEntry>();
-		for (const d of decisions) {
-			if (d.accepted) continue;
-			accepted.add(d.key);
-			for (const e of entriesSettledBy(planEntries, d.key, accepted)) settled.set(e.stream_id, e);
-			queueObject(d.key, true);
+	function reviewParameter(name: string, reviewed: boolean) {
+		queueObject(`parameter:${name}`, reviewed);
+	}
+
+	// "Mark all reviewed" and "Mark all unreviewed" act on the open tab only, and the toast carries
+	// the writes that undo them.
+	let markingReviewed = $state(false);
+
+	async function markTabReviewed(reviewed: boolean) {
+		if (!plan || markingReviewed) return;
+		markingReviewed = true;
+		try {
+			const undo = await markReviewed(activeTab, reviewed);
+			if (undo) toastStore.success(undo.message, { label: 'Undo', run: () => void undo.run() });
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'The review was not saved');
+		} finally {
+			markingReviewed = false;
 		}
-		if (settled.size === 0) return;
-		for (const e of settled.values()) e.acknowledged = true;
+	}
+
+	/** Instruments the review settled that it can take back: an existing one is not a proposal. */
+	const confirmedProposals = $derived(
+		[...instrumentDecisions, ...planDeviceDecisions].filter((d) => d.group?.create && d.group.confirmed),
+	);
+
+	function markedMessage(count: number, noun: string, reviewed: boolean): string {
+		return `Marked ${formatCount(count)} ${noun}${count === 1 ? '' : 's'} ${reviewed ? 'reviewed' : 'unreviewed'}`;
+	}
+
+	async function markReviewed(
+		tab: ReviewTab,
+		reviewed: boolean,
+	): Promise<{ message: string; run: () => Promise<void> } | null> {
+		if (!plan) return null;
+		if (tab === 'projects' || tab === 'parameters') {
+			const moved = (tab === 'projects' ? planProjects : planParameters).filter((o) => o.reviewed !== reviewed);
+			if (moved.length === 0) return null;
+			for (const o of moved) queueObject(o.key, reviewed);
+			await flushUpdates();
+			return {
+				message: markedMessage(moved.length, tab === 'projects' ? 'project' : 'parameter', reviewed),
+				run: async () => {
+					for (const o of moved) queueObject(o.key, !reviewed);
+					await flushUpdates();
+				},
+			};
+		}
+		if (tab === 'sites') {
+			const moved = planEntries.filter((e) => e.action === 'pair' && (e.acknowledged ?? false) !== reviewed);
+			if (moved.length === 0) return null;
+			const sites = new Set(moved.map((e) => e.site.name)).size;
+			await flushUpdates();
+			// One predicate rather than a row each: a NOMIS plan is 29,400 rows.
+			const updated = await bulkUpdatePairingPlan(plan.id, plan.version, {
+				where: { action: 'pair' },
+				acknowledged: reviewed,
+			});
+			plan = updated;
+			planEntries = [...updated.entries];
+			editGeneration++;
+			return {
+				message: markedMessage(sites, 'site', reviewed),
+				run: () => sendEntryUpdates(moved.map((e) => ({ stream_id: e.stream_id, acknowledged: !reviewed }))),
+			};
+		}
+		if (tab === 'instruments') {
+			let updates: PlanEntryUpdate[];
+			if (reviewed) {
+				updates = await acceptAllSuggestions();
+			} else {
+				updates = confirmedProposals.map((d) => ({ stream_id: d.anchorStreamId, instrument_confirmed: false }));
+				if (updates.length > 0) {
+					await sendEntryUpdates(updates);
+					await loadPlanInstruments();
+				}
+			}
+			if (updates.length === 0) return null;
+			return {
+				message: markedMessage(updates.length, 'instrument', reviewed),
+				run: async () => {
+					await sendEntryUpdates(updates.map((u) => ({ stream_id: u.stream_id, instrument_confirmed: !reviewed })));
+					await loadPlanInstruments();
+				},
+			};
+		}
+		return null;
+	}
+
+	// Reviewing an instrument confirms what the plan proposes for it; an existing one has nothing to confirm.
+	async function reviewInstrument(d: InstrumentDecision, reviewed: boolean) {
+		const update: PlanEntryUpdate = reviewed
+			? suggestionAcceptance([d]).updates[0]
+			: { stream_id: d.anchorStreamId, instrument_confirmed: false };
+		if (!update) return;
+		queueUpdate([update]);
+		try { await flushUpdates(); } catch { /* the toast from the failed flush is the signal */ }
+		await loadPlanInstruments();
+	}
+
+	// A site is reviewed when every row it pairs is.
+	function reviewSite(group: SiteGroup, reviewed: boolean) {
+		const changed = group.entries.filter((e) => e.action !== 'skip' && (e.acknowledged ?? false) !== reviewed);
+		if (changed.length === 0) return;
+		for (const e of changed) e.acknowledged = reviewed;
 		planEntries = [...planEntries];
 		queueUpdate(
-			[...settled.keys()].map((stream_id) => ({ stream_id, acknowledged: true })),
+			changed.map((e) => ({ stream_id: e.stream_id, acknowledged: reviewed })),
 			{ immediate: true },
 		);
 	}
@@ -1178,17 +1052,6 @@
 		}
 	}
 
-	function startEditSite(siteName: string) {
-		editingSite = siteName;
-		editValue = siteName;
-	}
-
-	function commitEditSite() {
-		if (!editingSite || !editValue.trim() || editValue === editingSite) { editingSite = null; return; }
-		renameSiteGlobal(editingSite, editValue.trim());
-		editingSite = null;
-	}
-
 	function renameSiteGlobal(oldName: string, newName: string) {
 		const entries = planEntries.filter((e) => e.site.name === oldName);
 		const updates: PlanEntryUpdate[] = entries.map((e) => ({ stream_id: e.stream_id, site_name: newName }));
@@ -1197,25 +1060,23 @@
 		queueUpdate(updates);
 	}
 
+	// The server matches the new name against the catalog, so naming an existing project pairs onto it.
+	function renameProject(oldName: string, newName: string) {
+		const name = newName.trim();
+		if (!name || name === oldName) return;
+		const entries = planEntries.filter((e) => e.project.name === oldName);
+		for (const e of entries) {
+			const existing = existingProjects.find((p) => p.name.toLowerCase() === name.toLowerCase());
+			e.project.name = existing?.name ?? name;
+			e.project.id = existing?.id ?? null;
+			e.project.create = !existing;
+		}
+		planEntries = [...planEntries];
+		queueUpdate(entries.map((e) => ({ stream_id: e.stream_id, project_name: e.project.name })));
+	}
+
 	function mapSiteToExisting(oldName: string, existingSite: Site) {
 		renameSiteGlobal(oldName, existingSite.name);
-	}
-
-	function startEditParam(siteName: string, entry: PairingPlanEntry) {
-		editingParam = { site: siteName, streamId: entry.stream_id };
-		editValue = entry.parameter.name;
-	}
-
-	function commitEditParam() {
-		if (!editingParam || !editValue.trim()) { editingParam = null; return; }
-		const entry = planEntries.find((e) => e.stream_id === editingParam!.streamId);
-		if (!entry || editValue === entry.parameter.name) { editingParam = null; return; }
-		entry.parameter.name = editValue.trim();
-		entry.parameter.create = true;
-		entry.parameter.id = null;
-		planEntries = [...planEntries];
-		editingParam = null;
-		queueUpdate([{ stream_id: entry.stream_id, parameter_name: editValue.trim() }]);
 	}
 
 	function toggleExpand(siteName: string) {
@@ -1397,6 +1258,7 @@
 
 	let existingParams = $state<Parameter[]>([]);
 	let existingSites = $state<Site[]>([]);
+	let existingProjects = $state<Project[]>([]);
 	// Candidates for repointing a curve column, so an operator can correct a bad match instead of
 	// creating a second instrument beside the right one.
 	let labInstruments = $state<Array<{ id: string; name: string | null; serial_number: string | null }>>([]);
@@ -1418,11 +1280,12 @@
 	async function openPlan(loadPlan: () => Promise<PairingPlan>, resuming: boolean) {
 		planLoading = true;
 		try {
-			const [loaded, paramResult, siteResult, instrumentResult] = await Promise.all([
+			const [loaded, paramResult, siteResult, instrumentResult, projectResult] = await Promise.all([
 				loadPlan(),
 				api.parameters.list({ perPage: 1000 }),
 				api.sites.list({ perPage: 1000 }),
 				api.sensors.list({ perPage: 500, filter: { is_lab_instrument: true } }),
+				api.projects.list({ perPage: 1000 }),
 			]);
 			labInstruments = instrumentResult.data.map((s) => ({
 				id: s.id,
@@ -1431,11 +1294,11 @@
 			}));
 			plan = loaded;
 			planEntries = [...loaded.entries];
-			planSelection = prune(planSelection, planEntries);
 			params = paramResult.data;
 			sites = siteResult.data;
 			existingParams = params;
 			existingSites = sites;
+			existingProjects = projectResult.data;
 			expandedSites = new Set();
 			expandedReplicates = new Set();
 			lastSavedAt = null;
@@ -1443,10 +1306,9 @@
 			objectOverlay = new Map();
 			// A resumed review keeps the position the URL carries; a new plan starts at the top.
 			if (!resuming) {
-				siteSearch = '';
-				reviewFilter = 'all';
-				sitePage = 0;
-				paramPage = 0;
+				tableQuery = '';
+				tableFilter = 'all';
+				tablePage = 0;
 			}
 			applyResult = null;
 			setMode('review');
@@ -1585,32 +1447,29 @@
 		});
 	});
 
-	// The gate, as one list read by both the strip and the Apply button. Every count here is a
-	// number the review already holds; nothing is decided a second time.
+	const reviewCount = <T,>(items: T[], reviewed: (item: T) => boolean) => ({
+		reviewed: items.filter(reviewed).length,
+		total: items.length,
+	});
+
+	// The review's tabs, read by both the tab strip and the Apply button.
 	const gateItems = $derived(
 		planGateItems({
-			objects: { accepted: planObjects.length - openObjects.length, total: planObjects.length },
+			projects: reviewCount(planProjects, (p) => p.reviewed),
+			sites: reviewCount(
+				siteGroups.filter((g) => g.pairCount > 0),
+				(g) => g.entries.every((e) => e.action === 'skip' || e.acknowledged === true),
+			),
+			parameters: reviewCount(planParameters, (p) => p.reviewed),
 			instruments: {
-				decided: instrumentDecisions.length + planDeviceDecisions.length - openInstrumentQuestions,
+				reviewed: instrumentDecisions.length + planDeviceDecisions.length - openInstrumentQuestions,
 				total: instrumentDecisions.length + planDeviceDecisions.length,
 			},
-			rows: { ticked: reviewProgress.acknowledged, total: reviewProgress.total },
-			unitConflicts: uniqueWarnings.length,
+			curves: { total: planInstruments?.curves.length ?? 0 },
 		}),
 	);
-	const blockingGates = $derived(gateBlocking(gateItems));
-
-	function gateHint(item: GateItem): string {
-		if (item.state === 'blocking') return 'Apply is refused until this is settled';
-		if (item.state === 'done') return 'Settled';
-		return 'Worth knowing; it does not stop the apply';
-	}
-
-	// A gate opens the review tab that settles it.
-	function goToGate(item: GateItem) {
-		reviewTab = item.tab;
-		if (item.tab === 'sites') sitePage = 0;
-	}
+	const applyBlocked = $derived(applyBlockedReason(gateItems));
+	const activeTab = $derived(activeReviewTab(reviewTab, gateItems));
 	onDestroy(() => unsubJobCompleted?.());
 
 	onMount(async () => {
@@ -1772,33 +1631,6 @@
 		{/if}
 	</div>
 {/snippet}
-
-{#snippet instrumentNameField(scope: string, anchorStreamId: string, suggestion: string, group: PlanInstrumentGroup | null)}
-	{#if group && !group.create && group.instrument_id}
-		<!-- An instrument in the inventory: the name belongs to the row, not to this plan. -->
-		<a
-			href="{base}/sensors/{group.instrument_id}"
-			class="font-medium text-brand-text no-underline hover:underline"
-			title="This instrument already exists. Its name is edited on its own page, where what else uses it is visible."
-		>{group.name}</a>
-	{:else if editingInstrument === scope}
-		<input
-			type="text"
-			bind:value={instrumentEditValue}
-			onkeydown={(e) => { if (e.key === 'Enter') commitInstrumentName(anchorStreamId, group); if (e.key === 'Escape') editingInstrument = null; }}
-			onblur={() => commitInstrumentName(anchorStreamId, group)}
-			class="px-1 py-0.5 border border-brand-primary rounded text-sm bg-brand-surface w-72"
-			use:focusOnMount
-		/>
-	{:else}
-		<button
-			onclick={() => { editingInstrument = scope; instrumentEditValue = group?.name ?? suggestion; }}
-			class="bg-transparent border-0 border-b border-dashed cursor-pointer text-left hover:text-brand-primary hover:border-brand-primary {group ? 'font-medium text-brand-text border-brand-muted' : 'text-brand-muted border-brand-muted/60 italic'}"
-			title={group ? 'Rename what this plan will create' : 'Proposed name; click to edit, then create it'}
-		>{group?.name ?? suggestion}</button>
-	{/if}
-{/snippet}
-
 <svelte:head><title>Streams | RIVER Data</title></svelte:head>
 
 <!-- ════════════════════ STREAM LIST MODE ════════════════════ -->
@@ -2024,22 +1856,18 @@
 									<td class="px-4 py-3 text-right whitespace-nowrap">
 										{#if draft}
 											<Button size="sm" onclick={(e) => { e.stopPropagation(); resumePlan(draft.id); }}>Resume</Button>
-											<ConfirmPopover
-												message="Start a new plan? The open draft keeps its decisions but can no longer be applied."
-												confirmLabel="Start over"
-												confirmVariant="primary"
+											<ConfirmButton
+												label="Start over"
+												confirmLabel="Click again to start over"
+												consequence="The open draft keeps its decisions but can no longer be applied"
 												onconfirm={() => startOverPlan(draft)}
-											>
-												<Button size="sm" variant="ghost">Start over</Button>
-											</ConfirmPopover>
-											<ConfirmPopover
-												message="Discard this draft? Its decisions are lost and its streams stay unpaired."
-												confirmLabel="Discard"
-												confirmVariant="alarm"
+											/>
+											<ConfirmButton
+												label="Discard"
+												confirmLabel="Click again to discard"
+												consequence="Its decisions are lost and its streams stay unpaired"
 												onconfirm={() => discardPlan(draft)}
-											>
-												<Button size="sm" variant="ghost">Discard</Button>
-											</ConfirmPopover>
+											/>
 										{:else}
 											<Button size="sm" onclick={(e) => { e.stopPropagation(); createPlan(s.source_system); }}>Discover</Button>
 										{/if}
@@ -2073,7 +1901,7 @@
 		<!-- Header -->
 		<div class="flex items-center justify-between">
 			<div class="flex items-center gap-3">
-				<Button variant="ghost" size="sm" onclick={exitWizard} class="text-brand-primary" title="The draft keeps every decision taken; discard it from its row on the streams list.">&larr; Save and close</Button>
+				<Button variant="ghost" size="sm" onclick={exitWizard} class="text-brand-primary" title="Every decision is saved to the draft. Discard it from its row on the streams list.">&larr; Go back and resume later</Button>
 				<h2 class="text-xl font-semibold">Review Plan: {plan.source_system}</h2>
 				{#if saving}<span class="text-xs text-brand-muted">Saving…</span>
 				{:else if unsavedCount > 0}
@@ -2093,142 +1921,43 @@
 			<Button
 				variant="primary"
 				onclick={() => setMode('confirm')}
-				disabled={summary.toPair === 0 || blockingGates.length > 0}
-				title={blockingGates.length > 0 ? blockingGates.map((g) => `${g.label}: ${g.detail}`).join('; ') : undefined}
+				disabled={summary.toPair === 0 || applyBlocked !== null}
+				title={summary.toPair === 0 ? 'This plan pairs nothing' : (applyBlocked ?? undefined)}
 				class="px-4 font-semibold"
-			>Apply {formatCount(summary.toPair)} pairings &rarr;</Button>
+			>Apply plan &rarr;</Button>
 		</div>
 
-		<!-- ── BEFORE YOU APPLY ── One gate per thing the operator can settle, so what stops the
-		     apply and what merely informs it are told apart at a glance. The Apply button reads the
-		     same list, so the two cannot disagree. -->
-		{#if gateItems.length > 0}
-			<div class="flex flex-wrap items-center gap-2 rounded-md border border-brand-divider bg-brand-surface px-3 py-2">
-				<span class="text-sm font-semibold">Before you apply</span>
-				{#each gateItems as g (g.key)}
+		<div class="space-y-3">
+			<!-- View tabs, each carrying its review count. -->
+			<div class="flex flex-wrap items-center gap-1 border-b border-brand-divider pb-2">
+				{#each gateItems as g (g.tab)}
 					<button
-						onclick={() => goToGate(g)}
-						title={gateHint(g)}
-						class="flex items-center gap-1.5 px-2 py-1 rounded text-xs cursor-pointer border {g.state === 'blocking'
-							? 'border-severity-warning-border bg-severity-warning-soft text-severity-warning-text font-semibold'
-							: g.state === 'done'
-								? 'border-brand-divider bg-transparent text-severity-ok'
-								: 'border-brand-divider bg-transparent text-brand-muted'}"
+						onclick={() => openTab(g.tab)}
+						class="flex items-center gap-1.5 px-3 py-1 text-sm rounded-t cursor-pointer border-none {activeTab === g.tab ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
 					>
-						{#if g.state === 'done'}<span aria-hidden="true">&#10003;</span>{/if}
-						<span>{g.label}</span>
-						<span class="opacity-90">{g.detail}</span>
+						{#if g.state === 'blocking'}
+							<span aria-hidden="true" class="size-2 rounded-full bg-severity-warning-fill"></span>
+						{:else if g.state === 'done'}
+							<span aria-hidden="true" class="size-2 rounded-full bg-severity-ok-fill"></span>
+						{/if}
+						<span class="{g.state === 'blocking' ? 'font-semibold' : ''}">{g.label}</span>
+						<span class="text-xs opacity-90">{g.detail}</span>
 					</button>
 				{/each}
 			</div>
-		{/if}
 
-		<!-- What the apply will do, where it cannot be missed -->
-		<div class="flex flex-wrap items-center gap-2 text-xs">
-			<Badge variant="ok">{formatCount(summary.toPair)} to pair</Badge>
-			{#if summary.toSkip > 0}<Badge variant="muted">{formatCount(summary.toSkip)} skipped</Badge>{/if}
-			<span class="text-brand-muted">will create</span>
-			{#if summary.newProjects > 0}<Badge>{summary.newProjects} project{summary.newProjects === 1 ? '' : 's'}</Badge>{/if}
-			{#if summary.newSites > 0}<Badge>{summary.newSites} site{summary.newSites === 1 ? '' : 's'}</Badge>{/if}
-			{#if summary.newParams > 0}<Badge>{summary.newParams} parameter{summary.newParams === 1 ? '' : 's'}</Badge>{/if}
-			{#if plan.summary.instruments_to_create > 0}
-				<Badge variant={plan.summary.instruments_unconfirmed > 0 ? 'warning' : 'default'}>
-					{plan.summary.instruments_to_create} instrument{plan.summary.instruments_to_create === 1 ? '' : 's'}
-				</Badge>
-			{/if}
-			<!-- Instruments the plan resolves without creating any are still worth stating: silence
-			     here read as "this source has no curves", which is a different thing. -->
-			{#if boundInstruments > 0}
-				<button
-					onclick={() => { reviewTab = 'instruments'; }}
-					class="bg-transparent border-none p-0 cursor-pointer text-brand-muted underline-offset-2 hover:underline"
-				>using {boundInstruments} instrument{boundInstruments === 1 ? '' : 's'}</button>
-			{/if}
-			{#if summary.newProjects + summary.newSites + summary.newParams + plan.summary.instruments_to_create === 0}
-				<span class="text-brand-muted">nothing new</span>
-			{/if}
-		</div>
-
-		<!-- Curve columns the source declares but never fills: the plan states it rather than
-		     leaving the routing block to imply data that will not arrive. -->
-		{#each instrumentGroups.filter((g) => g.instrument.stamps_readings && g.instrument.curves.length === 0 && !g.instrument.create) as g (g.key)}
-			<p class="text-xs text-brand-muted">
-				<span class="font-mono">{g.instrument.curve_column}</span> resolves to
-				{g.instrument.name}, which has no curves registered, so no reading from these
-				{g.streamCount} stream{g.streamCount === 1 ? '' : 's'} will carry a curve reference.
-			</p>
-		{/each}
-
-		<div class="space-y-3">
-			<!-- View tabs -->
-			<div class="flex gap-1 border-b border-brand-divider pb-2">
-				{#each [...(planObjects.length > 0 ? [['objects', objectsTabLabel(planObjects.length, openObjects.length)]] : []), ['parameters', `Parameters (${paramGroups.length})`], ['sites', `Sites (${siteGroups.length})`], ['instruments', instrumentsTabLabel], ['curves', `Standard curves (${planInstruments?.curves.length ?? 0})`]] as [t, label]}
-					<button
-						onclick={() => reviewTab = t as ReviewTab}
-						class="px-3 py-1 text-sm rounded-t cursor-pointer border-none {activeTab === t ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
-					>{label}</button>
-				{/each}
-			</div>
-
-				<!-- ── OBJECTS TAB ── -->
-				<!-- What this plan creates, as the objects it creates rather than the rows that name them:
-				     one project, a dozen sites and a handful of parameters stand behind a thousand rows,
-				     and accepting one here ticks every row it was holding up. -->
-				{#if activeTab === 'objects'}
-					<div class="rounded-md border border-brand-divider bg-brand-surface p-3 space-y-2">
-						<div class="flex flex-wrap items-baseline gap-2">
-							<h3 class="text-sm font-semibold">What this plan creates</h3>
-							<span class="text-xs text-brand-muted">
-								{planObjects.length} object{planObjects.length === 1 ? '' : 's'} behind
-								{formatCount(reviewProgress.total)} row{reviewProgress.total === 1 ? '' : 's'},
-								{openObjects.length} still to accept
-							</span>
-							{#if openObjects.length > 0}
-								<Button
-									size="sm"
-									variant="primary"
-									class="ml-auto"
-									title="Record every object below as accepted and tick the rows that completes"
-									onclick={() => acceptObjects(openObjects)}
-								>Accept all ({openObjects.length})</Button>
-							{/if}
-						</div>
-						{#if openObjects.length > 0}
-							<p class="m-0 rounded border border-severity-warning-border bg-severity-warning-soft px-3 py-2 text-sm text-severity-warning-text">
-								Each object has to be accepted before the plan can be applied: a row is only
-								ticked once every project, site and parameter it names is accepted, and Apply is
-								refused while any row is unticked.
-							</p>
-						{/if}
-						<ul class="list-none p-0 m-0 divide-y divide-brand-divider">
-							{#each planObjects as d (d.key)}
-								<li class="flex flex-wrap items-center gap-2 py-1.5 text-sm">
-									<span class="text-xs uppercase tracking-wide text-brand-muted w-20">{d.kind}</span>
-									{#if d.kind === 'project'}
-										<span class="font-medium">{d.name}</span>
-									{:else}
-										<button
-											onclick={() => goToObject(d)}
-											class="font-medium bg-transparent border-0 border-b border-dashed border-brand-muted cursor-pointer text-brand-text hover:text-brand-primary hover:border-brand-primary p-0"
-											title="Open {d.name} on the {d.kind === 'site' ? 'Sites' : 'Parameters'} tab"
-										>{d.name}</button>
-									{/if}
-									<span class="text-xs text-brand-muted">
-										named by {formatCount(d.entryCount)} row{d.entryCount === 1 ? '' : 's'}
-									</span>
-									<Button
-										size="sm"
-										variant={d.accepted ? 'ghost' : 'primary'}
-										class="ml-auto"
-										title={acceptHint(d)}
-										onclick={() => acceptObject(d)}
-									>{d.accepted
-										? '✓ accepted'
-										: `Accept${d.settles > 0 ? ` (${formatCount(d.settles)} rows)` : ''}`}</Button>
-								</li>
-							{/each}
-						</ul>
-					</div>
+				{#if activeTab === 'projects'}
+					<ProjectsTab
+						projects={planProjects}
+						{existingProjects}
+						onreview={reviewProject}
+						onrename={renameProject}
+						bind:query={tableQuery}
+						bind:filter={tableFilter}
+						bind:page={tablePage}
+						onmarkall={markTabReviewed}
+						marking={markingReviewed}
+					/>
 
 				<!-- ── INSTRUMENTS TAB ── -->
 				<!-- The one place an instrument is chosen. Parameters and Sites mirror what is
@@ -2241,18 +1970,22 @@
 						{planDevices}
 						deviceDecisions={planDeviceDecisions}
 						{instrumentDecisions}
-						{openInstrumentQuestions}
-						{acceptingSuggestions}
 						{instrumentOptions}
 						{instrumentValue}
 						{instrumentStatus}
 						{instrumentRowId}
+						{coverage}
+						{goToParam}
+						{goToSite}
 						onchoose={chooseInstrument}
 						onattach={(d, id) => void repointInstrument(d.anchorStreamId, id)}
-						onassign={assignInstrumentToRows}
-						{labInstruments}
-						onacceptall={acceptAllSuggestions}
-						nameField={instrumentNameField}
+						onreview={reviewInstrument}
+						canMarkUnreviewed={confirmedProposals.length > 0}
+						bind:query={tableQuery}
+						bind:filter={tableFilter}
+						bind:page={tablePage}
+						onmarkall={markTabReviewed}
+						marking={markingReviewed}
 					/>
 
 				<!-- ── STANDARD CURVES TAB ── -->
@@ -2266,6 +1999,8 @@
 						bind:editValue={curveEditValue}
 						oncommitname={commitCurveName}
 						onrehome={rehomeCurve}
+						bind:query={tableQuery}
+						bind:page={tablePage}
 					/>
 
 				<!-- ── SITES TAB ── -->
@@ -2273,83 +2008,59 @@
 					<SitesTab
 						{planEntries}
 						{siteGroups}
-						{filteredGroups}
-						{pagedGroups}
 						{existingSites}
 						{expandedSites}
 						{expandedReplicates}
 						{existingParams}
 						{paramGroups}
 						{siteMetadataMap}
-						bind:editingParam
-						bind:siteSearch
-						bind:sitePage
-						{totalSitePages}
-						bind:reviewFilter
-						bind:editingSite
-						bind:editValue
-						bind:customParamInput
 						{matchParam}
 						{newParamOption}
 						{parseNewParamOption}
-						{entryStatus}
-						{reviewState}
-						{reviewStateLabel}
-						{statusLabel}
 						{queueUpdate}
 						{setEntryAction}
-						{setEntryAcknowledged}
-						selection={planSelection}
-						ontoggleentry={(entry) => (planSelection = toggleSelected(planSelection, entry))}
-						onselectallinfilter={() =>
-							(planSelection = selectAllInFilter(planSelection, planEntries, reviewFilter))}
-						onclearselection={() => (planSelection = clearSelection())}
-						onselectdecision={(entries) =>
-							(planSelection = selectEntries(planSelection, entries))}
-						{labInstruments}
-						onbulk={applyBulkDecision}
 						{setSiteAction}
 						{toggleExpand}
-						{startEditSite}
-						{commitEditSite}
 						{renameSiteGlobal}
 						{mapSiteToExisting}
 						{goToParam}
+						{instrumentsFor}
+						{goToInstruments}
 						{replicateChip}
 						{replicateRouting}
 						{valuesChip}
 						{streamPreview}
+						onreviewsite={reviewSite}
+						bind:query={tableQuery}
+						bind:filter={tableFilter}
+						bind:page={tablePage}
+						onmarkall={markTabReviewed}
+						marking={markingReviewed}
 					/>
 
 				<!-- ── PARAMETERS TAB ── -->
 				{:else if activeTab === 'parameters'}
 					<ParametersTab
-						bind:paramPage
+						{reviewedKeys}
+						onreview={reviewParameter}
+						{instrumentsFor}
+						{goToInstruments}
+						bind:query={tableQuery}
+						bind:filter={tableFilter}
+						bind:page={tablePage}
+						onmarkall={markTabReviewed}
+						marking={markingReviewed}
 						{unitConflicts}
 						{paramGroups}
 						{existingParams}
-						siteCount={siteGroups.length}
-						{openInstrumentQuestions}
-						{bulkActions}
-						{bulkRunning}
-						{runBulkAction}
-						{deviceParameters}
-						{deviceSiteCount}
-						{instrumentByParameter}
 						{expandedParamGroups}
 						{expandedReplicates}
-						{groupStatus}
 						{rowWarnings}
-						{goToInstrument}
 						{mapParamToExisting}
 						{renameGlobalParam}
 						{splitSourceToNewParam}
-						{startEditGlobalParam}
-						{commitEditGlobalParam}
 						{startEditUnits}
 						{commitEditUnits}
-						bind:editingGlobalParam
-						bind:editValue
 						bind:editingGlobalUnits
 						bind:editUnitsValue
 						bind:splitParamInput
@@ -2362,7 +2073,6 @@
 						{startEditLabel}
 						{commitEditLabel}
 						{setParamGroupAction}
-						ongoinstruments={() => { reviewTab = 'instruments'; }}
 						{replicateChip}
 						{replicateRouting}
 					/>
@@ -2378,16 +2088,13 @@
 		{created}
 		onsiteattribute={correctSiteAttribute}
 		ongroupattribute={renameProposedGroup}
-		{reviewProgress}
+		blockedReason={applyBlocked}
 		{familySummary}
 		instruments={instrumentBindings}
-		{openInstrumentQuestions}
 		{applying}
 		{applyJobId}
 		onback={() => setMode('review')}
 		onapply={applyPlan}
-		ongotoinstruments={() => { setMode('review'); reviewTab = 'instruments'; }}
-		ongotosites={(filter) => { reviewFilter = filter; reviewTab = 'sites'; sitePage = 0; setMode('review'); }}
 	/>
 
 <!-- ════════════════════ RESULTS ════════════════════ -->

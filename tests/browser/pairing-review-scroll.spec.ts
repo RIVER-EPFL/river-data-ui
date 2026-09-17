@@ -130,14 +130,9 @@ test("the pairing review lists devices and lab instruments without scrolling sid
   await signIn(page);
   await page.goto(`${BASE_PATH}/streams?step=review&plan=${planId}`);
 
-  await page.getByRole("button", { name: /^Instruments \(/ }).click();
+  await page.getByRole("button", { name: /^Instruments / }).click();
   await expect(
-    page.getByRole("heading", {
-      name: "Devices the source identifies by serial",
-    }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "Lab instruments" }),
+    page.getByRole("columnheader", { name: "Covers" }),
   ).toBeVisible();
   await expect(
     page.getByText("From the source's instrument register"),

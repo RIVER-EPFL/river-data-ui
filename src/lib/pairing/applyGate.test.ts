@@ -3,84 +3,51 @@ import { describe, expect, it } from "vitest";
 import { applyBlockedReason, gateBlocking, planGateItems } from "./applyGate";
 import type { PlanGate } from "./applyGate";
 
-describe("applyBlockedReason", () => {
-  it("allows the apply when nothing is outstanding", () => {
-    expect(
-      applyBlockedReason({ needsChecking: 0, selfValidated: 0, openInstrumentQuestions: 0 }),
-    ).toBeNull();
-  });
-
-  it("refuses while any row still needs checking", () => {
-    expect(
-      applyBlockedReason({ needsChecking: 1679, selfValidated: 0, openInstrumentQuestions: 0 }),
-    ).toContain("1679 rows still to tick");
-  });
-
-  it("refuses while a self-validated row is unticked, a tick being a record that a person looked", () => {
-    expect(
-      applyBlockedReason({ needsChecking: 0, selfValidated: 20, openInstrumentQuestions: 0 }),
-    ).toContain("20 rows still to tick");
-    expect(
-      applyBlockedReason({ needsChecking: 3, selfValidated: 2, openInstrumentQuestions: 0 }),
-    ).toContain("5 rows still to tick");
-  });
-
-  it("names the instruments first, being the nearer fix", () => {
-    expect(
-      applyBlockedReason({ needsChecking: 12, selfValidated: 0, openInstrumentQuestions: 2 }),
-    ).toContain("2 instruments still to decide");
-  });
-
-  it("reads singular for one of each", () => {
-    expect(
-      applyBlockedReason({ needsChecking: 0, selfValidated: 0, openInstrumentQuestions: 1 }),
-    ).toContain("1 instrument still to decide");
-    expect(
-      applyBlockedReason({ needsChecking: 1, selfValidated: 0, openInstrumentQuestions: 0 }),
-    ).toContain("1 row still to tick");
-  });
-});
+const cnet: PlanGate = {
+  projects: { reviewed: 0, total: 1 },
+  sites: { reviewed: 0, total: 31 },
+  parameters: { reviewed: 0, total: 23 },
+  instruments: { reviewed: 0, total: 92 },
+  curves: { total: 14 },
+};
 
 describe("planGateItems", () => {
-  const cnet: PlanGate = {
-    objects: { accepted: 0, total: 124 },
-    instruments: { decided: 0, total: 92 },
-    rows: { ticked: 0, total: 2852 },
-    unitConflicts: 0,
-  };
-
-  it("states each gate as a count, a state and the tab that settles it", () => {
+  it("states every review tab as a review count and a state", () => {
     expect(planGateItems(cnet)).toEqual([
-      { key: "objects", label: "Objects", detail: "0 of 124 accepted", state: "blocking", tab: "objects" },
-      { key: "instruments", label: "Instruments", detail: "0 of 92 decided", state: "blocking", tab: "instruments" },
-      { key: "rows", label: "Rows", detail: "0 of 2,852 ticked", state: "blocking", tab: "sites" },
+      { tab: "projects", label: "Projects", detail: "0 of 1 reviewed", state: "blocking" },
+      { tab: "sites", label: "Sites", detail: "0 of 31 reviewed", state: "blocking" },
+      { tab: "parameters", label: "Parameters", detail: "0 of 23 reviewed", state: "blocking" },
+      { tab: "instruments", label: "Instruments", detail: "0 of 92 reviewed", state: "blocking" },
+      { tab: "curves", label: "Standard curves", detail: "14", state: "none" },
     ]);
   });
 
-  it("turns a gate to done once its count is complete, leaving Apply on the rest", () => {
-    const settled = planGateItems({ ...cnet, objects: { accepted: 124, total: 124 } });
-    expect(settled.find((i) => i.key === "objects")?.state).toBe("done");
-    expect(gateBlocking(settled).map((i) => i.key)).toEqual(["instruments", "rows"]);
+  it("turns a tab to done once everything on it is reviewed, leaving Apply on the rest", () => {
+    const items = planGateItems({ ...cnet, projects: { reviewed: 1, total: 1 } });
+    expect(items[0]?.state).toBe("done");
+    expect(gateBlocking(items).map((i) => i.tab)).toEqual(["sites", "parameters", "instruments"]);
   });
 
-  it("clears the blocking list when every count is complete", () => {
-    const done = planGateItems({
-      objects: { accepted: 124, total: 124 },
-      instruments: { decided: 92, total: 92 },
-      rows: { ticked: 2852, total: 2852 },
-      unitConflicts: 0,
-    });
-    expect(gateBlocking(done)).toEqual([]);
-    expect(done.every((i) => i.state === "done")).toBe(true);
+  it("states no review on a tab with nothing on it", () => {
+    const items = planGateItems({ ...cnet, instruments: { reviewed: 0, total: 0 } });
+    expect(items.find((i) => i.tab === "instruments")).toMatchObject({ detail: "0", state: "none" });
+  });
+});
+
+describe("applyBlockedReason", () => {
+  it("names each tab still to review", () => {
+    const items = planGateItems({ ...cnet, projects: { reviewed: 1, total: 1 }, instruments: { reviewed: 92, total: 92 } });
+    expect(applyBlockedReason(items)).toBe(
+      "Still to review: Sites (0 of 31 reviewed), Parameters (0 of 23 reviewed)",
+    );
   });
 
-  it("leaves out a gate with nothing behind it", () => {
-    const items = planGateItems({
-      objects: { accepted: 0, total: 0 },
-      instruments: { decided: 0, total: 0 },
-      rows: { ticked: 4, total: 9 },
-      unitConflicts: 3,
-    });
-    expect(items.map((i) => i.key)).toEqual(["rows", "units"]);
+  it("allows the apply once every tab is reviewed", () => {
+    const all = (total: number) => ({ reviewed: total, total });
+    expect(
+      applyBlockedReason(
+        planGateItems({ projects: all(1), sites: all(31), parameters: all(23), instruments: all(92), curves: { total: 0 } }),
+      ),
+    ).toBeNull();
   });
 });

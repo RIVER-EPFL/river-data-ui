@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('$app/paths', () => ({ base: '' }));
@@ -38,78 +38,37 @@ function channel(sourceKey: string, parameter: string) {
 
 function mount(over: Record<string, unknown> = {}) {
 	return render(Harness, {
-		props: {
-			instrumentDecisions: rows,
-			labInstruments: [{ id: 'lab-1', name: 'Lab analyser', serial_number: null }],
-			onassign: vi.fn(),
-			...over,
-		} as never,
+		props: { instrumentDecisions: rows, ...over } as never,
 	});
 }
 
-async function select(label: string) {
-	await fireEvent.click(screen.getByLabelText(`Select ${label}`));
-}
-
-describe('InstrumentsTab bulk assignment', () => {
-	it('assigns one instrument to every selected row in one action', async () => {
-		const onassign = vi.fn();
-		mount({ onassign });
-		await select('DOC');
-		await select('TN');
-		expect(screen.getByText('2 selected')).not.toBeNull();
-
-		const picker = screen.getByLabelText(
-			'Instrument to assign to the selected parameters',
-		) as HTMLSelectElement;
-		await fireEvent.change(picker, { target: { value: 'lab-1' } });
-		await fireEvent.click(screen.getByRole('button', { name: 'Assign' }));
-
-		expect(onassign).toHaveBeenCalledTimes(1);
-		const [chosen, instrumentId] = onassign.mock.calls[0];
-		expect(chosen.map((d: { key: string }) => d.key)).toEqual(['doc', 'tn']);
-		expect(instrumentId).toBe('lab-1');
-	});
-
-	/// The same write read the other way: the bar says which parameters the chosen instrument will
-	/// serve, so the instrument view and the parameter view cannot disagree about the assignment.
-	it('names the parameters the instrument will serve before it is assigned', async () => {
-		mount();
-		await select('DOC');
-		await select('Chl a');
-		expect(screen.getByText(/It will serve DOC, Chl a\./)).not.toBeNull();
-	});
-
-	it('offers no assignment until an instrument is chosen', async () => {
-		mount();
-		await select('DOC');
-		const assign = screen.getByRole('button', { name: 'Assign' }) as HTMLButtonElement;
-		expect(assign.disabled).toBe(true);
-	});
-
-	it('selects and clears every row at once', async () => {
-		mount();
-		await fireEvent.click(screen.getByLabelText('Select every instrument row'));
-		expect(screen.getByText('3 selected')).not.toBeNull();
-		await fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
-		expect(screen.queryByText(/selected$/)).toBeNull();
+describe('InstrumentsTab lab instruments', () => {
+	it('links each parameter and site an instrument covers, naming three sites and counting the rest', () => {
+		mount({
+			coverage: new Map([['doc', { parameters: ['DOC'], sites: ['Evolène', 'Martigny', 'Saxon', 'Verbier'] }]]),
+		});
+		expect(screen.getByRole('button', { name: 'DOC' }).getAttribute('title')).toBe('Open on the Parameters tab');
+		const row = screen.getByRole('button', { name: 'Saxon' }).closest('tr');
+		expect(row?.textContent).toMatch(/at\s*Evolène,\s*Martigny,\s*Saxon\s*and 1 more/);
+		expect(screen.queryByRole('button', { name: 'Verbier' })).toBeNull();
 	});
 });
 
 describe('InstrumentsTab devices', () => {
-	it('lists one row per channel of a multi-channel device', () => {
+	it('lists one row per channel of a multi-channel device, above the lab instruments', () => {
 		mount({
 			planDevices: [channel('DDOuM', 'Dissolved oxygen'), channel('DDOTdegC', 'Temperature')],
 		});
-		const table = screen.getByRole('columnheader', { name: 'Channels' }).closest('table');
-		expect(table?.querySelectorAll('tbody tr').length).toBe(2);
-		expect(screen.getByText('Dissolved oxygen')).not.toBeNull();
-		expect(screen.getByText('Temperature')).not.toBeNull();
+		const table = screen.getByRole('columnheader', { name: 'Covers' }).closest('table');
+		const covers = [...(table?.querySelectorAll('tbody tr') ?? [])].map((tr) => tr.textContent ?? '');
+		expect(covers.length).toBe(5);
+		expect(covers[0]).toMatch(/Dissolved oxygen\s*at\s*Les Dailles\s*, device 25284028 RFL100/);
+		expect(covers[1]).toMatch(/Temperature/);
 	});
 });
 
 describe('InstrumentsTab device proposals', () => {
-	it('shows a channel the apply will create as a proposal still asking, and offers the bulk accept', () => {
+	it('offers a channel the apply will create for review, and counts it as needing one', () => {
 		const device = channel('DDOuM', 'Dissolved oxygen');
 		const group = {
 			scope: 'instrument:DDOuM',
@@ -145,10 +104,8 @@ describe('InstrumentsTab device proposals', () => {
 					nameConflict: null,
 				},
 			],
-			openInstrumentQuestions: 1,
 		});
-		expect(screen.getByText('Les Dailles Dissolved oxygen')).not.toBeNull();
-		expect(screen.getByText('proposed', { exact: true })).not.toBeNull();
-		expect(screen.getByRole('button', { name: 'Accept all suggestions' })).not.toBeNull();
+		expect(screen.getByRole('button', { name: 'Mark reviewed' })).not.toBeNull();
+		expect(screen.getByRole('button', { name: 'Needs review 1' })).not.toBeNull();
 	});
 });

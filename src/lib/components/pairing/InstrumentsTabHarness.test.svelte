@@ -3,22 +3,17 @@
 	import type { PlanDeviceGroup } from '$api/service';
 	import type { InstrumentDecision } from '$lib/pairing/planGroups';
 
-	// The tab takes the name editor as a snippet, shared with the Parameters tab. Here it is the
-	// name alone: what is under test is the selection, not the editor.
+	// Each row offers only its own proposal, which is enough to show the name.
 	let {
 		instrumentDecisions,
-		labInstruments,
 		planDevices = [],
 		deviceDecisions = [],
-		openInstrumentQuestions,
-		onassign,
+		coverage = new Map(),
 	}: {
 		instrumentDecisions: InstrumentDecision[];
-		labInstruments: Array<{ id: string; name: string | null; serial_number: string | null }>;
 		planDevices?: PlanDeviceGroup[];
 		deviceDecisions?: InstrumentDecision[];
-		openInstrumentQuestions?: number;
-		onassign: (rows: InstrumentDecision[], instrumentId: string) => void;
+		coverage?: Map<string, { parameters: string[]; sites: string[] }>;
 	} = $props();
 </script>
 
@@ -27,19 +22,17 @@
 	{planDevices}
 	{deviceDecisions}
 	{instrumentDecisions}
-	{labInstruments}
-	openInstrumentQuestions={openInstrumentQuestions ?? instrumentDecisions.length}
-	acceptingSuggestions={false}
-	instrumentOptions={() => []}
-	instrumentValue={() => ''}
+	instrumentOptions={(d) => [{ label: 'Will be created', options: [{ value: `new:${d.proposedName}`, label: d.proposedName }] }]}
+	instrumentValue={(d) => `new:${d.proposedName}`}
 	instrumentStatus={() => 'unset'}
-	instrumentRowId={(scope) => `instrument-row-${scope}`}
+	instrumentRowId={(key) => `instrument-row-${key}`}
+	{coverage}
+	goToParam={() => {}}
+	goToSite={() => {}}
 	onchoose={() => {}}
 	onattach={() => {}}
-	{onassign}
-	onacceptall={() => {}}
->
-	{#snippet nameField(_scope, _anchor, proposedName)}
-		<span>{proposedName}</span>
-	{/snippet}
-</InstrumentsTab>
+	onreview={() => {}}
+	onmarkall={() => {}}
+	marking={false}
+	canMarkUnreviewed={false}
+/>

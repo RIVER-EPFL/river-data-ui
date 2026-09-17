@@ -696,7 +696,16 @@ export const updatePairingPlan = (
 export const bulkUpdatePairingPlan = (
 	id: string,
 	expectedVersion: number,
-	bulk: { where: { confidence?: string; has_warnings?: boolean }; action: 'pair' | 'skip' },
+	bulk: {
+		where: {
+			confidence?: 'exact' | 'none';
+			has_warnings?: boolean;
+			action?: 'pair' | 'skip';
+			review?: 'needs_checking' | 'self_validated';
+		};
+		action?: 'pair' | 'skip';
+		acknowledged?: boolean;
+	},
 ) =>
 	PATCH<PairingPlan>(`${ADMIN}/sync/pairing-plans/${id}`, {
 		expected_version: expectedVersion,

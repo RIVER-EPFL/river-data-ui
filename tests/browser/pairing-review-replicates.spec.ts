@@ -90,13 +90,13 @@ test("the replicate fold-out is a headed table that does not scroll sideways", a
   await signIn(page);
   await page.goto(`${BASE_PATH}/streams?step=review&plan=${planId}`);
 
-  await page.getByRole("button", { name: /^Sites \(/ }).click();
-  await page.getByRole("button", { name: "Expand site group" }).click();
+  await page.getByRole("button", { name: /^Sites / }).click();
+  await page.getByRole("button", { name: "Expand", exact: true }).click();
   await page
     .getByRole("button", { name: /5 replicates/ })
     .first()
     .click();
-  const table = page.locator("table", {
+  const table = page.locator("table table", {
     has: page.getByRole("columnheader", { name: "Instant" }),
   });
   await expect(table).toBeVisible();

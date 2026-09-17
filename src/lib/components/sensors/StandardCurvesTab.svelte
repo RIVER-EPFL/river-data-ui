@@ -143,7 +143,7 @@
 	}
 
 	// ─── Edit and delete, and the refusal they can meet ───
-	// A curve any reading was corrected with is frozen (notes excepted) and cannot be deleted. The API
+	// A curve any reading was corrected with is frozen (name and notes excepted) and cannot be deleted. The API
 	// reports that state only by refusing the write, so the refusal is caught per row and explained
 	// where the operator clicked, alongside the corrected-copy path they actually need.
 	let editingId = $state<string | null>(null);
@@ -164,7 +164,11 @@
 		}
 		saving = true;
 		try {
-			await api.standardCurves.update(curve.id, parsed.values);
+			// A used curve's fit is frozen, so only its labels are sent.
+			const values = usedCount(curve) > 0
+				? { name: parsed.values.name, notes: parsed.values.notes }
+				: parsed.values;
+			await api.standardCurves.update(curve.id, values);
 			toastStore.success('Standard curve updated');
 			editingId = null;
 			rowError = null;
@@ -327,11 +331,11 @@
 					<td colspan={colCount} class="px-4 py-3 space-y-3">
 						{#if usedCount(row) > 0}
 							<p class="text-xs text-brand-muted">
-								{usedCount(row)} reading{usedCount(row) === 1 ? ' was' : 's were'} corrected with this curve, so its name, fit date and coefficients are frozen and it cannot be deleted. Notes stay editable. Duplicate it to correct the coefficients, then re-enter those measurements against the copy.
+								{usedCount(row)} reading{usedCount(row) === 1 ? ' was' : 's were'} corrected with this curve, so its fit date and coefficients are frozen and it cannot be deleted. Its name and notes stay editable. Duplicate it to correct the coefficients, then re-enter those measurements against the copy.
 							</p>
 						{/if}
 						<div class="grid grid-cols-4 gap-3">
-							<label class="flex flex-col gap-1 text-xs text-brand-muted col-span-2">Name<input type="text" bind:value={editForm.name} disabled={usedCount(row) > 0} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm disabled:opacity-60" /></label>
+							<label class="flex flex-col gap-1 text-xs text-brand-muted col-span-2">Name<input type="text" bind:value={editForm.name} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm disabled:opacity-60" /></label>
 							<label class="flex flex-col gap-1 text-xs text-brand-muted col-span-2">Fit date<input type="date" bind:value={editForm.fitted_on} disabled={usedCount(row) > 0} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm disabled:opacity-60" /></label>
 							<label class="flex flex-col gap-1 text-xs text-brand-muted">Slope<input type="number" step="any" bind:value={editForm.slope} disabled={usedCount(row) > 0} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm font-mono disabled:opacity-60" /></label>
 							<label class="flex flex-col gap-1 text-xs text-brand-muted">Intercept<input type="number" step="any" bind:value={editForm.intercept} disabled={usedCount(row) > 0} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm font-mono disabled:opacity-60" /></label>

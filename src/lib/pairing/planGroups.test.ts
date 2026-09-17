@@ -6,7 +6,12 @@ import {
 	creations,
 	familySummary,
 	instrumentBindings,
+	instrumentCoverage,
 	instrumentGroups,
+	instrumentLabel,
+	instrumentRowKey,
+	instrumentRows,
+	instrumentsOf,
 	parameterIndex,
 	paramGroups,
 	siteGroups,
@@ -372,5 +377,52 @@ describe('sitesWithoutCoordinates', () => {
 
 	it('treats a zero coordinate as a position', () => {
 		expect(sitesWithoutCoordinates([at('Null Island', 0, 0)])).toHaveLength(0);
+	});
+});
+
+describe('instrumentRowKey', () => {
+	it('names the row the way the API groups it: source key, then curve column, then parameter', () => {
+		expect(instrumentRowKey(entry({ instrument: instrument({ source_key: 'metalp:doc' }) }))).toBe('instrument:metalp:doc');
+		expect(instrumentRowKey(entry({ instrument: instrument({ source_key: '', curve_column: 'doc_curve' }) }))).toBe(
+			'column:doc_curve',
+		);
+		expect(instrumentRowKey(entry())).toBe('parameter:Depth');
+		const grouped = entry({ parameter: { ...entry().parameter, group_key: 'chla' } });
+		expect(instrumentRowKey(grouped)).toBe('parameter:chla');
+	});
+
+	it('gives a device channel a row of its own', () => {
+		expect(instrumentRowKey(entry({ stream_id: 'ch1', is_device: true } as Partial<PairingPlanEntry>))).toBe('device:ch1');
+	});
+});
+
+describe('instrument links', () => {
+	const doc = { key: 'parameter:DOC', scope: 'parameter:DOC', name: 'DOC', proposedName: 'DOC', group: null, parameters: ['DOC'], siteCount: 2, streamCount: 2, anchorStreamId: 'a', nameConflict: null };
+	const probe = { ...doc, key: 'instrument:probe', scope: 'instrument:probe', group: { name: 'TOC probe', create: true } as never };
+
+	it('labels a row by its instrument, marking one the plan creates and a row with none', () => {
+		const [none, created] = instrumentRows([], [], [doc, probe]).map(instrumentLabel);
+		expect(none).toMatchObject({ name: 'No instrument', none: true });
+		expect(created).toMatchObject({ name: 'TOC probe', isNew: true, none: false });
+	});
+
+	it('names each instrument once across the streams, and none for a skipped stream', () => {
+		const labels = new Map(instrumentRows([], [], [doc, probe]).map((r) => [r.key, instrumentLabel(r)]));
+		const streams = [
+			entry({ stream_id: '1', parameter: { ...entry().parameter, name: 'DOC' } }),
+			entry({ stream_id: '2', parameter: { ...entry().parameter, name: 'DOC' } }),
+			entry({ stream_id: '3', instrument: instrument({ source_key: 'probe' }) }),
+			entry({ stream_id: '4', action: 'skip', instrument: instrument({ source_key: 'other' }) }),
+		];
+		expect(instrumentsOf(streams, labels).map((l) => l.name)).toEqual(['No instrument', 'TOC probe']);
+	});
+
+	it('reads what a row covers from the streams it pairs', () => {
+		const coverage = instrumentCoverage([
+			entry({ site: { ...entry().site, name: 'Saxon' } }),
+			entry(),
+			entry({ action: 'skip', site: { ...entry().site, name: 'Verbier' } }),
+		]);
+		expect(coverage.get('parameter:Depth')).toEqual({ parameters: ['Depth'], sites: ['Martigny', 'Saxon'] });
 	});
 });

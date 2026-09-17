@@ -5,17 +5,15 @@
 	import type { Creations, GroupCreation, InstrumentBinding, SiteCreation } from '$lib/pairing/planGroups';
 	import Button from '$components/ui/Button.svelte';
 	import { formatCount } from '$lib/format';
-	import { applyBlockedReason } from '$lib/pairing/applyGate';
 
 	// The wizard's Confirm step: what the apply will do, counted from the plan the reviewer just
 	// worked, and the one button that does it.
 	let {
 		plan,
 		summary,
-		reviewProgress,
+		blockedReason,
 		familySummary,
 		instruments,
-		openInstrumentQuestions,
 		created,
 		onsiteattribute,
 		ongroupattribute,
@@ -23,8 +21,6 @@
 		applyJobId,
 		onback,
 		onapply,
-		ongotoinstruments,
-		ongotosites,
 	}: {
 		plan: PairingPlan;
 		/** What the apply will pair, skip and create, counted over every entry. */
@@ -37,19 +33,11 @@
 			newParams: number;
 			newProjects: number;
 		};
-		/** How far the review got, over the entries that will pair. */
-		reviewProgress: {
-			total: number;
-			needs_checking: number;
-			self_validated: number;
-			acknowledged: number;
-			needsCheckingPct: number;
-			selfValidatedPct: number;
-		};
+		/** Why Apply is refused, naming each review tab still open, or null. */
+		blockedReason: string | null;
 		familySummary: { streams: number; columns: number };
 		/** Every instrument the plan binds, minted at registration or created by the apply. */
 		instruments: InstrumentBinding[];
-		openInstrumentQuestions: number;
 		/** What the apply will create, as rows: a count says how many, only these say which. */
 		created: Creations;
 		/** Rename or describe a category the apply has not created yet. */
@@ -69,20 +57,7 @@
 		applyJobId: string | null;
 		onback: () => void;
 		onapply: () => void;
-		ongotoinstruments: () => void;
-		/** Back to the Sites tab under one review filter, at its first page. */
-		ongotosites: (filter: 'needs_checking' | 'self_validated') => void;
 	} = $props();
-
-	// Why Apply is refused, or null. Q133 chose the hard gate: a plan is applied once, and the
-	// rectification afterwards costs more than the review does.
-	const blockedReason = $derived(
-		applyBlockedReason({
-			needsChecking: reviewProgress.needs_checking,
-			selfValidated: reviewProgress.self_validated,
-			openInstrumentQuestions,
-		}),
-	);
 
 	// The portals carry an elevation per station and nothing else, so a site created from one is
 	// placed here or not at all until somebody edits it site by site.
@@ -142,18 +117,6 @@
 		<Button variant="ghost" size="sm" onclick={() => onback()} class="text-brand-primary">&larr; Back to review</Button>
 		<h2 class="text-xl font-semibold">Confirm Plan</h2>
 	</div>
-
-	{#if openInstrumentQuestions > 0}
-		<div class="rounded-md border border-severity-warning-border bg-severity-warning-soft p-3 text-sm text-severity-warning-text space-y-2">
-			<div class="font-semibold">
-				{openInstrumentQuestions} instrument{openInstrumentQuestions === 1 ? '' : 's'} still to decide
-			</div>
-			<p class="text-xs opacity-90">Apply refuses a plan holding a proposal nobody agreed to.</p>
-			<Button size="sm" onclick={ongotoinstruments}>
-				Open Instruments
-			</Button>
-		</div>
-	{/if}
 
 	<div class="rounded-md border border-brand-divider bg-brand-surface p-6 space-y-4">
 		<p class="text-sm">Applying this plan will:</p>
@@ -283,25 +246,6 @@
 		{/if}
 		<p class="text-xs text-brand-muted">Readings will be backfilled with site and parameter IDs. Continuous aggregates will refresh in the background. Reverting unpairs the streams and takes the site and parameter back off their readings; sites, slots, parameters, parameter groups, instruments and deployments the apply creates stay, and a reverted plan cannot be applied again.</p>
 
-		<!-- What share of the plan has been looked at, beside the button that applies it. Each
-		     number opens the review filtered to exactly the entries it counts. -->
-		<div class="flex flex-wrap items-center gap-2 pt-1 text-xs">
-			<button
-				onclick={() => ongotosites('needs_checking')}
-				title="Entries that did not resolve, or that carry a warning, and nobody has ticked"
-				class="px-2 py-1 rounded cursor-pointer border-none bg-severity-warning-soft text-severity-warning-text"
-			>{reviewProgress.needsCheckingPct}% need checking ({formatCount(reviewProgress.needs_checking)})</button>
-			<button
-				onclick={() => ongotosites('self_validated')}
-				title="Everything resolved and nothing warned, so these wait on nobody. Worth looking over all the same."
-				class="px-2 py-1 rounded cursor-pointer border-none bg-brand-bg text-brand-muted hover:text-brand-text"
-			>{reviewProgress.selfValidatedPct}% self-validated ({formatCount(reviewProgress.self_validated)})</button>
-			{#if reviewProgress.acknowledged > 0}
-				<span class="px-2 py-1 rounded bg-severity-ok-soft text-severity-ok"
-				>{formatCount(reviewProgress.acknowledged)} checked by hand</span>
-			{/if}
-		</div>
-
 		{#if applying && applyJobId}
 			<p class="text-xs text-brand-muted">
 				Running as job <span class="font-mono">{applyJobId.slice(0, 8)}</span>, which carries on if
@@ -321,16 +265,6 @@
 			>
 				{applying ? 'Applying…' : 'Apply Plan'}
 			</Button>
-			{#if openInstrumentQuestions > 0}
-				<p class="self-center text-xs text-severity-warning-text">
-					Decide the {openInstrumentQuestions === 1 ? 'instrument' : 'instruments'} above first: a parameter is
-					paired with the instrument that measures it.
-				</p>
-			{:else if blockedReason !== null}
-				<p class="self-center text-xs text-severity-warning-text">
-					{blockedReason}. Work the review above: the counts beside it open the rows that are waiting.
-				</p>
-			{/if}
 		</div>
 	</div>
 </div>

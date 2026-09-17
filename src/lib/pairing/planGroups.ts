@@ -468,3 +468,92 @@ export function instrumentBindings(entries: PairingPlanEntry[]): InstrumentBindi
 		}))
 		.sort((a, b) => a.name.localeCompare(b.name));
 }
+
+/**
+ * The Instruments tab row a stream belongs to. Mirrors `instrument_key` in the API's
+ * `sync/service.rs`, which groups that tab's rows, so every tab names the same row for a stream.
+ * A device channel is its own row.
+ */
+export function instrumentRowKey(entry: PairingPlanEntry): string {
+	if (entry.is_device) return `device:${entry.stream_id}`;
+	const i = entry.instrument;
+	if (i?.source_key) return `instrument:${i.source_key}`;
+	if (i?.curve_column) return `column:${i.curve_column}`;
+	return `parameter:${entry.parameter.group_key ?? entry.parameter.name}`;
+}
+
+/** One row of the Instruments tab: a device channel, a lab instrument, or a parameter without one. */
+export interface InstrumentRow {
+	key: string;
+	decision: InstrumentDecision | null;
+	device: PlanDeviceGroup | null;
+}
+
+/** The Instruments tab's rows in the order it lists them: device channels, then lab instruments. */
+export function instrumentRows(
+	devices: PlanDeviceGroup[],
+	deviceDecisions: InstrumentDecision[],
+	decisions: InstrumentDecision[],
+): InstrumentRow[] {
+	return [
+		...devices.map((device) => ({
+			key: `device:${device.anchor_stream_id}`,
+			decision: deviceDecisions.find((d) => d.anchorStreamId === device.anchor_stream_id) ?? null,
+			device,
+		})),
+		...decisions.map((decision) => ({ key: decision.key, decision, device: null })),
+	];
+}
+
+/** How another tab names an Instruments tab row. */
+export interface InstrumentLabel {
+	key: string;
+	name: string;
+	/** The plan creates it. */
+	isNew: boolean;
+	/** Nothing is chosen yet. */
+	none: boolean;
+}
+
+export function instrumentLabel(row: InstrumentRow): InstrumentLabel {
+	const group = row.decision?.group ?? row.device?.instrument ?? null;
+	if (group) return { key: row.key, name: group.name, isNew: group.create, none: false };
+	if (row.device?.instrument_id) {
+		return { key: row.key, name: row.device.instrument_name ?? row.device.serial, isNew: false, none: false };
+	}
+	// A device channel with nothing bound is minted from its serial when the plan is applied.
+	if (row.device) return { key: row.key, name: row.device.serial, isNew: true, none: false };
+	return { key: row.key, name: 'No instrument', isNew: false, none: true };
+}
+
+/** The instruments measuring these streams, one per row, in the order the streams are given. */
+export function instrumentsOf(
+	entries: PairingPlanEntry[],
+	labels: Map<string, InstrumentLabel>,
+): InstrumentLabel[] {
+	const seen = new Map<string, InstrumentLabel>();
+	for (const entry of entries) {
+		if (entry.action !== 'pair') continue;
+		const label = labels.get(instrumentRowKey(entry));
+		if (label && !seen.has(label.key)) seen.set(label.key, label);
+	}
+	return [...seen.values()];
+}
+
+/** The parameters and sites each Instruments tab row measures, read from the streams it pairs. */
+export function instrumentCoverage(
+	entries: PairingPlanEntry[],
+): Map<string, { parameters: string[]; sites: string[] }> {
+	const acc = new Map<string, { parameters: Set<string>; sites: Set<string> }>();
+	for (const entry of entries) {
+		if (entry.action !== 'pair') continue;
+		const key = instrumentRowKey(entry);
+		const row = acc.get(key) ?? { parameters: new Set<string>(), sites: new Set<string>() };
+		row.parameters.add(entry.parameter.name);
+		row.sites.add(entry.site.name);
+		acc.set(key, row);
+	}
+	return new Map(
+		[...acc].map(([key, row]) => [key, { parameters: [...row.parameters].sort(), sites: [...row.sites].sort() }]),
+	);
+}

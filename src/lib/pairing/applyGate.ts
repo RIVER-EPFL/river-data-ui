@@ -1,112 +1,66 @@
 import { formatCount } from "$lib/format";
 
-/**
- * Whether a plan may be applied, and what is holding it.
- *
- * Q133 chose the hard gate: a plan is applied once and rectifying it afterwards costs more than
- * reviewing it, so Apply waits until every row that poses a question has been answered. The rule
- * lives here rather than in the button's `disabled` expression so it can be stated once and
- * tested without a component.
- */
-export interface ApplyGate {
-  /** Entries that did not resolve, or carry a warning, and nobody has ticked. */
-  needsChecking: number;
-  /** Entries that resolved cleanly and nobody has ticked. A tick records that a person looked
-   *  (Q155), so these wait too. */
-  selfValidated: number;
-  /** Instruments the plan would create that nobody has confirmed. */
-  openInstrumentQuestions: number;
-}
+import type { ReviewTab } from "./reviewTabs";
 
-/**
- * Why Apply is refused, phrased for the operator, or `null` when it may run.
- *
- * The instrument question comes first: it is the narrower set and the one whose fix is a click on
- * the same screen, so naming it ahead of the review count sends the operator to the nearer of the
- * two.
- */
-export function applyBlockedReason(gate: ApplyGate): string | null {
-  if (gate.openInstrumentQuestions > 0) {
-    const n = gate.openInstrumentQuestions;
-    return `${n} instrument${n === 1 ? "" : "s"} still to decide; every parameter is paired with one`;
-  }
-  const n = gate.needsChecking + gate.selfValidated;
-  if (n > 0) {
-    return `${n} row${n === 1 ? "" : "s"} still to tick; a plan is applied once`;
-  }
-  return null;
-}
+/** Whether a review tab stops the apply, is fully reviewed, or has nothing to review. */
+export type GateState = "blocking" | "done" | "none";
 
-/** Whether a gate item stops the apply, is worth knowing, or is settled. */
-export type GateState = "blocking" | "advisory" | "done";
-
-/** One line of the "Before you apply" strip: a count, a state, and where it is settled. */
+/** One review tab as the gate reads it: its name, its count, and its state. */
 export interface GateItem {
-  key: "objects" | "instruments" | "rows" | "units";
+  tab: ReviewTab;
   label: string;
-  /** The count, phrased as progress where there is progress to make. */
+  /** The count, phrased as review progress where there is anything to review. */
   detail: string;
   state: GateState;
-  /** The review tab that settles it. */
-  tab: "objects" | "instruments" | "sites" | "parameters";
+}
+
+export interface Progress {
+  reviewed: number;
+  total: number;
 }
 
 export interface PlanGate {
-  objects: { accepted: number; total: number };
-  instruments: { decided: number; total: number };
-  rows: { ticked: number; total: number };
-  /** Source parameters whose units disagree with the catalog entry they match. */
-  unitConflicts: number;
+  projects: Progress;
+  sites: Progress;
+  parameters: Progress;
+  instruments: Progress;
+  curves: { total: number };
+}
+
+function reviewItem(tab: ReviewTab, label: string, p: Progress): GateItem {
+  if (p.total === 0) return { tab, label, detail: "0", state: "none" };
+  return {
+    tab,
+    label,
+    detail: `${formatCount(p.reviewed)} of ${formatCount(p.total)} reviewed`,
+    state: p.reviewed >= p.total ? "done" : "blocking",
+  };
 }
 
 /**
- * The gate as one list, blocking items first.
+ * The review's tab strip, each tab carrying its own review count, so the tabs are the checklist.
  *
- * An item with nothing behind it is left out rather than shown settled: a plan that creates no
- * object has no acceptance to report, and an advisory with a count of zero is not news.
+ * Q133 chose the hard gate: a plan is applied once and rectifying it afterwards costs more than
+ * reviewing it, so Apply waits until every tab with something to review is fully reviewed.
  */
 export function planGateItems(gate: PlanGate): GateItem[] {
-  const items: GateItem[] = [];
-  if (gate.objects.total > 0) {
-    items.push({
-      key: "objects",
-      label: "Objects",
-      detail: `${formatCount(gate.objects.accepted)} of ${formatCount(gate.objects.total)} accepted`,
-      state: gate.objects.accepted >= gate.objects.total ? "done" : "blocking",
-      tab: "objects",
-    });
-  }
-  if (gate.instruments.total > 0) {
-    items.push({
-      key: "instruments",
-      label: "Instruments",
-      detail: `${formatCount(gate.instruments.decided)} of ${formatCount(gate.instruments.total)} decided`,
-      state: gate.instruments.decided >= gate.instruments.total ? "done" : "blocking",
-      tab: "instruments",
-    });
-  }
-  if (gate.rows.total > 0) {
-    items.push({
-      key: "rows",
-      label: "Rows",
-      detail: `${formatCount(gate.rows.ticked)} of ${formatCount(gate.rows.total)} ticked`,
-      state: gate.rows.ticked >= gate.rows.total ? "done" : "blocking",
-      tab: "sites",
-    });
-  }
-  if (gate.unitConflicts > 0) {
-    items.push({
-      key: "units",
-      label: "Unit conflicts",
-      detail: `${formatCount(gate.unitConflicts)} to settle`,
-      state: "advisory",
-      tab: "parameters",
-    });
-  }
-  return items;
+  return [
+    reviewItem("projects", "Projects", gate.projects),
+    reviewItem("sites", "Sites", gate.sites),
+    reviewItem("parameters", "Parameters", gate.parameters),
+    reviewItem("instruments", "Instruments", gate.instruments),
+    { tab: "curves", label: "Standard curves", detail: formatCount(gate.curves.total), state: "none" },
+  ];
 }
 
-/** What the strip says is blocking, for the Apply button that reads the same list. */
+/** The tabs that stop the apply. */
 export function gateBlocking(items: GateItem[]): GateItem[] {
   return items.filter((i) => i.state === "blocking");
+}
+
+/** Why Apply is refused, naming each tab still to review, or `null` when it may run. */
+export function applyBlockedReason(items: GateItem[]): string | null {
+  const blocking = gateBlocking(items);
+  if (blocking.length === 0) return null;
+  return `Still to review: ${blocking.map((i) => `${i.label} (${i.detail})`).join(", ")}`;
 }

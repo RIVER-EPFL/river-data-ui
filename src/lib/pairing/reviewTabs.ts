@@ -1,27 +1,17 @@
-/// The pairing review's tab strip. Objects is a tab of the same strip as the editors (U55): the
-/// card it used to be stood above the strip, 28 rows tall on a Vaisala plan and over a hundred on
-/// a CNET one, which put the review's own navigation a screen below its header.
+/// The pairing review's tab strip. Each tab lists one kind of thing the plan pairs onto or creates,
+/// and carries how many of them have been reviewed.
 
-export type ReviewTab = 'objects' | 'parameters' | 'sites' | 'instruments' | 'curves';
+export type ReviewTab = 'projects' | 'sites' | 'parameters' | 'instruments' | 'curves';
 
 /**
- * The tab on screen. Objects opens the review while the plan has an object nobody has accepted,
- * since applying is refused until every one of them is; once they are all accepted, or the plan
- * creates nothing at all, the review opens on the cross-site editor instead.
- *
- * `chosen` is the operator's own click, which is answered whatever the objects say, so accepting
- * the last one does not move them off the tab they are reading.
+ * The tab on screen. The operator's own click is answered whatever the counts say, so reviewing
+ * the last item does not move them off the tab they are reading. With no click, or a chosen tab
+ * that is not on the strip, the review opens on the first tab still to review.
  */
 export function activeReviewTab(
 	chosen: ReviewTab | null,
-	objects: number,
-	open: number,
+	tabs: Array<{ tab: ReviewTab; state: string }>,
 ): ReviewTab {
-	const tab = chosen ?? (open > 0 ? 'objects' : 'parameters');
-	return tab === 'objects' && objects === 0 ? 'parameters' : tab;
-}
-
-/** The Objects tab's label, carrying the count the apply gate is waiting on. */
-export function objectsTabLabel(objects: number, open: number): string {
-	return open > 0 ? `Objects (${open} to accept)` : `Objects (${objects})`;
+	if (chosen && tabs.some((t) => t.tab === chosen)) return chosen;
+	return tabs.find((t) => t.state === 'blocking')?.tab ?? 'parameters';
 }

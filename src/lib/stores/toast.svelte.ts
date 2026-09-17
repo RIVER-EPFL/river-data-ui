@@ -2,6 +2,12 @@ export interface Toast {
 	id: number;
 	message: string;
 	type: 'success' | 'error' | 'info';
+	action?: ToastAction;
+}
+
+export interface ToastAction {
+	label: string;
+	run: () => void;
 }
 
 let counter = 0;
@@ -11,8 +17,8 @@ export const toastStore = {
 	get items() {
 		return toasts;
 	},
-	success(message: string) {
-		add(message, 'success');
+	success(message: string, action?: ToastAction) {
+		add(message, 'success', action);
 	},
 	error(message: string) {
 		add(message, 'error');
@@ -25,10 +31,11 @@ export const toastStore = {
 	},
 };
 
-function add(message: string, type: Toast['type']) {
+function add(message: string, type: Toast['type'], action?: ToastAction) {
 	const id = ++counter;
-	toasts = [...toasts, { id, message, type }];
+	toasts = [...toasts, { id, message, type, action }];
+	// An undo needs longer to reach than a message needs to read.
 	setTimeout(() => {
 		toasts = toasts.filter((t) => t.id !== id);
-	}, 4000);
+	}, action ? 10000 : 4000);
 }
