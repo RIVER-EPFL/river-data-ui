@@ -25,3 +25,9 @@ export function splitPlanUpdates(batch: PlanUpdate[]): SplitPlanUpdates {
 		proposals: batch.filter((u): u is PlanProposalUpdate => 'source_key' in u),
 	};
 }
+
+// The plan's instrument view is keyed by parameter name and grouped by site, so a batch that moves
+// either leaves it naming rows that no longer exist until it is fetched again.
+export function movesPlanInstruments(batch: PlanUpdate[]): boolean {
+	return batch.some((u) => 'stream_id' in u && (u.parameter_name != null || u.site_name != null));
+}

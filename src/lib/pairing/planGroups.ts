@@ -2,6 +2,7 @@ import type { Parameter } from '$api/crud';
 import type {
 	InstrumentNameConflict,
 	PairingPlanEntry,
+	PlanDeviceGroup,
 	PlanInstrumentGroup,
 	PlanInstrumentRef,
 	PlanEntryUpdate,
@@ -30,6 +31,31 @@ export interface InstrumentDecision {
 /** A row still asking: nothing attached, or a suggestion nobody has confirmed. */
 export function isAskingInstrument(d: InstrumentDecision): boolean {
 	return d.group === null || (d.group.create && !d.group.confirmed);
+}
+
+/**
+ * A device channel's instrument as a decision, so its proposal is named, confirmed and accepted in
+ * bulk like a lab one. A channel on a plan drafted without an instrument has nothing to decide.
+ */
+export function deviceDecisions(devices: PlanDeviceGroup[]): InstrumentDecision[] {
+	return devices.flatMap((d): InstrumentDecision[] => {
+		const g = d.instrument;
+		if (!g) return [];
+		return [
+			{
+				key: g.scope ?? d.anchor_stream_id,
+				scope: g.scope ?? d.anchor_stream_id,
+				name: g.name,
+				proposedName: g.proposed_name ?? g.name,
+				nameConflict: g.name_conflict ?? null,
+				group: g,
+				parameters: d.parameters,
+				siteCount: 1,
+				streamCount: d.stream_count,
+				anchorStreamId: d.anchor_stream_id,
+			},
+		];
+	});
 }
 
 /**

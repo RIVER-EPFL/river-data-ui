@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { splitPlanUpdates, type PlanUpdate } from './planUpdates';
+import { movesPlanInstruments, splitPlanUpdates, type PlanUpdate } from './planUpdates';
 
 describe('splitPlanUpdates', () => {
 	it('routes each decision to the list the PATCH carries it in', () => {
@@ -26,5 +26,26 @@ describe('splitPlanUpdates', () => {
 
 	it('returns four empty lists for an empty batch', () => {
 		expect(splitPlanUpdates([])).toEqual({ entries: [], curves: [], objects: [], proposals: [] });
+	});
+});
+
+describe('movesPlanInstruments', () => {
+	it('is true for a target parameter change, which the instrument view is keyed by', () => {
+		const batch = [{ stream_id: 's1', parameter_name: 'DOC_site2' }] as unknown as PlanUpdate[];
+		expect(movesPlanInstruments(batch)).toBe(true);
+	});
+
+	it('is true for a site change, which a device is grouped by', () => {
+		const batch = [{ stream_id: 's1', site_name: 'Saxon' }] as unknown as PlanUpdate[];
+		expect(movesPlanInstruments(batch)).toBe(true);
+	});
+
+	it('is false for decisions that leave the keys alone', () => {
+		const batch = [
+			{ stream_id: 's1', action: 'pair' },
+			{ stream_id: 's1', parameter_units: 'mg/L' },
+			{ key: 'site:Martigny', accepted: true },
+		] as unknown as PlanUpdate[];
+		expect(movesPlanInstruments(batch)).toBe(false);
 	});
 });

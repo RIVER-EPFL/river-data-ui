@@ -9,11 +9,15 @@
 		instrumentDecisions,
 		labInstruments,
 		planDevices = [],
+		deviceDecisions = [],
+		openInstrumentQuestions,
 		onassign,
 	}: {
 		instrumentDecisions: InstrumentDecision[];
 		labInstruments: Array<{ id: string; name: string | null; serial_number: string | null }>;
 		planDevices?: PlanDeviceGroup[];
+		deviceDecisions?: InstrumentDecision[];
+		openInstrumentQuestions?: number;
 		onassign: (rows: InstrumentDecision[], instrumentId: string) => void;
 	} = $props();
 </script>
@@ -21,9 +25,10 @@
 <InstrumentsTab
 	planInstruments={{ groups: [], unassigned: [], devices: [], curves: [] }}
 	{planDevices}
+	{deviceDecisions}
 	{instrumentDecisions}
 	{labInstruments}
-	openInstrumentQuestions={instrumentDecisions.length}
+	openInstrumentQuestions={openInstrumentQuestions ?? instrumentDecisions.length}
 	acceptingSuggestions={false}
 	instrumentOptions={() => []}
 	instrumentValue={() => ''}

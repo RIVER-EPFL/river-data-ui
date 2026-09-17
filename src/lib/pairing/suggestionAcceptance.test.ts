@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import type { PlanInstrumentGroup } from '$api/service';
-import { suggestionAcceptance, type InstrumentDecision } from './planGroups';
+import type { PlanDeviceGroup, PlanInstrumentGroup } from '$api/service';
+import { deviceDecisions, suggestionAcceptance, type InstrumentDecision } from './planGroups';
 
 function decision(over: Partial<InstrumentDecision> = {}): InstrumentDecision {
 	return {
@@ -55,5 +55,35 @@ describe('suggestionAcceptance', () => {
 		]);
 		expect(updates).toEqual([]);
 		expect(held).toBe(1);
+	});
+});
+
+describe('deviceDecisions', () => {
+	function device(instrument: PlanInstrumentGroup | null): PlanDeviceGroup {
+		return {
+			site: 'Les Dailles',
+			serial: '25284028',
+			model: null,
+			instrument_id: null,
+			instrument_name: null,
+			instrument,
+			parameters: ['Temperature'],
+			stream_count: 1,
+			anchor_stream_id: 'temp-stream',
+		};
+	}
+
+	it('puts a channel proposal into the bulk accept', () => {
+		const decisions = deviceDecisions([
+			device(group({ scope: 'instrument:DDOTdegC', name: 'Les Dailles Temperature' })),
+		]);
+		expect(decisions.map((d) => d.key)).toEqual(['instrument:DDOTdegC']);
+		expect(suggestionAcceptance(decisions).updates).toEqual([
+			{ stream_id: 'temp-stream', instrument_confirmed: true },
+		]);
+	});
+
+	it('has nothing to decide for a channel carrying no instrument', () => {
+		expect(deviceDecisions([device(null)])).toEqual([]);
 	});
 });

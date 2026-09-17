@@ -107,3 +107,48 @@ describe('InstrumentsTab devices', () => {
 		expect(screen.getByText('Temperature')).not.toBeNull();
 	});
 });
+
+describe('InstrumentsTab device proposals', () => {
+	it('shows a channel the apply will create as a proposal still asking, and offers the bulk accept', () => {
+		const device = channel('DDOuM', 'Dissolved oxygen');
+		const group = {
+			scope: 'instrument:DDOuM',
+			instrument_id: null,
+			name: 'Les Dailles Dissolved oxygen',
+			source_key: 'DDOuM',
+			resolved_by: 'device',
+			create: true,
+			confirmed: false,
+			stamps_readings: false,
+			curve_column: null,
+			stream_count: 1,
+			parameters: ['Dissolved oxygen'],
+			site_count: 1,
+			anchor_stream_id: device.anchor_stream_id,
+			curves: [],
+			proposed_name: 'Les Dailles Dissolved oxygen',
+		};
+		mount({
+			instrumentDecisions: [],
+			planDevices: [{ ...device, instrument: group }],
+			deviceDecisions: [
+				{
+					key: group.scope,
+					scope: group.scope,
+					name: group.name,
+					proposedName: group.name,
+					group,
+					parameters: group.parameters,
+					siteCount: 1,
+					streamCount: 1,
+					anchorStreamId: device.anchor_stream_id,
+					nameConflict: null,
+				},
+			],
+			openInstrumentQuestions: 1,
+		});
+		expect(screen.getByText('Les Dailles Dissolved oxygen')).not.toBeNull();
+		expect(screen.getByText('proposed', { exact: true })).not.toBeNull();
+		expect(screen.getByRole('button', { name: 'Accept all suggestions' })).not.toBeNull();
+	});
+});

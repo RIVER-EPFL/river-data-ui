@@ -15,11 +15,12 @@
 	import { formatSignificant } from '$lib/utils';
 
 	// The plan's Instruments review tab: one row per instrument the plan must bind, questions
-	// first, with the devices the source identifies by serial listed above as facts rather than
-	// decisions.
+	// first, with the channels of the devices the source reports listed above, each proposing its
+	// own instrument.
 	let {
 		planInstruments,
 		planDevices,
+		deviceDecisions = [],
 		instrumentDecisions,
 		labInstruments,
 		openInstrumentQuestions,
@@ -39,6 +40,8 @@
 		/** Null while the plan's instruments are still loading. */
 		planInstruments: PlanInstruments | null;
 		planDevices: PlanDeviceGroup[];
+		/** The device channels' instruments as decisions, one per channel that carries one. */
+		deviceDecisions?: InstrumentDecision[];
 		instrumentDecisions: InstrumentDecision[];
 		/** How many rows still ask something: no instrument, or a proposal nobody confirmed. */
 		openInstrumentQuestions: number;
@@ -88,6 +91,9 @@
 	// parameters it will serve, which is what the instrument's own view would show.
 	const covered = $derived(chosen.flatMap((d) => d.parameters));
 
+	const deviceDecision = (d: PlanDeviceGroup) =>
+		deviceDecisions.find((x) => x.anchorStreamId === d.anchor_stream_id) ?? null;
+
 	function assign() {
 		if (!assignTo || chosen.length === 0) return;
 		onassign(chosen, assignTo);
@@ -109,9 +115,9 @@
 				an instrument later breaks nothing.
 			</p>
 			<p>
-				A device the source identifies by serial is not a decision: the serial is the
-				identity. Pairing attaches the device to its feeds and opens its deployment at the
-				site, one per parameter it serves.
+				Each channel of a device the source reports is its own instrument, named for the site
+				and parameter it serves. Pairing creates it once you accept it and opens its
+				deployment at the site; the serial is shown, never matched on.
 			</p>
 			<p>
 				A curve is fitted on one instrument, so a reading naming a curve must name that
@@ -120,20 +126,33 @@
 		</div>
 	</details>
 
+	{#if openInstrumentQuestions > 0}
+		<div class="flex flex-wrap items-baseline gap-2">
+			<span class="text-xs text-severity-warning">
+				{openInstrumentQuestions} still to decide
+			</span>
+			<Button size="sm" disabled={acceptingSuggestions} onclick={onacceptall} class="ml-auto">
+				{acceptingSuggestions ? 'Accepting…' : 'Accept all suggestions'}
+			</Button>
+		</div>
+	{/if}
+
 	{#if planDevices.length > 0}
 		<div class="space-y-1">
 			<h3 class="text-sm font-semibold">Devices the source identifies by serial</h3>
-			<p class="text-xs text-brand-muted">Stationed at one site, so each is named for the slot it serves.</p>
+			<p class="text-xs text-brand-muted">Stationed at one site, so each channel is named for the slot it serves.</p>
 			<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 				<table class="w-full text-sm">
 					<thead><tr class="bg-brand-bg border-b border-brand-divider">
 						<th class="text-left px-3 py-2 font-semibold">Site</th>
 						<th class="text-left px-3 py-2 font-semibold">Device</th>
 						<th class="text-left px-3 py-2 font-semibold">Channels</th>
-						<th class="text-left px-3 py-2 font-semibold">In the inventory</th>
+						<th class="text-left px-3 py-2 font-semibold">Instrument</th>
+						<th class="text-left px-3 py-2 font-semibold">Status</th>
 					</tr></thead>
 					<tbody>
 						{#each planDevices as d (d.anchor_stream_id)}
+							{@const decision = deviceDecision(d)}
 							<tr class="border-b border-brand-divider last:border-b-0">
 								<td class="px-3 py-2">{d.site}</td>
 								<td class="px-3 py-2">
@@ -145,10 +164,27 @@
 									<span class="ml-1">({d.stream_count} stream{d.stream_count === 1 ? '' : 's'})</span>
 								</td>
 								<td class="px-3 py-2 text-xs">
-									{#if d.instrument_id}
+									{#if decision}
+										{@render nameField(decision.scope, decision.anchorStreamId, decision.proposedName, decision.group)}
+										{#if decision.nameConflict}
+											<div class="mt-1 text-[11px] text-severity-warning-text">
+												<span class="font-semibold">{decision.nameConflict.name}</span> already exists; rename this one or attach it.
+												<Button size="sm" variant="ghost" onclick={() => onattach(decision, decision.nameConflict!.id)}>Attach to it</Button>
+											</div>
+										{/if}
+									{:else if d.instrument_id}
 										<a href="{base}/sensors/{d.instrument_id}" class="text-brand-primary no-underline hover:underline">{d.instrument_name ?? d.serial}</a>
 									{:else}
 										<span class="text-brand-muted">created when the plan is applied</span>
+									{/if}
+								</td>
+								<td class="px-3 py-2 text-xs">
+									{#if decision?.group?.create && !decision.group.confirmed}
+										<Badge variant="warning" title="A suggestion waiting on you. Accept it and the apply creates this instrument.">proposed</Badge>
+									{:else if decision?.group?.create}
+										<Badge title="Not in the inventory yet; the apply creates it.">will be created</Badge>
+									{:else if decision || d.instrument_id}
+										<Badge variant="ok" title="Already in the inventory; the apply attaches it to this channel.">existing</Badge>
 									{/if}
 								</td>
 							</tr>
@@ -171,14 +207,6 @@
 		<div class="flex flex-wrap items-baseline gap-2">
 			<h3 class="text-sm font-semibold">Lab instruments</h3>
 			<p class="w-full text-xs text-brand-muted order-last">One instrument per analyte, carried out to every station that measures it, so a row here covers all of them at once.</p>
-			{#if openInstrumentQuestions > 0}
-				<span class="text-xs text-severity-warning">
-					{openInstrumentQuestions} still to decide
-				</span>
-				<Button size="sm" disabled={acceptingSuggestions} onclick={onacceptall} class="ml-auto">
-					{acceptingSuggestions ? 'Accepting…' : 'Accept all suggestions'}
-				</Button>
-			{/if}
 		</div>
 
 		{#if chosen.length > 0}

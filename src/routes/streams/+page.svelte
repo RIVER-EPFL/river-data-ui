@@ -29,6 +29,7 @@
 		instrumentBindings as planInstrumentBindings,
 		type InstrumentDecision,
 		isAskingInstrument,
+		deviceDecisions,
 		suggestionAcceptance,
 		creations,
 		type ParamGroup,
@@ -40,7 +41,7 @@
 	import { formatRelativeTime, holdKindBreakdown } from '$lib/utils';
 	import { createUrlTab } from '$lib/urlTab.svelte';
 	import { createDraftQueue } from '$lib/pairing/draftQueue';
-	import { splitPlanUpdates, type PlanUpdate } from '$lib/pairing/planUpdates';
+	import { movesPlanInstruments, splitPlanUpdates, type PlanUpdate } from '$lib/pairing/planUpdates';
 	import { NO_PLAN_RUNS, runsAfterJob, type PlanRuns } from '$lib/pairing/planRuns';
 	import { eventBus } from '$lib/stores/events.svelte';
 	import { entryStatus, matchesFilter, reviewState, reviewStateLabel, statusLabel, type EntryFilter } from '$lib/pairing/entryStatus';
@@ -391,8 +392,9 @@
 			planDevices.filter((d) => d.parameters.includes(parameter)).map((d) => d.site),
 		).size;
 	}
+	const planDeviceDecisions = $derived(deviceDecisions(planDevices));
 	const openInstrumentQuestions = $derived(
-		instrumentDecisions.filter(isAskingInstrument).length,
+		[...instrumentDecisions, ...planDeviceDecisions].filter(isAskingInstrument).length,
 	);
 	// The apply is refused while any of these is open, one step later. Say so here, where they can
 	// still be answered, rather than only on the screen that stops.
@@ -683,7 +685,7 @@
 	// The suggestions as a set: one click rather than one per parameter, each row keeping its own
 	// name edit and attach choice after it.
 	async function acceptAllSuggestions() {
-		const { updates, held } = suggestionAcceptance(instrumentDecisions);
+		const { updates, held } = suggestionAcceptance([...instrumentDecisions, ...planDeviceDecisions]);
 		if (held > 0) {
 			toastStore.info(
 				`${held} suggestion${held === 1 ? '' : 's'} left for you: the name is already an instrument, so attaching or creating a second one is your call.`,
@@ -1007,6 +1009,7 @@
 					// The snapshot is stale, but its version is what the next write must name.
 					plan = { ...plan, version: updated.version };
 				}
+				if (movesPlanInstruments(batch)) await loadPlanInstruments();
 			} catch (e) {
 				// Someone else edited the draft: reload it so the retry writes against what is
 				// there now, rather than losing this batch or theirs.
@@ -1588,8 +1591,8 @@
 		planGateItems({
 			objects: { accepted: planObjects.length - openObjects.length, total: planObjects.length },
 			instruments: {
-				decided: instrumentDecisions.length - openInstrumentQuestions,
-				total: instrumentDecisions.length,
+				decided: instrumentDecisions.length + planDeviceDecisions.length - openInstrumentQuestions,
+				total: instrumentDecisions.length + planDeviceDecisions.length,
 			},
 			rows: { ticked: reviewProgress.acknowledged, total: reviewProgress.total },
 			unitConflicts: uniqueWarnings.length,
@@ -2236,6 +2239,7 @@
 						onadmit={queueProposal}
 						{planInstruments}
 						{planDevices}
+						deviceDecisions={planDeviceDecisions}
 						{instrumentDecisions}
 						{openInstrumentQuestions}
 						{acceptingSuggestions}
