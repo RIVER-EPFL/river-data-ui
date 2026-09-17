@@ -1,4 +1,5 @@
 import { GET, POST, PUT, DELETE, getList, type Paginated } from './client';
+import type { components } from './schema';
 
 export interface CrudClient<T> {
 	list: (opts?: {
@@ -43,6 +44,7 @@ export const api = {
 	constants: crudClient<Constant>('constants'),
 	alarmThresholds: crudClient<AlarmThreshold>('alarm_thresholds'),
 	dataStreams: crudClient<DataStream>('data_streams'),
+	readings: crudClient<Reading>('readings'),
 	annotations: crudClient<Annotation>('annotations'),
 	notes: crudClient<Note>('notes'),
 	apiTokens: crudClient<ApiToken>('tokens'),
@@ -560,3 +562,6 @@ export interface NotificationMute {
 	created_by: string | null;
 	created_at: string;
 }
+
+/** A stored reading as the list serves it, with the names behind its ids filled on read. */
+export type Reading = components['schemas']['ReadingList'];

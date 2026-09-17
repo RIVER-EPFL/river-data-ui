@@ -3485,7 +3485,8 @@ export interface paths {
          *
          *     Additional sortable columns:
          *     - time
-         *     - raw_value.
+         *     - raw_value
+         *     - ingested_at.
          *
          *     Additional filterable columns:
          *     - stream_id
@@ -3494,6 +3495,7 @@ export interface paths {
          *     - site_id
          *     - parameter_id
          *     - sensor_id
+         *     - calibration_id
          *     - standard_curve_id
          *     - measurement_type
          *     - is_flagged
@@ -13715,6 +13717,20 @@ export interface components {
             /** @description `queued`, always. */
             status: string;
         };
+        /** @description The calibration a listed reading was corrected with. */
+        ReadingCalibrationRef: {
+            /** Format: uuid */
+            id: string;
+            /** Format: double */
+            intercept: number;
+            name: string | null;
+            /** Format: double */
+            slope: number;
+            /** Format: date-time */
+            valid_from: string;
+            /** Format: date-time */
+            valid_until: string | null;
+        };
         ReadingChangeProposalList: {
             /** Format: date-time */
             decided_at: string | null;
@@ -13792,6 +13808,16 @@ export interface components {
             stream_id: string;
             /** Format: date-time */
             time: string;
+        };
+        /** @description The standard curve a listed reading names. */
+        ReadingCurveRef: {
+            /** Format: uuid */
+            id: string;
+            /** Format: double */
+            intercept: number;
+            name: string | null;
+            /** Format: double */
+            slope: number;
         };
         ReadingDecisionList: {
             actor: string;
@@ -13973,6 +13999,7 @@ export interface components {
         ReadingList: {
             /** Format: double */
             calibrated_value: number | null;
+            calibration: null | components["schemas"]["ReadingCalibrationRef"];
             /**
              * Format: uuid
              * @description The time-windowed base calibration the value was corrected with.
@@ -13986,6 +14013,7 @@ export interface components {
             collection_event_id: string | null;
             /** @description Who entered it, on a hand-entered measurement. */
             created_by: string | null;
+            curve: null | components["schemas"]["ReadingCurveRef"];
             /** Format: uuid */
             deployment_id: string | null;
             /**
@@ -14000,6 +14028,7 @@ export interface components {
              *     the value). NULL on rows that predate tracking.
              */
             ingested_at: string | null;
+            instrument_name: string | null;
             is_flagged: boolean | null;
             /** @description The operator's name for the measurement. */
             label: string | null;
@@ -14007,6 +14036,7 @@ export interface components {
             measurement_type: string | null;
             /** @description The operator's free text about the measurement. */
             notes: string | null;
+            parameter_code: string | null;
             /** Format: uuid */
             parameter_id: string | null;
             /**
@@ -14031,6 +14061,10 @@ export interface components {
             sensor_id: string | null;
             /** Format: uuid */
             site_id: string | null;
+            site_name: string | null;
+            source_key: string | null;
+            /** @description The names behind the ids above, filled on read so a list reads without a lookup per row. */
+            source_system: string | null;
             /**
              * Format: uuid
              * @description The hand-picked lab curve applied on top of the base calibration, for grab measurements.
@@ -14040,6 +14074,7 @@ export interface components {
             stream_id: string;
             /** Format: date-time */
             time: string;
+            units: string | null;
             /**
              * @description An intern's entry that no manager has verified. Curated surfaces leave it out
              *     (`common/served.rs`); only `reading_decisions` moves it, through its projection trigger.

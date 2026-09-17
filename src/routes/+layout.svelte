@@ -118,6 +118,7 @@
 			items: [
 				{ href: `${base}/explore`, label: 'Explore', icon: 'chart', minCap: 'readData', also: [`${base}/compare`, `${base}/scatter`, `${base}/day-of-year`] },
 				{ href: `${base}/events`, label: 'Visits', icon: 'pin', minCap: 'readData' },
+				{ href: `${base}/readings`, label: 'Readings', icon: 'list', minCap: 'readData' },
 				{ href: `${base}/alarms`, label: 'Alarms', icon: 'bell' },
 				{ href: `${base}/data-entry`, label: 'Data entry', icon: 'wrench' },
 				{ href: `${base}/upload`, label: 'Upload', icon: 'upload', minCap: 'writeData' },

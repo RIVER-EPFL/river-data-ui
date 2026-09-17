@@ -31,6 +31,14 @@ describe('readNumber', () => {
 		expect(readNumber('1,234', 'en-US')).toBe(1234);
 	});
 
+	it('reads the apostrophe and the space on a Swiss locale whatever its locale data spells', () => {
+		expect(readNumber("1'026", 'fr-CH')).toBe(1026);
+		expect(readNumber('1 026', 'fr-CH')).toBe(1026);
+		expect(readNumber("1'026", 'de-CH')).toBe(1026);
+		expect(readNumber('1 026', 'de-CH')).toBe(1026);
+		expect(readNumber("1'234,5", 'fr-FR')).toBeNull();
+	});
+
 	it('refuses a cell the locale cannot account for', () => {
 		// The comma groups thousands on en-US, and no grouping puts one digit after it.
 		expect(readNumber('12,5', 'en-US')).toBeNull();

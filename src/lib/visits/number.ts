@@ -23,6 +23,19 @@ function spellings(group: string): string[] {
 	return [group];
 }
 
+/** A Swiss locale reads both: ICU data spells it with a space before 78 and an apostrophe from 78. */
+function swissSpellings(): string[] {
+	return [...APOSTROPHES, ...SPACES];
+}
+
+function region(locale: string): string | undefined {
+	try {
+		return new Intl.Locale(locale).region;
+	} catch {
+		return undefined;
+	}
+}
+
 /** The locale the operator's machine writes numbers in. */
 export function browserLocale(): string {
 	if (typeof navigator !== 'undefined' && navigator.language) return navigator.language;
@@ -34,7 +47,7 @@ export function separatorsFor(locale: string): Separators {
 	const parts = new Intl.NumberFormat(locale).formatToParts(1234567.5);
 	const decimal = parts.find((p) => p.type === 'decimal')?.value ?? '.';
 	const group = parts.find((p) => p.type === 'group')?.value ?? ',';
-	return { decimal, group: spellings(group) };
+	return { decimal, group: region(locale) === 'CH' ? swissSpellings() : spellings(group) };
 }
 
 function charClass(chars: string[]): string {

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/svelte";
+import { render, screen, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -116,6 +116,11 @@ describe("SiteVisitsTab", () => {
     expect(declared.closest("td")?.classList.contains("htDimmed")).toBe(false);
     // A slot nobody declared for is not rounded to a precision nobody chose.
     expect(screen.getByText("100.8")).toBeTruthy();
+    const grid = within(document.querySelector<HTMLElement>(".ht_master")!);
+    expect(grid.getByRole("button", { name: "2025-06-01T08:00:00Z" })).toBeTruthy();
+    expect(grid.getByText("Date (UTC)")).toBeTruthy();
+    expect(grid.queryByText("Source")).toBeNull();
+    expect(grid.queryByText("Filled")).toBeNull();
     expect(screen.queryByText("100.800003")).toBeNull();
   });
 
@@ -155,8 +160,9 @@ describe("SiteVisitsTab", () => {
     render(SiteVisitsTab, props({ declared: 2 }));
 
     // A visit whose outputs no calculation will write does not read like one that just recomputed.
-    expect(await screen.findByText("not calculated here")).toBeTruthy();
-    expect(screen.getAllByText("not calculated here")).toHaveLength(1);
+    await screen.findAllByText("not calculated here");
+    const grid = within(document.querySelector<HTMLElement>(".ht_master")!);
+    expect(grid.getAllByText("not calculated here")).toHaveLength(1);
   });
   it("asks for every listed visit, not only the flagged ones, when computing a new calculation", async () => {
     // Every visit is current: a calculation authored today has raised no finding anywhere, so

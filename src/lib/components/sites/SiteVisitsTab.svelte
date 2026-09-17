@@ -268,7 +268,7 @@
 	// The typed cells are read once per load: a keystroke changes the grid itself, not its data.
 	const gridData = $derived.by(() => {
 		void dataVersion;
-		return sheetData(visits, slots, untrack(() => edits), locale, writableSlot, formatDateTime);
+		return sheetData(visits, slots, untrack(() => edits), locale, writableSlot);
 	});
 
 	type SheetSettings = Omit<GridSettings, 'data' | 'licenseKey' | 'themeName'>;
@@ -281,7 +281,7 @@
 			rowHeaders: true,
 			wordWrap: false,
 			fixedColumnsStart: FROZEN_COLUMNS,
-			colWidths: (index: number) => (index === 0 ? 200 : index < FROZEN_COLUMNS ? 80 : 100),
+			colWidths: (index: number) => (index === 0 ? 180 : 100),
 			width: '100%',
 			height: 'auto',
 			manualColumnResize: true,
@@ -350,22 +350,18 @@
 		return span;
 	}
 
-	function renderFrozen(_hot: unknown, td: HTMLTableCellElement, row: number, column: number) {
+	function renderFrozen(_hot: unknown, td: HTMLTableCellElement, row: number) {
 		resetCell(td, row);
 		td.classList.add('htDimmed');
 		const visit = visits[row];
 		if (!visit) return td;
-		if (column !== 0) {
-			td.textContent = gridData[row]?.[column] ?? '';
-			return td;
-		}
 		const open = expandedVisit === visit.id;
 		const button = document.createElement('button');
 		button.type = 'button';
 		button.className = 'sheet-link';
 		button.setAttribute('aria-expanded', String(open));
 		button.title = open ? 'Collapse this visit' : 'Expand this visit';
-		button.textContent = formatDateTime(visit.collected_at);
+		button.textContent = gridData[row]?.[0] ?? '';
 		button.addEventListener('click', () => void openVisit(visit.id));
 		td.append(button);
 		if (visit.findings_open > 0) {
@@ -1246,7 +1242,7 @@
 							<div class="mb-2 flex items-center justify-between gap-2">
 								<div class="text-xs text-brand-muted">
 									<span class="font-mono text-brand-text">
-										{counts.parameters} parameter{counts.parameters === 1 ? '' : 's'} · {counts.replicates} replicate{counts.replicates === 1 ? '' : 's'} · {counts.flagged} flagged · {counts.withdrawn} withdrawn · {counts.findings} finding{counts.findings === 1 ? '' : 's'}
+										{visits.find((visit) => visit.id === expandedVisit)?.parameters_filled ?? counts.parameters}/{groupColumns.length} parameters filled · {counts.replicates} replicate{counts.replicates === 1 ? '' : 's'} · {counts.flagged} flagged · {counts.withdrawn} withdrawn · {counts.findings} finding{counts.findings === 1 ? '' : 's'}
 									</span>
 									·
 									{visitSourceLabel(visitDetail.source, visitDetail.created_by)}{#if entryNoticeFor(visitDetail.source)}. {SYNCED_VISIT_NOTICE}{/if}

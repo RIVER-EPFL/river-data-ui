@@ -38,6 +38,8 @@
 		<path d="M22 21v-2a4 4 0 0 0-3-3.9" /><path d="M16 3.1a4 4 0 0 1 0 7.8" />
 	{:else if name === 'mail'}
 		<rect x="2" y="4" width="20" height="16" rx="2" /><path d="m3 6 9 7 9-7" />
+	{:else if name === 'list'}
+		<path d="M8 6h13" /><path d="M8 12h13" /><path d="M8 18h13" /><path d="M3 6h.01" /><path d="M3 12h.01" /><path d="M3 18h.01" />
 	{:else if name === 'rss'}
 		<path d="M4 11a9 9 0 0 1 9 9" /><path d="M4 4a16 16 0 0 1 16 16" /><circle cx="5" cy="19" r="1.5" />
 	{:else if name === 'settings'}

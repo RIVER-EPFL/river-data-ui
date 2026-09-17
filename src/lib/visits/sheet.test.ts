@@ -69,18 +69,17 @@ const visits = [
 	visit('v2', { 'p-do': [replicate(0, 9)] }),
 ];
 
-const format = (iso: string) => iso.slice(0, 10);
 const always = () => true;
 
 describe('the visits sheet', () => {
 	it('heads each group with its code across its repeats, and numbers the repeats of an open one', () => {
 		const collapsed = parameterColumns(expected, visits, new Set());
 		expect(sheetHeaders(collapsed)).toEqual([
-			['', '', '', { label: 'DO (mg/L)', colspan: 1 }, { label: 'TEMP', colspan: 1 }],
-			['Date', 'Source', 'Filled', '', ''],
+			['', { label: 'DO (mg/L)', colspan: 1 }, { label: 'TEMP', colspan: 1 }],
+			['Date (UTC)', '', ''],
 		]);
 		const open = parameterColumns(expected, visits, new Set(['p-do']));
-		expect(sheetHeaders(open)[0][3]).toEqual({ label: 'DO (mg/L)', colspan: 2 });
+		expect(sheetHeaders(open)[0][1]).toEqual({ label: 'DO (mg/L)', colspan: 2 });
 		expect(sheetHeaders(open)[1].slice(FROZEN_COLUMNS)).toEqual(['1', '2', '']);
 	});
 
@@ -107,10 +106,22 @@ describe('the visits sheet', () => {
 
 	it('lays the rows out as the text a copy carries: every stored value at full precision', () => {
 		const slots = slotsOf(parameterColumns(expected, visits, new Set(['p-do'])));
-		const rows = sheetData(visits, slots, { 'v2|p-temp|0': '5' }, LOCALE, always, format);
-		expect(rows[0]).toEqual(['2026-06-01', 'tester', '2/2', '10', '12', '4.2']);
+		const rows = sheetData(visits, slots, { 'v2|p-temp|0': '5' }, LOCALE, always);
+		expect(rows[0]).toEqual(['2026-06-01T08:00:00Z', '10', '12', '4.2']);
 		// What was typed stands in for what the store holds.
-		expect(rows[1]).toEqual(['2026-06-01', 'tester', '1/2', '9', '', '5']);
+		expect(rows[1]).toEqual(['2026-06-01T08:00:00Z', '9', '', '5']);
+	});
+
+	it('copies UTC instants and pastes measurements into the visible columns', () => {
+		const one = [{ ...visits[0], collected_at: '2025-08-26T10:30:45.123+02:00' }];
+		const slots = slotsOf(parameterColumns(expected, one, new Set()));
+		const row = sheetData(one, slots, {}, LOCALE, always)[0];
+		expect(row).toEqual(['2025-08-26T08:30:45.123Z', '10', '4.2']);
+		expect(new Date(row[0]).getTime()).toBe(new Date(one[0].collected_at).getTime());
+		const changes = row.map((raw, column) => ({ row: 1, column, raw }));
+		const pasted = applyChanges({}, visits, slots, changes, LOCALE, true);
+		expect(pasted.refused).toEqual([0]);
+		expect(pasted.edits).toEqual({ 'v2|p-do|0': '10', 'v2|p-temp|0': '4.2' });
 	});
 
 	it('prints a cell at its slot declared precision, an undeclared one as measured', () => {

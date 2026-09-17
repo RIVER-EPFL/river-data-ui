@@ -4,23 +4,17 @@ import type { GridSlot, ParameterColumn } from './columns';
 import { readNumber, writeNumber } from './number';
 import { setCell, slotKey, storedAt, type Edits } from './tableEdit';
 
-// The Visits table as a spreadsheet grid: the visit's date, source and fill count frozen on the
-// left, then one grid column per (parameter, replicate) slot. The grid's cells hold text, which is
-// what a copy carries; what a cell prints is decided here from the visit it stands on.
-
-/** Date, source and fill count, ahead of the first slot. */
-export const FROZEN_COLUMNS = 3;
+// The UTC date stays frozen beside the measurement slots.
+export const FROZEN_COLUMNS = 1;
 
 export type HeaderCell = string | { label: string; colspan: number };
 
 /** Two header rows: the parameter groups across their repeats, then each repeat's number. */
 export function sheetHeaders(columns: ParameterColumn[]): HeaderCell[][] {
 	return [
-		['', '', '', ...columns.map((c) => ({ label: groupLabel(c), colspan: c.width }))],
+		['', ...columns.map((c) => ({ label: groupLabel(c), colspan: c.width }))],
 		[
-			'Date',
-			'Source',
-			'Filled',
+			'Date (UTC)',
 			...columns.flatMap((c) =>
 				c.expanded ? Array.from({ length: c.width }, (_, i) => String(i + 1)) : [''],
 			),
@@ -77,13 +71,9 @@ export function sheetData(
 	edits: Edits,
 	locale: string,
 	writable: (visit: VisitRow, slot: GridSlot) => boolean,
-	formatDate: (iso: string) => string,
 ): string[][] {
-	const parameters = new Set(slots.map((s) => s.parameterId)).size;
 	return visits.map((visit) => [
-		formatDate(visit.collected_at),
-		visit.source === 'portal_sync' ? 'portal' : (visit.created_by ?? 'manual'),
-		`${visit.parameters_filled}/${parameters}`,
+		new Date(visit.collected_at).toISOString().replace('.000Z', 'Z'),
 		...slots.map((slot) => {
 			const key = slotKey({ eventId: visit.id, parameterId: slot.parameterId, replicateIndex: slot.replicateIndex });
 			if (key in edits) return edits[key];
