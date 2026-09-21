@@ -18,6 +18,7 @@
 		listToolVersionUsage,
 		saveFormulaSet,
 		type FormulaDraftRunResponse,
+		type GivenUpOutput,
 		type StepDependents,
 		type ToolScriptDetail,
 		type ToolVersionUsage,
@@ -34,27 +35,34 @@
 		formulaSetBody,
 		formulaVariables,
 		inputRows,
-		outputRows,
-		scalarInputs,
 		scalarOverrides,
 		type EditableFormula,
 	} from '$lib/calculations/editor';
 	import { armConsequence, storedLabel } from '$lib/calculations/consequence';
 	import { portalReference, replicatedCodes } from '$lib/calculations/members';
-	import { perReplicateChoices } from '$lib/derivedParameters';
-	import { identifiers } from '$lib/formula/lint';
 	import { curveField } from '$lib/tools/form';
 	import { runInputTables, runTables } from '$lib/tools/runTable';
+	import {
+		insertIdentifier,
+		rowKey,
+		sheetBlocks,
+		withReplicate,
+		type DeclaredInput,
+		type SheetEdit,
+		type SheetRow,
+		type SheetSelection,
+	} from '$lib/calculations/sheet';
+	import type { DragPayload } from '$components/formula/ast';
 	import { formatDateTime } from '$lib/utils';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
 	import Button from '$components/ui/Button.svelte';
-	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import SiteSelect from '$components/SiteSelect.svelte';
-	import VisualFormulaBuilder from '$components/formula/VisualFormulaBuilder.svelte';
-	import RunResultsTable from '$components/tools/RunResultsTable.svelte';
+	import FormulaPalette from '$components/formula/FormulaPalette.svelte';
+	import CalculationSheet from '$components/toolbox/CalculationSheet.svelte';
+	import CellPanel from '$components/toolbox/CellPanel.svelte';
 	import CurvePicker, { emptyCurveSelection, type CurveSelection } from '$components/tools/CurvePicker.svelte';
 	import type { Diagnostic } from '$lib/formula/lint';
 	import { AUTHORING_REFUSED } from '$lib/toolbox/authoring';
@@ -76,9 +84,23 @@
 	let loading = $state(true);
 	let error = $state('');
 	let busy = $state(false);
+	/** What the last save stopped publishing, so the page says what it left behind. */
+	let givenUp: GivenUpOutput[] = $state([]);
 
-	let editing = $state<number | null>(null);
 	let diagnostics = $state<Diagnostic[]>([]);
+	// The cell the reader is on, and the formula the panel edits: the selected row's, or one just
+	// added, which the tables cannot show until it has a code.
+	let selected = $state<SheetSelection | null>(null);
+	let picked = $state<EditableFormula | null>(null);
+	// Inputs brought in from the palette before a formula names one. They are rows of the table and
+	// nothing else: the save does not keep them.
+	let declared = $state<DeclaredInput[]>([]);
+	// Every input and formula change bumps the generation; a run remembers the one it read, so the
+	// numbers on screen say whether they are still the ones being shown.
+	let generation = $state(0);
+	let ranAt = $state(0);
+	let requests = 0;
+	let rerunTimer: ReturnType<typeof setTimeout> | null = null;
 
 	let siteId = $state(page.url.searchParams.get('site') ?? '');
 	let visits = $state<VisitRow[]>([]);
@@ -104,7 +126,6 @@
 	let shareable = $state<DerivedParameter[]>([]);
 	let declaring = $state('');
 	let dependents = $state<Record<string, StepDependents>>({});
-	let expanded = $state<string | null>(null);
 
 	const usageByVersion = $derived(new Map(usage.map((u) => [u.version_id, u])));
 	const activeUsage = $derived(usage.find((u) => u.version_no === calculation?.active_version_no));
@@ -116,18 +137,6 @@
 	// mean (Q155); replicate-ness is the parameter's, in whichever group holds it.
 	const replicated = $derived(replicatedCodes(members, parameters));
 	const inputs = $derived(inputRows(formulas, parameters, constants, replicated));
-	const outputs = $derived(outputRows(formulas));
-	const families = $derived(inputs.filter((i) => i.kind === 'replicates').map((i) => i.name));
-	const scalars = $derived(scalarInputs(inputs));
-	// What the last run read for each scalar, shown as the box's placeholder so a blank box says
-	// which number it stands for.
-	const resolved = $derived(
-		Object.fromEntries(
-			[...(run?.event_inputs ?? []), ...(run?.site_inputs ?? [])]
-				.filter((i) => i.value !== null && i.value !== undefined)
-				.map((i) => [i.param, String(i.value)]),
-		) as Record<string, string>,
-	);
 	const slots = $derived(curveSlots(formulas));
 	// A formula added, edited, or dropped from the set: all three are the save's business.
 	const dropped = $derived(
@@ -156,6 +165,18 @@
 			: undefined,
 	);
 
+	// The three tables the page is: the set's inputs, steps and outputs, filled by the run.
+	const blocks = $derived(sheetBlocks(formulas, inputs, declared, given, tables ?? undefined));
+	const stale = $derived(run !== null && ranAt < generation);
+
+	const selectedRow = $derived(
+		selected
+			? ((blocks.find((b) => b.key === selected!.block)?.rows ?? []).find(
+					(r) => r.key === selected!.key,
+				) ?? null)
+			: null,
+	);
+
 	// The codes this set names: what its formulas read, and what they publish.
 	const namedCodes = $derived([
 		...new Set([
@@ -170,17 +191,6 @@
 	function isDirty(f: EditableFormula): boolean {
 		const was = stored.find((s) => s.id === f.id);
 		return !was || JSON.stringify(was) !== JSON.stringify(f);
-	}
-
-	function variableNames(f: EditableFormula): string[] {
-		return [...new Set(identifiers(f.formula).map((i) => i.name))];
-	}
-
-	/** The codes a formula may read as steps: every other formula of the set, in order. */
-	function stepsBefore(f: EditableFormula): string[] {
-		return ordered
-			.filter((o) => o !== f && o.code.trim())
-			.map((o) => o.code.trim());
 	}
 
 	/** The steps this calculation reads through a declaration, as read-only rows of the list. */
@@ -230,14 +240,11 @@
 	}
 
 	async function showDependents(f: EditableFormula) {
-		if (!f.id) return;
-		expanded = expanded === f.id ? null : f.id;
-		if (expanded && !dependents[f.id]) {
-			try {
-				dependents = { ...dependents, [f.id]: await getStepDependents(f.id) };
-			} catch (e) {
-				toastStore.error(e instanceof Error ? e.message : 'Could not read what the step feeds');
-			}
+		if (!f.id || dependents[f.id]) return;
+		try {
+			dependents = { ...dependents, [f.id]: await getStepDependents(f.id) };
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Could not read what the step feeds');
 		}
 	}
 
@@ -293,17 +300,78 @@
 		if (siteId) await loadVisits(siteId, page.url.searchParams.get('visit') ?? '');
 	});
 
-	function add() {
-		formulas = [...formulas, blankFormula(formulas)];
-		editing = formulas.length - 1;
+	/** Append a row to the steps or to the outputs, and open the panel on it. */
+	function addRow(block: 'steps' | 'outputs') {
+		const blank = blankFormula(formulas);
+		blank.intermediate = block === 'steps';
+		formulas = [...formulas, blank];
+		const added = formulas[formulas.length - 1]!;
+		picked = added;
+		selected = { block, key: rowKey(added), column: 0 };
 	}
 
-	/** Close the editor on a formula the set will carry. Nothing is written until the set is saved;
-	 *  the visit is read again, so the edit is seen moving through the steps to the outputs. */
-	function done(f: EditableFormula) {
-		if (!f.code.trim() || !f.formula.trim() || diagnostics.length > 0) return;
-		editing = null;
-		if (visit) void runAtVisit();
+	/** A cell was typed, pasted or filled into: a dummy value, or the code of a new row. */
+	function applyEdit(edit: SheetEdit) {
+		if (!edit) return;
+		if (edit.kind === 'replicate') {
+			const list = withReplicate(replicateText[edit.name] ?? '', edit.index, edit.text);
+			replicateText = { ...replicateText, [edit.name]: list };
+		} else if (edit.kind === 'scalar') {
+			scalarText = { ...scalarText, [edit.name]: edit.text };
+		} else {
+			const target = formulas.find((f) => rowKey(f) === edit.key);
+			if (target) target.code = edit.text.trim();
+		}
+	}
+
+	/** What a palette entry writes when it is dropped: an identifier, or a name for the run to
+	 *  supply a value for. */
+	function payloadName(payload: DragPayload): string {
+		if (payload.kind === 'operator') return payload.op;
+		if (payload.kind === 'function') return `${payload.name}()`;
+		return payload.name;
+	}
+
+	function dropPayload(
+		block: 'inputs' | 'steps' | 'outputs',
+		row: SheetRow | null,
+		payload: DragPayload,
+	) {
+		if (block === 'inputs') {
+			if (payload.kind === 'operator' || payload.kind === 'function') return;
+			const name = payload.name;
+			if (inputs.some((i) => i.name === name) || declared.some((d) => d.name === name)) return;
+			const constant = constants.find((c) => c.name === name);
+			const parameter = parameters.find((p) => p.code === name);
+			declared = [
+				...declared,
+				constant
+					? { name, kind: 'constant', detail: constant.units ? `${constant.value} ${constant.units}` : String(constant.value) }
+					: parameter
+						? { name, kind: 'parameter', detail: parameter.default_units ? `${parameter.name} (${parameter.default_units})` : parameter.name }
+						: { name, kind: 'other', detail: 'resolved by the server as a site property' },
+			];
+			return;
+		}
+		const target = formulas.find((f) => rowKey(f) === row?.key);
+		if (target) target.formula = insertIdentifier(target.formula, payloadName(payload)).formula;
+	}
+
+	/** Open a row in the panel, from a cell of the tables or from a link in the panel itself. */
+	function choose(next: SheetSelection | string | null) {
+		selected =
+			typeof next === 'string'
+				? { block: 'outputs', key: next, column: 0 }
+				: next;
+		picked = selected
+			? (formulas.find((f) => f.code.trim() === selected!.key) ?? null)
+			: null;
+	}
+
+	/** A palette pick is written into the formula the panel holds, at its end. */
+	function insert(payload: DragPayload) {
+		if (!picked) return;
+		picked.formula = insertIdentifier(picked.formula, payloadName(payload)).formula;
 	}
 
 	/**
@@ -311,10 +379,11 @@
 	 * version being replaced produced: left where they are, or recomputed under the new one.
 	 */
 	async function saveSet(migrate: boolean) {
-		if (editing !== null || !unsaved) return;
+		if (diagnostics.length > 0 || !unsaved) return;
 		busy = true;
 		try {
 			const res = await saveFormulaSet(calculationId, formulaSetBody(formulas, migrate));
+			givenUp = res.given_up ?? [];
 			await load();
 			toastStore.success(
 				res.version_no === null
@@ -330,16 +399,11 @@
 		}
 	}
 
-	function discard(f: EditableFormula) {
-		const was = stored.find((s) => s.id === f.id);
-		formulas = was ? formulas.map((x) => (x === f ? { ...was } : x)) : formulas.filter((x) => x !== f);
-		editing = null;
-	}
-
 	/** Drop a formula from the pending set. The save deletes it, by leaving it out. */
 	function remove(f: EditableFormula) {
 		formulas = formulas.filter((x) => x !== f);
-		editing = null;
+		if (picked === f) picked = null;
+		selected = null;
 	}
 
 	/** Keep the site and the visit in the URL, so a calculation read at a visit is a link. */
@@ -380,44 +444,72 @@
 		}
 	}
 
-	/** Choosing a visit reads the calculation over it at once: the numbers are the page. */
-	async function chooseVisit() {
+	/** Choosing a visit reads the calculation over it: the numbers are the page. */
+	function chooseVisit() {
 		rememberVisit();
 		run = null;
-		if (visitId) await runAtVisit();
 	}
 
+	/**
+	 * Read the set as it stands. Nothing is written: `draft_run` computes and returns, and a run
+	 * with no visit is on the typed numbers alone.
+	 *
+	 * Responses are tagged, so one that was launched earlier never replaces a later one's numbers.
+	 */
 	async function runAtVisit() {
-		if (!visit) return;
+		const seq = ++requests;
+		const at = generation;
 		running = true;
 		runError = '';
 		try {
-			run = await draftRunFormulas(
+			const result = await draftRunFormulas(
 				calculationId,
 				draftRunBody(
 					formulas,
-					{ siteId, collectedAt: visit.collected_at },
+					visit ? { siteId, collectedAt: visit.collected_at } : null,
 					replicateText,
 					Object.fromEntries(slots.map((slot) => [slot, curveField(curveChoice[slot])])),
 					scalarOverrides(inputs, scalarText),
 				),
 			);
+			if (seq !== requests) return;
+			run = result;
+			ranAt = at;
 		} catch (e) {
+			if (seq !== requests) return;
 			run = null;
 			runError = e instanceof Error ? e.message : 'The run was refused';
 		} finally {
-			running = false;
+			if (seq === requests) running = false;
 		}
 	}
 
-	const kindLabel: Record<string, string> = {
-		replicates: 'family',
-		parameter: 'parameter',
-		constant: 'constant',
-		step: 'step',
-		curve: 'curve',
-		other: 'site property',
-	};
+	/** What a run reads, so a change to any of it is a change to the numbers on screen. */
+	const runSignature = $derived(
+		JSON.stringify([
+			formulas.map((f) => [f.code, f.formula, f.per_replicate, f.curve_slot, f.intermediate]),
+			replicateText,
+			scalarText,
+			siteId,
+			visitId,
+			slots.map((slot) => curveField(curveChoice[slot])),
+		]),
+	);
+	let lastSignature = '';
+	// A change reruns the draft once it has settled, rather than on every keystroke.
+	$effect(() => {
+		const next = runSignature;
+		if (loading || next === lastSignature) return;
+		lastSignature = next;
+		if (ordered.length === 0) return;
+		generation += 1;
+		if (rerunTimer) clearTimeout(rerunTimer);
+		rerunTimer = setTimeout(() => {
+			rerunTimer = null;
+			void runAtVisit();
+		}, 400);
+	});
+
 	const inputCls =
 		'w-full px-2 py-1 text-sm border border-brand-divider rounded bg-brand-surface text-brand-text';
 </script>
@@ -465,17 +557,12 @@
 							{/each}
 						</select>
 					</label>
-					{#each families as family (family)}
-						<label class="text-xs text-brand-muted">{family} (A, B, …)
-							<input bind:value={replicateText[family]} placeholder="410, 415" class="block mt-0.5 {inputCls} w-40" />
-						</label>
-					{/each}
-					{#each scalars as scalar (scalar.name)}
-						<label class="text-xs text-brand-muted">{scalar.name}
-							<input bind:value={scalarText[scalar.name]} placeholder={resolved[scalar.name] ?? (scalar.kind === 'constant' ? 'catalog' : 'from the visit')} class="block mt-0.5 {inputCls} w-28" />
-						</label>
-					{/each}
-					<Button size="sm" variant="primary" loading={running} disabled={!visit || ordered.length === 0} onclick={runAtVisit}>Run</Button>
+					<Button size="sm" variant="primary" disabled={ordered.length === 0} onclick={runAtVisit}>Run</Button>
+					{#if running}<span class="text-xs text-brand-muted">Reading…</span>{/if}
+					<p class="text-xs text-brand-muted">
+						Type a value into an input cell to read the set over it. With no visit chosen the
+						run is on the typed numbers alone.
+					</p>
 				</div>
 				{#if slots.length > 0}
 					<div class="grid gap-3 sm:grid-cols-2">
@@ -494,38 +581,15 @@
 			</div>
 		</section>
 
-		<div class="grid grid-cols-1 xl:grid-cols-[minmax(420px,3fr)_minmax(320px,2fr)] gap-4 items-start">
-			<!-- The visit's data, in the portal's order: what was read, what is fixed, the steps,
-			     then what the calculation publishes. -->
-			<section class="rounded-md border border-brand-divider bg-brand-surface">
-				<div class="px-3 py-2 border-b border-brand-divider">
-					<h3 class="text-sm font-semibold">At this visit</h3>
-					<p class="text-xs text-brand-muted">The formulas as they stand{unsaved ? ', unsaved edits included' : ''}, over the visit's stored values. Nothing is written.</p>
-				</div>
-				<div class="px-3 py-3 space-y-3">
-					{#if !visit}
-						<p class="text-sm text-brand-muted">Choose a site and a visit to read the calculation over its values.</p>
-					{/if}
-					{#if runError}<ErrorNotice message={runError} />{/if}
-					{#if run && !run.ran && run.failure}
-						<ErrorNotice message={run.failure.message} />
-					{/if}
-					{#if run?.ran}
-						{#if tables}<RunResultsTable {tables} inputs={given} trace={run?.trace ?? []} />{/if}
-						{#if (run.skipped?.length ?? 0) > 0}
-							<ul class="text-xs text-brand-muted">
-								{#each run.skipped ?? [] as s, i (i)}
-									<li><span class="font-mono">{s.output}</span> not run: {s.reason}</li>
-								{/each}
-							</ul>
-						{/if}
-					{/if}
-				</div>
-			</section>
-			<!-- Formulas, in evaluation order, edited in place. -->
-			<section class="rounded-md border border-brand-divider bg-brand-surface">
+		<!-- The calculation as three tables of the visit's data, the palette beside them and the
+		     selected cell under them. -->
+		<div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_14rem] gap-4 items-start">
+			<section class="min-w-0 rounded-md border border-brand-divider bg-brand-surface">
 				<div class="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-brand-divider">
-					<h3 class="text-sm font-semibold">Formulas</h3>
+					<div>
+						<h3 class="text-sm font-semibold">At this visit</h3>
+						<p class="text-xs text-brand-muted">The formulas as they stand{unsaved ? ', unsaved edits included' : ''}, over the visit's stored values. Nothing is written.</p>
+					</div>
 					<div class="flex flex-wrap items-center gap-2">
 						{#if shareable.length > 0}
 							<select bind:value={declaring} class={inputCls} aria-label="A step written elsewhere">
@@ -536,202 +600,99 @@
 							</select>
 							<Button size="sm" disabled={busy || !declaring} onclick={declare}>Bring in</Button>
 						{/if}
-						<Button size="sm" onclick={add} disabled={busy || editing !== null}>Add formula</Button>
 					</div>
 				</div>
-				<p class="px-3 pt-2 text-xs text-brand-muted">In the order the dependencies give them: a formula comes after every formula whose code it reads.</p>
-				{#if ordered.length === 0}
-					<p class="px-3 py-3 text-sm text-brand-muted">No formulas yet. Add the first; a per-replicate formula runs once per index of the family it names.</p>
-				{/if}
-				<ol class="divide-y divide-brand-divider">
-					{#each ordered as f, index (f.id ?? `new-${index}`)}
-						{@const position = formulas.indexOf(f)}
-						<li class="px-3 py-2">
-							{#if editing === position}
-								<div class="space-y-2">
-									<div class="grid grid-cols-3 gap-2">
-										<label class="text-xs text-brand-muted">Code
-											<input bind:value={f.code} placeholder="CO2_HS_Um" class={inputCls} disabled={!!f.codeLocked} title={f.codeLocked ?? ''} />
-											{#if f.codeLocked}
-												<span class="mt-1 block text-[11px] text-brand-muted">Published: {f.codeLocked}. The code is the CSV column header and the public identifier.</span>
-											{/if}
-										</label>
-										<label class="text-xs text-brand-muted">Name
-											<input bind:value={f.name} placeholder="CO2 headspace" class={inputCls} />
-										</label>
-										<label class="text-xs text-brand-muted">Units
-											<input bind:value={f.units} placeholder="uM" class={inputCls} />
-										</label>
-									</div>
-									<label class="text-xs text-brand-muted block">Description
-										<input bind:value={f.description} placeholder="The portal function this transcribes, and what it assumes" class={inputCls} />
-									</label>
-									<VisualFormulaBuilder
-										bind:value={f.formula}
-										bind:diagnostics
-										variables={paramVars}
-										{constants}
-										steps={stepsBefore(f)}
-										hasCurve={f.curve_slot.trim().length > 0}
-										ownCode={f.code || undefined}
-									/>
-									<div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-										<label class="text-xs text-brand-muted">Per replicate over
-											<select bind:value={f.per_replicate} class={inputCls}>
-												<option value="">Not per replicate, one value per visit</option>
-												{#each perReplicateChoices(variableNames(f)) as variable (variable)}
-													<option value={variable}>{variable}</option>
-												{/each}
-												{#if f.per_replicate && !variableNames(f).includes(f.per_replicate)}
-													<option value={f.per_replicate}>{f.per_replicate} (not in the formula)</option>
-												{/if}
-											</select>
-										</label>
-										<label class="text-xs text-brand-muted">Curve slot
-											<input bind:value={f.curve_slot} placeholder="doc" class={inputCls} />
-										</label>
-										<label class="flex items-start gap-2 text-sm md:col-span-2">
-											<input type="checkbox" bind:checked={f.intermediate} class="mt-1" />
-											<span>A step of the calculation
-												<span class="block text-xs text-brand-muted">Handed to the formulas after it under its code, stored nowhere.</span>
-											</span>
-										</label>
-									</div>
-									<div class="flex gap-2">
-										<Button size="sm" variant="primary" disabled={!f.code.trim() || !f.formula.trim() || diagnostics.length > 0} onclick={() => done(f)}>Done</Button>
-										<Button size="sm" variant="ghost" disabled={busy} onclick={() => discard(f)}>Cancel</Button>
-									</div>
-								</div>
-							{:else}
-								<div class="flex items-start justify-between gap-2">
-									<div class="min-w-0">
-										<p class="text-sm">
-											<span class="text-brand-muted">{index + 1}.</span>
-											<span class="font-mono">{f.code || '(no code)'}</span>
-											{#if f.name && f.name !== f.code}<span class="text-brand-muted"> · {f.name}</span>{/if}
-											{#if f.units}<span class="text-brand-muted"> ({f.units})</span>{/if}
-											{#if f.per_replicate}<Badge variant="accent">per {f.per_replicate}</Badge>{/if}
-											{#if f.intermediate}<Badge>step</Badge>{/if}
-											{#if f.declarationId}<Badge variant="accent">shared</Badge>{/if}
-											{#if f.curve_slot}<Badge>curve {f.curve_slot}</Badge>{/if}
-											{#if f.id === null || isDirty(f)}<Badge variant="warning">unsaved</Badge>{/if}
-										</p>
-										<p class="font-mono text-xs text-brand-muted break-all">{f.formula || '—'}</p>
-										{#if f.description}<p class="text-xs text-brand-muted">{f.description}</p>{/if}
-										{#if f.declarationId && f.id && expanded === f.id}
-											{@const feeds = dependents[f.id]}
-											<div class="mt-1 rounded-md border border-brand-divider bg-brand-bg px-2 py-1">
-												{#if feeds}
-													<p class="text-xs text-brand-muted">Read by</p>
-													<ul class="text-xs">
-														{#each feeds.calculations as reader (reader.tool_script_id)}
-															<li>
-																<a href="{base}/toolbox/{reader.tool_script_id}" class="text-brand-primary no-underline hover:underline">{reader.label || reader.name}</a>
-																<span class="text-brand-muted">
-																	{reader.formulas.map((r) => r.code).join(', ') || 'no formula names it yet'}
-																</span>
-															</li>
-														{/each}
-													</ul>
-												{:else}
-													<p class="text-xs text-brand-muted">Reading…</p>
-												{/if}
-											</div>
-										{/if}
-									</div>
-									<div class="whitespace-nowrap">
-										{#if f.declarationId}
-											<Button size="sm" variant="ghost" disabled={busy} onclick={() => showDependents(f)}>{expanded === f.id ? 'Hide' : 'What it feeds'}</Button>
-											<ConfirmPopover message="Stop reading {f.code} in this calculation? The step itself stays." confirmLabel="Stop reading" onconfirm={() => stopReading(f)}>
-												<Button size="sm" variant="ghost" disabled={busy}>Stop reading</Button>
-											</ConfirmPopover>
-										{:else}
-											<Button size="sm" variant="ghost" disabled={busy || editing !== null} onclick={() => { diagnostics = []; editing = position; }}>Edit</Button>
-											<ConfirmPopover message="Drop {f.code || 'this formula'} from the calculation? The save deletes it." confirmLabel="Drop" onconfirm={() => remove(f)}>
-												<Button size="sm" variant="ghost" disabled={busy}>Drop</Button>
-											</ConfirmPopover>
-										{/if}
-									</div>
-								</div>
-							{/if}
-						</li>
-					{/each}
-				</ol>
-				<!-- One save over the whole set, and what it does to the values already computed. -->
-				<div class="border-t border-brand-divider px-3 py-2">
-					{#if unsaved}
-						<p class="text-sm">
-							Unsaved: the set holds {formulas.filter((f) => !f.declarationId).length} formula{formulas.filter((f) => !f.declarationId).length === 1 ? '' : 's'}{dropped.length > 0 ? `, and drops ${dropped.map((f) => f.code).join(', ')}` : ''}.
-						</p>
-						<p class="text-xs text-brand-muted">Saving writes the whole set as one version, whatever it changed.{supersedes ? ' Choose what happens to the values the version it replaces produced.' : ''}</p>
-						<div class="mt-2 flex flex-wrap gap-2">
-							<Button size="sm" variant="primary" loading={busy} disabled={busy || editing !== null} onclick={() => saveSet(false)}>Save as a new version</Button>
-							{#if supersedes}
-								<Button size="sm" loading={busy} disabled={busy || editing !== null} onclick={() => saveSet(true)}>Save and recompute</Button>
-							{/if}
-						</div>
-						{#if supersedes}
-							<p class="mt-1 text-xs text-brand-muted">{armConsequence(activeUsage)}</p>
-						{/if}
-						{#if editing !== null}
-							<p class="mt-1 text-xs text-brand-muted">Finish the formula you are editing first.</p>
-						{/if}
-					{:else}
-						<p class="text-sm text-brand-muted">Saved. The calculation runs as its active version.</p>
+				<div class="px-3 py-3 space-y-3">
+					{#if !visit}
+						<p class="text-sm text-brand-muted">Choose a site and a visit to read the calculation over its values.</p>
+					{/if}
+					{#if runError}<ErrorNotice message={runError} />{/if}
+					{#if run && !run.ran && run.failure}
+						<ErrorNotice message={run.failure.message} />
+					{/if}
+					<CalculationSheet
+						{blocks}
+						{formulas}
+						trace={run?.trace ?? []}
+						{stale}
+						bind:selected
+						onselect={choose}
+						onedit={applyEdit}
+						ondrop={dropPayload}
+						onadd={addRow}
+					/>
+					{#if (run?.skipped?.length ?? 0) > 0}
+						<ul class="text-xs text-brand-muted">
+							{#each run?.skipped ?? [] as s, i (i)}
+								<li><span class="font-mono">{s.output}</span> not run: {s.reason}</li>
+							{/each}
+						</ul>
 					{/if}
 				</div>
 			</section>
+			<FormulaPalette
+				variables={paramVars}
+				{constants}
+				onpick={insert}
+				class="rounded-md border border-brand-divider bg-brand-surface p-2 max-h-[460px] overflow-y-auto"
+			/>
 		</div>
 
-		<details class="rounded-md border border-brand-divider bg-brand-surface">
-			<summary class="px-3 py-2 text-sm font-semibold cursor-pointer">Inputs<span class="ml-2 text-xs font-normal text-brand-muted">what the set reads, and how a run supplies it</span></summary>
-				<!-- Inputs: everything the set reads, and how a run supplies it. -->
-				<section class="rounded-md border border-brand-divider bg-brand-surface">
-					<h3 class="px-3 py-2 text-sm font-semibold border-b border-brand-divider">Inputs</h3>
-					{#if inputs.length === 0}
-						<p class="px-3 py-3 text-sm text-brand-muted">Nothing read yet.</p>
-					{:else}
-						<ul class="divide-y divide-brand-divider">
-							{#each inputs as input (input.name)}
-								<li class="px-3 py-2 text-sm">
-									<div class="flex items-center justify-between gap-2">
-										<span class="font-mono">{input.name}</span>
-										<Badge variant={input.kind === 'replicates' ? 'accent' : 'default'}>{kindLabel[input.kind]}</Badge>
-									</div>
-									<p class="text-xs text-brand-muted">
-										{input.detail}
-										{#if input.kind === 'replicates'}· one value per replicate, A, B, …{/if}
-									</p>
-									<p class="text-xs text-brand-muted">read by {input.readBy.join(', ') || '—'}</p>
-								</li>
-							{/each}
-						</ul>
-					{/if}
-				</section>
-		</details>
+		<CellPanel
+			row={selectedRow}
+			selection={selected}
+			formula={picked}
+			{formulas}
+			variables={paramVars}
+			{constants}
+			trace={run?.trace ?? []}
+			bind:diagnostics
+			consequence={supersedes ? armConsequence(activeUsage) : null}
+			dependents={picked?.id ? (dependents[picked.id] ?? null) : null}
+			{busy}
+			onselect={choose}
+			onedited={() => visit && runAtVisit()}
+			ondrop={remove}
+			onstopreading={stopReading}
+			onshowdependents={showDependents}
+		/>
 
-		<details class="rounded-md border border-brand-divider bg-brand-surface">
-			<summary class="px-3 py-2 text-sm font-semibold cursor-pointer">Outputs<span class="ml-2 text-xs font-normal text-brand-muted">what a run publishes</span></summary>
-				<!-- Outputs: what a run publishes, in order. -->
-				<section class="rounded-md border border-brand-divider bg-brand-surface">
-					<h3 class="px-3 py-2 text-sm font-semibold border-b border-brand-divider">Outputs</h3>
-					{#if outputs.length === 0}
-						<p class="px-3 py-3 text-sm text-brand-muted">Nothing published yet.</p>
-					{:else}
-						<ul class="divide-y divide-brand-divider">
-							{#each outputs as output (output.code)}
-								<li class="px-3 py-2 text-sm">
-									<div class="flex items-center justify-between gap-2">
-										<span class="font-mono">{output.code}</span>
-										{#if output.perReplicate}<Badge variant="accent">A, B, …</Badge>{/if}
-									</div>
-									<p class="text-xs text-brand-muted">{output.label}{output.units ? ` (${output.units})` : ''}{output.perReplicate ? ' · one reading per replicate; mean and sd derived' : ''}</p>
-								</li>
-							{/each}
-						</ul>
+		<!-- One save over the whole set, and what it does to the values already computed. -->
+		<section class="rounded-md border border-brand-divider bg-brand-surface px-3 py-2">
+			{#if unsaved}
+				<p class="text-sm">
+					Unsaved: the set holds {formulas.filter((f) => !f.declarationId).length} formula{formulas.filter((f) => !f.declarationId).length === 1 ? '' : 's'}{dropped.length > 0 ? `, and drops ${dropped.map((f) => f.code).join(', ')}` : ''}.
+				</p>
+				<p class="text-xs text-brand-muted">Saving writes the whole set as one version, whatever it changed.{supersedes ? ' Choose what happens to the values the version it replaces produced.' : ''}</p>
+				<div class="mt-2 flex flex-wrap gap-2">
+					<Button size="sm" variant="primary" loading={busy} disabled={busy || diagnostics.length > 0} onclick={() => saveSet(false)}>Save as a new version</Button>
+					{#if supersedes}
+						<Button size="sm" loading={busy} disabled={busy || diagnostics.length > 0} onclick={() => saveSet(true)}>Save and recompute</Button>
 					{/if}
-				</section>
-		</details>
+				</div>
+				{#if supersedes}
+					<p class="mt-1 text-xs text-brand-muted">{armConsequence(activeUsage)}</p>
+				{/if}
+				{#if diagnostics.length > 0}
+					<p class="mt-1 text-xs text-brand-muted">Put right what the formula says wrong first.</p>
+				{/if}
+			{:else}
+				<p class="text-sm text-brand-muted">Saved. The calculation runs as its active version.</p>
+			{/if}
+			{#each givenUp as gone (gone.parameter_id)}
+				<!-- Ticking an output as a step stops publication and deletes nothing. -->
+				<p class="mt-2 text-sm">
+					<span class="font-mono">{gone.code}</span> is a step now, so the calculation no longer publishes it.
+					{gone.readings_retained} reading{gone.readings_retained === 1 ? '' : 's'} stay under the parameter, and ticking it back as an output publishes them again.
+				</p>
+				{#if gone.read_by.length > 0 || gone.sites.length > 0}
+					<p class="text-xs text-brand-muted">
+						{#if gone.read_by.length > 0}Read by {gone.read_by.join(', ')}.{/if}
+						{#if gone.sites.length > 0} Held at {gone.sites.join(', ')}.{/if}
+					</p>
+				{/if}
+			{/each}
+		</section>
 
 		{#if reference.length > 0}
 			<!-- What the source computed these columns with, carried by the plan that paired them. -->

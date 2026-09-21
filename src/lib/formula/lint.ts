@@ -5,7 +5,12 @@
 /// after the work is done. The tables below mirror `FORMULA_BUILTINS` and the guard functions the
 /// evaluator registers; a name added there is added here.
 
-/** How many arguments each function takes. `null` is variadic (meval's own `min` and `max`). */
+/**
+ * How many arguments each function takes. `null` is variadic (meval's own `min` and `max`).
+ *
+ * `mean` and `sd` take a replicate family by name rather than a number, so their one argument is
+ * an identifier: the engine resolves them over the whole family before the expression runs.
+ */
 export const FORMULA_FUNCTIONS: Record<string, number | null> = {
 	sqrt: 1,
 	abs: 1,
@@ -39,6 +44,8 @@ export const FORMULA_FUNCTIONS: Record<string, number | null> = {
 	ne: 2,
 	coalesce: 2,
 	is_missing: 1,
+	mean: 1,
+	sd: 1,
 };
 
 /**
@@ -79,7 +86,10 @@ export const FORMULA_FUNCTION_HELP: Record<string, string> = {
 	ne: 'a != b. False when either is NA',
 	coalesce:
 		'coalesce(a, b): a when the visit measured it, b otherwise. This is how a constant stands in for a value the visit does not carry',
-	is_missing: 'True when the value is NA, so a formula can branch on what the visit did not measure'
+	is_missing:
+		'True when the value is NA, so a formula can branch on what the visit did not measure',
+	mean: 'mean(x): the average of a replicate family. A repeat that was not measured is left out',
+	sd: 'sd(x): the standard deviation of a replicate family, over n-1. NA under two repeats'
 };
 
 /** Names the language defines that take no arguments. */

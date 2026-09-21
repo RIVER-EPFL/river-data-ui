@@ -2659,6 +2659,14 @@
           "formula": {
             "type": "string"
           },
+          "given_up_parameter_id": {
+            "description": "The catalog parameter this formula published before it was ticked as a step. Ticking it\nback adopts this row again, so disabling publication and enabling it keeps one identity\nrather than minting a second parameter or refusing the code.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "id": {
             "format": "uuid",
             "type": "string"
@@ -2715,6 +2723,7 @@
           "formula",
           "description",
           "output_parameter_id",
+          "given_up_parameter_id",
           "tool_script_id",
           "ordinal",
           "curve_slot",
@@ -2760,6 +2769,14 @@
           },
           "formula": {
             "type": "string"
+          },
+          "given_up_parameter_id": {
+            "description": "The catalog parameter this formula published before it was ticked as a step. Ticking it\nback adopts this row again, so disabling publication and enabling it keeps one identity\nrather than minting a second parameter or refusing the code.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "id": {
             "format": "uuid",
@@ -2817,6 +2834,7 @@
           "formula",
           "description",
           "output_parameter_id",
+          "given_up_parameter_id",
           "tool_script_id",
           "ordinal",
           "curve_slot",
@@ -3561,6 +3579,11 @@
           },
           "new_value": {},
           "old_value": {},
+          "seq": {
+            "description": "The order of effect: assigned under a lock on the subject, so the newest row for a subject\nis the row's revision (Q215).",
+            "format": "int64",
+            "type": "integer"
+          },
           "subject": {
             "description": "The thing the change was made to, as the writer keyed it: `schedule:{job_name}`,\n`parameter:{id}`, `site_parameter:{id}`, `parameter_group:{id}`, `push_subscriptions:{sub}`.",
             "type": "string"
@@ -3573,7 +3596,8 @@
           "changed_by",
           "old_value",
           "new_value",
-          "changed_at"
+          "changed_at",
+          "seq"
         ],
         "type": "object"
       },
@@ -3599,6 +3623,11 @@
           },
           "new_value": {},
           "old_value": {},
+          "seq": {
+            "description": "The order of effect: assigned under a lock on the subject, so the newest row for a subject\nis the row's revision (Q215).",
+            "format": "int64",
+            "type": "integer"
+          },
           "subject": {
             "description": "The thing the change was made to, as the writer keyed it: `schedule:{job_name}`,\n`parameter:{id}`, `site_parameter:{id}`, `parameter_group:{id}`, `push_subscriptions:{sub}`.",
             "type": "string"
@@ -3611,7 +3640,8 @@
           "changed_by",
           "old_value",
           "new_value",
-          "changed_at"
+          "changed_at",
+          "seq"
         ],
         "type": "object"
       },
@@ -4236,6 +4266,81 @@
             ]
           }
         },
+        "type": "object"
+      },
+      "ConsumedInput": {
+        "description": "One input a calculation consumed, captured when it was read (Q215): what it was bound to and\nthe exact revision of every row behind it, so a later reader can say whether the source has\nmoved since. `kind` is `reading` (one row), `mean` (the sample statistic over `members`),\n`replicates` (a family, one member per index, a gap as a member with no value), `site` (a\ncolumn of the site row), `constant`, `curve` (a catalog curve, or entered coefficients with no\nsubject), or `step` (a formula of the pinned set). An entity input names its `change_audit`\nsubject and the newest `seq` for it.",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/ConsumedReading"
+            },
+            "type": "array"
+          },
+          "property": {
+            "type": "string"
+          },
+          "revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "value": {
+            "type": "object"
+          },
+          "variable": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "variable",
+          "kind",
+          "value"
+        ],
+        "type": "object"
+      },
+      "ConsumedReading": {
+        "description": "One reading a calculation read, as the row and the revision it stood at (Q215). `revision` is\nthe newest `reading_decisions.seq` at the key when the value was read; null is the arrival\nstate, a row no decision had touched yet.",
+        "properties": {
+          "replicate_index": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "revision": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "stream_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "time": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "value": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "stream_id",
+          "time",
+          "replicate_index",
+          "revision",
+          "value"
+        ],
         "type": "object"
       },
       "ConsumerRef": {
@@ -7110,6 +7215,46 @@
           "site_inputs",
           "event_inputs",
           "trace"
+        ],
+        "type": "object"
+      },
+      "GivenUpOutput": {
+        "description": "A catalog parameter a formula published until this save ticked it as a step.",
+        "properties": {
+          "code": {
+            "description": "The formula's code, which is the catalog row's code too.",
+            "type": "string"
+          },
+          "parameter_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "read_by": {
+            "description": "The formulas that read the parameter, by code: each of them now reads a value nothing\nrefreshes.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "readings_retained": {
+            "description": "Readings stored under the parameter. They stay, and ticking the formula back as an output\npublishes them again.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "sites": {
+            "description": "The sites holding a slot of the parameter, by name.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "code",
+          "parameter_id",
+          "readings_retained",
+          "read_by",
+          "sites"
         ],
         "type": "object"
       },
@@ -16201,6 +16346,11 @@
               "null"
             ]
           },
+          "seq": {
+            "description": "The order of effect: assigned under a lock on the reading's key, so the newest row at a\nkey is the reading's revision (Q215).",
+            "format": "int64",
+            "type": "integer"
+          },
           "set_id": {
             "description": "The set-level decision this row materialises, where it belongs to one.",
             "format": "uuid",
@@ -16241,7 +16391,8 @@
           "supersedes",
           "rolled_back_by",
           "set_id",
-          "job_id"
+          "job_id",
+          "seq"
         ],
         "type": "object"
       },
@@ -16300,6 +16451,11 @@
               "null"
             ]
           },
+          "seq": {
+            "description": "The order of effect: assigned under a lock on the reading's key, so the newest row at a\nkey is the reading's revision (Q215).",
+            "format": "int64",
+            "type": "integer"
+          },
           "set_id": {
             "description": "The set-level decision this row materialises, where it belongs to one.",
             "format": "uuid",
@@ -16340,7 +16496,8 @@
           "supersedes",
           "rolled_back_by",
           "set_id",
-          "job_id"
+          "job_id",
+          "seq"
         ],
         "type": "object"
       },
@@ -19214,6 +19371,13 @@
           "deleted": {
             "minimum": 0,
             "type": "integer"
+          },
+          "given_up": {
+            "description": "One entry per formula this save turned from an output into a step. Publication stops and\nnothing is deleted, so the entry says what stays behind and who still reads it.",
+            "items": {
+              "$ref": "#/components/schemas/GivenUpOutput"
+            },
+            "type": "array"
           },
           "migrated": {
             "description": "Whether the migration of the superseded version's values was enqueued.",
@@ -25023,6 +25187,13 @@
             },
             "type": "object"
           },
+          "consumed": {
+            "description": "Every input as it was read, with the revision of each row behind it (Q215). Stored on\nthe run's context, so a later reader can say whether a source has moved since.",
+            "items": {
+              "$ref": "#/components/schemas/ConsumedInput"
+            },
+            "type": "array"
+          },
           "curves": {
             "description": "The curves the server resolved, as the runner received them.",
             "items": {
@@ -25690,6 +25861,13 @@
             "minimum": 0,
             "type": "integer"
           },
+          "reductions": {
+            "description": "One entry per reducer the formula applied. A binding names one number; this names the\nfamily behind it, so a reader can see which repeats the mean or the sd was taken over.",
+            "items": {
+              "$ref": "#/components/schemas/TraceReduction"
+            },
+            "type": "array"
+          },
           "skipped": {
             "type": "string"
           },
@@ -25704,6 +25882,34 @@
         "required": [
           "value",
           "bindings"
+        ],
+        "type": "object"
+      },
+      "TraceReduction": {
+        "description": "One reduction over a replicate family: the call as the formula writes it, the number it bound,\nand the indexes whose values were eligible. A gap and a value computed as NA are not members,\nso `members` is what the statistic was actually taken over.",
+        "properties": {
+          "call": {
+            "type": "string"
+          },
+          "members": {
+            "items": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "value": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "call",
+          "value",
+          "members"
         ],
         "type": "object"
       },
@@ -29523,7 +29729,7 @@
     },
     "/api/change_audit_entries": {
       "get": {
-        "description": "Retrieves all change_audit_entries.\n\nThis resource manages change_audit_entry items\n\nAdditional sortable columns: \n- subject\n- change\n- changed_by\n- changed_at.\n\nAdditional filterable columns: \n- subject\n- change\n- changed_by.",
+        "description": "Retrieves all change_audit_entries.\n\nThis resource manages change_audit_entry items\n\nAdditional sortable columns: \n- subject\n- change\n- changed_by\n- changed_at\n- seq.\n\nAdditional filterable columns: \n- subject\n- change\n- changed_by.",
         "operationId": "get_all_change_audit_entries",
         "parameters": [
           {
@@ -37842,7 +38048,7 @@
     },
     "/api/reading_decisions": {
       "get": {
-        "description": "Retrieves all reading_decisions.\n\nThis resource manages reading_decision items\n\nAdditional sortable columns: \n- stream_id\n- time\n- replicate_index\n- kind\n- actor\n- at\n- origin.\n\nAdditional filterable columns: \n- stream_id\n- time\n- replicate_index\n- kind\n- actor\n- origin\n- supersedes\n- rolled_back_by\n- set_id\n- job_id.",
+        "description": "Retrieves all reading_decisions.\n\nThis resource manages reading_decision items\n\nAdditional sortable columns: \n- stream_id\n- time\n- replicate_index\n- kind\n- actor\n- at\n- origin\n- seq.\n\nAdditional filterable columns: \n- stream_id\n- time\n- replicate_index\n- kind\n- actor\n- origin\n- supersedes\n- rolled_back_by\n- set_id\n- job_id.",
         "operationId": "get_all_reading_decisions",
         "parameters": [
           {

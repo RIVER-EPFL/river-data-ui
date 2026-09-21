@@ -372,3 +372,16 @@ describe('the set a save posts', () => {
 		expect(formulaSetBody(removed, false).formulas.map((f) => f.id)).toEqual([null]);
 	});
 });
+
+describe('a run with no visit', () => {
+	it('carries the typed numbers and names no visit, so nothing is read from storage', () => {
+		const body = draftRunBody(set, null, { lab_co2: '410, 430' }, {}, {
+			inputs: { lab_temp: 21 },
+			constants: {},
+		});
+		expect(body.inputs?.site_id).toBeUndefined();
+		expect(body.inputs?.collected_at).toBeUndefined();
+		expect(body.inputs?.lab_co2).toEqual([410, 430]);
+		expect(body.inputs?.lab_temp).toBe(21);
+	});
+});

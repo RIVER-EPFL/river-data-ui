@@ -278,19 +278,22 @@ export function curveSlots(formulas: Array<Pick<EditableFormula, 'curve_slot'>>)
 }
 
 /**
- * The request a run at a visit carries: the set as it stands, the visit, each family's list, the
+ * The request a run carries: the set as it stands, the visit if one is chosen, each family's list, the
  * curve each declared slot is bound to, and any value typed in place of what the visit or the
  * catalog holds. A slot left unbound is sent nothing, and its formulas are skipped for want of
  * coefficients rather than refused.
  */
 export function draftRunBody(
 	formulas: EditableFormula[],
-	visit: { siteId: string; collectedAt: string },
+	visit: { siteId: string; collectedAt: string } | null,
 	replicates: Record<string, string>,
 	curves: Record<string, Record<string, unknown> | null> = {},
 	overrides: ScalarOverrides = { inputs: {}, constants: {} },
 ): FormulaDraftRunRequest {
-	const inputs: Record<string, unknown> = { site_id: visit.siteId, collected_at: visit.collectedAt };
+	// With no visit the run resolves nothing from storage and reads only what was typed.
+	const inputs: Record<string, unknown> = visit
+		? { site_id: visit.siteId, collected_at: visit.collectedAt }
+		: {};
 	for (const [name, text] of Object.entries(replicates)) {
 		const values = parseReplicates(text);
 		if (values.length > 0) inputs[name] = values;

@@ -1119,7 +1119,8 @@ export interface paths {
          *     - subject
          *     - change
          *     - changed_by
-         *     - changed_at.
+         *     - changed_at
+         *     - seq.
          *
          *     Additional filterable columns:
          *     - subject
@@ -3425,7 +3426,8 @@ export interface paths {
          *     - kind
          *     - actor
          *     - at
-         *     - origin.
+         *     - origin
+         *     - seq.
          *
          *     Additional filterable columns:
          *     - stream_id
@@ -8696,6 +8698,13 @@ export interface components {
             curve_slot: string | null;
             description: string | null;
             formula: string;
+            /**
+             * Format: uuid
+             * @description The catalog parameter this formula published before it was ticked as a step. Ticking it
+             *     back adopts this row again, so disabling publication and enabling it keeps one identity
+             *     rather than minting a second parameter or refusing the code.
+             */
+            given_up_parameter_id: string | null;
             /** Format: uuid */
             id: string;
             /**
@@ -8745,6 +8754,13 @@ export interface components {
             curve_slot: string | null;
             description: string | null;
             formula: string;
+            /**
+             * Format: uuid
+             * @description The catalog parameter this formula published before it was ticked as a step. Ticking it
+             *     back adopts this row again, so disabling publication and enabling it keeps one identity
+             *     rather than minting a second parameter or refusing the code.
+             */
+            given_up_parameter_id: string | null;
             /** Format: uuid */
             id: string;
             /**
@@ -9090,6 +9106,12 @@ export interface components {
             new_value: unknown;
             old_value: unknown;
             /**
+             * Format: int64
+             * @description The order of effect: assigned under a lock on the subject, so the newest row for a subject
+             *     is the row's revision (Q215).
+             */
+            seq: number;
+            /**
              * @description The thing the change was made to, as the writer keyed it: `schedule:{job_name}`,
              *     `parameter:{id}`, `site_parameter:{id}`, `parameter_group:{id}`, `push_subscriptions:{sub}`.
              */
@@ -9105,6 +9127,12 @@ export interface components {
             id: string;
             new_value: unknown;
             old_value: unknown;
+            /**
+             * Format: int64
+             * @description The order of effect: assigned under a lock on the subject, so the newest row for a subject
+             *     is the row's revision (Q215).
+             */
+            seq: number;
             /**
              * @description The thing the change was made to, as the writer keyed it: `schedule:{job_name}`,
              *     `parameter:{id}`, `site_parameter:{id}`, `parameter_group:{id}`, `push_subscriptions:{sub}`.
@@ -9345,6 +9373,42 @@ export interface components {
             units?: string | null;
             /** Format: double */
             value?: number | null;
+        };
+        /**
+         * @description One input a calculation consumed, captured when it was read (Q215): what it was bound to and
+         *     the exact revision of every row behind it, so a later reader can say whether the source has
+         *     moved since. `kind` is `reading` (one row), `mean` (the sample statistic over `members`),
+         *     `replicates` (a family, one member per index, a gap as a member with no value), `site` (a
+         *     column of the site row), `constant`, `curve` (a catalog curve, or entered coefficients with no
+         *     subject), or `step` (a formula of the pinned set). An entity input names its `change_audit`
+         *     subject and the newest `seq` for it.
+         */
+        ConsumedInput: {
+            kind: string;
+            members?: components["schemas"]["ConsumedReading"][];
+            property?: string;
+            /** Format: int64 */
+            revision?: number;
+            subject?: string;
+            value: Record<string, never>;
+            variable: string;
+        };
+        /**
+         * @description One reading a calculation read, as the row and the revision it stood at (Q215). `revision` is
+         *     the newest `reading_decisions.seq` at the key when the value was read; null is the arrival
+         *     state, a row no decision had touched yet.
+         */
+        ConsumedReading: {
+            /** Format: int32 */
+            replicate_index: number;
+            /** Format: int64 */
+            revision: number | null;
+            /** Format: uuid */
+            stream_id: string;
+            /** Format: date-time */
+            time: string;
+            /** Format: double */
+            value: number | null;
         };
         /** @description One formula reading the record's parameter, with its output at the instant where one exists. */
         ConsumerRef: {
@@ -10411,6 +10475,26 @@ export interface components {
             skipped: unknown[];
             /** @description Each formula as it was evaluated, with the values it read per cell. */
             trace: components["schemas"]["TraceStep"][];
+        };
+        /** @description A catalog parameter a formula published until this save ticked it as a step. */
+        GivenUpOutput: {
+            /** @description The formula's code, which is the catalog row's code too. */
+            code: string;
+            /** Format: uuid */
+            parameter_id: string;
+            /**
+             * @description The formulas that read the parameter, by code: each of them now reads a value nothing
+             *     refreshes.
+             */
+            read_by: string[];
+            /**
+             * Format: int64
+             * @description Readings stored under the parameter. They stay, and ticking the formula back as an output
+             *     publishes them again.
+             */
+            readings_retained: number;
+            /** @description The sites holding a slot of the parameter, by name. */
+            sites: string[];
         };
         GrabPreview: {
             base_calibration: null | components["schemas"]["CurveApplication"];
@@ -13849,6 +13933,12 @@ export interface components {
              */
             rolled_back_by: string | null;
             /**
+             * Format: int64
+             * @description The order of effect: assigned under a lock on the reading's key, so the newest row at a
+             *     key is the reading's revision (Q215).
+             */
+            seq: number;
+            /**
              * Format: uuid
              * @description The set-level decision this row materialises, where it belongs to one.
              */
@@ -13892,6 +13982,12 @@ export interface components {
              * @description The `rollback` that inverted this decision, once one has.
              */
             rolled_back_by: string | null;
+            /**
+             * Format: int64
+             * @description The order of effect: assigned under a lock on the reading's key, so the newest row at a
+             *     key is the reading's revision (Q215).
+             */
+            seq: number;
             /**
              * Format: uuid
              * @description The set-level decision this row materialises, where it belongs to one.
@@ -15024,6 +15120,11 @@ export interface components {
         SaveFormulaSetResponse: {
             created: number;
             deleted: number;
+            /**
+             * @description One entry per formula this save turned from an output into a step. Publication stops and
+             *     nothing is deleted, so the entry says what stays behind and who still reads it.
+             */
+            given_up?: components["schemas"]["GivenUpOutput"][];
             /** @description Whether the migration of the superseded version's values was enqueued. */
             migrated: boolean;
             updated: number;
@@ -17109,6 +17210,11 @@ export interface components {
             constants: {
                 [key: string]: number;
             };
+            /**
+             * @description Every input as it was read, with the revision of each row behind it (Q215). Stored on
+             *     the run's context, so a later reader can say whether a source has moved since.
+             */
+            consumed?: components["schemas"]["ConsumedInput"][];
             /** @description The curves the server resolved, as the runner received them. */
             curves: components["schemas"]["CurveSnapshot"][];
             /**
@@ -17366,7 +17472,23 @@ export interface components {
             };
             /** @description The replicate index, absent for a scalar formula. */
             index?: number;
+            /**
+             * @description One entry per reducer the formula applied. A binding names one number; this names the
+             *     family behind it, so a reader can see which repeats the mean or the sd was taken over.
+             */
+            reductions?: components["schemas"]["TraceReduction"][];
             skipped?: string;
+            /** Format: double */
+            value: number | null;
+        };
+        /**
+         * @description One reduction over a replicate family: the call as the formula writes it, the number it bound,
+         *     and the indexes whose values were eligible. A gap and a value computed as NA are not members,
+         *     so `members` is what the statistic was actually taken over.
+         */
+        TraceReduction: {
+            call: string;
+            members: number[];
             /** Format: double */
             value: number | null;
         };

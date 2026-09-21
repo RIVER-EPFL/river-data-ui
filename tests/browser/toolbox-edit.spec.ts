@@ -34,14 +34,14 @@ test('Edit opens a formula calculation on its formulas and an R script on its sc
 	const listed = (label: string) => page.getByRole('listitem').filter({ hasText: label });
 	await listed(formula.label).getByRole('link', { name: 'Edit' }).click();
 	await expect(page).toHaveURL(new RegExp(`/toolbox/${formula.id}$`));
-	await expect(page.getByRole('heading', { name: 'Formulas', exact: true })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'At this visit', exact: true })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Save as new version' })).toHaveCount(0);
 
 	await page.goto(`${BASE_PATH}/toolbox`);
 	await listed(script.label).getByRole('link', { name: 'Edit' }).click();
 	await expect(page).toHaveURL(new RegExp(`/toolbox/${script.id}$`));
 	await expect(page.getByRole('button', { name: 'Save as new version' })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Formulas', exact: true })).toHaveCount(0);
+	await expect(page.getByRole('heading', { name: 'At this visit', exact: true })).toHaveCount(0);
 
 	await page.goto(`${BASE_PATH}/tools/manage?script=${script.name}`);
 	await expect(page).toHaveURL(new RegExp(`/toolbox/${script.name}$`));

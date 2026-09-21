@@ -118,7 +118,7 @@ async function addFormula(
 	page: Page,
 	formula: { code: string; name: string; units: string; text: string; curveSlot?: string },
 ) {
-	await page.getByRole('button', { name: 'Add formula', exact: true }).click();
+	await page.getByRole('button', { name: 'Add output', exact: true }).click();
 	await page.getByRole('textbox', { name: 'Code' }).fill(formula.code);
 	await page.getByRole('textbox', { name: 'Name', exact: true }).fill(formula.name);
 	await page.getByRole('textbox', { name: 'Units' }).fill(formula.units);
@@ -128,10 +128,13 @@ async function addFormula(
 		await page.getByRole('textbox', { name: 'Curve slot' }).fill(formula.curveSlot);
 	}
 	await page.getByPlaceholder('Type formula directly').fill(formula.text);
-	await expect(page.getByRole('button', { name: 'Done', exact: true })).toBeEnabled();
-	await page.getByRole('button', { name: 'Done', exact: true }).click();
-	await expect(page.getByRole('button', { name: 'Add formula', exact: true })).toBeEnabled();
+	// The panel writes into the set as it is typed; the row is in the tables once it has a code.
+	await expect(page.locator(`td[data-sheet-row="${formula.code}"]`).first()).toBeVisible();
 }
+
+/** One of the three tables, by the heading its first column carries. */
+const block = (page: Page, name: string) =>
+	page.locator('section').filter({ has: page.getByRole('columnheader', { name, exact: true }) });
 
 test('a CNET formula set is authored on the page and reproduces its golden visit', async ({
 	page,
@@ -155,7 +158,7 @@ test('a CNET formula set is authored on the page and reproduces its golden visit
 		.getByLabel('A step written elsewhere')
 		.selectOption({ label: `${codes.step} · Pressure used` });
 	await page.getByRole('button', { name: 'Bring in' }).click();
-	await expect(page.getByRole('button', { name: 'What it feeds' })).toBeVisible();
+	await expect(block(page, 'Steps').locator(`td[data-sheet-row="${codes.step}"]`)).toBeVisible();
 
 	await addFormula(page, {
 		code: codes.output,
@@ -165,13 +168,9 @@ test('a CNET formula set is authored on the page and reproduces its golden visit
 		curveSlot: codes.curveSlot,
 	});
 
-	// The set reads in dependency order, and the step is marked as one.
-	const order = page
-		.locator('section', { has: page.getByRole('heading', { name: 'Formulas' }) })
-		.locator('ol > li');
-	await expect(order.nth(0)).toContainText(codes.step);
-	await expect(order.nth(0)).toContainText('shared');
-	await expect(order.nth(1)).toContainText(codes.output);
+	// A step is held apart from what the calculation publishes.
+	await expect(block(page, 'Steps').locator(`td[data-sheet-row="${codes.step}"]`)).toBeVisible();
+	await expect(block(page, 'Outputs').locator(`td[data-sheet-row="${codes.output}"]`)).toBeVisible();
 
 	await addFormula(page, {
 		code: codes.altitude,
@@ -180,29 +179,19 @@ test('a CNET formula set is authored on the page and reproduces its golden visit
 		text: 'altitude_m',
 	});
 
-	// What the set reads, classified: an earlier formula's value, and the parameters read from the
-	// visit. The declarations fold under the visit's numbers, so the fold is opened first. A row is
-	// found by the code it opens with, so `bp_x` does not match `Field_BP_x`.
-	const fold = (name: string) =>
-		page.locator('details').filter({ has: page.locator('summary', { hasText: name }) });
-	const inputs = fold('Inputs');
-	await inputs.locator('summary').click();
-	const reads = (code: string) =>
-		inputs.getByRole('listitem').filter({ hasText: new RegExp(`^${code}`) });
-	await expect(reads(codes.step)).toContainText('step');
-	await expect(reads(codes.temp)).toContainText('parameter');
-	await expect(reads(codes.fieldBp)).toContainText('parameter');
-	await expect(reads('altitude_m')).toContainText('site');
-	await expect(reads('curve_slope')).toContainText(`slot ${codes.curveSlot}`);
+	// What the set reads is the inputs table: the parameters read from the visit, the site's own
+	// column, and the coefficients the declared slot binds. A step is not an input; it is computed.
+	const inputs = block(page, 'Inputs');
+	for (const name of [codes.temp, codes.fieldBp, 'altitude_m', 'curve_slope']) {
+		await expect(inputs.locator(`td[data-sheet-row="${name}"]`)).toBeVisible();
+	}
+	await expect(inputs.locator(`td[data-sheet-row="${codes.step}"]`)).toHaveCount(0);
 
 	// A shared step publishes nothing.
-	const outputs = fold('Outputs');
-	await outputs.locator('summary').click();
-	const publishes = (code: string) =>
-		outputs.getByRole('listitem').filter({ hasText: new RegExp(`^${code}`) });
-	await expect(publishes(codes.output)).toHaveCount(1);
-	await expect(publishes(codes.altitude)).toHaveCount(1);
-	await expect(publishes(codes.step)).toHaveCount(0);
+	const outputs = block(page, 'Outputs');
+	await expect(outputs.locator(`td[data-sheet-row="${codes.output}"]`)).toHaveCount(1);
+	await expect(outputs.locator(`td[data-sheet-row="${codes.altitude}"]`)).toHaveCount(1);
+	await expect(outputs.locator(`td[data-sheet-row="${codes.step}"]`)).toHaveCount(0);
 
 	// Run at the visit the catalog was seeded with. Nothing is written; the numbers come back.
 	await page.getByRole('combobox', { name: 'Site' }).selectOption({ label: siteName });
@@ -220,11 +209,10 @@ test('a CNET formula set is authored on the page and reproduces its golden visit
 
 	// The step takes the field pressure, which is inside the guard's range, and the correction is
 	// what the portal stored for the visit.
-	const stepRow = page.locator(`#run-row-${codes.step}`);
-	await expect(stepRow).toContainText(String(FIELD_BP));
-	const outputRow = page.locator(`#run-row-${codes.output}`);
-	await expect(outputRow).toContainText('280.463');
-	await expect(page.locator(`#run-row-${codes.altitude}`)).toContainText(String(ALTITUDE));
+	const cell = (code: string) => page.locator(`td[data-sheet-row="${code}"][data-sheet-column="1"]`);
+	await expect(cell(codes.step)).toContainText(String(FIELD_BP));
+	await expect(cell(codes.output)).toContainText('280.463');
+	await expect(cell(codes.altitude)).toContainText(String(ALTITUDE));
 });
 
 /**
@@ -297,8 +285,8 @@ async function seedVisitCalculation(request: APIRequestContext) {
 // Scenario: a manager opens a calculation to see what it did at one visit (M252). The page is the
 // visit's data, not the calculation's metadata.
 //
-// Expected behaviour: the site and the visit are in the URL, so the page opens on the four tables
-// the portal draws, in its order, with the visit's numbers in them and nothing clicked.
+// Expected behaviour: the site and the visit are in the URL, so the page opens on the inputs,
+// steps and outputs blocks, with the visit's numbers in them and nothing clicked.
 test('a calculation opened at a visit shows the visit\'s numbers in the portal\'s tables', async ({
 	page,
 	request,
@@ -308,19 +296,18 @@ test('a calculation opened at a visit shows the visit\'s numbers in the portal\'
 	await signIn(page);
 	await page.goto(`${BASE_PATH}/toolbox/${calculationId}?site=${siteId}&visit=${visitId}`);
 
-	// What the visit held, before the calculation touched it.
-	await expect(page.getByRole('columnheader', { name: 'Read at the visit' })).toBeVisible();
-	await expect(page.getByRole('row').filter({ hasText: inputCode })).toContainText(
-		String(ENTERED_INPUT),
-	);
-	// The step, then what the calculation publishes from it.
-	await expect(page.locator(`#run-row-${stepCode}`)).toContainText(String(ENTERED_INPUT + 1));
-	await expect(page.locator(`#run-row-${outputCode}`)).toContainText(
-		String((ENTERED_INPUT + 1) * 2),
-	);
+	// What the visit held, before the calculation touched it, in the inputs block.
+	await expect(page.getByRole('columnheader', { name: 'Inputs', exact: true })).toBeVisible();
+	const cell = (code: string) => page.locator(`td[data-sheet-row="${code}"][data-sheet-column="1"]`);
+	await expect(cell(inputCode)).toContainText(String(ENTERED_INPUT));
+	// The step, then what the calculation publishes from it, each in its own block.
+	await expect(page.getByRole('columnheader', { name: 'Steps', exact: true })).toBeVisible();
+	await expect(cell(stepCode)).toContainText(String(ENTERED_INPUT + 1));
+	await expect(page.getByRole('columnheader', { name: 'Outputs', exact: true })).toBeVisible();
+	await expect(cell(outputCode)).toContainText(String((ENTERED_INPUT + 1) * 2));
 
-	// The declarations are under the tables, folded, rather than above them.
-	const declared = page.locator('details').filter({ has: page.locator('summary', { hasText: 'Inputs' }) });
-	await expect(declared).toHaveCount(1);
-	await expect(declared.getByRole('listitem').first()).toBeHidden();
+	// The cell panel sits under the tables and opens on nothing until a cell is chosen.
+	await expect(page.getByRole('heading', { name: 'No cell selected' })).toBeVisible();
+	await page.locator(`td[data-sheet-row="${stepCode}"]`).first().click();
+	await expect(page.getByRole('heading', { name: 'Step', exact: true })).toBeVisible();
 });

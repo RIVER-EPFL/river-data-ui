@@ -1461,6 +1461,18 @@ export interface FormulaSetSave {
 	migrate_stored: boolean;
 }
 
+/** A catalog parameter a formula published until the save ticked it as a step. */
+export interface GivenUpOutput {
+	code: string;
+	parameter_id: string;
+	/** Readings stored under the parameter. They stay, and ticking it back publishes them again. */
+	readings_retained: number;
+	/** The formulas that read the parameter, by code. */
+	read_by: string[];
+	/** The sites holding a slot of the parameter, by name. */
+	sites: string[];
+}
+
 export interface FormulaSetSaveResponse {
 	/** Null when the save changed nothing the version is hashed over, which mints none. */
 	version_id: string | null;
@@ -1469,6 +1481,8 @@ export interface FormulaSetSaveResponse {
 	updated: number;
 	deleted: number;
 	migrated: boolean;
+	/** Present when the save turned an output into a step. Absent when it turned none. */
+	given_up?: GivenUpOutput[];
 }
 
 /** Save a calculation's whole formula set as one version. */

@@ -27,6 +27,8 @@ export interface RunRow {
 	/** Where the row's numbers came from: the catalog code behind a variable, the site property a
 	 *  value was read from, the curve filling a slot. Null when the label says it already. */
 	note?: string;
+	/** On a statistic, the output key whose repeats it summarises. */
+	aggregateOf?: string | null;
 	/** One cell per replicate column, in column order. */
 	cells: RunCell[];
 }
@@ -233,6 +235,7 @@ export function runTables(
 		label: string,
 		units: string | null,
 		band: 'step' | 'output' | 'statistic',
+		aggregateOf: string | null = null,
 	) => {
 		let row = rows.get(key);
 		if (!row) {
@@ -240,6 +243,7 @@ export function runTables(
 				key,
 				label,
 				units,
+				...(aggregateOf ? { aggregateOf } : {}),
 				cells: columns.length > 0 ? columns.map(() => ({ value: null, skipped: null })) : [
 					{ value: null, skipped: null },
 				],
@@ -268,6 +272,7 @@ export function runTables(
 			declared?.output.label ?? step?.label ?? key.replace(/_/g, ' '),
 			declared?.output.units ?? step?.units ?? null,
 			band,
+			declared?.output.aggregate_of ?? null,
 		);
 		const withTrace = (cell: RunCell, index: number): RunCell => {
 			const t = step ? cellTrace(step, index) : null;
