@@ -168,9 +168,22 @@
 					if (edit) onedit?.(edit);
 				}
 			},
+			// A band heading is not a cell, and a repaint re-emits each grid's own selection: neither
+			// is written back, or the table last clicked would take the selection from the new one.
 			afterSelection: (row: number, column: number) => {
+				// Only the table the person is working in speaks: the others re-emit what they still
+				// hold whenever they are drawn.
+				if (repainting || grids.get(block.key)?.isListening() === false) return;
 				const entry = rows[row];
-				const next = entry?.row ? { block: block.key, key: entry.row.key, column } : null;
+				if (!entry?.row) return;
+				const next = { block: block.key, key: entry.row.key, column };
+				if (
+					next.block === selected?.block &&
+					next.key === selected?.key &&
+					next.column === selected?.column
+				) {
+					return;
+				}
 				selected = next;
 				onselect?.(next);
 			},
@@ -223,11 +236,21 @@
 		return td;
 	}
 
+	// What the renderer reads beyond its own row: repainting is driven by this, not by the
+	// selection object, so a repaint that re-emits the same cell does not schedule another.
+	const highlight = $derived(
+		`${selected?.key ?? ''}|${[...reads].join(',')}|${[...readBy].join(',')}|${stale}`,
+	);
+
 	// The renderer reads the selection, so a selection anywhere repaints every block. Repainting
-	// rather than re-settling the grid keeps the selection Handsontable itself holds.
+	// rather than re-settling the grid keeps the selection Handsontable itself holds. Only one
+	// table holds it: the others are cleared, so a cell stays selected where it was clicked.
 	const grids = new Map<string, HotInstance>();
+	let repainting = false;
 	function ready(block: SheetBlock, instance: HotInstance) {
 		grids.set(block.key, instance);
+		instance.addHook('afterRender', () => queueMicrotask(redraw));
+		queueMicrotask(redraw);
 		if (!ondrop) return;
 		instance.rootElement.addEventListener('dragover', (event: DragEvent) => {
 			event.preventDefault();
@@ -251,16 +274,114 @@
 		});
 	}
 	$effect(() => {
-		void selected;
-		for (const instance of grids.values()) if (!instance.isDestroyed) instance.render();
+		void highlight;
+		repainting = true;
+		for (const [key, instance] of grids) {
+			if (instance.isDestroyed) continue;
+			if (key !== selected?.block) instance.deselectCell();
+			instance.render();
+		}
+		repainting = false;
+		redraw();
 	});
 
 	const gridSettings = $derived(new Map(blocks.map((b) => [b.key, settingsOf(b)])));
+
+	// --- Lines from the selected cell to the cells it reads ---
+	// The tables are three grids of their own, so a link between them is drawn over the lot rather
+	// than inside one. Handsontable draws only the rows in view, so a source that is scrolled out
+	// has no cell to draw to and is named instead.
+
+	/** One line, in the coordinates of the surface the tables are laid out on. */
+	interface Edge {
+		key: string;
+		x1: number;
+		y1: number;
+		x2: number;
+		y2: number;
+	}
+
+	let surface = $state<HTMLDivElement | null>(null);
+	let edges = $state<Edge[]>([]);
+	let offscreen = $state<string[]>([]);
+
+	/** Where a row sits: its label cell, and the table holding it. */
+	function anchorOf(key: string): { cell: HTMLElement | null; block: string; row: number } | null {
+		for (const block of blocks) {
+			const index = (entries.get(block.key) ?? []).findIndex((e) => e.row?.key === key);
+			if (index < 0) continue;
+			const grid = grids.get(block.key);
+			const cell =
+				grid && !grid.isDestroyed ? ((grid.getCell(index, 0) as HTMLElement | null) ?? null) : null;
+			return { cell, block: block.key, row: index };
+		}
+		return null;
+	}
+
+	function redraw() {
+		const box = surface?.getBoundingClientRect();
+		const target = selected ? anchorOf(selected.key)?.cell : null;
+		if (!box || !target) {
+			edges = [];
+			offscreen = [];
+			return;
+		}
+		const to = target.getBoundingClientRect();
+		const drawn: Edge[] = [];
+		const missing: string[] = [];
+		for (const key of reads) {
+			if (key === selected?.key) continue;
+			const anchor = anchorOf(key);
+			if (!anchor) continue;
+			if (!anchor.cell) {
+				missing.push(key);
+				continue;
+			}
+			const from = anchor.cell.getBoundingClientRect();
+			drawn.push({
+				key,
+				x1: from.right - box.left,
+				y1: from.top + from.height / 2 - box.top,
+				x2: to.left - box.left,
+				y2: to.top + to.height / 2 - box.top,
+			});
+		}
+		edges = drawn;
+		offscreen = missing;
+	}
+
+	/** Bring a source that is scrolled out of its table into view. */
+	function reveal(key: string) {
+		const anchor = anchorOf(key);
+		if (!anchor) return;
+		grids.get(anchor.block)?.scrollViewportTo({ row: anchor.row });
+		redraw();
+	}
 </script>
 
-<div class="grid gap-3 lg:grid-cols-3 items-start">
+<svelte:window onscroll={redraw} onresize={redraw} />
+
+<div class="relative" bind:this={surface}>
+	{#if edges.length > 0}
+		<svg class="pointer-events-none absolute inset-0 h-full w-full z-10" aria-hidden="true">
+			{#each edges as edge (edge.key)}
+				<line
+					x1={edge.x1}
+					y1={edge.y1}
+					x2={edge.x2}
+					y2={edge.y2}
+					class="sheet-edge"
+					data-sheet-edge={edge.key}
+				/>
+			{/each}
+		</svg>
+	{/if}
+	<div class="grid gap-3 lg:grid-cols-3 items-start">
 	{#each blocks as block (block.key)}
-		<section class="min-w-0 rounded-md border border-brand-divider bg-brand-surface">
+		<section
+			aria-label={block.title}
+			class="min-w-0 rounded-md border border-brand-divider bg-brand-surface"
+		>
 			{#if block.rows.length === 0}
 				<h4 class="px-3 py-2 text-sm font-semibold border-b border-brand-divider">{block.title}</h4>
 				<p class="px-3 py-3 text-sm text-brand-muted">
@@ -292,4 +413,16 @@
 			{/if}
 		</section>
 	{/each}
+	</div>
+	{#if offscreen.length > 0}
+		<p class="mt-1 text-[11px] text-brand-muted">
+			Read from out of view:
+			{#each offscreen as key (key)}
+				<button
+					type="button"
+					class="ml-1 font-mono text-brand-primary bg-transparent border-none p-0 cursor-pointer hover:underline"
+					onclick={() => reveal(key)}>{key}</button>
+			{/each}
+		</p>
+	{/if}
 </div>

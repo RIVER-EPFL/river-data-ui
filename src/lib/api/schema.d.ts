@@ -280,9 +280,9 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Preview a derived parameter formula against historical source readings at a given site,
-         *     WITHOUT writing anything to the database. Used by the formula builder UI to validate
-         *     formulas before saving. Requires `read_data`.
+         * Preview a formula set against historical source readings at a given site, WITHOUT writing
+         *     anything to the database. Used by the calculation editor to see what a set would produce
+         *     before it is saved. Requires `read_data`.
          */
         post: operations["preview_derived"];
         delete?: never;
@@ -3790,6 +3790,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/readings/replay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A derived value's own arithmetic: the formula the computation recorded, run again over the
+         *     values it consumed, beside the number the reading holds. Reads only; writes nothing and touches
+         *     no live value. Requires `read_data`.
+         */
+        get: operations["replay_derived"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/readings/return": {
         parameters: {
             query?: never;
@@ -7089,11 +7110,15 @@ export interface paths {
          *     - tool_name
          *     - created_by
          *     - created_at
+         *     - site_id
+         *     - collected_at
          *     - source.
          *
          *     Additional filterable columns:
          *     - tool_name
          *     - created_by
+         *     - site_id
+         *     - collected_at
          *     - source.
          */
         get: operations["get_all_tool_runs"];
@@ -8730,8 +8755,8 @@ export interface components {
             sources: components["schemas"]["DerivedParameterSourceList"][];
             /**
              * Format: uuid
-             * @description The calculation this formula belongs to (M67). NULL is a standalone derived parameter, the
-             *     per-reading continuous kind the derived job and janitor serve.
+             * @description The calculation this formula belongs to (M67). NULL is a shared step, owned by no
+             *     calculation and declared by each that reads it (Q156).
              */
             tool_script_id: string | null;
             units: string;
@@ -8786,8 +8811,8 @@ export interface components {
             sources: components["schemas"]["DerivedParameterSource"][];
             /**
              * Format: uuid
-             * @description The calculation this formula belongs to (M67). NULL is a standalone derived parameter, the
-             *     per-reading continuous kind the derived job and janitor serve.
+             * @description The calculation this formula belongs to (M67). NULL is a shared step, owned by no
+             *     calculation and declared by each that reads it (Q156).
              */
             tool_script_id: string | null;
             units: string;
@@ -8838,14 +8863,14 @@ export interface components {
             tool: string;
         };
         /**
-         * @description The standalone formula behind a derived value: the definition it belongs to and the version it
-         *     was made with. A row stored before versioning names no version, so `formula` is absent rather
-         *     than filled from the definition's current text, which no longer describes it.
+         * @description The formula behind a derived value: the calculation it belongs to and the version it was made
+         *     with. A row naming no version reports no formula, because the text that produced it is not
+         *     recoverable from the definition's current one (M134).
          */
         CalculationInfo: {
             /**
              * Format: int32
-             * @description The definition's newest version, so a value made by an older one is visible as such.
+             * @description The calculation's newest version, so a value made by an older one is visible as such.
              */
             active_version_no?: number;
             code: string;
@@ -8856,9 +8881,9 @@ export interface components {
             name: string;
             /**
              * Format: uuid
-             * @description The calculation the formula belongs to, absent for a standalone derived parameter.
+             * @description The calculation the formula belongs to.
              */
-            tool_script_id?: string;
+            tool_script_id: string;
             /**
              * Format: uuid
              * @description The version the stored value names, absent when the value predates versioning.
@@ -9393,6 +9418,27 @@ export interface components {
             value: Record<string, never>;
             variable: string;
         };
+        /** @description One reading a calculation consumed, beside what its key holds now (Q215). */
+        ConsumedMemberRef: {
+            /** Format: int64 */
+            current_revision: number | null;
+            /** Format: double */
+            current_value: number | null;
+            /** @description The record this member opens, absent while its stream is unpaired. */
+            point?: components["schemas"]["SlotRef"];
+            /** Format: int32 */
+            replicate_index: number;
+            /** Format: int64 */
+            revision: number | null;
+            /** @description `changed`, `unchanged` or `unknown`. */
+            state: string;
+            /** Format: uuid */
+            stream_id: string;
+            /** Format: date-time */
+            time: string;
+            /** Format: double */
+            value: number | null;
+        };
         /**
          * @description One reading a calculation read, as the row and the revision it stood at (Q215). `revision` is
          *     the newest `reading_decisions.seq` at the key when the value was read; null is the arrival
@@ -9410,9 +9456,32 @@ export interface components {
             /** Format: double */
             value: number | null;
         };
+        /**
+         * @description One input of the calculation that made this record, as it was consumed and as its source
+         *     stands now (Q215). `kind`, `subject` and `property` are the captured binding.
+         */
+        ConsumedRef: {
+            /** Format: int64 */
+            current_revision: number | null;
+            /**
+             * @description What the source holds now, where the input reads one row. A statistic over several
+             *     readings is not recomputed here: its members carry their own current values.
+             */
+            current_value?: unknown;
+            kind: string;
+            members?: components["schemas"]["ConsumedMemberRef"][];
+            property?: string;
+            /** Format: int64 */
+            revision: number | null;
+            /** @description `changed`, `unchanged` or `unknown`. */
+            state: string;
+            subject?: string;
+            value: unknown;
+            variable: string;
+        };
         /** @description One formula reading the record's parameter, with its output at the instant where one exists. */
         ConsumerRef: {
-            /** @description The calculation the formula belongs to, absent on a standalone derived parameter. */
+            /** @description The calculation the formula belongs to, absent on a shared step, which belongs to none. */
             calculation?: string;
             /** Format: uuid */
             definition_id: string;
@@ -9977,10 +10046,17 @@ export interface components {
             site_property?: string | null;
             variable_name?: string | null;
         };
+        /**
+         * @description What one formula of the set produced over the window. A step carries `intermediate`, so a
+         *     reader can tell the value the set publishes from the working number that fed it.
+         */
         DerivedSeries: {
+            code: string;
             errors: (string | null)[];
             formula: string;
+            intermediate: boolean;
             name: string;
+            units: string | null;
             values: (number | null)[];
         };
         /**
@@ -13608,14 +13684,16 @@ export interface components {
         PreviewDerivedRequest: {
             /** Format: date-time */
             end: string;
-            formula: string;
+            /** @description The set as the editor holds it, steps included. One formula is a set of one. */
+            formulas: components["schemas"]["DraftFormula"][];
             /** Format: uuid */
             site_id: string;
             /** Format: date-time */
             start: string;
         };
         PreviewDerivedResponse: {
-            derived: components["schemas"]["DerivedSeries"];
+            /** @description One series per formula of the set, steps included, in the order the set evaluates. */
+            formulas: components["schemas"]["DerivedSeries"][];
             site: components["schemas"]["PreviewSite"];
             source_parameters: components["schemas"]["SourceParameterSeries"][];
             times: string[];
@@ -13753,6 +13831,12 @@ export interface components {
             calculation?: components["schemas"]["CalculationInfo"];
             chain: components["schemas"]["ChainInfo"];
             computation?: components["schemas"]["ComputationInfo"];
+            /**
+             * @description What the calculation that made this record actually read, captured at the read (Q215),
+             *     each input beside what its source holds now. Empty on a record nothing computed, and on
+             *     one computed before the capture existed, whose inputs are therefore unknown.
+             */
+            consumed?: components["schemas"]["ConsumedRef"][];
             /**
              * @description Every enabled formula reading this parameter, one hop down the chain, with its output's
              *     value at this instant where one exists.
@@ -14387,6 +14471,36 @@ export interface components {
             }[];
             tool: string;
         };
+        /** @description What a derived value's replay answers: the arithmetic behind the stored number. */
+        ReplayResponse: {
+            /**
+             * Format: date-time
+             * @description When the captured set was recorded.
+             */
+            captured_at: string;
+            /**
+             * Format: uuid
+             * @description The version the stored value names, where it names one.
+             */
+            derived_version_id: string | null;
+            /** @description The formula the computation recorded, as it stood then. */
+            formula: string;
+            /**
+             * Format: double
+             * @description Running that formula over the values the computation consumed.
+             */
+            replayed: number;
+            /**
+             * Format: double
+             * @description What the reading holds now. A replay that disagrees with it means the row moved without
+             *     the ledger, which is the one thing this read is for.
+             */
+            stored: number | null;
+            /** @description The values the replay bound, by variable name. */
+            variables: {
+                [key: string]: number;
+            };
+        };
         ReplicateAuditHoldList: {
             /** Format: date-time */
             acknowledged_at: string | null;
@@ -14959,10 +15073,24 @@ export interface components {
             constants: {
                 [key: string]: number;
             };
+            /** @description The curves the run applied, as it stored them. */
+            curves: unknown[];
             /** @description The visit's stored values the run read, as `{param, parameter_code, parameter_id, value}`. */
             event_inputs: unknown[];
             /** @description The pinned version's label, which is what a reader recognises the calculation by. */
             label: string;
+            /**
+             * @description The manifest of the version the run pinned, so the stored result reads through the same
+             *     tables a fresh run does rather than through a second rendering of its own.
+             */
+            manifest: Record<string, never>;
+            /**
+             * @description The values the run produced, as it stored them: an explicit null is a value computed and
+             *     not a number, as against never computed at all.
+             */
+            results: {
+                [key: string]: unknown;
+            };
             /** Format: uuid */
             run_id: string;
             /**
@@ -14973,6 +15101,8 @@ export interface components {
             site_id: string | null;
             /** @description The station properties the run read, as `{property, param, value}`. */
             site_inputs: unknown[];
+            /** @description Outputs the run did not produce, each with its reason, as the run recorded them. */
+            skipped: unknown[];
             /** @description The calculation's name, as the run recorded it. */
             tool: string;
             trace: components["schemas"]["TraceStep"][];
@@ -16394,6 +16524,17 @@ export interface components {
              */
             source_systems: string[];
         };
+        /** @description Where a consumed reading opens: the site page's point record for its slot. */
+        SlotRef: {
+            /** @description `spot` or `continuous`, the cadence arm the record is read by. */
+            measurement_type: string;
+            /** Format: uuid */
+            site_id: string;
+            /** Format: uuid */
+            site_parameter_id: string;
+            /** Format: date-time */
+            time: string;
+        };
         SourceParameterSeries: {
             name: string;
             units: string;
@@ -17296,10 +17437,19 @@ export interface components {
         };
         ToolRunList: {
             /** Format: date-time */
+            collected_at: string | null;
+            /** Format: date-time */
             created_at: string;
             created_by: string;
             /** Format: uuid */
             id: string;
+            /**
+             * Format: uuid
+             * @description The visit the run was computed at. The same two values `context` carries, written from
+             *     the same resolution, as columns a list can be filtered and ordered by: "the runs at
+             *     this visit" is a query, not a scan of the blobs.
+             */
+            site_id: string | null;
             /** @description Which path minted the run: `interactive`, `csv_import` or `chain`. */
             source: string;
             tool_name: string;
@@ -17307,6 +17457,8 @@ export interface components {
             tool_version: unknown;
         };
         ToolRunResponse: {
+            /** Format: date-time */
+            collected_at: string | null;
             constants: unknown;
             /**
              * @description The resolved calculation context: site, collected_at, and the station and event inputs
@@ -17321,6 +17473,13 @@ export interface components {
             id: string;
             inputs: unknown;
             outputs: unknown;
+            /**
+             * Format: uuid
+             * @description The visit the run was computed at. The same two values `context` carries, written from
+             *     the same resolution, as columns a list can be filtered and ordered by: "the runs at
+             *     this visit" is a query, not a scan of the blobs.
+             */
+            site_id: string | null;
             /** @description Which path minted the run: `interactive`, `csv_import` or `chain`. */
             source: string;
             tool_name: string;
@@ -18247,7 +18406,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Computed values with per-timestamp errors */
+            /** @description A series per formula, with per-timestamp errors */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -18256,7 +18415,7 @@ export interface operations {
                     "application/json": components["schemas"]["PreviewDerivedResponse"];
                 };
             };
-            /** @description Invalid formula syntax or unknown variables */
+            /** @description Invalid formula syntax, unknown variables, a cycle, or a curve slot */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -28683,6 +28842,45 @@ export interface operations {
             };
             /** @description No reading at that instant */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    replay_derived: {
+        parameters: {
+            query: {
+                stream_id: string;
+                time: string;
+                /** @description Omit for the group's decisions. */
+                replicate_index?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The recorded formula over the recorded values */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplayResponse"];
+                };
+            };
+            /** @description No reading, or no computation captured at that key */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The captured set cannot be evaluated */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

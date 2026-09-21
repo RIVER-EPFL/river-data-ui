@@ -62,6 +62,22 @@
 .sheet-grid .sheet-link:hover {
 	text-decoration: underline;
 }
+.sheet-grid .sheet-corner {
+	position: absolute;
+	top: 0;
+	right: 0;
+	border: none;
+	border-radius: 0 0 0 3px;
+	background-color: var(--color-brand-primary);
+	padding: 0 3px;
+	font-size: 9px;
+	line-height: 1.3;
+	color: var(--color-brand-surface);
+	cursor: pointer;
+}
+.sheet-grid td:has(> .sheet-corner) {
+	position: relative;
+}
 .sheet-grid .sheet-header-button {
 	margin-left: 4px;
 	border: 1px solid var(--color-brand-divider);
@@ -91,4 +107,12 @@
 }
 .sheet-grid td.sheet-stale {
 	opacity: 0.55;
+}
+
+/* The link between a selected cell and a cell it reads, drawn over the tables. */
+.sheet-edge {
+	stroke: var(--color-brand-primary);
+	stroke-width: 1.5;
+	stroke-dasharray: 4 3;
+	opacity: 0.7;
 }

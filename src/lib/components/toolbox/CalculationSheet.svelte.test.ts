@@ -154,3 +154,31 @@ describe('the tables as they are worked on', () => {
 		expect(view.container.textContent).toContain('the save does not keep it');
 	});
 });
+
+describe('links drawn between the tables', () => {
+	it('draws one line from the selected cell to each cell it reads', async () => {
+		const view = render(CalculationSheet, { blocks: blocks(), formulas });
+		await waitFor(() => expect(view.container.textContent).toContain('CO2 headspace'));
+		expect(view.container.querySelectorAll('line')).toHaveLength(0);
+
+		await view.rerender({ selected: { block: 'outputs' as const, key: 'CO2_HS_Um', column: 0 } });
+		await waitFor(() => expect(view.container.querySelectorAll('line').length).toBeGreaterThan(0));
+		const drawn = [...view.container.querySelectorAll('line')].map((l) =>
+			l.getAttribute('data-sheet-edge'),
+		);
+		expect(drawn).toContain('hs_k');
+		expect(drawn).toContain('lab_co2');
+		expect(drawn).not.toContain('CO2_HS_Um');
+	});
+
+	it('draws nothing once the selection is gone', async () => {
+		const view = render(CalculationSheet, {
+			blocks: blocks(),
+			formulas,
+			selected: { block: 'outputs' as const, key: 'CO2_HS_Um', column: 0 },
+		});
+		await waitFor(() => expect(view.container.querySelectorAll('line').length).toBeGreaterThan(0));
+		await view.rerender({ selected: null });
+		await waitFor(() => expect(view.container.querySelectorAll('line')).toHaveLength(0));
+	});
+});

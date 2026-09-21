@@ -24,3 +24,8 @@ export async function typeInto(page: Page, cell: RegExp | Locator, text: string)
 	await page.keyboard.type(text);
 	await page.keyboard.press('Enter');
 }
+
+/** A cell of a calculation's tables, by the row it belongs to. Column 0 is the label. */
+export function calculationCell(page: Page, row: string, column = 1): Locator {
+	return page.locator(`.ht_master td[data-sheet-row="${row}"][data-sheet-column="${column}"]`);
+}

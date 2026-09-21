@@ -4,12 +4,15 @@
 	import { goto } from '$app/navigation';
 	import { api } from '$api/crud';
 	import { getToolRunTrace, type ToolRunTrace } from '$api/service';
+	import type { ConsumedInput } from '$api/service';
+	import { markTip, markVariant, memberHref } from '$lib/provenance/consumed';
 	import { formatEquation } from '$lib/standardCurves';
 	import { indexLetter } from '$lib/tools/runTable';
 	import { equationChain, inputOrigin } from '$lib/tools/equation';
 	import { formatDateTime } from '$lib/utils';
 	import { toolboxHref } from '$lib/toolbox/route';
 	import { reopenRunHref } from '$lib/dataEntry/entry';
+	import Badge from '$components/ui/Badge.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import CellEquation from '$components/tools/CellEquation.svelte';
 
@@ -20,13 +23,28 @@
 		provenance,
 		paramName,
 		parameterCode,
+		consumed,
 	}: {
 		provenance: Record<string, unknown>;
 		/** Resolver for saved parameter ids. Omitted, the card resolves the names it needs itself. */
 		paramName?: (id: string) => string;
 		/** The parameter the reader is looking at, whose calculation the card opens on. */
 		parameterCode?: string;
+		/** What the run consumed, resolved against its sources. Given, each input names the
+		 * reading it was read from and whether that reading has moved since. */
+		consumed?: ConsumedInput[];
 	} = $props();
+
+	// The captured input behind one name of the blob, where the run recorded one.
+	function consumedFor(name: string): ConsumedInput | null {
+		return (consumed ?? []).find((c) => c.variable === name) ?? null;
+	}
+
+	/** The point record the named input was read from, where exactly one reading answers it. */
+	function inputHref(name: string): string | null {
+		const members = consumedFor(name)?.members ?? [];
+		return members.length === 1 ? memberHref(base, members[0]!) : null;
+	}
 
 	interface ProvCurve {
 		name?: string;
@@ -227,9 +245,22 @@
 			<table class="w-full">
 				<tbody>
 					{#each inputs as [key, value]}
+						{@const read = consumedFor(key)}
+						{@const href = inputHref(key)}
 						<tr class="border-t border-brand-divider">
-							<td class="py-0.5 pr-2 text-brand-muted whitespace-nowrap align-top">{key}</td>
+							<td class="py-0.5 pr-2 text-brand-muted whitespace-nowrap align-top">
+								{#if href}
+									<a class="text-brand-primary no-underline hover:underline" {href} title="Open the record of the reading this was read from">{key}</a>
+								{:else}
+									{key}
+								{/if}
+							</td>
 							<td class="py-0.5 font-mono break-all">{fmtValue(value)}</td>
+							<td class="py-0.5 pl-2 text-right whitespace-nowrap">
+								{#if read}
+									<span title={markTip(read.state)}><Badge variant={markVariant(read.state)}>{read.state}</Badge></span>
+								{/if}
+							</td>
 						</tr>
 					{/each}
 				</tbody>

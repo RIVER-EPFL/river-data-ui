@@ -10,11 +10,14 @@
 		type ProvenanceCalculation,
 		type ReceiptSummary,
 		getReadingDecisions,
+		replayDerived,
+		type ReplayResult,
 		getReadingLedger,
 		rollbackEdit,
 		rollbackEditSet,
 		type LedgerEntry,
 		type ReadingDecision,
+		type ConsumedInput,
 	} from '$api/service';
 	import { TAG_KINDS, holdHref as holdLinkHref, type HoldLink } from '$lib/holds';
 	import type { SampleReplicate } from '$api/types';
@@ -38,7 +41,16 @@
 	} from '$lib/provenance/decisions';
 	import { leadingToken, ledgerLine, ledgerWeight } from '$lib/provenance/ledger';
 	import { originServiceHref } from '$lib/provenance/serviceLink';
-	import { calculationHref } from '$lib/toolbox/route';
+	import {
+		anyChanged,
+		consumedText,
+		kindLabel,
+		markTip,
+		markVariant,
+		memberHref,
+		orderedInputs,
+	} from '$lib/provenance/consumed';
+	import { calculationHref, type ComputationAnchor } from '$lib/toolbox/route';
 	import { me } from '$auth/me.svelte';
 
 	// The record of one measured instant, pinned in place under its chart or table row.
@@ -86,6 +98,9 @@
 	let ownRecord = false;
 	let resp = $state<ProvenanceResponse | null>(null);
 	let showToolRun = $state<Set<number>>(new Set());
+	/// The arithmetic behind a derived value, read on request: the formula the computation
+	/// recorded, over the values it recorded. Keyed by the record it belongs to.
+	let replays = $state<Record<number, ReplayResult | { error: string }>>({});
 	// The history of one record, fetched on demand: it is the audit trail, not part of the value,
 	// so it is not on the critical path of reading the record. The ledger is the timeline; the
 	// decisions read beside it is what says which of its entries an operator may still undo.
@@ -269,6 +284,13 @@
 		return rec.readings[0]?.measurement_type ?? 'continuous';
 	}
 
+	// A record something computed: a derived value, or one a tool run saved. The consumed set is
+	// only claimed about these, and one of them with an empty set was computed before the capture
+	// existed, so what it read is unknown rather than nothing.
+	function computed(rec: ProvenanceRecord): boolean {
+		return cadence(rec) === 'derived' || rec.computation?.provenance != null;
+	}
+
 	function calibrationWindow(c: ProvenanceCalibrationRef): string {
 		return `valid ${formatDateTime(c.valid_from)} to ${c.valid_until ? formatDateTime(c.valid_until) : 'open'}`;
 	}
@@ -365,6 +387,18 @@
 		return 'tool run';
 	}
 
+	/// Which historical result the calculation link opens on: the formula's own row, the run that
+	/// produced the value, and the replicate the reader is looking at. A group of several
+	/// replicates names none of them, so the link opens on the row and no further.
+	function computationAnchor(rec: ProvenanceRecord): ComputationAnchor {
+		const run = (rec.computation?.provenance as Record<string, unknown> | undefined)?.run_id;
+		return {
+			cell: rec.calculation?.code ?? null,
+			run: typeof run === 'string' ? run : null,
+			index: rec.readings.length === 1 ? (rec.readings[0]?.replicate_index ?? null) : null,
+		};
+	}
+
 	function computationTip(rec: ProvenanceRecord): string {
 		if (rec.calculation) return calculationTip(rec.calculation);
 		return rec.computation?.provenance
@@ -456,10 +490,34 @@
 		void key;
 		showToolRun = new Set();
 		showHistory = new Set();
+		replays = {};
 		error = '';
 		ownRecord = false;
 		void load();
 	});
+
+	/// Ask for a derived record's own arithmetic. It is read once per record and kept, because
+	/// the captured set does not move.
+	async function showReplay(i: number, rec: ProvenanceRecord) {
+		if (replays[i]) return;
+		const first = rec.readings[0];
+		if (!first) return;
+		try {
+			replays = {
+				...replays,
+				[i]: await replayDerived({
+					stream_id: rec.origin.stream_id,
+					time: timeIso,
+					replicate_index: first.replicate_index ?? 0,
+				}),
+			};
+		} catch (e) {
+			replays = {
+				...replays,
+				[i]: { error: e instanceof Error ? e.message : 'The replay was refused' },
+			};
+		}
+	}
 
 	function toggleToolRun(i: number) {
 		const next = new Set(showToolRun);
@@ -560,7 +618,7 @@
 			{#if rec.calculation}
 				<div class="contents" title={computationTip(rec)}>
 					<span class="text-xs text-brand-muted">Computation</span>
-					<a class="text-brand-primary hover:underline" href={calculationHref(base, rec.calculation)}>{what}</a>
+					<a class="text-brand-primary hover:underline" href={calculationHref(base, rec.calculation, computationAnchor(rec))}>{what}</a>
 				</div>
 			{:else}
 				{@render inlineOptional('Computation', what, computationTip(rec), false)}
@@ -589,6 +647,82 @@
 				</div>
 			{/if}
 		</div>
+	{/if}
+{/snippet}
+
+{#snippet consumedInput(c: ConsumedInput)}
+	{@const single = c.members?.length === 1 ? c.members[0] : null}
+	{@const href = single ? memberHref(base, single) : null}
+	<tr class="border-t border-brand-divider/60">
+		<td class="py-0.5 pr-3 align-top">
+			{#if href}
+				<a class="text-brand-primary hover:underline" href={href} title="Open the record of the reading this was read from">{c.variable}</a>
+			{:else}
+				<span class="text-brand-text">{c.variable}</span>
+			{/if}
+			<span class="ml-1 text-xs text-brand-muted">{kindLabel(c.kind)}</span>
+			{#if c.property}<span class="ml-1 text-xs text-brand-muted">{c.property}</span>{/if}
+		</td>
+		<td class="py-0.5 pr-3 {numericCell}">{consumedText(c.value)}</td>
+		<td class="py-0.5 pr-3 {numericCell}">
+			{c.current_value === null || c.current_value === undefined ? NO_VALUE : consumedText(c.current_value)}
+		</td>
+		<td class="py-0.5" title={markTip(c.state)}>
+			<Badge variant={markVariant(c.state)}>{c.state}</Badge>
+		</td>
+	</tr>
+	{#if (c.members?.length ?? 0) > 1}
+		<tr>
+			<td colspan="4" class="pb-1 pl-3 text-xs text-brand-muted">
+				{#each c.members ?? [] as m (m.stream_id + m.replicate_index)}
+					{@const mHref = memberHref(base, m)}
+					<span class="mr-3 inline-flex items-baseline gap-1">
+						{#if mHref}
+							<a class="text-brand-primary hover:underline" href={mHref}>#{m.replicate_index}</a>
+						{:else}
+							<span>#{m.replicate_index}</span>
+						{/if}
+						<span class="font-mono">{m.value ?? NO_VALUE}</span>
+						{#if m.state === 'changed'}
+							<span class="font-mono" title="What the key holds now">→ {m.current_value ?? NO_VALUE}</span>
+						{/if}
+					</span>
+				{/each}
+			</td>
+		</tr>
+	{/if}
+{/snippet}
+
+{#snippet consumed(rec: ProvenanceRecord)}
+	{@const set = rec.consumed ?? []}
+	{#if set.length > 0}
+		<div class="mt-2">
+			<div class="flex flex-wrap items-baseline gap-2">
+				<p class="text-xs text-brand-muted">Consumed</p>
+				{#if anyChanged(set)}
+					<Badge variant="warning">a source has moved</Badge>
+				{/if}
+			</div>
+			<table class="mt-1 w-full text-left">
+				<thead class="text-xs text-brand-muted">
+					<tr>
+						<th class="py-0.5 pr-3 font-medium">Input</th>
+						<th class="py-0.5 pr-3 text-right font-medium">Read</th>
+						<th class="py-0.5 pr-3 text-right font-medium">Now</th>
+						<th class="py-0.5 font-medium">State</th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each orderedInputs(set) as c (c.variable + c.kind)}
+						{@render consumedInput(c)}
+					{/each}
+				</tbody>
+			</table>
+		</div>
+	{:else if computed(rec)}
+		<p class="mt-2 text-xs text-brand-muted" title="Nothing recorded what this computation read, so its inputs cannot be named.">
+			Consumed inputs unknown: this value was computed before they were recorded.
+		</p>
 	{/if}
 {/snippet}
 
@@ -733,6 +867,7 @@
 				{/if}
 				{@render instrument(rec)}
 				{#if cadence(rec) !== 'derived'}{@render calculation(rec)}{/if}
+				{@render consumed(rec)}
 
 				<div
 					role="group"
@@ -798,6 +933,13 @@
 								>{showToolRun.has(i) ? 'Hide tool run' : 'Show tool run'}</button
 							>
 						{/if}
+						{#if rec.calculation && !replays[i]}
+							<button
+								class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline"
+								onclick={() => showReplay(i, rec)}
+								>Show the arithmetic</button
+							>
+						{/if}
 					</div>
 				{#if showHistory.has(i)}
 					<div class="mt-2 text-xs">
@@ -847,11 +989,35 @@
 						{/if}
 					</div>
 				{/if}
+				{#if replays[i]}
+					<!-- The formula the computation recorded, run again over the values it recorded.
+					     A replayed number that is not the stored one means the row moved outside
+					     the ledger, which is what this read is for. -->
+					<div class="mt-2 text-xs">
+						{#if 'error' in replays[i]}
+							<p class="text-brand-muted">{replays[i].error}</p>
+						{:else}
+							{@const r = replays[i] as ReplayResult}
+							<p class="font-mono">{r.formula}</p>
+							<p class="text-brand-muted">
+								{Object.entries(r.variables)
+									.map(([name, value]) => `${name} = ${value}`)
+									.join(', ')}
+							</p>
+							<p>
+								= {r.replayed}{r.stored !== null && r.stored !== r.replayed
+									? `, and ${r.stored} is stored`
+									: ''}
+							</p>
+						{/if}
+					</div>
+				{/if}
 				{#if rec.computation?.provenance && showToolRun.has(i)}
 					<div class="mt-2">
 						<ProvenanceCard
 							provenance={rec.computation.provenance}
 							parameterCode={resp.parameter_code}
+							consumed={rec.consumed}
 						/>
 					</div>
 				{/if}

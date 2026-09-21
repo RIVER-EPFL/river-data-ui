@@ -9,15 +9,18 @@
 		type DerivedParameter,
 		type Parameter,
 		type ParameterGroupMember,
+		type ToolRunRow,
 	} from '$api/crud';
 	import {
 		draftRunFormulas,
 		getStepDependents,
+		getToolRunTrace,
 		getToolScript,
 		listSiteVisits,
 		listToolVersionUsage,
 		saveFormulaSet,
 		type FormulaDraftRunResponse,
+		type ToolRunTrace,
 		type GivenUpOutput,
 		type StepDependents,
 		type ToolScriptDetail,
@@ -96,11 +99,23 @@
 	// nothing else: the save does not keep them.
 	let declared = $state<DeclaredInput[]>([]);
 	// Every input and formula change bumps the generation; a run remembers the one it read, so the
-	// numbers on screen say whether they are still the ones being shown.
-	let generation = $state(0);
+	// numbers on screen say whether they are still the ones being shown. The counter itself is a
+	// plain variable: the effect that bumps it must not depend on what it writes.
+	let generation = 0;
+	let scheduled = $state(0);
 	let ranAt = $state(0);
 	let requests = 0;
 	let rerunTimer: ReturnType<typeof setTimeout> | null = null;
+
+	// The historical result the page was opened on, when a link named one: the cell to select, the
+	// run to draw, and the replicate the reader came from. The recorded run stands until the
+	// person edits the set or the visit, which is what reruns it.
+	const anchorCell = page.url.searchParams.get('cell') ?? '';
+	const anchorRun = page.url.searchParams.get('run') ?? '';
+	const anchorIndex = Number.parseInt(page.url.searchParams.get('index') ?? '', 10);
+	let recorded = $state<ToolRunTrace | null>(null);
+	/** The runs of this calculation at the chosen visit, newest first. */
+	let runsAtVisit = $state<ToolRunRow[]>([]);
 
 	let siteId = $state(page.url.searchParams.get('site') ?? '');
 	let visits = $state<VisitRow[]>([]);
@@ -147,27 +162,49 @@
 	);
 	const visit = $derived(visits.find((v) => v.id === visitId) ?? null);
 	const paramVars = $derived(formulaVariables(parameters));
+	// A recorded run draws through the same tables a fresh one does: the trace route carries the
+	// values it produced and the manifest of the version it pinned, so nothing here re-resolves.
+	const shown = $derived(
+		recorded
+			? {
+					ran: true,
+					results: recorded.results,
+					skipped: recorded.skipped,
+					trace: recorded.trace,
+					manifest: recorded.manifest,
+					event_inputs: recorded.event_inputs,
+					site_inputs: recorded.site_inputs,
+					constants: recorded.constants,
+					curves: recorded.curves,
+				}
+			: run,
+	);
 	const tables = $derived(
-		run?.ran
-			? runTables(run.results ?? {}, draftOutputs(run.manifest), run.skipped ?? [], run.trace ?? [])
+		shown?.ran
+			? runTables(
+					shown.results ?? {},
+					draftOutputs(shown.manifest),
+					(shown.skipped ?? []) as Parameters<typeof runTables>[2],
+					shown.trace ?? [],
+				)
 			: null,
 	);
 	// What the run was given, in the same table shape: the visit's own values, then the numbers
 	// that are the same at every visit.
 	const given = $derived(
-		run?.ran
+		shown?.ran
 			? runInputTables(
-					run.event_inputs ?? [],
-					run.site_inputs ?? [],
-					run.constants ?? {},
-					(run.curves ?? []) as Parameters<typeof runInputTables>[3],
+					(shown.event_inputs ?? []) as Parameters<typeof runInputTables>[0],
+					(shown.site_inputs ?? []) as Parameters<typeof runInputTables>[1],
+					shown.constants ?? {},
+					(shown.curves ?? []) as Parameters<typeof runInputTables>[3],
 				)
 			: undefined,
 	);
 
 	// The three tables the page is: the set's inputs, steps and outputs, filled by the run.
 	const blocks = $derived(sheetBlocks(formulas, inputs, declared, given, tables ?? undefined));
-	const stale = $derived(run !== null && ranAt < generation);
+	const stale = $derived(recorded === null && run !== null && ranAt < scheduled);
 
 	const selectedRow = $derived(
 		selected
@@ -298,6 +335,8 @@
 	onMount(async () => {
 		await load();
 		if (siteId) await loadVisits(siteId, page.url.searchParams.get('visit') ?? '');
+		if (anchorCell) choose(anchorCell);
+		if (anchorRun) await openRecorded(anchorRun);
 	});
 
 	/** Append a row to the steps or to the outputs, and open the panel on it. */
@@ -484,6 +523,46 @@
 		}
 	}
 
+	/**
+	 * The recorded run a link named, drawn as it ran. Reading it also pins the signature, so the
+	 * rerun effect leaves it alone until the person changes the set, the visit or an input.
+	 */
+	async function openRecorded(runId: string) {
+		try {
+			recorded = await getToolRunTrace(runId);
+			lastSignature = runSignature;
+			if (recorded.site_id) siteId = recorded.site_id;
+		} catch (e) {
+			runError = e instanceof Error ? e.message : 'That run could not be replayed';
+		}
+	}
+
+	/** Leave the recorded run and read the set as it stands now. */
+	function runAgain() {
+		recorded = null;
+		void runAtVisit();
+	}
+
+	/** The runs of this calculation at the chosen visit, so a reader can move between them. */
+	async function loadRunsAtVisit() {
+		runsAtVisit = [];
+		if (!calculation || !siteId || !visit) return;
+		try {
+			const rows = await api.toolRuns.list({
+				perPage: 50,
+				sort: ['created_at', 'DESC'],
+				filter: {
+					tool_name: calculation.name,
+					site_id: siteId,
+					collected_at: visit.collected_at,
+				},
+			});
+			runsAtVisit = rows.data;
+		} catch {
+			runsAtVisit = [];
+		}
+	}
+
 	/** What a run reads, so a change to any of it is a change to the numbers on screen. */
 	const runSignature = $derived(
 		JSON.stringify([
@@ -502,12 +581,22 @@
 		if (loading || next === lastSignature) return;
 		lastSignature = next;
 		if (ordered.length === 0) return;
+		// An edit is what replaces the recorded result with a fresh one; arriving on it does not.
+		recorded = null;
 		generation += 1;
+		scheduled = generation;
 		if (rerunTimer) clearTimeout(rerunTimer);
 		rerunTimer = setTimeout(() => {
 			rerunTimer = null;
 			void runAtVisit();
 		}, 400);
+	});
+
+	// The runs at the visit follow whichever visit is chosen, the deep link's included.
+	$effect(() => {
+		void visitId;
+		void siteId;
+		void loadRunsAtVisit();
 	});
 
 	const inputCls =
@@ -607,8 +696,19 @@
 						<p class="text-sm text-brand-muted">Choose a site and a visit to read the calculation over its values.</p>
 					{/if}
 					{#if runError}<ErrorNotice message={runError} />{/if}
-					{#if run && !run.ran && run.failure}
+					{#if !recorded && run && !run.ran && run.failure}
 						<ErrorNotice message={run.failure.message} />
+					{/if}
+					{#if recorded}
+						<!-- A recorded result stands until the reader changes something or asks for a
+						     fresh one: this is the number that was stored, not one computed now. -->
+						<div class="flex flex-wrap items-center justify-between gap-2 rounded border border-brand-divider px-2 py-1">
+							<p class="text-sm">
+								The run of {formatDateTime(recorded.collected_at ?? '')} as it ran, under version {recorded.version_no}.
+								{#if Number.isInteger(anchorIndex)}Replicate {anchorIndex}.{/if}
+							</p>
+							<Button size="sm" onclick={runAgain} disabled={!visit}>Run the set as it stands</Button>
+						</div>
 					{/if}
 					<CalculationSheet
 						{blocks}
@@ -630,12 +730,14 @@
 					{/if}
 				</div>
 			</section>
-			<FormulaPalette
-				variables={paramVars}
-				{constants}
-				onpick={insert}
-				class="rounded-md border border-brand-divider bg-brand-surface p-2 max-h-[460px] overflow-y-auto"
-			/>
+			<section aria-label="Palette" class="rounded-md border border-brand-divider bg-brand-surface">
+				<FormulaPalette
+					variables={paramVars}
+					{constants}
+					onpick={insert}
+					class="p-2 max-h-[460px] overflow-y-auto"
+				/>
+			</section>
 		</div>
 
 		<CellPanel
@@ -656,6 +758,27 @@
 			onstopreading={stopReading}
 			onshowdependents={showDependents}
 		/>
+
+		{#if runsAtVisit.length > 0}
+			<!-- Every run of this calculation at the visit: what was computed here, and when. -->
+			<section class="rounded-md border border-brand-divider bg-brand-surface">
+				<h3 class="px-3 py-2 text-sm font-semibold border-b border-brand-divider">
+					Runs at this visit<span class="ml-2 text-xs font-normal text-brand-muted">each one opens as it ran</span>
+				</h3>
+				<ul class="divide-y divide-brand-divider">
+					{#each runsAtVisit as row (row.id)}
+						<li class="flex flex-wrap items-baseline justify-between gap-2 px-3 py-2 text-sm">
+							<a
+								class="text-brand-primary hover:underline"
+								href={`${base}/toolbox/${encodeURIComponent(calculationId)}?site=${encodeURIComponent(siteId)}&visit=${encodeURIComponent(visitId)}&run=${encodeURIComponent(row.id)}`}
+								aria-current={recorded?.run_id === row.id ? 'true' : undefined}
+							>{formatDateTime(row.created_at)}</a>
+							<span class="text-xs text-brand-muted">{row.source} · {row.created_by}</span>
+						</li>
+					{/each}
+				</ul>
+			</section>
+		{/if}
 
 		<!-- One save over the whole set, and what it does to the values already computed. -->
 		<section class="rounded-md border border-brand-divider bg-brand-surface px-3 py-2">

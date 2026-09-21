@@ -1,15 +1,15 @@
 <script lang="ts">
 	import uPlot from 'uplot';
 	import UPlotChart from '$lib/components/charts/UPlotChart.svelte';
-	import { previewDerived, type PreviewDerivedResponse } from '$api/service';
+	import { previewDerived, type DraftFormula, type PreviewDerivedResponse } from '$api/service';
 	import { tokens } from '$lib/charts/tokens';
 
 	let {
-		formula,
+		formulas,
 		sites,
 		variableNames,
 	}: {
-		formula: string;
+		formulas: DraftFormula[];
 		sites: Array<{ id: string; name: string; availableParamNames?: string[] }>;
 		variableNames: string[];
 	} = $props();
@@ -35,7 +35,7 @@
 	});
 
 	$effect(() => {
-		if (!formula || !selectedSiteId) return;
+		if (formulas.length === 0 || !selectedSiteId) return;
 		// `range` is read here so the effect tracks it; runPreview runs from a timeout, outside
 		// the tracking scope.
 		const days = rangeDays(range);
@@ -60,7 +60,7 @@
 		previewError = null;
 		try {
 			const result = await previewDerived({
-				formula,
+				formulas,
 				site_id: selectedSiteId,
 				start: start.toISOString(),
 				end: end.toISOString(),
@@ -83,7 +83,9 @@
 		for (const sp of preview.source_parameters) {
 			series.push(sp.values.map((v) => (v == null ? null : v)) as (number | null)[]);
 		}
-		series.push(preview.derived.values.map((v) => (v == null ? null : v)) as (number | null)[]);
+		for (const f of preview.formulas) {
+			series.push(f.values.map((v) => (v == null ? null : v)) as (number | null)[]);
+		}
 		return series;
 	});
 
@@ -98,11 +100,17 @@
 					points: { show: false },
 				});
 			});
-			series.push({
-				label: preview.derived.name || 'derived',
-				stroke: tokens.brand.primary,
-				width: 2.5,
-				points: { show: false },
+			// A step is drawn dashed: it is a working number the set hands on, not a value the
+			// calculation publishes.
+			preview.formulas.forEach((f, i) => {
+				series.push({
+					label: f.name || f.code,
+					stroke:
+						i === 0 ? tokens.brand.primary : tokens.dataViz[i % tokens.dataViz.length],
+					width: f.intermediate ? 1.5 : 2.5,
+					dash: f.intermediate ? [4, 4] : undefined,
+					points: { show: false },
+				});
 			});
 		}
 		return {
@@ -115,7 +123,10 @@
 		};
 	});
 
-	const errorCount = $derived(preview?.derived.errors?.filter((e) => e != null).length ?? 0);
+	const errorCount = $derived(
+		preview?.formulas.reduce((n, f) => n + f.errors.filter((e) => e != null).length, 0) ?? 0
+	);
+	const sampleCount = $derived(preview?.times.length ?? 0);
 </script>
 
 <div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
@@ -145,7 +156,7 @@
 	</div>
 
 	<div class="p-3 min-h-[340px]">
-		{#if !formula}
+		{#if formulas.length === 0}
 			<p class="text-sm text-brand-muted">Build a formula to see a preview here.</p>
 		{:else if !selectedSiteId}
 			<p class="text-sm text-brand-muted">No site available with all required parameters.</p>
@@ -159,7 +170,7 @@
 			{:else}
 				<UPlotChart options={chartOptions} data={chartData} class="w-full" />
 				{#if errorCount > 0}
-					<p class="text-xs text-severity-warning mt-2">{errorCount} of {preview.derived.values.length} samples produced errors.</p>
+					<p class="text-xs text-severity-warning mt-2">{errorCount} of {sampleCount} samples produced errors.</p>
 				{/if}
 			{/if}
 		{/if}

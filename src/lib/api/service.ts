@@ -448,6 +448,8 @@ export const backfillCalibrations = (body: { all?: boolean; sensor_id?: string; 
 	POST<BackfillCalibrationsResponse>(`${SERVICE}/actions/backfill_calibrations`, body);
 
 // Derived preview
+export type DraftFormula = components['schemas']['DraftFormula'];
+
 export type PreviewDerivedRequest = components['schemas']['PreviewDerivedRequest'];
 
 export type PreviewDerivedResponse = components['schemas']['PreviewDerivedResponse'];
@@ -996,6 +998,11 @@ export type ProvenanceChain = components['schemas']['ChainInfo'];
 export type ProvenanceCalculation = components['schemas']['CalculationInfo'];
 
 export type ProvenanceRecord = components['schemas']['ProvenanceRecord'];
+
+// One input a calculation consumed, beside what its source holds now.
+export type ConsumedInput = components['schemas']['ConsumedRef'];
+
+export type ConsumedMember = components['schemas']['ConsumedMemberRef'];
 
 export type ProvenanceResponse = components['schemas']['ProvenanceResponse'];
 
@@ -1701,6 +1708,20 @@ export type ToolRunTrace = components['schemas']['RunTrace'];
 
 export const getToolRunTrace = (runId: string) =>
 	GET<ToolRunTrace>(`${SERVICE}/tool_runs/${runId}/trace`);
+
+
+/** A derived value's own arithmetic: the recorded formula over the recorded values. */
+export type ReplayResult = components['schemas']['ReplayResponse'];
+
+export const replayDerived = (key: {
+	stream_id: string;
+	time: string;
+	replicate_index?: number;
+}) => {
+	const q = new URLSearchParams({ stream_id: key.stream_id, time: key.time });
+	if (key.replicate_index != null) q.set('replicate_index', String(key.replicate_index));
+	return GET<ReplayResult>(`${SERVICE}/readings/replay?${q}`);
+};
 
 export type ReadingDecision = components['schemas']['DecisionRow'];
 

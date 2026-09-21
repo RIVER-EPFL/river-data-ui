@@ -54,6 +54,7 @@ export const api = {
 	notificationMutes: crudClient<NotificationMute>('notification_mutes'),
 	notificationSubscribers: crudClient<NotificationSubscriber>('notification_subscribers'),
 	calculationSharedSteps: crudClient<CalculationSharedStep>('calculation_shared_steps'),
+	toolRuns: crudClient<ToolRunRow>('tool_runs'),
 	meteoswissSubscriptions: crudClient<MeteoswissSubscription>('meteoswiss_subscriptions'),
 	// Keycloak realm accounts, not a database entity: the API proxies the realm behind the same
 	// list shape. Admin-only, so only mount it from a route guarded by `me.can('admin')`.
@@ -551,6 +552,20 @@ export interface CalculationSharedStep {
 	tool_script_id: string;
 	formula_id: string;
 	created_at: string;
+}
+
+/**
+ * One `/tools/{name}/calculate`, as the list serves it. `site_id` and `collected_at` are the visit
+ * it was computed at, which is how the runs at one visit are found.
+ */
+export interface ToolRunRow {
+	id: string;
+	tool_name: string;
+	created_by: string;
+	created_at: string;
+	source: string;
+	site_id: string | null;
+	collected_at: string | null;
 }
 
 /** A (site, parameter) slot muted from notifications, optionally with an expiry. *//** A (site, parameter) slot muted from notifications, optionally with an expiry. */

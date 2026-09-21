@@ -10,7 +10,10 @@ vi.mock('$lib/components/charts/UPlotChart.svelte', async () => ({
 import LivePreview from './LivePreview.svelte';
 
 const props = {
-	formula: 'a * 2',
+	formulas: [
+		{ code: 'step', formula: 'a + 1', ordinal: 0, intermediate: true },
+		{ code: 'out', formula: 'step * 2', ordinal: 1, intermediate: false }
+	],
 	sites: [{ id: 'site-1', name: 'Martigny' }],
 	variableNames: ['a']
 };
@@ -18,8 +21,15 @@ const props = {
 describe('LivePreview', () => {
 	beforeEach(() => {
 		previewDerived.mockReset();
-		previewDerived.mockResolvedValue({ times: [], values: [], param_info: [] });
+		previewDerived.mockResolvedValue({ times: [], source_parameters: [], formulas: [] });
 		vi.useFakeTimers();
+	});
+
+	it('sends the whole set, steps included', async () => {
+		render(LivePreview, props);
+		await vi.advanceTimersByTimeAsync(500);
+		const sent = previewDerived.mock.calls[0][0] as { formulas: Array<{ code: string }> };
+		expect(sent.formulas.map((f) => f.code)).toEqual(['step', 'out']);
 	});
 
 	it('refetches when the range changes', async () => {

@@ -80,3 +80,63 @@ test('nothing on an expanded visit scrolls sideways in a window with room', asyn
 	const box = (await record.boundingBox())!;
 	expect(box.x + box.width).toBeLessThanOrEqual(1400);
 });
+
+/** A calculation with a step and two outputs, so all three tables carry rows. */
+async function seedCalculation(request: APIRequestContext): Promise<{ calculationId: string }> {
+	const stamp = `${Date.now()}_${(seeded += 1)}`;
+	const headers = { Authorization: `Bearer ${await token(request)}` };
+	const post = async (path: string, data: unknown) => {
+		const response = await request.post(`${API_URL}/api${path}`, { headers, data });
+		expect(response.ok(), `${path} -> ${response.status()} ${await response.text()}`).toBeTruthy();
+		return response.json();
+	};
+
+	const input = `scroll_calc_${stamp}`;
+	await post('/parameters', { code: input, name: input, category: 'measurement', aliases: [] });
+	const calculation = await post('/tool_scripts', {
+		name: `scroll_calc_${stamp}`,
+		label: `Scroll calc ${stamp}`,
+		engine: 'formula',
+	});
+	await post(`/tool_scripts/${calculation.id}/formulas`, {
+		formulas: [
+			{
+				code: `scroll_step_${stamp}`,
+				name: 'Step',
+				units: '',
+				description: null,
+				formula: `${input} + 1`,
+				ordinal: 1,
+				per_replicate: null,
+				curve_slot: null,
+				intermediate: true,
+			},
+			{
+				code: `scroll_out_${stamp}`,
+				name: 'Output',
+				units: '',
+				description: null,
+				formula: `scroll_step_${stamp} * 2`,
+				ordinal: 2,
+				per_replicate: null,
+				curve_slot: null,
+				intermediate: false,
+			},
+		],
+		migrate_stored: false,
+	});
+	return { calculationId: calculation.id };
+}
+
+// A calculation's three tables sit side by side at this width, and each scrolls inside itself
+// when its replicate columns outgrow it. Nothing else on the page may.
+test('a calculation page with three tables scrolls only inside them', async ({ page, request }) => {
+	const { calculationId } = await seedCalculation(request);
+	await page.setViewportSize({ width: 1400, height: 900 });
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/toolbox/${calculationId}`);
+
+	await expect(page.getByRole('columnheader', { name: 'Outputs', exact: true })).toBeVisible();
+	const scrollers = await sideScrollers(page);
+	expect(scrollers.filter((name) => !name.includes('ht')), scrollers.join(', ')).toHaveLength(0);
+});

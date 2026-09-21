@@ -343,7 +343,7 @@ describe('PointInspector', () => {
 
 	// A continuous value computed by a standalone formula: no run, and the formula version the
 	// stored value names.
-	function computed(calculation: Record<string, unknown>) {
+	function computed(calculation: Record<string, unknown>, consumed?: unknown[]) {
 		return response([
 			{
 				origin: {
@@ -356,10 +356,90 @@ describe('PointInspector', () => {
 				readings: [reading(0, 8.005, { measurement_type: 'derived' })],
 				chain: {},
 				calculation,
+				consumed,
 				holds: [],
 			},
 		]);
 	}
+
+	const formula = {
+		definition_id: 'def-1',
+		code: 'pCO2',
+		name: 'Partial pressure of CO2',
+		version_id: 'v-1',
+		version_no: 2,
+		formula: 'DIC * 0.5',
+		content_hash: 'sha256:abc',
+		active_version_no: 2,
+	};
+
+	function consumedReading(state: string, extra: Record<string, unknown> = {}) {
+		return {
+			variable: 'DIC',
+			kind: 'reading',
+			revision: 4,
+			current_revision: state === 'changed' ? 5 : 4,
+			value: 16.01,
+			current_value: state === 'changed' ? 17.2 : 16.01,
+			state,
+			members: [
+				{
+					stream_id: 'stream-dic',
+					time: '2026-07-14T09:00:00Z',
+					replicate_index: 0,
+					revision: 4,
+					value: 16.01,
+					current_revision: state === 'changed' ? 5 : 4,
+					current_value: state === 'changed' ? 17.2 : 16.01,
+					state,
+					point: {
+						site_id: 'site',
+						site_parameter_id: 'sp-dic',
+						time: '2026-07-14T09:00:00Z',
+						measurement_type: 'spot',
+					},
+					...extra,
+				},
+			],
+		};
+	}
+
+	it('opens the reading a computed value was read from', async () => {
+		open(computed(formula, [consumedReading('unchanged')]));
+		await screen.findByText('8.005');
+		const link = screen.getByText('DIC').closest('a')!;
+		expect(link.getAttribute('href')).toContain('/sites/site?point=sp-dic');
+		expect(link.getAttribute('href')).toContain('mt=spot');
+	});
+
+	it('marks an input whose source has moved, beside what it holds now', async () => {
+		const { container } = open(computed(formula, [consumedReading('changed')]));
+		await screen.findByText('8.005');
+		expect(screen.getByText('changed')).toBeTruthy();
+		expect(screen.getByText('a source has moved')).toBeTruthy();
+		// What was read and what the key holds now are both on the row.
+		const text = container.textContent ?? '';
+		expect(text).toContain('16.01');
+		expect(text).toContain('17.2');
+	});
+
+	it('names a key with no slot without offering a link to it', async () => {
+		open(computed(formula, [consumedReading('unchanged', { point: undefined })]));
+		await screen.findByText('8.005');
+		expect(screen.getByText('DIC').closest('a')).toBeNull();
+	});
+
+	it('says the inputs are unknown for a computed value that recorded none', async () => {
+		const { container } = open(computed(formula));
+		await screen.findByText('8.005');
+		expect(container.textContent).toContain('Consumed inputs unknown');
+	});
+
+	it('claims nothing about the inputs of a value nothing computed', async () => {
+		const { container } = open(handEntered());
+		await screen.findByText('8.005');
+		expect(container.textContent).not.toContain('Consumed');
+	});
 
 	it('leads a computed value with the formula that produced it', async () => {
 		const { container } = open(

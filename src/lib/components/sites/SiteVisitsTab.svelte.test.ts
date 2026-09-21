@@ -5,10 +5,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const listSiteVisits = vi.fn();
 const runEventRecompute = vi.fn();
 const pollJob = vi.fn();
+const getCollectionEventDetail = vi.fn();
 vi.mock("$api/service", () => ({
   listSiteVisits: (siteId: string, range: unknown) =>
     listSiteVisits(siteId, range),
-  getCollectionEventDetail: vi.fn(),
+  getCollectionEventDetail: (id: string) => getCollectionEventDetail(id),
   recomputeCollectionEvent: vi.fn(),
   runEventAudit: vi.fn(),
   runEventRecompute: (req: unknown) => runEventRecompute(req),
@@ -197,6 +198,176 @@ describe("SiteVisitsTab", () => {
     expect(runEventRecompute).toHaveBeenCalledWith({
       site_id: "site-1",
       only_findings: false,
+    });
+  });
+
+  // Scenario: a visit holds a temperature that a calculation read and the pCO2 it wrote.
+  //
+  // Expected behaviour: selecting either cell lights the other by the reading the calculation
+  // consumed, and the selected cell carries a control opening that one recording (M282, Q215).
+  describe("tool-connected cells", () => {
+    const consumed = () => ({
+      id: "visit-1",
+      site_id: "site-1",
+      collected_at: "2025-06-01T08:00:00Z",
+      cells: [
+        {
+          ...cell("temp"),
+          parameter_code: "temp",
+          parameter_name: "temp",
+          origin: "manual",
+          stream_id: "stream-temp",
+          record: {
+            origin: {
+              stream_id: "stream-temp",
+              source_system: "grab_sample",
+              source_key: "temp",
+              classification: "manual",
+            },
+            readings: [],
+            chain: {},
+            holds: [],
+          },
+        },
+        {
+          ...cell("pco2"),
+          parameter_code: "pco2",
+          parameter_name: "pco2",
+          origin: "manual",
+          stream_id: "stream-pco2",
+          record: {
+            origin: {
+              stream_id: "stream-pco2",
+              source_system: "derived",
+              source_key: "pco2",
+              classification: "derived",
+            },
+            readings: [],
+            chain: {},
+            holds: [],
+            consumed: [
+              {
+                variable: "temp",
+                kind: "reading",
+                revision: null,
+                current_revision: null,
+                value: STORED,
+                state: "unchanged",
+                members: [
+                  {
+                    stream_id: "stream-temp",
+                    time: "2025-06-01T08:00:00Z",
+                    replicate_index: 0,
+                    revision: null,
+                    value: STORED,
+                    current_revision: null,
+                    current_value: STORED,
+                    state: "unchanged",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    function open() {
+      listSiteVisits.mockResolvedValue({
+        site_id: "site-1",
+        page: 1,
+        page_size: 50,
+        total: 1,
+        expected_parameters: [column("temp", "TEMP", 2), column("pco2", "PCO2", 2)],
+        visits: [
+          {
+            id: "visit-1",
+            collected_at: "2025-06-01T08:00:00Z",
+            created_by: "tester",
+            source: "manual",
+            notes: null,
+            parameters_filled: 2,
+            findings_open: 0,
+            recompute: "current",
+            cells: [cell("temp"), cell("pco2")],
+          },
+        ],
+      });
+      getCollectionEventDetail.mockResolvedValue(consumed());
+      return render(SiteVisitsTab, props({ temp: 2, pco2: 2 }));
+    }
+
+    /** The cell of one parameter, found by the label the renderer puts on it. */
+    function cellOf(code: string): HTMLTableCellElement {
+      const grid = document.querySelector<HTMLElement>(".ht_master")!;
+      return grid.querySelector<HTMLTableCellElement>(
+        `td[aria-label^="${code} at "]`,
+      )!;
+    }
+
+    it("lights the reading a selected output consumed", async () => {
+      const view = open();
+      await screen.findAllByText("100.80");
+      await userEvent.click(cellOf("PCO2"));
+      await vi.waitFor(() =>
+        expect(
+          view.container.querySelectorAll("td.sheet-reads").length,
+        ).toBeGreaterThan(0),
+      );
+      expect(cellOf("TEMP").classList.contains("sheet-reads")).toBe(true);
+      expect(cellOf("PCO2").classList.contains("sheet-reads")).toBe(false);
+    });
+
+    it("lights the output that consumed a selected input", async () => {
+      const view = open();
+      await screen.findAllByText("100.80");
+      await userEvent.click(cellOf("TEMP"));
+      await vi.waitFor(() =>
+        expect(
+          view.container.querySelectorAll("td.sheet-read-by").length,
+        ).toBeGreaterThan(0),
+      );
+      expect(cellOf("PCO2").classList.contains("sheet-read-by")).toBe(true);
+    });
+
+    it("gives the selected cell a control that opens that one recording", async () => {
+      open();
+      await screen.findAllByText("100.80");
+      await userEvent.click(cellOf("PCO2"));
+      const control = await screen.findByRole("button", {
+        name: "Open the record of PCO2 at this visit",
+      });
+      expect(control.title).toContain("Alt+Enter");
+      expect(control.closest("td")).toBe(cellOf("PCO2"));
+    });
+
+    it("lights nothing while the visit's detail cannot be read", async () => {
+      listSiteVisits.mockResolvedValue({
+        site_id: "site-1",
+        page: 1,
+        page_size: 50,
+        total: 1,
+        expected_parameters: [column("temp", "TEMP", 2), column("pco2", "PCO2", 2)],
+        visits: [
+          {
+            id: "visit-1",
+            collected_at: "2025-06-01T08:00:00Z",
+            created_by: "tester",
+            source: "manual",
+            notes: null,
+            parameters_filled: 2,
+            findings_open: 0,
+            recompute: "current",
+            cells: [cell("temp"), cell("pco2")],
+          },
+        ],
+      });
+      getCollectionEventDetail.mockRejectedValue(new Error("no"));
+      const view = render(SiteVisitsTab, props({ temp: 2, pco2: 2 }));
+      await screen.findAllByText("100.80");
+      await userEvent.click(cellOf("PCO2"));
+      expect(view.container.querySelectorAll("td.sheet-reads")).toHaveLength(0);
+      expect(view.container.querySelectorAll("td.sheet-read-by")).toHaveLength(0);
     });
   });
 

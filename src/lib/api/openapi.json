@@ -2704,7 +2704,7 @@
             "type": "array"
           },
           "tool_script_id": {
-            "description": "The calculation this formula belongs to (M67). NULL is a standalone derived parameter, the\nper-reading continuous kind the derived job and janitor serve.",
+            "description": "The calculation this formula belongs to (M67). NULL is a shared step, owned by no\ncalculation and declared by each that reads it (Q156).",
             "format": "uuid",
             "type": [
               "string",
@@ -2815,7 +2815,7 @@
             "type": "array"
           },
           "tool_script_id": {
-            "description": "The calculation this formula belongs to (M67). NULL is a standalone derived parameter, the\nper-reading continuous kind the derived job and janitor serve.",
+            "description": "The calculation this formula belongs to (M67). NULL is a shared step, owned by no\ncalculation and declared by each that reads it (Q156).",
             "format": "uuid",
             "type": [
               "string",
@@ -2980,10 +2980,10 @@
         "type": "object"
       },
       "CalculationInfo": {
-        "description": "The standalone formula behind a derived value: the definition it belongs to and the version it\nwas made with. A row stored before versioning names no version, so `formula` is absent rather\nthan filled from the definition's current text, which no longer describes it.",
+        "description": "The formula behind a derived value: the calculation it belongs to and the version it was made\nwith. A row naming no version reports no formula, because the text that produced it is not\nrecoverable from the definition's current one (M134).",
         "properties": {
           "active_version_no": {
-            "description": "The definition's newest version, so a value made by an older one is visible as such.",
+            "description": "The calculation's newest version, so a value made by an older one is visible as such.",
             "format": "int32",
             "type": "integer"
           },
@@ -3004,7 +3004,7 @@
             "type": "string"
           },
           "tool_script_id": {
-            "description": "The calculation the formula belongs to, absent for a standalone derived parameter.",
+            "description": "The calculation the formula belongs to.",
             "format": "uuid",
             "type": "string"
           },
@@ -3020,6 +3020,7 @@
         },
         "required": [
           "definition_id",
+          "tool_script_id",
           "code",
           "name"
         ],
@@ -4304,6 +4305,70 @@
         ],
         "type": "object"
       },
+      "ConsumedMemberRef": {
+        "description": "One reading a calculation consumed, beside what its key holds now (Q215).",
+        "properties": {
+          "current_revision": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "current_value": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "point": {
+            "$ref": "#/components/schemas/SlotRef",
+            "description": "The record this member opens, absent while its stream is unpaired."
+          },
+          "replicate_index": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "revision": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "state": {
+            "description": "`changed`, `unchanged` or `unknown`.",
+            "type": "string"
+          },
+          "stream_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "time": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "value": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "stream_id",
+          "time",
+          "replicate_index",
+          "revision",
+          "value",
+          "current_revision",
+          "current_value",
+          "state"
+        ],
+        "type": "object"
+      },
       "ConsumedReading": {
         "description": "One reading a calculation read, as the row and the revision it stood at (Q215). `revision` is\nthe newest `reading_decisions.seq` at the key when the value was read; null is the arrival\nstate, a row no decision had touched yet.",
         "properties": {
@@ -4343,11 +4408,65 @@
         ],
         "type": "object"
       },
+      "ConsumedRef": {
+        "description": "One input of the calculation that made this record, as it was consumed and as its source\nstands now (Q215). `kind`, `subject` and `property` are the captured binding.",
+        "properties": {
+          "current_revision": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "current_value": {
+            "description": "What the source holds now, where the input reads one row. A statistic over several\nreadings is not recomputed here: its members carry their own current values."
+          },
+          "kind": {
+            "type": "string"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/ConsumedMemberRef"
+            },
+            "type": "array"
+          },
+          "property": {
+            "type": "string"
+          },
+          "revision": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "state": {
+            "description": "`changed`, `unchanged` or `unknown`.",
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "value": {},
+          "variable": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "variable",
+          "kind",
+          "revision",
+          "current_revision",
+          "value",
+          "state"
+        ],
+        "type": "object"
+      },
       "ConsumerRef": {
         "description": "One formula reading the record's parameter, with its output at the instant where one exists.",
         "properties": {
           "calculation": {
-            "description": "The calculation the formula belongs to, absent on a standalone derived parameter.",
+            "description": "The calculation the formula belongs to, absent on a shared step, which belongs to none.",
             "type": "string"
           },
           "definition_id": {
@@ -5988,7 +6107,11 @@
         "type": "object"
       },
       "DerivedSeries": {
+        "description": "What one formula of the set produced over the window. A step carries `intermediate`, so a\nreader can tell the value the set publishes from the working number that fed it.",
         "properties": {
+          "code": {
+            "type": "string"
+          },
           "errors": {
             "items": {
               "type": [
@@ -6001,8 +6124,17 @@
           "formula": {
             "type": "string"
           },
+          "intermediate": {
+            "type": "boolean"
+          },
           "name": {
             "type": "string"
+          },
+          "units": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "values": {
             "items": {
@@ -6016,8 +6148,11 @@
           }
         },
         "required": [
+          "code",
           "name",
+          "units",
           "formula",
+          "intermediate",
           "values",
           "errors"
         ],
@@ -15255,8 +15390,12 @@
             "format": "date-time",
             "type": "string"
           },
-          "formula": {
-            "type": "string"
+          "formulas": {
+            "description": "The set as the editor holds it, steps included. One formula is a set of one.",
+            "items": {
+              "$ref": "#/components/schemas/DraftFormula"
+            },
+            "type": "array"
           },
           "site_id": {
             "format": "uuid",
@@ -15268,7 +15407,7 @@
           }
         },
         "required": [
-          "formula",
+          "formulas",
           "site_id",
           "start",
           "end"
@@ -15277,8 +15416,12 @@
       },
       "PreviewDerivedResponse": {
         "properties": {
-          "derived": {
-            "$ref": "#/components/schemas/DerivedSeries"
+          "formulas": {
+            "description": "One series per formula of the set, steps included, in the order the set evaluates.",
+            "items": {
+              "$ref": "#/components/schemas/DerivedSeries"
+            },
+            "type": "array"
           },
           "site": {
             "$ref": "#/components/schemas/PreviewSite"
@@ -15301,7 +15444,7 @@
           "site",
           "times",
           "source_parameters",
-          "derived"
+          "formulas"
         ],
         "type": "object"
       },
@@ -15842,6 +15985,13 @@
           },
           "computation": {
             "$ref": "#/components/schemas/ComputationInfo"
+          },
+          "consumed": {
+            "description": "What the calculation that made this record actually read, captured at the read (Q215),\neach input beside what its source holds now. Empty on a record nothing computed, and on\none computed before the capture existed, whose inputs are therefore unknown.",
+            "items": {
+              "$ref": "#/components/schemas/ConsumedRef"
+            },
+            "type": "array"
           },
           "consumers": {
             "description": "Every enabled formula reading this parameter, one hop down the chain, with its output's\nvalue at this instant where one exists.",
@@ -17526,6 +17676,61 @@
         ],
         "type": "object"
       },
+      "ReplayResponse": {
+        "description": "What a derived value's replay answers: the arithmetic behind the stored number.",
+        "properties": {
+          "captured_at": {
+            "description": "When the captured set was recorded.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "derived_version_id": {
+            "description": "The version the stored value names, where it names one.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "formula": {
+            "description": "The formula the computation recorded, as it stood then.",
+            "type": "string"
+          },
+          "replayed": {
+            "description": "Running that formula over the values the computation consumed.",
+            "format": "double",
+            "type": "number"
+          },
+          "stored": {
+            "description": "What the reading holds now. A replay that disagrees with it means the row moved without\nthe ledger, which is the one thing this read is for.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "variables": {
+            "additionalProperties": {
+              "format": "double",
+              "type": "number"
+            },
+            "description": "The values the replay bound, by variable name.",
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "formula",
+          "derived_version_id",
+          "replayed",
+          "stored",
+          "variables",
+          "captured_at"
+        ],
+        "type": "object"
+      },
       "ReplicateAuditHoldList": {
         "properties": {
           "acknowledged_at": {
@@ -18919,6 +19124,11 @@
             },
             "type": "object"
           },
+          "curves": {
+            "description": "The curves the run applied, as it stored them.",
+            "items": {},
+            "type": "array"
+          },
           "event_inputs": {
             "description": "The visit's stored values the run read, as `{param, parameter_code, parameter_id, value}`.",
             "items": {},
@@ -18927,6 +19137,18 @@
           "label": {
             "description": "The pinned version's label, which is what a reader recognises the calculation by.",
             "type": "string"
+          },
+          "manifest": {
+            "description": "The manifest of the version the run pinned, so the stored result reads through the same\ntables a fresh run does rather than through a second rendering of its own.",
+            "type": "object"
+          },
+          "results": {
+            "additionalProperties": {},
+            "description": "The values the run produced, as it stored them: an explicit null is a value computed and\nnot a number, as against never computed at all.",
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
           },
           "run_id": {
             "format": "uuid",
@@ -18942,6 +19164,11 @@
           },
           "site_inputs": {
             "description": "The station properties the run read, as `{property, param, value}`.",
+            "items": {},
+            "type": "array"
+          },
+          "skipped": {
+            "description": "Outputs the run did not produce, each with its reason, as the run recorded them.",
             "items": {},
             "type": "array"
           },
@@ -18970,7 +19197,11 @@
           "event_inputs",
           "site_inputs",
           "constants",
-          "trace"
+          "trace",
+          "results",
+          "skipped",
+          "curves",
+          "manifest"
         ],
         "type": "object"
       },
@@ -22927,6 +23158,34 @@
         ],
         "type": "object"
       },
+      "SlotRef": {
+        "description": "Where a consumed reading opens: the site page's point record for its slot.",
+        "properties": {
+          "measurement_type": {
+            "description": "`spot` or `continuous`, the cadence arm the record is read by.",
+            "type": "string"
+          },
+          "site_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "site_parameter_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "time": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "site_id",
+          "site_parameter_id",
+          "time",
+          "measurement_type"
+        ],
+        "type": "object"
+      },
       "SourceParameterSeries": {
         "properties": {
           "name": {
@@ -25425,6 +25684,13 @@
       },
       "ToolRunList": {
         "properties": {
+          "collected_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "created_at": {
             "format": "date-time",
             "type": "string"
@@ -25435,6 +25701,14 @@
           "id": {
             "format": "uuid",
             "type": "string"
+          },
+          "site_id": {
+            "description": "The visit the run was computed at. The same two values `context` carries, written from\nthe same resolution, as columns a list can be filtered and ordered by: \"the runs at\nthis visit\" is a query, not a scan of the blobs.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "source": {
             "description": "Which path minted the run: `interactive`, `csv_import` or `chain`.",
@@ -25453,12 +25727,21 @@
           "tool_version",
           "created_by",
           "created_at",
+          "site_id",
+          "collected_at",
           "source"
         ],
         "type": "object"
       },
       "ToolRunResponse": {
         "properties": {
+          "collected_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "constants": {},
           "context": {
             "description": "The resolved calculation context: site, collected_at, and the station and event inputs\nthe server read. Null on a run that named none."
@@ -25477,6 +25760,14 @@
           },
           "inputs": {},
           "outputs": {},
+          "site_id": {
+            "description": "The visit the run was computed at. The same two values `context` carries, written from\nthe same resolution, as columns a list can be filtered and ordered by: \"the runs at\nthis visit\" is a query, not a scan of the blobs.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "source": {
             "description": "Which path minted the run: `interactive`, `csv_import` or `chain`.",
             "type": "string"
@@ -25499,6 +25790,8 @@
           "created_by",
           "created_at",
           "context",
+          "site_id",
+          "collected_at",
           "source"
         ],
         "type": "object"
@@ -27208,16 +27501,16 @@
                 }
               }
             },
-            "description": "Computed values with per-timestamp errors"
+            "description": "A series per formula, with per-timestamp errors"
           },
           "400": {
-            "description": "Invalid formula syntax or unknown variables"
+            "description": "Invalid formula syntax, unknown variables, a cycle, or a curve slot"
           },
           "404": {
             "description": "Site not found"
           }
         },
-        "summary": "Preview a derived parameter formula against historical source readings at a given site,\nWITHOUT writing anything to the database. Used by the formula builder UI to validate\nformulas before saving. Requires `read_data`.",
+        "summary": "Preview a formula set against historical source readings at a given site, WITHOUT writing\nanything to the database. Used by the calculation editor to see what a set would produce\nbefore it is saved. Requires `read_data`.",
         "tags": [
           "actions"
         ]
@@ -38959,6 +39252,66 @@
         ]
       }
     },
+    "/api/readings/replay": {
+      "get": {
+        "operationId": "replay_derived",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "stream_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "time",
+            "required": true,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Omit for the group's decisions.",
+            "in": "query",
+            "name": "replicate_index",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReplayResponse"
+                }
+              }
+            },
+            "description": "The recorded formula over the recorded values"
+          },
+          "404": {
+            "description": "No reading, or no computation captured at that key"
+          },
+          "409": {
+            "description": "The captured set cannot be evaluated"
+          }
+        },
+        "summary": "A derived value's own arithmetic: the formula the computation recorded, run again over the\nvalues it consumed, beside the number the reading holds. Reads only; writes nothing and touches\nno live value. Requires `read_data`.",
+        "tags": [
+          "readings"
+        ]
+      }
+    },
     "/api/readings/return": {
       "post": {
         "operationId": "return_output",
@@ -50100,7 +50453,7 @@
     },
     "/api/tool_runs": {
       "get": {
-        "description": "Retrieves all tool_runs.\n\nThis resource manages tool_run items\n\nAdditional sortable columns: \n- tool_name\n- created_by\n- created_at\n- source.\n\nAdditional filterable columns: \n- tool_name\n- created_by\n- source.",
+        "description": "Retrieves all tool_runs.\n\nThis resource manages tool_run items\n\nAdditional sortable columns: \n- tool_name\n- created_by\n- created_at\n- site_id\n- collected_at\n- source.\n\nAdditional filterable columns: \n- tool_name\n- created_by\n- site_id\n- collected_at\n- source.",
         "operationId": "get_all_tool_runs",
         "parameters": [
           {

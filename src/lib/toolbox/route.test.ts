@@ -20,6 +20,26 @@ describe('the toolbox route', () => {
 		);
 	});
 
+	it('opens the calculation on the cell, the run and the replicate a value came from', () => {
+		expect(
+			calculationHref(
+				'/app',
+				{ definition_id: 'def-1', tool_script_id: 'ts-1' },
+				{ cell: 'pco2', run: 'run-9', index: 2 },
+			),
+		).toBe('/app/toolbox/ts-1?cell=pco2&run=run-9&index=2');
+		expect(calculationHref('/app', { definition_id: 'def-1' }, { cell: 'k1' })).toBe(
+			'/app/derived/def-1?cell=k1',
+		);
+	});
+
+	it('leaves a link with nothing to anchor to as it was', () => {
+		expect(calculationHref('/app', { definition_id: 'def-1' }, {})).toBe('/app/derived/def-1');
+		expect(
+			calculationHref('/app', { definition_id: 'def-1' }, { cell: null, run: null, index: null }),
+		).toBe('/app/derived/def-1');
+	});
+
 	it('finds a formula calculation and an R script through the same segment', () => {
 		const scripts = [script('a1', 'pco2_demo', 'formula'), script('b2', 'doc', 'script')];
 		expect(findCalculation(scripts, 'pco2_demo')?.engine).toBe('formula');

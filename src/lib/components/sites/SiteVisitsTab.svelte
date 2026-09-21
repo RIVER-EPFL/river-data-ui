@@ -53,6 +53,7 @@
 		visitCellStatistics,
 		visitCounts,
 	} from '$lib/visits/cell';
+	import { connectionsOf, covers, type Connections } from '$lib/visits/connections';
 	import {
 		SYNCED_VISIT_NOTICE,
 		entryNoticeFor,
@@ -165,6 +166,53 @@
 	let visitDetailLoading = $state(false);
 	let visitBusy = $state<string | null>(null);
 	let visitCell = $state<{ parameterId: string; parameterName: string } | null>(null);
+
+	// The selected grid position, and what a calculation connects it to at its own visit. The
+	// detail carrying the consumed keys is fetched once per visit and kept: selection moves cell
+	// by cell, and the grid repaints on every move.
+	let selected = $state<{ visitId: string; parameterId: string; replicateIndex: number } | null>(
+		null,
+	);
+	let connections = $state<Connections>({ reads: [], readBy: [] });
+	const details = new SvelteMap<string, EventDetailResponse>();
+
+	async function selectSlot(row: number, column: number) {
+		const at = sheetSlot(visits, slots, row, column);
+		const next = at
+			? {
+					visitId: at.visit.id,
+					parameterId: at.slot.parameterId,
+					replicateIndex: at.slot.replicateIndex,
+				}
+			: null;
+		if (
+			next?.visitId === selected?.visitId &&
+			next?.parameterId === selected?.parameterId &&
+			next?.replicateIndex === selected?.replicateIndex
+		) {
+			return;
+		}
+		selected = next;
+		connections = { reads: [], readBy: [] };
+		hot?.render();
+		if (!next) return;
+		const detail = details.get(next.visitId) ?? (await loadConnections(next.visitId));
+		// The selection may have moved on while the detail was in flight.
+		if (!detail || selected?.visitId !== next.visitId) return;
+		connections = connectionsOf(detail, next.parameterId);
+		hot?.render();
+	}
+
+	async function loadConnections(id: string): Promise<EventDetailResponse | null> {
+		try {
+			const detail = await getCollectionEventDetail(id);
+			details.set(id, detail);
+			return detail;
+		} catch {
+			// Without the detail nothing is highlighted, which is the honest state.
+			return null;
+		}
+	}
 
 	// The equation behind a computed cell, opened from its badge. A run's trace is fetched once
 	// and kept, keyed by run, with the error in its place when the run cannot be replayed.
@@ -325,6 +373,8 @@
 		'sheet-finding',
 		'sheet-edited',
 		'sheet-open-row',
+		'sheet-reads',
+		'sheet-read-by',
 	];
 
 	/** A cell element is reused across positions, so each render starts from nothing. */
@@ -341,6 +391,25 @@
 		span.className = `ml-1 ${BADGE_BASE} ${BADGE_VARIANTS[variant]}`;
 		span.textContent = label;
 		return span;
+	}
+
+	/**
+	 * The selected cell's corner control, which opens the record of that one recording. Alt+Enter
+	 * does the same from the keyboard, including on a cell open to typing, where Enter edits.
+	 */
+	function recordingControl(visitId: string, parameterId: string, name: string): HTMLButtonElement {
+		const button = document.createElement('button');
+		button.type = 'button';
+		button.className = 'sheet-corner';
+		button.textContent = 'i';
+		button.setAttribute('aria-label', `Open the record of ${name} at this visit`);
+		button.title = `Open the record of ${name} at this visit (Alt+Enter)`;
+		button.addEventListener('mousedown', (e) => e.stopPropagation());
+		button.addEventListener('click', (e) => {
+			e.stopPropagation();
+			void openVisitCell(visitId, parameterId);
+		});
+		return button;
 	}
 
 	function mark(text: string, className: string): HTMLSpanElement {
@@ -396,6 +465,17 @@
 			'aria-label',
 			open ? `${slot.column.code} repeat ${slot.replicateIndex + 1} at ${when}` : `${slot.column.code} at ${when}`,
 		);
+		if (visit.id === selected?.visitId) {
+			const own =
+				slot.parameterId === selected.parameterId &&
+				(!open || slot.replicateIndex === selected.replicateIndex);
+			if (own) td.append(recordingControl(visit.id, slot.parameterId, slot.column.name));
+			else if (covers(connections.reads, slot.parameterId, slot.replicateIndex, open)) {
+				td.classList.add('sheet-reads');
+			} else if (covers(connections.readBy, slot.parameterId, slot.replicateIndex, open)) {
+				td.classList.add('sheet-read-by');
+			}
+		}
 		const typed = at.key in edits;
 		if (typed) td.classList.add('sheet-edited');
 		const state = open ? replicate : cell;
@@ -542,12 +622,16 @@
 			pasteRefusal = pasteNotice({ edits, unreadable: pasteUnreadable, overflow: pasteOverflowCount });
 		});
 		instance.addHook('afterGetColHeader', renderGroupHeader);
-		// Enter on a value nobody may type opens its record, as a double-click does.
+		instance.addHook('afterSelection', (row: number, column: number) => {
+			void selectSlot(row, column);
+		});
+		// Enter on a value nobody may type opens its record, as a double-click does. Alt+Enter
+		// does it from any cell, so a slot open to typing is reachable by keyboard too.
 		instance.addHook('beforeKeyDown', (event: KeyboardEvent) => {
 			if (event.key !== 'Enter' || event.shiftKey) return;
 			const { row, col } = instance.getSelectedRangeLast()?.highlight ?? {};
 			if (row == null || col == null || row < 0 || col < 0) return;
-			if (!instance.getCellMeta(row, col).readOnly) return;
+			if (!event.altKey && !instance.getCellMeta(row, col).readOnly) return;
 			event.stopImmediatePropagation();
 			void openRecordAt(row, col);
 		});

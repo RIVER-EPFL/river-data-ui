@@ -12,7 +12,7 @@
 		type SiteParameter,
 	} from '$api/crud';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { listToolScripts, type ToolScriptSummary } from '$api/service';
+	import { listToolScripts, type DraftFormula, type ToolScriptSummary } from '$api/service';
 	import {
 		formulaOwnership,
 		formulaReads,
@@ -105,6 +105,24 @@
 	);
 	/** What the preview asks a site for: a step is computed by the run, not measured there. */
 	const previewVariableNames = $derived(variableNamesInFormula.filter((n) => !steps.includes(n)));
+
+	/** The formula under edit, as the preview runs a set of one. */
+	const previewSet = $derived<DraftFormula[]>(
+		formula.trim().length === 0
+			? []
+			: [
+					{
+						code: code || 'preview',
+						name,
+						units,
+						formula,
+						ordinal: 0,
+						curve_slot: curveSlot.trim() || null,
+						per_replicate: perReplicate.trim() || null,
+						intermediate,
+					},
+				]
+	);
 
 	const sitesWithAvailability = $derived(
 		allSites.map((s) => {
@@ -254,7 +272,11 @@
 				hasCurve={curveSlot.trim().length > 0}
 				ownCode={code || undefined}
 			/>
-			<LivePreview {formula} sites={sitesWithAvailability} variableNames={previewVariableNames} />
+			<LivePreview
+				formulas={previewSet}
+				sites={sitesWithAvailability}
+				variableNames={previewVariableNames}
+			/>
 		</div>
 
 		<!-- What shape the formula runs in. A formula over a replicate vector writes one reading per

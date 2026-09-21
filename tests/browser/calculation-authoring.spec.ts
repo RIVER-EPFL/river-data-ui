@@ -1,5 +1,6 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import { API_URL, BASE_PATH, signIn, token } from './portal';
+import { calculationCell, typeInto } from './sheet';
 
 // Scenario: the lab authors a CNET calculator by hand, which Q149 made the only path a deployment
 // has to one, and the calculation page is the surface it is typed on. `tests/tools/cnet_authoring.rs`
@@ -53,6 +54,7 @@ async function seedCatalog(request: APIRequestContext): Promise<Fixture> {
 		fieldBp: `Field_BP_${stamp}`,
 		altitudeBp: `Field_BP_altitude_${stamp}`,
 		vaisala: `Vaisala_CO2_avg_${stamp}`,
+		spare: `Spare_${stamp}`,
 		step: `bp_${stamp}`,
 		output: `Vaisala_CO2_avg_corr_${stamp}`,
 		altitude: `altitude_${stamp}`,
@@ -62,6 +64,7 @@ async function seedCatalog(request: APIRequestContext): Promise<Fixture> {
 		[codes.fieldBp]: FIELD_BP,
 		[codes.altitudeBp]: FIELD_BP_ALTITUDE,
 		[codes.vaisala]: VAISALA_CO2_AVG,
+		[codes.spare]: 1,
 	};
 
 	const project = await post('/projects', { name: `Field data ${stamp}` });
@@ -133,8 +136,11 @@ async function addFormula(
 }
 
 /** One of the three tables, by the heading its first column carries. */
-const block = (page: Page, name: string) =>
-	page.locator('section').filter({ has: page.getByRole('columnheader', { name, exact: true }) });
+const block = (page: Page, name: string) => page.getByRole('region', { name, exact: true });
+
+/** A row of one table, found by its label cell: every row has one, computed or not. */
+const rowOf = (table: Locator, code: string) =>
+	table.locator(`td[data-sheet-row="${code}"][data-sheet-column="0"]`);
 
 test('a CNET formula set is authored on the page and reproduces its golden visit', async ({
 	page,
@@ -158,7 +164,7 @@ test('a CNET formula set is authored on the page and reproduces its golden visit
 		.getByLabel('A step written elsewhere')
 		.selectOption({ label: `${codes.step} · Pressure used` });
 	await page.getByRole('button', { name: 'Bring in' }).click();
-	await expect(block(page, 'Steps').locator(`td[data-sheet-row="${codes.step}"]`)).toBeVisible();
+	await expect(rowOf(block(page, 'Steps'), codes.step)).toBeVisible();
 
 	await addFormula(page, {
 		code: codes.output,
@@ -169,8 +175,8 @@ test('a CNET formula set is authored on the page and reproduces its golden visit
 	});
 
 	// A step is held apart from what the calculation publishes.
-	await expect(block(page, 'Steps').locator(`td[data-sheet-row="${codes.step}"]`)).toBeVisible();
-	await expect(block(page, 'Outputs').locator(`td[data-sheet-row="${codes.output}"]`)).toBeVisible();
+	await expect(rowOf(block(page, 'Steps'), codes.step)).toBeVisible();
+	await expect(rowOf(block(page, 'Outputs'), codes.output)).toBeVisible();
 
 	await addFormula(page, {
 		code: codes.altitude,
@@ -183,19 +189,24 @@ test('a CNET formula set is authored on the page and reproduces its golden visit
 	// column, and the coefficients the declared slot binds. A step is not an input; it is computed.
 	const inputs = block(page, 'Inputs');
 	for (const name of [codes.temp, codes.fieldBp, 'altitude_m', 'curve_slope']) {
-		await expect(inputs.locator(`td[data-sheet-row="${name}"]`)).toBeVisible();
+		await expect(rowOf(inputs, name)).toBeVisible();
 	}
-	await expect(inputs.locator(`td[data-sheet-row="${codes.step}"]`)).toHaveCount(0);
+	await expect(rowOf(inputs, codes.step)).toHaveCount(0);
 
 	// A shared step publishes nothing.
 	const outputs = block(page, 'Outputs');
-	await expect(outputs.locator(`td[data-sheet-row="${codes.output}"]`)).toHaveCount(1);
-	await expect(outputs.locator(`td[data-sheet-row="${codes.altitude}"]`)).toHaveCount(1);
-	await expect(outputs.locator(`td[data-sheet-row="${codes.step}"]`)).toHaveCount(0);
+	await expect(rowOf(outputs, codes.output)).toHaveCount(1);
+	await expect(rowOf(outputs, codes.altitude)).toHaveCount(1);
+	await expect(rowOf(outputs, codes.step)).toHaveCount(0);
 
-	// Run at the visit the catalog was seeded with. Nothing is written; the numbers come back.
-	await page.getByRole('combobox', { name: 'Site' }).selectOption({ label: siteName });
-	await page.getByLabel('Visit').selectOption({ index: 1 });
+	// A parameter no formula names yet is brought in from the palette: it is a row of the inputs
+	// table, outlined, and the save does not keep it.
+	const palette = page.getByRole('region', { name: 'Palette' });
+	await palette
+		.getByRole('button', { name: codes.spare, exact: true })
+		.dragTo(rowOf(inputs, codes.temp));
+	await expect(rowOf(inputs, codes.spare)).toHaveClass(/sheet-unused/);
+	await expect(page.getByText('the save does not keep it')).toBeVisible();
 
 	// The slot needs coefficients or the correction is skipped for want of them. The golden case
 	// stores no Vaisala curve, so the identity is what the portal read it against.
@@ -205,14 +216,37 @@ test('a CNET formula set is authored on the page and reproduces its golden visit
 	await page.getByRole('spinbutton', { name: `${slot} slope` }).fill('1');
 	await page.getByRole('spinbutton', { name: `${slot} intercept` }).fill('0');
 
+	// The golden values typed into the input cells, with no visit chosen: the set computes on the
+	// numbers in front of the author, before it is saved and before it has been near a visit.
+	const cell = (code: string) => calculationCell(page, code);
+	for (const [code, value] of [
+		[codes.vaisala, VAISALA_CO2_AVG],
+		[codes.temp, WTW_TEMP],
+		[codes.fieldBp, FIELD_BP],
+		[codes.altitudeBp, FIELD_BP_ALTITUDE],
+		['altitude_m', ALTITUDE],
+	] as const) {
+		await typeInto(page, cell(code), String(value));
+	}
+	await expect(cell(codes.output)).toContainText('280.463');
+
+	// The same numbers read from the visit the catalog was seeded with. Nothing is written.
+	await page.getByRole('combobox', { name: 'Site' }).selectOption({ label: siteName });
+	await page.getByLabel('Visit').selectOption({ index: 1 });
 	await page.getByRole('button', { name: 'Run', exact: true }).click();
 
 	// The step takes the field pressure, which is inside the guard's range, and the correction is
 	// what the portal stored for the visit.
-	const cell = (code: string) => page.locator(`td[data-sheet-row="${code}"][data-sheet-column="1"]`);
 	await expect(cell(codes.step)).toContainText(String(FIELD_BP));
 	await expect(cell(codes.output)).toContainText('280.463');
 	await expect(cell(codes.altitude)).toContainText(String(ALTITUDE));
+
+	// Selecting a cell says what made it: the correction lights the step it reads, and the step
+	// lights the field pressure it is a guard over.
+	await cell(codes.output).click();
+	await expect(rowOf(block(page, 'Steps'), codes.step)).toHaveClass(/sheet-reads/);
+	await cell(codes.step).click();
+	await expect(rowOf(inputs, codes.fieldBp)).toHaveClass(/sheet-reads/);
 });
 
 /**
@@ -298,7 +332,7 @@ test('a calculation opened at a visit shows the visit\'s numbers in the portal\'
 
 	// What the visit held, before the calculation touched it, in the inputs block.
 	await expect(page.getByRole('columnheader', { name: 'Inputs', exact: true })).toBeVisible();
-	const cell = (code: string) => page.locator(`td[data-sheet-row="${code}"][data-sheet-column="1"]`);
+	const cell = (code: string) => calculationCell(page, code);
 	await expect(cell(inputCode)).toContainText(String(ENTERED_INPUT));
 	// The step, then what the calculation publishes from it, each in its own block.
 	await expect(page.getByRole('columnheader', { name: 'Steps', exact: true })).toBeVisible();
@@ -308,6 +342,6 @@ test('a calculation opened at a visit shows the visit\'s numbers in the portal\'
 
 	// The cell panel sits under the tables and opens on nothing until a cell is chosen.
 	await expect(page.getByRole('heading', { name: 'No cell selected' })).toBeVisible();
-	await page.locator(`td[data-sheet-row="${stepCode}"]`).first().click();
+	await calculationCell(page, stepCode, 0).click();
 	await expect(page.getByRole('heading', { name: 'Step', exact: true })).toBeVisible();
 });
