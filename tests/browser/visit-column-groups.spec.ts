@@ -102,7 +102,7 @@ test("a parameter's header opens its column to the repeats behind it", async ({
 	for (const [index, value] of ['10', '12', '14'].entries()) {
 		await expect(sheetCell(page, new RegExp(`^${code} repeat ${index + 1} at`))).toHaveText(value);
 	}
-	await expect(sheetCell(page, /^groups_one_/)).toHaveText('4.2');
+	await expect(sheetCell(page, /^groups_one_\w* at/)).toHaveText('4.2');
 
 	// And folds back.
 	await header.click();
@@ -127,12 +127,12 @@ test('a cell is typed in place and one Save writes every visit it touched', asyn
 	await expect(page.locator('.ht_master td input')).toHaveCount(0);
 
 	// A correction on a stored value, and an entry in a slot the visit never held.
-	await typeInto(page, /^groups_one_/, '4.8');
+	await typeInto(page, /^groups_one_\w* at/, '4.8');
 	await expect(save).toContainText('Save 1 value');
 	// A correction moves a value the site already holds, so nothing is screened for it.
 	await expect(save).toBeEnabled();
 
-	await typeInto(page, new RegExp(`^${emptyCode}`), '7.5');
+	await typeInto(page, new RegExp(`^${emptyCode} at`), '7.5');
 	await expect(save).toContainText('Save 2 values');
 
 	// An entry is screened against the site's history before the save will open.
@@ -148,10 +148,12 @@ test('a cell is typed in place and one Save writes every visit it touched', asyn
 	await expect(dialog).toBeHidden();
 	await expect(save).toBeDisabled();
 
-	// Both came back from the store, and the fill count moved with the new measurement.
-	await expect(sheetCell(page, /^groups_one_/)).toHaveText('4.8');
-	await expect(sheetCell(page, new RegExp(`^${emptyCode}`))).toHaveText('7.5');
-	await expect(page.locator('.ht_master').getByText('3/3')).toBeVisible();
+	// Both came back from the store, and the visit's record still opens on its date, where the
+	// fill count has moved with the new measurement.
+	await expect(sheetCell(page, /^groups_one_\w* at/)).toHaveText('4.8');
+	await expect(sheetCell(page, new RegExp(`^${emptyCode} at`))).toHaveText('7.5');
+	await frozenButton(page, { name: /./ }).first().click();
+	await expect(page.getByText(/3\/3 parameters filled · /)).toBeVisible();
 });
 
 test('the keyboard walks the sheet: Tab along a visit, Enter down to the next date', async ({
@@ -164,14 +166,14 @@ test('the keyboard walks the sheet: Tab along a visit, Enter down to the next da
 	await expect(page.getByText('2 visits', { exact: true })).toBeVisible();
 
 	// Columns run in code order, so the unmeasured slot comes before the one measured once.
-	await sheetCell(page, new RegExp(`^${emptyCode}`)).first().click();
+	await sheetCell(page, new RegExp(`^${emptyCode} at`)).first().click();
 	await page.keyboard.press('Tab');
 	await page.keyboard.type('4.9');
 	await page.keyboard.press('Enter');
 	await page.keyboard.type('4.7');
 	await page.keyboard.press('Enter');
 
-	const single = sheetCell(page, /^groups_one_/);
+	const single = sheetCell(page, /^groups_one_\w* at/);
 	await expect(single.nth(0)).toHaveText('4.9');
 	await expect(single.nth(1)).toHaveText('4.7');
 	await expect(page.getByRole('button', { name: /^Save \d+ value/ })).toContainText('Save 2 values');
@@ -189,8 +191,8 @@ test('a column pasted from a sheet fills one visit per line', async ({ page, req
 	await expect(page.getByText('2 visits', { exact: true })).toBeVisible();
 
 	// A block pasted at the first date fills down the dates listed under it, and the third line
-	// has no visit to land on.
-	await sheetCell(page, /^groups_one_/).first().click();
+	// lands in the spare area, where it holds a value with no date to open a visit at.
+	await sheetCell(page, /^groups_one_\w* at/).first().click();
 	await page.evaluate(() => {
 		const data = new DataTransfer();
 		data.setData('text/plain', '5.1\n5.2\n5.3');
@@ -199,10 +201,10 @@ test('a column pasted from a sheet fills one visit per line', async ({ page, req
 		);
 	});
 
-	const single = sheetCell(page, /^groups_one_/);
+	const single = sheetCell(page, /^groups_one_\w* at/);
 	await expect(single.nth(0)).toHaveText('5.1');
 	await expect(single.nth(1)).toHaveText('5.2');
-	await expect(page.getByText(/ran past the visits listed/)).toBeVisible();
+	await expect(page.getByText(/1 new row holds values with no date/)).toBeVisible();
 	await expect(page.getByRole('button', { name: /^Save \d+ value/ })).toContainText('Save 2 values');
 });
 
@@ -212,7 +214,7 @@ test("the fill handle copies a value down the dates below it", async ({ page, re
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
 	await expect(page.getByText('2 visits', { exact: true })).toBeVisible();
 
-	const cells = sheetCell(page, new RegExp(`^${emptyCode}`));
+	const cells = sheetCell(page, new RegExp(`^${emptyCode} at`));
 	await typeInto(page, cells.nth(0), '3.1');
 	// Enter moved the selection down; a second click here would read as a double-click and edit.
 	await page.keyboard.press('ArrowUp');
@@ -274,7 +276,7 @@ test('a cleared cell withdraws its replicate, and the withdrawal survives a relo
 	await sheetCell(page, new RegExp(`^${code} repeat 1 at`)).click();
 	await page.keyboard.press('Delete');
 	await typeInto(page, new RegExp(`^${code} repeat 4 at`), '16');
-	await sheetCell(page, /^groups_one_/).click();
+	await sheetCell(page, /^groups_one_\w* at/).click();
 	await page.keyboard.press('Delete');
 	const save = page.getByRole('button', { name: /^Save \d+ value/ });
 	await expect(save).toContainText('Save 3 values');
@@ -295,7 +297,7 @@ test('a cleared cell withdraws its replicate, and the withdrawal survives a relo
 	await page.reload();
 	await expect(page.getByText('1 visit')).toBeVisible();
 	await expect(mean.locator('.sheet-mark', { hasText: '†' })).toBeVisible();
-	await expect(sheetCell(page, /^groups_one_/)).toHaveClass(/sheet-struck/);
+	await expect(sheetCell(page, /^groups_one_\w* at/)).toHaveClass(/sheet-struck/);
 	await headerButton(page, { name: code, exact: true }).click();
 	await expect(sheetCell(page, new RegExp(`^${code} repeat 1 at`))).toHaveClass(/sheet-struck/);
 	await expect(sheetCell(page, new RegExp(`^${code} repeat 2 at`))).not.toHaveClass(/sheet-struck/);

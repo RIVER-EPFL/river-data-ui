@@ -218,9 +218,9 @@ describe('the gates a table save passes', () => {
 });
 
 describe('what a paste reports', () => {
-	it('names what ran past the last listed visit', () => {
+	it('names what ran past the last column', () => {
 		expect(pasteNotice({ edits: {}, unreadable: 0, overflow: 2 })).toContain(
-			'2 values ran past the visits listed',
+			'2 values ran past the columns listed',
 		);
 	});
 

@@ -17,3 +17,11 @@ export function zoneOptions(): { value: string; label: string }[] {
 		label: value === BROWSER_ZONE ? `${value} (here)` : value,
 	}));
 }
+
+/**
+ * The zone a zone-free timestamp is read in: the one picked beside the field, else the zone it is
+ * printed in, so what is typed and what comes back read the same until somebody says otherwise.
+ */
+export function entryZone(picked: string | null | undefined, display: string | undefined): string {
+	return picked ?? display ?? BROWSER_ZONE;
+}

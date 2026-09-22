@@ -3,7 +3,8 @@ import { formatMeasurement } from '$lib/format';
 import { formatCompactInstant, zoneLabel } from '$lib/utils';
 import type { GridSlot, ParameterColumn } from './columns';
 import { readNumber, writeNumber } from './number';
-import { setCell, slotKey, storedAt, type Edits } from './tableEdit';
+import { spareRow } from './spareRows';
+import { isSpare, setCell, slotKey, spareId, storedAt, type Edits } from './tableEdit';
 
 // The visit's date stays frozen beside the measurement slots.
 export const FROZEN_COLUMNS = 1;
@@ -30,6 +31,25 @@ export function groupLabel(column: ParameterColumn): string {
 	return column.units ? `${column.code} (${column.units})` : column.code;
 }
 
+/**
+ * The rows the grid draws and the columns across them: the visits the store holds, then the spare
+ * rows staging new ones. `stored` is where the listing ends and the spare area begins, so a paste
+ * running below the drawn rows still names the spare row it would land on.
+ */
+export interface SheetTable {
+	rows: VisitRow[];
+	stored: number;
+	slots: GridSlot[];
+}
+
+/** The row at a grid position, spare rows past the drawn ones included. */
+export function rowAt(table: SheetTable, row: number): VisitRow | null {
+	if (row < 0) return null;
+	if (row < table.rows.length) return table.rows[row];
+	if (row < table.stored) return null;
+	return spareRow(spareId(row - table.stored));
+}
+
 /** What stands at a grid position: the visit, its slot, and what the store holds there. */
 export interface SheetSlot {
 	visit: VisitRow;
@@ -39,14 +59,9 @@ export interface SheetSlot {
 	key: string;
 }
 
-export function sheetSlot(
-	visits: VisitRow[],
-	slots: GridSlot[],
-	row: number,
-	column: number,
-): SheetSlot | null {
-	const visit = visits[row];
-	const slot = slots[column - FROZEN_COLUMNS];
+export function sheetSlot(table: SheetTable, row: number, column: number): SheetSlot | null {
+	const visit = rowAt(table, row);
+	const slot = table.slots[column - FROZEN_COLUMNS];
 	if (!visit || !slot) return null;
 	return {
 		visit,
@@ -68,18 +83,21 @@ export function storedValue(visit: VisitRow, slot: GridSlot, writable: boolean):
 	return visit.cells.find((c) => c.parameter_id === slot.parameterId)?.value ?? null;
 }
 
-/** Every row as text: the frozen columns, then what was typed at a slot or its stored value. */
+/**
+ * Every row as text: the frozen date, then what was typed at a slot or its stored value. A spare
+ * row's date is whatever was typed into it, which is not an instant until it reads as one.
+ */
 export function sheetData(
-	visits: VisitRow[],
-	slots: GridSlot[],
+	table: SheetTable,
 	edits: Edits,
+	dates: Readonly<Record<string, string>>,
 	locale: string,
 	zone: string | undefined,
 	writable: (visit: VisitRow, slot: GridSlot) => boolean,
 ): string[][] {
-	return visits.map((visit) => [
-		formatCompactInstant(visit.collected_at, zone),
-		...slots.map((slot) => {
+	return table.rows.map((visit) => [
+		isSpare(visit.id) ? (dates[visit.id] ?? '') : formatCompactInstant(visit.collected_at, zone),
+		...table.slots.map((slot) => {
 			const key = slotKey({ eventId: visit.id, parameterId: slot.parameterId, replicateIndex: slot.replicateIndex });
 			if (key in edits) return edits[key];
 			const value = storedValue(visit, slot, writable(visit, slot));
@@ -103,30 +121,43 @@ export interface SheetChange {
 
 export interface AppliedChanges {
 	edits: Edits;
+	/** The date cells of the spare area, by row id. */
+	dates: Record<string, string>;
 	/** Positions in the change list the grid must not apply. */
 	refused: number[];
 	unreadable: number;
 }
 
 /**
- * A batch of grid changes recorded as typed cells. The frozen columns take nothing. A pasted or
- * filled blank writes nothing, because nothing here deletes, and a value that cannot be read as a
- * number is left out and counted.
+ * A batch of grid changes recorded as typed cells. A listed visit's date takes nothing: its
+ * instant is what the store keyed its readings on. A spare row's date takes whatever is typed,
+ * because that is the visit it stages. A pasted or filled blank writes no value, because nothing
+ * here deletes, and one that cannot be read as a number is left out and counted.
  */
 export function applyChanges(
+	table: SheetTable,
 	edits: Edits,
-	visits: VisitRow[],
-	slots: GridSlot[],
+	dates: Readonly<Record<string, string>>,
 	changes: SheetChange[],
 	locale: string,
 	pasted: boolean,
 ): AppliedChanges {
 	let next = edits;
+	let nextDates: Record<string, string> = { ...dates };
 	const refused: number[] = [];
 	let unreadable = 0;
 	changes.forEach((change, index) => {
-		const at = sheetSlot(visits, slots, change.row, change.column);
 		const text = change.raw.trim();
+		if (change.column < FROZEN_COLUMNS) {
+			const row = rowAt(table, change.row);
+			if (!row || !isSpare(row.id)) {
+				refused.push(index);
+				return;
+			}
+			nextDates = { ...nextDates, [row.id]: text };
+			return;
+		}
+		const at = sheetSlot(table, change.row, change.column);
 		if (!at || (pasted && text === '')) {
 			refused.push(index);
 			return;
@@ -138,22 +169,18 @@ export function applyChanges(
 		}
 		next = setCell(next, at.visit, at.slot.parameterId, at.slot.replicateIndex, change.raw, locale);
 	});
-	return { edits: next, refused, unreadable };
+	return { edits: next, dates: nextDates, refused, unreadable };
 }
 
-/** Values in a pasted block that fall past the last row or column, and so land nowhere. */
-export function pasteOverflow(
-	block: string[][],
-	startRow: number,
-	startColumn: number,
-	rows: number,
-	columns: number,
-): number {
+/**
+ * Values in a pasted block that fall past the last column, and so land nowhere. A block running
+ * past the last row lands in the spare area, which grows to take it.
+ */
+export function pasteOverflow(block: string[][], startColumn: number, columns: number): number {
 	let overflow = 0;
-	block.forEach((line, dy) => {
+	block.forEach((line) => {
 		line.forEach((raw, dx) => {
-			if (raw.trim() === '') return;
-			if (startRow + dy >= rows || startColumn + dx >= columns) overflow += 1;
+			if (raw.trim() !== '' && startColumn + dx >= columns) overflow += 1;
 		});
 	});
 	return overflow;

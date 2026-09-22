@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { fromDatetimeLocal, toDatetimeLocal } from '$lib/utils';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
-	import { BROWSER_ZONE, zoneOptions } from '$lib/time/zones';
+	import { entryZone, zoneOptions } from '$lib/time/zones';
 
 	// Takes a timestamp as a wall-clock time plus the zone it is read in, and binds the UTC
 	// instant the API stores. The resolved instant is printed under the field, so a time entered
@@ -34,7 +34,7 @@
 		onchange?: ((instant: string) => void) | null;
 	} = $props();
 
-	let zone = $state(timezoneStore.zone ?? BROWSER_ZONE);
+	let zone = $state(entryZone(null, timezoneStore.zone));
 	let wall = $state('');
 	// The instant this field last wrote, so an outside change is told apart from its own. It starts
 	// empty so the first effect seeds the wall clock from whatever was passed in.

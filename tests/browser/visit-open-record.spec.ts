@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
 import { API_URL, BASE_PATH, signIn, token } from './portal';
-import { frozenButton } from './sheet';
+import { frozenButton, frozenDate } from './sheet';
 
 // Scenario: a site with a long list of visits, one of them open, and the reader scrolled down it.
 //
@@ -8,6 +8,11 @@ import { frozenButton } from './sheet';
 // one closes whatever row was open above it, which is what used to carry the page upwards.
 
 const VISITS = 30;
+
+/** The instant of the `n`th seeded visit, counting from one. */
+function visitAt(n: number): Date {
+	return new Date(Date.UTC(2026, 0, n, 9));
+}
 
 /** A site holding `VISITS` one-parameter visits, so the table is longer than the viewport. */
 async function seedVisits(request: APIRequestContext) {
@@ -31,7 +36,7 @@ async function seedVisits(request: APIRequestContext) {
 	});
 	await post('/site_parameters', { site_id: site.id, parameter_id: parameter.id, name: code });
 	for (let i = 0; i < VISITS; i += 1) {
-		const collectedAt = new Date(Date.UTC(2026, 0, i + 1, 9)).toISOString().replace(/\.\d+Z$/, 'Z');
+		const collectedAt = visitAt(i + 1).toISOString().replace(/\.\d+Z$/, 'Z');
 		await post('/grab_samples', {
 			site_id: site.id,
 			mode: 'replace',
@@ -52,7 +57,7 @@ test('opening a record leaves the reader where they were', async ({ page, reques
 	// The newest visit is at the top of the table, open with a record of its own, and the reader
 	// has scrolled past all of it. A value the account may overwrite is typed in place, so the
 	// record is opened from the date rather than from the number.
-	await frozenButton(page, { name: /Jan 30, 2026/ }).click();
+	await frozenButton(page, { name: frozenDate(visitAt(VISITS)) }).click();
 	await expect(page.getByText(/1 parameter/)).toBeVisible();
 	await page.getByRole('button', { name: code, exact: true }).click();
 	await expect(page.getByRole('button', { name: 'Close' })).toBeVisible();
@@ -62,7 +67,7 @@ test('opening a record leaves the reader where they were', async ({ page, reques
 	});
 
 	// The oldest visit, at the bottom of the same table.
-	const oldest = frozenButton(page, { name: /Jan 1, 2026/ });
+	const oldest = frozenButton(page, { name: frozenDate(visitAt(1)) });
 	await oldest.scrollIntoViewIfNeeded();
 	expect(
 		await page.evaluate(() => document.querySelector('main')!.scrollTop),

@@ -84,8 +84,8 @@
 					class="px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm"
 				/>
 				<Button size="sm" variant="primary" onclick={() => (newVisitOpen = true)}>New visit</Button>
-				<a class="text-sm text-brand-primary hover:underline" href="{base}/visits/new">
-					Paste a sheet
+				<a class="text-sm text-brand-primary hover:underline" href="{base}/data-entry">
+					Data entry
 				</a>
 				<NewVisitDialog bind:open={newVisitOpen} onadded={() => reload()} />
 			</div>

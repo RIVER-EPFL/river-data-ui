@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
 import { API_URL, BASE_PATH, signIn, token } from './portal';
-import { frozenButton, sheetCell } from './sheet';
+import { frozenButton, frozenDate, sheetCell } from './sheet';
 
 // Scenario: a field day is typed from the Visits table itself, not staged elsewhere first. Adding
 // is the table's own control: rows of a site and a time, saved together.
@@ -44,11 +44,6 @@ function todayAt(hour: number): string {
 	return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(hour)}:00`;
 }
 
-/** The frozen date column's text for a wall time `todayAt` produced: that instant, in UTC. */
-function frozenInstant(naive: string): string {
-	return new Date(naive).toISOString().replace('.000Z', 'Z');
-}
-
 test('two visits of one field day are added in one save and both stand on the site', async ({
 	page,
 	request,
@@ -86,9 +81,9 @@ test('two visits of one field day are added in one save and both stand on the si
 	// Both are on the site's Visits tab, which is the same table filtered to the site.
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
 	await expect(page.getByText('2 visits')).toBeVisible();
-	// The frozen column holds the instant itself, not a rendering of it in the reader's zone.
-	await expect(frozenButton(page, { name: frozenInstant(morning) })).toBeVisible();
-	await expect(frozenButton(page, { name: frozenInstant(afternoon) })).toBeVisible();
+	// The frozen column reads each instant back as the wall clock that was typed.
+	await expect(frozenButton(page, { name: frozenDate(morning) })).toBeVisible();
+	await expect(frozenButton(page, { name: frozenDate(afternoon) })).toBeVisible();
 	await expect(page.getByText(siteName).first()).toBeVisible();
 });
 

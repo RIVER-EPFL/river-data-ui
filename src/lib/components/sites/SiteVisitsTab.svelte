@@ -23,6 +23,7 @@
 	} from '$api/crud';
 	import {
 		listSiteVisits,
+		stageCollectionEvents,
 		saveGrabSample,
 		previewEdit,
 		commitEdit,
@@ -43,6 +44,7 @@
 	import type { SampleReplicate } from '$lib/api/types';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
+	import { entryZone, zoneOptions } from '$lib/time/zones';
 	import { formatDateTime } from '$lib/utils';
 	import { formatMeasurement } from '$lib/format';
 	import {
@@ -89,7 +91,23 @@
 		sheetData,
 		sheetHeaders,
 		sheetSlot,
+		type SheetTable,
 	} from '$lib/visits/sheet';
+	import {
+		gridRows,
+		keptAfterSave,
+		namedInstants,
+		racedRows,
+		saveLabel,
+		savedLine,
+		spareCount,
+		spareNotice,
+		spareVisits,
+		stagedLabel,
+		staging,
+		standingInstants,
+		writableEdits,
+	} from '$lib/visits/spareRows';
 	import type { CellProperties, GridSettings, HotInstance } from 'handsontable';
 	import {
 		checkSatisfied,
@@ -104,6 +122,7 @@
 		withdrawalKeys,
 		storedAt,
 		instrumentKey,
+		isSpare,
 		pasteNotice,
 		type Edits,
 	} from '$lib/visits/tableEdit';
@@ -181,7 +200,7 @@
 	const details = new SvelteMap<string, EventDetailResponse>();
 
 	async function selectSlot(row: number, column: number) {
-		const at = sheetSlot(visits, slots, row, column);
+		const at = spareAt(row) ? null : sheetSlot(table, row, column);
 		const next = at
 			? {
 					visitId: at.visit.id,
@@ -293,9 +312,65 @@
 	let declaredInstruments = $state<Record<string, string>>({});
 	let instruments = $state<Sensor[]>([]);
 
-	const writes = $derived(pendingWrites(visits, edits, locale, declaredInstruments));
+	// The spare area under the last listed visit: a date typed or pasted there stages a visit at
+	// that instant, and the values beside it are that visit's entries, saved by the same one Save.
+	let spareDates = $state<Record<string, string>>({});
+	let askedSpares = $state(1);
+	// Instants this site holds a visit at that the listing does not show: the grid is filtered and
+	// paged, so a date typed here is looked up against the store rather than against the rows on
+	// screen (Q225).
+	let standingElsewhere = $state<string[]>([]);
+	// The zone a date with no offset of its own is read in, so a field day recorded elsewhere is
+	// pasted as it was written. Until somebody picks one it is the zone the Date column prints.
+	let pickedZone = $state<string | null>(null);
+	const zones = zoneOptions();
+	const readZone = $derived(entryZone(pickedZone, timezoneStore.zone));
+	const spareRowCount = $derived(spareCount(spareDates, edits, askedSpares));
+	const spares = $derived(
+		spareVisits(spareDates, spareRowCount, standingInstants(visits, standingElsewhere), readZone),
+	);
+	const newVisits = $derived(staging(spares));
+	const spareRefusal = $derived(spareNotice(spares, edits));
+
+	// Every instant a date cell has named so far, so one lookup per new date covers every row.
+	const askedInstants = new Set<string>();
+
+	/**
+	 * Which of the dates typed into the spare area this site already holds a visit at. One list
+	 * call per new date, filtered to the instants themselves, so a visit off the listed page still
+	 * refuses the row.
+	 */
+	async function lookUpStanding(instants: string[]) {
+		const wanted = instants.filter((at) => !askedInstants.has(at));
+		if (wanted.length === 0) return;
+		for (const at of wanted) askedInstants.add(at);
+		try {
+			const page = await api.collectionEvents.list({
+				filter: { site_id: siteId, collected_at: wanted },
+				perPage: wanted.length,
+			});
+			const found = page.data.map((e) => e.collected_at);
+			if (found.length > 0) standingElsewhere = [...standingElsewhere, ...found];
+		} catch {
+			// The refusal the listing already knows still stands; the save's own stage is the backstop.
+			for (const at of wanted) askedInstants.delete(at);
+		}
+	}
+
+	$effect(() => {
+		const wanted = namedInstants(spareDates, spareRowCount, readZone);
+		untrack(() => void lookUpStanding(wanted));
+	});
 	// A visit down, a (parameter, replicate) slot across, after the frozen date, source and fill.
 	const slots = $derived(slotsOf(groupColumns));
+	const table = $derived<SheetTable>({
+		rows: gridRows(visits, spares),
+		stored: visits.length,
+		slots,
+	});
+	// What a Save writes: a refused spare row's cells stay on screen and are written by nothing.
+	const written = $derived(writableEdits(edits, spares));
+	const writes = $derived(pendingWrites(table.rows, written, locale, declaredInstruments));
 	/** What a paste left behind, held on screen until the next one rather than passed as a toast. */
 	let pasteRefusal = $state<string | null>(null);
 
@@ -318,9 +393,18 @@
 	}
 
 	// The typed cells are read once per load: a keystroke changes the grid itself, not its data.
+	// The spare area grows the same way, by the grid's own trailing row, and is pushed back here
+	// only when a paste, a discard or a save has settled what it holds.
 	const gridData = $derived.by(() => {
 		void dataVersion;
-		return sheetData(visits, slots, untrack(() => edits), locale, timezoneStore.zone, writableSlot);
+		void askedSpares;
+		void visits;
+		void slots;
+		void me.level;
+		void timezoneStore.zone;
+		return untrack(() =>
+			sheetData(table, edits, spareDates, locale, timezoneStore.zone, writableSlot),
+		);
 	});
 
 	type SheetSettings = Omit<GridSettings, 'data' | 'licenseKey' | 'themeName'>;
@@ -338,7 +422,9 @@
 			height: 'auto',
 			manualColumnResize: true,
 			fillHandle: { direction: 'vertical', autoInsertRow: false },
-			allowInsertRow: false,
+			// A pasted block runs into the spare area, which grows to take it.
+			minSpareRows: 1,
+			allowInsertRow: true,
 			allowInsertColumn: false,
 			allowRemoveRow: false,
 			allowRemoveColumn: false,
@@ -362,13 +448,30 @@
 		} as SheetSettings;
 	});
 
+	/** Whether the row at a grid position is a spare one, which has no record to open. */
+	function spareAt(row: number): boolean {
+		const at = table.rows[row];
+		return at !== undefined && isSpare(at.id);
+	}
+
+	/** Whether the spare row at a grid position stages nothing, which its whole row says. */
+	function refusedAt(row: number): boolean {
+		const at = table.rows[row];
+		return at !== undefined && spares.some((s) => s.id === at.id && s.problem !== null);
+	}
+
 	function cellMeta(row: number, column: number) {
-		if (column < FROZEN_COLUMNS) return { readOnly: true, renderer: renderFrozen };
-		const at = sheetSlot(visits, slots, row, column);
+		// A listed visit's date is read-only: its instant is what its readings are keyed on. A spare
+		// row's is where the new visit is named.
+		if (column < FROZEN_COLUMNS) {
+			return { readOnly: !(spareAt(row) && me.can('writeData')), renderer: renderFrozen };
+		}
+		const at = sheetSlot(table, row, column);
 		return { readOnly: !at || !writableSlot(at.visit, at.slot), renderer: renderValue };
 	}
 
 	const CELL_CLASSES = [
+		'sheet-refused',
 		'htDimmed',
 		'htRight',
 		'htNumeric',
@@ -387,7 +490,7 @@
 		td.replaceChildren();
 		td.removeAttribute('title');
 		td.removeAttribute('aria-label');
-		if (visits[row] && visits[row].id === expandedVisit) td.classList.add('sheet-open-row');
+		if (table.rows[row] && table.rows[row].id === expandedVisit) td.classList.add('sheet-open-row');
 	}
 
 	function chip(label: string, variant: BadgeVariant): HTMLSpanElement {
@@ -426,9 +529,10 @@
 
 	function renderFrozen(_hot: unknown, td: HTMLTableCellElement, row: number) {
 		resetCell(td, row);
-		td.classList.add('htDimmed');
-		const visit = visits[row];
+		const visit = table.rows[row];
 		if (!visit) return td;
+		if (isSpare(visit.id)) return renderSpare(td, visit.id);
+		td.classList.add('htDimmed');
 		const open = expandedVisit === visit.id;
 		const button = document.createElement('button');
 		button.type = 'button';
@@ -436,6 +540,9 @@
 		button.setAttribute('aria-expanded', String(open));
 		button.title = open ? 'Collapse this visit' : 'Expand this visit';
 		button.textContent = gridData[row]?.[0] ?? '';
+		// The press must not reach the grid: a selection change re-renders this cell between
+		// mousedown and mouseup, and a button replaced mid-press is sent no click at all.
+		button.addEventListener('mousedown', (e) => e.stopPropagation());
 		button.addEventListener('click', () => void openVisit(visit.id));
 		td.append(button);
 		if (visit.findings_open > 0) {
@@ -445,6 +552,25 @@
 		if (calculation) td.append(chip(calculation.label, calculation.variant));
 		const state = verificationBadge(visit.unverified, visit.withdrawn_at);
 		if (state) td.append(chip(state.label, state.variant));
+		return td;
+	}
+
+	/**
+	 * A row of the spare area: the date as typed, said to be opening a visit rather than editing
+	 * one, and named where it opens none.
+	 */
+	function renderSpare(td: HTMLTableCellElement, id: string) {
+		const spare = spares.find((s) => s.id === id);
+		if (!spare) return td;
+		td.append(spare.typed);
+		if (spare.problem) {
+			td.classList.add('sheet-refused');
+			td.append(chip(spare.problem, 'alarm'));
+		} else if (spare.collectedAt) {
+			td.append(chip(stagedLabel(spare.collectedAt), 'accent'));
+		} else {
+			td.title = 'Type or paste a date here to open a new visit at this site';
+		}
 		return td;
 	}
 
@@ -458,17 +584,23 @@
 		cellProperties: CellProperties,
 	) {
 		resetCell(td, row);
-		const at = sheetSlot(visits, slots, row, column);
+		const at = sheetSlot(table, row, column);
 		if (!at) return td;
 		const { visit, slot, cell, replicate } = at;
 		const open = slot.column.expanded;
 		const writable = !cellProperties.readOnly;
-		const when = formatDateTime(visit.collected_at);
+		const spareDate = isSpare(visit.id) ? (spareDates[visit.id]?.trim() ?? '') : null;
+		const when = spareDate === null ? formatDateTime(visit.collected_at) : spareDate;
 		td.classList.add('htRight', 'htNumeric');
 		if (!writable) td.classList.add('htDimmed');
+		if (refusedAt(row)) td.classList.add('sheet-refused');
+		// A spare row naming no date yet is placed rather than dated: there is no instant to say.
+		const repeat = open ? ` repeat ${slot.replicateIndex + 1}` : '';
 		td.setAttribute(
 			'aria-label',
-			open ? `${slot.column.code} repeat ${slot.replicateIndex + 1} at ${when}` : `${slot.column.code} at ${when}`,
+			when === ''
+				? `${slot.column.code}${repeat} on the new row`
+				: `${slot.column.code}${repeat} at ${when}`,
 		);
 		if (visit.id === selected?.visitId) {
 			const own =
@@ -592,9 +724,9 @@
 		const undoRedo = instance.getPlugin('undoRedo');
 		instance.addHook('beforeChange', (changes, source) => {
 			const applied = applyChanges(
+				table,
 				edits,
-				visits,
-				slots,
+				spareDates,
 				changes.map((c) => ({
 					row: c?.[0] ?? -1,
 					column: Number(c?.[1]),
@@ -605,26 +737,36 @@
 			);
 			for (const index of applied.refused) changes[index] = null;
 			edits = applied.edits;
+			spareDates = applied.dates;
 			if (source === 'CopyPaste.paste') pasteUnreadable = applied.unreadable;
 			else pasteRefusal = pasteNotice({ edits, unreadable: applied.unreadable, overflow: 0 });
 		});
 		instance.addHook('afterChange', () => (canUndo = undoRedo.isUndoAvailable()));
 		instance.addHook('afterLoadData', () => (canUndo = false));
+		// A block running past the last row grows the spare area onto it first, because the paste
+		// fills the rows the table has and drops the rest.
 		instance.addHook('beforePaste', (data, coords) => {
 			pasteUnreadable = 0;
 			const range = coords[0];
-			pasteOverflowCount = range
-				? pasteOverflow(
-						data.map((line) => line.map((v) => (v == null ? '' : String(v)))),
-						range.startRow,
-						range.startCol,
-						instance.countRows(),
-						instance.countCols(),
-					)
-				: 0;
+			if (!range) {
+				pasteOverflowCount = 0;
+				return;
+			}
+			const short = range.startRow + data.length - table.rows.length;
+			if (short > 0) {
+				askedSpares = spares.length + short;
+				instance.loadData(gridData);
+			}
+			pasteOverflowCount = pasteOverflow(
+				data.map((line) => line.map((v) => (v == null ? '' : String(v)))),
+				range.startCol,
+				instance.countCols(),
+			);
 		});
+		// The block the paste recorded is the table's row count now, so the grid reloads onto it.
 		instance.addHook('afterPaste', () => {
 			pasteRefusal = pasteNotice({ edits, unreadable: pasteUnreadable, overflow: pasteOverflowCount });
+			dataVersion += 1;
 		});
 		instance.addHook('afterGetColHeader', renderGroupHeader);
 		instance.addHook('afterSelection', (row: number, column: number) => {
@@ -656,23 +798,27 @@
 
 	function discardEdits() {
 		edits = {};
+		spareDates = {};
+		askedSpares = 1;
 		checks = {};
 		seasonalFindings = [];
 		pasteRefusal = null;
 		dataVersion += 1;
 	}
 
-	// The open visit's row is marked, so the record below the grid reads against its row.
+	// The open visit's row is marked and a spare row names the instant its date resolved to, so
+	// both the open record and the entry zone redraw the rows the grid has already drawn.
 	$effect(() => {
 		void expandedVisit;
+		void readZone;
 		untrack(() => hot?.render());
 	});
 
 	const screened = $derived(checkSatisfied(writes, checks));
 	const entering = $derived(writes.some((w) => w.entries.length > 0));
-	const moved = $derived(pendingCount(edits, locale));
+	const moved = $derived(pendingCount(written, locale));
 	// Every cleared cell withdraws a stored replicate, by its own edit or by the replace of its group.
-	const withdrawn = $derived(Object.values(edits).filter(cleared).length);
+	const withdrawn = $derived(Object.values(written).filter(cleared).length);
 
 	/** Whether this account may type over what the store holds at this slot (Q21). */
 	function slotWritable(visit: VisitRow, parameterId: string, replicateIndex: number) {
@@ -705,12 +851,27 @@
 					});
 				}
 			}
-			seasonalFindings = found;
+			seasonalFindings = uniqueFindings(found);
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'The check did not run');
 		} finally {
 			checking = false;
 		}
+	}
+
+	/**
+	 * One line per finding, however many visits raised it. The screening reports per visit and
+	 * says nothing about which, so the same sentence repeated is noise rather than a second
+	 * finding.
+	 */
+	function uniqueFindings(found: { parameterId: string; text: string }[]) {
+		const seen = new Set<string>();
+		return found.filter((f) => {
+			const key = `${f.parameterId}|${f.text}`;
+			if (seen.has(key)) return false;
+			seen.add(key);
+			return true;
+		});
 	}
 
 	/** Every parameter the save touches, which is what a closure is keyed on. */
@@ -792,7 +953,11 @@
 		const expected = await calculationsBehind();
 		const before = servedNow();
 		try {
+			// A row the stage found already standing is not written into: the lookup and the Save
+			// are not one transaction, and its values belong on that visit's own row.
+			const raced = await stageNewVisits();
 			for (const write of writes) {
+				if (raced.has(write.eventId)) continue;
 				if (write.withdrawals.length > 0) {
 					const selection = { keys: withdrawalKeys([write]) };
 					const preview = await previewEdit(selection, WITHDRAWAL);
@@ -804,7 +969,7 @@
 					await commitEdit(selection, CORRECTION, preview.preview_id);
 				}
 				if (write.entries.length > 0) {
-					const visit = visits.find((v) => v.id === write.eventId)!;
+					const visit = table.rows.find((v) => v.id === write.eventId)!;
 					await saveGrabSample({
 						site_id: siteId,
 						mode: 'replace',
@@ -822,8 +987,11 @@
 					});
 				}
 			}
-			toastStore.success(`${moved} value${moved === 1 ? '' : 's'} saved`);
-			edits = {};
+			const kept = keptAfterSave(edits, spareDates, raced);
+			toastStore.success(savedLine(moved, newVisits.length - raced.size));
+			edits = kept.edits;
+			spareDates = kept.dates;
+			askedSpares = 1;
 			dataVersion += 1;
 			checks = {};
 			seasonalFindings = [];
@@ -842,6 +1010,29 @@
 			? runReportLine(runOutputs(expected, before, servedNow(), findingByCode()))
 			: 'The calculations are still running: reload the visits to see their outputs.';
 		onDataChanged();
+	}
+
+	/**
+	 * The visits the spare rows open, staged before their values are written so each one is a
+	 * field day somebody opened, stamped with the stager's own level (Q177), rather than a visit
+	 * a reading brought into being behind them.
+	 *
+	 * Staging is find-or-create, so a reply saying the visit already stood is the collision the
+	 * lookup missed. Those rows are named back to the caller, which writes nothing into them.
+	 */
+	async function stageNewVisits(): Promise<Set<string>> {
+		if (newVisits.length === 0) return new Set();
+		const staged = await stageCollectionEvents({
+			visits: newVisits.map((v) => ({ site_id: siteId, collected_at: v.collectedAt })),
+		});
+		const raced = racedRows(spares, staged);
+		if (raced.size > 0) {
+			standingElsewhere = [
+				...standingElsewhere,
+				...staged.filter((e) => !e.created).map((e) => e.collected_at),
+			];
+		}
+		return raced;
 	}
 
 	/** The finding standing on each parameter now, so an output that did not move says why. */
@@ -1063,7 +1254,7 @@
 	async function openRecordAt(row: number, column: number) {
 		const visit = visits[row];
 		if (!visit) return;
-		const at = sheetSlot(visits, slots, row, column);
+		const at = sheetSlot(table, row, column);
 		if (at) await openVisitCell(visit.id, at.slot.parameterId);
 		else await openVisit(visit.id);
 	}
@@ -1293,12 +1484,31 @@
 							{/if}
 							<Button
 								size="sm"
+								variant="secondary"
+								title="One more row under the table, to open a visit at a date this site has none at"
+								onclick={() => (askedSpares = spares.length + 1)}
+							>Add a row</Button>
+							<label class="flex items-center gap-1.5 text-xs text-brand-muted">
+								New rows dated in
+								<select
+									aria-label="Zone new rows are dated in"
+									value={readZone}
+									onchange={(e) => (pickedZone = e.currentTarget.value)}
+									class="max-w-[12rem] rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
+								>
+									{#each zones as zone (zone.value)}
+										<option value={zone.value}>{zone.label}</option>
+									{/each}
+								</select>
+							</label>
+							<Button
+								size="sm"
 								variant="primary"
-								disabled={moved === 0 || !screened}
+								disabled={(moved === 0 && newVisits.length === 0) || !screened}
 								title={moved > 0 && !screened ? 'Check these values against the site history first' : undefined}
 								onclick={askToSave}
-							>{`Save ${moved} value${moved === 1 ? '' : 's'}`}</Button>
-							{#if moved > 0}
+							>{saveLabel(moved, newVisits.length)}</Button>
+							{#if moved > 0 || newVisits.length > 0}
 								<Button size="sm" variant="ghost" onclick={undoEdit} disabled={!canUndo}>Undo</Button>
 								<Button size="sm" variant="ghost" onclick={discardEdits}>Discard what you typed</Button>
 							{/if}
@@ -1307,6 +1517,9 @@
 							{/if}
 							{#if pasteRefusal}
 								<span class="text-xs text-severity-warning-text">{pasteRefusal}</span>
+							{/if}
+							{#if spareRefusal}
+								<span class="text-xs text-severity-alarm">{spareRefusal}</span>
 							{/if}
 							{#if runReport}
 								<span class="text-xs text-brand-muted">{runReport}</span>
@@ -1556,6 +1769,12 @@
 				{moved} value{moved === 1 ? '' : 's'} will be written across {writes.length} visit{writes.length === 1 ? '' : 's'},
 				{writes.reduce((n, w) => n + w.corrections.length, 0)} corrected in place{#if withdrawn > 0}, {withdrawn} withdrawn{/if}.
 			</p>
+			{#if newVisits.length > 0}
+				<p>
+					{newVisits.length} new visit{newVisits.length === 1 ? '' : 's'} will be opened at this site:
+					{newVisits.map((v) => formatDateTime(v.collectedAt)).join(', ')}.
+				</p>
+			{/if}
 			{#if withdrawn > 0}
 				<p class="text-brand-muted">
 					A cleared cell withdraws its replicate: a reversible stamp, not a delete. The reading stays on

@@ -8,9 +8,25 @@ export function sheetCell(page: Page, name: RegExp): Locator {
 	return page.locator('.ht_master').getByRole('gridcell', { name });
 }
 
+/**
+ * The frozen date column's text for an instant: its wall clock in the reader's zone, as
+ * `formatCompactInstant` prints it.
+ */
+export function frozenDate(instant: string | Date): string {
+	const d = instant instanceof Date ? instant : new Date(instant);
+	const pad = (n: number) => String(n).padStart(2, '0');
+	const day = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+	return `${day} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
 /** A button in the frozen date column, such as a visit's expand. */
 export function frozenButton(page: Page, options: Parameters<Locator['getByRole']>[1]): Locator {
 	return page.locator('.ht_clone_inline_start').getByRole('button', options);
+}
+
+/** A cell of the frozen date column, by the row it stands on, the first visit being row 0. */
+export function frozenCell(page: Page, row: number): Locator {
+	return page.locator('.ht_clone_inline_start tbody tr').nth(row).locator('td').first();
 }
 
 /** A button in a group's header: its toggle, or its one repeat fewer or more. */

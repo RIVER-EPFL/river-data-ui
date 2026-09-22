@@ -23,6 +23,17 @@ export function slotKey(slot: SlotKey): string {
 /** What the operator has typed, by slot. Everything not in here is what the server sent. */
 export type Edits = Record<string, string>;
 
+const SPARE_PREFIX = 'new:';
+
+/** The id a row of the spare area is keyed under while it has no visit of its own. */
+export function spareId(index: number): string {
+	return `${SPARE_PREFIX}${index}`;
+}
+
+export function isSpare(eventId: string): boolean {
+	return eventId.startsWith(SPARE_PREFIX);
+}
+
 export function storedAt(
 	visit: VisitRow,
 	parameterId: string,
@@ -286,7 +297,7 @@ export interface TablePaste {
 	edits: Edits;
 	/** Cells the block covered that could not be read as a number. */
 	unreadable: number;
-	/** Values that ran past the last listed visit or the last column, and landed nowhere. */
+	/** Values that ran past the last column, and so landed nowhere. */
 	overflow: number;
 }
 
@@ -300,7 +311,7 @@ export function pasteNotice(paste: TablePaste): string | null {
 	}
 	if (paste.overflow > 0) {
 		notes.push(
-			`${paste.overflow} value${paste.overflow === 1 ? '' : 's'} ran past the visits listed; add the dates first`,
+			`${paste.overflow} value${paste.overflow === 1 ? '' : 's'} ran past the columns listed and ${paste.overflow === 1 ? 'was' : 'were'} not read`,
 		);
 	}
 	return notes.length > 0 ? `${notes.join('. ')}.` : null;

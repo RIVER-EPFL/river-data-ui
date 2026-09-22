@@ -36,6 +36,11 @@
 .sheet-grid .sheet-mark.sheet-warning {
 	color: var(--color-severity-warning);
 }
+/* A spare row the grid refuses: the mark is the refusal, not the line beside the Save. */
+.sheet-grid td.sheet-refused {
+	background-color: var(--color-severity-alarm-soft);
+	color: var(--color-severity-alarm);
+}
 .sheet-grid td.sheet-finding {
 	background-color: var(--color-severity-warning-soft);
 }
