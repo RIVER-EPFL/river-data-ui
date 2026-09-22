@@ -2,8 +2,10 @@
 	// A site takes barometric pressure from the nearest MeteoSwiss SMN station. The station is
 	// chosen from the published list rather than typed, and the subscription is its own row, so it
 	// is attached and detached here rather than saved with the site.
-	import { api, type MeteoswissSubscription } from '$api/crud';
+	import { api, type DataStream, type MeteoswissSubscription, type ReprocessingJob } from '$api/crud';
 	import { getMeteoswissStations, type MeteoswissStation } from '$api/service';
+	import { feedStatus, latestBackfill, streamKey, type FeedStatus } from '$lib/meteoswiss';
+	import { formatDateTime } from '$lib/utils';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
 
@@ -14,6 +16,8 @@
 	const VARIABLES = [{ value: 'prestas0', label: 'Barometric pressure' }];
 
 	let subscriptions = $state<MeteoswissSubscription[]>([]);
+	let streams = $state<DataStream[]>([]);
+	let backfills = $state<ReprocessingJob[]>([]);
 	let candidates = $state<MeteoswissStation[]>([]);
 	let term = $state('');
 	let variable = $state(VARIABLES[0].value);
@@ -22,17 +26,24 @@
 	let saving = $state('');
 
 	async function loadSubscriptions() {
-		const res = await api.meteoswissSubscriptions.list({
-			perPage: 100,
-			filter: { site_id: siteId },
-		});
-		subscriptions = res.data;
+		const [subs, feeds, jobs] = await Promise.all([
+			api.meteoswissSubscriptions.list({ perPage: 100, filter: { site_id: siteId } }),
+			api.dataStreams.list({ perPage: 200, filter: { source_system: 'meteoswiss' } }),
+			api.reprocessingJobs.list({
+				perPage: 100,
+				sort: ['created_at', 'DESC'],
+				filter: { trigger_type: 'meteoswiss_backfill' },
+			}),
+		]);
+		subscriptions = subs.data;
+		streams = feeds.data;
+		backfills = jobs.data;
 	}
 
 	async function search() {
 		searching = true;
 		try {
-			candidates = await getMeteoswissStations({ q: term || undefined, site_id: siteId });
+			candidates = await getMeteoswissStations({ q: term || undefined, site_id: siteId, variable });
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Failed to read the station list');
 		} finally {
@@ -79,7 +90,30 @@
 
 	const attached = $derived(new Set(subscriptions.map((s) => `${s.station_abbr}:${s.variable}`)));
 
+	function status(subscription: MeteoswissSubscription): FeedStatus {
+		const key = streamKey(subscription.station_abbr, subscription.variable, siteId);
+		const stream = streams.find((s) => s.source_key === key) ?? null;
+		return feedStatus(
+			stream,
+			latestBackfill(backfills, subscription.station_abbr, subscription.variable)
+		);
+	}
+
+	function said(state: FeedStatus): string {
+		switch (state.kind) {
+			case 'flowing':
+				return `last value ${formatDateTime(state.at)}`;
+			case 'failed':
+				return state.message;
+			case 'working':
+				return 'reading its history…';
+			default:
+				return 'no data yet';
+		}
+	}
+
 	function elevation(station: MeteoswissStation): string {
+		if (station.publishes === false) return `no ${label(variable).toLowerCase()}`;
 		const height = station.height_barometer_masl ?? station.height_masl;
 		return height == null ? '-' : `${Math.round(height)} m`;
 	}
@@ -108,11 +142,15 @@
 		{#if subscriptions.length > 0}
 			<ul class="space-y-1">
 				{#each subscriptions as subscription (subscription.id)}
+					{@const state = status(subscription)}
 					<li class="flex items-center justify-between rounded border border-brand-border px-3 py-2">
 						<span class="text-sm">
 							<span class="font-medium">{subscription.station_abbr}</span>
 							<span class="text-brand-muted"> · {label(subscription.variable)}</span>
 							{#if !subscription.enabled}<span class="text-brand-muted"> · paused</span>{/if}
+							<span class={state.kind === 'failed' ? 'text-severity-alarm' : 'text-brand-muted'}>
+								· {said(state)}
+							</span>
 						</span>
 						<Button
 							variant="secondary"
@@ -142,6 +180,7 @@
 				<select
 					id="ms-variable"
 					bind:value={variable}
+					onchange={() => void search()}
 					class="rounded border border-brand-border bg-brand-surface px-2 py-1 text-sm"
 				>
 					{#each VARIABLES as v (v.value)}
@@ -160,7 +199,10 @@
 		{:else}
 			<ul class="max-h-64 space-y-1 overflow-y-auto">
 				{#each candidates.slice(0, 25) as station (station.station_abbr)}
-					<li class="flex items-center justify-between rounded px-3 py-1.5 hover:bg-brand-surface">
+					<li
+						class="flex items-center justify-between rounded px-3 py-1.5 hover:bg-brand-surface"
+						class:opacity-50={station.publishes === false}
+					>
 						<span class="text-sm">
 							<span class="font-medium">{station.station_abbr}</span>
 							<span> {station.name}</span>
@@ -169,6 +211,7 @@
 						<Button
 							variant="secondary"
 							disabled={saving === station.station_abbr ||
+								station.publishes === false ||
 								attached.has(`${station.station_abbr}:${variable}`)}
 							onclick={() => void attach(station)}>Add</Button
 						>

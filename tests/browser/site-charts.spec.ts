@@ -6,6 +6,8 @@ async function openSeededSite(page: Page) {
 	await page.goto(`${BASE_PATH}/sites`);
 	await page.getByRole('link', { name: SEEDED_SITE, exact: true }).first().click();
 	await page.waitForURL(new RegExp(`${BASE_PATH}/sites/[0-9a-f-]{36}`));
+	// A spot-only site opens on its visits, so a charts story names the tab it is about.
+	await page.goto(`${new URL(page.url()).pathname}?tab=charts`);
 }
 
 async function plotBox(page: Page, index: number) {
@@ -98,7 +100,8 @@ async function openSpotSite(page: Page, request: APIRequestContext) {
 	const start = at - 43_200_000;
 	const end = at + 43_200_000;
 	await page.goto(
-		`${BASE_PATH}/sites/${siteId}?start=${new Date(start).toISOString()}&end=${new Date(end).toISOString()}`,
+		`${BASE_PATH}/sites/${siteId}?tab=charts&start=${new Date(start).toISOString()}` +
+			`&end=${new Date(end).toISOString()}`,
 	);
 	await expect(page.locator('.u-over')).toHaveCount(CHARTS);
 	await expect(page.getByTestId('chart-window-label')).toHaveText(/1d/);

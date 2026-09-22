@@ -170,6 +170,14 @@ describe('fromDatetimeLocal', () => {
 		expect(fromDatetimeLocal('2026-01-15T10:30', 'UTC')).toBe('2026-01-15T10:30:00.000Z');
 	});
 
+	// A logger set to UTC+1 all year: July reads as +1, not as Zurich's +2.
+	it('applies a fixed offset entry whatever the season', () => {
+		expect(fromDatetimeLocal('2026-07-14T08:00', 'UTC+01:00')).toBe('2026-07-14T07:00:00.000Z');
+		expect(fromDatetimeLocal('2026-01-14T08:00', 'UTC+01:00')).toBe('2026-01-14T07:00:00.000Z');
+		expect(fromDatetimeLocal('2026-07-14T08:00', 'UTC-05:30')).toBe('2026-07-14T13:30:00.000Z');
+		expect(toDatetimeLocal('2026-07-14T07:00:00.000Z', 'UTC+01:00')).toBe('2026-07-14T08:00');
+	});
+
 	it('keeps the meaning of a value that carries its own offset', () => {
 		expect(fromDatetimeLocal('2026-01-15T10:30+02:00', 'Europe/Zurich')).toBe('2026-01-15T08:30:00.000Z');
 		expect(fromDatetimeLocal('2026-01-15T10:30:00Z', 'America/Santiago')).toBe('2026-01-15T10:30:00.000Z');

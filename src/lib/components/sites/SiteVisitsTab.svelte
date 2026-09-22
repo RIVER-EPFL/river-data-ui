@@ -45,7 +45,7 @@
 	import type { SampleReplicate } from '$lib/api/types';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
-	import { entryZone, zoneOptions } from '$lib/time/zones';
+	import { appliedOffset, entryZone, zoneOptions } from '$lib/time/zones';
 	import { formatDateTime } from '$lib/utils';
 	import { formatMeasurement } from '$lib/format';
 	import {
@@ -337,6 +337,7 @@
 	let pickedZone = $state<string | null>(null);
 	const zones = zoneOptions();
 	const readZone = $derived(entryZone(pickedZone, timezoneStore.zone));
+	const readOffset = $derived(appliedOffset(readZone).label);
 	const spareRowCount = $derived(spareCount(spareDates, edits, askedSpares));
 	const spares = $derived(
 		spareVisits(spareDates, spareRowCount, standingInstants(visits, standingElsewhere), readZone),
@@ -1577,6 +1578,7 @@
 										<option value={zone.value}>{zone.label}</option>
 									{/each}
 								</select>
+								<span class="tabular-nums">{readOffset} applied</span>
 							</label>
 							<Button
 								size="sm"

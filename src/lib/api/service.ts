@@ -1777,8 +1777,10 @@ export interface MeteoswissStation {
 	latitude?: number | null;
 	longitude?: number | null;
 	distance_km?: number | null;
+	/** Whether the station publishes the variable asked about; null where none was. */
+	publishes?: boolean | null;
 }
 
 /** Candidate stations for a site, nearest first where the site has coordinates. */
-export const getMeteoswissStations = (q: { q?: string; site_id?: string }) =>
+export const getMeteoswissStations = (q: { q?: string; site_id?: string; variable?: string }) =>
 	GET<MeteoswissStation[]>(`${SERVICE}/meteoswiss/stations`, { ...q });

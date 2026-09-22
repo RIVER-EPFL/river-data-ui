@@ -1,6 +1,7 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { timezoneStore } from '$lib/stores/timezone.svelte';
+import { fixedOffsetMinutes } from '$lib/time/zones';
 
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs));
@@ -73,8 +74,12 @@ export function formatDate(date: string | Date): string {
 // An instant's zero-padded wall-clock fields in `zone` (the browser's zone when it is undefined).
 // Every zone-aware helper below reads the clock through this one formatter.
 function wallParts(instant: Date, zone?: string): Record<string, string> {
+	// A fixed-offset entry is not an IANA zone Intl would accept, so the wall clock is read by
+	// shifting the instant and printing it in UTC.
+	const fixed = zone ? fixedOffsetMinutes(zone) : null;
+	const at = fixed === null ? instant : new Date(instant.getTime() + fixed * 60000);
 	const parts = new Intl.DateTimeFormat('en-CA', {
-		timeZone: zone,
+		timeZone: fixed === null ? zone : 'UTC',
 		year: 'numeric',
 		month: '2-digit',
 		day: '2-digit',
@@ -82,7 +87,7 @@ function wallParts(instant: Date, zone?: string): Record<string, string> {
 		minute: '2-digit',
 		second: '2-digit',
 		hourCycle: 'h23',
-	}).formatToParts(instant);
+	}).formatToParts(at);
 	const p: Record<string, string> = {};
 	for (const part of parts) p[part.type] = part.value;
 	return p;
@@ -161,6 +166,10 @@ export function fromDatetimeLocal(naive: string, zone?: string): string {
 	if (!zone || EXPLICIT_OFFSET.test(naive)) return new Date(naive).toISOString();
 	const wall = naive.length === 16 ? `${naive}:00` : naive;
 	const guess = new Date(`${wall}Z`);
+	// A fixed offset is the offset: no zone rules to look up, and no summer time to land on the
+	// wrong side of.
+	const fixed = fixedOffsetMinutes(zone);
+	if (fixed !== null) return new Date(guess.getTime() - fixed * 60000).toISOString();
 	return new Date(guess.getTime() - zoneOffsetMs(guess, zone)).toISOString();
 }
 

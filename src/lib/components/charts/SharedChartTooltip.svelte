@@ -11,6 +11,7 @@
 	import { formatInstant } from '$lib/utils';
 	import { formatMeasurement } from '$lib/format';
 	import { spotSampleLine } from '$lib/charts/spotSummary';
+	import { capRows } from '$lib/charts/tooltipRows';
 
 	let { syncKey }: { syncKey: string } = $props();
 
@@ -167,6 +168,10 @@
 		return result;
 	});
 
+	// The page decides how many charts share the cursor; the tooltip decides how many it lists.
+	const capped = $derived(capRows(rows));
+	const shownRows = $derived(capped.shown);
+
 	const timeLabel = $derived.by(() => {
 		const ts = cursorTimeSec;
 		if (ts == null) return '';
@@ -185,7 +190,7 @@
 		if (!c) return { left: 0, top: 0 };
 		let left = c.mouseX + 20;
 		let top = c.mouseY + 20;
-		const extraRows = rows.reduce(
+		const extraRows = shownRows.reduce(
 			(acc, r) =>
 				acc +
 				(r.detailed
@@ -196,7 +201,7 @@
 					: 0),
 			0,
 		);
-		const w = 280, h = (rows.length + extraRows) * 22 + 32;
+		const w = 280, h = (shownRows.length + (capped.hidden > 0 ? 1 : 0) + extraRows) * 22 + 32;
 		if (left + w > window.innerWidth - 10) left = c.mouseX - w - 20;
 		if (top + h > window.innerHeight - 10) top = c.mouseY - h - 20;
 		if (left < 10) left = 10;
@@ -209,12 +214,12 @@
 	<div
 		data-testid="chart-tooltip"
 		class="fixed z-50 pointer-events-none"
-		style="left:{position.left}px;top:{position.top}px;background:{uPlotTheme.tooltipBg};padding:6px 10px;border-radius:{uPlotTheme.tooltipRadius}px;white-space:nowrap;min-width:180px;max-width:380px"
+		style="left:{position.left}px;top:{position.top}px;background:{uPlotTheme.tooltipBg};padding:6px 10px;border-radius:{uPlotTheme.tooltipRadius}px;white-space:nowrap;min-width:180px;max-width:380px;max-height:80vh;overflow:hidden"
 	>
 		<div style="font-size:11px;color:{uPlotTheme.tooltipColor};opacity:0.6;margin-bottom:4px">
 			{timeLabel}{#if utcLabel}<span style="opacity:0.7"> · {utcLabel}</span>{/if}
 		</div>
-		{#each rows as row}
+		{#each shownRows as row}
 			<div class="flex items-center justify-between gap-4" style="font-size:12px;line-height:20px">
 				<span class="flex items-center gap-1.5">
 					<span style="display:inline-block;width:8px;height:8px;border-radius:50%;flex-shrink:0;{tooltipRow(row.color, row.dash).swatch}"></span>
@@ -267,5 +272,13 @@
 				</div>
 			{/each}
 		{/each}
+		{#if capped.hidden > 0}
+			<div
+				data-testid="chart-tooltip-more"
+				style="font-size:11px;color:{uPlotTheme.tooltipColor};opacity:0.6;line-height:18px;margin-top:2px"
+			>
+				and {capped.hidden} more
+			</div>
+		{/if}
 	</div>
 {/if}

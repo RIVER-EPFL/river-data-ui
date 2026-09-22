@@ -38,7 +38,9 @@
 
 {#if siteParameter.needs_review && canConfirm}
 	<Button
+		variant="ghost"
 		{size}
+		class="text-brand-primary"
 		loading={busy}
 		disabled={busy}
 		onclick={confirm}

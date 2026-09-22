@@ -30,6 +30,7 @@
 	import { formatRelativeTime, formatDateTime, formatDate } from '$lib/utils';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import Button from '$components/ui/Button.svelte';
+	import ConfirmButton from '$components/ui/ConfirmButton.svelte';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
@@ -53,7 +54,7 @@
 	import ParameterChart, { type ChartData } from '$components/charts/ParameterChart.svelte';
 	import { GAP_THRESHOLDS } from '$lib/charts/uPlotTheme';
 	import { autoResolution, type Frequency } from '$lib/charts/multiSiteSeries';
-	import { byCadence } from '$lib/sites/cadence';
+	import { byCadence, openingTab, siteCadence } from '$lib/sites/cadence';
 	import { initialChartRange } from '$lib/charts/initialRange';
 	import type { SpotPointStats } from '$lib/charts/spotMarkers';
 	import FrequencyChips from '$components/charts/FrequencyChips.svelte';
@@ -104,10 +105,10 @@
 	// conditionally present without the body blocks below falling out of sync.
 	const tabDefs = $derived([
 		{ key: 'charts', label: 'Charts' },
+		{ key: 'visits', label: 'Visits' },
 		{ key: 'parameters', label: 'Parameters' },
 		{ key: 'sensors', label: 'Sensors' },
 		{ key: 'samples', label: 'Samples' },
-		{ key: 'visits', label: 'Visits' },
 		{ key: 'comparison', label: 'Sensor vs grab' },
 		...(me.can('admin') ? [{ key: 'status', label: 'Status' }] : []),
 		{ key: 'notes', label: 'Notes' },
@@ -348,23 +349,6 @@
 
 	function isThresholdDisabled(th: AlarmThreshold): boolean {
 		return th.warning_min == null && th.warning_max == null && th.alarm_min == null && th.alarm_max == null;
-	}
-
-	async function disableAlarms(parameterId: string) {
-		if (!site) return;
-		try {
-			const existing = thresholds.find((t) => t.parameter_id === parameterId && t.site_id === site!.id);
-			const payload = { site_id: site.id, parameter_id: parameterId, warning_min: null, warning_max: null, alarm_min: null, alarm_max: null };
-			if (existing) {
-				await api.alarmThresholds.update(existing.id, payload);
-			} else {
-				await api.alarmThresholds.create(payload);
-			}
-			toastStore.success('Alarms disabled');
-			await reloadThresholds();
-		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Failed to disable alarms');
-		}
 	}
 
 	// Effective thresholds come from the backend's single resolver (GET /api/alarms/thresholds). The
@@ -700,12 +684,17 @@
 				const detailRes = await GET<SiteDetailResponse>(`/api/sites/${id}/detail`);
 				if (detailRes.data_start) sliderMin = new Date(detailRes.data_start).getTime();
 				if (detailRes.data_end) sliderMax = new Date(detailRes.data_end).getTime();
-				// A single-cadence site opens on that cadence; a mixed one keeps the All default.
+				// A single-cadence site opens on that cadence; a mixed one keeps the All default. A
+				// spot-only site opens on its visits: every value it holds is a visit value, and
+				// the charts would be one per parameter of a few dozen points.
 				{
-					const withData = detailRes.parameters.filter((p) => (p.reading_count ?? 0) > 0);
-					if (withData.length > 0) {
-						if (withData.every((p) => p.frequency === 'low')) frequency = 'low';
-						else if (withData.every((p) => p.frequency === 'high')) frequency = 'high';
+					const cadence = siteCadence(detailRes.parameters);
+					if (cadence !== 'all') frequency = cadence;
+					// Only from the untouched default: a deep link, or a tab clicked while the
+					// detail was in flight, is the reader's choice and stands.
+					if (!page.url.searchParams.get('tab') && activeTab === 0) {
+						const wanted = tabDefs.findIndex((t) => t.key === openingTab(detailRes.parameters));
+						if (wanted >= 0) activeTab = wanted;
 					}
 				}
 				if (deepLink) {
@@ -1715,32 +1704,30 @@
 											onchange={(e) => updateSlot(sp, { is_active: e.currentTarget.checked }, e.currentTarget.checked ? 'active' : 'retired')}
 										/>
 									</td>
-									<td class="px-4 py-2 text-right space-x-1">
+									<td class="px-4 py-2 text-right whitespace-nowrap space-x-1">
 										<ConfirmSiteParameterButton
 											siteParameter={sp}
 											label={paramName(sp.parameter_id)}
 											onconfirmed={reloadSiteParameters}
 										/>
 										<Button
+											variant="ghost"
 											size="sm"
+											class="text-brand-primary"
 											onclick={() => openThresholdDialog(sp.parameter_id, paramName(sp.parameter_id))}
 										>{th && !disabled ? 'Edit' : 'Set'} thresholds</Button>
-										{#if !disabled}
-											<Button
-												size="sm"
-												onclick={() => disableAlarms(sp.parameter_id)}
-												class="border-severity-alarm-border text-severity-alarm"
-											>Disable alarms</Button>
-										{/if}
 										<Button
+											variant="ghost"
 											size="sm"
+											class="text-brand-primary"
 											onclick={() => openMergeSiteParameter(sp)}
 										>Merge…</Button>
-										<Button
-											size="sm"
-											onclick={() => removeParameter(sp.id)}
-											class="text-severity-alarm"
-										>Remove</Button>
+										<ConfirmButton
+											label="Remove"
+											confirmLabel="Click again to remove"
+											consequence="The slot's configuration, its display settings and its site threshold override go; a slot holding readings is refused"
+											onconfirm={() => removeParameter(sp.id)}
+										/>
 									</td>
 								</tr>
 								{/each}

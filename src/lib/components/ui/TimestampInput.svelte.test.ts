@@ -25,11 +25,24 @@ describe('TimestampInput', () => {
 		expect(screen.getByTestId('bound').textContent).toBe('2026-01-15T09:30:00.000Z');
 	});
 
-	it('prints the instant it will send', async () => {
+	it('prints the offset it applies and the instant it will send', async () => {
 		render(Harness, { instant: '' });
 		await fireEvent.change(zoneOf('Bound'), { target: { value: 'Europe/Zurich' } });
 		await fireEvent.input(screen.getByLabelText('Bound'), { target: { value: '2026-01-15T10:30' } });
-		expect(screen.getByText('Stored as 2026-01-15T09:30:00Z')).toBeTruthy();
+		expect(screen.getByText('UTC+1 applied, stored as 2026-01-15T09:30:00Z')).toBeTruthy();
+
+		// The same zone in July applies the other offset, and the line moves with it.
+		await fireEvent.input(screen.getByLabelText('Bound'), { target: { value: '2026-07-15T10:30' } });
+		expect(screen.getByText('UTC+2 applied, stored as 2026-07-15T08:30:00Z')).toBeTruthy();
+	});
+
+	// A logger set to UTC+1 all year: the fixed offset is entered as itself, not as a zone.
+	it('applies a fixed offset entry and says so', async () => {
+		render(Harness, { instant: '' });
+		await fireEvent.change(zoneOf('Bound'), { target: { value: 'UTC+01:00' } });
+		await fireEvent.input(screen.getByLabelText('Bound'), { target: { value: '2026-07-15T10:30' } });
+		expect(screen.getByTestId('bound').textContent).toBe('2026-07-15T09:30:00.000Z');
+		expect(screen.getByText('UTC+1 applied, stored as 2026-07-15T09:30:00Z')).toBeTruthy();
 	});
 
 	it('reports the instant to a caller that passes one down rather than binding', async () => {

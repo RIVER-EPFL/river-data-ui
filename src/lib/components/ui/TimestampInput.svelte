@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { fromDatetimeLocal, toDatetimeLocal } from '$lib/utils';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
-	import { entryZone, zoneOptions } from '$lib/time/zones';
+	import { appliedOffset, entryZone, zoneOptions } from '$lib/time/zones';
 
 	// Takes a timestamp as a wall-clock time plus the zone it is read in, and binds the UTC
 	// instant the API stores. The resolved instant is printed under the field, so a time entered
@@ -40,8 +40,11 @@
 	// empty so the first effect seeds the wall clock from whatever was passed in.
 	let written = $state('');
 
-	const options = zoneOptions();
+	// The labels carry the offset each entry applies at the wall time in the field, so they move
+	// with it across a summer-time transition.
+	const options = $derived(zoneOptions(wall));
 	const resolved = $derived(wall ? fromDatetimeLocal(wall, zone) : '');
+	const offset = $derived(appliedOffset(zone, wall).label);
 
 	$effect(() => {
 		if (value === written) return;
@@ -95,7 +98,7 @@
 	</div>
 	{#if !compact}
 		<span class="text-[11px] text-brand-muted tabular-nums">
-			{resolved ? `Stored as ${resolved.replace('.000Z', 'Z')}` : 'No timestamp'}
+			{resolved ? `${offset} applied, stored as ${resolved.replace('.000Z', 'Z')}` : 'No timestamp'}
 		</span>
 	{/if}
 </div>
