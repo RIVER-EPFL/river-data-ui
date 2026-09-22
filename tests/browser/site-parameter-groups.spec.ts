@@ -13,6 +13,7 @@ interface Fixture {
 	groupLabel: string;
 	calculation: string;
 	calculationId: string;
+	inputId: string;
 	inputName: string;
 	outputName: string;
 }
@@ -75,6 +76,7 @@ async function seedGroup(request: APIRequestContext): Promise<Fixture> {
 		groupLabel,
 		calculation,
 		calculationId: script.id,
+		inputId: input.id,
 		inputName,
 		outputName,
 	};
@@ -119,4 +121,41 @@ test('applying a group shows its columns together and names the calculation decl
 	// Collapsing the group takes its slots with it.
 	await header.click();
 	await expect(page.getByRole('row', { name: new RegExp(`^${fixture.inputName}`) })).toBeHidden();
+});
+
+// Scenario: a calculation is applied at a site from the site's Parameters tab, the one place it is
+// applied, and the calculation's own page only says where it is applied.
+//
+// Expected behaviour: the dry run names the output to add, Apply adds it, and the calculation page
+// links the site read-only with no apply control of its own.
+test('a calculation applied from the Parameters tab is listed on its page as applied there', async ({
+	page,
+	request,
+}) => {
+	const fixture = await seedGroup(request);
+	const headers = { Authorization: `Bearer ${await token(request)}` };
+	const declared = await request.post(`${API_URL}/api/site_parameters`, {
+		headers,
+		data: { site_id: fixture.siteId, parameter_id: fixture.inputId, name: fixture.inputName, cadence: 'low' },
+	});
+	expect(declared.ok(), await declared.text()).toBeTruthy();
+
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/toolbox/${fixture.calculationId}`);
+	const line = page.getByTestId('calculation-sites');
+	await expect(line).toContainText('Applied at no site yet');
+	await expect(page.getByText('Apply at a site')).toHaveCount(0);
+
+	await page.goto(`${BASE_PATH}/sites/${fixture.siteId}?tab=parameters`);
+	await page.getByRole('button', { name: 'Apply calculation', exact: true }).click();
+	await page.getByLabel('Calculation').selectOption({ label: fixture.calculation });
+	await expect(page.getByText('Outputs to add (1)')).toBeVisible();
+	await page.getByRole('button', { name: 'Apply', exact: true }).click();
+	await expect(page.getByText('Already applied here.')).toBeVisible();
+
+	await page.goto(`${BASE_PATH}/toolbox/${fixture.calculationId}`);
+	await expect(line.getByRole('link', { name: fixture.groupLabel })).toHaveAttribute(
+		'href',
+		`${BASE_PATH}/sites/${fixture.siteId}?tab=parameters`,
+	);
 });

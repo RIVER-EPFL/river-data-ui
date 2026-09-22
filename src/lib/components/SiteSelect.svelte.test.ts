@@ -51,4 +51,16 @@ describe('SiteSelect', () => {
 		expect(await screen.findByRole('option', { name: 'Verbier' })).toBeTruthy();
 		expect(sitesList).not.toHaveBeenCalled();
 	});
+
+	it('says after a name what a host tells it, and nothing when the host says nothing', async () => {
+		render(SiteSelect, {
+			value: '',
+			sites: [{ id: 'site-3', name: 'Verbier' }],
+			note: (s: { id: string }) => (s.id === 'site-3' ? 'measures all 2' : ''),
+		});
+		expect(await screen.findByRole('option', { name: 'Verbier · measures all 2' })).toBeTruthy();
+		cleanup();
+		render(SiteSelect, { value: '', sites: [{ id: 'site-3', name: 'Verbier' }] });
+		expect(await screen.findByRole('option', { name: 'Verbier' })).toBeTruthy();
+	});
 });

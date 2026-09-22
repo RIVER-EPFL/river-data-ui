@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import { base } from '$app/paths';
 	import type { Constant } from '$api/crud';
 	import type { RunTraceStep, StepDependents } from '$api/service';
@@ -28,11 +29,13 @@
 		consequence = null,
 		dependents = null,
 		busy = false,
+		held = null,
 		onselect,
 		onedited,
 		ondrop,
 		onstopreading,
 		onshowdependents,
+		onhold,
 	}: {
 		row?: SheetRow | null;
 		selection?: SheetSelection | null;
@@ -47,14 +50,29 @@
 		consequence?: string | null;
 		dependents?: StepDependents | null;
 		busy?: boolean;
+		/**
+		 * For an input the set may hold between visits (Q230), whether it holds it. Null where the
+		 * rule does not apply to the selected row, and the panel says nothing about it.
+		 */
+		held?: boolean | null;
 		/** Select the row a link names. */
 		onselect?: (key: string) => void;
+		/** Hold this input between visits, or read it at the instant again. */
+		onhold?: (held: boolean) => void;
 		/** A field changed, so the run is stale. */
 		onedited?: () => void;
 		ondrop?: (formula: EditableFormula) => void;
 		onstopreading?: (formula: EditableFormula) => void;
 		onshowdependents?: (formula: EditableFormula) => void;
 	} = $props();
+
+	let builder = $state<VisualFormulaBuilder | null>(null);
+
+	/** Open the formula of the row just selected for typing, once the panel has drawn it. */
+	export async function editFormula() {
+		await tick();
+		builder?.focus();
+	}
 
 	const shared = $derived(Boolean(formula?.declarationId));
 	const links = $derived(formula ? linksOf(formulas, formula.code) : { reads: [], readBy: [] });
@@ -119,100 +137,104 @@
 	{#if row || formula}
 		<div class="px-3 py-3 space-y-3">
 			{#if formula && !shared}
-				<div class="grid grid-cols-3 gap-2">
-					<label class="text-xs text-brand-muted">Code
-						<input bind:value={formula.code} placeholder="CO2_HS_Um" class={inputCls} disabled={!!formula.codeLocked} title={formula.codeLocked ?? ''} />
-						{#if formula.codeLocked}
-							<span class="mt-1 block text-[11px] text-brand-muted">Published: {formula.codeLocked}. The code is the CSV column header and the public identifier.</span>
-						{/if}
-					</label>
-					<label class="text-xs text-brand-muted">Name
-						<input bind:value={formula.name} placeholder="CO2 headspace" class={inputCls} />
-					</label>
-					<label class="text-xs text-brand-muted">Units
-						<input bind:value={formula.units} placeholder="uM" class={inputCls} />
-					</label>
-				</div>
-				<label class="text-xs text-brand-muted block">Description
-					<input bind:value={formula.description} placeholder="The portal function this transcribes, and what it assumes" class={inputCls} />
-				</label>
-				<VisualFormulaBuilder
-					bind:value={formula.formula}
-					bind:diagnostics
-					{variables}
-					{constants}
-					steps={stepsBefore}
-					hasCurve={formula.curve_slot.trim().length > 0}
-					ownCode={formula.code || undefined}
-				/>
-				<div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-					<label class="text-xs text-brand-muted">Per replicate over
-						<select bind:value={formula.per_replicate} class={inputCls}>
-							<option value="">Not per replicate, one value per visit</option>
-							{#each perReplicateChoices([...new Set(identifiers(formula.formula).map((i) => i.name))]) as variable (variable)}
-								<option value={variable}>{variable}</option>
-							{/each}
-							{#if formula.per_replicate && !identifiers(formula.formula).some((i) => i.name === formula!.per_replicate)}
-								<option value={formula.per_replicate}>{formula.per_replicate} (not in the formula)</option>
+				<!-- The row's own fields beside its formula rather than above it, so opening a cell
+				     does not push the sheet off the screen. -->
+				<div class="grid grid-cols-1 lg:grid-cols-[24rem_minmax(0,1fr)] gap-3 items-start">
+					<div class="grid min-w-0 grid-cols-2 gap-2">
+						<label class="block text-xs text-brand-muted">Code
+							<input bind:value={formula.code} placeholder="CO2_HS_Um" class={inputCls} disabled={!!formula.codeLocked} title={formula.codeLocked ?? ''} />
+							{#if formula.codeLocked}
+								<span class="mt-1 block text-[11px] text-brand-muted">Published: {formula.codeLocked}. The code is the CSV column header and the public identifier.</span>
 							{/if}
-						</select>
-					</label>
-					<label class="text-xs text-brand-muted">Curve slot
-						<input bind:value={formula.curve_slot} placeholder="doc" class={inputCls} />
-					</label>
-					<label class="flex items-start gap-2 text-sm md:col-span-2">
-						<input type="checkbox" bind:checked={formula.intermediate} class="mt-1" />
-						<span>A step of the calculation
-							<span class="block text-xs text-brand-muted">Handed to the formulas after it under its code, stored nowhere.</span>
-							{#if consequence}<span class="block text-xs text-brand-muted">{consequence}</span>{/if}
-						</span>
-					</label>
-					{#if formula.intermediate}
-						<!-- Whose the step is. A shared one belongs to no calculation, so the save writes it
-						     on its own and declares it here rather than into the set. -->
-						<label class="text-xs text-brand-muted md:col-span-2">Read by
-							<select bind:value={formula.shared} class={inputCls}>
-								<option value={false}>This calculation only</option>
-								<option value={true}>Any calculation that declares it</option>
+						</label>
+						<label class="block text-xs text-brand-muted">Name
+							<input bind:value={formula.name} placeholder="CO2 headspace" class={inputCls} />
+						</label>
+						<label class="block text-xs text-brand-muted">Units
+							<input bind:value={formula.units} placeholder="uM" class={inputCls} />
+						</label>
+						<label class="block text-xs text-brand-muted">Curve slot
+							<input bind:value={formula.curve_slot} placeholder="doc" class={inputCls} />
+						</label>
+						<label class="col-span-2 block text-xs text-brand-muted">Description
+							<input bind:value={formula.description} placeholder="The portal function this transcribes, and what it assumes" class={inputCls} />
+						</label>
+						<label class="col-span-2 block text-xs text-brand-muted">Per replicate over
+							<select bind:value={formula.per_replicate} class={inputCls}>
+								<option value="">Not per replicate, one value per visit</option>
+								{#each perReplicateChoices([...new Set(identifiers(formula.formula).map((i) => i.name))]) as variable (variable)}
+									<option value={variable}>{variable}</option>
+								{/each}
+								{#if formula.per_replicate && !identifiers(formula.formula).some((i) => i.name === formula!.per_replicate)}
+									<option value={formula.per_replicate}>{formula.per_replicate} (not in the formula)</option>
+								{/if}
 							</select>
-							<span class="mt-1 block text-[11px] text-brand-muted">
-								{formula.shared
-									? 'Written on its own, belonging to no calculation, and brought into this one. Editing it later changes it everywhere it is read.'
-									: 'Written into this calculation, and read by its formulas alone.'}
+						</label>
+						<label class="col-span-2 flex items-start gap-2 text-sm">
+							<input type="checkbox" bind:checked={formula.intermediate} class="mt-1" />
+							<span>A step of the calculation
+								<span class="block text-xs text-brand-muted">Handed to the formulas after it under its code, stored nowhere.</span>
+								{#if consequence}<span class="block text-xs text-brand-muted">{consequence}</span>{/if}
 							</span>
 						</label>
-					{/if}
-				</div>
-				{#if !formula.intermediate}
-					<!-- The output parameter's own bounds: its `alarm_thresholds` row with no site, which a
-					     site-specific row overrides. -->
-					<fieldset class="border border-brand-divider rounded px-2 py-2">
-						<legend class="text-xs text-brand-muted px-1">Bounds on {formula.code || 'the output'}</legend>
-						<div class="grid grid-cols-4 gap-2">
-							<label class="text-xs text-brand-muted">Warning min
-								<input type="number" step="any" bind:value={formula.thresholds.warningMin} class={inputCls} />
+						{#if formula.intermediate}
+							<!-- Whose the step is. A shared one belongs to no calculation, so the save writes it
+							     on its own and declares it here rather than into the set. -->
+							<label class="col-span-2 block text-xs text-brand-muted">Read by
+								<select bind:value={formula.shared} class={inputCls}>
+									<option value={false}>This calculation only</option>
+									<option value={true}>Any calculation that declares it</option>
+								</select>
+								<span class="mt-1 block text-[11px] text-brand-muted">
+									{formula.shared
+										? 'Written on its own, belonging to no calculation, and brought into this one. Editing it later changes it everywhere it is read.'
+										: 'Written into this calculation, and read by its formulas alone.'}
+								</span>
 							</label>
-							<label class="text-xs text-brand-muted">Warning max
-								<input type="number" step="any" bind:value={formula.thresholds.warningMax} class={inputCls} />
-							</label>
-							<label class="text-xs text-brand-muted">Alarm min
-								<input type="number" step="any" bind:value={formula.thresholds.alarmMin} class={inputCls} />
-							</label>
-							<label class="text-xs text-brand-muted">Alarm max
-								<input type="number" step="any" bind:value={formula.thresholds.alarmMax} class={inputCls} />
-							</label>
+						{:else}
+							<!-- The output parameter's own bounds: its `alarm_thresholds` row with no site, which
+							     a site-specific row overrides. -->
+							<fieldset class="col-span-2 border border-brand-divider rounded px-2 py-2">
+								<legend class="text-xs text-brand-muted px-1">Bounds on {formula.code || 'the output'}</legend>
+								<div class="grid grid-cols-4 gap-2">
+									<label class="text-xs text-brand-muted">Warning min
+										<input type="number" step="any" bind:value={formula.thresholds.warningMin} class={inputCls} />
+									</label>
+									<label class="text-xs text-brand-muted">Warning max
+										<input type="number" step="any" bind:value={formula.thresholds.warningMax} class={inputCls} />
+									</label>
+									<label class="text-xs text-brand-muted">Alarm min
+										<input type="number" step="any" bind:value={formula.thresholds.alarmMin} class={inputCls} />
+									</label>
+									<label class="text-xs text-brand-muted">Alarm max
+										<input type="number" step="any" bind:value={formula.thresholds.alarmMax} class={inputCls} />
+									</label>
+								</div>
+								<p class="mt-1 text-[11px] text-brand-muted">Written when the set is saved. A site with bounds of its own keeps them.</p>
+							</fieldset>
+						{/if}
+						<div class="col-span-2 flex flex-wrap gap-2">
+							<Button size="sm" disabled={busy} onclick={() => onedited?.()}>Read it at the visit again</Button>
+							<ConfirmPopover message="Drop {formula.code || 'this formula'} from the calculation? The save deletes it." confirmLabel="Drop" onconfirm={() => ondrop?.(formula!)}>
+								<Button size="sm" variant="ghost" disabled={busy}>Drop</Button>
+							</ConfirmPopover>
 						</div>
-						<p class="mt-1 text-[11px] text-brand-muted">Written when the set is saved. A site with bounds of its own keeps them.</p>
-					</fieldset>
-				{/if}
-				{#each diagnostics as diagnostic, i (i)}
-					<p class="text-xs text-severity-alarm">{diagnostic.message}</p>
-				{/each}
-				<div class="flex flex-wrap gap-2">
-					<Button size="sm" disabled={busy} onclick={() => onedited?.()}>Read it at the visit again</Button>
-					<ConfirmPopover message="Drop {formula.code || 'this formula'} from the calculation? The save deletes it." confirmLabel="Drop" onconfirm={() => ondrop?.(formula!)}>
-						<Button size="sm" variant="ghost" disabled={busy}>Drop</Button>
-					</ConfirmPopover>
+					</div>
+					<div class="min-w-0 space-y-2">
+						<VisualFormulaBuilder
+							bind:this={builder}
+							bind:value={formula.formula}
+							bind:diagnostics
+							{variables}
+							{constants}
+							steps={stepsBefore}
+							hasCurve={formula.curve_slot.trim().length > 0}
+							ownCode={formula.code || undefined}
+						/>
+						{#each diagnostics as diagnostic, i (i)}
+							<p class="text-xs text-severity-alarm">{diagnostic.message}</p>
+						{/each}
+					</div>
 				</div>
 			{:else if formula && shared}
 				<p class="font-mono text-xs break-all">{formula.formula}</p>
@@ -233,6 +255,29 @@
 						{/each}
 					</ul>
 				{/if}
+			{/if}
+
+			{#if held !== null}
+				<!-- How the set reaches this input (Q230). A calculation on a stream reading a value the
+				     lab measures at a visit has nothing at most of its instants, unless it holds the
+				     last one. -->
+				<label class="block text-xs text-brand-muted">Between visits
+					<select
+						aria-label="Between visits"
+						value={held ? 'hold' : 'exact'}
+						onchange={(e) => onhold?.((e.currentTarget as HTMLSelectElement).value === 'hold')}
+						disabled={busy}
+						class={inputCls}
+					>
+						<option value="exact">Read at the instant computed</option>
+						<option value="hold">Hold the last value measured</option>
+					</select>
+					<span class="mt-1 block text-[11px] text-brand-muted">
+						{held
+							? 'Every value computed between visits carries the number last measured, until the next visit measures a new one.'
+							: 'An instant with no reading of it computes nothing.'}
+					</span>
+				</label>
 			{/if}
 
 			{@render chips('Reads', reads)}

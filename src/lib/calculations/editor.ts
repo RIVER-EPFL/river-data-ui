@@ -3,6 +3,8 @@ import type { Constant, DerivedParameter, Parameter } from '$api/crud';
 import type { FormulaDraft, FormulaDraftRunRequest, FormulaSetSave, ToolOutput } from '$api/service';
 import { toNum, type ThresholdForm, type ThresholdPatch } from '$lib/derivedParameters';
 import { CURVE_VARIABLES, FORMULA_CONSTANTS, FORMULA_FUNCTIONS, identifiers } from '$lib/formula/lint';
+import { unparsed } from '$components/formula/ast';
+import { heldOf } from '$lib/calculations/heldInputs';
 
 // A calculation as one page holds it: the formulas in order, what they read, what they publish,
 // and the request that runs them as they stand.
@@ -33,6 +35,12 @@ export interface EditableFormula extends FormulaDraft {
 	 */
 	thresholds: ThresholdForm;
 	/**
+	 * The variables this formula holds between visits rather than reading at the instant computed
+	 * (Q230), as the stored sources declare them. Read-only here: the save writes the formulas,
+	 * and the declaration is the source row's.
+	 */
+	held: string[];
+	/**
 	 * Why the code can no longer be changed, from the server. Null while it is still free: the
 	 * catalog code is the CSV column header and the public API's identifier, so a rename is
 	 * refused once readings are stored under the output parameter or a project publishes it.
@@ -61,6 +69,7 @@ export function editableFormula(stored: DerivedParameter): EditableFormula {
 		intermediate: stored.intermediate ?? false,
 		shared: false,
 		thresholds: blankThresholds(),
+		held: heldOf(stored.sources),
 		codeLocked: stored.code_locked ?? null,
 	};
 }
@@ -98,6 +107,7 @@ export function blankFormula(existing: EditableFormula[]): EditableFormula {
 		intermediate: false,
 		shared: false,
 		thresholds: blankThresholds(),
+		held: [],
 		codeLocked: null,
 	};
 }
@@ -178,6 +188,57 @@ export function formulaSetBody(formulas: EditableFormula[], migrate: boolean): F
  */
 export function previewable<T extends { code: string; formula: string }>(formulas: T[]): T[] {
 	return formulas.filter((f) => f.code.trim() !== '' && f.formula.trim() !== '');
+}
+
+/** A formula the chart leaves out, and the line the reader is given for it. */
+export interface NotDrawn {
+	code: string;
+	reason: string;
+}
+
+/**
+ * The formulas the chart asks the server for, and the ones it leaves out.
+ *
+ * The chart is a guide over what exists, and a half-written formula is the normal state while
+ * authoring: a row the parser does not reach the end of is the cell's business, and a row naming
+ * a parameter the site does not measure has no series to draw whatever the server says.
+ */
+export function drawable<T extends { code: string; formula: string }>(
+	formulas: T[],
+	site: { measured: string[]; constants: string[] } | null
+): { draw: T[]; skipped: NotDrawn[] } {
+	const draw: T[] = [];
+	const skipped: NotDrawn[] = [];
+	const codes = new Set(formulas.map((f) => f.code.trim()).filter(Boolean));
+	const resolves = new Set([
+		...(site?.measured ?? []),
+		...(site?.constants ?? []),
+		...LANGUAGE,
+		...SITE_PROPERTIES,
+		...CURVE_VARIABLES,
+	]);
+	for (const formula of previewable(formulas)) {
+		const code = formula.code.trim();
+		if (unparsed(formula.formula) !== '') {
+			skipped.push({ code, reason: 'still being written' });
+			continue;
+		}
+		const missing = site
+			? [
+					...new Set(
+						identifiers(formula.formula)
+							.map((i) => i.name)
+							.filter((name) => !resolves.has(name) && !codes.has(name))
+					),
+				]
+			: [];
+		if (missing.length > 0) {
+			skipped.push({ code, reason: `the site does not measure ${missing.join(', ')}` });
+			continue;
+		}
+		draw.push(formula);
+	}
+	return { draw, skipped };
 }
 
 export type InputKind = 'replicates' | 'parameter' | 'constant' | 'step' | 'curve' | 'other';

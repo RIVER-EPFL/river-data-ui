@@ -29,6 +29,19 @@ export function parseFromMeval(expr: string): FormulaNode {
 	return parseExpr(s, 0).node;
 }
 
+/**
+ * The text the expression does not reach, or an empty string when it reaches all of it.
+ *
+ * The parser stops at the first thing it cannot continue with and hands the remainder back, so
+ * `a b` reads as `a` with `b` left over. That leftover is what the server refuses as a parse
+ * error, known here without asking it.
+ */
+export function unparsed(expr: string): string {
+	const s = expr.trim();
+	if (!s) return '';
+	return parseExpr(s, 0).rest.trim();
+}
+
 function parseExpr(s: string, minPrec: number): { node: FormulaNode; rest: string } {
 	let { node, rest } = parseAtom(s);
 	rest = rest.trimStart();

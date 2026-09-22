@@ -5,22 +5,25 @@
 	import { tokens } from '$lib/charts/tokens';
 	import { tzDateOption } from '$lib/charts/uPlotTheme';
 	import { previewInstant, type PreviewInstant } from '$lib/tools/runTable';
-	import { previewable } from '$lib/calculations/editor';
+	import { drawable } from '$lib/calculations/editor';
 
 	let {
 		formulas,
+		siteId,
 		sites,
-		variableNames,
+		constantNames = [],
 		onhover,
 	}: {
 		formulas: DraftFormula[];
+		/** The site the page is on. The chart draws over its streams, or says what it lacks. */
+		siteId: string;
 		sites: Array<{ id: string; name: string; availableParamNames?: string[] }>;
-		variableNames: string[];
+		/** Catalog constants, which resolve server-side and need no series at the site. */
+		constantNames?: string[];
 		/** The instant under the cursor, so a caller can show the set's numbers there. */
 		onhover?: (at: PreviewInstant | null) => void;
 	} = $props();
 
-	let selectedSiteId = $state<string>('');
 	let range = $state<'24h' | '7d' | '30d'>('24h');
 	let preview = $state<PreviewDerivedResponse | null>(null);
 	let previewError = $state<string | null>(null);
@@ -28,24 +31,16 @@
 	let fetchToken = 0;
 
 	// A row still being written is the cell panel's business: the chart asks only for the formulas
-	// the server can evaluate.
-	const ready = $derived(previewable(formulas));
-
-	const eligibleSites = $derived(
-		sites.filter((s) => {
-			if (!s.availableParamNames) return true;
-			return variableNames.every((v) => s.availableParamNames!.includes(v));
-		})
+	// the server can evaluate at the chosen site, and names the rest in one line.
+	const measured = $derived(sites.find((s) => s.id === siteId)?.availableParamNames ?? null);
+	const guide = $derived(
+		drawable(formulas, measured ? { measured, constants: constantNames } : null)
 	);
+	const ready = $derived(guide.draw);
+	const notDrawn = $derived(guide.skipped);
 
 	$effect(() => {
-		if (!selectedSiteId && eligibleSites.length > 0) {
-			selectedSiteId = eligibleSites[0].id;
-		}
-	});
-
-	$effect(() => {
-		if (ready.length === 0 || !selectedSiteId) return;
+		if (ready.length === 0 || !siteId) return;
 		// `range` is read here so the effect tracks it; runPreview runs from a timeout, outside
 		// the tracking scope.
 		const days = rangeDays(range);
@@ -71,7 +66,7 @@
 		try {
 			const result = await previewDerived({
 				formulas: ready,
-				site_id: selectedSiteId,
+				site_id: siteId,
 				start: start.toISOString(),
 				end: end.toISOString(),
 			});
@@ -152,18 +147,6 @@
 	<div class="flex items-center justify-between gap-3 px-3 py-2 border-b border-brand-divider bg-brand-bg flex-wrap">
 		<span class="text-xs font-semibold text-brand-muted uppercase tracking-wider">Live preview</span>
 
-		<label class="text-xs flex items-center gap-1.5">
-			<span class="text-brand-muted">Site</span>
-			<select bind:value={selectedSiteId} class="px-2 py-1 text-xs border border-brand-divider rounded bg-brand-surface">
-				{#each eligibleSites as s}
-					<option value={s.id}>{s.name}</option>
-				{/each}
-				{#if eligibleSites.length === 0}
-					<option value="" disabled>No sites with all required parameters</option>
-				{/if}
-			</select>
-		</label>
-
 		<div class="flex gap-0.5">
 			{#each ['24h', '7d', '30d'] as r}
 				<button
@@ -178,13 +161,17 @@
 		{#if formulas.length === 0}
 			<p class="text-sm text-brand-muted">Build a formula to see a preview here.</p>
 		{:else if ready.length === 0}
-			<p class="text-sm text-brand-muted">Nothing to preview yet: a formula needs a code and an expression.</p>
-		{:else if !selectedSiteId}
-			<p class="text-sm text-brand-muted">No site available with all required parameters.</p>
+			<p class="text-sm text-brand-muted">
+				{notDrawn.length > 0
+					? 'Nothing to draw here yet.'
+					: 'Nothing to preview yet: a formula needs a code and an expression.'}
+			</p>
+		{:else if !siteId}
+			<p class="text-sm text-brand-muted">Choose a site above to draw the set over its streams.</p>
 		{:else if loading && !preview}
 			<p class="text-sm text-brand-muted">Loading preview…</p>
 		{:else if previewError}
-			<p class="text-sm text-severity-alarm">Preview error: {previewError}</p>
+			<p class="text-sm text-brand-muted">Not drawn yet: the set does not run at this site.</p>
 		{:else if preview}
 			{#if chartData[0].length === 0}
 				<p class="text-sm text-brand-muted">No data in selected range.</p>
@@ -194,6 +181,12 @@
 					<p class="text-xs text-severity-warning mt-2">{errorCount} of {sampleCount} samples produced errors.</p>
 				{/if}
 			{/if}
+		{/if}
+		{#if notDrawn.length > 0}
+			<p class="text-xs text-brand-muted mt-2">
+				Not drawing
+				{#each notDrawn as row, i (row.code)}{i > 0 ? ', ' : ''}<span class="font-mono">{row.code}</span> ({row.reason}){/each}.
+			</p>
 		{/if}
 	</div>
 </div>

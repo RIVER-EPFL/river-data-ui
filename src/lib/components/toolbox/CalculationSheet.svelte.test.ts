@@ -165,6 +165,15 @@ describe('the tables as they are worked on', () => {
 			});
 		}
 		expect(ondrop).not.toHaveBeenCalled();
+		// So each says the button it does take, rather than only that it is empty.
+		for (const [title, said] of [
+			['Steps', 'Add step'],
+			['Outputs', 'Add output'],
+		]) {
+			expect(
+				view.container.querySelector(`section[aria-label="${title}"]`)!.textContent,
+			).toContain(said);
+		}
 	});
 
 	it('says what an outlined input row is, once, under the table', async () => {
@@ -175,6 +184,46 @@ describe('the tables as they are worked on', () => {
 		});
 		await waitFor(() => expect(view.container.textContent).toContain('read by no formula yet'));
 		expect(view.container.textContent).toContain('the save does not keep it');
+	});
+});
+
+describe('the steps switch', () => {
+	const single = [formula({ code: 'out', formula: 'lab_co2 * 2' })];
+
+	it('draws a calculation with no step as two tables, with Add step beside Add output', async () => {
+		const onadd = vi.fn();
+		const view = render(CalculationSheet, {
+			blocks: sheetBlocks(single, [], [], undefined, undefined, false),
+			formulas: single,
+			onadd,
+			onsteps: vi.fn(),
+		});
+		expect(view.container.querySelector('section[aria-label="Steps"]')).toBeNull();
+		expect(view.container.querySelector('.lg\\:grid-cols-2')).not.toBeNull();
+		expect((screen.getByRole('checkbox', { name: 'Intermediate steps' }) as HTMLInputElement).checked).toBe(false);
+		await userEvent.click(screen.getByRole('button', { name: 'Add step' }));
+		expect(onadd).toHaveBeenCalledWith('steps');
+	});
+
+	it('turns the steps on', async () => {
+		const onsteps = vi.fn();
+		render(CalculationSheet, {
+			blocks: sheetBlocks(single, [], [], undefined, undefined, false),
+			formulas: single,
+			onsteps,
+		});
+		await userEvent.click(screen.getByRole('checkbox', { name: 'Intermediate steps' }));
+		expect(onsteps).toHaveBeenCalledWith(true);
+	});
+
+	it('refuses to turn the steps off while one stands, and says which', async () => {
+		const onsteps = vi.fn();
+		render(CalculationSheet, { blocks: blocks(), formulas, onsteps });
+		const box = screen.getByRole('checkbox', { name: 'Intermediate steps' });
+		await userEvent.click(box);
+		expect(onsteps).not.toHaveBeenCalled();
+		expect((box as HTMLInputElement).checked).toBe(true);
+		expect(screen.getByText(/^Steps stay on/).textContent).toContain('hs_k');
 	});
 });
 

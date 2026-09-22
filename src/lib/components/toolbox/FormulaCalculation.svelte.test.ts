@@ -1,5 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/svelte';
-import userEvent from '@testing-library/user-event';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Scenario: a calculation is read over dummy values before it is saved (M294).
@@ -41,6 +40,7 @@ vi.mock('$api/service', () => ({
 		versions: [],
 	})),
 	listSiteVisits: vi.fn(async () => ({ visits: [] })),
+	listTools: vi.fn(async () => []),
 	listToolVersionUsage: vi.fn(async () => []),
 	listVersionLedger: (id: string) => listVersionLedger(id),
 	previewDerived: vi.fn(async () => ({
@@ -75,6 +75,16 @@ vi.mock('$api/crud', () => ({
 				intermediate: false,
 				code_locked: null,
 				output_parameter_id: 'p-out',
+				sources: [
+					{
+						id: 's1',
+						derived_definition_id: 'f1',
+						parameter_id: 'p1',
+						variable_name: 'lab_temp',
+						alignment: 'hold',
+						created_at: '',
+					},
+				],
 			},
 		]),
 		parameters: entity([
@@ -108,6 +118,9 @@ vi.mock('$app/state', () => ({ page: { url: new URL('http://localhost/toolbox/ca
 
 const FormulaCalculation = (await import('./FormulaCalculation.svelte')).default;
 
+// Every test here mounts the whole page and waits on the 400 ms rerun debounce, on real timers.
+vi.setConfig({ testTimeout: 40_000 });
+
 beforeEach(() => {
 	draftRunFormulas.mockClear();
 	saveFormulaSet.mockClear();
@@ -139,18 +152,34 @@ describe('reading a calculation over its values', () => {
 
 describe('two runs in flight', () => {
 	it('keeps the later run`s numbers when an earlier one answers after it', async () => {
+		const settle = { timeout: 15_000 };
 		const view = render(FormulaCalculation, { calculationId: 'calc-1' });
-		await waitFor(() => expect(draftRunFormulas).toHaveBeenCalledTimes(1));
-		await userEvent.click(await screen.findByRole('button', { name: 'Run' }));
-		await waitFor(() => expect(draftRunFormulas).toHaveBeenCalledTimes(2));
+		await waitFor(() => expect(draftRunFormulas).toHaveBeenCalledTimes(1), settle);
+		// Editing the set is what reruns it: there is no Run button, the site and the visit are the
+		// page's own, and a change reads the set again once it has settled.
+		await fireEvent.click(await screen.findByRole('button', { name: 'Add output' }));
+		await waitFor(() => expect(draftRunFormulas).toHaveBeenCalledTimes(2), settle);
 
 		const [first, second] = pending.splice(0, 2);
 		second!(result(20));
-		await waitFor(() => expect(view.container.textContent).toContain('20'));
+		await waitFor(() => expect(view.container.textContent).toContain('20'), settle);
 		first!(result(10));
 		await new Promise((resolve) => setTimeout(resolve, 20));
 		expect(view.container.textContent).toContain('20');
 		expect(view.container.textContent).not.toContain('10');
+	});
+});
+
+// Scenario: the set reads a value the lab measures at a visit, declared held (Q230), and the
+// author is about to save it.
+//
+// Expected behaviour: the save arm names the input and what it does between visits before the
+// save, rather than leaving it to be found in the values afterwards.
+describe('a set holding an input between visits', () => {
+	it('names it and what it does, before the save', async () => {
+		render(FormulaCalculation, { calculationId: 'calc-1' });
+		const caveat = await screen.findByText(/lab_temp is held between visits/);
+		expect(caveat.textContent).toContain('until the next visit measures a new one');
 	});
 });
 
@@ -185,8 +214,8 @@ describe('a calculation that corrects with a curve', () => {
 describe('reading a calculation over a site series', () => {
 	it('offers the series when every input is a parameter a site streams', async () => {
 		render(FormulaCalculation, { calculationId: 'calc-1' });
-		await waitFor(() => expect(screen.getByText("Over a site's series")).toBeTruthy());
-		expect(screen.getByText(/Move along the chart/)).toBeTruthy();
+		await waitFor(() => expect(screen.getByText('Over its series')).toBeTruthy());
+		expect(screen.getByText(/move along the chart/)).toBeTruthy();
 	});
 });
 

@@ -17,7 +17,7 @@ test('a corrected input shows its recomputed output without a reload', async ({ 
 	const { siteId, inputName, outputName } = await seedComputedVisit(request, 't102', ENTERED);
 	await signIn(page);
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
-	await expect(page.getByText('1 visit')).toBeVisible();
+	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
 
 	// The output has its own column, holding what the calculation wrote.
 	const output = sheetCell(page, new RegExp(`^${outputName} at`));

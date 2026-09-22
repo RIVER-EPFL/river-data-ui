@@ -48,7 +48,7 @@ test('dragging the visits bar narrows the listing, and All dates puts it back', 
 
 	await signIn(page);
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
-	await expect(page.getByText('3 visits')).toBeVisible();
+	await expect(page.getByText('3 visits', { exact: true })).toBeVisible();
 
 	// The bar spans the site's own visits, so its left end is the 2019 one.
 	const bar = page.locator('.noUi-target').first();
@@ -68,5 +68,5 @@ test('dragging the visits bar narrows the listing, and All dates puts it back', 
 	await expect(page.getByRole('button', { name: 'All dates' })).toBeVisible();
 
 	await page.getByRole('button', { name: 'All dates' }).click();
-	await expect(page.getByText('3 visits')).toBeVisible();
+	await expect(page.getByText('3 visits', { exact: true })).toBeVisible();
 });

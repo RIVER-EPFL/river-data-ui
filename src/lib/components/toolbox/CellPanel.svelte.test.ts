@@ -114,3 +114,38 @@ describe('CellPanel', () => {
 		expect(screen.queryByLabelText('Code')).toBeNull();
 	});
 });
+
+// Scenario: the author opens an input the lab measures at a visit, on a calculation whose output
+// a site fills from a stream (Q230).
+//
+// Expected behaviour: the panel offers how the set reaches it, says what each choice does, and
+// emits the change. A row the rule does not apply to is offered nothing.
+describe('how an input is reached between visits', () => {
+	it('offers the rule on the input, and says what holding it does', async () => {
+		const onhold = vi.fn();
+		render(CellPanel, {
+			row: rowFor('lab_co2'),
+			formulas,
+			variables,
+			held: false,
+			onhold,
+		});
+		const choice = screen.getByLabelText('Between visits') as HTMLSelectElement;
+		expect(choice.value).toBe('exact');
+		expect(screen.getByText(/An instant with no reading of it computes nothing/)).toBeTruthy();
+
+		await userEvent.selectOptions(choice, 'hold');
+		expect(onhold).toHaveBeenCalledWith(true);
+	});
+
+	it('says what a held input does once it is held', () => {
+		render(CellPanel, { row: rowFor('lab_co2'), formulas, variables, held: true });
+		expect((screen.getByLabelText('Between visits') as HTMLSelectElement).value).toBe('hold');
+		expect(screen.getByText(/carries the number last measured/)).toBeTruthy();
+	});
+
+	it('offers nothing where the rule does not apply', () => {
+		render(CellPanel, { row: rowFor('hs_k'), formula: formulas[0], formulas, variables });
+		expect(screen.queryByLabelText('Between visits')).toBeNull();
+	});
+});

@@ -93,11 +93,12 @@ export function linksOf(
 }
 
 /**
- * The three blocks, from the set and from a run of it.
+ * The blocks, from the set and from a run of it: inputs, steps and outputs, or inputs and outputs
+ * when `showSteps` is off and the set holds no step.
  *
  * `run` is what the run was given and `tables` what it computed; without either the blocks still
  * carry a row per input, step and output, with empty cells. Every block is drawn against the same
- * replicate letters, so the three tables line up side by side.
+ * replicate letters, so the tables line up side by side.
  */
 export function sheetBlocks(
 	formulas: EditableFormula[],
@@ -105,6 +106,7 @@ export function sheetBlocks(
 	declared: DeclaredInput[] = [],
 	run?: RunInputTables,
 	tables?: RunTables,
+	showSteps = true,
 ): SheetBlock[] {
 	const columns = [...new Set([...(run?.columns ?? []), ...(tables?.columns ?? [])])].sort((a, b) =>
 		a.localeCompare(b),
@@ -209,7 +211,9 @@ export function sheetBlocks(
 
 	return [
 		{ key: 'inputs', title: 'Inputs', columns, rows: inputRows },
-		{ key: 'steps', title: 'Steps', columns, rows: steps },
+		...(showSteps || steps.length > 0
+			? [{ key: 'steps' as const, title: 'Steps', columns, rows: steps }]
+			: []),
 		{
 			key: 'outputs',
 			title: 'Outputs',
@@ -217,6 +221,16 @@ export function sheetBlocks(
 			rows: [...outputs, ...statistics],
 		},
 	];
+}
+
+/**
+ * Why the steps block cannot be turned off, or null when it can: a step is a formula of the set,
+ * and hiding its block would hide the formula.
+ */
+export function stepsOffRefusal(formulas: Array<Pick<EditableFormula, 'code' | 'intermediate'>>): string | null {
+	const steps = formulas.filter((f) => f.intermediate).map((f) => f.code.trim() || 'an unnamed step');
+	if (steps.length === 0) return null;
+	return `Steps stay on while the calculation has ${steps.length === 1 ? 'a step' : 'steps'}: ${steps.join(', ')}.`;
 }
 
 /**
@@ -266,6 +280,23 @@ export type SheetDrop = { kind: 'input' } | { kind: 'identifier'; key: string } 
  * A drop on the inputs block brings the entry in as a row of its own; a drop on a row the set
  * computes writes the entry into that formula. A statistic is neither.
  */
+/**
+ * What an empty block tells a reader. On an editable sheet each one names how a row arrives there,
+ * which is the whole of the first gesture: the inputs take a drop, the steps and the outputs take
+ * their own button. Read-only, each says only that it is empty.
+ */
+export function emptyBlockLine(block: SheetBlockKey, editable: boolean): string {
+	if (block === 'inputs') {
+		return editable
+			? 'Drop a parameter or constant here, or write a formula that reads one.'
+			: 'Nothing read yet.';
+	}
+	if (block === 'steps') {
+		return editable ? 'No steps yet: Add step puts one here.' : 'No steps: every formula publishes.';
+	}
+	return editable ? 'Nothing published yet: Add output puts a formula here.' : 'Nothing published yet.';
+}
+
 export function dropOn(block: SheetBlockKey, row: SheetRow | null): SheetDrop {
 	if (block === 'inputs') return { kind: 'input' };
 	if (row?.code) return { kind: 'identifier', key: row.key };

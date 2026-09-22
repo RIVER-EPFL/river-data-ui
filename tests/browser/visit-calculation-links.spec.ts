@@ -53,7 +53,14 @@ async function seedComputedVisit(request: APIRequestContext): Promise<Fixture> {
 			role,
 			ordinal,
 		});
-		await post('/site_parameters', { site_id: site.id, parameter_id: parameterId, name: code });
+		// The visit arm: a slot left at the column default is the stream engine's, and the chain
+		// skips an output it holds.
+		await post('/site_parameters', {
+			site_id: site.id,
+			parameter_id: parameterId,
+			name: code,
+			cadence: 'low',
+		});
 	};
 	const input = await post('/parameters', {
 		code: inputName,
@@ -116,7 +123,7 @@ test('the save says what each output holds before it moves it', async ({ page, r
 	const { siteId, calculation, inputName, outputName } = await seedComputedVisit(request);
 	await signIn(page);
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
-	await expect(page.getByText('1 visit')).toBeVisible();
+	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
 
 	await typeInto(page, new RegExp(`^${inputName} at`), '12');
 
@@ -145,7 +152,7 @@ test('a computed reading opens its visit, its run and version, and reopens that 
 
 	// The first visit is chosen at Data entry through its record's calculation chip.
 	await page.goto(`${BASE_PATH}/sites/${first.siteId}?tab=visits`);
-	await expect(page.getByText('1 visit')).toBeVisible();
+	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
 	await frozenButton(page, { name: /./ }).first().click();
 	await page
 		.getByRole('row')
@@ -156,7 +163,7 @@ test('a computed reading opens its visit, its run and version, and reopens that 
 
 	// The second visit's output is walked from its own reading.
 	await page.goto(`${BASE_PATH}/sites/${second.siteId}?tab=visits`);
-	await expect(page.getByText('1 visit')).toBeVisible();
+	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
 	await sheetCell(page, new RegExp(`^${second.outputName} at`)).dblclick();
 	const actions = page.getByRole('group', { name: 'Actions' }).first();
 
@@ -187,7 +194,7 @@ test('a computed reading opens its visit, its run and version, and reopens that 
 	);
 
 	await page.goto(`${BASE_PATH}/sites/${second.siteId}?tab=visits`);
-	await expect(page.getByText('1 visit')).toBeVisible();
+	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
 	await sheetCell(page, new RegExp(`^${second.outputName} at`)).dblclick();
 	await page.getByText('Details').first().click();
 	await page.getByRole('button', { name: 'Show tool run' }).first().click();
@@ -203,7 +210,7 @@ test('a computed row opens its calculation at this visit, and its point record i
 	const { siteId, siteName, calculation, inputName, outputName } = await seedComputedVisit(request);
 	await signIn(page);
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
-	await expect(page.getByText('1 visit')).toBeVisible();
+	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
 	await frozenButton(page, { name: /./ }).first().click();
 
 	// The record opens below the grid rather than navigating away.
@@ -273,7 +280,14 @@ async function seedCurveRun(request: APIRequestContext) {
 			role,
 			ordinal,
 		});
-		await post('/site_parameters', { site_id: site.id, parameter_id: parameterId, name: code });
+		// The visit arm: a slot left at the column default is the stream engine's, and the chain
+		// skips an output it holds.
+		await post('/site_parameters', {
+			site_id: site.id,
+			parameter_id: parameterId,
+			name: code,
+			cadence: 'low',
+		});
 	};
 	const input = await post('/parameters', {
 		code: inputName,
@@ -364,7 +378,7 @@ test('the row header reopens a calculation on the curve its last run here used',
 	const { siteId, calculation, outputName, curveName } = await seedCurveRun(request);
 	await signIn(page);
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
-	await expect(page.getByText('1 visit')).toBeVisible();
+	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
 	await frozenButton(page, { name: /./ }).first().click();
 
 	const outputRow = page.getByRole('row').filter({ hasText: outputName });

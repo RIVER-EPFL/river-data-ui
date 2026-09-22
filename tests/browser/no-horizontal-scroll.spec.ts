@@ -66,7 +66,7 @@ test('nothing on an expanded visit scrolls sideways in a window with room', asyn
 	await signIn(page);
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
 
-	await expect(page.getByText('1 visit')).toBeVisible();
+	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
 	// A site of twenty parameters is genuinely wider than the window, so the grid scrolls inside
 	// itself. Nothing else may.
 	await expect.poll(() => sideScrollers(page)).toHaveLength(1);

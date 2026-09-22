@@ -19,6 +19,7 @@ import {
 	inputRows,
 	outputRows,
 	parseReplicates,
+	drawable,
 	previewable,
 	scalarInputs,
 	scalarOverrides,
@@ -38,6 +39,7 @@ const formula = (over: Partial<EditableFormula>): EditableFormula => ({
 	intermediate: false,
 	shared: false,
 	thresholds: blankThresholds(),
+	held: [],
 	codeLocked: null,
 	...over,
 });
@@ -164,6 +166,42 @@ describe('ordering', () => {
 		];
 		expect(previewable(rows).map((f) => f.code)).toEqual(['out']);
 		expect(previewable([blankFormula([])])).toEqual([]);
+	});
+});
+
+describe('what the chart draws, being a guide', () => {
+	const site = { measured: ['a', 'b'], constants: ['k'] };
+
+	it('leaves out a formula the parser does not reach the end of', () => {
+		const rows = [
+			formula({ code: 'good', formula: 'a + b', ordinal: 1 }),
+			formula({ code: 'typing', formula: 'a a', ordinal: 2 }),
+		];
+		const { draw, skipped } = drawable(rows, site);
+		expect(draw.map((f) => f.code)).toEqual(['good']);
+		expect(skipped).toEqual([{ code: 'typing', reason: 'still being written' }]);
+	});
+
+	it('leaves out a formula reading what the site does not measure, and names it', () => {
+		const rows = [formula({ code: 'out', formula: 'a * turbidity', ordinal: 1 })];
+		const { draw, skipped } = drawable(rows, site);
+		expect(draw).toEqual([]);
+		expect(skipped).toEqual([{ code: 'out', reason: 'the site does not measure turbidity' }]);
+	});
+
+	it('draws a formula over a constant, a step and the language, none of which the site measures', () => {
+		const rows = [
+			formula({ code: 'step', formula: 'a * k', intermediate: true, ordinal: 1 }),
+			formula({ code: 'out', formula: 'exp(step) * pi + latitude', ordinal: 2 }),
+		];
+		const { draw, skipped } = drawable(rows, site);
+		expect(draw.map((f) => f.code)).toEqual(['step', 'out']);
+		expect(skipped).toEqual([]);
+	});
+
+	it('asks nothing of a site it has none for, so a set draws before a site is chosen', () => {
+		const rows = [formula({ code: 'out', formula: 'a * turbidity', ordinal: 1 })];
+		expect(drawable(rows, null).draw.map((f) => f.code)).toEqual(['out']);
 	});
 });
 

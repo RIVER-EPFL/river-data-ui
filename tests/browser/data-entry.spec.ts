@@ -22,7 +22,14 @@ async function seedFormula(request: APIRequestContext) {
 	const group = await post('/parameter_groups', { code: calculation, label: siteName, ordinal: 1 });
 	const declare = async (parameterId: string, code: string, role: string, ordinal: number) => {
 		await post('/parameter_group_members', { group_id: group.id, parameter_id: parameterId, role, ordinal });
-		await post('/site_parameters', { site_id: site.id, parameter_id: parameterId, name: code });
+		// The visit arm: a slot left at the column default is the stream engine's, and the chain
+		// skips an output it holds.
+		await post('/site_parameters', {
+			site_id: site.id,
+			parameter_id: parameterId,
+			name: code,
+			cadence: 'low',
+		});
 	};
 	const input = await post('/parameters', {
 		code: inputName,
@@ -86,7 +93,7 @@ test('a field day is entered from Data entry: station, date, a form, save', asyn
 	await expect(input).toHaveValue('7');
 
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
-	await expect(page.getByText('1 visit')).toBeVisible();
+	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
 });
 
 test('a link to the retired tools page lands on Data entry with its query', async ({ page }) => {

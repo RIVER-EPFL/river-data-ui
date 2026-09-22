@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { calculationApplyPreview } from './apply';
+import { calculationApplyPreview, sitesApplied } from './apply';
 
 const slot = (id: string, code: string, role: string) => ({
 	parameter_id: id,
@@ -51,5 +51,31 @@ describe('calculationApplyPreview', () => {
 		);
 		expect(preview.outputsAdding[0].name).toBe('suva');
 		expect(preview.complete).toBe(false);
+	});
+});
+
+describe('sitesApplied', () => {
+	const slot = (site_id: string, parameter_id: string) => ({ site_id, parameter_id });
+	const sites = [
+		{ id: 's1', name: 'Saxon' },
+		{ id: 's2', name: 'Martigny' },
+		{ id: 's3', name: 'Verbier' },
+	];
+
+	it('lists the sites declaring every output, by name', () => {
+		const applied = sitesApplied(
+			['suva', 'sd'],
+			[slot('s1', 'suva'), slot('s1', 'sd'), slot('s2', 'sd'), slot('s2', 'suva'), slot('s3', 'suva')],
+			sites,
+		);
+		expect(applied.map((s) => s.name)).toEqual(['Martigny', 'Saxon']);
+	});
+
+	it('lists no site for a calculation that publishes nothing', () => {
+		expect(sitesApplied([], [slot('s1', 'suva')], sites)).toEqual([]);
+	});
+
+	it('names a site the catalog does not carry by its id', () => {
+		expect(sitesApplied(['suva'], [slot('s9', 'suva')], sites)).toEqual([{ id: 's9', name: 's9' }]);
 	});
 });

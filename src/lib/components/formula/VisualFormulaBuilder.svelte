@@ -282,6 +282,11 @@
 		return tokens.dataViz[i % tokens.dataViz.length];
 	}
 
+	/** Put the caret in the formula's text field, which also scrolls it into view. */
+	export function focus() {
+		textInput?.focus();
+	}
+
 	function hashCode(s: string): number {
 		let h = 0;
 		for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;

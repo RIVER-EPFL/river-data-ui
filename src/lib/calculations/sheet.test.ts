@@ -6,10 +6,12 @@ import {
 	cellEdit,
 	contributors,
 	dropOn,
+	emptyBlockLine,
 	insertIdentifier,
 	linksOf,
 	rowKey,
 	sheetBlocks,
+	stepsOffRefusal,
 	withReplicate,
 } from './sheet';
 import { runInputTables, runTables } from '$lib/tools/runTable';
@@ -330,5 +332,61 @@ describe('a palette entry dropped on a block', () => {
 	it('writes into the formula of a row that computes one', () => {
 		expect(dropOn('steps', row(1, 'hs_k'))).toEqual({ kind: 'identifier', key: 'hs_k' });
 		expect(dropOn('outputs', null)).toBeNull();
+	});
+});
+
+// Scenario: a fresh calculation, whose three blocks are all empty.
+//
+// Expected behaviour: each says how a row arrives there, so the sheet teaches its first gesture
+// in every block rather than only in the one that takes a drop. Read-only, each says only that it
+// is empty: there is nothing a reader could do about it.
+describe('emptyBlockLine', () => {
+	it('names the drop the inputs block takes', () => {
+		expect(emptyBlockLine('inputs', true)).toContain('Drop a parameter or constant here');
+	});
+
+	it('names the button each computed block takes', () => {
+		expect(emptyBlockLine('steps', true)).toContain('Add step');
+		expect(emptyBlockLine('outputs', true)).toContain('Add output');
+	});
+
+	it('says only that a read-only block is empty', () => {
+		for (const block of ['inputs', 'steps', 'outputs'] as const) {
+			const line = emptyBlockLine(block, false);
+			expect(line).not.toContain('Add ');
+			expect(line).not.toContain('Drop ');
+		}
+	});
+});
+
+describe('the steps block', () => {
+	const single = [formula({ code: 'out', formula: 'lab_co2 * 2', ordinal: 1 })];
+
+	it('is left out of a set with no step when steps are off', () => {
+		const blocks = sheetBlocks(single, inputRows(single, parameters, constants), [], undefined, undefined, false);
+		expect(blocks.map((b) => b.key)).toEqual(['inputs', 'outputs']);
+	});
+
+	it('stands between the inputs and the outputs when steps are on', () => {
+		const blocks = sheetBlocks(single, inputRows(single, parameters, constants), [], undefined, undefined, true);
+		expect(blocks.map((b) => b.key)).toEqual(['inputs', 'steps', 'outputs']);
+		expect(blocks[1]!.rows).toEqual([]);
+	});
+
+	it('stays while the set holds a step, whatever the switch says', () => {
+		const blocks = sheetBlocks(set, inputRows(set, parameters, constants), [], undefined, undefined, false);
+		expect(blocks.map((b) => b.key)).toEqual(['inputs', 'steps', 'outputs']);
+	});
+
+	it('may be turned off when the set holds no step', () => {
+		expect(stepsOffRefusal(single)).toBeNull();
+	});
+
+	it('refuses to be turned off while a step stands, naming it', () => {
+		expect(stepsOffRefusal(set)).toBe('Steps stay on while the calculation has a step: hs_k.');
+		const two = [...set, formula({ code: '', intermediate: true, ordinal: 3 })];
+		expect(stepsOffRefusal(two)).toBe(
+			'Steps stay on while the calculation has steps: hs_k, an unnamed step.',
+		);
 	});
 });

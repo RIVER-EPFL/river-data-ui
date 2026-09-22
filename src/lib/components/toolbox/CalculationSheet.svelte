@@ -6,7 +6,9 @@
 		cellEdit,
 		contributors,
 		dropOn,
+		emptyBlockLine,
 		linksOf,
+		stepsOffRefusal,
 		type SheetBlock,
 		type SheetEdit,
 		type SheetRow,
@@ -17,9 +19,9 @@
 	import { identifiers } from '$lib/formula/lint';
 	import SheetGrid from '$components/ui/SheetGrid.svelte';
 
-	// The portal's three tables, side by side: what the visit and the catalog supplied, the steps
-	// of the calculation, and what it publishes with the statistics of the repeats. Parameters go
-	// down and replicate letters across, so a set reads the way the lab writes it down.
+	// The portal's tables, side by side: what the visit and the catalog supplied, the steps of the
+	// calculation where it has any, and what it publishes with the statistics of the repeats.
+	// Parameters go down and replicate letters across, so a set reads the way the lab writes it down.
 	//
 	// Selecting a cell lights what its row reads and what reads it, across all three tables.
 
@@ -37,6 +39,8 @@
 		ondrop?: (block: SheetBlock['key'], row: SheetRow | null, payload: DragPayload) => void;
 		/** Append a row to the steps or the outputs. */
 		onadd?: (block: 'steps' | 'outputs') => void;
+		/** Turn the steps block on or off. Without it the sheet carries no switch. */
+		onsteps?: (on: boolean) => void;
 	}
 
 	let {
@@ -49,7 +53,26 @@
 		onedit,
 		ondrop,
 		onadd,
+		onsteps,
 	}: Props = $props();
+
+	const showingSteps = $derived(blocks.some((b) => b.key === 'steps'));
+	let stepsRefused = $state<string | null>(null);
+
+	function toggleSteps(event: Event) {
+		const box = event.currentTarget as HTMLInputElement;
+		if (box.checked) {
+			stepsRefused = null;
+			onsteps?.(true);
+			return;
+		}
+		stepsRefused = stepsOffRefusal(formulas);
+		if (stepsRefused) {
+			box.checked = true;
+			return;
+		}
+		onsteps?.(false);
+	}
 
 	/** A band heading, or one of the block's rows, in the order the grid draws them. */
 	type Entry = { band: string; row: SheetRow | null };
@@ -388,7 +411,18 @@
 			{/each}
 		</svg>
 	{/if}
-	<div class="grid gap-3 lg:grid-cols-3 items-start">
+	{#if onsteps}
+		<div class="mb-2 flex flex-wrap items-center gap-3 text-xs text-brand-muted">
+			<label class="inline-flex items-center gap-1.5">
+				<input type="checkbox" checked={showingSteps} onchange={toggleSteps} />
+				Intermediate steps
+			</label>
+			{#if stepsRefused}
+				<span role="status" class="text-severity-alarm">{stepsRefused}</span>
+			{/if}
+		</div>
+	{/if}
+	<div class="grid gap-3 items-start {blocks.length === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-2'}">
 	{#each blocks as block (block.key)}
 		<section
 			aria-label={block.title}
@@ -398,15 +432,7 @@
 		>
 			{#if block.rows.length === 0}
 				<h4 class="px-3 py-2 text-sm font-semibold border-b border-brand-divider">{block.title}</h4>
-				<p class="px-3 py-3 text-sm text-brand-muted">
-					{block.key === 'inputs'
-						? ondrop
-							? 'Drop a parameter or constant here, or write a formula that reads one.'
-							: 'Nothing read yet.'
-						: block.key === 'steps'
-							? 'No steps: every formula publishes.'
-							: 'Nothing published yet.'}
-				</p>
+				<p class="px-3 py-3 text-sm text-brand-muted">{emptyBlockLine(block.key, Boolean(ondrop))}</p>
 			{:else}
 				<SheetGrid
 					data={dataOf(block)}
@@ -421,10 +447,13 @@
 				</p>
 			{/if}
 			{#if onadd && block.key !== 'inputs'}
-				<div class="px-3 py-2">
+				<div class="flex flex-wrap gap-2 px-3 py-2">
 					<Button size="sm" variant="ghost" onclick={() => onadd(block.key as 'steps' | 'outputs')}>
 						{block.key === 'steps' ? 'Add step' : 'Add output'}
 					</Button>
+					{#if block.key === 'outputs' && !showingSteps}
+						<Button size="sm" variant="ghost" onclick={() => onadd('steps')}>Add step</Button>
+					{/if}
 				</div>
 			{/if}
 		</section>

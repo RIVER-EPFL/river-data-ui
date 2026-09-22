@@ -14,8 +14,8 @@ const props = {
 		{ code: 'step', formula: 'a + 1', ordinal: 0, intermediate: true },
 		{ code: 'out', formula: 'step * 2', ordinal: 1, intermediate: false }
 	],
-	sites: [{ id: 'site-1', name: 'Martigny' }],
-	variableNames: ['a']
+	siteId: 'site-1',
+	sites: [{ id: 'site-1', name: 'Martigny' }]
 };
 
 describe('LivePreview', () => {
@@ -40,6 +40,13 @@ describe('LivePreview', () => {
 		await vi.advanceTimersByTimeAsync(500);
 		expect(previewDerived).not.toHaveBeenCalled();
 		expect(screen.getByText(/Nothing to preview yet/)).toBeTruthy();
+	});
+
+	it('draws nothing until a site is chosen', async () => {
+		render(LivePreview, { ...props, siteId: '' });
+		await vi.advanceTimersByTimeAsync(500);
+		expect(previewDerived).not.toHaveBeenCalled();
+		expect(screen.getByText(/Choose a site above/)).toBeTruthy();
 	});
 
 	it('refetches when the range changes', async () => {

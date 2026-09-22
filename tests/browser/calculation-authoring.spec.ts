@@ -28,6 +28,7 @@ const ENTERED_INPUT = 12;
 
 interface Fixture {
 	stamp: string;
+	siteId: string;
 	siteName: string;
 	groupLabel: string;
 	codes: Record<string, string>;
@@ -113,7 +114,7 @@ async function seedCatalog(request: APIRequestContext): Promise<Fixture> {
 		intermediate: true,
 	});
 	await post('/collection_events/stage', { site_id: site.id, collected_at: collectedAt });
-	return { stamp, siteName, groupLabel, codes };
+	return { stamp, siteId: site.id, siteName, groupLabel, codes };
 }
 
 /** One formula typed into the editor as the lab types it, then saved. */
@@ -146,7 +147,7 @@ test('a CNET formula set is authored on the page and reproduces its golden visit
 	page,
 	request,
 }) => {
-	const { stamp, siteName, groupLabel, codes } = await seedCatalog(request);
+	const { stamp, siteId, groupLabel, codes } = await seedCatalog(request);
 	await signIn(page);
 
 	// The calculation is made in the Toolbox from a name and a label. It names no parameter group
@@ -236,10 +237,16 @@ test('a CNET formula set is authored on the page and reproduces its golden visit
 	}
 	await expect(cell(codes.output)).toContainText('280.463');
 
-	// The same numbers read from the visit the catalog was seeded with. Nothing is written.
-	await page.getByRole('combobox', { name: 'Site' }).selectOption({ label: siteName });
-	await page.getByLabel('Visit').selectOption({ index: 1 });
-	await page.getByRole('button', { name: 'Run', exact: true }).click();
+	// The same numbers read from the visit the catalog was seeded with. One site and visit choice
+	// serves the whole page, and choosing it fills the tables: there is nothing to press.
+	// The picker says how much of what the set reads each site measures, so a site that cannot draw
+	// it is readable before it is chosen.
+	const sitePicker = page.getByRole('combobox', { name: 'Site' });
+	await expect(sitePicker.locator(`option[value="${siteId}"]`)).toHaveText(
+		/ · measures (all )?\d+/,
+	);
+	await sitePicker.selectOption(siteId);
+	await expect(page.getByRole('combobox', { name: 'Visit' })).not.toHaveValue('');
 
 	// The step takes the field pressure, which is inside the guard's range, and the correction is
 	// what the portal stored for the visit.
@@ -322,17 +329,20 @@ async function seedVisitCalculation(request: APIRequestContext) {
 	return { calculationId: calculation.id, siteId: site.id, visitId: visit.id, inputCode, stepCode, outputCode };
 }
 
-// Scenario: a manager opens a calculation to see what it did at one visit (M252). The page is the
-// visit's data, not the calculation's metadata.
+// Scenario: a manager opens a calculation to see what it did at one visit (M252), then an author
+// opens an output to set its units (M333). The page is the visit's data, not the calculation's
+// metadata, and it is one screen.
 //
 // Expected behaviour: the site and the visit are in the URL, so the page opens on the inputs,
-// steps and outputs blocks, with the visit's numbers in them and nothing clicked.
+// steps and outputs blocks, with the visit's numbers in them and nothing clicked. Opening a cell
+// puts its units, its bounds and its Drop on screen without the sheet leaving it.
 test('a calculation opened at a visit shows the visit\'s numbers in the portal\'s tables', async ({
 	page,
 	request,
 }) => {
 	const { calculationId, siteId, visitId, inputCode, stepCode, outputCode } =
 		await seedVisitCalculation(request);
+	await page.setViewportSize({ width: 1600, height: 1080 });
 	await signIn(page);
 	await page.goto(`${BASE_PATH}/toolbox/${calculationId}?site=${siteId}&visit=${visitId}`);
 
@@ -350,6 +360,37 @@ test('a calculation opened at a visit shows the visit\'s numbers in the portal\'
 	await expect(page.getByRole('heading', { name: 'No cell selected' })).toBeVisible();
 	await calculationCell(page, stepCode, 0).click();
 	await expect(page.getByRole('heading', { name: 'Step', exact: true })).toBeVisible();
+
+	// How the set reaches an input is declared on the input itself (Q230), and the page then says
+	// what it does between visits, before the next save rather than after it.
+	await calculationCell(page, inputCode, 0).click();
+	const reach = page.getByRole('combobox', { name: 'Between visits' });
+	await expect(reach).toHaveValue('exact');
+	await reach.selectOption('hold');
+	// The toast says it too, so the page carries the line twice for a moment.
+	await expect(
+		page.getByText(new RegExp(`${inputCode} is held between visits`)).first(),
+	).toBeVisible();
+	await page.reload();
+	await calculationCell(page, inputCode, 0).click();
+	await expect(page.getByRole('combobox', { name: 'Between visits' })).toHaveValue('hold');
+
+	// Opening the output puts its own fields on screen with the tables: they sit beside the formula
+	// rather than a screen below the sheet.
+	await calculationCell(page, outputCode, 0).click();
+	for (const control of [
+		page.getByRole('textbox', { name: 'Units' }),
+		page.getByRole('textbox', { name: 'Curve slot' }),
+		page.getByRole('combobox', { name: 'Per replicate over' }),
+		page.getByRole('columnheader', { name: 'Outputs', exact: true }),
+	]) {
+		await expect(control).toBeInViewport();
+	}
+
+	// The site and the visit the tables read stay put wherever the author scrolls to.
+	// The confirm wrapper around the button carries the role too, so both resolve.
+	await page.getByRole('button', { name: 'Drop', exact: true }).last().scrollIntoViewIfNeeded();
+	await expect(page.getByRole('combobox', { name: 'Visit' })).toBeInViewport();
 });
 
 // Scenario: the lab transcribes pCO2, the CNET set that carries every construct the first story
@@ -374,7 +415,7 @@ const PCO2_UATM = ['331.927', '330.832'];
 
 interface Pco2Fixture {
 	stamp: string;
-	siteName: string;
+	siteId: string;
 	codes: { temp: string; labTemp: string; labPress: string; ppm: string };
 }
 
@@ -423,7 +464,7 @@ async function seedPco2(request: APIRequestContext): Promise<Pco2Fixture> {
 	}
 	await post('/grab_samples', { site_id: site.id, mode: 'replace', readings });
 	await post('/collection_events/stage', { site_id: site.id, collected_at: collectedAt });
-	return { stamp, siteName, codes };
+	return { stamp, siteId: site.id, codes };
 }
 
 /** One step or output typed into the editor, with the family it runs over where it has one. */
@@ -448,7 +489,7 @@ test('pCO2 is typed on the page with its constants, fallback and families, and r
 	page,
 	request,
 }) => {
-	const { stamp, siteName, codes } = await seedPco2(request);
+	const { stamp, siteId, codes } = await seedPco2(request);
 	await signIn(page);
 
 	await page.goto(`${BASE_PATH}/toolbox`);
@@ -518,16 +559,10 @@ test('pCO2 is typed on the page with its constants, fallback and families, and r
 		await expect(rowOf(inputs, name)).toBeVisible();
 	}
 
-	// Scoped to the run block: the open cell panel carries a "Per replicate over" select whose
-	// options mention a visit, so an unscoped label match finds two.
-	const tryIt = page.locator('section', {
-		has: page.getByRole('button', { name: 'Run', exact: true }),
-	});
-	await tryIt.getByRole('combobox', { name: 'Site' }).selectOption({ label: siteName });
-	const visitPicker = tryIt.getByLabel('Visit');
+	await page.getByRole('combobox', { name: 'Site' }).selectOption(siteId);
+	const visitPicker = page.getByRole('combobox', { name: 'Visit' });
 	await expect(visitPicker).toBeEnabled();
-	await visitPicker.selectOption({ index: 1 });
-	await page.getByRole('button', { name: 'Run', exact: true }).click();
+	await expect(visitPicker).not.toHaveValue('');
 
 	// Both letters, against what the portal stored for them.
 	for (const [index, expected] of PCO2_CO2_HS.entries()) {
@@ -536,4 +571,45 @@ test('pCO2 is typed on the page with its constants, fallback and families, and r
 	for (const [index, expected] of PCO2_UATM.entries()) {
 		await expect(calculationCell(page, `pCO2_HS_uatm_avg_${stamp}`, index + 1)).toContainText(expected);
 	}
+});
+
+// Scenario: the simplest calculation there is, one input and one formula (M342). The page carries
+// pCO2's intermediate table only when one is asked for.
+//
+// Expected behaviour: the page opens on Inputs and Outputs alone; Add output opens the formula
+// for typing on the row it adds, and the one-input set computes with no Steps table drawn.
+test('a one-input calculation is authored on two tables, never meeting Steps', async ({
+	page,
+	request,
+}) => {
+	const { stamp, codes } = await seedCatalog(request);
+	await signIn(page);
+
+	await page.goto(`${BASE_PATH}/toolbox`);
+	await page.getByRole('button', { name: 'New calculation' }).click();
+	await page.getByRole('textbox', { name: 'Name' }).fill(`single_${stamp}`);
+	await page.getByRole('textbox', { name: 'Label' }).fill(`Single ${stamp}`);
+	await page.getByRole('button', { name: 'Create and open it' }).click();
+	await expect(page).toHaveURL(/\/toolbox\/[0-9a-f-]{36}/);
+
+	const inputs = block(page, 'Inputs');
+	await page
+		.getByRole('region', { name: 'Palette' })
+		.getByRole('button', { name: codes.temp, exact: true })
+		.dragTo(inputs);
+	await expect(block(page, 'Steps')).toHaveCount(0);
+
+	await page.getByRole('button', { name: 'Add output', exact: true }).click();
+	const formula = page.getByPlaceholder('Type formula directly');
+	await expect(formula).toBeFocused();
+	await formula.fill(`${codes.temp} + 273.15`);
+	await page.getByRole('textbox', { name: 'Code' }).fill(`temp_k_${stamp}`);
+
+	const outputs = block(page, 'Outputs');
+	await expect(rowOf(outputs, `temp_k_${stamp}`)).toBeVisible();
+	await typeInto(page, calculationCell(page, codes.temp), String(WTW_TEMP));
+	await expect(calculationCell(page, codes.temp)).toContainText(String(WTW_TEMP));
+	await expect(calculationCell(page, `temp_k_${stamp}`)).toContainText('280.75');
+	await expect(block(page, 'Steps')).toHaveCount(0);
+	await expect(page.getByRole('checkbox', { name: 'Intermediate steps' })).not.toBeChecked();
 });

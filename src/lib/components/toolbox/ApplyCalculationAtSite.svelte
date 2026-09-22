@@ -5,25 +5,19 @@
 	import { apiMessage } from '$lib/standardCurves';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
-	import SiteSelect from '$components/SiteSelect.svelte';
 
 	// Applying a calculation is checked before it is written: the panel reads the dry run and shows
 	// the reads the site declares, the ones it does not, and the output columns the apply adds.
-	// The side that is fixed by the host is the one that gets no picker: a calculation's page picks
-	// a site, a site's page picks a calculation.
+	// The site's Parameters tab is the one place a calculation is applied: the site is fixed and the
+	// calculation is picked.
 	let {
-		calculationId = null,
-		siteId = null,
+		siteId,
 		onapplied = null,
 	}: {
-		calculationId?: string | null;
-		siteId?: string | null;
+		siteId: string;
 		onapplied?: (() => void) | null;
 	} = $props();
 
-	// Only the side the host left open is picked here, so each picker starts empty and the fixed
-	// side comes straight from the prop.
-	let chosenSite = $state('');
 	let chosenCalculation = $state('');
 	let calculations = $state<ToolScriptSummary[]>([]);
 	let parameters = $state<Parameter[]>([]);
@@ -32,11 +26,10 @@
 	let reading = $state(false);
 	let applying = $state(false);
 
-	const site = $derived(siteId ?? chosenSite);
-	const calculation = $derived(calculationId ?? chosenCalculation);
+	const site = $derived(siteId);
+	const calculation = $derived(chosenCalculation);
 
 	$effect(() => {
-		if (calculationId) return;
 		void listToolScripts()
 			.then((items) => {
 				calculations = items.filter((c) => c.enabled);
@@ -59,13 +52,21 @@
 
 	const nameOf = (id: string) => parameters.find((p) => p.id === id)?.name ?? null;
 
-	async function read() {
+	// The dry run follows the chosen calculation, so the panel reads without anything to click.
+	$effect(() => {
+		void read(site, calculation);
+	});
+
+	async function read(atSite: string, forCalculation: string) {
 		preview = null;
 		refusal = '';
-		if (!site || !calculation) return;
+		if (!atSite || !forCalculation) return;
 		reading = true;
 		try {
-			preview = calculationApplyPreview(await applyCalculationAtSite(site, calculation, true), nameOf);
+			preview = calculationApplyPreview(
+				await applyCalculationAtSite(atSite, forCalculation, true),
+				nameOf,
+			);
 		} catch (e) {
 			refusal = apiMessage(e);
 		} finally {
@@ -83,7 +84,7 @@
 					? 'Already applied here'
 					: `${applied.outputs_created.length} output parameter${applied.outputs_created.length === 1 ? '' : 's'} added`,
 			);
-			await read();
+			await read(site, calculation);
 			onapplied?.();
 		} catch (e) {
 			refusal = apiMessage(e);
@@ -105,29 +106,17 @@
 	</p>
 	<div class="flex items-end gap-3">
 		<div class="flex-1">
-			{#if siteId}
-				<label for="apply-calculation-select" class="text-xs font-medium block mb-1">Calculation</label>
-				<select
-					id="apply-calculation-select"
-					bind:value={chosenCalculation}
-					onchange={() => void read()}
-					class="w-full px-3 py-1.5 text-sm border border-brand-divider rounded bg-brand-surface"
-				>
-					<option value="">Select a calculation…</option>
-					{#each calculations as c (c.id)}
-						<option value={c.id}>{c.label || c.name}</option>
-					{/each}
-				</select>
-			{:else}
-				<label for="apply-calculation-site" class="text-xs font-medium block mb-1">Site</label>
-				<SiteSelect
-					id="apply-calculation-site"
-					bind:value={chosenSite}
-					ariaLabel="Site to apply this calculation at"
-					class="w-full px-3 py-1.5 text-sm border border-brand-divider rounded bg-brand-surface"
-					onchange={() => void read()}
-				/>
-			{/if}
+			<label for="apply-calculation-select" class="text-xs font-medium block mb-1">Calculation</label>
+			<select
+				id="apply-calculation-select"
+				bind:value={chosenCalculation}
+				class="w-full px-3 py-1.5 text-sm border border-brand-divider rounded bg-brand-surface"
+			>
+				<option value="">Select a calculation…</option>
+				{#each calculations as c (c.id)}
+					<option value={c.id}>{c.label || c.name}</option>
+				{/each}
+			</select>
 		</div>
 		<Button
 			variant="primary"

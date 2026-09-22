@@ -80,7 +80,7 @@ test('two visits of one field day are added in one save and both stand on the si
 
 	// Both are on the site's Visits tab, which is the same table filtered to the site.
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
-	await expect(page.getByText('2 visits')).toBeVisible();
+	await expect(page.getByText('2 visits', { exact: true })).toBeVisible();
 	// The frozen column reads each instant back as the wall clock that was typed.
 	await expect(frozenButton(page, { name: frozenDate(morning) })).toBeVisible();
 	await expect(frozenButton(page, { name: frozenDate(afternoon) })).toBeVisible();

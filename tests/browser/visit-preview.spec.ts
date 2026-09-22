@@ -20,7 +20,7 @@ test('a typed correction previews its calculated value, and only Save writes it'
 	const visit = await seedComputedVisit(request, 't280', ENTERED);
 	await signIn(page);
 	await page.goto(`${BASE_PATH}/sites/${visit.siteId}?tab=visits`);
-	await expect(page.getByText('1 visit')).toBeVisible();
+	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
 
 	const input = sheetCell(page, new RegExp(`^${visit.inputName} at`));
 	const output = sheetCell(page, new RegExp(`^${visit.outputName} at`));

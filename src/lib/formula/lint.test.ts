@@ -42,6 +42,18 @@ describe('formula lint', () => {
 		expect(lintFormula('Dissolved_O2)', known)[0]?.kind).toBe('unbalanced_parenthesis');
 	});
 
+	it('names the text the expression does not reach, which the server refuses as a parse error', () => {
+		expect(lintFormula('Dissolved_O2 Dissolved_O2', known)).toEqual([
+			{
+				kind: 'trailing_text',
+				message: "the expression ends before 'Dissolved_O2': an operator is missing between them",
+			},
+		]);
+		// An identifier it cannot read is named as one, not as trailing text.
+		expect(lintFormula('Dissolved_O2 + nope', known)[0]?.kind).toBe('unknown_identifier');
+		expect(lintFormula('round(Dissolved_O2) * Field_BP', known)).toEqual([]);
+	});
+
 	it('counts a function\'s arguments, and leaves the variadic ones alone', () => {
 		expect(lintFormula('if(gt(Dissolved_O2, 1), 2)', known)).toEqual([
 			{

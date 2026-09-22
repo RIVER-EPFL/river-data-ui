@@ -89,7 +89,7 @@ test("a parameter's header opens its column to the repeats behind it", async ({
 	const { siteId, code } = await seedVisit(request);
 	await signIn(page);
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
-	await expect(page.getByText('1 visit')).toBeVisible();
+	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
 
 	// Collapsed, the group is one column holding the mean of the three.
 	const header = headerButton(page, { name: code, exact: true });
@@ -117,7 +117,7 @@ test('a cell is typed in place and one Save writes every visit it touched', asyn
 	const { siteId, emptyCode } = await seedVisit(request);
 	await signIn(page);
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
-	await expect(page.getByText('1 visit')).toBeVisible();
+	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
 
 	// Nothing has moved, so there is nothing to save.
 	const save = page.getByRole('button', { name: /^Save \d+ value/ });
@@ -241,7 +241,7 @@ test('a visit is withdrawn from its own record and the withdrawal taken back', a
 	const { siteId } = await seedVisit(request);
 	await signIn(page);
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
-	await expect(page.getByText('1 visit')).toBeVisible();
+	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
 
 	await frozenButton(page, { name: /./ }).first().click();
 	await page.getByRole('button', { name: 'Withdraw this visit' }).click();
@@ -267,7 +267,7 @@ test('a cleared cell withdraws its replicate, and the withdrawal survives a relo
 	const { siteId, code } = await seedVisit(request);
 	await signIn(page);
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
-	await expect(page.getByText('1 visit')).toBeVisible();
+	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
 
 	// The first of the three repeats is cleared and a fourth entered, so the group is rewritten
 	// without it; the single measurement is cleared on its own.
@@ -295,7 +295,7 @@ test('a cleared cell withdraws its replicate, and the withdrawal survives a relo
 	await expect(mean.locator('.sheet-mark', { hasText: '†' })).toBeVisible();
 
 	await page.reload();
-	await expect(page.getByText('1 visit')).toBeVisible();
+	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
 	await expect(mean.locator('.sheet-mark', { hasText: '†' })).toBeVisible();
 	await expect(sheetCell(page, /^groups_one_\w* at/)).toHaveClass(/sheet-struck/);
 	await headerButton(page, { name: code, exact: true }).click();
@@ -307,7 +307,7 @@ test('a value nobody may type opens its record on a double-click', async ({ page
 	const { siteId, code } = await seedVisit(request);
 	await signIn(page);
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
-	await expect(page.getByText('1 visit')).toBeVisible();
+	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
 
 	// The collapsed triplicate is a mean, which is not typed, so the cell opens what is behind it.
 	await sheetCell(page, new RegExp(`^${code} at`)).dblclick();
@@ -319,7 +319,7 @@ test("a group's plus adds the column a fourth measurement needs", async ({ page,
 	const { siteId, code } = await seedVisit(request);
 	await signIn(page);
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
-	await expect(page.getByText('1 visit')).toBeVisible();
+	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
 
 	await headerButton(page, { name: code, exact: true }).click();
 	const fourth = sheetCell(page, new RegExp(`^${code} repeat 4 at`));
@@ -351,7 +351,7 @@ test("the visit's record declares what measured a parameter, and the value carri
 	const { siteId, code } = await seedVisit(request);
 	await signIn(page);
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
-	await expect(page.getByText('1 visit')).toBeVisible();
+	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
 
 	// The declaration is on the visit's own record, beside the parameter it is about.
 	await frozenButton(page, { name: /./ }).first().click();
@@ -379,7 +379,7 @@ test('an empty visit is discarded from its own record', async ({ page, request }
 	const { siteId } = await seedVisit(request, 1, true);
 	await signIn(page);
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
-	await expect(page.getByText('1 visit')).toBeVisible();
+	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
 
 	await frozenButton(page, { name: /./ }).first().click();
 	page.once('dialog', (dialog) => dialog.accept());

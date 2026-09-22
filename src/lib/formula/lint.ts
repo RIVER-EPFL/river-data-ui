@@ -1,3 +1,5 @@
+import { unparsed } from '$components/formula/ast';
+
 /// What the formula language defines, and what a formula naming something else is told.
 ///
 /// The engine is the authority on save (`tools/formula.rs`); this is the same knowledge in front
@@ -109,7 +111,8 @@ export type DiagnosticKind =
 	| 'unknown_identifier'
 	| 'unbalanced_parenthesis'
 	| 'wrong_argument_count'
-	| 'self_reference';
+	| 'self_reference'
+	| 'trailing_text';
 
 export interface Diagnostic {
 	kind: DiagnosticKind;
@@ -361,6 +364,15 @@ export function lintFormula(text: string, known: KnownNames): Diagnostic[] {
 				depth > 0
 					? `${depth} parenthesis${depth === 1 ? '' : 'es'} is not closed`
 					: 'a closing parenthesis has nothing open',
+		});
+		return diagnostics;
+	}
+
+	const left = unparsed(text);
+	if (left !== '') {
+		diagnostics.push({
+			kind: 'trailing_text',
+			message: `the expression ends before '${left}': an operator is missing between them`,
 		});
 		return diagnostics;
 	}
