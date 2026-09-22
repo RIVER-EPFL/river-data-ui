@@ -8,6 +8,7 @@
 	import { formatDateTime } from '$lib/utils';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
+	import { onDestroy, untrack } from 'svelte';
 
 	let { siteId }: { siteId: string } = $props();
 
@@ -23,7 +24,14 @@
 	let variable = $state(VARIABLES[0].value);
 	let loading = $state(true);
 	let searching = $state(false);
+	let searched = $state(false);
 	let saving = $state('');
+
+	// One request per keystroke is one page reflow per keystroke, and the answers arrive out of
+	// order; the term the reader has stopped typing is the only one worth asking about.
+	const SEARCH_DELAY_MS = 250;
+	let searchTimer: ReturnType<typeof setTimeout>;
+	let latestSearch = 0;
 
 	async function loadSubscriptions() {
 		const [subs, feeds, jobs] = await Promise.all([
@@ -40,21 +48,38 @@
 		backfills = jobs.data;
 	}
 
+	// The candidate list stays on screen while a search runs: replacing it with a line of text
+	// shortens the page under the reader, and this panel sits at the bottom of the site form, so
+	// the scroll position is clamped to the top on every keystroke.
 	async function search() {
+		const request = ++latestSearch;
 		searching = true;
 		try {
-			candidates = await getMeteoswissStations({ q: term || undefined, site_id: siteId, variable });
+			const found = await getMeteoswissStations({ q: term || undefined, site_id: siteId, variable });
+			if (request !== latestSearch) return;
+			candidates = found;
+			searched = true;
 		} catch (e) {
+			if (request !== latestSearch) return;
 			toastStore.error(e instanceof Error ? e.message : 'Failed to read the station list');
 		} finally {
-			searching = false;
+			if (request === latestSearch) searching = false;
 		}
 	}
 
+	function searchLater() {
+		clearTimeout(searchTimer);
+		searchTimer = setTimeout(() => void search(), SEARCH_DELAY_MS);
+	}
+
+	onDestroy(() => clearTimeout(searchTimer));
+
+	// Only the site reloads this panel. `search` reads the term and the variable, so tracking it
+	// would make every keystroke reload the subscriptions and fire a second, undebounced request.
 	$effect(() => {
 		void siteId;
 		loading = true;
-		Promise.all([loadSubscriptions(), search()])
+		untrack(() => Promise.all([loadSubscriptions(), search()]))
 			.catch((e) => toastStore.error(e instanceof Error ? e.message : 'Failed to load'))
 			.finally(() => (loading = false));
 	});
@@ -128,13 +153,7 @@
 </script>
 
 <section class="space-y-3">
-	<div>
-		<h3 class="text-sm font-semibold">MeteoSwiss</h3>
-		<p class="text-xs text-brand-muted">
-			Pressure from an SMN station, used to correct oxygen saturation. Candidates are ranked by
-			distance once the site has coordinates.
-		</p>
-	</div>
+	<h3 class="text-sm font-semibold">MeteoSwiss</h3>
 
 	{#if loading}
 		<p class="text-sm text-brand-muted">Loading…</p>
@@ -160,20 +179,21 @@
 					</li>
 				{/each}
 			</ul>
-		{:else}
-			<p class="text-sm text-brand-muted">No station. This site's pressure is not fed.</p>
 		{/if}
 
 		<div class="flex flex-wrap items-end gap-3">
 			<div class="flex flex-col gap-1">
 				<label for="ms-search" class="text-xs font-medium text-brand-muted">Station</label>
-				<input
-					id="ms-search"
-					bind:value={term}
-					oninput={() => void search()}
-					placeholder="Abbreviation or name"
-					class="rounded border border-brand-border bg-brand-surface px-2 py-1 text-sm"
-				/>
+				<div class="flex items-center gap-2">
+					<input
+						id="ms-search"
+						bind:value={term}
+						oninput={searchLater}
+						placeholder="Abbreviation or name"
+						class="rounded border border-brand-border bg-brand-surface px-2 py-1 text-sm"
+					/>
+					{#if searching}<span class="text-xs text-brand-muted">searching…</span>{/if}
+				</div>
 			</div>
 			<div class="flex flex-col gap-1">
 				<label for="ms-variable" class="text-xs font-medium text-brand-muted">Variable</label>
@@ -190,9 +210,7 @@
 			</div>
 		</div>
 
-		{#if searching}
-			<p class="text-sm text-brand-muted">Searching…</p>
-		{:else if candidates.length === 0}
+		{#if searched && candidates.length === 0}
 			<p class="text-sm text-brand-muted">
 				No station matches. The list is refreshed by the MeteoSwiss job.
 			</p>

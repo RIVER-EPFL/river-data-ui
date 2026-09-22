@@ -7,6 +7,7 @@
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { buildReadingsExportParams, exportColumns } from '$lib/sites/exportParams';
 	import Button from '$components/ui/Button.svelte';
+	import InfoTip from '$components/ui/InfoTip.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import TimestampInput from '$components/ui/TimestampInput.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
@@ -212,7 +213,9 @@
 			<div class="space-y-3">
 				<p class="text-xs text-brand-muted">
 					Readings in long format, one row per reading
-					<span class="cursor-help" title="Every reading in the range as its own row, with replicates, flags and sample statistics. For the one-row-per-visit grid with a column per parameter, use Download grid CSV on the Visits tab.">(i)</span>
+					<InfoTip
+						text="Every reading in the range as its own row, with replicates, flags and sample statistics. For the one-row-per-visit grid with a column per parameter, use Download grid CSV on the Visits tab."
+					/>
 				</p>
 				<div class="rounded-md border border-brand-divider bg-brand-bg px-3 py-3 overflow-hidden">
 					<TimeRangeSlider

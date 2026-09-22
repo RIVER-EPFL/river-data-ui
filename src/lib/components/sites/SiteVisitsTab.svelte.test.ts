@@ -30,6 +30,7 @@ vi.mock("$auth/me.svelte", () => ({
 const SiteVisitsTab = (await import("./SiteVisitsTab.svelte")).default;
 const { timezoneStore } = await import("$lib/stores/timezone.svelte");
 const { formatCompactInstant, zoneLabel } = await import("$lib/utils");
+const { SYNCED_VISIT_NOTICE } = await import("$lib/visits/recompute");
 
 // A single-precision 100.8 as the portals store it, so what the grid prints is a display
 // decision rather than an artefact of the number.
@@ -215,6 +216,36 @@ describe("SiteVisitsTab", () => {
     await screen.findAllByText("not calculated here");
     const grid = within(document.querySelector<HTMLElement>(".ht_master")!);
     expect(grid.getAllByText("not calculated here")).toHaveLength(1);
+    expect(grid.getByTitle(SYNCED_VISIT_NOTICE)).toBeTruthy();
+  });
+
+  it("states the synced notice once when every listed visit came from the portal", async () => {
+    listSiteVisits.mockResolvedValue({
+      site_id: "site-1",
+      page: 1,
+      page_size: 50,
+      total: 2,
+      expected_parameters: [column("declared", "DOC", 2)],
+      visits: [1, 2].map((day) => ({
+        id: `synced-${day}`,
+        collected_at: `2025-06-0${day}T08:00:00Z`,
+        created_by: null,
+        source: "portal_sync",
+        notes: null,
+        parameters_filled: 1,
+        findings_open: 0,
+        recompute: "current",
+        cells: [cell("declared")],
+      })),
+    });
+
+    render(SiteVisitsTab, props({ declared: 2 }));
+
+    // The sentence stands once above the grid; repeating it on every row distinguishes nothing.
+    await screen.findAllByText("100.80");
+    expect(screen.getByText(SYNCED_VISIT_NOTICE)).toBeTruthy();
+    const grid = within(document.querySelector<HTMLElement>(".ht_master")!);
+    expect(grid.queryAllByText("not calculated here")).toHaveLength(0);
   });
   it("asks for every listed visit, not only the flagged ones, when computing a new calculation", async () => {
     // Every visit is current: a calculation authored today has raised no finding anywhere, so

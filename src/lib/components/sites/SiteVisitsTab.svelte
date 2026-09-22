@@ -51,7 +51,11 @@
 	import {
 		cellRecord,
 		findingLabel,
+		findingKinds,
+		findingsChipTitle,
+		firstFindingParameter,
 		recordRows,
+		slotTableLabel,
 		statisticsParts,
 		visitCellMarker,
 		visitCellStatistics,
@@ -71,13 +75,17 @@
 	} from '$lib/visits/preview';
 	import {
 		SYNCED_VISIT_NOTICE,
+		allSynced,
 		entryNoticeFor,
 		visitBadge,
 		visitSourceLabel,
 	} from '$lib/visits/recompute';
 	import { verificationBadge, verificationNoticeFor } from '$lib/visits/verification';
 	import Button from '$components/ui/Button.svelte';
+	import InfoTip from '$components/ui/InfoTip.svelte';
 	import TimestampInput from '$components/ui/TimestampInput.svelte';
+	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
+	import { visitsExtent, isDraggableExtent, type Extent } from '$lib/sites/visitsExtent';
 	import Badge from '$components/ui/Badge.svelte';
 	import { BADGE_BASE, BADGE_VARIANTS, type BadgeVariant } from '$components/ui/badge';
 	import SheetGrid from '$components/ui/SheetGrid.svelte';
@@ -267,6 +275,25 @@
 	// station holds tens of visits, and the page devoted to them lists them all.
 	let visitsStart = $state<string | null>(null);
 	let visitsEnd = $state<string | null>(null);
+	// The period the site holds visits in, read from the unfiltered listing the tab opens with, so
+	// narrowing the filter does not shrink the bar the narrowing is done on.
+	let visitsSpan = $state<Extent | null>(null);
+	// Whether the listing is entirely portal-synced, which the grid states once instead of
+	// repeating on every row.
+	const everySynced = $derived(allSynced(visits));
+	let sliderStart = $state(0);
+	let sliderEnd = $state(0);
+	// The bar and the typed dates are one filter, so each follows the other.
+	$effect(() => {
+		const span = visitsSpan;
+		if (!span) return;
+		sliderStart = visitsStart ? Date.parse(visitsStart) : span.min;
+		sliderEnd = visitsEnd ? Date.parse(visitsEnd) : span.max;
+	});
+	function onVisitsRangeDragged(start: number, end: number) {
+		visitsStart = new Date(start).toISOString();
+		visitsEnd = new Date(end).toISOString();
+	}
 	let visitsDownloading = $state(false);
 	// Which parameters are open to their repeats. Per table, not per row: every visit shows the
 	// same columns, so a value stays under its own header.
@@ -511,11 +538,34 @@
 		if (table.rows[row] && table.rows[row].id === expandedVisit) td.classList.add('sheet-open-row');
 	}
 
-	function chip(label: string, variant: BadgeVariant): HTMLSpanElement {
+	function chip(label: string, variant: BadgeVariant, title: string): HTMLSpanElement {
 		const span = document.createElement('span');
 		span.className = `ml-1 ${BADGE_BASE} ${BADGE_VARIANTS[variant]}`;
 		span.textContent = label;
+		span.title = title;
 		return span;
+	}
+
+	/** A chip that opens the visit where what it counts can be read. */
+	function chipButton(
+		label: string,
+		variant: BadgeVariant,
+		title: string,
+		open: () => void,
+	): HTMLButtonElement {
+		const button = document.createElement('button');
+		button.type = 'button';
+		button.className = `ml-1 cursor-pointer border-none ${BADGE_BASE} ${BADGE_VARIANTS[variant]}`;
+		button.textContent = label;
+		button.title = title;
+		// As on the date button: a selection change re-renders the cell mid-press, and a button
+		// replaced between mousedown and mouseup is sent no click.
+		button.addEventListener('mousedown', (e) => e.stopPropagation());
+		button.addEventListener('click', (e) => {
+			e.stopPropagation();
+			open();
+		});
+		return button;
 	}
 
 	/**
@@ -564,12 +614,36 @@
 		button.addEventListener('click', () => void openVisit(visit.id));
 		td.append(button);
 		if (visit.findings_open > 0) {
-			td.append(chip(`${visit.findings_open} finding${visit.findings_open === 1 ? '' : 's'}`, 'warning'));
+			const kinds = findingKinds(visit.cells);
+			const onFinding = firstFindingParameter(visit.cells);
+			td.append(
+				chipButton(
+					`${visit.findings_open} finding${visit.findings_open === 1 ? '' : 's'}`,
+					'warning',
+					findingsChipTitle(visit.findings_open, kinds),
+					() => {
+						if (onFinding) void openVisitCell(visit.id, onFinding);
+						else void openVisit(visit.id, true);
+					},
+				),
+			);
 		}
+		// A site whose every visit is synced states the notice once above the grid, so the chip
+		// says nothing there that the row beside it does not.
 		const calculation = visitBadge(visit.source, visit.recompute);
-		if (calculation) td.append(chip(calculation.label, calculation.variant));
+		if (calculation && !(everySynced && visit.source === 'portal_sync')) {
+			td.append(chip(calculation.label, calculation.variant, calculation.title));
+		}
 		const state = verificationBadge(visit.unverified, visit.withdrawn_at);
-		if (state) td.append(chip(state.label, state.variant));
+		if (state) {
+			td.append(
+				chip(
+					state.label,
+					state.variant,
+					verificationNoticeFor(visit.unverified, visit.withdrawn_at) ?? state.label,
+				),
+			);
+		}
 		return td;
 	}
 
@@ -583,9 +657,15 @@
 		td.append(spare.typed);
 		if (spare.problem) {
 			td.classList.add('sheet-refused');
-			td.append(chip(spare.problem, 'alarm'));
+			td.append(chip(spare.problem, 'alarm', spare.problem));
 		} else if (spare.collectedAt) {
-			td.append(chip(stagedLabel(spare.collectedAt), 'accent'));
+			td.append(
+				chip(
+					stagedLabel(spare.collectedAt),
+					'accent',
+					'The visit this row will open when what you typed is saved',
+				),
+			);
 		} else {
 			td.title = 'Type or paste a date here to open a new visit at this site';
 		}
@@ -681,7 +761,7 @@
 		}
 		if (!cell) return td;
 		if (cell.finding === 'missing_output' && cell.value == null) {
-			td.append(chip('missing', 'warning'));
+			td.append(chip('missing', 'warning', 'A calculation was expected to write this value and did not'));
 		} else if (cell.value != null) {
 			td.append(displayText(at, edits, writable));
 			if ((cell.n ?? 0) > 1) td.append(mark(`n${cell.n}`, 'sheet-mark'));
@@ -1136,6 +1216,7 @@
 		try {
 			const r = await listSiteVisits(siteId, visitsRange());
 			visits = r.visits;
+			if (!visitsStart && !visitsEnd) visitsSpan = visitsExtent(r.visits);
 			visitColumns = r.expected_parameters;
 		} catch (e) {
 			toastStore.error(e instanceof Error ? `Failed to load visits: ${e.message}` : 'Failed to load visits');
@@ -1300,6 +1381,7 @@
 				? visitDetail.cells.find((c) => c.parameter_id === selectParameterId)
 				: null;
 			if (selected) visitCell = { parameterId: selected.parameter_id, parameterName: selected.parameter_name };
+			slotTableOpen = visitCell === null;
 			// A deep link can name a visit outside the current range; the range yields to it.
 			if (visitDetail && !visits.some((v) => v.id === id)) {
 				visitsStart = null;
@@ -1315,12 +1397,16 @@
 	}
 
 	let recordEl = $state<HTMLElement | null>(null);
+	// The visit-wide slot table: closed when a value opened the visit, since the record of that
+	// value is what was asked for, and open when the date did (Q224).
+	let slotTableOpen = $state(false);
 
 	// A value cell opens the visit's record on its parameter, below the grid.
 	async function openVisitCell(id: string, parameterId: string) {
 		if (expandedVisit === id && visitDetail) {
 			const c = visitDetail.cells.find((c) => c.parameter_id === parameterId);
 			visitCell = c ? { parameterId: c.parameter_id, parameterName: c.parameter_name } : null;
+			slotTableOpen = visitCell === null;
 		} else {
 			await openVisit(id, true, parameterId);
 		}
@@ -1456,6 +1542,15 @@
 {/snippet}
 
 			<div class="space-y-3">
+				{#if isDraggableExtent(visitsSpan) && visitsSpan}
+					<TimeRangeSlider
+						min={visitsSpan.min}
+						max={visitsSpan.max}
+						bind:start={sliderStart}
+						bind:end={sliderEnd}
+						onchange={onVisitsRangeDragged}
+					/>
+				{/if}
 				<div class="flex flex-wrap items-end gap-3">
 					<div>
 						<label for="visits-start" class="text-xs text-brand-muted block mb-1">From</label>
@@ -1509,10 +1604,9 @@
 						>
 							{visitsDownloading ? 'Downloading…' : 'Download grid CSV'}
 						</Button>
-						<span
-							class="text-brand-muted cursor-help text-xs"
-							title="This grid as displayed: one row per visit, one column per parameter code, the served value in each cell. For the readings themselves in long format (one row per reading, replicates and flags included) use Export."
-						>(i)</span>
+						<InfoTip
+							text="This grid as displayed: one row per visit, one column per parameter code, the served value in each cell. For the readings themselves in long format (one row per reading, replicates and flags included) use Export."
+						/>
 					</span>
 				</div>
 				{#if visitsLoading && visits.length === 0}
@@ -1615,6 +1709,9 @@
 							</div>
 						{/if}
 					{/if}
+					{#if everySynced}
+						<p class="text-xs text-brand-muted">{SYNCED_VISIT_NOTICE}</p>
+					{/if}
 					<SheetGrid data={gridData} settings={gridSettings} onready={gridReady} class="text-sm" />
 					{#if expandedVisit}
 						{@const v = { id: expandedVisit }}
@@ -1678,145 +1775,6 @@
 									</div>
 								{/if}
 							</div>
-							<table class="w-full text-xs">
-								<thead class="text-brand-muted">
-									<tr>
-										<th class="py-1 pr-3 text-left font-medium">Parameter</th>
-										<th class="py-1 pr-3 text-left font-medium">Served</th>
-										<th class="py-1 pr-3 text-left font-medium">Replicates</th>
-										<th class="py-1 pr-3 text-left font-medium">Provenance</th>
-										<th class="py-1 text-left font-medium">Finding</th>
-									</tr>
-								</thead>
-								<tbody>
-									{#each recordRows(visitDetail.cells, visitColumns) as row (row.parameterId + (row.cell?.stream_id ?? 'unmeasured'))}
-										{@const cell = row.cell}
-										<tr
-											class="border-t border-brand-divider/60 {cell ? 'cursor-pointer hover:bg-brand-bg/60' : ''} {visitCell?.parameterId === row.parameterId ? 'bg-brand-bg' : ''}"
-											aria-selected={visitCell?.parameterId === row.parameterId}
-											onclick={() => { if (cell) visitCell = { parameterId: cell.parameter_id, parameterName: cell.parameter_name }; }}
-										>
-											<td class="py-1 pr-3">
-												{#if cell}
-													<button
-														type="button"
-														class="cursor-pointer border-none bg-transparent p-0 text-left text-inherit hover:underline"
-														aria-pressed={visitCell?.parameterId === row.parameterId}
-														onclick={() => (visitCell = { parameterId: cell.parameter_id, parameterName: cell.parameter_name })}
-													>{cell.parameter_name}</button>
-												{:else}
-													<span class="text-brand-muted">{row.parameterName}</span>
-												{/if}
-												{#if unitsForParameter(row.parameterId)}<span class="text-brand-muted">({unitsForParameter(row.parameterId)})</span>{/if}
-												{#if me.can('writeData') && !cell?.written_by && instruments.length > 0}
-													{@const declared = declaredInstruments[instrumentKey(v.id, row.parameterId)] ?? ''}
-													<select
-														class="ml-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-[11px] hover:border-brand-divider"
-														title="What measured this parameter at this visit. It is stored on every value entered here."
-														aria-label="Instrument for {row.parameterName} at this visit"
-														value={declared}
-														onclick={(e) => e.stopPropagation()}
-														onchange={(e) => declareInstrument(v.id, row.parameterId, e.currentTarget.value)}
-													>
-														<option value="">Undeclared</option>
-														{#each pickerOptions(instruments, declared || undefined) as sensor (sensor.id)}
-															<option value={sensor.id}
-																>{sensor.name ?? sensor.serial_number ?? sensor.id.slice(0, 8)}{retiredSuffix(sensor)}</option
-															>
-														{/each}
-													</select>
-												{/if}
-												{#if cell && cellRole(cell).title}
-													{@const owner = cellRole(cell).role === 'output' ? cell.written_by : (cell.read_by ?? [])[0]}
-													<button
-														type="button"
-														class="ml-1.5 cursor-pointer rounded border-none px-1 text-[10px] {cellRole(cell).role === 'output'
-															? 'bg-brand-accent/15 text-brand-accent-dark'
-															: 'bg-brand-primary/10 text-brand-primary'}"
-														title={[cellRole(cell).title, owner ? `Open ${owner} at this visit, on the curve its last run here used` : null].filter(Boolean).join('\n')}
-														onclick={(e) => { e.stopPropagation(); if (owner) void openCalculation(owner, visitDetail!); }}
-													>{cellRole(cell).role === 'output' ? cell.written_by : `→ ${(cell.read_by ?? []).join(', ')}`}</button>
-												{/if}
-											</td>
-											{#if !cell}
-												<!-- A slot the site declares and the visit did not measure. It has a row so a
-												     first measurement can say what took it (U69). -->
-												<td class="py-1 pr-3 text-brand-muted">-</td>
-												<td class="py-1 pr-3 text-brand-muted">-</td>
-												<td class="py-1 pr-3 text-brand-muted">not measured</td>
-												<td class="py-1 text-brand-muted">-</td>
-											{:else}
-											<td class="py-1 pr-3 tabular-nums">
-												{formatMeasurement(cell.served_value, decimalsForParameter(cell.parameter_id))}
-												{#if cell.sample && cell.sample.n >= 2 && cell.sample.stdev != null}
-													<span
-														class="text-brand-muted"
-														title={statisticsParts(
-															cell.sample,
-															decimalsForParameter(cell.parameter_id),
-															unitsForParameter(cell.parameter_id)
-														).join('\n')}
-													>±{formatMeasurement(cell.sample.stdev, decimalsForParameter(cell.parameter_id))} (n={cell.sample.n})</span>
-												{/if}
-											</td>
-											<td class="py-1 pr-3 tabular-nums text-brand-muted">
-												{cell.replicates
-													.map((r) => `${formatMeasurement(r.calibrated_value ?? r.raw_value, decimalsForParameter(cell.parameter_id))}${r.flagged ? '*' : ''}${r.withdrawn ? '†' : ''}`)
-													.join(', ')}
-											</td>
-											<td class="py-1 pr-3 relative">
-												{#if cell.has_provenance && cell.tool_run_id}
-													{@const key = `${cell.parameter_id}:${cell.stream_id}`}
-													{@const runId = cell.tool_run_id}
-													<button
-														type="button"
-														class="cursor-pointer"
-														title="Show the calculation"
-														aria-label="Show how {cell.tool ?? 'the tool run'} computed this value"
-														aria-expanded={equationCell === key}
-														onclick={() => toggleEquation(key, runId)}
-													><Badge variant="ok">{cell.tool ?? 'tool run'}</Badge></button>
-													{#if equationCell === key}
-														{@const trace = traces.get(runId)}
-														<div
-															class="absolute z-40 left-0 top-full mt-1 bg-brand-surface border border-brand-divider rounded-md shadow-lg p-3 min-w-[260px] max-w-md w-max"
-														>
-															{#if trace === undefined}
-																<p class="text-xs text-brand-muted">Loading…</p>
-															{:else if typeof trace === 'string'}
-																<p class="text-xs text-brand-muted">{trace}</p>
-															{:else}
-																<p class="text-xs font-semibold mb-2">{trace.label} <span class="font-normal text-brand-muted">version {trace.version_no}</span></p>
-																<CellEquation
-																	steps={trace.trace}
-																	code={cell.parameter_code}
-																	walk
-																	origin={inputOrigin(trace, formatDateTime)}
-																/>
-															{/if}
-														</div>
-													{/if}
-												{:else if cell.has_provenance}
-													<Badge variant="ok">{cell.tool ?? 'tool run'}</Badge>
-												{:else}
-													<span class="text-brand-muted">{rowProvenanceLabel(cell.provenance_kind, cell.source_system) ?? 'unknown origin'}</span>
-												{/if}
-											</td>
-											<td class="py-1">
-												{#if cell.finding}
-													<Badge variant="warning">{findingLabel(cell.finding.kind)}</Badge>
-												{:else}
-													<span class="text-brand-muted">-</span>
-												{/if}
-											</td>
-											{/if}
-										</tr>
-									{/each}
-								</tbody>
-							</table>
-							{#if visitDetail.cells.some((c) => c.replicates.some((r) => r.flagged || r.withdrawn))}
-								<p class="mt-1 text-[11px] text-brand-muted">* flagged · † withdrawn at source · ? pending verification</p>
-							{/if}
 							{#if visitCell}
 								<div bind:this={recordEl}>
 									<PointInspector
@@ -1834,6 +1792,154 @@
 										onflag={(reps) => openVisitFlag(v.id, reps)}
 									/>
 								</div>
+							{/if}
+							{@const rows = recordRows(visitDetail.cells, visitColumns)}
+							<button
+								type="button"
+								class="mt-2 cursor-pointer border-none bg-transparent p-0 text-xs text-brand-primary hover:underline"
+								aria-expanded={slotTableOpen}
+								onclick={() => (slotTableOpen = !slotTableOpen)}
+							>{slotTableLabel(slotTableOpen, rows)}</button>
+							{#if slotTableOpen}
+								<table class="w-full text-xs">
+									<thead class="text-brand-muted">
+										<tr>
+											<th class="py-1 pr-3 text-left font-medium">Parameter</th>
+											<th class="py-1 pr-3 text-left font-medium">Served</th>
+											<th class="py-1 pr-3 text-left font-medium">Replicates</th>
+											<th class="py-1 pr-3 text-left font-medium">Provenance</th>
+											<th class="py-1 text-left font-medium">Finding</th>
+										</tr>
+									</thead>
+									<tbody>
+										{#each recordRows(visitDetail.cells, visitColumns) as row (row.parameterId + (row.cell?.stream_id ?? 'unmeasured'))}
+											{@const cell = row.cell}
+											<tr
+												class="border-t border-brand-divider/60 {cell ? 'cursor-pointer hover:bg-brand-bg/60' : ''} {visitCell?.parameterId === row.parameterId ? 'bg-brand-bg' : ''}"
+												aria-selected={visitCell?.parameterId === row.parameterId}
+												onclick={() => { if (cell) visitCell = { parameterId: cell.parameter_id, parameterName: cell.parameter_name }; }}
+											>
+												<td class="py-1 pr-3">
+													{#if cell}
+														<button
+															type="button"
+															class="cursor-pointer border-none bg-transparent p-0 text-left text-inherit hover:underline"
+															aria-pressed={visitCell?.parameterId === row.parameterId}
+															onclick={() => (visitCell = { parameterId: cell.parameter_id, parameterName: cell.parameter_name })}
+														>{cell.parameter_name}</button>
+													{:else}
+														<span class="text-brand-muted">{row.parameterName}</span>
+													{/if}
+													{#if unitsForParameter(row.parameterId)}<span class="text-brand-muted">({unitsForParameter(row.parameterId)})</span>{/if}
+													{#if me.can('writeData') && !cell?.written_by && instruments.length > 0}
+														{@const declared = declaredInstruments[instrumentKey(v.id, row.parameterId)] ?? ''}
+														<select
+															class="ml-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-[11px] hover:border-brand-divider"
+															title="What measured this parameter at this visit. It is stored on every value entered here."
+															aria-label="Instrument for {row.parameterName} at this visit"
+															value={declared}
+															onclick={(e) => e.stopPropagation()}
+															onchange={(e) => declareInstrument(v.id, row.parameterId, e.currentTarget.value)}
+														>
+															<option value="">Undeclared</option>
+															{#each pickerOptions(instruments, declared || undefined) as sensor (sensor.id)}
+																<option value={sensor.id}
+																	>{sensor.name ?? sensor.serial_number ?? sensor.id.slice(0, 8)}{retiredSuffix(sensor)}</option
+																>
+															{/each}
+														</select>
+													{/if}
+													{#if cell && cellRole(cell).title}
+														{@const owner = cellRole(cell).role === 'output' ? cell.written_by : (cell.read_by ?? [])[0]}
+														<button
+															type="button"
+															class="ml-1.5 cursor-pointer rounded border-none px-1 text-[10px] {cellRole(cell).role === 'output'
+																? 'bg-brand-accent/15 text-brand-accent-dark'
+																: 'bg-brand-primary/10 text-brand-primary'}"
+															title={[cellRole(cell).title, owner ? `Open ${owner} at this visit, on the curve its last run here used` : null].filter(Boolean).join('\n')}
+															onclick={(e) => { e.stopPropagation(); if (owner) void openCalculation(owner, visitDetail!); }}
+														>{cellRole(cell).role === 'output' ? cell.written_by : `→ ${(cell.read_by ?? []).join(', ')}`}</button>
+													{/if}
+												</td>
+												{#if !cell}
+													<!-- A slot the site declares and the visit did not measure. It has a row so a
+													     first measurement can say what took it (U69). -->
+													<td class="py-1 pr-3 text-brand-muted">-</td>
+													<td class="py-1 pr-3 text-brand-muted">-</td>
+													<td class="py-1 pr-3 text-brand-muted">not measured</td>
+													<td class="py-1 text-brand-muted">-</td>
+												{:else}
+												<td class="py-1 pr-3 tabular-nums">
+													{formatMeasurement(cell.served_value, decimalsForParameter(cell.parameter_id))}
+													{#if cell.sample && cell.sample.n >= 2 && cell.sample.stdev != null}
+														<span
+															class="text-brand-muted"
+															title={statisticsParts(
+																cell.sample,
+																decimalsForParameter(cell.parameter_id),
+																unitsForParameter(cell.parameter_id)
+															).join('\n')}
+														>±{formatMeasurement(cell.sample.stdev, decimalsForParameter(cell.parameter_id))} (n={cell.sample.n})</span>
+													{/if}
+												</td>
+												<td class="py-1 pr-3 tabular-nums text-brand-muted">
+													{cell.replicates
+														.map((r) => `${formatMeasurement(r.calibrated_value ?? r.raw_value, decimalsForParameter(cell.parameter_id))}${r.flagged ? '*' : ''}${r.withdrawn ? '†' : ''}`)
+														.join(', ')}
+												</td>
+												<td class="py-1 pr-3 relative">
+													{#if cell.has_provenance && cell.tool_run_id}
+														{@const key = `${cell.parameter_id}:${cell.stream_id}`}
+														{@const runId = cell.tool_run_id}
+														<button
+															type="button"
+															class="cursor-pointer"
+															title="Show the calculation"
+															aria-label="Show how {cell.tool ?? 'the tool run'} computed this value"
+															aria-expanded={equationCell === key}
+															onclick={() => toggleEquation(key, runId)}
+														><Badge variant="ok">{cell.tool ?? 'tool run'}</Badge></button>
+														{#if equationCell === key}
+															{@const trace = traces.get(runId)}
+															<div
+																class="absolute z-40 left-0 top-full mt-1 bg-brand-surface border border-brand-divider rounded-md shadow-lg p-3 min-w-[260px] max-w-md w-max"
+															>
+																{#if trace === undefined}
+																	<p class="text-xs text-brand-muted">Loading…</p>
+																{:else if typeof trace === 'string'}
+																	<p class="text-xs text-brand-muted">{trace}</p>
+																{:else}
+																	<p class="text-xs font-semibold mb-2">{trace.label} <span class="font-normal text-brand-muted">version {trace.version_no}</span></p>
+																	<CellEquation
+																		steps={trace.trace}
+																		code={cell.parameter_code}
+																		walk
+																		origin={inputOrigin(trace, formatDateTime)}
+																	/>
+																{/if}
+															</div>
+														{/if}
+													{:else if cell.has_provenance}
+														<Badge variant="ok">{cell.tool ?? 'tool run'}</Badge>
+													{:else}
+														<span class="text-brand-muted">{rowProvenanceLabel(cell.provenance_kind, cell.source_system) ?? 'unknown origin'}</span>
+													{/if}
+												</td>
+												<td class="py-1">
+													{#if cell.finding}
+														<Badge variant="warning">{findingLabel(cell.finding.kind)}</Badge>
+													{:else}
+														<span class="text-brand-muted">-</span>
+													{/if}
+												</td>
+												{/if}
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+								{#if visitDetail.cells.some((c) => c.replicates.some((r) => r.flagged || r.withdrawn))}
+									<p class="mt-1 text-[11px] text-brand-muted">* flagged · † withdrawn at source · ? pending verification</p>
+								{/if}
 							{/if}
 						{/if}
 						</div>

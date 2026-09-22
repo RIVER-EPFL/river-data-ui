@@ -38,6 +38,8 @@
 		suggestionAcceptance,
 		creations,
 		type ParamGroup,
+		type ParamRowKey,
+		inParamRow,
 		type GroupCreation,
 		type SiteCreation,
 		type SiteGroup,
@@ -47,7 +49,7 @@
 	import { createUrlTab } from '$lib/urlTab.svelte';
 	import { createDraftQueue } from '$lib/pairing/draftQueue';
 	import { movesPlanInstruments, splitPlanUpdates, type PlanUpdate } from '$lib/pairing/planUpdates';
-	import { NO_PLAN_RUNS, runsAfterJob, type PlanRuns } from '$lib/pairing/planRuns';
+	import { NO_PLAN_RUNS, planRunLabel, runsAfterJob, type PlanRuns, type PlanRunProgress } from '$lib/pairing/planRuns';
 	import { eventBus } from '$lib/stores/events.svelte';
 	import { objectDecisions, type ObjectDecision } from '$lib/pairing/objectDecisions';
 	import { curveReviewBlocked, curveRows, type CurveRow } from '$lib/pairing/curveRows';
@@ -79,6 +81,7 @@
 	import ParametersTab from '$components/pairing/ParametersTab.svelte';
 	import { REVIEW_ROWS_PER_PAGE, type ReviewFilter } from '$components/pairing/ReviewTable.svelte';
 	import { applyBlockedReason, planGateItems } from '$lib/pairing/applyGate';
+	import { conflictsOn, planConflicts } from '$lib/pairing/conflicts';
 	import SitesTab from '$components/pairing/SitesTab.svelte';
 	import { chunked } from '$lib/pairing/chunked';
 
@@ -254,6 +257,9 @@
 	const applyJobId = $derived(planRuns.applyJobId);
 	const applyingPlanId = $derived(planRuns.applyingPlanId);
 	const revertingPlanId = $derived(planRuns.revertingPlanId);
+	// What the plan's own job last reported, so its row names the phase rather than a verb that
+	// stands from the enqueue to the last slot.
+	let planRunProgress = $state<PlanRunProgress | null>(null);
 	// Plans already applied, per source system: the way back to the counts of a run nobody watched.
 	let appliedPlans = $state<PairingPlanListing[]>([]);
 	let reverting = $state(false);
@@ -515,8 +521,18 @@
 	// ── Consolidated parameter view ──
 	const paramGroups = $derived(planParamGroups(planEntries));
 
+	// What the plan cannot apply as it stands, as against what is still to review: the rows carry it
+	// already, and the gate reads the same list.
+	const conflicts = $derived(planConflicts(planEntries));
+
 	function rowWarnings(pg: ParamGroup): string[] {
 		return pg.warnings;
+	}
+
+	function conflictsNamed(tab: ReviewTab, subject: string): string[] {
+		return conflictsOn(conflicts, tab)
+			.filter((c) => c.subject.toLowerCase() === subject.toLowerCase())
+			.map((c) => c.message);
 	}
 
 	// One row per distinct warning, carrying the structured warning so the block can offer the
@@ -616,6 +632,15 @@
 		await loadPlanInstruments();
 	}
 
+	// A skip is the other decision a held curve takes, and it goes through the same queue as the
+	// attachment: the curve is not created and the readings naming it are not imported (Q220).
+	async function skipHeldCurve(curve: PlanHeldCurve, skip: boolean) {
+		if (!plan) return;
+		draftQueue.enqueue([{ proposal_id: curve.id, skip }], { immediate: true });
+		await draftQueue.flush().catch(() => {});
+		await loadPlanInstruments();
+	}
+
 	// The instruments this plan will create, one option each however many parameters share one.
 	const plannedInstruments = $derived.by(() => {
 		const seen = new Map<string, string>();
@@ -706,7 +731,28 @@
 		const units = w.warning.source_units;
 		if (!units) return;
 		const newName = `${w.paramName}_${units.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'alt'}`;
-		renameGlobalParam(w.paramName, newName, units);
+		for (const row of paramRowsNamed(w.paramName)) renameGlobalParam(row, newName, units);
+	}
+
+	// The code is taken, and attaching is the other way out: the plan's own rows keep their units,
+	// and the catalog parameter they join keeps its.
+	function attachToCatalogParam(w: { warning: PlanWarning; paramName: string }) {
+		const existing = w.warning.existing;
+		if (!existing) return;
+		for (const row of paramRowsNamed(w.paramName)) mapParamToExisting(row, existing);
+	}
+
+	// Every parameter row carrying this code: a warning names the code, and one code can be two rows
+	// while their units disagree.
+	function paramRowsNamed(name: string): ParamRowKey[] {
+		const seen = new Set<string>();
+		const rows: ParamRowKey[] = [];
+		for (const e of planEntries) {
+			if (e.parameter.name !== name || seen.has(e.parameter.units)) continue;
+			seen.add(e.parameter.units);
+			rows.push({ name, units: e.parameter.units });
+		}
+		return rows;
 	}
 
 	function goToParam(paramName: string) {
@@ -749,15 +795,18 @@
 		return { name: body.slice(0, sep), units: body.slice(sep + 2) };
 	}
 
-	function renameGlobalParam(oldName: string, newName: string, newUnits?: string) {
+	function renameGlobalParam(row: ParamRowKey, newName: string, newUnits?: string) {
 		if (!newName.trim()) return;
-		if (newName === oldName && newUnits === undefined) return;
+		if (newName === row.name && newUnits === undefined) return;
 		const updates: PlanEntryUpdate[] = [];
 		for (const e of planEntries) {
-			if (e.parameter.name === oldName) {
+			if (inParamRow(e, row)) {
 				e.parameter.name = newName.trim();
 				e.parameter.create = true;
 				e.parameter.id = null;
+				// A code somebody typed creates a parameter; joining the catalog is a choice of its
+				// own, made by picking the parameter from the list.
+				e.parameter.attach = { choice: 'new' };
 				const update: PlanEntryUpdate = { stream_id: e.stream_id, parameter_name: newName.trim() };
 				if (newUnits !== undefined && newUnits !== e.parameter.units) {
 					e.parameter.units = newUnits;
@@ -787,8 +836,23 @@
 		splitParamValue = '';
 	}
 
-	function mapParamToExisting(oldName: string, existingParam: Parameter) {
-		renameGlobalParam(oldName, existingParam.code);
+	function mapParamToExisting(row: ParamRowKey, existingParam: { id: string; code: string }) {
+		const updates: PlanEntryUpdate[] = [];
+		for (const e of planEntries) {
+			if (inParamRow(e, row)) {
+				e.parameter.name = existingParam.code;
+				e.parameter.id = existingParam.id;
+				e.parameter.create = false;
+				e.parameter.attach = { choice: 'existing', id: existingParam.id };
+				updates.push({
+					stream_id: e.stream_id,
+					parameter_name: existingParam.code,
+					parameter_attach: { choice: 'existing', id: existingParam.id },
+				});
+			}
+		}
+		planEntries = [...planEntries];
+		queueUpdate(updates);
 	}
 
 	let editingGlobalUnits = $state<{ name: string; units: string } | null>(null);
@@ -817,11 +881,11 @@
 
 	// Display-label editing applies only to parameters the plan creates; a matched existing
 	// parameter keeps its own name (edited on the Parameters page).
-	let editingLabel = $state<string | null>(null);
+	let editingLabel = $state<ParamRowKey | null>(null);
 	let editLabelValue = $state('');
 
-	function startEditLabel(pg: { name: string; label: string | null }) {
-		editingLabel = pg.name;
+	function startEditLabel(pg: { name: string; units: string; label: string | null }) {
+		editingLabel = { name: pg.name, units: pg.units };
 		editLabelValue = pg.label ?? '';
 	}
 
@@ -831,13 +895,13 @@
 
 	function commitEditLabel() {
 		if (editingLabel === null) return;
-		const name = editingLabel;
+		const row = editingLabel;
 		const newLabel = editLabelValue.trim();
 		editingLabel = null;
 		if (!newLabel) return;
 		const updates: PlanEntryUpdate[] = [];
 		for (const e of planEntries) {
-			if (e.parameter.name === name && (e.parameter.label ?? '') !== newLabel) {
+			if (inParamRow(e, row) && (e.parameter.label ?? '') !== newLabel) {
 				e.parameter.label = newLabel;
 				updates.push({ stream_id: e.stream_id, parameter_label: newLabel });
 			}
@@ -1460,7 +1524,8 @@
 		try {
 			const { job_id } = await applyPairingPlan(plan.id, plan.version);
 			planRuns = { ...planRuns, applyJobId: job_id, applyingPlanId: planId };
-			toastStore.success('Applying the plan. Its progress is in the operations panel; the counts appear here when it finishes.');
+			planRunProgress = null;
+			toastStore.success('Applying the plan: it pairs the streams, then re-derives the slots they feed. Its progress is in the operations panel; the counts appear here when it finishes.');
 			plan = null; planEntries = []; applyResult = null;
 			// Back to the source list, where the row for the plan just applied is the one in front
 			// of the operator, rather than to the streams list which names no running job.
@@ -1498,6 +1563,7 @@
 		try {
 			const { job_id } = await revertPairingPlan(planId);
 			planRuns = { ...planRuns, revertJobId: job_id, revertingPlanId: planId };
+			planRunProgress = null;
 			toastStore.success('Reverting the plan. Its progress is in the operations panel; what it undid is recorded there.');
 			plan = null; planEntries = []; applyResult = null;
 			await enterSourceSelect();
@@ -1518,13 +1584,20 @@
 	// A plan's row reads "Applying…"/"Reverting…" off a job this tab started, so the label is
 	// cleared by the job's own completion rather than left standing for the session.
 	let unsubJobCompleted: (() => void) | null = null;
+	let unsubJobProgress: (() => void) | null = null;
 	onMount(() => {
 		unsubJobCompleted = eventBus.subscribe('job_completed', (event) => {
 			const finished = (event as { job_id: string }).job_id;
 			const after = runsAfterJob(planRuns, finished);
 			if (after === planRuns) return;
 			planRuns = after;
+			planRunProgress = null;
 			if (mode === 'source-select') void loadSourceSelect();
+		});
+		unsubJobProgress = eventBus.subscribe('job_progress', (event) => {
+			const update = event as { job_id: string; status: string; progress: number | null; total: number | null };
+			if (update.job_id !== planRuns.applyJobId && update.job_id !== planRuns.revertJobId) return;
+			planRunProgress = { status: update.status, progress: update.progress, total: update.total };
 		});
 	});
 
@@ -1547,11 +1620,16 @@
 				total: instrumentDecisions.length + planDeviceDecisions.length,
 			},
 			curves: reviewCount(planCurves, (r) => r.reviewed),
+			conflicts: {
+				projects: conflictsOn(conflicts, 'projects').map((c) => c.message),
+				sites: conflictsOn(conflicts, 'sites').map((c) => c.message),
+				parameters: conflictsOn(conflicts, 'parameters').map((c) => c.message),
+			},
 		}),
 	);
 	const applyBlocked = $derived(applyBlockedReason(gateItems));
 	const activeTab = $derived(activeReviewTab(reviewTab, gateItems));
-	onDestroy(() => unsubJobCompleted?.());
+	onDestroy(() => { unsubJobCompleted?.(); unsubJobProgress?.(); });
 
 	onMount(async () => {
 		// Build the source-system facet first so the initial list can default to
@@ -1623,8 +1701,12 @@
 					Affects {formatCount(w.count)} stream{w.count === 1 ? '' : 's'}.
 				</p>
 				<div class="flex flex-wrap items-center gap-2 mt-2">
-					<Button size="sm" onclick={() => adoptCatalogUnits(w)}>Keep catalog units ({ex.units})</Button>
-					<Button size="sm" onclick={() => adoptSourceUnits(w)}>Use source units ({w.warning.source_units})</Button>
+					{#if w.warning.kind === 'code_conflict'}
+						<Button size="sm" onclick={() => attachToCatalogParam(w)}>Attach to {ex.code}</Button>
+					{:else}
+						<Button size="sm" onclick={() => adoptCatalogUnits(w)}>Keep catalog units ({ex.units})</Button>
+						<Button size="sm" onclick={() => adoptSourceUnits(w)}>Use source units ({w.warning.source_units})</Button>
+					{/if}
 					<Button variant="ghost" size="sm" onclick={() => goToParam(w.paramName)}>Open in Parameters</Button>
 				</div>
 			{:else}
@@ -1774,7 +1856,7 @@
 											{#if appliedFor(s.source_system)}
 												{@const done = appliedFor(s.source_system)}
 												<Button size="sm" variant="ghost" onclick={(e) => { e.stopPropagation(); openResults(done!.id); }}>
-													{#if done!.id === applyingPlanId}Applying…{:else if done!.id === revertingPlanId}Reverting…{:else}Results{/if}
+													{#if done!.id === applyingPlanId}{planRunLabel('apply', planRunProgress)}{:else if done!.id === revertingPlanId}{planRunLabel('revert', planRunProgress)}{:else}Results{/if}
 												</Button>
 											{/if}
 										</td>
@@ -2032,6 +2114,7 @@
 						{existingProjects}
 						onreview={reviewProject}
 						onrename={renameProject}
+						projectConflicts={(name) => conflictsNamed('projects', name)}
 						bind:query={tableQuery}
 						bind:filter={tableFilter}
 						bind:page={tablePage}
@@ -2080,6 +2163,7 @@
 						oncommitname={commitCurveName}
 						onrehome={rehomeCurve}
 						onattach={attachHeldCurve}
+						onskip={skipHeldCurve}
 						{reviewedKeys}
 						onreview={reviewCurve}
 						bind:query={tableQuery}
@@ -2094,6 +2178,7 @@
 					<SitesTab
 						{planEntries}
 						{siteGroups}
+						siteConflicts={(name) => conflictsNamed('sites', name)}
 						{existingSites}
 						{expandedSites}
 						{expandedReplicates}

@@ -30,9 +30,13 @@ export function curveRows(
 	return [...held, ...stored];
 }
 
-/** Why a curve cannot be reviewed yet, or null. A held curve is reviewed on an instrument. */
+/**
+ * Why a curve cannot be reviewed yet, or null. A held curve is reviewed once it has been ruled on:
+ * attached to an instrument, or skipped (Q220).
+ */
 export function curveReviewBlocked(row: CurveRow): string | null {
-	return row.kind === 'held' && !row.curve.attached ? 'Attach it to an instrument first' : null;
+	if (row.kind !== 'held' || row.curve.attached || row.curve.skipped) return null;
+	return 'Attach it to an instrument, or skip it, first';
 }
 
 /** The name the row shows: the curve's own, else the source's label for a held one. */

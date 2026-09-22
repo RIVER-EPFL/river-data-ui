@@ -16,6 +16,15 @@ describe('ConfirmButton', () => {
 		return onconfirm;
 	};
 
+	it('changes its words and nothing else when it arms', async () => {
+		mount();
+		const resting = screen.getByRole('button', { name: 'Discard' });
+		const style = resting.className;
+		await fireEvent.click(resting);
+		const armed = screen.getByRole('button', { name: 'Click again to discard' });
+		expect(armed.className).toBe(style);
+	});
+
 	it('acts on the second press only, naming what it does in between', async () => {
 		const onconfirm = mount();
 		await fireEvent.click(screen.getByRole('button', { name: 'Discard' }));

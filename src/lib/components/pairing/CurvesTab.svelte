@@ -23,6 +23,7 @@
 		oncommitname,
 		onrehome,
 		onattach,
+		onskip,
 		onreview,
 		onmarkall,
 		marking,
@@ -45,6 +46,8 @@
 		onrehome: (curve: PlanCurveAssignment, target: string) => void;
 		/** Attach a held curve to an instrument id, a prefixed planned source key, or '' to clear. */
 		onattach: (curve: PlanHeldCurve, target: string) => void;
+		/** Leave a held curve behind, or take that back. */
+		onskip: (curve: PlanHeldCurve, skip: boolean) => void;
 		onreview: (row: CurveRow, reviewed: boolean) => void;
 		onmarkall: (reviewed: boolean) => void;
 		marking: boolean;
@@ -115,18 +118,32 @@
 	{#if row.kind === 'held'}
 		{@const c = row.curve}
 		{@const attached = c.attached}
-		<div class="w-[260px]">
-			<MappingSelect
-				value={attached?.instrument_source_key ? planInstrumentPrefix + attached.instrument_source_key : attached?.instrument_id ? `db:${attached.instrument_id}` : ''}
-				groups={instrumentGroups(attached?.instrument_id ? { id: attached.instrument_id, name: attached.instrument_name } : null)}
-				noneLabel="Not attached"
-				status={!attached ? 'unset' : attached.instrument_source_key ? 'new' : 'existing'}
-				ariaLabel="Instrument for {curveTitle(row)}"
-				onchange={(v) => onattach(c, v.startsWith('db:') ? v.slice(3) : v)}
-			/>
-		</div>
-		{#if !attached}
-			<div class="text-[11px] text-severity-warning-text mt-0.5">Attach it before the plan can be applied</div>
+		{#if c.skipped}
+			<div class="text-xs text-brand-muted">Skipped{c.skipped_by ? ` by ${c.skipped_by}` : ''}</div>
+			<div class="text-[11px] text-brand-muted mt-0.5">Not created, and the readings naming it are not imported</div>
+			<button
+				onclick={() => onskip(c, false)}
+				class="text-[11px] text-brand-primary bg-transparent border-0 underline cursor-pointer mt-0.5 p-0"
+			>Keep it after all</button>
+		{:else}
+			<div class="w-[260px]">
+				<MappingSelect
+					value={attached?.instrument_source_key ? planInstrumentPrefix + attached.instrument_source_key : attached?.instrument_id ? `db:${attached.instrument_id}` : ''}
+					groups={instrumentGroups(attached?.instrument_id ? { id: attached.instrument_id, name: attached.instrument_name } : null)}
+					noneLabel="Not attached"
+					status={!attached ? 'unset' : attached.instrument_source_key ? 'new' : 'existing'}
+					ariaLabel="Instrument for {curveTitle(row)}"
+					onchange={(v) => onattach(c, v.startsWith('db:') ? v.slice(3) : v)}
+				/>
+			</div>
+			{#if !attached}
+				<div class="text-[11px] text-severity-warning-text mt-0.5">Attach it, or skip it, before the plan can be applied</div>
+			{/if}
+			<button
+				onclick={() => onskip(c, true)}
+				class="text-[11px] text-brand-muted bg-transparent border-0 underline cursor-pointer mt-0.5 p-0 hover:text-brand-text"
+				title="Leave this curve behind: it is not created, and the readings naming it are not imported"
+			>Skip this curve</button>
 		{/if}
 	{:else}
 		{@const c = row.curve}
@@ -160,8 +177,9 @@
 	{#if heldCount > 0}
 		<p class="text-sm mb-1.5">
 			The source sent {heldCount} curve{heldCount === 1 ? '' : 's'} without naming an
-			instrument. Attach each to the instrument that measured the values it corrects; the curve is
-			created under it when the plan is applied.
+			instrument. Attach each to the instrument that measured the values it corrects, and it is
+			created under that instrument when the plan is applied. Skip the ones you do not want: a
+			skipped curve is not created, and the readings naming it are not imported.
 		</p>
 	{/if}
 	<ReviewTable

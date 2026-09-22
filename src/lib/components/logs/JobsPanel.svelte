@@ -13,6 +13,7 @@
 		countLabel,
 		headlineFor,
 	} from '$lib/utils';
+	import { EMPTY_JOB_QUEUE, isJobWaiting, jobProgressLabel, loadJobQueue, type JobQueue } from '$lib/jobQueue';
 	import Button from '$components/ui/Button.svelte';
 	import EventPanel from '$components/logs/EventPanel.svelte';
 
@@ -27,6 +28,7 @@
 	let statusFilter = $state<'all' | 'queued' | 'running' | 'completed' | 'failed'>('all');
 	let categoryFilter = $state<(typeof CATEGORIES)[number]>('all');
 
+	let queue = $state<JobQueue>(EMPTY_JOB_QUEUE);
 	let logs = $state<JobLogLine[]>([]);
 	let logsLoading = $state(false);
 
@@ -40,6 +42,13 @@
 			sort: ['created_at', 'DESC'],
 			filter,
 		});
+		// The queue is read on its own rather than from this page: the rows waiting behind a burst
+		// of slot jobs are not the ones the page is showing.
+		try {
+			queue = result.data.some((j) => isJobWaiting(j.status)) ? await loadJobQueue() : EMPTY_JOB_QUEUE;
+		} catch {
+			// A position is an annotation on the row; the next load retries it.
+		}
 		return { data: result.data, total: result.total };
 	}
 
@@ -213,6 +222,8 @@
 					</div>
 					<span class="text-brand-muted font-mono text-[10px] whitespace-nowrap">{job.progress}/{job.total}</span>
 				</div>
+			{:else if isJobWaiting(job.status)}
+				<span class="text-brand-muted font-mono text-[10px] whitespace-nowrap">{jobProgressLabel(job, queue)}</span>
 			{:else}
 				<span class="text-brand-muted">-</span>
 			{/if}
@@ -252,6 +263,8 @@
 							</div>
 							<span class="text-brand-muted font-mono text-xs">{job.progress}/{job.total}</span>
 						</div>
+					{:else if isJobWaiting(job.status)}
+						<p class="text-brand-muted font-mono text-xs">{jobProgressLabel(job, queue)}</p>
 					{:else}
 						<p class="text-brand-muted">-</p>
 					{/if}

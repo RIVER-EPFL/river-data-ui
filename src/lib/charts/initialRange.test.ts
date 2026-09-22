@@ -39,7 +39,7 @@ describe('initialChartRange', () => {
 		expect(range).toEqual({ startMs: NOW - 60 * DAY, endMs: NOW - 30 * DAY });
 	});
 
-	it('keeps the week on a mixed site whose continuous data reaches into it', () => {
+	it('keeps the week on a site declaring both cadences whose continuous data reaches into it', () => {
 		const extents = [continuous(NOW - 90 * DAY, NOW), spot(NOW - 90 * DAY, NOW - 40 * DAY)];
 		const range = initialChartRange(extents, { minMs: NOW - 90 * DAY, maxMs: NOW }, 'all');
 		expect(range).toEqual({ startMs: NOW - DEFAULT_WINDOW_MS, endMs: NOW });

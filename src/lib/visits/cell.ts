@@ -134,6 +134,34 @@ export function findingLabel(kind: string): string {
 	}
 }
 
+/** What the findings chip says on hover: the kinds standing on the visit's own cells. */
+export function findingsChipTitle(count: number, kinds: string[]): string {
+	const one = count === 1;
+	const head = `${count} finding${one ? '' : 's'}`;
+	const named = [...new Set(kinds)].map((kind) => kind.replace(/_/g, ' '));
+	const where = `Open the visit to see ${one ? 'it on its row' : 'them on their rows'}.`;
+	return named.length > 0 ? `${head}: ${named.join(', ')}. ${where}` : `${head}. ${where}`;
+}
+
+/**
+ * The parameter the findings chip opens the visit on: the first cell carrying one. The grid's
+ * cells carry the kind as a word, the expanded record's as an object, so both are read.
+ */
+export function firstFindingParameter(
+	cells: { parameter_id: string; finding?: string | { kind: string } | null }[],
+): string | null {
+	return cells.find((cell) => cell.finding)?.parameter_id ?? null;
+}
+
+/** The kind each cell's finding names, in whichever of the two shapes it arrives. */
+export function findingKinds(
+	cells: { finding?: string | { kind: string } | null }[],
+): string[] {
+	return cells
+		.map((cell) => (typeof cell.finding === 'string' ? cell.finding : cell.finding?.kind))
+		.filter((kind): kind is string => !!kind);
+}
+
 /** A line of the expanded record: a parameter, and the readings the visit holds for it. */
 export interface RecordRow {
 	parameterId: string;
@@ -170,4 +198,10 @@ export function recordRows(cells: EventCell[], expected: ExpectedParameter[]): R
 		.filter((c) => !expected.some((p) => p.parameter_id === c.parameter_id))
 		.map(rowOf);
 	return [...declared, ...unexpected];
+}
+
+/** What the control over the visit-wide slot table says, so its size is read before it opens. */
+export function slotTableLabel(open: boolean, rows: RecordRow[]): string {
+	const unmeasured = rows.filter((row) => !row.cell).length;
+	return `${open ? 'Hide' : 'Show'} all ${rows.length} parameter${rows.length === 1 ? '' : 's'}, ${unmeasured} not measured`;
 }

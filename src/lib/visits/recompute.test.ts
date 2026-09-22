@@ -4,6 +4,7 @@ import {
 	SYNCED_VISIT_NOTICE,
 	computedHere,
 	computing,
+	allSynced,
 	entryNoticeFor,
 	movedOutputs,
 	runOutputs,
@@ -125,5 +126,30 @@ describe('readUntilSettled', () => {
 		expect(settled).toBe(false);
 		// the first read, then one per interval until 3 s have been waited
 		expect(calls).toBe(4);
+	});
+});
+
+describe('allSynced', () => {
+	it('is true only when every listed visit came from the portal', () => {
+		expect(allSynced([{ source: 'portal_sync' }, { source: 'portal_sync' }])).toBe(true);
+		expect(allSynced([{ source: 'portal_sync' }, { source: 'manual' }])).toBe(false);
+	});
+
+	it('is false for a site listing no visit, which has nothing to say it about', () => {
+		expect(allSynced([])).toBe(false);
+	});
+});
+
+describe('badge titles', () => {
+	it('says what each recompute state means and what to do about it', () => {
+		for (const state of ['queued', 'running', 'failed', 'stale']) {
+			expect(RECOMPUTE_BADGE[state].title.length).toBeGreaterThan(0);
+		}
+		expect(RECOMPUTE_BADGE.failed.title).toContain('Jobs');
+		expect(RECOMPUTE_BADGE.stale.title).toContain('recompute');
+	});
+
+	it('gives the portal-synced badge the notice as its hover text', () => {
+		expect(visitBadge('portal_sync', 'current')?.title).toBe(SYNCED_VISIT_NOTICE);
 	});
 });

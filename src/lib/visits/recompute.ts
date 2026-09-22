@@ -4,14 +4,35 @@
 
 export type RecomputeState = 'current' | 'queued' | 'running' | 'failed' | 'stale';
 
-export type RecomputeBadge = { label: string; variant: 'muted' | 'accent' | 'alarm' | 'warning' };
+export type RecomputeBadge = {
+	label: string;
+	variant: 'muted' | 'accent' | 'alarm' | 'warning';
+	/** What the badge means and what to do about it, carried as the chip's hover text. */
+	title: string;
+};
 
 /** The badge a state shows, or nothing at all for a visit whose calculations are done. */
 export const RECOMPUTE_BADGE: Record<string, RecomputeBadge> = {
-	queued: { label: 'queued', variant: 'muted' },
-	running: { label: 'recomputing', variant: 'accent' },
-	failed: { label: 'recompute failed', variant: 'alarm' },
-	stale: { label: 'stale', variant: 'warning' },
+	queued: {
+		label: 'queued',
+		variant: 'muted',
+		title: 'The calculations are queued: this visit\'s outputs are not written yet.',
+	},
+	running: {
+		label: 'recomputing',
+		variant: 'accent',
+		title: 'The calculations are running: this visit\'s outputs are not written yet.',
+	},
+	failed: {
+		label: 'recompute failed',
+		variant: 'alarm',
+		title: 'The recompute failed: its run is under Jobs on the System page.',
+	},
+	stale: {
+		label: 'stale',
+		variant: 'warning',
+		title: 'An input moved after the outputs were written: recompute this visit.',
+	},
 };
 
 /** Whether the visit's outputs are still being written, so what it reports is not yet its answer. */
@@ -28,8 +49,15 @@ export function visitBadge(
 	source: string | undefined,
 	state: string | undefined
 ): RecomputeBadge | null {
-	if (source === 'portal_sync') return { label: 'not calculated here', variant: 'muted' };
+	if (source === 'portal_sync')
+		return { label: 'not calculated here', variant: 'muted', title: SYNCED_VISIT_NOTICE };
 	return RECOMPUTE_BADGE[state ?? ''] ?? null;
+}
+
+/** Whether every visit listed came from the portal, so the grid states the notice once instead
+ * of repeating it on each row. */
+export function allSynced(visits: { source?: string | undefined }[]): boolean {
+	return visits.length > 0 && visits.every((v) => v.source === 'portal_sync');
 }
 
 /** What a person entering a value at a portal-synced visit needs to know before they type it. */

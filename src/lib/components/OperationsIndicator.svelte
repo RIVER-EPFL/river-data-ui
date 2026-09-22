@@ -15,6 +15,7 @@
 		isJobActive,
 		jobDetailPath,
 	} from '$lib/utils';
+	import { EMPTY_JOB_QUEUE, jobProgressLabel, loadJobQueue, type JobQueue } from '$lib/jobQueue';
 
 	const POLL_MS = 10_000;
 	const RECENT_LINGER_MS = 5000;
@@ -26,6 +27,7 @@
 	let recentlyFinished = $state<Map<string, number>>(new Map());
 	let seenTerminal = new Set<string>();
 	let consecutiveErrors = $state(0);
+	let queue = $state<JobQueue>(EMPTY_JOB_QUEUE);
 	let initialLoad = true;
 
 	const activeJobs = $derived(jobs.filter((j) => isJobActive(j.status)));
@@ -86,6 +88,13 @@
 			}
 			recentlyFinished = linger;
 			jobs = fetched;
+			// The queue is read on its own: this list is the most recent 50 jobs, which a burst of
+			// slot jobs fills without holding the rows waiting behind them.
+			try {
+				queue = fetched.some((j) => isJobActive(j.status)) ? await loadJobQueue() : EMPTY_JOB_QUEUE;
+			} catch {
+				// A position is an annotation on the row; the poll retries it.
+			}
 			if (seenTerminal.size > 200) seenTerminal.clear();
 			consecutiveErrors = 0;
 		} catch {
@@ -214,7 +223,7 @@
 									></div>
 								</div>
 								<span class="text-[10px] font-mono text-brand-muted whitespace-nowrap">
-									{#if job.total != null && job.progress != null}{job.progress}/{job.total}{:else}{job.status}{/if}
+									{jobProgressLabel(job, queue)}
 								</span>
 							</div>
 							{#if job.status === 'failed' && job.error_message}

@@ -28,9 +28,18 @@ export interface InstrumentDecision {
 	nameConflict: InstrumentNameConflict | null;
 }
 
-/** A row still asking: nothing attached, or a suggestion nobody has confirmed. */
+/**
+ * A row still asking: nothing attached, or a suggestion nobody has confirmed. A suggestion is a
+ * creation or an attachment the plan read off a curve label, and words agreeing is not the source
+ * naming the instrument (Q195).
+ */
 export function isAskingInstrument(d: InstrumentDecision): boolean {
-	return d.group === null || (d.group.create && !d.group.confirmed);
+	return d.group === null || !d.group.confirmed;
+}
+
+/** A row whose curve label matched more than one instrument, so the plan suggests neither. */
+export function isAmbiguousInstrument(d: InstrumentDecision): boolean {
+	return d.group?.resolved_by === 'ambiguous_label';
 }
 
 /**
@@ -59,8 +68,9 @@ export function deviceDecisions(devices: PlanDeviceGroup[]): InstrumentDecision[
 }
 
 /**
- * The one PATCH that accepts every suggestion still asking, and how many are held back because
- * their name is already an instrument's, which is a choice between attaching and a second one.
+ * The one PATCH that accepts every suggestion still asking, and how many are held back because the
+ * row is a choice rather than a suggestion: a name an instrument already carries, or a curve label
+ * that matched two of them.
  */
 export function suggestionAcceptance(decisions: InstrumentDecision[]): {
 	updates: PlanEntryUpdate[];
@@ -68,7 +78,7 @@ export function suggestionAcceptance(decisions: InstrumentDecision[]): {
 } {
 	const asking = decisions.filter(isAskingInstrument);
 	const updates = asking
-		.filter((d) => !d.nameConflict)
+		.filter((d) => !d.nameConflict && !isAmbiguousInstrument(d))
 		.map((d): PlanEntryUpdate =>
 			d.group === null
 				? { stream_id: d.anchorStreamId, instrument_name: d.proposedName, instrument_confirmed: true }
@@ -170,6 +180,20 @@ export function familySummary(entries: PairingPlanEntry[]): { streams: number; c
 		columns += e.replicates.member_columns.length;
 	}
 	return { streams, columns };
+}
+
+/** Which parameter row an edit is about: one code with one set of units. */
+export interface ParamRowKey {
+	name: string;
+	units: string;
+}
+
+/**
+ * Whether an entry belongs to that parameter row. Two source columns proposed under one code with
+ * different units are two rows, so an edit to one is not an edit to the other.
+ */
+export function inParamRow(entry: PairingPlanEntry, row: ParamRowKey): boolean {
+	return entry.parameter.name === row.name && entry.parameter.units === row.units;
 }
 
 export interface ParamGroup {

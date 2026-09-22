@@ -347,6 +347,7 @@ export function triggerLabel(triggerType: string): string {
 		case 'csv_import': return 'CSV import';
 		case 'pairing_backfill': return 'Pairing backfill';
 		case 'plan_apply': return 'Applying pairing plan';
+		case 'plan_attribution': return 'Attributing a plan\u2019s slots';
 		case 'plan_revert': return 'Reverting pairing plan';
 		case 'replicate_reconciliation': return 'Replicate migration';
 		case 'replicate_reconciliation_delete': return 'Replicate migration cleanup';

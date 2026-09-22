@@ -10,7 +10,7 @@
 	import InstrumentLink from '$components/pairing/InstrumentLink.svelte';
 	import NamePicker from '$components/pairing/NamePicker.svelte';
 	import ReviewTable, { type ReviewFilter } from '$components/pairing/ReviewTable.svelte';
-	import type { InstrumentLabel, ParamGroup } from '$lib/pairing/planGroups';
+	import type { InstrumentLabel, ParamGroup, ParamRowKey } from '$lib/pairing/planGroups';
 	import { focusOnMount } from '$lib/focus';
 
 	// The plan's Parameters review tab: one row per parameter across every station that measures it,
@@ -56,8 +56,8 @@
 		expandedParamGroups: Set<string>;
 		expandedReplicates: Set<string>;
 		rowWarnings: (pg: ParamGroup) => string[];
-		mapParamToExisting: (oldName: string, existingParam: Parameter) => void;
-		renameGlobalParam: (oldName: string, newName: string, newUnits?: string) => void;
+		mapParamToExisting: (row: ParamRowKey, existingParam: { id: string; code: string }) => void;
+		renameGlobalParam: (row: ParamRowKey, newName: string, newUnits?: string) => void;
 		splitSourceToNewParam: (sourceName: string, newParamName: string) => void;
 		startEditUnits: (paramName: string, currentUnits: string) => void;
 		commitEditUnits: () => void;
@@ -68,12 +68,12 @@
 		splitParamValue: string;
 		existingParams: Parameter[];
 		/** The parameter whose plotting label is being edited, or null. */
-		editingLabel: string | null;
+		editingLabel: ParamRowKey | null;
 		editLabelValue: string;
 		matchParam: (name: string) => Parameter | undefined;
 		newParamOption: (name: string, units: string) => string;
 		parseNewParamOption: (value: string) => { name: string; units: string | null };
-		startEditLabel: (pg: { name: string; label: string | null }) => void;
+		startEditLabel: (pg: { name: string; units: string; label: string | null }) => void;
 		commitEditLabel: () => void;
 		setParamGroupAction: (pg: ParamGroup, action: 'pair' | 'skip') => void;
 		/** The replicate marks, shared with the Sites tab, so they are defined once. */
@@ -97,6 +97,10 @@
 	// The Map-to dropdown offers the same two lists on every row, so the list of parameters this
 	// plan would create is built once rather than filtered per row against the whole catalog.
 	const createdGroups = $derived(paramGroups.filter((p) => !matchParam(p.name)));
+
+	function paramRow(pg: ParamGroup): ParamRowKey {
+		return { name: pg.name, units: pg.units };
+	}
 
 	const paramOptions = $derived([
 		{
@@ -123,13 +127,13 @@
 			onpick={(val) => {
 				if (val.startsWith('db:')) {
 					const ep = existingParams.find((x) => x.id === val.slice(3));
-					if (ep) mapParamToExisting(pg.name, ep);
+					if (ep) mapParamToExisting(paramRow(pg), ep);
 					return;
 				}
 				const { name: newName, units: newUnits } = parseNewParamOption(val);
-				renameGlobalParam(pg.name, newName, newUnits ?? undefined);
+				renameGlobalParam(paramRow(pg), newName, newUnits ?? undefined);
 			}}
-			onrename={(name) => renameGlobalParam(pg.name, name)}
+			onrename={(name) => renameGlobalParam(paramRow(pg), name)}
 		/>
 	</div>
 	{#if pg.replicates}
@@ -203,7 +207,7 @@
 	{@const matched = matchParam(pg.name)}
 	{#if matched}
 		<span class="text-brand-muted" title="Edited on the parameter's own page">{matched.name}</span>
-	{:else if editingLabel === pg.name}
+	{:else if editingLabel?.name === pg.name && editingLabel?.units === pg.units}
 		<input
 			type="text"
 			bind:value={editLabelValue}

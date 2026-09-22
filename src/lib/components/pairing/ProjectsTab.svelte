@@ -11,6 +11,7 @@
 		existingProjects,
 		onreview,
 		onrename,
+		projectConflicts,
 		onmarkall,
 		marking,
 		query = $bindable(''),
@@ -22,6 +23,8 @@
 		onreview: (project: ObjectDecision, reviewed: boolean) => void;
 		/** Point every row on one project at another name, existing or new. */
 		onrename: (oldName: string, newName: string) => void;
+		/** What this plan cannot apply about a project, as a sentence per finding. */
+		projectConflicts: (projectName: string) => string[];
 		onmarkall: (reviewed: boolean) => void;
 		marking: boolean;
 		query?: string;
@@ -55,6 +58,9 @@
 			onrename={(name) => onrename(p.name, name)}
 		/>
 	</div>
+	{#each projectConflicts(p.name) as message (message)}
+		<div class="text-xs text-severity-warning mt-0.5">{message}</div>
+	{/each}
 {/snippet}
 
 {#snippet sitesCell(p: ObjectDecision)}

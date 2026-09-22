@@ -7,6 +7,7 @@
 	import ReviewTable, { type ReviewFilter } from '$components/pairing/ReviewTable.svelte';
 	import {
 		instrumentRows,
+		isAmbiguousInstrument,
 		isAskingInstrument,
 		type InstrumentDecision,
 		type InstrumentRow,
@@ -78,7 +79,10 @@
 	function reviewBlocked(row: InstrumentRow): string | null {
 		const d = row.decision;
 		if (!d) return null;
-		if (isAskingInstrument(d)) return d.nameConflict ? 'Attach it or create a second one first' : null;
+		if (isAskingInstrument(d)) {
+			if (isAmbiguousInstrument(d)) return 'Pick one of the matching instruments, or name one to create';
+			return d.nameConflict ? 'Attach it or create a second one first' : null;
+		}
 		return d.group?.create ? null : 'Already in the inventory';
 	}
 </script>
@@ -101,6 +105,14 @@
 		{#if d.group?.curve_column}
 			<div class="text-[11px] text-brand-muted mt-0.5">
 				<span class="font-mono break-all">{d.group.curve_column}</span> names a curve per reading
+			</div>
+		{/if}
+		{#if d.group?.resolved_by === 'curve_label' && !d.group.confirmed}
+			<div class="text-[11px] text-brand-muted mt-0.5">Suggested from the curve's label, not from the source</div>
+		{:else if isAmbiguousInstrument(d)}
+			<div class="text-[11px] text-severity-warning-text mt-0.5">
+				The curve's label matches {d.group?.label_candidates.map((c) => c.name).join(' and ')}: pick one, or
+				name the instrument to create
 			</div>
 		{/if}
 		{#if d.nameConflict}

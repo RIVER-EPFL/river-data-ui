@@ -90,6 +90,13 @@ test('applying a group shows its columns together and names the calculation decl
 
 	await page.getByRole('button', { name: 'Apply group', exact: true }).click();
 	await page.getByLabel('Parameter group').selectOption({ label: `${fixture.groupLabel} (${fixture.calculation})` });
+
+	// Which parameters arrive is read before the write, not from the toast after it.
+	await expect(page.getByText('Will add (2)')).toBeVisible();
+	await expect(page.getByText(`${fixture.inputName} (${fixture.inputName}) · Measured`)).toBeVisible();
+	await expect(page.getByText(`${fixture.outputName} (${fixture.outputName}) · Output`)).toBeVisible();
+	await expect(page.getByText('Already here (0)')).toBeVisible();
+
 	await page.getByRole('button', { name: 'Apply', exact: true }).click();
 
 	// The header is the group, carrying what it brought in and the calculation it declared here.

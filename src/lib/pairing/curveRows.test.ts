@@ -14,6 +14,8 @@ function held(over: Partial<PlanHeldCurve> = {}): PlanHeldCurve {
 		r_squared: null,
 		fitted_on: null,
 		attached: null,
+		skipped: false,
+		skipped_by: null,
 		...over,
 	};
 }
@@ -63,9 +65,14 @@ describe('curveRows', () => {
 });
 
 describe('curveReviewBlocked', () => {
-	it('holds the review of a curve attached to nothing', () => {
+	it('holds the review of a curve nobody has ruled on', () => {
 		const [row] = curveRows(instruments([held()], []));
-		expect(curveReviewBlocked(row!)).toBe('Attach it to an instrument first');
+		expect(curveReviewBlocked(row!)).toBe('Attach it to an instrument, or skip it, first');
+	});
+
+	it('lets a skipped curve be reviewed: leaving it behind is a decision', () => {
+		const [row] = curveRows(instruments([held({ skipped: true, skipped_by: 'evan' })], []));
+		expect(curveReviewBlocked(row!)).toBeNull();
 	});
 
 	it('lets an attached held curve and a stored curve be reviewed', () => {

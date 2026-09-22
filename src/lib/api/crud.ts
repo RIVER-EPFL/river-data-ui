@@ -210,11 +210,13 @@ export interface SiteParameter {
 	name: string | null;
 	sensor_type: string | null;
 	display_units: string | null;
-	channel_id: number | null;
 	sample_interval_sec: number | null;
 	decimal_places: number | null;
 	/** How this site fills the slot: 'manual' (typed by hand) or 'tool' (computed here). */
 	entry_mode: string;
+	/** The cadence this site fills the slot at: 'high' (a stream carries it, computed by the
+	 *  continuous engine) or 'low' (recorded at a visit, computed by the chain from that visit). */
+	cadence: string;
 	/** The instrument that measures this slot; null is undeclared, and never inferred at a write. */
 	instrument_sensor_id: string | null;
 	is_active: boolean | null;

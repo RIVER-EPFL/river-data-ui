@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import type { ParameterGroup, ParameterGroupMember, SiteParameter } from '$api/crud';
 import type { CalculationImpact } from '$api/service';
-import { calculationsBySlot, groupSlots } from './siteSlots';
+import {
+	cadenceConsequence,
+	cadenceLabel,
+	calculationsBySlot,
+	groupSlots,
+	otherCadence
+} from './siteSlots';
 
 const slot = (parameter_id: string, over: Partial<SiteParameter> = {}) =>
 	({ id: `sp-${parameter_id}`, parameter_id, entry_mode: 'manual', ...over }) as SiteParameter;
@@ -82,5 +88,30 @@ describe('the calculation over one slot', () => {
 	it('leaves the id null where the name resolved to no calculation page', () => {
 		const bySlot = calculationsBySlot([impact('doc', [], ['p-doc'])], new Map());
 		expect(bySlot.get('p-doc')?.[0].id).toBeNull();
+	});
+});
+
+describe('the cadence a slot declares', () => {
+	it('is worded as the instrument toggle words it', () => {
+		expect(cadenceLabel('low')).toBe('Low frequency');
+		expect(cadenceLabel('high')).toBe('High frequency');
+	});
+
+	// The column defaults to 'high', so a slot that has never been declared reads as high rather
+	// than as blank.
+	it('reads an undeclared slot as high frequency', () => {
+		expect(cadenceLabel(undefined)).toBe('High frequency');
+		expect(otherCadence(undefined)).toBe('low');
+	});
+
+	it('offers the other cadence', () => {
+		expect(otherCadence('low')).toBe('high');
+		expect(otherCadence('high')).toBe('low');
+	});
+
+	it('says which engine each choice hands the slot to', () => {
+		expect(cadenceConsequence('high')).toContain('at a visit');
+		expect(cadenceConsequence('high')).toContain('chain');
+		expect(cadenceConsequence('low')).toContain('continuous engine');
 	});
 });

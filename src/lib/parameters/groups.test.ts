@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { ApiError } from '$api/client';
-import { assignBody, assignmentError, replicateSpec, replicated, roleLabel } from './groups';
+import {
+	assignBody,
+	assignmentError,
+	groupApplyPreview,
+	replicateSpec,
+	replicated,
+	roleLabel,
+} from './groups';
 
 const groups = [
 	{ id: '11111111-1111-4111-8111-111111111111', code: 'field_data', label: 'Field data' },
@@ -66,6 +73,48 @@ describe('the replicate declaration', () => {
 			parameter_id: parameter,
 			ordinal: 3,
 			replicates: null,
+		});
+	});
+});
+
+describe('groupApplyPreview', () => {
+	const slot = (id: string, code: string, role: string) => ({
+		parameter_id: id,
+		parameter_code: code,
+		role,
+	});
+	const names: Record<string, string> = { 'p-1': 'Headspace CO2', 'p-2': 'Headspace pCO2' };
+	const nameOf = (id: string) => names[id] ?? null;
+
+	it('lists what the apply would add and what the site already holds', () => {
+		const preview = groupApplyPreview(
+			{ created: [slot('p-1', 'hs_co2', 'measured')], existing: [slot('p-2', 'hs_pco2', 'output')] },
+			nameOf,
+		);
+		expect(preview.adding).toEqual([
+			{ parameterId: 'p-1', code: 'hs_co2', name: 'Headspace CO2', role: 'Measured' },
+		]);
+		expect(preview.held).toEqual([
+			{ parameterId: 'p-2', code: 'hs_pco2', name: 'Headspace pCO2', role: 'Output' },
+		]);
+		expect(preview.applicable).toBe(true);
+	});
+
+	it('has nothing to apply when the site already holds every member', () => {
+		const preview = groupApplyPreview(
+			{ created: [], existing: [slot('p-2', 'hs_pco2', 'output')] },
+			nameOf,
+		);
+		expect(preview.applicable).toBe(false);
+	});
+
+	it('falls back to the code for a parameter the page does not name', () => {
+		const preview = groupApplyPreview({ created: [slot('p-9', 'hs_temp', 'entry_only')], existing: [] }, nameOf);
+		expect(preview.adding[0]).toEqual({
+			parameterId: 'p-9',
+			code: 'hs_temp',
+			name: 'hs_temp',
+			role: 'Entry only',
 		});
 	});
 });

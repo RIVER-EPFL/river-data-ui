@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
 import { API_URL, BASE_PATH, signIn, token } from './portal';
-import { frozenButton, frozenDate } from './sheet';
+import { frozenButton, frozenDate, sheetCell } from './sheet';
 
 // Scenario: a site with a long list of visits, one of them open, and the reader scrolled down it.
 //
@@ -58,7 +58,7 @@ test('opening a record leaves the reader where they were', async ({ page, reques
 	// has scrolled past all of it. A value the account may overwrite is typed in place, so the
 	// record is opened from the date rather than from the number.
 	await frozenButton(page, { name: frozenDate(visitAt(VISITS)) }).click();
-	await expect(page.getByText(/1 parameter/)).toBeVisible();
+	await expect(page.getByText(/parameters filled/)).toBeVisible();
 	await page.getByRole('button', { name: code, exact: true }).click();
 	await expect(page.getByRole('button', { name: 'Close' })).toBeVisible();
 	await page.evaluate(() => {
@@ -83,4 +83,64 @@ test('opening a record leaves the reader where they were', async ({ page, reques
 	await parameter.scrollIntoViewIfNeeded();
 	await parameter.click();
 	await expect(page.getByRole('button', { name: 'Close' })).toBeInViewport();
+});
+
+/** A site declaring `slots` parameters, one of them measured at a single visit. */
+async function seedWideVisit(request: APIRequestContext, slots = 40) {
+	const stamp = `${Date.now()}`;
+	const headers = { Authorization: `Bearer ${await token(request)}` };
+	const post = async (path: string, data: unknown) => {
+		const response = await request.post(`${API_URL}/api${path}`, { headers, data });
+		expect(response.ok(), `${path} -> ${response.status()} ${await response.text()}`).toBeTruthy();
+		return response.json();
+	};
+	const siteName = `Wide ${stamp}`;
+	const project = await post('/projects', { name: siteName });
+	const site = await post('/sites', { name: siteName, project_id: project.id });
+	const code = `wide_${stamp}`;
+	const measured = await post('/parameters', { code, name: code, category: 'measurement', aliases: [] });
+	await post('/site_parameters', { site_id: site.id, parameter_id: measured.id, name: code });
+	for (let i = 1; i < slots; i += 1) {
+		const parameter = await post('/parameters', {
+			code: `${code}_${i}`,
+			name: `${code}_${i}`,
+			category: 'measurement',
+			aliases: [],
+		});
+		await post('/site_parameters', { site_id: site.id, parameter_id: parameter.id, name: `${code}_${i}` });
+	}
+	const collectedAt = visitAt(1).toISOString().replace(/\.\d+Z$/, 'Z');
+	await post('/grab_samples', {
+		site_id: site.id,
+		mode: 'replace',
+		readings: [{ parameter_id: measured.id, value: 42, time: collectedAt, replicate_index: 0 }],
+	});
+	return { siteId: site.id, code, slots };
+}
+
+// Opening one measurement is a question about that measurement, so the record comes first and the
+// visit's other 39 slots stay behind a control (Q224).
+test('a measurement opened from the grid is in view, with the slot table not drawn above it', async ({
+	page,
+	request,
+}) => {
+	const { siteId, code, slots } = await seedWideVisit(request);
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
+
+	const value = sheetCell(page, new RegExp(`^${code} at`));
+	await value.click();
+	await page.keyboard.press('Alt+Enter');
+
+	const close = page.getByRole('button', { name: 'Close' });
+	await expect(close).toBeVisible();
+	await expect(close).toBeInViewport();
+	// The visit-wide table is behind its own control, which says how much is behind it.
+	const slotTable = page.getByRole('button', { name: `Show all ${slots} parameters, ${slots - 1} not measured` });
+	await expect(slotTable).toBeVisible();
+	await expect(page.getByRole('columnheader', { name: 'Served' })).toHaveCount(0);
+
+	// It opens on that control, below the record rather than above it.
+	await slotTable.click();
+	await expect(page.getByRole('columnheader', { name: 'Served' })).toBeVisible();
 });

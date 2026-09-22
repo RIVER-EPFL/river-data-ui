@@ -277,8 +277,11 @@ export const getGroupDefinition = (groupId: string, siteId?: string) =>
 // the group applies there.
 export type ApplyGroupResponse = components['schemas']['ApplyGroupResponse'];
 
-export const applyParameterGroup = (siteId: string, groupId: string) =>
-	POST<ApplyGroupResponse>(`${SERVICE}/sites/${siteId}/parameter_groups`, { group_id: groupId });
+export const applyParameterGroup = (siteId: string, groupId: string, dryRun = false) =>
+	POST<ApplyGroupResponse>(`${SERVICE}/sites/${siteId}/parameter_groups`, {
+		group_id: groupId,
+		dry_run: dryRun,
+	});
 
 // Merge parameters
 export type MergeParametersResponse = components['schemas']['MergeParametersResponse'];

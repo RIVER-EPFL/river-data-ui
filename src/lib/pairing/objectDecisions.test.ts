@@ -18,7 +18,7 @@ function entry(over: Partial<PairingPlanEntry> = {}): PairingPlanEntry {
 			create: false,
 			units: 'mm',
 			group_key: null,
-			original_names: [],
+			original_names: [], attach: null,
 		},
 		confidence: 'exact',
 		warnings: [],
@@ -48,7 +48,7 @@ describe('objectDecisions', () => {
 
 	it('lists an existing parameter as well as a created one', () => {
 		const created = site('FP1', {
-			parameter: { id: null, name: 'DOC', label: null, create: true, units: 'ppb', group_key: null, group: null, calculation: null, original_names: [] },
+			parameter: { id: null, name: 'DOC', label: null, create: true, units: 'ppb', group_key: null, group: null, calculation: null, original_names: [], attach: null },
 		} as Partial<PairingPlanEntry>);
 		const decisions = objectDecisions([site('FP1'), created], 'parameter');
 		expect(decisions.map((d) => [d.name, d.create])).toEqual([

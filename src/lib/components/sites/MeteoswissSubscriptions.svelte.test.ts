@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/svelte";
+import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getMeteoswissStations = vi.fn();
@@ -89,7 +89,6 @@ describe("MeteoswissSubscriptions", () => {
     await waitFor(() => expect(screen.getByText("MOB")).toBeTruthy());
     expect(screen.getByText("· Barometric pressure")).toBeTruthy();
     expect(screen.getByText("Remove")).toBeTruthy();
-    expect(screen.queryByText(/No station\./)).toBeNull();
   });
 
   it("says when a subscription's stream has taken a value, and when it has not", async () => {
@@ -140,6 +139,83 @@ describe("MeteoswissSubscriptions", () => {
     await waitFor(() =>
       expect(screen.getByText(/publishes no prestas0/)).toBeTruthy(),
     );
+  });
+
+  // Scenario: the panel sits at the bottom of the site edit form and the reader types a station
+  // name into it.
+  // Expected behaviour: the rows stay in the document while the new search runs, so the page does
+  // not shorten under the reader and take the scroll position with it, and only the term they
+  // stopped typing is asked about.
+  it("keeps the candidates on screen while a search runs, and asks once", async () => {
+    vi.useFakeTimers();
+    try {
+      list.mockResolvedValue({ data: [] });
+      getMeteoswissStations.mockResolvedValue([
+        station("MOB", "Montagnier, Bagnes", 18.3, 840, 839),
+      ]);
+      render(MeteoswissSubscriptions, { siteId: "site-1" });
+      await vi.waitFor(() =>
+        expect(screen.getByText(/Montagnier, Bagnes/)).toBeTruthy(),
+      );
+      getMeteoswissStations.mockClear();
+
+      let answer: (stations: unknown[]) => void = () => {};
+      getMeteoswissStations.mockReturnValue(
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+      );
+      const field = screen.getByLabelText("Station");
+      await fireEvent.input(field, { target: { value: "M" } });
+      await fireEvent.input(field, { target: { value: "MA" } });
+      await vi.advanceTimersByTimeAsync(250);
+
+      expect(getMeteoswissStations).toHaveBeenCalledTimes(1);
+      expect(screen.getByText("searching…")).toBeTruthy();
+      expect(screen.getByText(/Montagnier, Bagnes/)).toBeTruthy();
+
+      answer([station("MAR", "Martigny", 5.2, null, 990)]);
+      await vi.waitFor(() => expect(screen.getByText(/Martigny/)).toBeTruthy());
+      expect(screen.queryByText(/Montagnier, Bagnes/)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Expected behaviour: the answer to a term the reader has moved on from never lands, however
+  // late it arrives.
+  it("drops an answer that is not for the latest term", async () => {
+    vi.useFakeTimers();
+    try {
+      list.mockResolvedValue({ data: [] });
+      getMeteoswissStations.mockResolvedValue([]);
+      render(MeteoswissSubscriptions, { siteId: "site-1" });
+      await vi.waitFor(() => expect(screen.getByLabelText("Station")).toBeTruthy());
+
+      let stale: (stations: unknown[]) => void = () => {};
+      getMeteoswissStations.mockReturnValueOnce(
+        new Promise((resolve) => {
+          stale = resolve;
+        }),
+      );
+      const field = screen.getByLabelText("Station");
+      await fireEvent.input(field, { target: { value: "M" } });
+      await vi.advanceTimersByTimeAsync(250);
+
+      getMeteoswissStations.mockResolvedValueOnce([
+        station("MAR", "Martigny", 5.2, null, 990),
+      ]);
+      await fireEvent.input(field, { target: { value: "MAR" } });
+      await vi.advanceTimersByTimeAsync(250);
+      await vi.waitFor(() => expect(screen.getByText(/Martigny/)).toBeTruthy());
+
+      stale([station("MOB", "Montagnier, Bagnes", 18.3, 840, 839)]);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(screen.queryByText(/Montagnier, Bagnes/)).toBeNull();
+      expect(screen.getByText(/Martigny/)).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("greys a station that publishes nothing for the chosen variable", async () => {

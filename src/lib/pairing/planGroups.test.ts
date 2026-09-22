@@ -12,6 +12,7 @@ import {
 	instrumentRowKey,
 	instrumentRows,
 	instrumentsOf,
+	inParamRow,
 	parameterIndex,
 	paramGroups,
 	siteGroups,
@@ -34,7 +35,7 @@ function entry(over: Partial<PairingPlanEntry> = {}): PairingPlanEntry {
 			create: false,
 			units: 'mm',
 			group_key: null,
-			original_names: [],
+			original_names: [], attach: null,
 		},
 		confidence: 'exact',
 		warnings: [],
@@ -312,7 +313,7 @@ describe('instrumentBindings', () => {
 						create: true,
 					},
 					calculation: null,
-					original_names: [],
+					original_names: [], attach: null,
 				},
 			} as Partial<PairingPlanEntry>);
 		const made = creations([withGroup('Field_BP', 8), withGroup('WTW_pH_1', 3)]);
@@ -348,7 +349,7 @@ describe('instrumentBindings', () => {
 					create: false,
 				},
 				calculation: null,
-				original_names: [],
+				original_names: [], attach: null,
 			},
 		} as Partial<PairingPlanEntry>);
 		expect(creations([existing]).groups).toEqual([]);
@@ -424,5 +425,16 @@ describe('instrument links', () => {
 			entry({ action: 'skip', site: { ...entry().site, name: 'Verbier' } }),
 		]);
 		expect(coverage.get('parameter:Depth')).toEqual({ parameters: ['Depth'], sites: ['Martigny', 'Saxon'] });
+	});
+});
+
+describe('inParamRow', () => {
+	const um = entry({ parameter: { ...entry().parameter, name: 'DO', units: 'uM' } });
+	const degc = entry({ parameter: { ...entry().parameter, name: 'DO', units: 'degC' } });
+
+	it('separates two rows the source proposes under one code', () => {
+		const row = { name: 'DO', units: 'uM' };
+		expect(inParamRow(um, row)).toBe(true);
+		expect(inParamRow(degc, row)).toBe(false);
 	});
 });

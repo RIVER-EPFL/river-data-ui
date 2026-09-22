@@ -11,7 +11,8 @@ export interface ParameterExtent {
 	reading_count?: number | null;
 	has_continuous?: boolean;
 	has_spot?: boolean;
-	frequency?: 'high' | 'low' | 'mixed';
+	/// The slot's declared cadence, not what its rows hold.
+	frequency?: 'high' | 'low';
 }
 
 export type Cadence = 'high' | 'low' | 'all';

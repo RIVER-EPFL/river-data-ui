@@ -5050,6 +5050,7 @@ export interface paths {
          *     - is_public
          *     - needs_review
          *     - entry_mode
+         *     - cadence
          *     - instrument_sensor_id
          *     - discovered_at.
          */
@@ -12963,8 +12964,9 @@ export interface components {
             entry_mode: string;
             external_source: null | components["schemas"]["ExternalSource"];
             /**
-             * @description Data-driven cadence classification: 'low' (spot-only), 'high' (no spot), or 'mixed'.
-             *     Low-frequency series render marker-only over their full range and skip the aggregate path.
+             * @description The slot's declared cadence: 'high' (a stream carries it) or 'low' (a person records it at
+             *     a visit). Low-frequency series render marker-only over their full range and skip the
+             *     aggregate path.
              */
             frequency: string;
             /** @description Whether any continuous (or legacy untagged) readings exist for this parameter at the site */
@@ -13337,6 +13339,7 @@ export interface components {
             instrument_id?: string | null;
             /** @description Rename an instrument the plan will create. Ignored once it resolves to an existing one. */
             instrument_name?: string | null;
+            parameter_attach?: null | components["schemas"]["PlanParamAttach"];
             /**
              * @description Human display label for the parameter. Takes effect only when apply creates the
              *     parameter (`create: true`); a matched existing parameter keeps its own name.
@@ -13397,6 +13400,12 @@ export interface components {
             name: string | null;
             /** Format: double */
             r_squared: number | null;
+            /**
+             * @description The review left this curve behind: it is not stored and the readings naming it are dropped
+             *     at the source. A skipped curve no longer blocks the apply.
+             */
+            skipped: boolean;
+            skipped_by: string | null;
             /** Format: double */
             slope: number;
             source_key: string;
@@ -13420,6 +13429,11 @@ export interface components {
             instrument_source_key?: string | null;
             /** Format: uuid */
             proposal_id: string;
+            /**
+             * @description Leave the curve behind instead of attaching it: it is never stored and the source stops
+             *     sending the readings that name it. `Some(false)` takes the skip back (Q220).
+             */
+            skip?: boolean | null;
         };
         /**
          * @description One instrument decision in a pairing plan: the instrument, what it covers, and the curves it
@@ -13438,6 +13452,11 @@ export interface components {
             curves: components["schemas"]["PlanCurveRef"][];
             /** Format: uuid */
             instrument_id: string | null;
+            /**
+             * @description The instruments the curve label matched when it matched more than one. The row is then a
+             *     choice between them rather than a suggestion.
+             */
+            label_candidates: components["schemas"]["PlanLabelCandidate"][];
             name: string;
             /**
              * @description An instrument already carrying the proposed name, when the proposal collides with one.
@@ -13450,7 +13469,10 @@ export interface components {
              *     back. Absent for an instrument that was never a proposal.
              */
             proposed_name: string | null;
-            /** @description `stream` | `curve_label` | `manual` | `placeholder`. */
+            /**
+             * @description `stream` | `curve_label` (suggested from the label) | `manual` | `ambiguous_label` (the
+             *     label matched more than one, so nothing is suggested) | `placeholder`.
+             */
             resolved_by: string;
             /**
              * @description The decision's scope: `column:<curve column>` or `parameter:<source parameter>`, matching
@@ -13526,6 +13548,11 @@ export interface components {
              * @description The resolved instrument, or None when one has to be created.
              */
             id: string | null;
+            /**
+             * @description The instruments a curve label matched when it matched more than one. Which analyser the
+             *     source meant is not in the label, so the tie is named and nothing is suggested (Q195).
+             */
+            label_candidates: components["schemas"]["PlanLabelCandidate"][];
             name: string;
             /**
              * @description An instrument that already carries the proposed name. Creating a second one under it is
@@ -13540,8 +13567,9 @@ export interface components {
              */
             proposed_name?: string | null;
             /**
-             * @description `stream` (already attributed), `curve_label` (matched against the source's own curve
-             *     labels), `manual` (repointed in the review), or `placeholder` (nothing matched).
+             * @description `stream` (already attributed), `curve_label` (suggested from the source's own curve
+             *     labels), `manual` (repointed in the review), `ambiguous_label` (the label matched more than
+             *     one, so nothing is suggested), or `placeholder` (nothing matched).
              */
             resolved_by: string;
             /**
@@ -13573,11 +13601,32 @@ export interface components {
             job_id: string | null;
             status: string;
         };
+        /** @description One instrument a curve label matched, enough of it to choose by. */
+        PlanLabelCandidate: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+        };
         PlanObjectUpdate: {
             accepted: boolean;
             key: string;
         };
+        /**
+         * @description The review's answer to "which catalog parameter is this column": one that exists, or a new one
+         *     under the code the entry carries. One field rather than an id beside a flag, so "attached to
+         *     nothing in particular" cannot be written down.
+         */
+        PlanParamAttach: {
+            /** @enum {string} */
+            choice: "existing";
+            /** Format: uuid */
+            id: string;
+        } | {
+            /** @enum {string} */
+            choice: "new";
+        };
         PlanParamRef: {
+            attach: null | components["schemas"]["PlanParamAttach"];
             calculation: null | components["schemas"]["PlanCalculationRef"];
             create: boolean;
             group: null | components["schemas"]["PlanGroupRef"];
@@ -13719,7 +13768,10 @@ export interface components {
          */
         PlanWarning: {
             existing?: null | components["schemas"]["ExistingParamRef"];
-            /** @description `units_mismatch` | `empty_name` | `near_duplicate`. */
+            /**
+             * @description `units_mismatch` | `empty_name` | `near_duplicate` | `catalog_match` |
+             *     `duplicate_parameter_code` | `duplicate_site_name` | `duplicate_project_name`.
+             */
             kind: string;
             message: string;
             parameter?: string | null;
@@ -14504,6 +14556,11 @@ export interface components {
              * @description The instrument the curve was fitted on, or null while it is held for a pairing plan.
              */
             sensor_id: string | null;
+            /**
+             * @description True when the review left this curve behind. It is never stored, and the source is to stop
+             *     sending the readings that name it (Q220).
+             */
+            skipped: boolean;
             /**
              * @description True when the stored coefficients differed and the curve was already applied to readings,
              *     so a new row was minted under this provenance. History keeps the old row.
@@ -16311,8 +16368,7 @@ export interface components {
             subproject_id: string | null;
         };
         SiteParameterCreate: {
-            /** Format: int32 */
-            channel_id?: number | null;
+            cadence?: string | null;
             /** Format: int32 */
             decimal_places?: number | null;
             display_units?: string | null;
@@ -16338,8 +16394,13 @@ export interface components {
             variable_mappings?: unknown;
         };
         SiteParameterList: {
-            /** Format: int32 */
-            channel_id: number | null;
+            /**
+             * @description The cadence this site fills the slot at: 'high' (a stream carries it, and the continuous
+             *     engine computes it there) or 'low' (a person records it at a visit, and the chain computes
+             *     it from that visit's values). `readings` holds one row per slot instant, so the
+             *     declaration is what keeps the two engines off each other's rows.
+             */
+            cadence: string;
             /** Format: date-time */
             created_at: string | null;
             /**
@@ -16417,8 +16478,13 @@ export interface components {
             variable_mappings: unknown;
         };
         SiteParameterResponse: {
-            /** Format: int32 */
-            channel_id: number | null;
+            /**
+             * @description The cadence this site fills the slot at: 'high' (a stream carries it, and the continuous
+             *     engine computes it there) or 'low' (a person records it at a visit, and the chain computes
+             *     it from that visit's values). `readings` holds one row per slot instant, so the
+             *     declaration is what keeps the two engines off each other's rows.
+             */
+            cadence: string;
             /** Format: date-time */
             created_at: string | null;
             /**
@@ -16496,8 +16562,7 @@ export interface components {
             variable_mappings: unknown;
         };
         SiteParameterUpdate: {
-            /** Format: int32 */
-            channel_id?: number | null;
+            cadence?: string | null;
             /** Format: int32 */
             decimal_places?: number | null;
             display_units?: string | null;
@@ -16907,6 +16972,11 @@ export interface components {
             /** Format: double */
             longitude: number | null;
             name: string;
+            /**
+             * @description Whether the station publishes the variable the picker asked about, absent where it named
+             *     none. A station this is false for cannot be subscribed to for that variable.
+             */
+            publishes: boolean | null;
             station_abbr: string;
         };
         StatisticsResponse: {
@@ -23557,6 +23627,8 @@ export interface operations {
                 q?: string | null;
                 /** @description The site being configured, whose coordinates rank the candidates. */
                 site_id?: string | null;
+                /** @description The variable being subscribed to, which says of each candidate whether it publishes one. */
+                variable?: string | null;
             };
             header?: never;
             path?: never;

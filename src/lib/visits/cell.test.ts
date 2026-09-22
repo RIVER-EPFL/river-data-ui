@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
 	cellRecord,
 	findingLabel,
+	findingKinds,
+	slotTableLabel,
+	findingsChipTitle,
+	firstFindingParameter,
 	statisticsParts,
 	visitCellMarker,
 	visitCellStatistics,
@@ -252,5 +256,81 @@ describe('recordRows', () => {
 			[expected('p1', 'DOC')],
 		);
 		expect(rows.map((r) => r.parameterId)).toEqual(['p1', 'p9']);
+	});
+});
+
+describe('findingsChipTitle', () => {
+	it('names the kinds standing on the visit and says where to see them', () => {
+		expect(findingsChipTitle(1, ['stale_output'])).toBe(
+			'1 finding: stale output. Open the visit to see it on its row.',
+		);
+		expect(findingsChipTitle(2, ['stale_output', 'missing_output'])).toBe(
+			'2 findings: stale output, missing output. Open the visit to see them on their rows.',
+		);
+	});
+
+	it('repeats a kind once however many cells carry it', () => {
+		expect(findingsChipTitle(3, ['stale_output', 'stale_output', 'stale_output'])).toBe(
+			'3 findings: stale output. Open the visit to see them on their rows.',
+		);
+	});
+
+	it('still says where to look when the kinds are not on the listed cells', () => {
+		expect(findingsChipTitle(1, [])).toBe('1 finding. Open the visit to see it on its row.');
+	});
+});
+
+describe('firstFindingParameter', () => {
+	it('is the parameter of the first cell carrying a finding', () => {
+		const cells = [
+			{ parameter_id: 'p1', finding: null },
+			{ parameter_id: 'p2', finding: { kind: 'stale_output' } },
+			{ parameter_id: 'p3', finding: { kind: 'missing_output' } },
+		];
+		expect(firstFindingParameter(cells)).toBe('p2');
+	});
+
+	it("reads the grid's own cells, whose finding is the kind itself", () => {
+		expect(
+			firstFindingParameter([
+				{ parameter_id: 'p1' },
+				{ parameter_id: 'p2', finding: 'skipped_output' },
+			]),
+		).toBe('p2');
+	});
+
+	it('is nothing when no cell carries one', () => {
+		expect(firstFindingParameter([{ parameter_id: 'p1', finding: null }])).toBeNull();
+	});
+});
+
+describe('findingKinds', () => {
+	it('reads the kind out of either shape and leaves the cells without one', () => {
+		expect(
+			findingKinds([
+				{ finding: 'stale_output' },
+				{ finding: { kind: 'missing_output' } },
+				{ finding: null },
+				{},
+			]),
+		).toEqual(['stale_output', 'missing_output']);
+	});
+});
+
+describe('slotTableLabel', () => {
+	const row = (measured: boolean) => ({
+		parameterId: 'p',
+		parameterName: 'p',
+		cell: measured ? ({} as never) : null,
+	});
+
+	it('says how much is behind the control and whether opening or closing it', () => {
+		const rows = [row(true), row(false), row(false)];
+		expect(slotTableLabel(false, rows)).toBe('Show all 3 parameters, 2 not measured');
+		expect(slotTableLabel(true, rows)).toBe('Hide all 3 parameters, 2 not measured');
+	});
+
+	it('counts one slot as one parameter', () => {
+		expect(slotTableLabel(false, [row(true)])).toBe('Show all 1 parameter, 0 not measured');
 	});
 });

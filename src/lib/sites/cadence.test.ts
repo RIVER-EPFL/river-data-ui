@@ -46,14 +46,16 @@ describe('cadence filtering', () => {
 describe('the cadence a site opens in', () => {
 	const spot = { frequency: 'low', reading_count: 43 };
 	const series = { frequency: 'high', reading_count: 8640 };
-	const mixed = { frequency: 'mixed', reading_count: 12 };
 	const empty = { frequency: 'low', reading_count: 0 };
 
-	it('reads the cadence off the parameters that hold data', () => {
+	it('reads the cadence off what the parameters holding data declare', () => {
 		expect(siteCadence([spot, spot, empty])).toBe('low');
 		expect(siteCadence([series, series])).toBe('high');
+	});
+
+	// A site declaring both is a site whose slots disagree, not a slot reporting a third word.
+	it('opens on All where the site declares both cadences', () => {
 		expect(siteCadence([spot, series])).toBe('all');
-		expect(siteCadence([mixed])).toBe('all');
 	});
 
 	it('leaves a site with no data yet on the All default', () => {

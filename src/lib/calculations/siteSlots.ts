@@ -115,3 +115,24 @@ function declaredIn(
 	}
 	return declared;
 }
+
+/** The cadence a slot declares, as the instrument toggle words it. */
+export function cadenceLabel(cadence: string | undefined): string {
+	return cadence === 'low' ? 'Low frequency' : 'High frequency';
+}
+
+/**
+ * What declaring the other cadence means for the slot, for the confirmation that asks. The two
+ * engines read the declaration: `high` is computed where the stream carries it, `low` at the
+ * visit a person records.
+ */
+export function cadenceConsequence(cadence: string | undefined): string {
+	return cadence === 'low'
+		? 'Declare this slot high frequency? A stream carries it, and the continuous engine computes it there; nothing is computed at a visit.'
+		: 'Declare this slot low frequency? A person records it at a visit, and the calculation chain computes it from that visit’s values.';
+}
+
+/** The cadence the other choice is. */
+export function otherCadence(cadence: string | undefined): 'high' | 'low' {
+	return cadence === 'low' ? 'high' : 'low';
+}

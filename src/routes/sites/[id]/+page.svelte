@@ -8,7 +8,15 @@
 	import { api, type Site, type Project, type SiteParameter, type Parameter, type Sensor, type SensorDeployment, type SensorCalibration, type Note, type AlarmThreshold, type ParameterGroup, type ParameterGroupMember, type Sample, type Annotation, type Subproject } from '$api/crud';
 	import { GET, POST, PATCH } from '$api/client';
 	import { listAll } from '$api/paged';
-	import { calculationsBySlot, groupSlots, type SlotCalculation } from '$lib/calculations/siteSlots';
+	import {
+		cadenceConsequence,
+		cadenceLabel,
+		calculationsBySlot,
+		groupSlots,
+		otherCadence,
+		type SlotCalculation
+	} from '$lib/calculations/siteSlots';
+	import { groupApplyPreview, type GroupApplyPreview } from '$lib/parameters/groups';
 	import { applyParameterGroup, getThresholds, getActiveAlarms, getCalculationClosure, getGroupDefinition, getSiteExportSummary, type ThresholdWithValue, type ActiveAlarm, type ExportSummary } from '$api/service';
 	import { getSiteSensorIdentity, type SensorIdentityResponse } from '$api/sensors';
 	import {
@@ -402,7 +410,7 @@
 		reading_count?: number | null;
 		has_continuous?: boolean;
 		has_spot?: boolean;
-		frequency?: 'high' | 'low' | 'mixed';
+		frequency?: 'high' | 'low';
 		external_source?: { system: string; station: string; attribution: string } | null;
 	}
 	interface SiteDetailResponse {
@@ -989,8 +997,13 @@
 
 	// Derived parameters
 	const siteParameterIds = $derived(new Set(siteParameters.map((sp) => sp.parameter_id)));
+	// The cadence is the lab's declaration, so it is a manager's to change, like the catalog.
+	const canDeclare = $derived(me.can('writeCatalog'));
 	let showAddParameter = $state(false);
 	let addParamId = $state('');
+	// Asked rather than defaulted: the column's default is 'high', and a slot the lab fills at a
+	// visit and never declares is computed by neither engine.
+	let addParamCadence = $state('high');
 	let addingParam = $state(false);
 
 	const unassignedParameters = $derived(
@@ -1001,10 +1014,15 @@
 		if (!addParamId) return;
 		addingParam = true;
 		try {
-			await api.siteParameters.create({ site_id: siteId, parameter_id: addParamId });
+			await api.siteParameters.create({
+				site_id: siteId,
+				parameter_id: addParamId,
+				cadence: addParamCadence,
+			});
 			const sp = await api.siteParameters.list({ perPage: 200, filter: { site_id: siteId } });
 			siteParameters = sp.data;
 			addParamId = '';
+			addParamCadence = 'high';
 			showAddParameter = false;
 			toastStore.success('Parameter added');
 		} catch (e) {
@@ -1015,6 +1033,22 @@
 	let showApplyGroup = $state(false);
 	let applyGroupId = $state('');
 	let applyingGroup = $state(false);
+	// What the apply would do here, read from the route's dry run when a group is chosen, so the
+	// operator sees which parameters arrive before pressing Apply.
+	let groupPreview = $state<GroupApplyPreview | null>(null);
+	let previewingGroup = $state(false);
+
+	async function previewGroup(groupId: string) {
+		groupPreview = null;
+		if (!groupId) return;
+		previewingGroup = true;
+		try {
+			const dry = await applyParameterGroup(siteId, groupId, true);
+			groupPreview = groupApplyPreview(dry, (id) => parameters.find((p) => p.id === id)?.name ?? null);
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Failed to read what the group would add');
+		} finally { previewingGroup = false; }
+	}
 
 	// A group is declared whole: the parameters entered at a visit and the ones its calculations
 	// publish, so every calculation of the group applies here.
@@ -1026,6 +1060,7 @@
 			const sp = await api.siteParameters.list({ perPage: 200, filter: { site_id: siteId } });
 			siteParameters = sp.data;
 			applyGroupId = '';
+			groupPreview = null;
 			showApplyGroup = false;
 			toastStore.success(
 				`${applied.created.length} added, ${applied.existing.length} already here`,
@@ -1527,7 +1562,12 @@
 						<div class="flex items-end gap-3">
 							<div class="flex-1">
 								<label for="apply-group-select" class="text-xs font-medium block mb-1">Parameter group</label>
-								<select id="apply-group-select" bind:value={applyGroupId} class="w-full px-3 py-1.5 text-sm border border-brand-divider rounded bg-brand-surface">
+								<select
+									id="apply-group-select"
+									bind:value={applyGroupId}
+									onchange={() => void previewGroup(applyGroupId)}
+									class="w-full px-3 py-1.5 text-sm border border-brand-divider rounded bg-brand-surface"
+								>
 									<option value="">Select a group…</option>
 									{#each parameterGroups as g}
 										<option value={g.id}>{g.label} ({g.code})</option>
@@ -1538,9 +1578,39 @@
 								variant="primary"
 								size="sm"
 								onclick={applyGroup}
-								disabled={!applyGroupId || applyingGroup}
+								disabled={!applyGroupId || applyingGroup || previewingGroup || groupPreview?.applicable === false}
 							>{applyingGroup ? 'Applying…' : 'Apply'}</Button>
 						</div>
+						{#if previewingGroup}
+							<p class="text-xs text-brand-muted">Reading what the group would add…</p>
+						{:else if groupPreview}
+							<div class="grid gap-3 sm:grid-cols-2">
+								<div>
+									<p class="text-xs font-medium mb-1">Will add ({groupPreview.adding.length})</p>
+									{#if groupPreview.adding.length === 0}
+										<p class="text-xs text-brand-muted">Nothing: the site holds every parameter of this group.</p>
+									{:else}
+										<ul class="text-xs space-y-0.5 list-none p-0 m-0">
+											{#each groupPreview.adding as slot (slot.parameterId)}
+												<li>{slot.name} <span class="text-brand-muted">({slot.code}) · {slot.role}</span></li>
+											{/each}
+										</ul>
+									{/if}
+								</div>
+								<div>
+									<p class="text-xs font-medium mb-1">Already here ({groupPreview.held.length})</p>
+									{#if groupPreview.held.length === 0}
+										<p class="text-xs text-brand-muted">None.</p>
+									{:else}
+										<ul class="text-xs space-y-0.5 list-none p-0 m-0">
+											{#each groupPreview.held as slot (slot.parameterId)}
+												<li>{slot.name} <span class="text-brand-muted">({slot.code}) · {slot.role}</span></li>
+											{/each}
+										</ul>
+									{/if}
+								</div>
+							</div>
+						{/if}
 					</div>
 				{/if}
 
@@ -1553,6 +1623,13 @@
 								{#each unassignedParameters as p}
 									<option value={p.id}>{p.name} ({p.code})</option>
 								{/each}
+							</select>
+						</div>
+						<div>
+							<label for="add-param-cadence" class="text-xs font-medium block mb-1">Cadence</label>
+							<select id="add-param-cadence" bind:value={addParamCadence} class="px-3 py-1.5 text-sm border border-brand-divider rounded bg-brand-surface">
+								<option value="high">{cadenceLabel('high')}</option>
+								<option value="low">{cadenceLabel('low')}</option>
 							</select>
 						</div>
 						<Button
@@ -1570,7 +1647,6 @@
 						<th class="text-left px-4 py-2 font-semibold">Parameter</th>
 						<th class="text-left px-4 py-2 font-semibold">Units</th>
 						<th class="text-left px-4 py-2 font-semibold">Interval</th>
-						<th class="text-left px-4 py-2 font-semibold">Channel</th>
 						<th class="text-left px-4 py-2 font-semibold">Decimals</th>
 						<th class="text-left px-4 py-2 font-semibold">Instrument</th>
 						<th class="text-left px-4 py-2 font-semibold">Warning</th>
@@ -1583,7 +1659,7 @@
 							{@const key = slotGroup.id ?? 'ungrouped'}
 							{@const collapsed = collapsedGroups.includes(key)}
 							<tr class="border-b border-brand-divider bg-brand-bg/60">
-								<td colspan="11" class="px-4 py-2">
+								<td colspan="10" class="px-4 py-2">
 									<button
 										type="button"
 										class="inline-flex items-center gap-2 text-sm font-semibold"
@@ -1619,6 +1695,21 @@
 										{#each slotCalculations.get(sp.parameter_id) ?? [] as calculation}
 											<CalculationChip {calculation} />
 										{/each}
+										{#if canDeclare}
+											<ConfirmPopover
+												message={cadenceConsequence(sp.cadence)}
+												confirmLabel={`Declare ${cadenceLabel(otherCadence(sp.cadence)).toLowerCase()}`}
+												confirmVariant="primary"
+												onconfirm={() =>
+													updateSlot(sp, { cadence: otherCadence(sp.cadence) }, 'cadence')}
+											>
+												<Button variant="ghost" size="sm" class="text-brand-primary"
+													>{cadenceLabel(sp.cadence)}</Button
+												>
+											</ConfirmPopover>
+										{:else}
+											<span class="ml-1 text-xs text-brand-muted">{cadenceLabel(sp.cadence)}</span>
+										{/if}
 									</td>
 									<td class="px-4 py-2">
 										<input
@@ -1642,20 +1733,6 @@
 											onchange={(e) => {
 												const v = slotNumber(e.currentTarget.value);
 												if (v !== undefined) updateSlot(sp, { sample_interval_sec: v }, 'sample interval');
-											}}
-										/>
-									</td>
-									<td class="px-4 py-2">
-										<input
-											type="number"
-											class="w-20 rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
-											title="The channel identifier this slot carries in its source system"
-											aria-label="Channel identifier for {paramName(sp.parameter_id)}"
-											placeholder="None"
-											value={sp.channel_id ?? ''}
-											onchange={(e) => {
-												const v = slotNumber(e.currentTarget.value);
-												if (v !== undefined) updateSlot(sp, { channel_id: v }, 'channel');
 											}}
 										/>
 									</td>
@@ -1734,7 +1811,7 @@
 							{/if}
 						{/each}
 						{#if siteParameters.length === 0}
-							<tr><td colspan="11" class="px-4 py-6 text-center text-brand-muted">No parameters configured</td></tr>
+							<tr><td colspan="10" class="px-4 py-6 text-center text-brand-muted">No parameters configured</td></tr>
 						{/if}
 					</tbody>
 				</table>

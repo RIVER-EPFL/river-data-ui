@@ -32,6 +32,7 @@
 		setEntryAction,
 		setSiteAction,
 		toggleExpand,
+		siteConflicts,
 		renameSiteGlobal,
 		mapSiteToExisting,
 		goToParam,
@@ -64,6 +65,8 @@
 		setEntryAction: (entry: PairingPlanEntry, action: 'pair' | 'skip') => void;
 		setSiteAction: (group: SiteGroup, action: 'pair' | 'skip') => void;
 		toggleExpand: (siteName: string) => void;
+		/** What this plan cannot apply about a site, as a sentence per finding. */
+		siteConflicts: (siteName: string) => string[];
 		renameSiteGlobal: (oldName: string, newName: string) => void;
 		mapSiteToExisting: (oldName: string, existingSite: Site) => void;
 		goToParam: (paramName: string) => void;
@@ -157,6 +160,9 @@
 			onrename={(name) => renameSiteGlobal(group.siteName, name)}
 		/>
 	</div>
+	{#each siteConflicts(group.siteName) as message (message)}
+		<div class="text-xs text-severity-warning mt-0.5">{message}</div>
+	{/each}
 	{#if group.warningCount > 0}
 		<div
 			class="text-xs text-severity-warning mt-0.5"

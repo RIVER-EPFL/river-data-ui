@@ -14,11 +14,11 @@ const cnet: PlanGate = {
 describe("planGateItems", () => {
   it("states every review tab as a review count and a state", () => {
     expect(planGateItems(cnet)).toEqual([
-      { tab: "projects", label: "Projects", detail: "0 of 1 reviewed", state: "blocking" },
-      { tab: "sites", label: "Sites", detail: "0 of 31 reviewed", state: "blocking" },
-      { tab: "parameters", label: "Parameters", detail: "0 of 23 reviewed", state: "blocking" },
-      { tab: "instruments", label: "Instruments", detail: "0 of 92 reviewed", state: "blocking" },
-      { tab: "curves", label: "Standard curves", detail: "0 of 14 reviewed", state: "blocking" },
+      { tab: "projects", label: "Projects", detail: "0 of 1 reviewed", state: "blocking", conflicts: [] },
+      { tab: "sites", label: "Sites", detail: "0 of 31 reviewed", state: "blocking", conflicts: [] },
+      { tab: "parameters", label: "Parameters", detail: "0 of 23 reviewed", state: "blocking", conflicts: [] },
+      { tab: "instruments", label: "Instruments", detail: "0 of 92 reviewed", state: "blocking", conflicts: [] },
+      { tab: "curves", label: "Standard curves", detail: "0 of 14 reviewed", state: "blocking", conflicts: [] },
     ]);
   });
 
@@ -49,5 +49,32 @@ describe("applyBlockedReason", () => {
         planGateItems({ projects: all(1), sites: all(31), parameters: all(23), instruments: all(92), curves: all(14) }),
       ),
     ).toBeNull();
+  });
+});
+
+describe("a conflict on a reviewed tab", () => {
+  const all = (total: number) => ({ reviewed: total, total });
+  const reviewed: PlanGate = {
+    projects: all(1),
+    sites: all(31),
+    parameters: all(23),
+    instruments: all(92),
+    curves: all(14),
+  };
+
+  // Ticking the two rows that share a code says a person looked at them; it does not make one code
+  // two parameters.
+  it("keeps Apply shut and says what has to change", () => {
+    const items = planGateItems({
+      ...reviewed,
+      conflicts: { parameters: ["'DO' is proposed with 2 sets of units (uM, degC)."] },
+    });
+    expect(items.find((i) => i.tab === "parameters")).toMatchObject({
+      state: "blocking",
+      detail: "1 to resolve",
+    });
+    expect(applyBlockedReason(items)).toBe(
+      "To resolve first: 'DO' is proposed with 2 sets of units (uM, degC).",
+    );
   });
 });

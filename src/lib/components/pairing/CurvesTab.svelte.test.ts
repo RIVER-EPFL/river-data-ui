@@ -20,6 +20,8 @@ function held(over: Partial<PlanHeldCurve> = {}): PlanHeldCurve {
 		r_squared: null,
 		fitted_on: '2025-01-01',
 		attached: null,
+		skipped: false,
+		skipped_by: null,
 		...over,
 	};
 }
@@ -58,6 +60,7 @@ function mount(
 		held_curves: heldCurves,
 	} as unknown as PlanInstruments;
 	const onattach = vi.fn();
+	const onskip = vi.fn();
 	const onreview = vi.fn();
 	render(CurvesTab, {
 		props: {
@@ -71,22 +74,23 @@ function mount(
 			oncommitname: vi.fn(),
 			onrehome: vi.fn(),
 			onattach,
+			onskip,
 			onreview,
 			onmarkall: vi.fn(),
 			marking: false,
 		} as never,
 	});
-	return { onattach, onreview };
+	return { onattach, onskip, onreview };
 }
 
 describe('CurvesTab held curves', () => {
 	it('says an unattached curve blocks the apply and holds its review', () => {
 		mount([held()]);
 		expect(screen.getByText('DOC corr 2025-01-01')).not.toBeNull();
-		expect(screen.getByText('Attach it before the plan can be applied')).not.toBeNull();
+		expect(screen.getByText('Attach it, or skip it, before the plan can be applied')).not.toBeNull();
 		const review = screen.getByRole('button', { name: 'Mark reviewed' }) as HTMLButtonElement;
 		expect(review.disabled).toBe(true);
-		expect(review.title).toBe('Attach it to an instrument first');
+		expect(review.title).toBe('Attach it to an instrument, or skip it, first');
 	});
 
 	it('shows the instrument an attached curve will be created under', () => {
@@ -102,7 +106,7 @@ describe('CurvesTab held curves', () => {
 		]);
 		const select = screen.getByLabelText('Instrument for DOC corr 2025-01-01') as HTMLSelectElement;
 		expect(select.value).toBe('plan:cnet:DOC');
-		expect(screen.queryByText('Attach it before the plan can be applied')).toBeNull();
+		expect(screen.queryByText('Attach it, or skip it, before the plan can be applied')).toBeNull();
 	});
 
 	it('attaches to the instrument chosen', async () => {
@@ -110,6 +114,22 @@ describe('CurvesTab held curves', () => {
 		const select = screen.getByLabelText('Instrument for DOC corr 2025-01-01') as HTMLSelectElement;
 		await fireEvent.change(select, { target: { value: 'plan:cnet:DOC' } });
 		expect(onattach).toHaveBeenCalledWith(expect.objectContaining({ id: 'held-1' }), 'plan:cnet:DOC');
+	});
+
+	it('skips a curve the lab does not want', async () => {
+		const { onskip } = mount([held()]);
+		await fireEvent.click(screen.getByRole('button', { name: 'Skip this curve' }));
+		expect(onskip).toHaveBeenCalledWith(expect.objectContaining({ id: 'held-1' }), true);
+	});
+
+	it('shows a skipped curve as ruled on, with the way back', async () => {
+		const { onskip } = mount([held({ skipped: true, skipped_by: 'evan' })]);
+		expect(screen.getByText('Skipped by evan')).not.toBeNull();
+		expect(screen.queryByLabelText('Instrument for DOC corr 2025-01-01')).toBeNull();
+		const review = screen.getByRole('button', { name: 'Mark reviewed' }) as HTMLButtonElement;
+		expect(review.disabled).toBe(false);
+		await fireEvent.click(screen.getByRole('button', { name: 'Keep it after all' }));
+		expect(onskip).toHaveBeenCalledWith(expect.objectContaining({ id: 'held-1' }), false);
 	});
 });
 

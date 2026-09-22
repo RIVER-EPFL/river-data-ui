@@ -2,7 +2,9 @@
 	import Button from '$components/ui/Button.svelte';
 
 	// A button asked twice: the first press turns it into its own confirmation, the second acts.
-	// It needs no panel, so nothing it says can be clipped by the table it sits in.
+	// It needs no panel, so nothing it says can be clipped by the table it sits in. Arming changes
+	// the words and nothing else: a button that changes colour and shape under the cursor pulls the
+	// eye off the row being read.
 	let {
 		label,
 		confirmLabel,
@@ -44,7 +46,7 @@
 
 <Button
 	size="sm"
-	variant={armed ? 'danger' : variant}
+	{variant}
 	title={armed ? consequence : undefined}
 	onclick={press}
 	onblur={disarm}

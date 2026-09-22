@@ -24,6 +24,46 @@ export function roleLabel(role: string): string {
 	}
 }
 
+/** A member of a group as the apply preview lists it. */
+export interface PreviewSlot {
+	parameterId: string;
+	code: string;
+	name: string;
+	role: string;
+}
+
+/** What an apply would do at this site, read from the route's dry run. */
+export interface GroupApplyPreview {
+	adding: PreviewSlot[];
+	held: PreviewSlot[];
+	/** Nothing to apply: the site already holds every member of the group. */
+	applicable: boolean;
+}
+
+interface GroupSlotResponse {
+	parameter_id: string;
+	parameter_code: string;
+	role: string;
+}
+
+/**
+ * The two lists the panel shows before Apply is pressed. The catalog names the parameters; one the
+ * page does not carry reads as its code, which is what the route returned.
+ */
+export function groupApplyPreview(
+	response: { created: GroupSlotResponse[]; existing: GroupSlotResponse[] },
+	nameOf: (parameterId: string) => string | null,
+): GroupApplyPreview {
+	const line = (slot: GroupSlotResponse): PreviewSlot => ({
+		parameterId: slot.parameter_id,
+		code: slot.parameter_code,
+		name: nameOf(slot.parameter_id) ?? slot.parameter_code,
+		role: roleLabel(slot.role),
+	});
+	const adding = response.created.map(line);
+	return { adding, held: response.existing.map(line), applicable: adding.length > 0 };
+}
+
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 
 /**
