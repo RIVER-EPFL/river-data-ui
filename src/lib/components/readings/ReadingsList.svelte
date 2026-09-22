@@ -5,6 +5,7 @@
 	import PointInspector from '$components/provenance/PointInspector.svelte';
 	import SiteSelect from '$components/SiteSelect.svelte';
 	import Badge from '$components/ui/Badge.svelte';
+	import TimestampInput from '$components/ui/TimestampInput.svelte';
 	import { NO_VALUE, formatMeasurement } from '$lib/format';
 	import { provenanceKindLabel } from '$lib/origin';
 	import {
@@ -14,7 +15,7 @@
 		type ReadingsFilterState,
 	} from '$lib/readings/listFilter';
 	import { curveLabel, formatEquation } from '$lib/standardCurves';
-	import { formatDateTime, fromDatetimeLocal, toDatetimeLocal } from '$lib/utils';
+	import { formatDateTime } from '$lib/utils';
 
 	let {
 		sites,
@@ -99,20 +100,20 @@
 		</select>
 		<label class="text-sm text-brand-muted flex items-center gap-1">
 			From
-			<input
-				type="datetime-local"
-				value={filter.from ? toDatetimeLocal(filter.from) : ''}
-				onchange={(e) => { filter.from = e.currentTarget.value ? fromDatetimeLocal(e.currentTarget.value) : ''; reload(); }}
-				class="px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm text-brand-text"
+			<TimestampInput
+				ariaLabel="From"
+				compact
+				value={filter.from}
+				onchange={(instant) => { filter.from = instant; reload(); }}
 			/>
 		</label>
 		<label class="text-sm text-brand-muted flex items-center gap-1">
 			To
-			<input
-				type="datetime-local"
-				value={filter.to ? toDatetimeLocal(filter.to) : ''}
-				onchange={(e) => { filter.to = e.currentTarget.value ? fromDatetimeLocal(e.currentTarget.value) : ''; reload(); }}
-				class="px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm text-brand-text"
+			<TimestampInput
+				ariaLabel="To"
+				compact
+				value={filter.to}
+				onchange={(instant) => { filter.to = instant; reload(); }}
 			/>
 		</label>
 		<select

@@ -4,6 +4,8 @@
 	import 'nouislider/dist/nouislider.css';
 	import { tokens } from '$lib/charts/tokens';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
+	import { pipLabel } from '$lib/charts/timeRangePips';
+	import { dayStart } from '$lib/utils';
 
 	let {
 		min,
@@ -24,7 +26,7 @@
 	let suppressUpdate = false;
 
 	const rangeDays = $derived((max - min) / 86400000);
-	const todayStart = $derived(new Date(new Date(max).setUTCHours(0, 0, 0, 0)).getTime());
+	const todayStart = $derived(dayStart(max, timezoneStore.zone));
 	const weekStart = $derived(todayStart - 7 * 86400000);
 
 	// Matching the React dashboard: grey (history), blue (week), green (today)
@@ -80,63 +82,13 @@
 	}
 
 	function buildPips() {
+		const format = { to: (v: number) => pipLabel(v, { max, rangeDays }, timezoneStore.zone) };
 		if (rangeDays > 8) {
-			return {
-				mode: PipsMode.Positions as const,
-				values: [0, 25, 50, 65, 80, 90, 100],
-				density: 100,
-				format: {
-					to: (v: number) => {
-						const d = new Date(v);
-						const hoursFromEnd = (max - v) / 3600000;
-						if (hoursFromEnd <= 24) {
-							const h = d.getUTCHours();
-							if (h === 0) return fmtDateShort(d);
-							if (h === 6 || h === 12 || h === 18) return h + ':00';
-							return '';
-						}
-						return fmtDateShort(d);
-					},
-				},
-			};
+			return { mode: PipsMode.Positions as const, values: [0, 25, 50, 65, 80, 90, 100], density: 100, format };
 		} else if (rangeDays > 2) {
-			return {
-				mode: PipsMode.Positions as const,
-				values: [0, 20, 40, 60, 85, 100],
-				density: 100,
-				format: {
-					to: (v: number) => {
-						const d = new Date(v);
-						const hoursFromEnd = (max - v) / 3600000;
-						if (hoursFromEnd <= 24) {
-							const h = d.getUTCHours();
-							if (h === 0) return fmtDateShort(d);
-							if (h === 12) return '12:00';
-							return '';
-						}
-						return fmtDateShort(d);
-					},
-				},
-			};
+			return { mode: PipsMode.Positions as const, values: [0, 20, 40, 60, 85, 100], density: 100, format };
 		}
-		return {
-			mode: PipsMode.Count as const,
-			values: 6,
-			density: 100,
-			format: {
-				to: (v: number) => {
-					const d = new Date(v);
-					if (rangeDays < 1) return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: timezoneStore.zone });
-					return fmtDateShort(d);
-				},
-			},
-		};
-	}
-
-	function fmtDateShort(d: Date): string {
-		const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric', timeZone: timezoneStore.zone };
-		if (d.getUTCFullYear() !== new Date().getUTCFullYear()) opts.year = 'numeric';
-		return d.toLocaleDateString('en-US', opts);
+		return { mode: PipsMode.Count as const, values: 6, density: 100, format };
 	}
 
 	function fmtDateTimeFull(v: number): string {

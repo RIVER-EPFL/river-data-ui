@@ -33,7 +33,7 @@
 		type LastUsedCurve,
 	} from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { toDatetimeLocal, fromDatetimeLocal, formatDateTime } from '$lib/utils';
+	import { formatDateTime } from '$lib/utils';
 	import { curveEquation, curveIdentity } from '$lib/standardCurves';
 	import { SEASONAL_CLASS_LABELS, seasonalFindingLabel } from '$lib/seasonal';
 	import { instrumentFilter, kindLabel, measuringInstruments, retiredSuffix } from '$lib/instruments/kind';
@@ -43,16 +43,11 @@
 	import { computing, runOutputs, runReportLine } from '$lib/visits/recompute';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
+	import TimestampInput from '$components/ui/TimestampInput.svelte';
 	import LastUsedCurveNote from './LastUsedCurveNote.svelte';
 	import ParameterSelect from '$components/ParameterSelect.svelte';
 	import SiteSelect from '$components/SiteSelect.svelte';
 	import { siteRefs } from '$lib/siteRefs.svelte';
-
-	const BROWSER_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
-	const ZONE_OPTIONS =
-		typeof Intl.supportedValuesOf === 'function'
-			? Intl.supportedValuesOf('timeZone')
-			: [BROWSER_ZONE, 'UTC'];
 
 	// Persists a tool's computed outputs to a site as one grab-sample request. The request names
 	// the server-stored tool run (`tool_run_id`) and each reading's output key; the server builds
@@ -271,8 +266,7 @@
 	let selectedCurveId = $state('');
 
 	let selectedSiteId = $state('');
-	let collectedAt = $state(toDatetimeLocal(Date.now(), BROWSER_ZONE));
-	let collectedZone = $state(BROWSER_ZONE);
+	let collectedAt = $state(new Date().toISOString());
 	let label = $state('');
 	let notes = $state('');
 	let saving = $state(false);
@@ -414,10 +408,7 @@
 		rowInstruments = {};
 		selectedCurveId = '';
 		curves = [];
-		collectedAt = contextTime
-			? toDatetimeLocal(Date.parse(contextTime), BROWSER_ZONE)
-			: toDatetimeLocal(Date.now(), BROWSER_ZONE);
-		collectedZone = BROWSER_ZONE;
+		collectedAt = contextTime ?? new Date().toISOString();
 		check = null;
 		runReport = null;
 		label = '';
@@ -493,7 +484,7 @@
 			selectedSiteId = contextSiteId;
 			void loadSiteParameters(contextSiteId);
 		}
-		if (contextTime) collectedAt = toDatetimeLocal(Date.parse(contextTime), BROWSER_ZONE);
+		if (contextTime) collectedAt = contextTime;
 	});
 
 	// Every list is paged to completion: mapping an output to a parameter is a lookup by name over
@@ -707,11 +698,8 @@
 	const consequence = $derived(consequenceLine(calculations));
 
 	// The instant these readings are written at. A staged visit's instant is used exactly as the
-	// event holds it: recomposing it from the datetime-local field would round to the minute and
-	// land the save on a different visit.
-	const saveTime = $derived(
-		visitLocked && contextTime ? contextTime : fromDatetimeLocal(collectedAt, collectedZone),
-	);
+	// event holds it: the field rounds to the minute, which would land the save on a different visit.
+	const saveTime = $derived(visitLocked && contextTime ? contextTime : collectedAt);
 
 	// The write in one line: readings and indices from the ticked rows, curves from the preview.
 	const writeSummary = $derived.by(() => {
@@ -964,10 +952,7 @@
 					</div>
 					<div class="flex flex-col gap-1">
 						<label for="srp-time" class="text-sm font-medium">Timestamp <span class="text-severity-alarm">*</span></label>
-						<input id="srp-time" type="datetime-local" bind:value={collectedAt} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" />
-						<select bind:value={collectedZone} aria-label="Time zone" class="px-3 py-1 border border-brand-divider rounded-md bg-brand-surface text-xs">
-							{#each ZONE_OPTIONS as z}<option value={z}>{z}</option>{/each}
-						</select>
+						<TimestampInput id="srp-time" bind:value={collectedAt} />
 					</div>
 				</div>
 			{/if}

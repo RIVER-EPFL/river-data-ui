@@ -4,13 +4,12 @@
 	import { getSensorReadings, type SensorReadingsResponse } from '$api/sensors';
 	import type { CalibrationMarker } from '$api/sensors';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
-	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import { GAP_THRESHOLDS } from '$lib/charts/uPlotTheme';
 	import ScatterPlot from '$components/charts/ScatterPlot.svelte';
 	import SensorSeriesChart from '$components/charts/SensorSeriesChart.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
 	import Button from '$components/ui/Button.svelte';
+	import TimestampInput from '$components/ui/TimestampInput.svelte';
 
 	let { mode = 'edit', calibration, allCalibrations = [], units = '', sensorId, rangeMin, rangeMax, onchanged, onswitchcalibration }: {
 		mode?: 'edit' | 'create';
@@ -38,8 +37,6 @@
 	const OPEN_EPS = 60_000;
 	const isOpenEnded = $derived(endMs >= rangeMax - OPEN_EPS);
 
-	const msToLocal = (ms: number) => toDatetimeLocal(ms, timezoneStore.zone);
-	const localToMs = (s: string) => new Date(fromDatetimeLocal(s, timezoneStore.zone)).getTime();
 
 	// ─── Chart data explorer ───
 	let resolutionOverride = $state<'auto' | 'raw' | 'hourly' | 'daily'>('auto');
@@ -222,8 +219,8 @@
 	<div class="grid grid-cols-4 gap-3">
 		<label class="flex flex-col gap-1 text-xs text-brand-muted">Slope<input type="number" step="any" bind:value={slope} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm" /></label>
 		<label class="flex flex-col gap-1 text-xs text-brand-muted">Intercept<input type="number" step="any" bind:value={intercept} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm" /></label>
-		<label class="flex flex-col gap-1 text-xs text-brand-muted">Valid from<input type="datetime-local" value={msToLocal(startMs)} oninput={(e) => startMs = localToMs(e.currentTarget.value)} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm" /></label>
-		<label class="flex flex-col gap-1 text-xs text-brand-muted">Valid until {#if isOpenEnded}<span class="text-[10px] normal-case">(open / auto-managed)</span>{/if}<input type="datetime-local" value={msToLocal(endMs)} oninput={(e) => endMs = localToMs(e.currentTarget.value)} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm" /></label>
+		<label class="flex flex-col gap-1 text-xs text-brand-muted">Valid from<TimestampInput value={new Date(startMs).toISOString()} onchange={(iso) => startMs = new Date(iso).getTime()} ariaLabel="Valid from" /></label>
+		<label class="flex flex-col gap-1 text-xs text-brand-muted">Valid until {#if isOpenEnded}<span class="text-[10px] normal-case">(open / auto-managed)</span>{/if}<TimestampInput value={new Date(endMs).toISOString()} onchange={(iso) => endMs = new Date(iso).getTime()} ariaLabel="Valid until" /></label>
 	</div>
 
 	<!-- Stacked sliders: calibration window + view range -->

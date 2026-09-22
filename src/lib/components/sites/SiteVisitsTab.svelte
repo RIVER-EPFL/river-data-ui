@@ -42,7 +42,8 @@
 	} from '$api/service';
 	import type { SampleReplicate } from '$lib/api/types';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { formatDateTime, toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
+	import { timezoneStore } from '$lib/stores/timezone.svelte';
+	import { formatDateTime } from '$lib/utils';
 	import { formatMeasurement } from '$lib/format';
 	import {
 		cellRecord,
@@ -62,6 +63,7 @@
 	} from '$lib/visits/recompute';
 	import { verificationBadge, verificationNoticeFor } from '$lib/visits/verification';
 	import Button from '$components/ui/Button.svelte';
+	import TimestampInput from '$components/ui/TimestampInput.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import { BADGE_BASE, BADGE_VARIANTS, type BadgeVariant } from '$components/ui/badge';
 	import SheetGrid from '$components/ui/SheetGrid.svelte';
@@ -96,8 +98,10 @@
 		editable,
 		entryValues,
 		expectedReplicates,
+		cleared,
 		pendingCount,
 		pendingWrites,
+		withdrawalKeys,
 		storedAt,
 		instrumentKey,
 		pasteNotice,
@@ -316,7 +320,7 @@
 	// The typed cells are read once per load: a keystroke changes the grid itself, not its data.
 	const gridData = $derived.by(() => {
 		void dataVersion;
-		return sheetData(visits, slots, untrack(() => edits), locale, writableSlot);
+		return sheetData(visits, slots, untrack(() => edits), locale, timezoneStore.zone, writableSlot);
 	});
 
 	type SheetSettings = Omit<GridSettings, 'data' | 'licenseKey' | 'themeName'>;
@@ -325,7 +329,7 @@
 		void me.level;
 		void visits;
 		return {
-			nestedHeaders: sheetHeaders(groupColumns),
+			nestedHeaders: sheetHeaders(groupColumns, timezoneStore.zone),
 			rowHeaders: true,
 			wordWrap: false,
 			fixedColumnsStart: FROZEN_COLUMNS,
@@ -400,8 +404,9 @@
 	function recordingControl(visitId: string, parameterId: string, name: string): HTMLButtonElement {
 		const button = document.createElement('button');
 		button.type = 'button';
+		// The glyph is drawn by CSS: a text node here would join the cell's text, which is what
+		// the sheet copies and round-trips through the grid.
 		button.className = 'sheet-corner';
-		button.textContent = 'i';
 		button.setAttribute('aria-label', `Open the record of ${name} at this visit`);
 		button.title = `Open the record of ${name} at this visit (Alt+Enter)`;
 		button.addEventListener('mousedown', (e) => e.stopPropagation());
@@ -666,6 +671,8 @@
 	const screened = $derived(checkSatisfied(writes, checks));
 	const entering = $derived(writes.some((w) => w.entries.length > 0));
 	const moved = $derived(pendingCount(edits, locale));
+	// Every cleared cell withdraws a stored replicate, by its own edit or by the replace of its group.
+	const withdrawn = $derived(Object.values(edits).filter(cleared).length);
 
 	/** Whether this account may type over what the store holds at this slot (Q21). */
 	function slotWritable(visit: VisitRow, parameterId: string, replicateIndex: number) {
@@ -741,18 +748,24 @@
 		);
 	}
 
-	// What a save would recompute, read from a preview of its corrections rather than guessed.
+	const CORRECTION = { kind: 'value_correction' as const, reason: 'corrected in the visits table' };
+	const WITHDRAWAL = { kind: 'withdraw' as const, reason: 'cleared in the visits table' };
+
+	// What a save would recompute, read from a preview of its corrections and withdrawals rather
+	// than guessed.
 	async function askToSave() {
 		consequence = null;
 		runReport = null;
-		const keys = correctionKeys(writes);
-		if (keys.length > 0) {
+		const previews = [];
+		const corrected = correctionKeys(writes);
+		const retracted = withdrawalKeys(writes);
+		if (corrected.length > 0) previews.push(previewEdit({ keys: corrected }, CORRECTION));
+		if (retracted.length > 0) previews.push(previewEdit({ keys: retracted }, WITHDRAWAL));
+		if (previews.length > 0) {
 			try {
-				const preview = await previewEdit(
-					{ keys },
-					{ kind: 'value_correction', reason: 'corrected in the visits table' },
-				);
-				consequence = editConsequence(preview.calculations, servedByCode);
+				const calculations = (await Promise.all(previews)).flatMap((p) => p.calculations);
+				const once = new Map(calculations.map((c) => [c.tool, c]));
+				consequence = editConsequence([...once.values()], servedByCode);
 			} catch {
 				// The preview is the explanation, not the write; a save may still go ahead.
 			}
@@ -780,21 +793,15 @@
 		const before = servedNow();
 		try {
 			for (const write of writes) {
+				if (write.withdrawals.length > 0) {
+					const selection = { keys: withdrawalKeys([write]) };
+					const preview = await previewEdit(selection, WITHDRAWAL);
+					await commitEdit(selection, WITHDRAWAL, preview.preview_id);
+				}
 				if (write.corrections.length > 0) {
-					const selection = {
-						keys: write.corrections.map((c) => ({
-							stream_id: c.streamId,
-							time: write.collectedAt,
-							replicate_index: c.replicateIndex,
-							value: c.value,
-						})),
-					};
-					const decision = {
-						kind: 'value_correction' as const,
-						reason: 'corrected in the visits table',
-					};
-					const preview = await previewEdit(selection, decision);
-					await commitEdit(selection, decision, preview.preview_id);
+					const selection = { keys: correctionKeys([write]) };
+					const preview = await previewEdit(selection, CORRECTION);
+					await commitEdit(selection, CORRECTION, preview.preview_id);
 				}
 				if (write.entries.length > 0) {
 					const visit = visits.find((v) => v.id === write.eventId)!;
@@ -1183,22 +1190,20 @@
 				<div class="flex flex-wrap items-end gap-3">
 					<div>
 						<label for="visits-start" class="text-xs text-brand-muted block mb-1">From</label>
-						<input
+						<TimestampInput
 							id="visits-start"
-							type="datetime-local"
-							value={visitsStart ? toDatetimeLocal(visitsStart) : ''}
-							onchange={(e) => { const v = e.currentTarget.value; visitsStart = v ? fromDatetimeLocal(v) : null; }}
-							class="px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm"
+							compact
+							value={visitsStart ?? ''}
+							onchange={(instant) => (visitsStart = instant || null)}
 						/>
 					</div>
 					<div>
 						<label for="visits-end" class="text-xs text-brand-muted block mb-1">To</label>
-						<input
+						<TimestampInput
 							id="visits-end"
-							type="datetime-local"
-							value={visitsEnd ? toDatetimeLocal(visitsEnd) : ''}
-							onchange={(e) => { const v = e.currentTarget.value; visitsEnd = v ? fromDatetimeLocal(v) : null; }}
-							class="px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm"
+							compact
+							value={visitsEnd ?? ''}
+							onchange={(instant) => (visitsEnd = instant || null)}
 						/>
 					</div>
 					{#if visitsStart || visitsEnd}
@@ -1549,8 +1554,14 @@
 		<div class="space-y-2 text-sm">
 			<p>
 				{moved} value{moved === 1 ? '' : 's'} will be written across {writes.length} visit{writes.length === 1 ? '' : 's'},
-				{writes.reduce((n, w) => n + w.corrections.length, 0)} corrected in place.
+				{writes.reduce((n, w) => n + w.corrections.length, 0)} corrected in place{#if withdrawn > 0}, {withdrawn} withdrawn{/if}.
 			</p>
+			{#if withdrawn > 0}
+				<p class="text-brand-muted">
+					A cleared cell withdraws its replicate: a reversible stamp, not a delete. The reading stays on
+					the record and can be re-asserted.
+				</p>
+			{/if}
 			{#if consequence}
 				<p class="text-brand-muted">{consequence}</p>
 			{/if}

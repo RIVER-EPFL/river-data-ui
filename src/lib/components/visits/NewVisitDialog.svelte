@@ -2,24 +2,17 @@
 	import { base } from '$app/paths';
 	import { stageCollectionEvents, type StagedEvent } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { formatDateTime, toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
+	import { formatDateTime } from '$lib/utils';
 	import { siteRefs } from '$lib/siteRefs.svelte';
 	import { nextRow, repeatedRows, type FieldDayRow } from '$lib/visits/fieldDay';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
+	import TimestampInput from '$components/ui/TimestampInput.svelte';
 	import SiteSelect from '$components/SiteSelect.svelte';
 
 	// A field day on the Visits table: one row per visit, each a site and the time it was sampled,
 	// saved together. Several sites on one day is normal; one site twice at one time is refused. A
 	// visit that already stands at that (site, instant) is joined, not duplicated.
-
-	const BROWSER_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
-	const ZONES = [
-		{ value: BROWSER_ZONE, label: BROWSER_ZONE },
-		{ value: 'UTC', label: 'UTC' },
-		{ value: 'Etc/GMT-1', label: 'UTC+01:00' },
-		{ value: 'Etc/GMT-2', label: 'UTC+02:00' },
-	];
 
 	let {
 		open = $bindable(false),
@@ -34,7 +27,6 @@
 	} = $props();
 
 	let rows = $state<FieldDayRow[]>([]);
-	let zone = $state(BROWSER_ZONE);
 	let notes = $state('');
 	let saving = $state(false);
 	let added = $state<StagedEvent[]>([]);
@@ -44,7 +36,7 @@
 
 	$effect(() => {
 		if (!open) return;
-		rows = [{ site: siteId ?? '', when: toDatetimeLocal(Date.now(), BROWSER_ZONE) }];
+		rows = [{ site: siteId ?? '', when: new Date().toISOString() }];
 		added = [];
 		notes = '';
 		if (!siteId) void siteRefs.ensure().catch(() => {});
@@ -63,7 +55,7 @@
 		saving = true;
 		try {
 			const staged = await stageCollectionEvents({
-				visits: rows.map((r) => ({ site_id: r.site, collected_at: fromDatetimeLocal(r.when, zone) })),
+				visits: rows.map((r) => ({ site_id: r.site, collected_at: r.when })),
 				...(notes.trim() ? { notes: notes.trim() } : {}),
 			});
 			added = staged;
@@ -103,11 +95,9 @@
 								</td>
 							{/if}
 							<td class="pr-2 py-1">
-								<input
-									aria-label="Date and time, row {index + 1}"
-									type="datetime-local"
+								<TimestampInput
+									ariaLabel="Date and time, row {index + 1}"
 									bind:value={row.when}
-									class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
 								/>
 								{#if repeat}
 									<span class="block text-xs text-severity-alarm">Same site and time as row {repeat[0] + 1}</span>
@@ -124,18 +114,6 @@
 			</table>
 			<Button size="sm" variant="secondary" onclick={addRow}>Add another</Button>
 			<div class="grid grid-cols-2 gap-3">
-				<div class="flex flex-col gap-1">
-					<label for="nv-zone" class="text-sm font-medium">Time zone</label>
-					<select
-						id="nv-zone"
-						bind:value={zone}
-						class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm"
-					>
-						{#each ZONES as z (z.value)}
-							<option value={z.value}>{z.label}</option>
-						{/each}
-					</select>
-				</div>
 				<div class="flex flex-col gap-1">
 					<label for="nv-notes" class="text-sm font-medium">
 						Notes <span class="text-brand-muted font-normal">(optional)</span>

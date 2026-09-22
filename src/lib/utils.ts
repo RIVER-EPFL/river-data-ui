@@ -70,30 +70,9 @@ export function formatDate(date: string | Date): string {
 	});
 }
 
-/**
- * Format an instant as a value for `<input type="datetime-local">` (`YYYY-MM-DDTHH:mm`),
- * showing the wall-clock time in `zone` (default: the browser's local zone). Use this to
- * seed/round-trip datetime-local inputs, seeding with a UTC wall-clock instead silently
- * shifts the value by the zone offset when the user accepts or edits it.
- */
-export function toDatetimeLocal(value: string | number | Date, zone?: string): string {
-	const d = value instanceof Date ? value : new Date(value);
-	if (Number.isNaN(d.getTime())) return '';
-	const parts = new Intl.DateTimeFormat('en-CA', {
-		timeZone: zone,
-		year: 'numeric',
-		month: '2-digit',
-		day: '2-digit',
-		hour: '2-digit',
-		minute: '2-digit',
-		hourCycle: 'h23',
-	}).formatToParts(d);
-	const p: Record<string, string> = {};
-	for (const part of parts) p[part.type] = part.value;
-	return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
-}
-
-function zoneOffsetMs(instant: Date, zone: string): number {
+// An instant's zero-padded wall-clock fields in `zone` (the browser's zone when it is undefined).
+// Every zone-aware helper below reads the clock through this one formatter.
+function wallParts(instant: Date, zone?: string): Record<string, string> {
 	const parts = new Intl.DateTimeFormat('en-CA', {
 		timeZone: zone,
 		year: 'numeric',
@@ -106,23 +85,118 @@ function zoneOffsetMs(instant: Date, zone: string): number {
 	}).formatToParts(instant);
 	const p: Record<string, string> = {};
 	for (const part of parts) p[part.type] = part.value;
+	return p;
+}
+
+/**
+ * An instant's wall-clock fields in `zone` (default: the browser's zone), as numbers. For a
+ * decision that turns on the hour or the calendar day rather than on a formatted string, such as
+ * which tick of a time axis carries a date.
+ */
+export function zonedParts(
+	value: string | number | Date,
+	zone?: string,
+): { year: number; month: number; day: number; hour: number; minute: number; second: number } {
+	const p = wallParts(value instanceof Date ? value : new Date(value), zone);
+	return {
+		year: +p.year,
+		month: +p.month,
+		day: +p.day,
+		hour: +p.hour,
+		minute: +p.minute,
+		second: +p.second,
+	};
+}
+
+/** The name of the zone a column of instants is printed in, for the header that stands above it. */
+export function zoneLabel(zone?: string): string {
+	return zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
+/**
+ * A compact numeric instant for a dense grid: `2026-07-01 14:30:00`, wall clock in `zone`
+ * (default: the browser's zone), carrying a fraction only where the instant has one. The column
+ * header names the zone, so a cell does not repeat it.
+ */
+export function formatCompactInstant(value: string | number | Date, zone?: string): string {
+	const d = value instanceof Date ? value : new Date(value);
+	if (Number.isNaN(d.getTime())) return '';
+	const p = wallParts(d, zone);
+	const ms = d.getUTCMilliseconds();
+	const fraction = ms === 0 ? '' : `.${String(ms).padStart(3, '0')}`;
+	return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}${fraction}`;
+}
+
+/**
+ * Format an instant as a value for `<input type="datetime-local">` (`YYYY-MM-DDTHH:mm`),
+ * showing the wall-clock time in `zone` (default: the browser's local zone). Use this to
+ * seed/round-trip datetime-local inputs, seeding with a UTC wall-clock instead silently
+ * shifts the value by the zone offset when the user accepts or edits it.
+ */
+export function toDatetimeLocal(value: string | number | Date, zone?: string): string {
+	const d = value instanceof Date ? value : new Date(value);
+	if (Number.isNaN(d.getTime())) return '';
+	const p = wallParts(d, zone);
+	return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+}
+
+function zoneOffsetMs(instant: Date, zone: string): number {
+	const p = wallParts(instant, zone);
 	const asUtc = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
 	return asUtc - instant.getTime();
 }
 
+/** A trailing `Z` or `\u00b1HH:MM`, which fixes the instant whatever zone is named beside it. */
+const EXPLICIT_OFFSET = /(?:Z|[+-]\d{2}:?\d{2})$/;
+
 /**
  * Convert a naive `<input type="datetime-local">` value (`YYYY-MM-DDTHH:mm`), interpreted as
  * wall-clock time in `zone` (default: the browser's local zone), to a UTC ISO-8601 string for
- * the API. With the default zone this equals `new Date(naive).toISOString()`. (Non-existent
- * spring-forward wall-clock times resolve to one engine-defined side, a non-issue for
- * observation timestamps.)
+ * the API. A value carrying its own offset keeps it and `zone` is ignored. With the default zone
+ * a naive value equals `new Date(naive).toISOString()`. (Non-existent spring-forward wall-clock
+ * times resolve to one engine-defined side, a non-issue for observation timestamps.)
  */
 export function fromDatetimeLocal(naive: string, zone?: string): string {
 	if (!naive) return '';
-	if (!zone) return new Date(naive).toISOString();
+	if (!zone || EXPLICIT_OFFSET.test(naive)) return new Date(naive).toISOString();
 	const wall = naive.length === 16 ? `${naive}:00` : naive;
 	const guess = new Date(`${wall}Z`);
 	return new Date(guess.getTime() - zoneOffsetMs(guess, zone)).toISOString();
+}
+
+/**
+ * A calendar day as a half-open range of instants, `[start, end)`, with the day read in `zone`
+ * (default: the browser's local zone). A day filter takes no zone of its own: a calendar day is
+ * not a measured instant, so the header toggle is its zone.
+ */
+export function dayBounds(day: string, zone?: string): { start: string; end: string } | undefined {
+	const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+	if (!match) return undefined;
+	const [, year, month, date] = match.map(Number);
+	const next = new Date(Date.UTC(year, month - 1, date + 1));
+	const pad = (n: number) => String(n).padStart(2, '0');
+	const after = `${next.getUTCFullYear()}-${pad(next.getUTCMonth() + 1)}-${pad(next.getUTCDate())}`;
+	return {
+		start: fromDatetimeLocal(`${day}T00:00`, zone),
+		end: fromDatetimeLocal(`${after}T00:00`, zone),
+	};
+}
+
+/** The calendar day an instant falls on in `zone`, for a date input. `end` reads a half-open
+ * upper bound back as the day it closes. */
+export function dayOf(iso: string | undefined, zone?: string, end = false): string {
+	if (!iso) return '';
+	const at = new Date(new Date(iso).getTime() - (end ? 1 : 0));
+	if (Number.isNaN(at.getTime())) return '';
+	return toDatetimeLocal(at, zone).slice(0, 10);
+}
+
+/** The instant the calendar day holding `value` opens, in `zone`: the lower bound of its day. */
+export function dayStart(value: string | number | Date, zone?: string): number {
+	const at = new Date(value);
+	if (Number.isNaN(at.getTime())) return NaN;
+	const bounds = dayBounds(dayOf(at.toISOString(), zone), zone);
+	return bounds ? Date.parse(bounds.start) : NaN;
 }
 
 export function statusBadgeClass(status: string): string {

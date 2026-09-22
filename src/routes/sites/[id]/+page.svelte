@@ -27,7 +27,7 @@
 	import type { AggregatesParameter, AggregatesResponse, ReadingsResponse } from '$lib/api/types';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { siteNavigator } from '$lib/stores/sites.svelte';
-	import { formatRelativeTime, formatDateTime, formatDate, toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
+	import { formatRelativeTime, formatDateTime, formatDate } from '$lib/utils';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Tabs from '$components/ui/Tabs.svelte';

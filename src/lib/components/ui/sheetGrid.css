@@ -75,6 +75,9 @@
 	color: var(--color-brand-surface);
 	cursor: pointer;
 }
+.sheet-grid .sheet-corner::before {
+	content: 'i';
+}
 .sheet-grid td:has(> .sheet-corner) {
 	position: relative;
 }

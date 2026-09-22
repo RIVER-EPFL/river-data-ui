@@ -12,6 +12,10 @@ const alias = {
 	$app: fileURLToPath(new URL('./src/tests/app-stubs', import.meta.url)),
 };
 
+// A zone with a daylight-saving offset, so a test whose subject is the timezone preference sees a
+// browser zone that differs from UTC wherever the suite runs.
+const TIMEZONE = { TZ: 'Europe/Zurich' };
+
 export default defineConfig({
 	resolve: { alias },
 	define: { __APP_VERSION__: JSON.stringify('test') },
@@ -25,6 +29,7 @@ export default defineConfig({
 				test: {
 					name: 'unit',
 					environment: 'node',
+					env: TIMEZONE,
 					include: ['src/**/*.test.ts', 'tests/browser/*.test.ts'],
 					exclude: ['src/**/*.svelte.test.ts'],
 				},
@@ -36,6 +41,7 @@ export default defineConfig({
 				test: {
 					name: 'component',
 					environment: 'jsdom',
+					env: TIMEZONE,
 					include: ['src/**/*.svelte.test.ts'],
 					setupFiles: ['src/tests/setup.ts'],
 				},

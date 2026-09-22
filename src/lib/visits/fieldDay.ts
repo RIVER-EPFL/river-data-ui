@@ -1,8 +1,8 @@
-// A field day entered as rows: each row a site and the local date and time it was sampled.
+// A field day entered as rows: each row a site and the instant it was sampled at.
 
 export interface FieldDayRow {
 	site: string;
-	/** A `datetime-local` value, read in the zone the dialog names. */
+	/** The instant, ISO-8601 in UTC, as the timestamp control resolved it. */
 	when: string;
 }
 
@@ -17,7 +17,7 @@ export function repeatedRows(rows: FieldDayRow[]): [number, number][] {
 	return repeats;
 }
 
-/** The row Add another starts: the last row's date and time, and the fixed site if there is one. */
+/** The row Add another starts: the last row's instant, and the fixed site if there is one. */
 export function nextRow(last: FieldDayRow, fixedSite: string | null): FieldDayRow {
 	return { site: fixedSite ?? '', when: last.when };
 }

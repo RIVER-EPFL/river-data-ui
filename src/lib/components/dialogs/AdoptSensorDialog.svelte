@@ -2,9 +2,9 @@
 	import { api, type Sensor, type Site, type SiteParameter, type SensorDeployment, type Parameter } from '$api/crud';
 	import { adoptSensor, swapSensors, getAdoptSuggestions, pollJob } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { toDatetimeLocal, fromDatetimeLocal, formatDateTime } from '$lib/utils';
-	import { timezoneStore } from '$lib/stores/timezone.svelte';
+	import { formatDateTime } from '$lib/utils';
 	import Button from '$components/ui/Button.svelte';
+	import TimestampInput from '$components/ui/TimestampInput.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import SiteSelect from '$components/SiteSelect.svelte';
 	import { base } from '$app/paths';
@@ -27,7 +27,7 @@
 	let mode = $state<'choose' | 'adopt' | 'import'>('choose');
 	let selectedSiteId = $state('');
 	let selectedSiteParamId = $state('');
-	let deployedFrom = $state(toDatetimeLocal(Date.now(), timezoneStore.zone));
+	let deployedFrom = $state(new Date().toISOString());
 	let working = $state(false);
 
 	// The server's suggested deploy dates, so the operator picks one rather than typing an instant.
@@ -111,7 +111,7 @@
 	async function adopt() {
 		if (!selectedSiteId || !selectedParameterId || !deployedFrom) return;
 		working = true;
-		const at = fromDatetimeLocal(deployedFrom, timezoneStore.zone);
+		const at = deployedFrom;
 		try {
 			const jobId = incumbent
 				? (
@@ -182,15 +182,15 @@
 					{/if}
 					<div class="flex flex-col gap-1">
 						<label for="ad-from" class="text-sm font-medium">Deployed from</label>
-						<input id="ad-from" type="datetime-local" bind:value={deployedFrom} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" />
+						<TimestampInput id="ad-from" bind:value={deployedFrom} />
 						{#if suggestions}
 							<div class="flex gap-2 flex-wrap text-xs">
-								<button type="button" class="underline text-brand-primary cursor-pointer" onclick={() => (deployedFrom = toDatetimeLocal(suggestions?.now ?? Date.now(), timezoneStore.zone))}>Now</button>
+								<button type="button" class="underline text-brand-primary cursor-pointer" onclick={() => (deployedFrom = new Date(suggestions?.now ?? Date.now()).toISOString())}>Now</button>
 								{#if suggestions.end_of_last_deployment}
-									<button type="button" class="underline text-brand-primary cursor-pointer" onclick={() => (deployedFrom = toDatetimeLocal(suggestions?.end_of_last_deployment ?? '', timezoneStore.zone))}>End of its last deployment ({formatDateTime(suggestions.end_of_last_deployment)})</button>
+									<button type="button" class="underline text-brand-primary cursor-pointer" onclick={() => (deployedFrom = suggestions?.end_of_last_deployment ?? '')}>End of its last deployment ({formatDateTime(suggestions.end_of_last_deployment)})</button>
 								{/if}
 								{#if suggestions.first_reading}
-									<button type="button" class="underline text-brand-primary cursor-pointer" onclick={() => (deployedFrom = toDatetimeLocal(suggestions?.first_reading ?? '', timezoneStore.zone))}>Its first reading ({formatDateTime(suggestions.first_reading)})</button>
+									<button type="button" class="underline text-brand-primary cursor-pointer" onclick={() => (deployedFrom = suggestions?.first_reading ?? '')}>Its first reading ({formatDateTime(suggestions.first_reading)})</button>
 								{/if}
 							</div>
 						{/if}

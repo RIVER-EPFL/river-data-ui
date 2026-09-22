@@ -7,11 +7,10 @@
 	import { auth } from '$auth/keycloak.svelte';
 	import { me } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
-	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import { emptyTokenForm, tokenFormOf, tokenPayload } from '$lib/tokens';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
+	import TimestampInput from '$components/ui/TimestampInput.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import TokenAccessSummary from '$components/tokens/TokenAccessSummary.svelte';
 	import TokenUsagePanel from '$components/tokens/TokenUsagePanel.svelte';
@@ -51,7 +50,7 @@
 		}
 		const d = new Date();
 		d.setDate(d.getDate() + days);
-		form.expiresAt = toDatetimeLocal(d, timezoneStore.zone);
+		form.expiresAt = d.toISOString();
 		form.expiryMode = 'custom';
 	}
 
@@ -84,7 +83,7 @@
 				api.projects.list({ perPage: 100 }),
 			]);
 			projects = projResult.data;
-			if (token) form = tokenFormOf(token, (iso) => toDatetimeLocal(iso, timezoneStore.zone));
+			if (token) form = tokenFormOf(token);
 		} catch (e: unknown) {
 			error = e instanceof Error ? e.message : 'Failed to load token';
 		} finally {
@@ -97,12 +96,7 @@
 		if (!form.name) return;
 		saving = true;
 		try {
-			const payload = tokenPayload(
-				mode,
-				form,
-				(local) => fromDatetimeLocal(local, timezoneStore.zone),
-				auth.identity?.fullName ?? ''
-			);
+			const payload = tokenPayload(mode, form, auth.identity?.fullName ?? '');
 			if (mode === 'edit' && tokenId) {
 				await api.apiTokens.update(tokenId, payload);
 				toastStore.success('Token updated - changes take effect immediately');
@@ -202,7 +196,7 @@
 				<span class="text-sm font-medium">Expiry</span>
 				<PresetChips options={EXPIRY_PRESETS} onpick={presetExpiry} active={expiryActive} />
 				{#if form.expiryMode === 'custom'}
-					<input type="datetime-local" bind:value={form.expiresAt} class="mt-1 px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" />
+					<TimestampInput bind:value={form.expiresAt} ariaLabel="Expires at" class="mt-1" />
 				{:else}
 					<span class="text-xs text-brand-muted">This key never expires.</span>
 				{/if}

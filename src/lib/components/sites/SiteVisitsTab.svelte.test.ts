@@ -28,6 +28,8 @@ vi.mock("$auth/me.svelte", () => ({
 }));
 
 const SiteVisitsTab = (await import("./SiteVisitsTab.svelte")).default;
+const { timezoneStore } = await import("$lib/stores/timezone.svelte");
+const { formatCompactInstant, zoneLabel } = await import("$lib/utils");
 
 // A single-precision 100.8 as the portals store it, so what the grid prints is a display
 // decision rather than an artefact of the number.
@@ -82,7 +84,10 @@ const props = (declared: Record<string, number | null>) => ({
   onDataChanged: () => {},
 });
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  timezoneStore.set("local");
+});
 
 describe("SiteVisitsTab", () => {
   it("renders a cell at the precision its slot declares, and an undeclared one as measured", async () => {
@@ -118,11 +123,57 @@ describe("SiteVisitsTab", () => {
     // A slot nobody declared for is not rounded to a precision nobody chose.
     expect(screen.getByText("100.8")).toBeTruthy();
     const grid = within(document.querySelector<HTMLElement>(".ht_master")!);
-    expect(grid.getByRole("button", { name: "2025-06-01T08:00:00Z" })).toBeTruthy();
-    expect(grid.getByText("Date (UTC)")).toBeTruthy();
+    // The browser's zone by default: the header names it and the cell prints its wall clock.
+    const collected = "2025-06-01T08:00:00Z";
+    expect(grid.getByText(`Date (${zoneLabel(undefined)})`)).toBeTruthy();
+    expect(
+      grid.getByRole("button", { name: formatCompactInstant(collected, undefined) }),
+    ).toBeTruthy();
     expect(grid.queryByText("Source")).toBeNull();
     expect(grid.queryByText("Filled")).toBeNull();
     expect(screen.queryByText("100.800003")).toBeNull();
+  });
+
+  it("redraws the date column in the zone the header toggle names", async () => {
+    listSiteVisits.mockResolvedValue({
+      site_id: "site-1",
+      page: 1,
+      page_size: 50,
+      total: 1,
+      expected_parameters: [
+        column("declared", "DOC", 2),
+        column("undeclared", "TURB", null),
+      ],
+      visits: [
+        {
+          id: "v1",
+          collected_at: "2025-06-01T08:00:00Z",
+          source: "manual",
+          created_by: "tester",
+          parameters_filled: 2,
+          findings_open: 0,
+          unverified: false,
+          recompute: "current",
+          cells: [cell("declared"), cell("undeclared")],
+        },
+      ],
+    });
+
+    render(SiteVisitsTab, props({ declared: 2, undeclared: null }));
+    await screen.findByText("100.80");
+    const grid = within(document.querySelector<HTMLElement>(".ht_master")!);
+
+    timezoneStore.set("utc");
+    expect(await grid.findByText("Date (UTC)")).toBeTruthy();
+    expect(grid.getByRole("button", { name: "2025-06-01 08:00:00" })).toBeTruthy();
+
+    timezoneStore.set("local");
+    expect(await grid.findByText(`Date (${zoneLabel(undefined)})`)).toBeTruthy();
+    expect(
+      grid.getByRole("button", {
+        name: formatCompactInstant("2025-06-01T08:00:00Z", undefined),
+      }),
+    ).toBeTruthy();
   });
 
   it("tells a portal-synced visit that no calculation runs there", async () => {

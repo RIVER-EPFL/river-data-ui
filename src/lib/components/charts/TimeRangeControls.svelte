@@ -1,7 +1,6 @@
 <script lang="ts">
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
-	import { toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
-	import { timezoneStore } from '$lib/stores/timezone.svelte';
+	import TimestampInput from '$components/ui/TimestampInput.svelte';
 	import { fetchSiteExtent } from '$lib/charts/multiSiteSeries';
 
 	let {
@@ -60,23 +59,17 @@
 		end = e;
 	}
 
-	// Manual datetime entry uses datetime-local strings (in the active display zone), clamped to bounds.
-	function toLocalInput(ms: number): string {
-		return ms ? toDatetimeLocal(ms, timezoneStore.zone) : '';
+	// Manual entry binds instants, clamped to the bounds the slider spans.
+	const asInstant = (ms: number): string => (ms ? new Date(ms).toISOString() : '');
+
+	function onStartInput(instant: string) {
+		if (!instant) return;
+		start = Math.min(clamp(new Date(instant).getTime()), end);
 	}
 
-	function onStartInput(event: Event) {
-		const value = (event.currentTarget as HTMLInputElement).value;
-		if (!value) return;
-		const ms = clamp(new Date(fromDatetimeLocal(value, timezoneStore.zone)).getTime());
-		start = Math.min(ms, end);
-	}
-
-	function onEndInput(event: Event) {
-		const value = (event.currentTarget as HTMLInputElement).value;
-		if (!value) return;
-		const ms = clamp(new Date(fromDatetimeLocal(value, timezoneStore.zone)).getTime());
-		end = Math.max(ms, start);
+	function onEndInput(instant: string) {
+		if (!instant) return;
+		end = Math.max(clamp(new Date(instant).getTime()), start);
 	}
 </script>
 
@@ -92,24 +85,22 @@
 	<div class="grid grid-cols-2 gap-2 mt-1">
 		<label class="block">
 			<span class="text-xs text-brand-muted block mb-1">Start</span>
-			<input
-				type="datetime-local"
-				value={toLocalInput(start)}
-				min={boundMin ? toLocalInput(boundMin) : undefined}
-				max={boundMax ? toLocalInput(boundMax) : undefined}
-				oninput={onStartInput}
-				class="w-full px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-xs"
+			<TimestampInput
+				ariaLabel="Start"
+				value={asInstant(start)}
+				min={asInstant(boundMin)}
+				max={asInstant(boundMax)}
+				onchange={onStartInput}
 			/>
 		</label>
 		<label class="block">
 			<span class="text-xs text-brand-muted block mb-1">End</span>
-			<input
-				type="datetime-local"
-				value={toLocalInput(end)}
-				min={boundMin ? toLocalInput(boundMin) : undefined}
-				max={boundMax ? toLocalInput(boundMax) : undefined}
-				oninput={onEndInput}
-				class="w-full px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-xs"
+			<TimestampInput
+				ariaLabel="End"
+				value={asInstant(end)}
+				min={asInstant(boundMin)}
+				max={asInstant(boundMax)}
+				onchange={onEndInput}
 			/>
 		</label>
 	</div>

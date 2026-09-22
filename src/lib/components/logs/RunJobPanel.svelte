@@ -12,9 +12,10 @@
 		type RunnableJob,
 	} from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { fromDatetimeLocal, triggerLabel } from '$lib/utils';
+	import { triggerLabel } from '$lib/utils';
 	import Button from '$components/ui/Button.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
+	import TimestampInput from '$components/ui/TimestampInput.svelte';
 	import SiteSelect from '$components/SiteSelect.svelte';
 	import ParameterSelect from '$components/ParameterSelect.svelte';
 
@@ -96,8 +97,7 @@
 		for (const spec of specs(job)) {
 			const raw = held(job.job_name, spec.name);
 			if (!offered(spec) || raw === '') continue;
-			if (spec.kind === 'instant') supplied[spec.name] = fromDatetimeLocal(raw);
-			else if (spec.kind === 'number') supplied[spec.name] = Number(raw);
+			if (spec.kind === 'number') supplied[spec.name] = Number(raw);
 			else if (spec.kind === 'bool') supplied[spec.name] = raw === 'true';
 			else supplied[spec.name] = raw;
 		}
@@ -222,12 +222,10 @@
 											{/each}
 										</select>
 									{:else if spec.kind === 'instant'}
-										<input
+										<TimestampInput
 											id="run-{job.job_name}-{spec.name}"
-											type="datetime-local"
 											value={held(job.job_name, spec.name)}
-											onchange={(e) => set(job.job_name, spec.name, e.currentTarget.value)}
-											class="rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-sm"
+											onchange={(instant) => set(job.job_name, spec.name, instant)}
 										/>
 									{:else if spec.kind === 'bool'}
 										<select

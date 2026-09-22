@@ -5,11 +5,10 @@
 	import { downloadBlob } from '$lib/download';
 	import type { SiteParameter } from '$api/crud';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
-	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import { buildReadingsExportParams, exportColumns } from '$lib/sites/exportParams';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
+	import TimestampInput from '$components/ui/TimestampInput.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
 
 	let {
@@ -84,16 +83,14 @@
 	});
 	let exportMeasurementType = $state<'all' | 'continuous' | 'spot' | 'derived'>('all');
 
-	const exportStartStr = $derived(exportStartMs ? toDatetimeLocal(exportStartMs, timezoneStore.zone) : '');
-	const exportEndStr = $derived(exportEndMs ? toDatetimeLocal(exportEndMs, timezoneStore.zone) : '');
+	const exportStartStr = $derived(exportStartMs ? new Date(exportStartMs).toISOString() : '');
+	const exportEndStr = $derived(exportEndMs ? new Date(exportEndMs).toISOString() : '');
 
-	function onExportStartInput(e: Event) {
-		const val = (e.target as HTMLInputElement).value;
-		if (val) exportStartMs = new Date(fromDatetimeLocal(val, timezoneStore.zone)).getTime();
+	function onExportStartInput(instant: string) {
+		if (instant) exportStartMs = new Date(instant).getTime();
 	}
-	function onExportEndInput(e: Event) {
-		const val = (e.target as HTMLInputElement).value;
-		if (val) exportEndMs = new Date(fromDatetimeLocal(val, timezoneStore.zone)).getTime();
+	function onExportEndInput(instant: string) {
+		if (instant) exportEndMs = new Date(instant).getTime();
 	}
 	// The dialog opens on the range the charts are showing, read once per opening so a range
 	// typed here is not overwritten while it is open.
@@ -228,11 +225,11 @@
 				<div class="grid grid-cols-2 gap-3">
 					<div>
 						<label for="exp-start" class="text-sm font-medium block mb-1">Start</label>
-						<input id="exp-start" type="datetime-local" value={exportStartStr} onchange={onExportStartInput} class="w-full px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm" />
+						<TimestampInput id="exp-start" value={exportStartStr} onchange={onExportStartInput} />
 					</div>
 					<div>
 						<label for="exp-end" class="text-sm font-medium block mb-1">End</label>
-						<input id="exp-end" type="datetime-local" value={exportEndStr} onchange={onExportEndInput} class="w-full px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm" />
+						<TimestampInput id="exp-end" value={exportEndStr} onchange={onExportEndInput} />
 					</div>
 				</div>
 				<div>

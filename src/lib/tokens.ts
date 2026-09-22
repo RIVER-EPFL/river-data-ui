@@ -1,8 +1,8 @@
 import type { ApiToken, TokenPermissions } from '$api/crud';
 
 /**
- * The fields the token form edits, as the operator typed them. `rateLimit` and `expiresAt` are the
- * raw input strings; `expiryMode` is what the preset chips set.
+ * The fields the token form edits. `rateLimit` is the raw input string, `expiresAt` the instant
+ * the timestamp control resolved, and `expiryMode` what the preset chips set.
  */
 export interface TokenFormState {
 	name: string;
@@ -25,7 +25,7 @@ export const emptyTokenForm = (): TokenFormState => ({
 });
 
 /** The stored token as the form reads it back. */
-export function tokenFormOf(token: ApiToken, toLocal: (iso: string) => string): TokenFormState {
+export function tokenFormOf(token: ApiToken): TokenFormState {
 	const form = emptyTokenForm();
 	return {
 		...form,
@@ -35,7 +35,7 @@ export function tokenFormOf(token: ApiToken, toLocal: (iso: string) => string): 
 		permissions: { ...form.permissions, ...token.permissions },
 		rateLimit: token.rate_limit_per_second ? String(token.rate_limit_per_second) : '',
 		expiryMode: token.expires_at ? 'custom' : 'never',
-		expiresAt: token.expires_at ? toLocal(token.expires_at) : '',
+		expiresAt: token.expires_at ?? '',
 	};
 }
 
@@ -50,11 +50,10 @@ export function tokenFormOf(token: ApiToken, toLocal: (iso: string) => string): 
 export function tokenPayload(
 	mode: 'create' | 'edit',
 	form: TokenFormState,
-	toUtc: (local: string) => string,
 	createdBy = '',
 ): Record<string, unknown> {
 	const rate = form.rateLimit && Number(form.rateLimit) > 0 ? Number(form.rateLimit) : null;
-	const expiry = form.expiryMode === 'custom' && form.expiresAt ? toUtc(form.expiresAt) : null;
+	const expiry = form.expiryMode === 'custom' && form.expiresAt ? form.expiresAt : null;
 	const description = form.description.trim() || null;
 	const scope = form.projectScope || null;
 

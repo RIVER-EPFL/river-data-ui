@@ -2,11 +2,10 @@
 	import { onMount } from 'svelte';
 	import { listReplicateAudits, type ReplicateAuditHold, type HoldKind } from '$api/service';
 	import { api, type Parameter, type Site } from '$api/crud';
-	import { formatDateTime } from '$lib/utils';
+	import { dayBounds, dayOf, formatDateTime } from '$lib/utils';
+	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import { KIND_LABEL, KIND_STYLE, KIND_TIP, TAG_KINDS } from '$lib/holds';
 	import {
-		dayBound,
-		dayOf,
 		oursText,
 		sourceText,
 		tagPointHref,
@@ -32,14 +31,16 @@
 	// svelte-ignore state_referenced_locally
 	let parameterId = $state(initial.parameterId ?? '');
 	// svelte-ignore state_referenced_locally
-	let fromDay = $state(dayOf(initial.from));
+	let fromDay = $state(dayOf(initial.from, timezoneStore.zone));
 	// svelte-ignore state_referenced_locally
-	let toDay = $state(dayOf(initial.to, true));
+	let toDay = $state(dayOf(initial.to, timezoneStore.zone, true));
 	// An arrival narrowed below a day (one reading's instant) keeps its exact bounds until the
 	// operator changes the period.
 	// svelte-ignore state_referenced_locally
 	let exact = $state<{ from?: string; to?: string } | null>(
-		initial.from && initial.to && dayBound(dayOf(initial.from)) !== initial.from
+		initial.from &&
+		initial.to &&
+		dayBounds(dayOf(initial.from, timezoneStore.zone), timezoneStore.zone)?.start !== initial.from
 			? { from: initial.from, to: initial.to }
 			: null,
 	);
@@ -69,8 +70,8 @@
 			kind: kind || undefined,
 			siteId: siteId || undefined,
 			parameterId: parameterId || undefined,
-			from: exact ? exact.from : dayBound(fromDay),
-			to: exact ? exact.to : dayBound(toDay, true),
+			from: exact ? exact.from : dayBounds(fromDay, timezoneStore.zone)?.start,
+			to: exact ? exact.to : dayBounds(toDay, timezoneStore.zone)?.end,
 			streamIds,
 			classification,
 		};

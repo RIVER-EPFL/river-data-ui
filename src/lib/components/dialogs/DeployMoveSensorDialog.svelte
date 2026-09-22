@@ -2,10 +2,9 @@
 	import { onMount } from 'svelte';
 	import { api, type Sensor, type Site, type SensorDeployment, type SiteParameter } from '$api/crud';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
-	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
+	import TimestampInput from '$components/ui/TimestampInput.svelte';
 	import SiteSelect from '$components/SiteSelect.svelte';
 	import { siteRefs } from '$lib/siteRefs.svelte';
 	import { instrumentFilter, measuringInstruments, retiredSuffix } from '$lib/instruments/kind';
@@ -43,7 +42,7 @@
 	let deploymentType = $state('permanent');
 	let selectedParameterId = $state('');
 	let siteParams = $state<SiteParameter[]>([]);
-	let deployedFrom = $state(toDatetimeLocal(Date.now(), timezoneStore.zone));
+	let deployedFrom = $state(new Date().toISOString());
 	let working = $state(false);
 
 	// ── Site-mode sensor picker (server-backed search + deployment awareness) ──
@@ -147,7 +146,7 @@
 				sensor_id,
 				site_id,
 				parameter_id: selectedParameterId,
-				deployed_from: fromDatetimeLocal(deployedFrom, timezoneStore.zone),
+				deployed_from: deployedFrom,
 				deployment_type: deploymentType,
 			});
 			toastStore.success(movingFrom ? 'Sensor moved - readings will be re-coordinated in the background' : 'Sensor deployed - readings will be re-coordinated in the background');
@@ -241,7 +240,7 @@
 			<div class="grid grid-cols-2 gap-3">
 				<div class="flex flex-col gap-1">
 					<label for="dm-from" class="text-sm font-medium">Deployed from</label>
-					<input id="dm-from" type="datetime-local" bind:value={deployedFrom} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" />
+					<TimestampInput id="dm-from" bind:value={deployedFrom} />
 				</div>
 				<div class="flex flex-col gap-1">
 					<label for="dm-type" class="text-sm font-medium">Type</label>

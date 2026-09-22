@@ -44,6 +44,11 @@ function todayAt(hour: number): string {
 	return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(hour)}:00`;
 }
 
+/** The frozen date column's text for a wall time `todayAt` produced: that instant, in UTC. */
+function frozenInstant(naive: string): string {
+	return new Date(naive).toISOString().replace('.000Z', 'Z');
+}
+
 test('two visits of one field day are added in one save and both stand on the site', async ({
 	page,
 	request,
@@ -81,8 +86,40 @@ test('two visits of one field day are added in one save and both stand on the si
 	// Both are on the site's Visits tab, which is the same table filtered to the site.
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
 	await expect(page.getByText('2 visits')).toBeVisible();
-	// The hour is rendered in the browser's own locale, so match the clock rather than the format.
-	await expect(frozenButton(page, { name: /\b0?8:00/ })).toBeVisible();
-	await expect(frozenButton(page, { name: /\b(14|0?2):00/ })).toBeVisible();
+	// The frozen column holds the instant itself, not a rendering of it in the reader's zone.
+	await expect(frozenButton(page, { name: frozenInstant(morning) })).toBeVisible();
+	await expect(frozenButton(page, { name: frozenInstant(afternoon) })).toBeVisible();
 	await expect(page.getByText(siteName).first()).toBeVisible();
+});
+
+// A visit sampled somewhere other than where it is typed: the zone beside the field says how the
+// wall-clock time is read, the line under it says which instant that is, and that is what is stored.
+test('a visit typed in an overridden zone is stored at the instant that zone names', async ({
+	page,
+	request,
+}) => {
+	const { siteId } = await seedSite(request);
+	const wall = todayAt(6);
+
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/events`);
+	await page.getByRole('button', { name: 'New visit' }).click();
+
+	const dialog = page.getByRole('dialog');
+	await dialog.locator('#nv-site-0').selectOption(siteId);
+	await dialog.getByLabel('Time zone').selectOption('UTC');
+	await dialog.getByLabel('Date and time, row 1').fill(wall);
+	await expect(dialog.getByText(`Stored as ${wall}:00Z`)).toBeVisible();
+
+	await dialog.getByRole('button', { name: 'Add visit' }).click();
+	const added = dialog.getByRole('link', { name: 'Open the visit' });
+	await expect(added).toHaveCount(1);
+
+	const href = await added.getAttribute('href');
+	const eventId = new URL(href ?? '', 'http://localhost').searchParams.get('event');
+	const stored = await request.get(`${API_URL}/api/collection_events/${eventId}`, {
+		headers: { Authorization: `Bearer ${await token(request)}` },
+	});
+	expect(stored.ok()).toBeTruthy();
+	expect(new Date((await stored.json()).collected_at).toISOString()).toBe(`${wall}:00.000Z`);
 });

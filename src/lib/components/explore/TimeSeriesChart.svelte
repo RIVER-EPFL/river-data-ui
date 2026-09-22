@@ -6,7 +6,7 @@
 	import Button from '$components/ui/Button.svelte';
 	import UPlotChart from '$components/charts/UPlotChart.svelte';
 	import TimeRangeControls from '$components/charts/TimeRangeControls.svelte';
-	import { uPlotTheme, makeSeries, makeAxis } from '$lib/charts/uPlotTheme';
+	import { uPlotTheme, makeSeries, makeAxis, tzDateOption } from '$lib/charts/uPlotTheme';
 	import { fetchSiteSeries, mergeSeries } from '$lib/charts/multiSiteSeries';
 	import {
 		spotMarkersPlugin,
@@ -257,6 +257,7 @@
 		return {
 			width: 800,
 			height: 350,
+			...tzDateOption(),
 			scales: { x: { time: true }, y: { auto: true, range: yRange } },
 			axes: [makeAxis({}), makeAxis({ size: 60, label: yLabel })],
 			series: [

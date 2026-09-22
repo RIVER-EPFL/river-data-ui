@@ -80,23 +80,6 @@ export function readingTagsHref(
 	});
 }
 
-/** A local calendar day as the instant it starts; `end` gives the start of the day after. */
-export function dayBound(day: string, end = false): string | undefined {
-	const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
-	if (!match) return undefined;
-	const [, y, m, d] = match.map(Number);
-	return new Date(y, m - 1, d + (end ? 1 : 0)).toISOString();
-}
-
-/** The local calendar day an instant falls on, for a date input. */
-export function dayOf(iso: string | undefined, end = false): string {
-	if (!iso) return '';
-	const at = new Date(new Date(iso).getTime() - (end ? 1 : 0));
-	if (Number.isNaN(at.getTime())) return '';
-	const pad = (n: number) => String(n).padStart(2, '0');
-	return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
-}
-
 /** The point record of the reading a tag is on; null when its stream is not paired. */
 export function tagPointHref(hold: ReplicateAuditHold): string | null {
 	if (!hold.site_id || !hold.site_parameter_id) return null;

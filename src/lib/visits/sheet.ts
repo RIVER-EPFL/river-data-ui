@@ -1,20 +1,24 @@
 import type { VisitCell, VisitReplicate, VisitRow } from '$api/service';
 import { formatMeasurement } from '$lib/format';
+import { formatCompactInstant, zoneLabel } from '$lib/utils';
 import type { GridSlot, ParameterColumn } from './columns';
 import { readNumber, writeNumber } from './number';
 import { setCell, slotKey, storedAt, type Edits } from './tableEdit';
 
-// The UTC date stays frozen beside the measurement slots.
+// The visit's date stays frozen beside the measurement slots.
 export const FROZEN_COLUMNS = 1;
 
 export type HeaderCell = string | { label: string; colspan: number };
 
-/** Two header rows: the parameter groups across their repeats, then each repeat's number. */
-export function sheetHeaders(columns: ParameterColumn[]): HeaderCell[][] {
+/**
+ * Two header rows: the parameter groups across their repeats, then each repeat's number. The date
+ * column names the zone its instants are printed in, so the cells stay numeric.
+ */
+export function sheetHeaders(columns: ParameterColumn[], zone?: string): HeaderCell[][] {
 	return [
 		['', ...columns.map((c) => ({ label: groupLabel(c), colspan: c.width }))],
 		[
-			'Date (UTC)',
+			`Date (${zoneLabel(zone)})`,
 			...columns.flatMap((c) =>
 				c.expanded ? Array.from({ length: c.width }, (_, i) => String(i + 1)) : [''],
 			),
@@ -70,10 +74,11 @@ export function sheetData(
 	slots: GridSlot[],
 	edits: Edits,
 	locale: string,
+	zone: string | undefined,
 	writable: (visit: VisitRow, slot: GridSlot) => boolean,
 ): string[][] {
 	return visits.map((visit) => [
-		new Date(visit.collected_at).toISOString().replace('.000Z', 'Z'),
+		formatCompactInstant(visit.collected_at, zone),
 		...slots.map((slot) => {
 			const key = slotKey({ eventId: visit.id, parameterId: slot.parameterId, replicateIndex: slot.replicateIndex });
 			if (key in edits) return edits[key];

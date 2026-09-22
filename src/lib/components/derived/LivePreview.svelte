@@ -3,6 +3,7 @@
 	import UPlotChart from '$lib/components/charts/UPlotChart.svelte';
 	import { previewDerived, type DraftFormula, type PreviewDerivedResponse } from '$api/service';
 	import { tokens } from '$lib/charts/tokens';
+	import { tzDateOption } from '$lib/charts/uPlotTheme';
 
 	let {
 		formulas,
@@ -116,6 +117,7 @@
 		return {
 			width: 600,
 			height: 320,
+			...tzDateOption(),
 			cursor: { drag: { x: true, y: false } },
 			scales: { x: { time: true } },
 			series,

@@ -12,6 +12,7 @@ import {
 	checkSignature,
 	checkSatisfied,
 	correctionKeys,
+	withdrawalKeys,
 	pasteNotice,
 	instrumentKey,
 } from './tableEdit';
@@ -128,6 +129,52 @@ describe('typing into the visits table', () => {
 		const edits = setCell({}, visits[0], 'p-do', 2, '14', LOCALE);
 		expect(pendingCount(edits, LOCALE)).toBe(1);
 		expect(pendingWrites(visits, edits, LOCALE)[0].entries).toHaveLength(3);
+	});
+});
+
+describe('clearing a cell', () => {
+	// Q227: a blank on a stored cell withdraws the replicate, reversibly, and a blank on a cell the
+	// store holds nothing at cancels the entry.
+	it('withdraws a stored replicate when its group takes no new entry', () => {
+		const edits = setCell({}, visits[0], 'p-temp', 0, '', LOCALE);
+		const [write] = pendingWrites(visits, edits, LOCALE);
+		expect(write.withdrawals).toEqual([
+			{ parameterId: 'p-temp', streamId: 'stream-temp', replicateIndex: 0 },
+		]);
+		expect(write.corrections).toEqual([]);
+		expect(write.entries).toEqual([]);
+		expect(pendingCount(edits, LOCALE)).toBe(1);
+	});
+
+	it('leaves a cleared replicate out of the group its entry rewrites', () => {
+		// [10, 12]: clear the first and add a third. The replace carries [12, 14] and retracts the
+		// first itself, so no separate withdrawal is recorded for it.
+		let edits = setCell({}, visits[0], 'p-do', 0, '', LOCALE);
+		edits = setCell(edits, visits[0], 'p-do', 2, '14', LOCALE);
+		const [write] = pendingWrites(visits, edits, LOCALE);
+		expect(write.entries).toEqual([
+			{ parameterId: 'p-do', replicateIndex: 1, value: 12, sensorId: null },
+			{ parameterId: 'p-do', replicateIndex: 2, value: 14, sensorId: null },
+		]);
+		expect(write.withdrawals).toEqual([]);
+		expect(pendingCount(edits, LOCALE)).toBe(2);
+	});
+
+	it('cancels an entry on a cell the store holds nothing at', () => {
+		let edits = setCell({}, visits[0], 'p-do', 2, '14', LOCALE);
+		edits = setCell(edits, visits[0], 'p-do', 2, '', LOCALE);
+		expect(edits).toEqual({});
+		expect(pendingWrites(visits, edits, LOCALE)).toEqual([]);
+		expect(pendingCount(edits, LOCALE)).toBe(0);
+	});
+
+	it('gathers every withdrawal across the table into one selection', () => {
+		let edits = setCell({}, visits[0], 'p-temp', 0, '', LOCALE);
+		edits = setCell(edits, visits[1], 'p-do', 0, '', LOCALE);
+		expect(withdrawalKeys(pendingWrites(visits, edits, LOCALE))).toEqual([
+			{ stream_id: 'stream-temp', time: '2026-06-01T08:00:00Z', replicate_index: 0 },
+			{ stream_id: 'stream-do', time: '2026-06-01T08:00:00Z', replicate_index: 0 },
+		]);
 	});
 });
 

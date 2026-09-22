@@ -3,18 +3,18 @@ import { describe, expect, it } from 'vitest';
 import { dataEntryHref, newEntryRequest, reopenRunHref } from './entry';
 
 describe('newEntryRequest', () => {
-	it('stages the station at the chosen instant in UTC', () => {
-		expect(newEntryRequest('site-1', '2025-06-15T09:00', 'UTC')).toEqual({
+	it('stages the station at the instant the timestamp control resolved', () => {
+		expect(newEntryRequest('site-1', '2025-06-15T09:00:00.000Z')).toEqual({
 			request: { site_id: 'site-1', collected_at: '2025-06-15T09:00:00.000Z' },
 		});
 	});
 
 	it('asks for a station before anything is staged', () => {
-		expect(newEntryRequest('', '2025-06-15T09:00', 'UTC')).toEqual({ error: 'Choose a station' });
+		expect(newEntryRequest('', '2025-06-15T09:00:00.000Z')).toEqual({ error: 'Choose a station' });
 	});
 
 	it('asks for a date before anything is staged', () => {
-		expect(newEntryRequest('site-1', '', 'UTC')).toEqual({ error: 'Choose a date' });
+		expect(newEntryRequest('site-1', '')).toEqual({ error: 'Choose a date' });
 	});
 });
 

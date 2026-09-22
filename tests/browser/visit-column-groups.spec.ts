@@ -258,6 +258,49 @@ test('a visit is withdrawn from its own record and the withdrawal taken back', a
 	await expect(undo).toBeHidden();
 });
 
+test('a cleared cell withdraws its replicate, and the withdrawal survives a reload', async ({
+	page,
+	request,
+}) => {
+	const { siteId, code } = await seedVisit(request);
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
+	await expect(page.getByText('1 visit')).toBeVisible();
+
+	// The first of the three repeats is cleared and a fourth entered, so the group is rewritten
+	// without it; the single measurement is cleared on its own.
+	await headerButton(page, { name: code, exact: true }).click();
+	await headerButton(page, { name: `One repeat more for ${code}` }).click();
+	await sheetCell(page, new RegExp(`^${code} repeat 1 at`)).click();
+	await page.keyboard.press('Delete');
+	await typeInto(page, new RegExp(`^${code} repeat 4 at`), '16');
+	await sheetCell(page, /^groups_one_/).click();
+	await page.keyboard.press('Delete');
+	const save = page.getByRole('button', { name: /^Save \d+ value/ });
+	await expect(save).toContainText('Save 3 values');
+	await page.getByRole('button', { name: 'Check against site history' }).click();
+	await save.click();
+	const dialog = page.getByRole('dialog');
+	await expect(dialog).toContainText('2 withdrawn');
+	await expect(dialog).toContainText('reversible stamp, not a delete');
+	await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+	await expect(dialog).toBeHidden();
+
+	// The store serves the group without its first repeat, and marks what was withdrawn.
+	await headerButton(page, { name: code, exact: true }).click();
+	const mean = sheetCell(page, new RegExp(`^${code} at`));
+	await expect(mean).toHaveText(/^14/);
+	await expect(mean.locator('.sheet-mark', { hasText: '†' })).toBeVisible();
+
+	await page.reload();
+	await expect(page.getByText('1 visit')).toBeVisible();
+	await expect(mean.locator('.sheet-mark', { hasText: '†' })).toBeVisible();
+	await expect(sheetCell(page, /^groups_one_/)).toHaveClass(/sheet-struck/);
+	await headerButton(page, { name: code, exact: true }).click();
+	await expect(sheetCell(page, new RegExp(`^${code} repeat 1 at`))).toHaveClass(/sheet-struck/);
+	await expect(sheetCell(page, new RegExp(`^${code} repeat 2 at`))).not.toHaveClass(/sheet-struck/);
+});
+
 test('a value nobody may type opens its record on a double-click', async ({ page, request }) => {
 	const { siteId, code } = await seedVisit(request);
 	await signIn(page);
@@ -267,7 +310,7 @@ test('a value nobody may type opens its record on a double-click', async ({ page
 	// The collapsed triplicate is a mean, which is not typed, so the cell opens what is behind it.
 	await sheetCell(page, new RegExp(`^${code} at`)).dblclick();
 	await expect(page.getByRole('button', { name: 'Close' })).toBeVisible();
-	await expect(page.getByText(/\d+ parameters? · /)).toBeVisible();
+	await expect(page.getByText(/\d+\/\d+ parameters filled · /)).toBeVisible();
 });
 
 test("a group's plus adds the column a fourth measurement needs", async ({ page, request }) => {

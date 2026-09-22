@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ReplicateAuditHold } from '$api/service';
 import {
-	dayBound,
-	dayOf,
 	oursText,
 	readTagParams,
 	readingTagsHref,
@@ -95,20 +93,6 @@ describe('the browse link', () => {
 		const filter = readTagParams(new URL(href, 'http://x').searchParams);
 		expect(filter.from).toBe('2021-07-14T09:00:00.000Z');
 		expect(filter.to).toBe('2021-07-14T09:00:00.001Z');
-	});
-});
-
-describe('period bounds', () => {
-	it('turns a local day into its start, and the end into the start of the next day', () => {
-		expect(dayBound('2021-03-01')).toBe(new Date(2021, 2, 1).toISOString());
-		expect(dayBound('2021-02-28', true)).toBe(new Date(2021, 2, 1).toISOString());
-		expect(dayBound('')).toBeUndefined();
-	});
-
-	it('shows an exclusive end as the last day it covers', () => {
-		expect(dayOf(dayBound('2021-02-28', true), true)).toBe('2021-02-28');
-		expect(dayOf(dayBound('2021-02-28'))).toBe('2021-02-28');
-		expect(dayOf(undefined)).toBe('');
 	});
 });
 

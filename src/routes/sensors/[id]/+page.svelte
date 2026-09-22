@@ -5,11 +5,11 @@
 	import { api, type Sensor, type SensorCalibration, type SensorDeployment, type Site, type Parameter } from '$api/crud';
 	import { recalibrateCalibration, rollbackDeployment, reprocessSensor, retagSensorFrequency, getCalibrationCandidates, previewCalibrationRetirement, retireCalibration, unretireCalibration, type CalibrationRetirement } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { formatDateTime, formatDate, toDatetimeLocal, fromDatetimeLocal } from '$lib/utils';
+	import { formatDateTime, formatDate } from '$lib/utils';
 	import { provenanceOf } from '$lib/instruments/kind';
 	import { formatEquation } from '$lib/standardCurves';
-	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import Button from '$components/ui/Button.svelte';
+	import TimestampInput from '$components/ui/TimestampInput.svelte';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
@@ -339,16 +339,16 @@
 	let savingDep = $state(false);
 	function startEditDep(dep: SensorDeployment) {
 		editingDepId = dep.id;
-		editDepFrom = toDatetimeLocal(dep.deployed_from, timezoneStore.zone);
-		editDepUntil = dep.deployed_until ? toDatetimeLocal(dep.deployed_until, timezoneStore.zone) : '';
+		editDepFrom = dep.deployed_from;
+		editDepUntil = dep.deployed_until ?? '';
 	}
 	async function saveDep(depId: string) {
 		if (!editDepFrom) { toastStore.error('Deployed from is required'); return; }
 		savingDep = true;
 		try {
 			await api.sensorDeployments.update(depId, {
-				deployed_from: fromDatetimeLocal(editDepFrom, timezoneStore.zone),
-				deployed_until: editDepUntil ? fromDatetimeLocal(editDepUntil, timezoneStore.zone) : null,
+				deployed_from: editDepFrom,
+				deployed_until: editDepUntil || null,
 			});
 			toastStore.success('Deployment dates updated - readings re-attributed in the background');
 			editingDepId = null;
@@ -543,8 +543,8 @@
 								<tr class="border-b border-brand-divider bg-brand-bg/40">
 									<td colspan="4" class="px-4 py-3">
 										<div class="flex items-end gap-3 flex-wrap">
-											<label class="flex flex-col gap-1 text-xs text-brand-muted">Deployed from<input type="datetime-local" bind:value={editDepFrom} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm" /></label>
-											<label class="flex flex-col gap-1 text-xs text-brand-muted">Deployed until <span class="text-[10px]">(blank = open)</span><input type="datetime-local" bind:value={editDepUntil} class="px-2 py-1 border border-brand-divider rounded bg-brand-surface text-sm" /></label>
+											<label class="flex flex-col gap-1 text-xs text-brand-muted">Deployed from<TimestampInput bind:value={editDepFrom} ariaLabel="Deployed from" /></label>
+											<label class="flex flex-col gap-1 text-xs text-brand-muted">Deployed until <span class="text-[10px]">(blank = open)</span><TimestampInput bind:value={editDepUntil} ariaLabel="Deployed until" /></label>
 											<Button variant="primary" onclick={() => saveDep(dep.id)} disabled={savingDep}>{savingDep ? 'Saving…' : 'Save & reprocess'}</Button>
 											<span class="text-[11px] text-brand-muted">Changing dates re-attributes readings in the affected range in the background.</span>
 										</div>

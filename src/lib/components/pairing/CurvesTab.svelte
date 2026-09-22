@@ -4,6 +4,7 @@
 	import { formatSignificant } from '$lib/utils';
 	import { focusOnMount } from '$lib/focus';
 	import { curveReachLine } from '$lib/pairing/curveReach';
+	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import { curveReviewBlocked, curveRows, curveTitle, type CurveRow } from '$lib/pairing/curveRows';
 	import MappingSelect from '$components/ui/MappingSelect.svelte';
 	import ReviewTable, { type ReviewFilter } from '$components/pairing/ReviewTable.svelte';
@@ -86,7 +87,7 @@
 				title="Rename this standard curve"
 			>{c.name ?? c.id}</button>
 		{/if}
-		<div class="text-[11px] text-brand-muted mt-0.5" title={c.corrected_sites.join(', ')}>{curveReachLine(c)}</div>
+		<div class="text-[11px] text-brand-muted mt-0.5" title={c.corrected_sites.join(', ')}>{curveReachLine(c, timezoneStore.zone)}</div>
 	{:else}
 		{curveTitle(row)}
 		<div class="text-[11px] text-brand-muted mt-0.5">Created when the plan is applied</div>

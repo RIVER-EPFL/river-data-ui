@@ -9,7 +9,8 @@
 		rebuildAlarmEvents,
 		type AlarmEvent,
 	} from '$api/service';
-	import { formatRelativeTime, formatDateTime } from '$lib/utils';
+	import { dayBounds, formatRelativeTime, formatDateTime } from '$lib/utils';
+	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { alarmCauseLabel, alarmHref, severityLabel } from '$lib/alarms';
 	import Button from '$components/ui/Button.svelte';
@@ -58,10 +59,10 @@
 	];
 
 	function startIso(d: string): string | undefined {
-		return d ? `${d}T00:00:00Z` : undefined;
+		return dayBounds(d, timezoneStore.zone)?.start;
 	}
 	function endIso(d: string): string | undefined {
-		return d ? `${d}T23:59:59Z` : undefined;
+		return dayBounds(d, timezoneStore.zone)?.end;
 	}
 
 	async function loadEvents({ page, perPage }: PageRequest) {

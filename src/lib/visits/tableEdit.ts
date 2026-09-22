@@ -7,7 +7,8 @@ import { readNumber } from './number';
 //
 // What a cell takes is the whole model: a value the store already holds is a correction, keyed on
 // the stream the replicate came in on; a slot the visit never held is an entry, and an entry
-// rewrites its whole replicate group, so the group's other values travel with it.
+// rewrites its whole replicate group, so the group's other values travel with it. A blank on a
+// stored cell withdraws the replicate (Q227), reversibly: nothing here deletes.
 
 export interface SlotKey {
 	eventId: string;
@@ -41,9 +42,15 @@ export function editable(column: ParameterColumn): boolean {
 	return column.expanded || column.repeats === 1;
 }
 
+/** A blank typed over a cell, as opposed to text that could not be read as a number. */
+export function cleared(raw: string): boolean {
+	return raw.trim() === '';
+}
+
 /**
  * Record one typed cell. Typing the stored value back, or clearing a cell the store holds nothing
- * at, leaves nothing to save, so the edit is dropped rather than kept as a no-op write.
+ * at, leaves nothing to save, so the edit is dropped rather than kept as a no-op write. A blank
+ * on a stored cell is kept: it is the replicate's withdrawal.
  */
 export function setCell(
 	edits: Edits,
@@ -77,11 +84,22 @@ export interface Entry {
 	sensorId: string | null;
 }
 
-/** What one visit's Save writes: corrections keyed on their stream, entries as whole groups. */
+/** A stored replicate the operator cleared, keyed like a correction. */
+export interface Withdrawal {
+	parameterId: string;
+	streamId: string;
+	replicateIndex: number;
+}
+
+/**
+ * What one visit's Save writes: corrections and withdrawals keyed on their stream, entries as
+ * whole groups.
+ */
 export interface VisitWrite {
 	eventId: string;
 	collectedAt: string;
 	corrections: Correction[];
+	withdrawals: Withdrawal[];
 	entries: Entry[];
 }
 
@@ -90,8 +108,9 @@ export interface VisitWrite {
  *
  * A correction names the stream its replicate came in on, which is what the edit primitive keys
  * on. An entry rewrites its replicate group, so every value of a group being entered into travels
- * with it, corrected cells included: `mode: "replace"` drops what the request does not carry.
- * A cleared cell is not a write, because nothing here deletes.
+ * with it, corrected cells included: `mode: "replace"` drops what the request does not carry, and
+ * retracts it. A cleared stored cell in such a group is therefore left out of the entries; one in
+ * any other group is a withdrawal of its own.
  */
 export function pendingWrites(
 	visits: VisitRow[],
@@ -102,13 +121,23 @@ export function pendingWrites(
 	const writes: VisitWrite[] = [];
 	for (const visit of visits) {
 		const corrections: Correction[] = [];
+		const blanks: Withdrawal[] = [];
 		const entered = new Set<string>();
 		for (const [key, raw] of Object.entries(edits)) {
 			const [eventId, parameterId, index] = key.split('|');
 			if (eventId !== visit.id) continue;
 			const value = readNumber(raw, locale);
-			if (value === null) continue;
 			const stored = storedAt(visit, parameterId, Number(index));
+			if (value === null) {
+				if (stored && cleared(raw)) {
+					blanks.push({
+						parameterId,
+						streamId: stored.stream_id,
+						replicateIndex: stored.replicate_index,
+					});
+				}
+				continue;
+			}
 			if (stored) {
 				corrections.push({
 					parameterId,
@@ -120,13 +149,15 @@ export function pendingWrites(
 				entered.add(parameterId);
 			}
 		}
+		const withdrawals = blanks.filter((b) => !entered.has(b.parameterId));
 		const entries =
 			entered.size > 0 ? groupsOf(visit, edits, entered, locale, instruments) : [];
-		if (corrections.length > 0 || entries.length > 0) {
+		if (corrections.length > 0 || withdrawals.length > 0 || entries.length > 0) {
 			writes.push({
 				eventId: visit.id,
 				collectedAt: visit.collected_at,
 				corrections,
+				withdrawals,
 				entries,
 			});
 		}
@@ -153,21 +184,28 @@ function groupsOf(
 		}
 		for (const replicateIndex of [...indexes].sort((a, b) => a - b)) {
 			const key = slotKey({ eventId: visit.id, parameterId, replicateIndex });
-			const typed = key in edits ? readNumber(edits[key], locale) : null;
-			const stored = storedAt(visit, parameterId, replicateIndex);
-			const value = typed ?? stored?.value ?? null;
+			const value = groupValue(edits[key], storedAt(visit, parameterId, replicateIndex), locale);
 			if (value !== null) entries.push({ parameterId, replicateIndex, value, sensorId });
 		}
 	}
 	return entries;
 }
 
+/** What a group carries at one slot: the number typed, nothing where it was cleared, else the store's. */
+function groupValue(raw: string | undefined, stored: VisitReplicate | null, locale: string): number | null {
+	if (raw === undefined) return stored?.value ?? null;
+	if (cleared(raw)) return null;
+	return readNumber(raw, locale) ?? stored?.value ?? null;
+}
+
 /**
  * How many cells moved, which is what the Save label counts. Not the size of the payload: a group
- * being entered into carries its untouched values too, and those are not edits.
+ * being entered into carries its untouched values too, and those are not edits. A cleared cell
+ * moved.
  */
 export function pendingCount(edits: Edits, locale: string): number {
-	return Object.values(edits).filter((raw) => readNumber(raw, locale) !== null).length;
+	return Object.values(edits).filter((raw) => cleared(raw) || readNumber(raw, locale) !== null)
+		.length;
 }
 
 /**
@@ -215,6 +253,19 @@ export function checkSatisfied(
 	return writes
 		.filter((w) => w.entries.length > 0)
 		.every((w) => checks[w.eventId]?.signature === checkSignature(w));
+}
+
+/** Every withdrawal across the table, as the edit primitive's selection keys. */
+export function withdrawalKeys(
+	writes: VisitWrite[],
+): { stream_id: string; time: string; replicate_index: number }[] {
+	return writes.flatMap((write) =>
+		write.withdrawals.map((w) => ({
+			stream_id: w.streamId,
+			time: write.collectedAt,
+			replicate_index: w.replicateIndex,
+		})),
+	);
 }
 
 /** Every correction across the table, as the edit primitive's selection keys. */

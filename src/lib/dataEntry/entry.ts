@@ -1,14 +1,11 @@
-import { fromDatetimeLocal } from '$lib/utils';
-
 /** The visit a new entry stages: a station and the instant its values were collected at. */
 export function newEntryRequest(
 	siteId: string,
-	localDate: string,
-	zone?: string,
+	collectedAt: string,
 ): { request: { site_id: string; collected_at: string } } | { error: string } {
 	if (!siteId) return { error: 'Choose a station' };
-	if (!localDate) return { error: 'Choose a date' };
-	return { request: { site_id: siteId, collected_at: fromDatetimeLocal(localDate, zone) } };
+	if (!collectedAt) return { error: 'Choose a date' };
+	return { request: { site_id: siteId, collected_at: collectedAt } };
 }
 
 /** The data entry page, carrying whatever query a link to the retired `/tools` route named. */

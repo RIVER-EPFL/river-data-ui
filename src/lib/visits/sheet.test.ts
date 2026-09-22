@@ -74,13 +74,32 @@ const always = () => true;
 describe('the visits sheet', () => {
 	it('heads each group with its code across its repeats, and numbers the repeats of an open one', () => {
 		const collapsed = parameterColumns(expected, visits, new Set());
-		expect(sheetHeaders(collapsed)).toEqual([
+		expect(sheetHeaders(collapsed, 'UTC')).toEqual([
 			['', { label: 'DO (mg/L)', colspan: 1 }, { label: 'TEMP', colspan: 1 }],
 			['Date (UTC)', '', ''],
 		]);
 		const open = parameterColumns(expected, visits, new Set(['p-do']));
-		expect(sheetHeaders(open)[0][1]).toEqual({ label: 'DO (mg/L)', colspan: 2 });
-		expect(sheetHeaders(open)[1].slice(FROZEN_COLUMNS)).toEqual(['1', '2', '']);
+		expect(sheetHeaders(open, 'UTC')[0][1]).toEqual({ label: 'DO (mg/L)', colspan: 2 });
+		expect(sheetHeaders(open, 'UTC')[1].slice(FROZEN_COLUMNS)).toEqual(['1', '2', '']);
+	});
+
+	it('prints the visit date in the zone the header names', () => {
+		const columns = parameterColumns(expected, visits, new Set());
+		const slots = slotsOf(columns);
+		// 08:00 UTC on 1 June is 10:00 that day in Zurich.
+		expect(sheetHeaders(columns, 'Europe/Zurich')[1][0]).toBe('Date (Europe/Zurich)');
+		expect(sheetData(visits, slots, {}, LOCALE, 'Europe/Zurich', always)[0][0]).toBe('2026-06-01 10:00:00');
+		expect(sheetHeaders(columns, 'UTC')[1][0]).toBe('Date (UTC)');
+		expect(sheetData(visits, slots, {}, LOCALE, 'UTC', always)[0][0]).toBe('2026-06-01 08:00:00');
+	});
+
+	it('changes nothing but the date when the zone changes, so a staged value survives the switch', () => {
+		const slots = slotsOf(parameterColumns(expected, visits, new Set()));
+		const staged = { 'v2|p-temp|0': '5' };
+		const utc = sheetData(visits, slots, staged, LOCALE, 'UTC', always);
+		const zurich = sheetData(visits, slots, staged, LOCALE, 'Europe/Zurich', always);
+		expect(zurich.map((row) => row.slice(1))).toEqual(utc.map((row) => row.slice(1)));
+		expect(zurich[1][0]).not.toBe(utc[1][0]);
 	});
 
 	it('finds the visit and slot under a grid position, and nothing on the frozen columns', () => {
@@ -106,18 +125,17 @@ describe('the visits sheet', () => {
 
 	it('lays the rows out as the text a copy carries: every stored value at full precision', () => {
 		const slots = slotsOf(parameterColumns(expected, visits, new Set(['p-do'])));
-		const rows = sheetData(visits, slots, { 'v2|p-temp|0': '5' }, LOCALE, always);
-		expect(rows[0]).toEqual(['2026-06-01T08:00:00Z', '10', '12', '4.2']);
+		const rows = sheetData(visits, slots, { 'v2|p-temp|0': '5' }, LOCALE, 'UTC', always);
+		expect(rows[0]).toEqual(['2026-06-01 08:00:00', '10', '12', '4.2']);
 		// What was typed stands in for what the store holds.
-		expect(rows[1]).toEqual(['2026-06-01T08:00:00Z', '9', '', '5']);
+		expect(rows[1]).toEqual(['2026-06-01 08:00:00', '9', '', '5']);
 	});
 
-	it('copies UTC instants and pastes measurements into the visible columns', () => {
+	it('copies the instant at the precision it was recorded and pastes measurements into the visible columns', () => {
 		const one = [{ ...visits[0], collected_at: '2025-08-26T10:30:45.123+02:00' }];
 		const slots = slotsOf(parameterColumns(expected, one, new Set()));
-		const row = sheetData(one, slots, {}, LOCALE, always)[0];
-		expect(row).toEqual(['2025-08-26T08:30:45.123Z', '10', '4.2']);
-		expect(new Date(row[0]).getTime()).toBe(new Date(one[0].collected_at).getTime());
+		const row = sheetData(one, slots, {}, LOCALE, 'UTC', always)[0];
+		expect(row).toEqual(['2025-08-26 08:30:45.123', '10', '4.2']);
 		const changes = row.map((raw, column) => ({ row: 1, column, raw }));
 		const pasted = applyChanges({}, visits, slots, changes, LOCALE, true);
 		expect(pasted.refused).toEqual([0]);
