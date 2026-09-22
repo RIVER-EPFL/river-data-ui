@@ -1,6 +1,7 @@
 import { SITE_PROPERTIES } from '$api/crud';
 import type { Constant, DerivedParameter, Parameter } from '$api/crud';
 import type { FormulaDraft, FormulaDraftRunRequest, FormulaSetSave, ToolOutput } from '$api/service';
+import { toNum, type ThresholdForm, type ThresholdPatch } from '$lib/derivedParameters';
 import { CURVE_VARIABLES, FORMULA_CONSTANTS, FORMULA_FUNCTIONS, identifiers } from '$lib/formula/lint';
 
 // A calculation as one page holds it: the formulas in order, what they read, what they publish,
@@ -22,12 +23,29 @@ export interface EditableFormula extends FormulaDraft {
 	 */
 	declarationId?: string | null;
 	/**
+	 * Whether the step belongs to no calculation, so every calculation that declares it reads its
+	 * value. Set from `declarationId` on load, and by the author on a step the page still owns.
+	 */
+	shared: boolean;
+	/**
+	 * The bounds of the output parameter's own `alarm_thresholds` row, the row with no site. Blank
+	 * on a step, which publishes nothing, and on an output nothing has bounded yet.
+	 */
+	thresholds: ThresholdForm;
+	/**
 	 * Why the code can no longer be changed, from the server. Null while it is still free: the
 	 * catalog code is the CSV column header and the public API's identifier, so a rename is
 	 * refused once readings are stored under the output parameter or a project publishes it.
 	 */
 	codeLocked: string | null;
 }
+
+export const blankThresholds = (): ThresholdForm => ({
+	warningMin: '',
+	warningMax: '',
+	alarmMin: '',
+	alarmMax: '',
+});
 
 export function editableFormula(stored: DerivedParameter): EditableFormula {
 	return {
@@ -41,8 +59,27 @@ export function editableFormula(stored: DerivedParameter): EditableFormula {
 		curve_slot: stored.curve_slot ?? '',
 		per_replicate: stored.per_replicate ?? '',
 		intermediate: stored.intermediate ?? false,
+		shared: false,
+		thresholds: blankThresholds(),
 		codeLocked: stored.code_locked ?? null,
 	};
+}
+
+/**
+ * A formula this calculation reads without owning: a step belonging to no calculation, which every
+ * calculation that declares it reads under this code. The set save leaves it out; it is written on
+ * its own and declared into the calculation.
+ */
+export function isSharedStep(f: EditableFormula): boolean {
+	return f.declarationId != null || (f.shared && f.intermediate);
+}
+
+/**
+ * The shared steps the save writes beside the set: one it has no declaration for yet. A formula
+ * with an id is unowned in place and keeps its identity; one without is created unowned.
+ */
+export function sharedStepWrites(formulas: EditableFormula[]): EditableFormula[] {
+	return formulas.filter((f) => isSharedStep(f) && !f.declarationId);
 }
 
 /** A blank formula placed after the last one. */
@@ -59,6 +96,8 @@ export function blankFormula(existing: EditableFormula[]): EditableFormula {
 		curve_slot: '',
 		per_replicate: '',
 		intermediate: false,
+		shared: false,
+		thresholds: blankThresholds(),
 		codeLocked: null,
 	};
 }
@@ -108,14 +147,15 @@ export function dependencyOrder<T extends { ordinal: number; code: string; formu
 
 /**
  * The set-level save's body: this calculation's own formulas, trimmed, and what happens to the
- * values the version being replaced produced. A step read through a declaration belongs to another
- * calculation, so it is left out and the save neither rewrites nor deletes it. A formula the author
- * removed is left out too, which is how the save deletes it.
+ * values the version being replaced produced. A shared step belongs to no calculation, so it is
+ * left out and the save neither rewrites nor deletes it, whether it was already declared here or
+ * the author has just marked it shared. A formula the author removed is left out too, which is how
+ * the save deletes it.
  */
 export function formulaSetBody(formulas: EditableFormula[], migrate: boolean): FormulaSetSave {
 	return {
 		formulas: formulas
-			.filter((f) => !f.declarationId)
+			.filter((f) => !isSharedStep(f))
 			.map((f) => ({
 				id: f.id,
 				code: f.code.trim(),
@@ -346,4 +386,84 @@ export function formulaVariables(
 			})),
 		...SITE_PROPERTIES.map((name) => ({ name, label: name, category: 'site property' })),
 	];
+}
+
+
+/** One output parameter's bounds, as the save writes them. */
+export interface ThresholdWrite {
+	parameterId: string;
+	patch: ThresholdPatch;
+}
+
+const sameBounds = (a: ThresholdForm, b: ThresholdForm): boolean =>
+	(['warningMin', 'warningMax', 'alarmMin', 'alarmMax'] as const).every(
+		(k) => toNum(a[k]) === toNum(b[k]),
+	);
+
+/**
+ * The bounds the save writes onto each output's own threshold row: the outputs whose four fields
+ * the author changed, paired with the parameter the saved set gives them. A step publishes nothing
+ * and is left out, as is an output the set has not minted a parameter for. A field cleared is a
+ * bound cleared, so the patch carries every field rather than only the ones with a number in.
+ */
+export function thresholdWrites(
+	edited: EditableFormula[],
+	stored: EditableFormula[],
+	saved: Array<{ code: string; output_parameter_id: string | null }>,
+): ThresholdWrite[] {
+	const was = new Map(stored.map((f) => [f.code.trim(), f.thresholds]));
+	const parameterOf = new Map(
+		saved.filter((f) => f.output_parameter_id).map((f) => [f.code.trim(), f.output_parameter_id!]),
+	);
+	const writes: ThresholdWrite[] = [];
+	for (const f of edited) {
+		const code = f.code.trim();
+		if (isSharedStep(f) || f.intermediate || !code) continue;
+		if (sameBounds(f.thresholds, was.get(code) ?? blankThresholds())) continue;
+		const parameterId = parameterOf.get(code);
+		if (!parameterId) continue;
+		writes.push({
+			parameterId,
+			patch: {
+				warning_min: toNum(f.thresholds.warningMin),
+				warning_max: toNum(f.thresholds.warningMax),
+				alarm_min: toNum(f.thresholds.alarmMin),
+				alarm_max: toNum(f.thresholds.alarmMax),
+			},
+		});
+	}
+	return writes;
+}
+
+
+/** The set's own outputs and steps as run-table declarations, for a run carrying no manifest. */
+export function setOutputs(formulas: EditableFormula[]): ToolOutput[] {
+	return inOrder(formulas)
+		.filter((f) => f.code.trim())
+		.map(
+			(f) =>
+				({
+					key: f.code.trim(),
+					label: f.name.trim() || f.code.trim(),
+					units: f.units.trim() || null,
+					per_replicate: false,
+					aggregate_of: null,
+					intermediate: f.intermediate,
+					parameter: null,
+				}) as unknown as ToolOutput,
+		);
+}
+
+/**
+ * Why the set cannot be read as a series on a site's streams, or null when it can. A curve slot's
+ * coefficients are chosen per sample and a replicate is entered at a visit, so a set naming either
+ * runs at field visits and nowhere else. The reason names what keeps it off streams.
+ */
+export function seriesBlocker(formulas: EditableFormula[]): string | null {
+	const slot = curveSlots(formulas)[0];
+	if (slot) return `the curve slot ${slot}, whose coefficients are chosen per sample`;
+	const perReplicate = formulas.find((f) => f.per_replicate.trim());
+	if (perReplicate)
+		return `${perReplicate.code.trim() || 'a formula'}, which runs per replicate of ${perReplicate.per_replicate.trim()}`;
+	return null;
 }

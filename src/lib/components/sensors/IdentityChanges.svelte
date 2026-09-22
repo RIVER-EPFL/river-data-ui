@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api } from '$api/crud';
-	import { acknowledgeReplicateAudit, listReplicateAudits, type ReplicateAuditHold } from '$api/service';
+	import { acceptIdentityChange, listReplicateAudits, type ReplicateAuditHold } from '$api/service';
 	import { identityChanges } from '$lib/holds';
 	import { apiMessage } from '$lib/standardCurves';
 	import { toastStore } from '$lib/stores/toast.svelte';
@@ -40,7 +40,7 @@
 	async function acknowledge(hold: ReplicateAuditHold) {
 		acknowledging = true;
 		try {
-			await acknowledgeReplicateAudit(hold.id);
+			await acceptIdentityChange(hold.id);
 			toastStore.success('Reviewed: the reported identity stands');
 			await load();
 		} catch (e) {

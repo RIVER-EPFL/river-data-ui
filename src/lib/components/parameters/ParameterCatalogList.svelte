@@ -10,6 +10,7 @@
 	import Badge from '$components/ui/Badge.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import { formatThresholdRange, globalThresholdsByParameter } from '$lib/alarms';
+	import { toolboxHref } from '$lib/toolbox/route';
 
 	type SiteRef = { id: string; name: string };
 
@@ -35,7 +36,7 @@
 	);
 
 	let sitesByParam = $state<Record<string, SiteRef[]>>({});
-	let derivedDefByOutput = $state<Record<string, string>>({}); // output_parameter_id → definition id
+	let calculationByOutput = $state<Record<string, string>>({}); // output_parameter_id → calculation id
 	let globalThresholds = $state<Record<string, AlarmThreshold>>({}); // a parameter's own bounds
 
 	let sitesDialogOpen = $state(false);
@@ -99,9 +100,9 @@
 
 			const defs: Record<string, string> = {};
 			for (const d of derivedRes.data) {
-				if (d.output_parameter_id) defs[d.output_parameter_id] = d.id;
+				if (d.output_parameter_id && d.tool_script_id) defs[d.output_parameter_id] = d.tool_script_id;
 			}
-			derivedDefByOutput = defs;
+			calculationByOutput = defs;
 		}
 
 		const rows = [...matching].sort((a, b) => {
@@ -116,7 +117,7 @@
 	);
 
 	function isDerived(p: Parameter): boolean {
-		return !!derivedDefByOutput[p.id];
+		return !!calculationByOutput[p.id];
 	}
 	function siteRefs(p: Parameter): SiteRef[] {
 		return sitesByParam[p.id] ?? [];
@@ -218,7 +219,7 @@
 
 	{#snippet cell({ column, row, text }: { column: Column; row: Parameter; text: string })}
 		{#if column.key === 'name'}
-			{@const defId = derivedDefByOutput[row.id]}
+			{@const calcId = calculationByOutput[row.id]}
 			<a href="{base}/parameters/{row.id}" class="text-brand-primary font-semibold no-underline hover:underline">{row.name}</a>
 			{#if row.needs_review}
 				<span class="ml-1.5 align-middle">
@@ -239,8 +240,8 @@
 					>no longer published</Badge>
 				</span>
 			{/if}
-			{#if defId}
-				<a href="{base}/derived/{defId}" title="Formula-derived parameter - view its definition" class="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-brand-accent/15 text-brand-accent-dark align-middle no-underline hover:underline">derived</a>
+			{#if calcId}
+				<a href={toolboxHref(base, calcId)} title="Formula-derived parameter - view the calculation that writes it" class="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-brand-accent/15 text-brand-accent-dark align-middle no-underline hover:underline">derived</a>
 			{/if}
 		{:else if column.key === 'warning' || column.key === 'alarm'}
 			{@const t = globalThresholds[row.id]}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ToolOutput } from '$api/service';
-import { runInputTables, runTables } from './runTable';
+import { previewInstant, runInputTables, runTables } from './runTable';
 
 const output = (over: Partial<ToolOutput>): ToolOutput =>
 	({ label: over.key, units: null, per_replicate: false, aggregate_of: null, ...over }) as ToolOutput;
@@ -166,5 +166,40 @@ describe('the tables of what a run was given', () => {
 
 	it('is empty tables when a run read nothing', () => {
 		expect(runInputTables()).toEqual({ columns: [], visit: [], fixed: [] });
+	});
+});
+
+describe('one instant of a series preview', () => {
+	const preview = {
+		times: ['2026-09-01T00:00:00Z', '2026-09-01T00:10:00Z'],
+		source_parameters: [
+			{ name: 'a254', values: [1, 2] },
+			{ name: 'DOC', values: [10, null] },
+		],
+		formulas: [
+			{ code: 'k', values: [0.1, 0.2] },
+			{ code: 'SUVA', values: [0.01, null] },
+		],
+	};
+
+	it('reads every formula and every source at that index', () => {
+		expect(previewInstant(preview, 0)).toEqual({
+			time: '2026-09-01T00:00:00Z',
+			results: { k: 0.1, SUVA: 0.01 },
+			inputs: [
+				{ param: 'a254', value: 1 },
+				{ param: 'DOC', value: 10 },
+			],
+		});
+	});
+
+	it('carries a gap as a gap rather than dropping the row', () => {
+		const at = previewInstant(preview, 1)!;
+		expect(at.results.SUVA).toBeNull();
+		expect(at.inputs.find((i) => i.param === 'DOC')!.value).toBeNull();
+	});
+
+	it('has nothing at an instant the window does not hold', () => {
+		expect(previewInstant(preview, 2)).toBeNull();
 	});
 });

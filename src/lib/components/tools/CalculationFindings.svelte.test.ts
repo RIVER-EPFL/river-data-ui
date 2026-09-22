@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const listReplicateAudits = vi.fn();
 vi.mock('$api/service', () => ({
 	listReplicateAudits: (...args: unknown[]) => listReplicateAudits(...args),
-	acknowledgeReplicateAudit: vi.fn(),
+	dismissCalculationFinding: vi.fn(),
 	pollJob: vi.fn(),
 	recomputeCollectionEvent: vi.fn(),
 	stageCollectionEvent: vi.fn(),

@@ -2443,65 +2443,6 @@
         ],
         "description": "Wrapper type for batch update request items.\nEach item contains an `id` field and the update fields flattened into the same object."
       },
-      "BulkAcknowledgeRequest": {
-        "properties": {
-          "end": {
-            "format": "date-time",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "max_mean_relative_delta": {
-            "description": "Ceiling on `mean_relative_delta`. ANDs with the other ceilings.",
-            "format": "double",
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "max_relative_delta": {
-            "description": "Only acknowledge holds whose `relative_delta` (as reported by the list endpoint) is at or\nbelow this. The knob behind \"accept everything under N%\": systematic small offsets are\nwaved through in one action while the large disagreements stay pending for review.",
-            "format": "double",
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "max_sd_relative_delta": {
-            "description": "Ceiling on `sd_relative_delta`. ANDs with the other ceilings.",
-            "format": "double",
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "source_system": {
-            "description": "All of one source's streams, e.g. \"cnet\".",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "start": {
-            "description": "Restrict to holds whose group_time falls in [start, end]; omit either to leave it open.",
-            "format": "date-time",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "stream_id": {
-            "description": "One stream, or omit to scope by source_system (or, with both omitted, every pending hold).",
-            "format": "uuid",
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "type": "object"
-      },
       "BulkAction": {
         "additionalProperties": false,
         "properties": {
@@ -6743,6 +6684,72 @@
           "unverified",
           "recompute",
           "cells"
+        ],
+        "type": "object"
+      },
+      "EventPreview": {
+        "description": "What the calculation chain would produce at a visit, given what the operator has typed and not\nsaved. Nothing in it is stored and nothing in it names a run: Save executes the same walk and\nmints the run the stored values cite (Q212).",
+        "properties": {
+          "calculations": {
+            "description": "One entry per calculation that ran, in the order it ran, with the inputs, constants,\ncurves and versions it consumed.",
+            "items": {
+              "$ref": "#/components/schemas/ToolCalculation"
+            },
+            "type": "array"
+          },
+          "collected_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "not_applicable": {
+            "description": "Calculations the site declares nothing for.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "outputs": {
+            "items": {
+              "$ref": "#/components/schemas/PreviewedValue"
+            },
+            "type": "array"
+          },
+          "site_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "skipped": {
+            "description": "Calculations that did not run at this visit, as `(tool, reason)`.",
+            "items": {
+              "items": false,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "unchanged": {
+            "description": "Calculations whose stored run already consumed exactly this: the slot keeps the value it\nholds.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "site_id",
+          "collected_at",
+          "outputs",
+          "calculations",
+          "skipped",
+          "not_applicable",
+          "unchanged"
         ],
         "type": "object"
       },
@@ -15448,6 +15455,19 @@
         ],
         "type": "object"
       },
+      "PreviewEventRequest": {
+        "additionalProperties": false,
+        "description": "The cells an operator has typed at a visit and not saved. A cell the request leaves out is one\nnobody touched, and reads from the store.",
+        "properties": {
+          "staged": {
+            "items": {
+              "$ref": "#/components/schemas/StagedCell"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "PreviewInstant": {
         "properties": {
           "mean": {
@@ -15610,6 +15630,40 @@
           "n",
           "mean",
           "sd"
+        ],
+        "type": "object"
+      },
+      "PreviewedValue": {
+        "description": "One value the chain would produce at a visit, were the staged cells saved. `value` is absent\nwhere the calculation cleared the slot, which a save records as a withdrawal.",
+        "properties": {
+          "output": {
+            "description": "The manifest key the value came out of.",
+            "type": "string"
+          },
+          "parameter_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "replicate_index": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "value": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "output",
+          "parameter_id",
+          "replicate_index",
+          "value"
         ],
         "type": "object"
       },
@@ -23318,6 +23372,39 @@
         ],
         "type": "object"
       },
+      "StagedCell": {
+        "description": "One cell of a visit as the operator has left it, before any save.\n\nA cell the request does not carry is a cell nobody touched: the calculation reads whatever the\nstore holds there. A cell carrying `value: null` is the operator emptying it, which a save\nrecords as a withdrawal, so the calculation reads the visit without it.",
+        "properties": {
+          "parameter_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "replicate_index": {
+            "description": "Position in the family. A single measurement is index 0.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "standard_curve_id": {
+            "description": "The standard curve the operator picked for this cell, where the slot takes one.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "value": {
+            "description": "The number as typed, uncorrected. `null` empties the cell.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "parameter_id",
+          "replicate_index",
+          "value"
+        ],
+        "type": "object"
+      },
       "StagedEvent": {
         "properties": {
           "collected_at": {
@@ -30757,6 +30844,55 @@
           }
         },
         "summary": "One visit's grid row: every parameter measured at the event with its replicates, sample\nstatistics, tool provenance presence, and any open finding — plus findings for parameters\nthe audit says are missing entirely. Requires `read_data`.",
+        "tags": [
+          "collection_events"
+        ]
+      }
+    },
+    "/api/collection_events/{id}/preview": {
+      "post": {
+        "operationId": "preview_collection_event",
+        "parameters": [
+          {
+            "description": "Collection event id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewEventRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventPreview"
+                }
+              }
+            },
+            "description": "What the chain would produce"
+          },
+          "400": {
+            "description": "A staged cell names a parameter the site does not carry"
+          },
+          "404": {
+            "description": "Unknown collection event"
+          }
+        },
+        "summary": "What the calculation chain would produce at a visit, given the cells the operator has typed\nand not saved. The same walk the recompute runs, against the same inputs, storing nothing: no\nrun, no reading, no decision, no finding, no output slot and no job, so no value it returns can\nbe cited as provenance (Q212). Save is what executes and stores. Requires `write_data`.",
         "tags": [
           "collection_events"
         ]
@@ -47648,40 +47784,9 @@
         ]
       }
     },
-    "/api/sync/replicate_audit_holds/acknowledge_bulk": {
+    "/api/sync/replicate_audit_holds/{id}/accept_correction": {
       "post": {
-        "operationId": "acknowledge_holds_bulk",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BulkAcknowledgeRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AcknowledgeResponse"
-                }
-              }
-            },
-            "description": ""
-          }
-        },
-        "summary": "Acknowledge pending holds in bulk: one stream or a whole source, optionally bounded by a time\nwindow and by a `relative_delta` ceiling, for systematic offsets that would otherwise take one\nacknowledgement per instant.",
-        "tags": [
-          "sync"
-        ]
-      }
-    },
-    "/api/sync/replicate_audit_holds/{id}/acknowledge": {
-      "post": {
-        "operationId": "acknowledge_hold",
+        "operationId": "accept_correction",
         "parameters": [
           {
             "in": "path",
@@ -47704,11 +47809,128 @@
             },
             "description": ""
           },
+          "400": {
+            "description": "The hold is not a source correction"
+          },
           "404": {
             "description": "No pending hold with this id"
           }
         },
-        "summary": "Acknowledge one pending hold: the operator confirms the statistics recomputed from the stored\nreplicates. Terminal; re-detection of the same disagreement leaves the decision standing.\nThe acting identity is taken from the caller's authentication, never from the request.",
+        "summary": "Mark a source correction reviewed: it has already applied, and the curation on the affected\nreading stands as it is.",
+        "tags": [
+          "sync"
+        ]
+      }
+    },
+    "/api/sync/replicate_audit_holds/{id}/accept_identity": {
+      "post": {
+        "operationId": "accept_identity",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcknowledgeResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "description": "The hold is not an identity change"
+          },
+          "404": {
+            "description": "No pending hold with this id"
+          }
+        },
+        "summary": "Accept the instrument identity the source reports, against the one on record.",
+        "tags": [
+          "sync"
+        ]
+      }
+    },
+    "/api/sync/replicate_audit_holds/{id}/dismiss_finding": {
+      "post": {
+        "operationId": "dismiss_finding",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcknowledgeResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "description": "The hold is not a calculation finding"
+          },
+          "404": {
+            "description": "No pending hold with this id"
+          }
+        },
+        "summary": "Dismiss a calculation finding: the audit reported a missing, stale or skipped output here and\na person rules that no recomputation is owed.",
+        "tags": [
+          "sync"
+        ]
+      }
+    },
+    "/api/sync/replicate_audit_holds/{id}/release_brake": {
+      "post": {
+        "operationId": "release_brake",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcknowledgeResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "description": "The hold is not a fired brake"
+          },
+          "404": {
+            "description": "No pending hold with this id"
+          }
+        },
+        "summary": "Admit the reconciliation pass the brake is holding on this stream. Exactly one braked-scale\npass applies on the next sync cycle; a later reshape brakes afresh.",
         "tags": [
           "sync"
         ]

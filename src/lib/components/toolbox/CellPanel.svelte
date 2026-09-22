@@ -167,7 +167,44 @@
 							{#if consequence}<span class="block text-xs text-brand-muted">{consequence}</span>{/if}
 						</span>
 					</label>
+					{#if formula.intermediate}
+						<!-- Whose the step is. A shared one belongs to no calculation, so the save writes it
+						     on its own and declares it here rather than into the set. -->
+						<label class="text-xs text-brand-muted md:col-span-2">Read by
+							<select bind:value={formula.shared} class={inputCls}>
+								<option value={false}>This calculation only</option>
+								<option value={true}>Any calculation that declares it</option>
+							</select>
+							<span class="mt-1 block text-[11px] text-brand-muted">
+								{formula.shared
+									? 'Written on its own, belonging to no calculation, and brought into this one. Editing it later changes it everywhere it is read.'
+									: 'Written into this calculation, and read by its formulas alone.'}
+							</span>
+						</label>
+					{/if}
 				</div>
+				{#if !formula.intermediate}
+					<!-- The output parameter's own bounds: its `alarm_thresholds` row with no site, which a
+					     site-specific row overrides. -->
+					<fieldset class="border border-brand-divider rounded px-2 py-2">
+						<legend class="text-xs text-brand-muted px-1">Bounds on {formula.code || 'the output'}</legend>
+						<div class="grid grid-cols-4 gap-2">
+							<label class="text-xs text-brand-muted">Warning min
+								<input type="number" step="any" bind:value={formula.thresholds.warningMin} class={inputCls} />
+							</label>
+							<label class="text-xs text-brand-muted">Warning max
+								<input type="number" step="any" bind:value={formula.thresholds.warningMax} class={inputCls} />
+							</label>
+							<label class="text-xs text-brand-muted">Alarm min
+								<input type="number" step="any" bind:value={formula.thresholds.alarmMin} class={inputCls} />
+							</label>
+							<label class="text-xs text-brand-muted">Alarm max
+								<input type="number" step="any" bind:value={formula.thresholds.alarmMax} class={inputCls} />
+							</label>
+						</div>
+						<p class="mt-1 text-[11px] text-brand-muted">Written when the set is saved. A site with bounds of its own keeps them.</p>
+					</fieldset>
+				{/if}
 				{#each diagnostics as diagnostic, i (i)}
 					<p class="text-xs text-severity-alarm">{diagnostic.message}</p>
 				{/each}

@@ -5,11 +5,11 @@
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
-	import { api, type Site, type Project, type SiteParameter, type Parameter, type Sensor, type SensorDeployment, type SensorCalibration, type Note, type AlarmThreshold, type DerivedParameter, type ParameterGroup, type ParameterGroupMember, type Sample, type Annotation, type Subproject } from '$api/crud';
+	import { api, type Site, type Project, type SiteParameter, type Parameter, type Sensor, type SensorDeployment, type SensorCalibration, type Note, type AlarmThreshold, type ParameterGroup, type ParameterGroupMember, type Sample, type Annotation, type Subproject } from '$api/crud';
 	import { GET, POST, PATCH } from '$api/client';
 	import { listAll } from '$api/paged';
 	import { calculationsBySlot, groupSlots, type SlotCalculation } from '$lib/calculations/siteSlots';
-	import { applyParameterGroup, recomputeDerived, getThresholds, getActiveAlarms, getCalculationClosure, getGroupDefinition, getSiteExportSummary, type ThresholdWithValue, type ActiveAlarm, type ExportSummary } from '$api/service';
+	import { applyParameterGroup, getThresholds, getActiveAlarms, getCalculationClosure, getGroupDefinition, getSiteExportSummary, type ThresholdWithValue, type ActiveAlarm, type ExportSummary } from '$api/service';
 	import { getSiteSensorIdentity, type SensorIdentityResponse } from '$api/sensors';
 	import {
 		annotationsByParameter,
@@ -87,7 +87,6 @@
 	let calibrations = $state<SensorCalibration[]>([]);
 	let notes = $state<Note[]>([]);
 	let thresholds = $state<AlarmThreshold[]>([]);
-	let derivedDefs = $state<DerivedParameter[]>([]);
 	let parameterGroups = $state<ParameterGroup[]>([]);
 	let groupMembers = $state<ParameterGroupMember[]>([]);
 	let slotCalculations = $state<Map<string, SlotCalculation[]>>(new Map());
@@ -140,8 +139,6 @@
 		goto(url, { replaceState: true, noScroll: true, keepFocus: true });
 	});
 	let statsOpen = $state(false);
-	let recomputingId = $state<string | null>(null);
-	let confirmingRemove = $state<string | null>(null);
 
 	// --- Point inspector: the pinned provenance record under a clicked chart point ---
 	let inspector = $state<{
@@ -746,15 +743,13 @@
 		samplesSiteId = id;
 		samplesPage = 1;
 		try {
-			const [derivedResult, groupResult] = await Promise.all([
-				api.derivedParameters.list({ perPage: 200 }),
+			const [groupResult] = await Promise.all([
 				api.parameterGroups.list({ perPage: 200, sort: ['ordinal', 'ASC'] }),
 				loadSamples(),
 			]);
-			derivedDefs = derivedResult.data;
 			parameterGroups = groupResult.data;
 		} catch (e) {
-			toastStore.error(e instanceof Error ? `Failed to load derived parameters / samples: ${e.message}` : 'Failed to load derived parameters / samples');
+			toastStore.error(e instanceof Error ? `Failed to load parameter groups / samples: ${e.message}` : 'Failed to load parameter groups / samples');
 		}
 	}
 
@@ -1005,34 +1000,6 @@
 
 	// Derived parameters
 	const siteParameterIds = $derived(new Set(siteParameters.map((sp) => sp.parameter_id)));
-	// A computed slot names no definition: the one that fills it is the definition whose output is
-	// the slot's parameter.
-	const computedParameterIds = $derived(new Set(
-		siteParameters.filter((sp) => sp.entry_mode === 'tool').map((sp) => sp.parameter_id)
-	));
-
-	// A formula of a calculation is declared by applying that calculation's parameter group, which
-	// brings its inputs and its outputs in together. What is assigned one at a time here is the
-	// standalone kind, which belongs to no calculation and is what the continuous engine computes.
-	const standaloneDerivedDefs = $derived(derivedDefs.filter((d) => !d.tool_script_id));
-
-	// Derived defs that are assigned to this site
-	const assignedDerivedDefs = $derived(
-		standaloneDerivedDefs.filter((d) => !!d.output_parameter_id && computedParameterIds.has(d.output_parameter_id))
-	);
-
-	// Availability check for each unassigned derived def
-	const availableDerivedDefs = $derived(
-		standaloneDerivedDefs
-			.filter((d) => !assignedDerivedDefs.includes(d))
-			.map((d) => {
-				const sources = d.sources ?? [];
-				const present = sources.filter((s) => siteParameterIds.has(s.parameter_id));
-				const missing = sources.filter((s) => !siteParameterIds.has(s.parameter_id));
-				return { def: d, allPresent: missing.length === 0 && sources.length > 0, present, missing };
-			})
-	);
-
 	let showAddParameter = $state(false);
 	let addParamId = $state('');
 	let addingParam = $state(false);
@@ -1087,74 +1054,6 @@
 			toastStore.success('Parameter removed');
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Failed to remove parameter');
-		}
-	}
-
-	let showAssignDerived = $state(false);
-	let assigningId = $state<string | null>(null);
-
-	async function handleRecompute(id: string) {
-		recomputingId = id;
-		try {
-			await recomputeDerived(id);
-			toastStore.success('Derived parameter recomputed');
-		} catch {
-			toastStore.error('Failed to recompute derived parameter');
-		} finally {
-			recomputingId = null;
-		}
-	}
-
-	async function assignDerived(def: DerivedParameter) {
-		if (!def.output_parameter_id) {
-			toastStore.error('No output parameter - recompute the definition first');
-			return;
-		}
-		assigningId = def.id;
-		try {
-			await api.siteParameters.create({
-				site_id: siteId,
-				parameter_id: def.output_parameter_id,
-				entry_mode: 'tool',
-				display_units: def.units || null,
-				name: def.name,
-				sensor_type: 'derived',
-				is_active: true,
-			});
-			toastStore.success(`${def.name || def.code} assigned`);
-			const sp = await api.siteParameters.list({ perPage: 200, filter: { site_id: siteId } });
-			siteParameters = sp.data;
-			showAssignDerived = false;
-			await recomputeDerived(def.id);
-			toastStore.success('Recomputation triggered - chart will update as data fills');
-			pollForDerivedData(def.output_parameter_id);
-		} catch (e) {
-			toastStore.error(`Failed: ${e instanceof Error ? e.message : 'unknown error'}`);
-		} finally {
-			assigningId = null;
-		}
-	}
-
-	async function pollForDerivedData(outputParameterId: string, attempts = 12, intervalMs = 5000) {
-		for (let i = 0; i < attempts; i++) {
-			await new Promise((r) => setTimeout(r, intervalMs));
-			await doFetch();
-			const sp = siteParameters.find((s) => s.parameter_id === outputParameterId);
-			if (sp) {
-				const data = chartDataMap.get(sp.id);
-				if (data && data.values.some((v) => v != null)) return;
-			}
-		}
-	}
-
-	async function unassignDerived(sp: SiteParameter) {
-		try {
-			await api.siteParameters.remove(sp.id);
-			toastStore.success('Derived parameter removed');
-			const result = await api.siteParameters.list({ perPage: 200, filter: { site_id: siteId } });
-			siteParameters = result.data;
-		} catch {
-			toastStore.error('Failed to remove');
 		}
 	}
 
@@ -1853,95 +1752,6 @@
 					</tbody>
 				</table>
 			</div>
-
-			<!-- Derived Parameters -->
-				<div class="mt-4 rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
-					<div class="flex items-center justify-between px-4 py-3 bg-brand-bg border-b border-brand-divider">
-						<span class="text-sm font-semibold">Derived Parameters ({assignedDerivedDefs.length})</span>
-						<Button
-							size="sm"
-							onclick={() => showAssignDerived = !showAssignDerived}
-						>{showAssignDerived ? 'Cancel' : 'Assign'}</Button>
-					</div>
-
-					{#if showAssignDerived}
-						<div class="p-4 border-b border-brand-divider bg-brand-bg/50 space-y-2">
-							<p class="text-xs text-brand-muted">Select a derived parameter to assign to this site. Greyed out entries are missing required source parameters.</p>
-							{#each availableDerivedDefs as { def, allPresent, missing }}
-								<div class="flex items-center justify-between p-2 rounded border border-brand-divider {allPresent ? 'bg-brand-surface' : 'bg-brand-bg opacity-60'}">
-									<div class="flex-1">
-										<span class="text-sm font-medium">{def.name || def.code}</span>
-										<span class="text-xs font-mono text-brand-muted ml-2">{def.formula}</span>
-										{#if missing.length > 0}
-											<p class="text-xs text-severity-alarm mt-0.5">
-												Missing: {missing.map((s) => s.variable_name).join(', ')}
-											</p>
-										{/if}
-									</div>
-									<Button
-										variant="primary"
-										size="sm"
-										onclick={() => assignDerived(def)}
-										disabled={!allPresent || assigningId === def.id}
-									>{assigningId === def.id ? 'Assigning…' : 'Assign'}</Button>
-								</div>
-							{:else}
-								<p class="text-xs text-brand-muted py-2">No unassigned derived parameters available. <a href="{base}/derived/new" class="text-brand-primary no-underline hover:underline">Create one</a></p>
-							{/each}
-						</div>
-					{/if}
-
-					{#if assignedDerivedDefs.length > 0}
-						<table class="w-full text-sm">
-							<thead><tr class="bg-brand-bg border-b border-brand-divider">
-								<th class="text-left px-4 py-2 font-semibold">Name</th>
-								<th class="text-left px-4 py-2 font-semibold">Formula</th>
-								<th class="text-left px-4 py-2 font-semibold">Sources</th>
-								<th class="text-right px-4 py-2 font-semibold">Actions</th>
-							</tr></thead>
-							<tbody>
-								{#each assignedDerivedDefs as d}
-									{@const sp = siteParameters.find((s) => s.parameter_id === d.output_parameter_id && s.entry_mode === 'tool')}
-									<tr class="border-b border-brand-divider last:border-b-0">
-										<td class="px-4 py-2 font-medium">
-											<a href="{base}/derived/{d.id}" class="text-brand-primary no-underline hover:underline">{d.name || d.code}</a>
-										</td>
-										<td class="px-4 py-2 font-mono text-xs text-brand-muted">{d.formula}</td>
-										<td class="px-4 py-2 text-xs text-brand-muted">
-											{#each d.sources ?? [] as src}
-												{@const available = siteParameterIds.has(src.parameter_id)}
-												<span class="inline-block mr-1.5" class:text-severity-alarm={!available}>
-													<span class="font-mono">{src.variable_name}</span>
-													{#if !available}(missing){/if}
-												</span>
-											{/each}
-										</td>
-										<td class="px-4 py-2 text-right whitespace-nowrap">
-											<ConfirmPopover message="Recompute this derived parameter?" confirmLabel="Recompute" onconfirm={() => handleRecompute(d.id)}>
-												<Button
-													size="sm"
-													disabled={recomputingId === d.id}
-													class="bg-brand-bg hover:bg-brand-surface"
-												>{recomputingId === d.id ? 'Computing…' : 'Recompute'}</Button>
-											</ConfirmPopover>
-											{#if sp}
-												{@const confirmKey = `remove-${sp.id}`}
-												{#if confirmingRemove === confirmKey}
-													<Button variant="danger" size="sm" class="ml-1" onclick={() => { confirmingRemove = null; unassignDerived(sp); }}>Confirm</Button>
-													<Button variant="ghost" size="sm" class="ml-1" onclick={() => confirmingRemove = null}>Cancel</Button>
-												{:else}
-													<Button variant="ghost" size="sm" class="text-severity-alarm hover:text-severity-alarm ml-1" onclick={() => confirmingRemove = confirmKey}>Remove</Button>
-												{/if}
-											{/if}
-										</td>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					{:else if !showAssignDerived}
-						<p class="text-sm text-brand-muted px-4 py-4">No derived parameters assigned.</p>
-					{/if}
-				</div>
 
 		<!-- Sensors tab -->
 		{:else if activeKey === 'sensors'}

@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
 	import {
-		acknowledgeReplicateAudit,
+		dismissCalculationFinding,
 		listReplicateAudits,
 		pollJob,
 		recomputeCollectionEvent,
@@ -77,7 +77,7 @@
 	async function acknowledge(hold: ReplicateAuditHold) {
 		busy = hold.id;
 		try {
-			await acknowledgeReplicateAudit(hold.id);
+			await dismissCalculationFinding(hold.id);
 			toastStore.success('Finding acknowledged');
 			await load();
 			onchange?.();

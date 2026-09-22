@@ -41,6 +41,12 @@ vi.mock('$api/service', () => ({
 	})),
 	listSiteVisits: vi.fn(async () => ({ visits: [] })),
 	listToolVersionUsage: vi.fn(async () => []),
+	previewDerived: vi.fn(async () => ({
+		site: { id: 's1', name: 'Martigny' },
+		times: [],
+		source_parameters: [],
+		formulas: [],
+	})),
 }));
 
 const entity = (rows: unknown[] = []) => ({
@@ -80,8 +86,11 @@ vi.mock('$api/crud', () => ({
 		constants: entity(),
 		parameterGroupMembers: entity(),
 		calculationSharedSteps: entity(),
-		sites: entity(),
+		sites: entity([{ id: 's1', name: 'Martigny' }]),
+		siteParameters: entity([{ id: 'sp1', site_id: 's1', parameter_id: 'p1', is_active: true }]),
+		alarmThresholds: entity(),
 		standardCurves: entity(),
+		sensors: entity(),
 		sensorCalibrations: entity(),
 	},
 }));
@@ -138,5 +147,41 @@ describe('two runs in flight', () => {
 		await new Promise((resolve) => setTimeout(resolve, 20));
 		expect(view.container.textContent).toContain('20');
 		expect(view.container.textContent).not.toContain('10');
+	});
+});
+
+describe('a calculation that corrects with a curve', () => {
+	const withSlot = [
+		{
+			id: 'f1',
+			code: 'DOC',
+			name: 'DOC',
+			units: 'ppb',
+			description: null,
+			formula: 'lab_temp * curve_slope',
+			ordinal: 1,
+			curve_slot: 'doc',
+			per_replicate: null,
+			intermediate: false,
+			code_locked: null,
+		},
+	];
+
+	it('mounts its slot picker, so the block is exercised at all', async () => {
+		const { api } = await import('$api/crud');
+		(api.derivedParameters.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+			data: withSlot,
+			total: 1,
+		});
+		render(FormulaCalculation, { calculationId: 'calc-1' });
+		await waitFor(() => expect(screen.getByText('Curve slot doc')).toBeTruthy());
+	});
+});
+
+describe('reading a calculation over a site series', () => {
+	it('offers the series when every input is a parameter a site streams', async () => {
+		render(FormulaCalculation, { calculationId: 'calc-1' });
+		await waitFor(() => expect(screen.getByText("Over a site's series")).toBeTruthy());
+		expect(screen.getByText(/Move along the chart/)).toBeTruthy();
 	});
 });

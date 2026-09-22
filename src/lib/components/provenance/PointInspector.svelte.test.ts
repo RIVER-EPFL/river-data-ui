@@ -483,14 +483,15 @@ describe('PointInspector', () => {
 		open(
 			computed({
 				definition_id: 'def-1',
+				tool_script_id: 'ts-1',
 				code: 'pCO2',
 				name: 'Partial pressure of CO2',
 				version_no: 2,
 				active_version_no: 2,
 			}),
 		);
-		const standalone = await screen.findByRole('link', { name: 'pCO2 v2' });
-		expect(standalone.getAttribute('href')).toContain('/derived/def-1');
+		const link = await screen.findByRole('link', { name: 'pCO2 v2' });
+		expect(link.getAttribute('href')).toContain('/toolbox/ts-1');
 	});
 
 	it('opens the calculation a formula belongs to rather than the formula', async () => {

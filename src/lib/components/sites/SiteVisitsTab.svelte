@@ -31,6 +31,7 @@
 		getCalculationClosure,
 		seasonalCheck,
 		getCollectionEventDetail,
+		previewCollectionEvent,
 		recomputeCollectionEvent,
 		runEventAudit,
 		runEventRecompute,
@@ -57,6 +58,17 @@
 		visitCounts,
 	} from '$lib/visits/cell';
 	import { connectionsOf, covers, type Connections } from '$lib/visits/connections';
+	import {
+		asking,
+		failed,
+		previewAsks,
+		previewNotice,
+		previewedAt,
+		settled,
+		unanswered,
+		type PreviewAsk,
+		type Previews,
+	} from '$lib/visits/preview';
 	import {
 		SYNCED_VISIT_NOTICE,
 		entryNoticeFor,
@@ -373,6 +385,11 @@
 	const writes = $derived(pendingWrites(table.rows, written, locale, declaredInstruments));
 	/** What a paste left behind, held on screen until the next one rather than passed as a toast. */
 	let pasteRefusal = $state<string | null>(null);
+	// What the calculations would say about each visit typed into, asked as the typing settles.
+	let previews = $state<Previews>({});
+	let previewTimer: ReturnType<typeof setTimeout> | null = null;
+	/** How long the typing must settle before the calculations are asked. */
+	const PREVIEW_DELAY_MS = 350;
 
 	// --- The grid ---
 	// Handsontable owns selection, the keyboard, the clipboard, the fill handle and undo. Every
@@ -615,6 +632,30 @@
 		}
 		const typed = at.key in edits;
 		if (typed) td.classList.add('sheet-edited');
+		// A column a calculation writes shows what the typed values would make it, until Save
+		// writes it. A stored number is not left standing as though it were that answer: while the
+		// preview is in flight or has failed the cell says so.
+		const preview = previews[visit.id];
+		if (preview && slot.column.writtenBy) {
+			const shown = previewedAt(preview, slot);
+			if (shown !== undefined) {
+				td.classList.add('sheet-preview');
+				td.title = `${slot.column.writtenBy} gives this from the values you have typed. It is not saved yet; Save writes it.`;
+				if (shown === null) {
+					td.append(mark('clears', 'sheet-mark'));
+					return td;
+				}
+				td.append(document.createTextNode(formatMeasurement(shown, slot.column.decimals)));
+				return td;
+			}
+			if (preview.state === 'pending') {
+				td.classList.add('sheet-preview-pending');
+				td.title = `Working out what ${slot.column.writtenBy} gives from the values you have typed`;
+			} else if (preview.state === 'error') {
+				td.classList.add('sheet-preview-pending');
+				td.title = `What ${slot.column.writtenBy} would give could not be worked out: ${preview.message ?? 'the preview did not run'}. The value shown is the one stored.`;
+			}
+		}
 		const state = open ? replicate : cell;
 		if (state?.withdrawn) td.classList.add('sheet-struck');
 		if (state?.flagged || (open && replicate?.unverified)) td.classList.add('sheet-warning');
@@ -803,8 +844,43 @@
 		checks = {};
 		seasonalFindings = [];
 		pasteRefusal = null;
+		previews = {};
 		dataVersion += 1;
 	}
+
+	// The calculations run on what is typed, not on what is stored, and store nothing (Q212). The
+	// ask is made once the typing settles; an answer about a grid the operator has already typed
+	// past is dropped rather than drawn.
+	$effect(() => {
+		const asks = previewAsks(
+			table.rows.filter((row) => !isSpare(row.id)),
+			edits,
+			locale,
+		);
+		untrack(() => schedulePreviews(asks));
+	});
+
+	function schedulePreviews(asks: PreviewAsk[]) {
+		if (previewTimer) clearTimeout(previewTimer);
+		const sending = unanswered(previews, asks);
+		previews = asking(previews, asks);
+		hot?.render();
+		if (sending.length === 0) return;
+		previewTimer = setTimeout(() => void runPreviews(sending), PREVIEW_DELAY_MS);
+	}
+
+	async function runPreviews(asks: PreviewAsk[]) {
+		for (const ask of asks) {
+			try {
+				previews = settled(previews, ask, await previewCollectionEvent(ask.eventId, ask.cells));
+			} catch (e) {
+				previews = failed(previews, ask, e instanceof Error ? e.message : String(e));
+			}
+		}
+		hot?.render();
+	}
+
+	const previewLine = $derived(previewNotice(previews));
 
 	// The open visit's row is marked and a spare row names the instant its date resolved to, so
 	// both the open record and the entry zone redraw the rows the grid has already drawn.
@@ -995,6 +1071,7 @@
 			dataVersion += 1;
 			checks = {};
 			seasonalFindings = [];
+			previews = {};
 			confirmOpen = false;
 		} catch (e) {
 			saveRefusal = e instanceof Error ? e.message : String(e);
@@ -1520,6 +1597,9 @@
 							{/if}
 							{#if spareRefusal}
 								<span class="text-xs text-severity-alarm">{spareRefusal}</span>
+							{/if}
+							{#if previewLine}
+								<span class="text-xs text-brand-muted">{previewLine}</span>
 							{/if}
 							{#if runReport}
 								<span class="text-xs text-brand-muted">{runReport}</span>

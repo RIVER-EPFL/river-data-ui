@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { listReplicateAudits, acknowledgeReplicateAudit, type ReplicateAuditHold } from '$api/service';
+	import { listReplicateAudits, acceptSourceCorrection, type ReplicateAuditHold } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatRelativeTime, formatDateTime } from '$lib/utils';
 	import { AUDIT_QUEUE_KINDS, KIND_LABEL, KIND_STYLE, KIND_TIP } from '$lib/holds';
@@ -69,14 +69,16 @@
 		}
 	}
 
-	async function handleAcknowledgeHold(
+	// The panel's own action is the source correction; every other kind is acted on from the
+	// screen that raised it, through that screen's route.
+	async function handleAcceptCorrection(
 		hold: ReplicateAuditHold,
 		ctx: { close: () => void; reload: () => Promise<void> },
 		successMessage: string,
 	) {
 		acknowledging = true;
 		try {
-			await acknowledgeReplicateAudit(hold.id);
+			await acceptSourceCorrection(hold.id);
 			toastStore.success(successMessage);
 			ctx.close();
 			await ctx.reload();
@@ -201,7 +203,7 @@
 				confirmLabel="Acknowledge"
 				confirmVariant="primary"
 				above
-				onconfirm={() => handleAcknowledgeHold(hold, ctx, 'Reviewed')}
+				onconfirm={() => handleAcceptCorrection(hold, ctx, 'Reviewed')}
 			>
 				<Button variant="primary" disabled={acknowledging}>Acknowledge</Button>
 			</ConfirmPopover>

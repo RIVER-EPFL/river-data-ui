@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const listReplicateAudits = vi.fn();
 vi.mock('$api/service', () => ({
 	listReplicateAudits: (...args: unknown[]) => listReplicateAudits(...args),
-	acknowledgeReplicateAudit: vi.fn(),
+	releaseStreamBrake: vi.fn(),
 }));
 vi.mock('$lib/stores/toast.svelte', () => ({ toastStore: { success: vi.fn(), error: vi.fn() } }));
 

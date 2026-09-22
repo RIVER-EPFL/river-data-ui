@@ -82,6 +82,32 @@ describe('CellPanel', () => {
 		expect(screen.getAllByRole('button', { name: 'Stop reading' }).length).toBeGreaterThan(0);
 	});
 
+	it('offers a step to every calculation that declares it', async () => {
+		const step = $state(formula({ ...formulas[0] }));
+		render(CellPanel, { row: rowFor('hs_k'), formula: step, formulas, variables });
+		const whose = screen.getByLabelText(/^Read by/) as HTMLSelectElement;
+		expect(whose.value).toBe('false');
+		await userEvent.selectOptions(whose, 'true');
+		expect(step.shared).toBe(true);
+	});
+
+	it('does not offer it on an output, which publishes under its own parameter', () => {
+		render(CellPanel, { row: rowFor('CO2_HS_Um'), formula: formulas[1], formulas, variables });
+		expect(screen.queryByLabelText(/^Read by/)).toBeNull();
+	});
+
+	it('bounds an output, and leaves a step unbounded', async () => {
+		const output = $state(formula({ ...formulas[1] }));
+		render(CellPanel, { row: rowFor('CO2_HS_Um'), formula: output, formulas, variables });
+		await userEvent.type(screen.getByLabelText('Warning max'), '42');
+		expect(output.thresholds.warningMax).toBe(42);
+	});
+
+	it('offers no bounds on a step, which publishes under no parameter', () => {
+		render(CellPanel, { row: rowFor('hs_k'), formula: formulas[0], formulas, variables });
+		expect(screen.queryByLabelText('Warning max')).toBeNull();
+	});
+
 	it('names the formulas that read a chosen input', () => {
 		render(CellPanel, { row: rowFor('lab_temp'), formulas, variables });
 		expect(screen.getByRole('button', { name: 'hs_k' })).toBeTruthy();

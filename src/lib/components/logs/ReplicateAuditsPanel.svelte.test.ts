@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const listReplicateAudits = vi.fn();
 vi.mock('$api/service', () => ({
 	listReplicateAudits: (q: unknown) => listReplicateAudits(q),
-	acknowledgeReplicateAudit: vi.fn(),
+	acceptSourceCorrection: vi.fn(),
 }));
 
 const ReplicateAuditsPanel = (await import('./ReplicateAuditsPanel.svelte')).default;

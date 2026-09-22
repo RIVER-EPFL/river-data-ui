@@ -25,16 +25,14 @@ export interface ComputationAnchor {
 	index?: number | null;
 }
 
-/// The editor of the thing a computed value names: its calculation when the formula belongs to one,
-/// the standalone derived parameter otherwise. `at` opens it on the value the reader came from.
+/// The editor of the calculation a computed value names. `at` opens it on the value the reader
+/// came from.
 export function calculationHref(
 	base: string,
-	calc: { definition_id: string; tool_script_id?: string | null },
+	calc: { tool_script_id: string },
 	at: ComputationAnchor = {},
 ): string {
-	const href = calc.tool_script_id
-		? toolboxHref(base, calc.tool_script_id)
-		: `${base}/derived/${encodeURIComponent(calc.definition_id)}`;
+	const href = toolboxHref(base, calc.tool_script_id);
 	const query = new URLSearchParams();
 	if (at.cell) query.set('cell', at.cell);
 	if (at.run) query.set('run', at.run);

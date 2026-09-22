@@ -5,6 +5,7 @@
 	import { page } from '$app/state';
 	import { api, type AlarmThreshold, type Parameter, type Site, type SiteParameter } from '$api/crud';
 	import { formatThresholdRange } from '$lib/alarms';
+	import { toolboxHref } from '$lib/toolbox/route';
 	import Badge from '$components/ui/Badge.svelte';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
@@ -31,11 +32,11 @@
 				api.derivedParameters.list({ perPage: 500 }),
 				api.alarmThresholds.list({ perPage: 200, filter: { parameter_id: paramId } }),
 			]);
-			// Output parameters of derived definitions are managed via the derived
-			// pages (formula builder, preview, recompute), send the user there.
-			const derivedDef = defs.data.find((d) => d.output_parameter_id === paramId);
-			if (derivedDef) {
-				goto(`${base}/derived/${derivedDef.id}`, { replaceState: true });
+			// A computed parameter is managed on the page of the calculation that writes it, where its
+			// formula, its preview and its recompute live.
+			const formula = defs.data.find((d) => d.output_parameter_id === paramId && d.tool_script_id);
+			if (formula?.tool_script_id) {
+				goto(toolboxHref(base, formula.tool_script_id), { replaceState: true });
 				return;
 			}
 			param = p;

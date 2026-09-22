@@ -10,6 +10,7 @@
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
 	import MultiSiteParameterPlot from '$components/parameters/MultiSiteParameterPlot.svelte';
+	import { calculationHref } from '$lib/toolbox/route';
 
 	let def = $state<DerivedParameter | null>(null);
 	let assignedSiteParams = $state<SiteParameter[]>([]);
@@ -91,7 +92,9 @@
 			<Breadcrumbs items={[{ label: 'Parameters (derived)', href: `${base}/parameters?type=derived` }]} />
 			<div class="flex items-center gap-3 mt-1">
 				<h2 class="text-xl font-semibold">{def.name || def.code}</h2>
-				<a href="{base}/derived/{defId}/edit" class="px-3 py-1 text-sm border border-brand-divider bg-brand-surface rounded-md no-underline text-brand-text hover:bg-brand-bg">Edit</a>
+				{#if def.tool_script_id}
+					<a href={calculationHref(base, { tool_script_id: def.tool_script_id }, { cell: def.code })} class="px-3 py-1 text-sm border border-brand-divider bg-brand-surface rounded-md no-underline text-brand-text hover:bg-brand-bg">Edit</a>
+				{/if}
 				<ConfirmPopover message="Recompute all readings?" confirmLabel="Recompute" confirmVariant="primary" onconfirm={handleRecompute}>
 					<Button variant="primary">Recompute</Button>
 				</ConfirmPopover>

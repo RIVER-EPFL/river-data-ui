@@ -5,10 +5,13 @@
 	import { page } from '$app/state';
 	import {
 		api,
+		type AlarmThreshold,
 		type Constant,
 		type DerivedParameter,
 		type Parameter,
 		type ParameterGroupMember,
+		type Site,
+		type SiteParameter,
 		type ToolRunRow,
 	} from '$api/crud';
 	import {
@@ -39,12 +42,18 @@
 		formulaVariables,
 		inputRows,
 		scalarOverrides,
+		seriesBlocker,
+		setOutputs,
+		sharedStepWrites,
+		thresholdWrites,
 		type EditableFormula,
 	} from '$lib/calculations/editor';
 	import { armConsequence, storedLabel } from '$lib/calculations/consequence';
 	import { portalReference, replicatedCodes } from '$lib/calculations/members';
+	import { fromNum } from '$lib/derivedParameters';
 	import { curveField } from '$lib/tools/form';
-	import { runInputTables, runTables } from '$lib/tools/runTable';
+	import { runInputTables, runTables, type PreviewInstant } from '$lib/tools/runTable';
+	import LivePreview from '$components/derived/LivePreview.svelte';
 	import {
 		insertIdentifier,
 		rowKey,
@@ -129,6 +138,9 @@
 	// the run. Unbound, the slot's formulas are skipped for want of coefficients.
 	let curveChoice = $state<Record<string, CurveSelection>>({});
 	let running = $state(false);
+	// The instant the reader is on in the series preview. While one is chosen the tables show the
+	// set's numbers there, in place of the visit's.
+	let hovered = $state<PreviewInstant | null>(null);
 	let run = $state<FormulaDraftRunResponse | null>(null);
 	let runError = $state('');
 
@@ -136,6 +148,10 @@
 	// the source computed it with. A calculation names no group (Q169), so both are read per
 	// parameter, for the parameters this set reads and writes.
 	let members = $state<ParameterGroupMember[]>([]);
+	// Which sites hold which parameters, so the series preview offers only the sites that can run
+	// the set. A slot the site does not declare is a series the preview cannot draw.
+	let allSites = $state<Site[]>([]);
+	let allSiteParams = $state<SiteParameter[]>([]);
 
 	// Steps this calculation reads but does not own (Q156), and the ones it could bring in.
 	let shareable = $state<DerivedParameter[]>([]);
@@ -153,6 +169,24 @@
 	const replicated = $derived(replicatedCodes(members, parameters));
 	const inputs = $derived(inputRows(formulas, parameters, constants, replicated));
 	const slots = $derived(curveSlots(formulas));
+	// Why the set cannot be read as a series, or null when it can. A set with no blocker draws over
+	// a site's streams; one with a blocker runs at field visits and the page says which input.
+	const blocker = $derived(seriesBlocker(formulas));
+	const sitesWithAvailability = $derived(
+		allSites.map((s) => ({
+			id: s.id,
+			name: s.name,
+			availableParamNames: allSiteParams
+				.filter((sp) => sp.site_id === s.id && sp.is_active)
+				.map((sp) => parameters.find((p) => p.id === sp.parameter_id)?.code)
+				.filter((code): code is string => !!code),
+		})),
+	);
+	/** What the preview asks a site for: a step is computed by the run, not measured there. */
+	const previewVariableNames = $derived(
+		inputs.filter((i) => i.kind === 'parameter' || i.kind === 'replicates').map((i) => i.name),
+	);
+	const previewSet = $derived(formulaSetBody(formulas, false).formulas);
 	// A formula added, edited, or dropped from the set: all three are the save's business.
 	const dropped = $derived(
 		stored.filter((s) => !s.declarationId && !formulas.some((f) => f.id === s.id)),
@@ -180,19 +214,23 @@
 			: run,
 	);
 	const tables = $derived(
-		shown?.ran
-			? runTables(
-					shown.results ?? {},
-					draftOutputs(shown.manifest),
-					(shown.skipped ?? []) as Parameters<typeof runTables>[2],
-					shown.trace ?? [],
-				)
-			: null,
+		hovered
+			? runTables(hovered.results, setOutputs(formulas))
+			: shown?.ran
+				? runTables(
+						shown.results ?? {},
+						draftOutputs(shown.manifest),
+						(shown.skipped ?? []) as Parameters<typeof runTables>[2],
+						shown.trace ?? [],
+					)
+				: null,
 	);
 	// What the run was given, in the same table shape: the visit's own values, then the numbers
 	// that are the same at every visit.
 	const given = $derived(
-		shown?.ran
+		hovered
+			? runInputTables(hovered.inputs)
+			: shown?.ran
 			? runInputTables(
 					(shown.event_inputs ?? []) as Parameters<typeof runInputTables>[0],
 					(shown.site_inputs ?? []) as Parameters<typeof runInputTables>[1],
@@ -239,9 +277,38 @@
 		const rows: EditableFormula[] = [];
 		for (const declaration of declarations.data) {
 			const step = steps.find((s) => s.id === declaration.formula_id);
-			if (step) rows.push({ ...editableFormula(step), declarationId: declaration.id });
+			if (step) rows.push({ ...editableFormula(step), declarationId: declaration.id, shared: true });
 		}
 		return rows;
+	}
+
+	/** Each output's own bounds, read from the `alarm_thresholds` row of its parameter with no site. */
+	async function withBounds(
+		editable: EditableFormula[],
+		rows: DerivedParameter[],
+	): Promise<EditableFormula[]> {
+		const parameterIds = rows.map((r) => r.output_parameter_id).filter((id): id is string => !!id);
+		if (parameterIds.length === 0) return editable;
+		const global = new Map<string, AlarmThreshold>();
+		const held = await listAll<AlarmThreshold>(api.alarmThresholds, { perPage: 500 });
+		for (const t of held) {
+			const id = t.parameter_id;
+			if (id && t.site_id === null && parameterIds.includes(id)) global.set(id, t);
+		}
+		return editable.map((f, i) => {
+			const bound = rows[i]?.output_parameter_id ? global.get(rows[i]!.output_parameter_id!) : null;
+			return bound
+				? {
+						...f,
+						thresholds: {
+							warningMin: fromNum(bound.warning_min),
+							warningMax: fromNum(bound.warning_max),
+							alarmMin: fromNum(bound.alarm_min),
+							alarmMax: fromNum(bound.alarm_max),
+						},
+					}
+				: f;
+		});
 	}
 
 	async function declare() {
@@ -305,6 +372,12 @@
 				}),
 				listAll<ParameterGroupMember>(api.parameterGroupMembers, { perPage: 500 }),
 			]);
+			listAll<Site>(api.sites, { perPage: 200, sort: ['name', 'ASC'] })
+				.then((rows) => (allSites = rows))
+				.catch(() => (allSites = []));
+			listAll<SiteParameter>(api.siteParameters, { perPage: 1000 })
+				.then((rows) => (allSiteParams = rows))
+				.catch(() => (allSiteParams = []));
 			calculation = script;
 			// The counts are what the save's arms are stated in. A page that cannot read them still
 			// saves, and the arms say what they do without the numbers.
@@ -312,8 +385,9 @@
 				.then((rows) => (usage = rows))
 				.catch(() => (usage = []));
 			const declared = await declaredSteps(steps);
-			stored = [...rows.data.map(editableFormula), ...declared];
-			formulas = [...rows.data.map(editableFormula), ...declared];
+			const bounded = await withBounds(rows.data.map(editableFormula), rows.data);
+			stored = [...bounded, ...declared];
+			formulas = [...bounded.map((f) => ({ ...f, thresholds: { ...f.thresholds } })), ...declared];
 			parameters = params;
 			constants = consts;
 			members = memberRows;
@@ -417,12 +491,65 @@
 	 * Write the whole formula set as one version. The arm says what happens to the values the
 	 * version being replaced produced: left where they are, or recomputed under the new one.
 	 */
+	/**
+	 * Write the steps the author marked shared, before the set save leaves them out. A step with an
+	 * id is unowned in place, so what already reads it goes on reading it; one without is created.
+	 * Either way this calculation reads it through a declaration afterwards.
+	 */
+	async function writeSharedSteps() {
+		for (const step of sharedStepWrites(formulas)) {
+			const values = {
+				code: step.code.trim(),
+				name: step.name.trim() || step.code.trim(),
+				units: step.units.trim(),
+				description: step.description.trim() || undefined,
+				formula: step.formula,
+				per_replicate: step.per_replicate.trim() || null,
+				curve_slot: step.curve_slot.trim() || null,
+				intermediate: true,
+				tool_script_id: null,
+			};
+			const written = step.id
+				? await api.derivedParameters.update(step.id, values)
+				: await api.derivedParameters.create(values);
+			await api.calculationSharedSteps.create({
+				tool_script_id: calculationId,
+				formula_id: written.id,
+			});
+		}
+	}
+
+	/**
+	 * The bounds the author typed, onto the output parameters the saved set gives them. A create
+	 * only learns its parameter from the after-create hook, so this runs on the set the save wrote.
+	 */
+	async function writeBounds(edited: EditableFormula[], before: EditableFormula[]) {
+		const saved = await api.derivedParameters.list({
+			perPage: 500,
+			filter: { tool_script_id: calculationId },
+		});
+		const writes = thresholdWrites(edited, before, saved.data);
+		if (writes.length === 0) return;
+		const held = await listAll<AlarmThreshold>(api.alarmThresholds, { perPage: 500 });
+		for (const write of writes) {
+			const existing = held.find(
+				(t) => t.site_id === null && t.parameter_id === write.parameterId,
+			);
+			if (existing) await api.alarmThresholds.update(existing.id, write.patch);
+			else await api.alarmThresholds.create({ parameter_id: write.parameterId, ...write.patch });
+		}
+	}
+
 	async function saveSet(migrate: boolean) {
 		if (diagnostics.length > 0 || !unsaved) return;
 		busy = true;
 		try {
+			await writeSharedSteps();
+			const edited = formulas;
+			const before = stored;
 			const res = await saveFormulaSet(calculationId, formulaSetBody(formulas, migrate));
 			givenUp = res.given_up ?? [];
+			await writeBounds(edited, before);
 			await load();
 			toastStore.success(
 				res.version_no === null
@@ -630,44 +757,27 @@
 	{:else if loading}
 		<p class="text-sm text-brand-muted">Loading…</p>
 	{:else}
-		<!-- The visit the calculation is read at. Choosing one runs the set as it stands,
-		     saved or not, against the visit's stored values. Nothing is written. -->
+		<!-- The set over a site's streams. Moving along it fills the tables below with the numbers
+		     at that instant, so the sheet reads the series rather than one visit. -->
 		<section class="rounded-md border border-brand-divider bg-brand-surface">
-			<div class="px-3 py-3 space-y-3">
-				<div class="flex flex-wrap items-end gap-2">
-					<label class="text-xs text-brand-muted">Site
-						<SiteSelect bind:value={siteId} class="block mt-0.5 {inputCls}" onchange={(s) => loadVisits(s)} />
-					</label>
-					<label class="text-xs text-brand-muted">Visit
-						<select bind:value={visitId} onchange={chooseVisit} disabled={!siteId || visitsLoading} class="block mt-0.5 {inputCls} min-w-56">
-							<option value="">{visitsLoading ? 'Loading…' : visits.length === 0 ? 'No visits' : 'Choose a visit…'}</option>
-							{#each visits as v (v.id)}
-								<option value={v.id}>{formatDateTime(v.collected_at)} · {v.parameters_filled} filled</option>
-							{/each}
-						</select>
-					</label>
-					<Button size="sm" variant="primary" disabled={ordered.length === 0} onclick={runAtVisit}>Run</Button>
-					{#if running}<span class="text-xs text-brand-muted">Reading…</span>{/if}
-					<p class="text-xs text-brand-muted">
-						Type a value into an input cell to read the set over it. With no visit chosen the
-						run is on the typed numbers alone.
-					</p>
-				</div>
-				{#if slots.length > 0}
-					<div class="grid gap-3 sm:grid-cols-2">
-						{#each slots as slot (slot)}
-							<CurvePicker
-								title="Curve slot {slot}"
-								siteId={siteId || null}
-								bind:value={
-									() => curveChoice[slot] ?? emptyCurveSelection(),
-									(v) => (curveChoice = { ...curveChoice, [slot]: v })
-								}
-							/>
-						{/each}
-					</div>
+			<div class="px-3 py-2 border-b border-brand-divider">
+				<h3 class="text-sm font-semibold">Over a site's series</h3>
+				{#if blocker}
+					<p class="text-xs text-brand-muted">This runs at field visits only: it reads {blocker}.</p>
+				{:else}
+					<p class="text-xs text-brand-muted">Move along the chart to read the set at an instant; the tables below follow.</p>
 				{/if}
 			</div>
+			{#if !blocker}
+				<div class="px-3 py-3">
+					<LivePreview
+						formulas={previewSet}
+						sites={sitesWithAvailability}
+						variableNames={previewVariableNames}
+						onhover={(at) => (hovered = at)}
+					/>
+				</div>
+			{/if}
 		</section>
 
 		<!-- The calculation as three tables of the visit's data, the palette beside them and the
@@ -676,8 +786,12 @@
 			<section class="min-w-0 rounded-md border border-brand-divider bg-brand-surface">
 				<div class="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-brand-divider">
 					<div>
-						<h3 class="text-sm font-semibold">At this visit</h3>
-						<p class="text-xs text-brand-muted">The formulas as they stand{unsaved ? ', unsaved edits included' : ''}, over the visit's stored values. Nothing is written.</p>
+						<h3 class="text-sm font-semibold">{hovered ? 'At this instant' : 'At this visit'}</h3>
+						{#if hovered}
+							<p class="text-xs text-brand-muted">{formatDateTime(hovered.time)}, read from the series above. Nothing is written.</p>
+						{:else}
+							<p class="text-xs text-brand-muted">The formulas as they stand{unsaved ? ', unsaved edits included' : ''}, over the visit's stored values. Nothing is written.</p>
+						{/if}
 					</div>
 					<div class="flex flex-wrap items-center gap-2">
 						{#if shareable.length > 0}
@@ -692,9 +806,6 @@
 					</div>
 				</div>
 				<div class="px-3 py-3 space-y-3">
-					{#if !visit}
-						<p class="text-sm text-brand-muted">Choose a site and a visit to read the calculation over its values.</p>
-					{/if}
 					{#if runError}<ErrorNotice message={runError} />{/if}
 					{#if !recorded && run && !run.ran && run.failure}
 						<ErrorNotice message={run.failure.message} />
@@ -758,6 +869,49 @@
 			onstopreading={stopReading}
 			onshowdependents={showDependents}
 		/>
+
+		<!-- Trying the calculation out: choosing a visit runs the set as it stands, saved or not,
+		     against that visit's stored values. Nothing is written. -->
+		<section class="rounded-md border border-brand-divider bg-brand-surface">
+			<h3 class="px-3 py-2 text-sm font-semibold border-b border-brand-divider">
+				Try it at a site<span class="ml-2 text-xs font-normal text-brand-muted">runs the set as it stands over a visit's stored values, and writes nothing</span>
+			</h3>
+			<div class="px-3 py-3 space-y-3">
+				<div class="flex flex-wrap items-end gap-2">
+					<label class="text-xs text-brand-muted">Site
+						<SiteSelect bind:value={siteId} class="block mt-0.5 {inputCls}" onchange={(s) => loadVisits(s)} />
+					</label>
+					<label class="text-xs text-brand-muted">Visit
+						<select bind:value={visitId} onchange={chooseVisit} disabled={!siteId || visitsLoading} class="block mt-0.5 {inputCls} min-w-56">
+							<option value="">{visitsLoading ? 'Loading…' : visits.length === 0 ? 'No visits' : 'Choose a visit…'}</option>
+							{#each visits as v (v.id)}
+								<option value={v.id}>{formatDateTime(v.collected_at)} · {v.parameters_filled} filled</option>
+							{/each}
+						</select>
+					</label>
+					<Button size="sm" variant="primary" disabled={ordered.length === 0} onclick={runAtVisit}>Run</Button>
+					{#if running}<span class="text-xs text-brand-muted">Reading…</span>{/if}
+					<p class="text-xs text-brand-muted">
+						Type a value into an input cell to read the set over it. With no visit chosen the
+						run is on the typed numbers alone.
+					</p>
+				</div>
+				{#if slots.length > 0}
+					<div class="grid gap-3 sm:grid-cols-2">
+						{#each slots as slot (slot)}
+							<CurvePicker
+								title="Curve slot {slot}"
+								siteId={siteId || null}
+								bind:value={
+									() => curveChoice[slot] ?? emptyCurveSelection(),
+									(v) => (curveChoice = { ...curveChoice, [slot]: v })
+								}
+							/>
+						{/each}
+					</div>
+				{/if}
+			</div>
+		</section>
 
 		{#if runsAtVisit.length > 0}
 			<!-- Every run of this calculation at the visit: what was computed here, and when. -->

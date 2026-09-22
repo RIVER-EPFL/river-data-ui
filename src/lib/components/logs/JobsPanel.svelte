@@ -112,7 +112,7 @@
 
 	function jobTarget(job: ReprocessingJob): { label: string; href: string | null } {
 		if (job.trigger_type === 'derived_recompute' && job.trigger_id) {
-			return { label: derivedMap.get(job.trigger_id) ?? job.trigger_id, href: `${base}/derived/${job.trigger_id}` };
+			return { label: derivedMap.get(job.trigger_id) ?? job.trigger_id, href: null };
 		}
 		if ((job.trigger_type === 'plan_apply' || job.trigger_type === 'plan_revert') && job.trigger_id) {
 			return { label: 'Pairing plan', href: `${base}/streams?step=results&plan=${job.trigger_id}` };

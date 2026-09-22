@@ -1336,6 +1336,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/collection_events/{id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * What the calculation chain would produce at a visit, given the cells the operator has typed
+         *     and not saved. The same walk the recompute runs, against the same inputs, storing nothing: no
+         *     run, no reading, no decision, no finding, no output slot and no job, so no value it returns can
+         *     be cited as provenance (Q212). Save is what executes and stores. Requires `write_data`.
+         */
+        post: operations["preview_collection_event"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/collection_events/{id}/recompute": {
         parameters: {
             query?: never;
@@ -6322,7 +6344,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/sync/replicate_audit_holds/acknowledge_bulk": {
+    "/api/sync/replicate_audit_holds/{id}/accept_correction": {
         parameters: {
             query?: never;
             header?: never;
@@ -6332,18 +6354,34 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Acknowledge pending holds in bulk: one stream or a whole source, optionally bounded by a time
-         *     window and by a `relative_delta` ceiling, for systematic offsets that would otherwise take one
-         *     acknowledgement per instant.
+         * Mark a source correction reviewed: it has already applied, and the curation on the affected
+         *     reading stands as it is.
          */
-        post: operations["acknowledge_holds_bulk"];
+        post: operations["accept_correction"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/sync/replicate_audit_holds/{id}/acknowledge": {
+    "/api/sync/replicate_audit_holds/{id}/accept_identity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept the instrument identity the source reports, against the one on record. */
+        post: operations["accept_identity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sync/replicate_audit_holds/{id}/dismiss_finding": {
         parameters: {
             query?: never;
             header?: never;
@@ -6353,11 +6391,30 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Acknowledge one pending hold: the operator confirms the statistics recomputed from the stored
-         *     replicates. Terminal; re-detection of the same disagreement leaves the decision standing.
-         *     The acting identity is taken from the caller's authentication, never from the request.
+         * Dismiss a calculation finding: the audit reported a missing, stale or skipped output here and
+         *     a person rules that no recomputation is owed.
          */
-        post: operations["acknowledge_hold"];
+        post: operations["dismiss_finding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sync/replicate_audit_holds/{id}/release_brake": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Admit the reconciliation pass the brake is holding on this stream. Exactly one braked-scale
+         *     pass applies on the next sync cycle; a later reshape brakes afresh.
+         */
+        post: operations["release_brake"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8638,39 +8695,6 @@ export interface components {
             /** @description The ID of the resource to update */
             id: string;
         };
-        BulkAcknowledgeRequest: {
-            /** Format: date-time */
-            end?: string | null;
-            /**
-             * Format: double
-             * @description Ceiling on `mean_relative_delta`. ANDs with the other ceilings.
-             */
-            max_mean_relative_delta?: number | null;
-            /**
-             * Format: double
-             * @description Only acknowledge holds whose `relative_delta` (as reported by the list endpoint) is at or
-             *     below this. The knob behind "accept everything under N%": systematic small offsets are
-             *     waved through in one action while the large disagreements stay pending for review.
-             */
-            max_relative_delta?: number | null;
-            /**
-             * Format: double
-             * @description Ceiling on `sd_relative_delta`. ANDs with the other ceilings.
-             */
-            max_sd_relative_delta?: number | null;
-            /** @description All of one source's streams, e.g. "cnet". */
-            source_system?: string | null;
-            /**
-             * Format: date-time
-             * @description Restrict to holds whose group_time falls in [start, end]; omit either to leave it open.
-             */
-            start?: string | null;
-            /**
-             * Format: uuid
-             * @description One stream, or omit to scope by source_system (or, with both omitted, every pending hold).
-             */
-            stream_id?: string | null;
-        };
         BulkAction: {
             acknowledged?: boolean | null;
             /** @description `pair` or `skip`. */
@@ -10314,6 +10338,35 @@ export interface components {
              * @description When the visit was rejected, its readings withdrawn beside it.
              */
             withdrawn_at?: string;
+        };
+        /**
+         * @description What the calculation chain would produce at a visit, given what the operator has typed and not
+         *     saved. Nothing in it is stored and nothing in it names a run: Save executes the same walk and
+         *     mints the run the stored values cite (Q212).
+         */
+        EventPreview: {
+            /**
+             * @description One entry per calculation that ran, in the order it ran, with the inputs, constants,
+             *     curves and versions it consumed.
+             */
+            calculations: components["schemas"]["ToolCalculation"][];
+            /** Format: date-time */
+            collected_at: string;
+            /** @description Calculations the site declares nothing for. */
+            not_applicable: string[];
+            outputs: components["schemas"]["PreviewedValue"][];
+            /** Format: uuid */
+            site_id: string;
+            /** @description Calculations that did not run at this visit, as `(tool, reason)`. */
+            skipped: [
+                string,
+                string
+            ][];
+            /**
+             * @description Calculations whose stored run already consumed exactly this: the slot keeps the value it
+             *     holds.
+             */
+            unchanged: string[];
         };
         EventRecomputeRequest: {
             /**
@@ -13698,6 +13751,13 @@ export interface components {
             source_parameters: components["schemas"]["SourceParameterSeries"][];
             times: string[];
         };
+        /**
+         * @description The cells an operator has typed at a visit and not saved. A cell the request leaves out is one
+         *     nobody touched, and reads from the store.
+         */
+        PreviewEventRequest: {
+            staged?: components["schemas"]["StagedCell"][];
+        };
         PreviewInstant: {
             /**
              * Format: double
@@ -13746,6 +13806,20 @@ export interface components {
             n: number;
             /** Format: double */
             sd: number | null;
+        };
+        /**
+         * @description One value the chain would produce at a visit, were the staged cells saved. `value` is absent
+         *     where the calculation cleared the slot, which a save records as a withdrawal.
+         */
+        PreviewedValue: {
+            /** @description The manifest key the value came out of. */
+            output: string;
+            /** Format: uuid */
+            parameter_id: string;
+            /** Format: int32 */
+            replicate_index: number | null;
+            /** Format: double */
+            value: number | null;
         };
         ProjectCreate: {
             data_source?: string | null;
@@ -16587,6 +16661,32 @@ export interface components {
             collected_at: string;
             /** Format: uuid */
             site_id: string;
+        };
+        /**
+         * @description One cell of a visit as the operator has left it, before any save.
+         *
+         *     A cell the request does not carry is a cell nobody touched: the calculation reads whatever the
+         *     store holds there. A cell carrying `value: null` is the operator emptying it, which a save
+         *     records as a withdrawal, so the calculation reads the visit without it.
+         */
+        StagedCell: {
+            /** Format: uuid */
+            parameter_id: string;
+            /**
+             * Format: int32
+             * @description Position in the family. A single measurement is index 0.
+             */
+            replicate_index: number;
+            /**
+             * Format: uuid
+             * @description The standard curve the operator picked for this cell, where the slot takes one.
+             */
+            standard_curve_id?: string;
+            /**
+             * Format: double
+             * @description The number as typed, uncorrected. `null` empties the cell.
+             */
+            value: number | null;
         };
         StagedEvent: {
             /** Format: date-time */
@@ -21225,6 +21325,47 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["EventDetailResponse"];
                 };
+            };
+            /** @description Unknown collection event */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    preview_collection_event: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Collection event id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewEventRequest"];
+            };
+        };
+        responses: {
+            /** @description What the chain would produce */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventPreview"];
+                };
+            };
+            /** @description A staged cell names a parameter the site does not carry */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Unknown collection event */
             404: {
@@ -35596,30 +35737,7 @@ export interface operations {
             };
         };
     };
-    acknowledge_holds_bulk: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BulkAcknowledgeRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AcknowledgeResponse"];
-                };
-            };
-        };
-    };
-    acknowledge_hold: {
+    accept_correction: {
         parameters: {
             query?: never;
             header?: never;
@@ -35637,6 +35755,118 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AcknowledgeResponse"];
                 };
+            };
+            /** @description The hold is not a source correction */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No pending hold with this id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    accept_identity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcknowledgeResponse"];
+                };
+            };
+            /** @description The hold is not an identity change */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No pending hold with this id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    dismiss_finding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcknowledgeResponse"];
+                };
+            };
+            /** @description The hold is not a calculation finding */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No pending hold with this id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    release_brake: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcknowledgeResponse"];
+                };
+            };
+            /** @description The hold is not a fired brake */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description No pending hold with this id */
             404: {

@@ -4,15 +4,19 @@
 	import { previewDerived, type DraftFormula, type PreviewDerivedResponse } from '$api/service';
 	import { tokens } from '$lib/charts/tokens';
 	import { tzDateOption } from '$lib/charts/uPlotTheme';
+	import { previewInstant, type PreviewInstant } from '$lib/tools/runTable';
 
 	let {
 		formulas,
 		sites,
 		variableNames,
+		onhover,
 	}: {
 		formulas: DraftFormula[];
 		sites: Array<{ id: string; name: string; availableParamNames?: string[] }>;
 		variableNames: string[];
+		/** The instant under the cursor, so a caller can show the set's numbers there. */
+		onhover?: (at: PreviewInstant | null) => void;
 	} = $props();
 
 	let selectedSiteId = $state<string>('');
@@ -119,6 +123,14 @@
 			height: 320,
 			...tzDateOption(),
 			cursor: { drag: { x: true, y: false } },
+			hooks: {
+				setCursor: [
+					(u: uPlot) => {
+						const idx = u.cursor.idx;
+						onhover?.(preview && idx != null ? previewInstant(preview, idx) : null);
+					},
+				],
+			},
 			scales: { x: { time: true } },
 			series,
 			legend: { show: true },

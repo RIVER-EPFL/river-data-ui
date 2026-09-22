@@ -38,9 +38,6 @@
 		<div class="flex items-center gap-2 shrink-0">
 			{#if tab.key === 'catalog'}
 				<a href="{base}/parameters/new" class="px-3 py-1.5 border border-brand-divider rounded-md no-underline text-sm font-semibold text-brand-text bg-brand-surface hover:bg-brand-bg">Create parameter</a>
-				{#if me.can(AUTHOR_CALCULATIONS)}
-					<a href="{base}/derived/new" class="px-3 py-1.5 bg-brand-primary text-white rounded-md no-underline text-sm font-semibold hover:bg-brand-primary-dark">Create derived parameter</a>
-				{/if}
 			{:else if tab.key === 'groups'}
 				{#if me.can(AUTHOR_CALCULATIONS)}
 					<a href="{base}/parameters/groups/new" class="px-3 py-1.5 bg-brand-primary text-white rounded-md no-underline text-sm font-semibold hover:bg-brand-primary-dark">New group</a>

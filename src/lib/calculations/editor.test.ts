@@ -6,7 +6,12 @@ import type { Constant, DerivedParameter, Parameter } from '$api/crud';
 import {
 	blankFormula,
 	editableFormula,
+	blankThresholds,
 	formulaSetBody,
+	isSharedStep,
+	seriesBlocker,
+	thresholdWrites,
+	sharedStepWrites,
 	curveSlots,
 	dependencyOrder,
 	draftRunBody,
@@ -30,6 +35,8 @@ const formula = (over: Partial<EditableFormula>): EditableFormula => ({
 	curve_slot: '',
 	per_replicate: '',
 	intermediate: false,
+	shared: false,
+	thresholds: blankThresholds(),
 	codeLocked: null,
 	...over,
 });
@@ -383,5 +390,99 @@ describe('a run with no visit', () => {
 		expect(body.inputs?.collected_at).toBeUndefined();
 		expect(body.inputs?.lab_co2).toEqual([410, 430]);
 		expect(body.inputs?.lab_temp).toBe(21);
+	});
+});
+
+describe('a step any calculation may read', () => {
+	const step = (over: Partial<EditableFormula> = {}) =>
+		formula({ code: 'water_k', formula: 'WTW_Temp_degC_1 + 273.15', intermediate: true, ...over });
+
+	it('belongs to the calculation until the author says otherwise', () => {
+		expect(isSharedStep(step())).toBe(false);
+		expect(formulaSetBody([step()], false).formulas.map((f) => f.code)).toEqual(['water_k']);
+		expect(sharedStepWrites([step()])).toEqual([]);
+	});
+
+	it('leaves the set body once it is shared, so the save neither rewrites nor deletes it', () => {
+		const shared = step({ shared: true });
+		expect(isSharedStep(shared)).toBe(true);
+		expect(formulaSetBody([shared, formula({ code: 'SUVA', formula: 'water_k * 2' })], false)
+			.formulas.map((f) => f.code)).toEqual(['SUVA']);
+	});
+
+	it('is written on its own when nothing declares it here yet', () => {
+		expect(sharedStepWrites([step({ shared: true })]).map((f) => f.code)).toEqual(['water_k']);
+	});
+
+	it('is written once: a step already declared here is left alone', () => {
+		const declared = step({ id: 'f-1', shared: true, declarationId: 'd-1' });
+		expect(sharedStepWrites([declared])).toEqual([]);
+		expect(formulaSetBody([declared], false).formulas).toEqual([]);
+	});
+
+	it('keeps its identity when a stored step of this calculation is shared', () => {
+		const moved = step({ id: 'f-2', shared: true });
+		expect(sharedStepWrites([moved]).map((f) => f.id)).toEqual(['f-2']);
+	});
+
+	it('cannot be shared without being a step: an output publishes under its own parameter', () => {
+		const output = formula({ code: 'SUVA', formula: 'a254', shared: true });
+		expect(isSharedStep(output)).toBe(false);
+		expect(sharedStepWrites([output])).toEqual([]);
+		expect(formulaSetBody([output], false).formulas.map((f) => f.code)).toEqual(['SUVA']);
+	});
+});
+
+describe("an output's own bounds", () => {
+	const suva = (over: Partial<EditableFormula> = {}) =>
+		formula({ id: 'f-1', code: 'SUVA', formula: 'a254 / DOC', ...over });
+	const saved = [{ code: 'SUVA', output_parameter_id: 'p-1' }];
+	const bounds = (over: Partial<EditableFormula['thresholds']>) => ({ ...blankThresholds(), ...over });
+
+	it('writes nothing while the four fields read as they were stored', () => {
+		const stored = suva({ thresholds: bounds({ warningMin: 2 }) });
+		const edited = suva({ thresholds: bounds({ warningMin: '2' }) });
+		expect(thresholdWrites([edited], [stored], saved)).toEqual([]);
+	});
+
+	it('writes the bounds the author typed onto the parameter the save minted', () => {
+		const edited = suva({ id: null, thresholds: bounds({ warningMin: '2', alarmMax: '9' }) });
+		expect(thresholdWrites([edited], [], saved)).toEqual([
+			{ parameterId: 'p-1', patch: { warning_min: 2, warning_max: null, alarm_min: null, alarm_max: 9 } },
+		]);
+	});
+
+	it('clears a bound the author emptied, rather than leaving the old one standing', () => {
+		const stored = suva({ thresholds: bounds({ warningMin: 2, alarmMax: 9 }) });
+		const edited = suva({ thresholds: bounds({ alarmMax: 9 }) });
+		expect(thresholdWrites([edited], [stored], saved)[0].patch.warning_min).toBeNull();
+	});
+
+	it('leaves a step alone: it publishes under no parameter', () => {
+		const step = suva({ intermediate: true, thresholds: bounds({ warningMin: '2' }) });
+		expect(thresholdWrites([step], [], saved)).toEqual([]);
+	});
+
+	it('leaves an output the save minted no parameter for alone', () => {
+		const edited = suva({ thresholds: bounds({ warningMin: '2' }) });
+		expect(thresholdWrites([edited], [], [{ code: 'SUVA', output_parameter_id: null }])).toEqual([]);
+	});
+});
+
+describe('whether a set can be read as a series', () => {
+	const blockerOf = (fs: EditableFormula[]) => seriesBlocker(fs);
+
+	it('can, when every input is a parameter the site streams', () => {
+		expect(blockerOf([formula({ code: 'SUVA', formula: 'a254 / DOC' })])).toBeNull();
+	});
+
+	it('cannot, when a formula corrects with a curve chosen per sample', () => {
+		expect(blockerOf([formula({ code: 'DOC', formula: 'a254 * curve_slope', curve_slot: 'doc' })]))
+			.toBe('the curve slot doc, whose coefficients are chosen per sample');
+	});
+
+	it('cannot, when a formula runs per replicate', () => {
+		expect(blockerOf([formula({ code: 'SUVA', formula: 'a254 / DOC', per_replicate: 'DOC' })]))
+			.toBe('SUVA, which runs per replicate of DOC');
 	});
 });

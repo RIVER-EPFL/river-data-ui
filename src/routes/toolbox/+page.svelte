@@ -196,16 +196,15 @@
 		{#if !access.authorable}
 			<p class="text-sm text-brand-muted">{access.notice}</p>
 		{:else}
-			<!-- A calculation of either engine is made here; a definition made from the parameter list
-			     belongs to no calculation. -->
 			<div class="rounded-md border border-brand-divider bg-brand-surface px-4 py-3 text-sm">
 				<div class="flex items-center justify-between gap-3">
 					<div>
 						<p class="font-semibold">New calculation</p>
 						<p class="text-brand-muted text-xs mt-0.5">
-							A formula calculation holds an ordered set of formulas over the parameters they
-							name; an R script defines <span class="font-mono">tool</span>. Either is authored on
-							its own page.
+							A formula calculation is authored as tables of inputs, steps and outputs, over the
+							parameters the formulas name. An R tool is a calculation with the R script engine,
+							for what formulas cannot express: it defines <span class="font-mono">tool</span> in
+							R. Either is authored on its own page.
 						</p>
 					</div>
 					{#if !composing}

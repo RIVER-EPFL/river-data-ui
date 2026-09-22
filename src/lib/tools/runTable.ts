@@ -301,3 +301,37 @@ export function runTables(
 		order.filter((o) => o.band === want).map((o) => rows.get(o.key)!);
 	return { columns, steps: band('step'), outputs: band('output'), statistics: band('statistic') };
 }
+
+/** The set's numbers at one instant of a series preview, in the shapes the tables above read. */
+export interface PreviewInstant {
+	time: string;
+	results: Record<string, number | null>;
+	inputs: RunEventInput[];
+}
+
+/**
+ * One instant of a series preview, so the sheet shows the value each formula takes there. The
+ * preview reports every formula and every source parameter over one array of times, so an index
+ * into that array is an instant and the numbers at it are the run.
+ */
+export function previewInstant(
+	preview: {
+		times: string[];
+		source_parameters: Array<{ name: string; values: Array<number | null> }>;
+		formulas: Array<{ code: string; values: Array<number | null> }>;
+	},
+	index: number,
+): PreviewInstant | null {
+	const time = preview.times[index];
+	if (time === undefined) return null;
+	const results: Record<string, number | null> = {};
+	for (const f of preview.formulas) results[f.code] = f.values[index] ?? null;
+	return {
+		time,
+		results,
+		inputs: preview.source_parameters.map((p) => ({
+			param: p.name,
+			value: p.values[index] ?? null,
+		})),
+	};
+}

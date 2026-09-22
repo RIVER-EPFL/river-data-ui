@@ -5,7 +5,7 @@ const listReplicateAudits = vi.fn();
 const listStreams = vi.fn();
 vi.mock('$api/service', () => ({
 	listReplicateAudits: (...args: unknown[]) => listReplicateAudits(...args),
-	acknowledgeReplicateAudit: vi.fn(),
+	acceptIdentityChange: vi.fn(),
 }));
 vi.mock('$api/crud', () => ({
 	api: { dataStreams: { list: (...args: unknown[]) => listStreams(...args) } },

@@ -908,22 +908,26 @@ export const listReplicateAudits = (
 	} = {},
 ) => GET<ReplicateAuditListResponse>(`${ADMIN}/sync/replicate_audit_holds`, { ...filter });
 
-// `skipped_no_stream` counts the ones the sweep could not reach at all: an event finding is keyed
-// on its slot rather than a stream, and the sweep and its filters are about streams.
 export type AcknowledgeResult = components['schemas']['AcknowledgeResponse'];
 
-export const acknowledgeReplicateAudit = (id: string) =>
-	POST<AcknowledgeResult>(`${ADMIN}/sync/replicate_audit_holds/${id}/acknowledge`, {});
+// One route per purpose: a route that cannot be called for another kind cannot mint another
+// kind's sentence on the chart.
 
-export const acknowledgeReplicateAuditsBulk = (req: {
-	stream_id?: string;
-	source_system?: string;
-	start?: string;
-	end?: string;
-	// Only acknowledge holds whose disagreements are at or below both ceilings (AND).
-	max_mean_relative_delta?: number;
-	max_sd_relative_delta?: number;
-}) => POST<AcknowledgeResult>(`${ADMIN}/sync/replicate_audit_holds/acknowledge_bulk`, req);
+// Admit the reconciliation pass the brake is holding; one braked-scale pass applies next cycle.
+export const releaseStreamBrake = (id: string) =>
+	POST<AcknowledgeResult>(`${ADMIN}/sync/replicate_audit_holds/${id}/release_brake`, {});
+
+// Rule that a missing, stale or skipped output owes no recomputation.
+export const dismissCalculationFinding = (id: string) =>
+	POST<AcknowledgeResult>(`${ADMIN}/sync/replicate_audit_holds/${id}/dismiss_finding`, {});
+
+// Accept the instrument identity the source reports, against the one on record.
+export const acceptIdentityChange = (id: string) =>
+	POST<AcknowledgeResult>(`${ADMIN}/sync/replicate_audit_holds/${id}/accept_identity`, {});
+
+// Mark a source correction reviewed; it has already applied.
+export const acceptSourceCorrection = (id: string) =>
+	POST<AcknowledgeResult>(`${ADMIN}/sync/replicate_audit_holds/${id}/accept_correction`, {});
 
 export type ResolveHoldResult = components['schemas']['ResolveHoldResponse'];
 
@@ -1076,6 +1080,17 @@ export const stageCollectionEvents = (req: {
 
 export const recomputeCollectionEvent = (id: string) =>
 	POST<{ job_id: string | null }>(`${SERVICE}/collection_events/${id}/recompute`, {});
+
+export type StagedCell = components['schemas']['StagedCell'];
+
+export type EventPreview = components['schemas']['EventPreview'];
+
+/**
+ * What the calculation chain would produce at a visit, given cells the operator has typed and not
+ * saved. Stores nothing: no run, no reading and no value a save can cite (Q212).
+ */
+export const previewCollectionEvent = (id: string, staged: StagedCell[]) =>
+	POST<EventPreview>(`${SERVICE}/collection_events/${id}/preview`, { staged });
 
 export const runEventAudit = (req: { site_id?: string; collection_event_id?: string }) =>
 	POST<{ job_id: string | null }>(`${SERVICE}/actions/event_audit`, req);

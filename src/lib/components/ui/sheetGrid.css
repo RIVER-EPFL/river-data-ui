@@ -47,6 +47,17 @@
 .sheet-grid td.sheet-edited {
 	box-shadow: inset 3px 0 0 var(--color-brand-primary);
 }
+/* A calculated cell showing what the typed values would make it, before any Save. */
+.sheet-grid td.sheet-preview {
+	background-color: color-mix(in srgb, var(--color-brand-primary) 12%, var(--color-brand-surface));
+	font-style: italic;
+}
+/* The same cell while its answer is in flight or could not be worked out: the number in it is the
+   stored one, and is not the answer. */
+.sheet-grid td.sheet-preview-pending {
+	color: var(--color-brand-muted);
+	font-style: italic;
+}
 .sheet-grid td.sheet-open-row {
 	background-color: color-mix(in srgb, var(--color-brand-primary) 6%, var(--color-brand-surface));
 }

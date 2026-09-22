@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { acknowledgeReplicateAudit, listReplicateAudits, type ReplicateAuditHold } from '$api/service';
+	import { releaseStreamBrake, listReplicateAudits, type ReplicateAuditHold } from '$api/service';
 	import { brakeSummary } from '$lib/holds';
 	import { apiMessage } from '$lib/standardCurves';
 	import { toastStore } from '$lib/stores/toast.svelte';
@@ -30,7 +30,7 @@
 	async function release(hold: ReplicateAuditHold) {
 		releasing = true;
 		try {
-			await acknowledgeReplicateAudit(hold.id);
+			await releaseStreamBrake(hold.id);
 			toastStore.success('Brake released: the next pass may apply the reshape');
 			await load();
 		} catch (e) {

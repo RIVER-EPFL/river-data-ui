@@ -13,31 +13,25 @@ describe('the toolbox route', () => {
 		expect(toolboxHref('/app', 'doc', 3)).toBe('/app/toolbox/doc?version=3');
 	});
 
-	it('opens a formula in the editor of its own kind', () => {
-		expect(calculationHref('/app', { definition_id: 'def-1' })).toBe('/app/derived/def-1');
-		expect(calculationHref('/app', { definition_id: 'def-1', tool_script_id: 'ts-1' })).toBe(
-			'/app/toolbox/ts-1',
-		);
+	it('opens a formula on the page of the calculation it belongs to', () => {
+		expect(calculationHref('/app', { tool_script_id: 'ts-1' })).toBe('/app/toolbox/ts-1');
 	});
 
 	it('opens the calculation on the cell, the run and the replicate a value came from', () => {
 		expect(
 			calculationHref(
 				'/app',
-				{ definition_id: 'def-1', tool_script_id: 'ts-1' },
+				{ tool_script_id: 'ts-1' },
 				{ cell: 'pco2', run: 'run-9', index: 2 },
 			),
 		).toBe('/app/toolbox/ts-1?cell=pco2&run=run-9&index=2');
-		expect(calculationHref('/app', { definition_id: 'def-1' }, { cell: 'k1' })).toBe(
-			'/app/derived/def-1?cell=k1',
-		);
 	});
 
 	it('leaves a link with nothing to anchor to as it was', () => {
-		expect(calculationHref('/app', { definition_id: 'def-1' }, {})).toBe('/app/derived/def-1');
+		expect(calculationHref('/app', { tool_script_id: 'ts-1' }, {})).toBe('/app/toolbox/ts-1');
 		expect(
-			calculationHref('/app', { definition_id: 'def-1' }, { cell: null, run: null, index: null }),
-		).toBe('/app/derived/def-1');
+			calculationHref('/app', { tool_script_id: 'ts-1' }, { cell: null, run: null, index: null }),
+		).toBe('/app/toolbox/ts-1');
 	});
 
 	it('finds a formula calculation and an R script through the same segment', () => {
