@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { defaultFilter, readingsFilter } from './listFilter';
+import { defaultFilter, filterFromQuery, readingsFilter } from './listFilter';
 
 describe('defaultFilter', () => {
 	it('opens on the last seven days with nothing else set', () => {
@@ -45,5 +45,34 @@ describe('readingsFilter', () => {
 		expect(readingsFilter({ ...base, flagged: 'flagged' })).toEqual({ is_flagged: true });
 		expect(readingsFilter({ ...base, flagged: 'clean' })).toEqual({ is_flagged: false });
 		expect(readingsFilter({ ...base, unverifiedOnly: true })).toEqual({ unverified: true });
+	});
+});
+
+describe('filterFromQuery', () => {
+	const now = new Date('2026-03-01T00:00:00Z');
+
+	it('opens on the parameter and span a link names', () => {
+		const state = filterFromQuery(
+			new URLSearchParams({
+				parameter: 'p-suva',
+				from: '2026-01-01T00:00:00Z',
+				to: '2026-02-01T00:00:00Z',
+			}),
+			now,
+		);
+		expect(state.parameterId).toBe('p-suva');
+		expect(state.from).toBe('2026-01-01T00:00:00Z');
+		expect(state.to).toBe('2026-02-01T00:00:00Z');
+		expect(state.siteId).toBe('');
+	});
+
+	it('leaves what the query does not name at its default', () => {
+		const bare = filterFromQuery(new URLSearchParams(), now);
+		expect(bare).toEqual(defaultFilter(now));
+	});
+
+	it('reads a blank value as absent', () => {
+		const state = filterFromQuery(new URLSearchParams({ parameter: '  ' }), now);
+		expect(state.parameterId).toBe('');
 	});
 });

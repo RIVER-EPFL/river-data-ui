@@ -36,6 +36,7 @@ const derived = [
 		name: 'DO saturation',
 		formula: 'do / cap',
 		output_parameter_id: 'p-do',
+		tool_script_id: 'sc-pco2',
 		sources: [
 			{ id: 's1', derived_definition_id: 'd1', parameter_id: 'p-temp', variable_name: 'temp' },
 		],
@@ -52,7 +53,10 @@ const tools = [
 	},
 ] as unknown as ToolDescriptor[];
 
-const scripts = [{ id: 'sc-dom', name: 'dom', enabled: false, engine: 'script' }] as ToolScriptSummary[];
+const scripts = [
+	{ id: 'sc-dom', name: 'dom', enabled: false, engine: 'script' },
+	{ id: 'sc-pco2', name: 'pco2', engine: 'formula' },
+] as ToolScriptSummary[];
 
 function rows() {
 	return calculationRows({ derived, tools, scripts, parameters, coverage, base: '' });
@@ -125,35 +129,27 @@ describe('the calculation a row belongs to', () => {
 		expect(rows().find((r) => r.engine === 'script')?.calculation).toBe('dom');
 	});
 
-	it('is null for a standalone definition, which raises no finding', () => {
-		expect(rows().find((r) => r.engine === 'formula')?.calculation).toBeNull();
+	it('is the owning calculation for a formula', () => {
+		expect(rows().find((r) => r.engine === 'formula')?.calculation).toBe('pco2');
 	});
 
-	it('is the owning calculation for a formula that belongs to one', () => {
-		const owned = calculationRows({
-			derived: [{ ...derived[0], tool_script_id: 'ts-pco2' }] as DerivedParameter[],
-			tools,
-			scripts: [...scripts, { id: 'ts-pco2', name: 'pco2' } as ToolScriptSummary],
-			parameters,
-			coverage,
-			base: '',
-		});
-		expect(owned.find((r) => r.engine === 'formula')?.calculation).toBe('pco2');
-	});
-
-	it("links each row to where it is authored: a script's page, a calculation's formulas", () => {
-		const [standalone, script] = rows();
-		expect(script.href).toBe('/toolbox/sc-dom');
-		expect(standalone.href).toBe('/derived/d1');
-		const owned = calculationRows({
-			derived: [{ ...derived[0], tool_script_id: 'sc-pco2' }],
+	it('leaves a shared step out of the list, which computes nothing of its own', () => {
+		const step = { ...derived[0], id: 'd2', code: 'water_k', tool_script_id: null };
+		const listed = calculationRows({
+			derived: [...derived, step] as DerivedParameter[],
 			tools: [],
-			scripts: [],
+			scripts,
 			parameters,
 			coverage,
 			base: '',
 		});
-		expect(owned[0].href).toBe('/toolbox/sc-pco2');
+		expect(listed.map((r) => r.label)).toEqual(['DO saturation']);
+	});
+
+	it("links each row to the page its calculation is authored on", () => {
+		const [formula, script] = rows();
+		expect(formula.href).toBe('/toolbox/sc-pco2');
+		expect(script.href).toBe('/toolbox/sc-dom');
 	});
 
 	it('lists a formula calculation once, by its formulas, not again as a script', () => {

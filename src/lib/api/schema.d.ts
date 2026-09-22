@@ -5343,6 +5343,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sites/{site_id}/calculations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply a calculation at a site: check the site declares everything the calculation reads, and
+         *     mint the output slots it lacks.
+         * @description Refused while an input is undeclared, naming each one: the calculation would be
+         *     `not_applicable` there, learned after the fact from a job log. The outputs a successful apply
+         *     mints are the site's declaration of the calculation, so they carry no review flag; the ones the
+         *     chain mints on its own still do (Q193). Applying twice creates nothing the second time.
+         */
+        post: operations["apply_calculation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sites/{site_id}/detail": {
         parameters: {
             query?: never;
@@ -7423,6 +7447,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tool_scripts/{id}/version_ledger": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What each version of the calculation has computed on the stream arm, newest first (Q232).
+         * @description The visit arm answers this with its runs; a stream pass mints none, so the history is read off
+         *     the curation ledger. Requires `read_data`: it is a reading of what was computed, not of how the
+         *     calculation is written.
+         */
+        get: operations["list_version_ledger"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tool_scripts/{id}/version_usage": {
         parameters: {
             query?: never;
@@ -8521,6 +8567,31 @@ export interface components {
              */
             site_parameter_id?: string;
         };
+        ApplyCalculationRequest: {
+            /**
+             * Format: uuid
+             * @description The tool script the calculation is authored as.
+             */
+            calculation_id: string;
+            /** @description Report what would be created, and what is missing, without creating anything. */
+            dry_run?: boolean;
+        };
+        ApplyCalculationResponse: {
+            /** Format: uuid */
+            calculation_id: string;
+            calculation_name: string;
+            dry_run: boolean;
+            /** @description Read inputs the site does not declare. Non-empty refuses the apply. */
+            inputs_missing: components["schemas"]["AppliedSlot"][];
+            /** @description Read inputs the site already declares. */
+            inputs_present: components["schemas"]["AppliedSlot"][];
+            /** @description Output slots this call created, or would create. */
+            outputs_created: components["schemas"]["AppliedSlot"][];
+            /** @description Output slots the site already carries, left exactly as they are. */
+            outputs_existing: components["schemas"]["AppliedSlot"][];
+            /** Format: uuid */
+            site_id: string;
+        };
         ApplyGroupRequest: {
             /** @description Report what would be created without creating it. */
             dry_run?: boolean;
@@ -9430,8 +9501,9 @@ export interface components {
          *     moved since. `kind` is `reading` (one row), `mean` (the sample statistic over `members`),
          *     `replicates` (a family, one member per index, a gap as a member with no value), `site` (a
          *     column of the site row), `constant`, `curve` (a catalog curve, or entered coefficients with no
-         *     subject), or `step` (a formula of the pinned set). An entity input names its `change_audit`
-         *     subject and the newest `seq` for it.
+         *     subject), `computed` (the number a step of the same set produced, under the step's own code)
+         *     or `step` (a formula of the pinned set). An entity input names its `change_audit` subject and
+         *     the newest `seq` for it.
          */
         ConsumedInput: {
             kind: string;
@@ -12959,7 +13031,6 @@ export interface components {
              * @description Display precision the client formats with; the API serves full precision.
              */
             decimal_places: number | null;
-            display_units: string | null;
             /** @description How this site fills the slot: 'manual' or 'tool' */
             entry_mode: string;
             external_source: null | components["schemas"]["ExternalSource"];
@@ -12994,7 +13065,7 @@ export interface components {
             /** Format: int32 */
             sample_interval_sec: number | null;
             sensor_type: string;
-            /** @description Resolved units: site override (`display_units`) falling back to the catalog `default_units` */
+            /** @description Units, from the catalog `default_units` */
             units: string | null;
         };
         ParameterResult: {
@@ -16371,7 +16442,6 @@ export interface components {
             cadence?: string | null;
             /** Format: int32 */
             decimal_places?: number | null;
-            display_units?: string | null;
             entry_mode?: string | null;
             /** Format: uuid */
             instrument_sensor_id?: string | null;
@@ -16386,11 +16456,6 @@ export interface components {
             sensor_type?: string | null;
             /** Format: uuid */
             site_id: string;
-            /** Format: double */
-            units_max?: number | null;
-            /** Format: double */
-            units_min?: number | null;
-            units_name?: string | null;
             variable_mappings?: unknown;
         };
         SiteParameterList: {
@@ -16415,12 +16480,6 @@ export interface components {
              *     row arrived from a source rather than by hand.
              */
             discovered_at: string | null;
-            /**
-             * @description Site-level units override. NULL means "no override": every endpoint serving this slot
-             *     resolves units through [`SlotDescriptor`], which falls back to the
-             *     catalog `default_units`.
-             */
-            display_units: string | null;
             /**
              * @description How this site fills the slot: 'manual' (a person types the value) or 'tool' (a
              *     calculation computes it here). The declaration is per site, so one site may measure a
@@ -16454,21 +16513,6 @@ export interface components {
             sensor_type: string;
             /** Format: uuid */
             site_id: string;
-            /**
-             * Format: double
-             * @description Stored and returned by the CRUD endpoint; no server-side reader.
-             */
-            units_max: number | null;
-            /**
-             * Format: double
-             * @description Stored and returned by the CRUD endpoint; no server-side reader.
-             */
-            units_min: number | null;
-            /**
-             * @description Stored and returned by the CRUD endpoint; no server-side reader. Kept because existing
-             *     rows carry values.
-             */
-            units_name: string | null;
             /** Format: date-time */
             updated_at: string | null;
             /**
@@ -16499,12 +16543,6 @@ export interface components {
              *     row arrived from a source rather than by hand.
              */
             discovered_at: string | null;
-            /**
-             * @description Site-level units override. NULL means "no override": every endpoint serving this slot
-             *     resolves units through [`SlotDescriptor`], which falls back to the
-             *     catalog `default_units`.
-             */
-            display_units: string | null;
             /**
              * @description How this site fills the slot: 'manual' (a person types the value) or 'tool' (a
              *     calculation computes it here). The declaration is per site, so one site may measure a
@@ -16538,21 +16576,6 @@ export interface components {
             sensor_type: string;
             /** Format: uuid */
             site_id: string;
-            /**
-             * Format: double
-             * @description Stored and returned by the CRUD endpoint; no server-side reader.
-             */
-            units_max: number | null;
-            /**
-             * Format: double
-             * @description Stored and returned by the CRUD endpoint; no server-side reader.
-             */
-            units_min: number | null;
-            /**
-             * @description Stored and returned by the CRUD endpoint; no server-side reader. Kept because existing
-             *     rows carry values.
-             */
-            units_name: string | null;
             /** Format: date-time */
             updated_at: string | null;
             /**
@@ -16565,7 +16588,6 @@ export interface components {
             cadence?: string | null;
             /** Format: int32 */
             decimal_places?: number | null;
-            display_units?: string | null;
             entry_mode?: string | null;
             /** Format: uuid */
             instrument_sensor_id?: string | null;
@@ -16580,11 +16602,6 @@ export interface components {
             sensor_type?: string | null;
             /** Format: uuid */
             site_id?: string | null;
-            /** Format: double */
-            units_max?: number | null;
-            /** Format: double */
-            units_min?: number | null;
-            units_name?: string | null;
             variable_mappings?: unknown;
         };
         /** @description Brief site reference for embedding in responses */
@@ -17991,6 +18008,40 @@ export interface components {
             version: string;
         };
         /**
+         * @description What one version of a calculation has computed on the stream arm: the readings whose curation
+         *     ledger names it, the span of instants they sit at, and when the computing happened.
+         *
+         *     A stream pass mints no run: it recomputes continuously, and two passes under one version are
+         *     one row here. A version that computed nothing carries zeros and null spans, so the ledger shows
+         *     the set's history whole rather than only the versions that happened to leave rows.
+         */
+        VersionLedgerRow: {
+            /**
+             * Format: date-time
+             * @description When the version first and last computed one of them.
+             */
+            first_computed: string | null;
+            /**
+             * Format: date-time
+             * @description The earliest and latest instant of those readings.
+             */
+            first_instant: string | null;
+            /** Format: date-time */
+            last_computed: string | null;
+            /** Format: date-time */
+            last_instant: string | null;
+            /**
+             * Format: int64
+             * @description Distinct reading keys the version wrote at, not decisions: a reading moved twice under one
+             *     version is one reading.
+             */
+            readings: number;
+            /** Format: uuid */
+            version_id: string;
+            /** Format: int32 */
+            version_no: number;
+        };
+        /**
          * @description What one version of a calculation has already produced: the readings whose stored provenance
          *     names it, and the visits those readings belong to. A version that produced nothing carries
          *     zeros, because "nothing stored" and "not counted" are different claims.
@@ -18370,7 +18421,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Derived parameter definition UUID */
+                /** @description Calculation UUID */
                 id: string;
             };
             cookie?: never;
@@ -18386,7 +18437,7 @@ export interface operations {
                     "application/json": components["schemas"]["QueuedJobResponse"];
                 };
             };
-            /** @description Derived parameter definition not found */
+            /** @description Calculation not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -33368,6 +33419,52 @@ export interface operations {
             };
         };
     };
+    apply_calculation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                site_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyCalculationRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplyCalculationResponse"];
+                };
+            };
+            /** @description The site does not declare every parameter the calculation reads */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No site or no calculation with this id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The calculation is switched off */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     get_site_detail: {
         parameters: {
             query?: never;
@@ -38875,6 +38972,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    list_version_ledger: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionLedgerRow"][];
+                };
             };
         };
     };

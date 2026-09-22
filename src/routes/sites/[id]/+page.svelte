@@ -37,6 +37,7 @@
 	import { siteNavigator } from '$lib/stores/sites.svelte';
 	import { formatRelativeTime, formatDateTime, formatDate } from '$lib/utils';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
+	import ApplyCalculationAtSite from '$components/toolbox/ApplyCalculationAtSite.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import ConfirmButton from '$components/ui/ConfirmButton.svelte';
 	import Tabs from '$components/ui/Tabs.svelte';
@@ -822,11 +823,10 @@
 
 	function paramName(paramId: string): string { return parameters.find((p) => p.id === paramId)?.name ?? 'None'; }
 
-	// The unit a slot serves: the site's override where it has one, else the catalog default. Any
-	// table printing a number for a parameter names it, since sites can disagree (ppb against ppt).
+	// The unit a slot serves, from the catalog. Any table printing a number for a parameter names
+	// it.
 	function unitsForParameter(paramId: string): string | null {
-		const sp = siteParameters.find((s) => s.parameter_id === paramId);
-		return sp?.display_units ?? parameters.find((p) => p.id === paramId)?.default_units ?? null;
+		return parameters.find((p) => p.id === paramId)?.default_units ?? null;
 	}
 
 	const withdrawnTotal = $derived([...withdrawnCounts.values()].reduce((a, b) => a + b, 0));
@@ -839,7 +839,7 @@
 	function paramCode(paramId: string): string { return parameters.find((p) => p.id === paramId)?.code ?? ''; }
 	function paramUnits(sp: SiteParameter): string {
 		const param = parameters.find((p) => p.id === sp.parameter_id);
-		return sp.display_units ?? param?.default_units ?? '';
+		return param?.default_units ?? '';
 	}
 
 	// Sensor helpers
@@ -1030,6 +1030,7 @@
 		} finally { addingParam = false; }
 	}
 
+	let showApplyCalculation = $state(false);
 	let showApplyGroup = $state(false);
 	let applyGroupId = $state('');
 	let applyingGroup = $state(false);
@@ -1106,7 +1107,7 @@
 			const vals = data.values;
 			result.push({
 				name: param.name,
-				units: sp.display_units ?? param.default_units ?? '',
+				units: param.default_units ?? '',
 				count: vals.length,
 				mean: mean(vals),
 				min: min(vals),
@@ -1405,7 +1406,7 @@
 							parameterId={sp.parameter_id}
 							parameterName={param.name}
 							parameterCode={param.code}
-							units={sp.display_units ?? param.default_units}
+							units={param.default_units}
 							decimals={sp.decimal_places}
 							isDerived={sp.entry_mode === 'tool'}
 							externalSource={paramExtents.get(sp.id)?.external_source ?? null}
@@ -1478,7 +1479,7 @@
 										parameterId={sp.parameter_id}
 										parameterName={param.name}
 										parameterCode={param.code}
-										units={sp.display_units ?? param.default_units}
+										units={param.default_units}
 										decimals={sp.decimal_places}
 										threshold={th}
 										annotations={annotationsByParam.get(sp.parameter_id) ?? []}
@@ -1547,11 +1548,15 @@
 					<div class="flex items-center gap-2">
 						<Button
 							size="sm"
-							onclick={() => { showApplyGroup = !showApplyGroup; showAddParameter = false; }}
+							onclick={() => { showApplyGroup = !showApplyGroup; showApplyCalculation = false; showAddParameter = false; }}
 						>{showApplyGroup ? 'Cancel' : 'Apply group'}</Button>
 						<Button
 							size="sm"
-							onclick={() => { showAddParameter = !showAddParameter; showApplyGroup = false; }}
+							onclick={() => { showApplyCalculation = !showApplyCalculation; showApplyGroup = false; showAddParameter = false; }}
+						>{showApplyCalculation ? 'Cancel' : 'Apply calculation'}</Button>
+						<Button
+							size="sm"
+							onclick={() => { showAddParameter = !showAddParameter; showApplyGroup = false; showApplyCalculation = false; }}
 						>{showAddParameter ? 'Cancel' : 'Add'}</Button>
 					</div>
 				</div>
@@ -1611,6 +1616,12 @@
 								</div>
 							</div>
 						{/if}
+					</div>
+				{/if}
+
+				{#if showApplyCalculation}
+					<div class="p-4 border-b border-brand-divider bg-brand-bg/50">
+						<ApplyCalculationAtSite {siteId} onapplied={reloadSiteParameters} />
 					</div>
 				{/if}
 
@@ -1711,15 +1722,8 @@
 											<span class="ml-1 text-xs text-brand-muted">{cadenceLabel(sp.cadence)}</span>
 										{/if}
 									</td>
-									<td class="px-4 py-2">
-										<input
-											class="w-24 rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
-											title="Overrides the parameter's default units at this site"
-											aria-label="Display units for {paramName(sp.parameter_id)}"
-											placeholder={parameters.find((p) => p.id === sp.parameter_id)?.default_units ?? ''}
-											value={sp.display_units ?? ''}
-											onchange={(e) => updateSlot(sp, { display_units: e.currentTarget.value.trim() || null }, 'units')}
-										/>
+									<td class="px-4 py-2 text-xs">
+										{parameters.find((p) => p.id === sp.parameter_id)?.default_units ?? ''}
 									</td>
 									<td class="px-4 py-2">
 										<input

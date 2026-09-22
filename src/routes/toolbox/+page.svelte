@@ -124,7 +124,7 @@
 
 	/** The findings standing against the calculation this row's output belongs to, if any. */
 	function standing(row: CalculationRow): CalculationHealth | undefined {
-		const h = row.calculation ? healthOf.get(row.calculation) : undefined;
+		const h = healthOf.get(row.calculation);
 		return h && h.stale_visits > 0 ? h : undefined;
 	}
 

@@ -5,6 +5,7 @@
 	import { tokens } from '$lib/charts/tokens';
 	import { tzDateOption } from '$lib/charts/uPlotTheme';
 	import { previewInstant, type PreviewInstant } from '$lib/tools/runTable';
+	import { previewable } from '$lib/calculations/editor';
 
 	let {
 		formulas,
@@ -26,6 +27,10 @@
 	let loading = $state(false);
 	let fetchToken = 0;
 
+	// A row still being written is the cell panel's business: the chart asks only for the formulas
+	// the server can evaluate.
+	const ready = $derived(previewable(formulas));
+
 	const eligibleSites = $derived(
 		sites.filter((s) => {
 			if (!s.availableParamNames) return true;
@@ -40,7 +45,7 @@
 	});
 
 	$effect(() => {
-		if (formulas.length === 0 || !selectedSiteId) return;
+		if (ready.length === 0 || !selectedSiteId) return;
 		// `range` is read here so the effect tracks it; runPreview runs from a timeout, outside
 		// the tracking scope.
 		const days = rangeDays(range);
@@ -65,7 +70,7 @@
 		previewError = null;
 		try {
 			const result = await previewDerived({
-				formulas,
+				formulas: ready,
 				site_id: selectedSiteId,
 				start: start.toISOString(),
 				end: end.toISOString(),
@@ -172,6 +177,8 @@
 	<div class="p-3 min-h-[340px]">
 		{#if formulas.length === 0}
 			<p class="text-sm text-brand-muted">Build a formula to see a preview here.</p>
+		{:else if ready.length === 0}
+			<p class="text-sm text-brand-muted">Nothing to preview yet: a formula needs a code and an expression.</p>
 		{:else if !selectedSiteId}
 			<p class="text-sm text-brand-muted">No site available with all required parameters.</p>
 		{:else if loading && !preview}

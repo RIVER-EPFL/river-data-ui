@@ -91,7 +91,6 @@
 		siteId: string;
 		siteName: string;
 		siteParameterId: string;
-		displayUnits: string | null;
 	}
 
 	const siteOptions = $derived.by((): SiteOption[] =>
@@ -101,7 +100,6 @@
 				siteId: sp.site_id,
 				siteName: siteName(sp.site_id),
 				siteParameterId: sp.id,
-				displayUnits: sp.display_units,
 			}))
 			.sort((a, b) => a.siteName.localeCompare(b.siteName)),
 	);

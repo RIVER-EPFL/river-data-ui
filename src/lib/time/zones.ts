@@ -114,13 +114,13 @@ export function zoneOptions(wall?: string): ZoneOption[] {
 	const zone = (value: string, group: 'pinned' | 'zone'): ZoneOption => {
 		const { label, summer } = appliedOffset(value, wall);
 		const here = value === BROWSER_ZONE ? ' (here)' : '';
-		return { value, group, label: `${value}${here}, ${label}${summer ? ' in summer time' : ''}` };
+		return { value, group, label: `${value}${here}, ${label}${summer ? ' DST' : ''}` };
 	};
 	return [
 		...fixedOffsets().map((value) => ({
 			value,
 			group: 'offset' as const,
-			label: `${offsetLabel(fixedOffsetMinutes(value) ?? 0)}, no summer time`,
+			label: value === 'UTC' ? 'UTC' : `${offsetLabel(fixedOffsetMinutes(value) ?? 0)}, no DST`,
 		})),
 		...pinned.map((z) => zone(z, 'pinned')),
 		...rest.map((z) => zone(z, 'zone')),

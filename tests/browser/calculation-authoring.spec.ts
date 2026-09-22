@@ -159,6 +159,14 @@ test('a CNET formula set is authored on the page and reproduces its golden visit
 	await expect(page).toHaveURL(/\/toolbox\/[0-9a-f-]{36}/);
 	await expect(page.getByRole('heading', { name: groupLabel })).toBeVisible();
 
+	// A calculation with no formulas has no rows to drop onto, and the first input goes in before
+	// anything names it: the inputs block itself takes the drop, outlined until a formula reads it.
+	const palette = page.getByRole('region', { name: 'Palette' });
+	const inputs = block(page, 'Inputs');
+	await expect(inputs).toContainText('Drop a parameter or constant here');
+	await palette.getByRole('button', { name: codes.fieldBp, exact: true }).dragTo(inputs);
+	await expect(rowOf(inputs, codes.fieldBp)).toHaveClass(/sheet-unused/);
+
 	// The step is not retyped: the calculation declares that it reads the one already written.
 	await page
 		.getByLabel('A step written elsewhere')
@@ -187,7 +195,6 @@ test('a CNET formula set is authored on the page and reproduces its golden visit
 
 	// What the set reads is the inputs table: the parameters read from the visit, the site's own
 	// column, and the coefficients the declared slot binds. A step is not an input; it is computed.
-	const inputs = block(page, 'Inputs');
 	for (const name of [codes.temp, codes.fieldBp, 'altitude_m', 'curve_slope']) {
 		await expect(rowOf(inputs, name)).toBeVisible();
 	}
@@ -201,7 +208,6 @@ test('a CNET formula set is authored on the page and reproduces its golden visit
 
 	// A parameter no formula names yet is brought in from the palette: it is a row of the inputs
 	// table, outlined, and the save does not keep it.
-	const palette = page.getByRole('region', { name: 'Palette' });
 	await palette
 		.getByRole('button', { name: codes.spare, exact: true })
 		.dragTo(rowOf(inputs, codes.temp));
@@ -344,4 +350,190 @@ test('a calculation opened at a visit shows the visit\'s numbers in the portal\'
 	await expect(page.getByRole('heading', { name: 'No cell selected' })).toBeVisible();
 	await calculationCell(page, stepCode, 0).click();
 	await expect(page.getByRole('heading', { name: 'Step', exact: true })).toBeVisible();
+});
+
+// Scenario: the lab transcribes pCO2, the CNET set that carries every construct the first story
+// does not: a `coalesce` fallback onto a constant, nine constants read by name, a per-replicate
+// family, and a two-stage set where one output feeds another (M184, I120's audit).
+//
+// Expected behaviour: each construct is typed on the page, and the two outputs reproduce the
+// values the portal stored at the golden visit, per replicate.
+//
+// The set is the first six formulas of `pco2` in `river-data-api/tests/fixtures/cnet_formula_sets.json`
+// at its golden visit, VAD 2021-09-09 (row 31), both letters. The last six add no construct these
+// do not: they read the `bp` step the first story already drives, and the same arithmetic.
+
+/** The golden visit's values, the `pco2` case of the fixture. */
+const PCO2_WTW_TEMP = 8.7;
+const PCO2_LAB_TEMP = 22.8;
+const PCO2_LAB_PRESS = 972;
+const PCO2_PPM = [242.5, 241.7];
+/** What the portal stored, to six significant figures. */
+const PCO2_CO2_HS = ['17.9762', '17.9169'];
+const PCO2_UATM = ['331.927', '330.832'];
+
+interface Pco2Fixture {
+	stamp: string;
+	siteName: string;
+	codes: { temp: string; labTemp: string; labPress: string; ppm: string };
+}
+
+/**
+ * The catalog pCO2 reads and the visit it runs at. The `lab_co2_co2ppm` family is entered twice,
+ * which is what makes the per-replicate output two values rather than one.
+ */
+async function seedPco2(request: APIRequestContext): Promise<Pco2Fixture> {
+	const stamp = `${Date.now()}`;
+	const bearer = await token(request);
+	const headers = { Authorization: `Bearer ${bearer}` };
+	const post = async (path: string, data: unknown) => {
+		const response = await request.post(`${API_URL}/api${path}`, { headers, data });
+		expect(response.ok(), `${path} -> ${response.status()} ${await response.text()}`).toBeTruthy();
+		return response.json();
+	};
+
+	const codes = {
+		temp: `WTW_Temp_degC_1_${stamp}`,
+		labTemp: `lab_co2_lab_temp_${stamp}`,
+		labPress: `lab_co2_lab_press_${stamp}`,
+		ppm: `lab_co2_co2ppm_${stamp}`,
+	};
+	const project = await post('/projects', { name: `pCO2 ${stamp}` });
+	const siteName = `pCO2 ${stamp}`;
+	const site = await post('/sites', { name: siteName, project_id: project.id });
+
+	const collectedAt = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+	const readings: Array<{ parameter_id: string; value: number; time: string; replicate_index: number }> = [];
+	for (const [code, values] of [
+		[codes.temp, [PCO2_WTW_TEMP]],
+		[codes.labTemp, [PCO2_LAB_TEMP]],
+		[codes.labPress, [PCO2_LAB_PRESS]],
+		[codes.ppm, PCO2_PPM],
+	] as const) {
+		const parameter = await post('/parameters', {
+			code,
+			name: code,
+			category: 'measurement',
+			aliases: [],
+		});
+		await post('/site_parameters', { site_id: site.id, parameter_id: parameter.id, name: code });
+		values.forEach((value, replicate_index) =>
+			readings.push({ parameter_id: parameter.id, value, time: collectedAt, replicate_index }),
+		);
+	}
+	await post('/grab_samples', { site_id: site.id, mode: 'replace', readings });
+	await post('/collection_events/stage', { site_id: site.id, collected_at: collectedAt });
+	return { stamp, siteName, codes };
+}
+
+/** One step or output typed into the editor, with the family it runs over where it has one. */
+async function addCell(
+	page: Page,
+	cell: { block: 'step' | 'output'; code: string; name: string; units: string; text: string; family?: string },
+) {
+	await page
+		.getByRole('button', { name: cell.block === 'step' ? 'Add step' : 'Add output', exact: true })
+		.click();
+	await page.getByRole('textbox', { name: 'Code' }).fill(cell.code);
+	await page.getByRole('textbox', { name: 'Name', exact: true }).fill(cell.name);
+	await page.getByRole('textbox', { name: 'Units' }).fill(cell.units);
+	await page.getByPlaceholder('Type formula directly').fill(cell.text);
+	if (cell.family) {
+		await page.getByLabel('Per replicate over').selectOption(cell.family);
+	}
+	await expect(page.locator(`td[data-sheet-row="${cell.code}"]`).first()).toBeVisible();
+}
+
+test('pCO2 is typed on the page with its constants, fallback and families, and reproduces its golden visit', async ({
+	page,
+	request,
+}) => {
+	const { stamp, siteName, codes } = await seedPco2(request);
+	await signIn(page);
+
+	await page.goto(`${BASE_PATH}/toolbox`);
+	await page.getByRole('button', { name: 'New calculation' }).click();
+	await page.getByRole('textbox', { name: 'Name' }).fill(`pco2_${stamp}`);
+	await page.getByRole('textbox', { name: 'Label' }).fill(`pCO2 ${stamp}`);
+	await page.getByRole('button', { name: 'Create and open it' }).click();
+	await expect(page).toHaveURL(/\/toolbox\/[0-9a-f-]{36}/);
+
+	// The two fallbacks: a lab reading the visit may not carry, standing in with the constant the
+	// portal averages over past years.
+	await addCell(page, {
+		block: 'step',
+		code: `lab_temp_k_${stamp}`,
+		name: 'Lab temperature K',
+		units: 'K',
+		text: `coalesce(${codes.labTemp}, lab_temp_avg_degC) + 273.15`,
+	});
+	await addCell(page, {
+		block: 'step',
+		code: `lab_pa_${stamp}`,
+		name: 'Lab pressure atm',
+		units: 'atm',
+		text: `coalesce(${codes.labPress} / 1013.25, lab_press_avg_atm)`,
+	});
+
+	// The per-replicate output: one value per repeat of the family it runs over.
+	await addCell(page, {
+		block: 'output',
+		code: `CO2_HS_Um_avg_${stamp}`,
+		name: 'CO2 headspace',
+		units: 'uM',
+		text:
+			`${codes.ppm} * lab_pa_${stamp} * (vol_sa + 0.034 * exp(c_const * (1 / lab_temp_k_${stamp} - 1 / 298.15))` +
+			` * vol_water * gas_const_r_atm * lab_temp_k_${stamp}) / (gas_const_r_atm * vol_water * lab_temp_k_${stamp})`,
+		family: codes.ppm,
+	});
+
+	await addCell(page, {
+		block: 'step',
+		code: `water_k_${stamp}`,
+		name: 'Water temperature K',
+		units: 'K',
+		text: `${codes.temp} + 273.15`,
+	});
+	await addCell(page, {
+		block: 'step',
+		code: `kh_${stamp}`,
+		name: 'Henry constant',
+		units: '',
+		text: `0.034 * exp(c_const * (1 / water_k_${stamp} - 1 / 298.15))`,
+	});
+
+	// The second stage: an output reading the output before it, per the same family.
+	await addCell(page, {
+		block: 'output',
+		code: `pCO2_HS_uatm_avg_${stamp}`,
+		name: 'pCO2 headspace',
+		units: 'uatm',
+		text: `CO2_HS_Um_avg_${stamp} / kh_${stamp}`,
+		family: `CO2_HS_Um_avg_${stamp}`,
+	});
+
+	// Every constant the set names is an input it reads, listed beside the measured parameters.
+	const inputs = block(page, 'Inputs');
+	for (const name of ['lab_temp_avg_degC', 'lab_press_avg_atm', 'vol_sa', 'vol_water', 'c_const', 'gas_const_r_atm']) {
+		await expect(rowOf(inputs, name)).toBeVisible();
+	}
+
+	// Scoped to the run block: the open cell panel carries a "Per replicate over" select whose
+	// options mention a visit, so an unscoped label match finds two.
+	const tryIt = page.locator('section', {
+		has: page.getByRole('button', { name: 'Run', exact: true }),
+	});
+	await tryIt.getByRole('combobox', { name: 'Site' }).selectOption({ label: siteName });
+	const visitPicker = tryIt.getByLabel('Visit');
+	await expect(visitPicker).toBeEnabled();
+	await visitPicker.selectOption({ index: 1 });
+	await page.getByRole('button', { name: 'Run', exact: true }).click();
+
+	// Both letters, against what the portal stored for them.
+	for (const [index, expected] of PCO2_CO2_HS.entries()) {
+		await expect(calculationCell(page, `CO2_HS_Um_avg_${stamp}`, index + 1)).toContainText(expected);
+	}
+	for (const [index, expected] of PCO2_UATM.entries()) {
+		await expect(calculationCell(page, `pCO2_HS_uatm_avg_${stamp}`, index + 1)).toContainText(expected);
+	}
 });

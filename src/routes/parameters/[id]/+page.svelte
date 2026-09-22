@@ -56,7 +56,6 @@
 				siteId: sp.site_id,
 				siteName: siteName(sp.site_id),
 				siteParameterId: sp.id,
-				displayUnits: sp.display_units,
 			}))
 			.sort((a, b) => a.siteName.localeCompare(b.siteName))
 	);
@@ -144,7 +143,7 @@
 					{#each siteOptions as opt}
 						<li class="px-4 py-2 flex items-center justify-between text-sm">
 							<a href="{base}/sites/{opt.siteId}" class="text-brand-primary no-underline hover:underline">{opt.siteName}</a>
-							<span class="text-xs text-brand-muted">{opt.displayUnits ?? param.default_units}</span>
+							<span class="text-xs text-brand-muted">{param.default_units}</span>
 						</li>
 					{/each}
 				</ul>

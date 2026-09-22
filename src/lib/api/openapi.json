@@ -1981,6 +1981,81 @@
         ],
         "type": "object"
       },
+      "ApplyCalculationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "calculation_id": {
+            "description": "The tool script the calculation is authored as.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "dry_run": {
+            "description": "Report what would be created, and what is missing, without creating anything.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "calculation_id"
+        ],
+        "type": "object"
+      },
+      "ApplyCalculationResponse": {
+        "properties": {
+          "calculation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "calculation_name": {
+            "type": "string"
+          },
+          "dry_run": {
+            "type": "boolean"
+          },
+          "inputs_missing": {
+            "description": "Read inputs the site does not declare. Non-empty refuses the apply.",
+            "items": {
+              "$ref": "#/components/schemas/AppliedSlot"
+            },
+            "type": "array"
+          },
+          "inputs_present": {
+            "description": "Read inputs the site already declares.",
+            "items": {
+              "$ref": "#/components/schemas/AppliedSlot"
+            },
+            "type": "array"
+          },
+          "outputs_created": {
+            "description": "Output slots this call created, or would create.",
+            "items": {
+              "$ref": "#/components/schemas/AppliedSlot"
+            },
+            "type": "array"
+          },
+          "outputs_existing": {
+            "description": "Output slots the site already carries, left exactly as they are.",
+            "items": {
+              "$ref": "#/components/schemas/AppliedSlot"
+            },
+            "type": "array"
+          },
+          "site_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "site_id",
+          "calculation_id",
+          "calculation_name",
+          "dry_run",
+          "inputs_present",
+          "inputs_missing",
+          "outputs_existing",
+          "outputs_created"
+        ],
+        "type": "object"
+      },
       "ApplyGroupRequest": {
         "additionalProperties": false,
         "properties": {
@@ -4211,7 +4286,7 @@
         "type": "object"
       },
       "ConsumedInput": {
-        "description": "One input a calculation consumed, captured when it was read (Q215): what it was bound to and\nthe exact revision of every row behind it, so a later reader can say whether the source has\nmoved since. `kind` is `reading` (one row), `mean` (the sample statistic over `members`),\n`replicates` (a family, one member per index, a gap as a member with no value), `site` (a\ncolumn of the site row), `constant`, `curve` (a catalog curve, or entered coefficients with no\nsubject), or `step` (a formula of the pinned set). An entity input names its `change_audit`\nsubject and the newest `seq` for it.",
+        "description": "One input a calculation consumed, captured when it was read (Q215): what it was bound to and\nthe exact revision of every row behind it, so a later reader can say whether the source has\nmoved since. `kind` is `reading` (one row), `mean` (the sample statistic over `members`),\n`replicates` (a family, one member per index, a gap as a member with no value), `site` (a\ncolumn of the site row), `constant`, `curve` (a catalog curve, or entered coefficients with no\nsubject), `computed` (the number a step of the same set produced, under the step's own code)\nor `step` (a formula of the pinned set). An entity input names its `change_audit` subject and\nthe newest `seq` for it.",
         "properties": {
           "kind": {
             "type": "string"
@@ -13356,12 +13431,6 @@
               "null"
             ]
           },
-          "display_units": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "entry_mode": {
             "description": "How this site fills the slot: 'manual' or 'tool'",
             "type": "string"
@@ -13428,7 +13497,7 @@
             "type": "string"
           },
           "units": {
-            "description": "Resolved units: site override (`display_units`) falling back to the catalog `default_units`",
+            "description": "Units, from the catalog `default_units`",
             "type": [
               "string",
               "null"
@@ -13443,7 +13512,6 @@
           "units",
           "entry_mode",
           "sensor_type",
-          "display_units",
           "decimal_places",
           "sample_interval_sec",
           "is_active",
@@ -22600,12 +22668,6 @@
               "null"
             ]
           },
-          "display_units": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "entry_mode": {
             "type": [
               "string",
@@ -22664,26 +22726,6 @@
             "format": "uuid",
             "type": "string"
           },
-          "units_max": {
-            "format": "double",
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "units_min": {
-            "format": "double",
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "units_name": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "variable_mappings": {}
         },
         "required": [
@@ -22716,13 +22758,6 @@
           "discovered_at": {
             "description": "Stamped by every sync path that mints a slot, and by nothing else, so it is what says a\nrow arrived from a source rather than by hand.",
             "format": "date-time",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "display_units": {
-            "description": "Site-level units override. NULL means \"no override\": every endpoint serving this slot\nresolves units through [`SlotDescriptor`], which falls back to the\ncatalog `default_units`.",
             "type": [
               "string",
               "null"
@@ -22787,29 +22822,6 @@
             "format": "uuid",
             "type": "string"
           },
-          "units_max": {
-            "description": "Stored and returned by the CRUD endpoint; no server-side reader.",
-            "format": "double",
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "units_min": {
-            "description": "Stored and returned by the CRUD endpoint; no server-side reader.",
-            "format": "double",
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "units_name": {
-            "description": "Stored and returned by the CRUD endpoint; no server-side reader. Kept because existing\nrows carry values.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "updated_at": {
             "format": "date-time",
             "type": [
@@ -22827,10 +22839,6 @@
           "parameter_id",
           "name",
           "sensor_type",
-          "display_units",
-          "units_name",
-          "units_min",
-          "units_max",
           "decimal_places",
           "sample_interval_sec",
           "is_active",
@@ -22871,13 +22879,6 @@
           "discovered_at": {
             "description": "Stamped by every sync path that mints a slot, and by nothing else, so it is what says a\nrow arrived from a source rather than by hand.",
             "format": "date-time",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "display_units": {
-            "description": "Site-level units override. NULL means \"no override\": every endpoint serving this slot\nresolves units through [`SlotDescriptor`], which falls back to the\ncatalog `default_units`.",
             "type": [
               "string",
               "null"
@@ -22942,29 +22943,6 @@
             "format": "uuid",
             "type": "string"
           },
-          "units_max": {
-            "description": "Stored and returned by the CRUD endpoint; no server-side reader.",
-            "format": "double",
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "units_min": {
-            "description": "Stored and returned by the CRUD endpoint; no server-side reader.",
-            "format": "double",
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "units_name": {
-            "description": "Stored and returned by the CRUD endpoint; no server-side reader. Kept because existing\nrows carry values.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "updated_at": {
             "format": "date-time",
             "type": [
@@ -22982,10 +22960,6 @@
           "parameter_id",
           "name",
           "sensor_type",
-          "display_units",
-          "units_name",
-          "units_min",
-          "units_max",
           "decimal_places",
           "sample_interval_sec",
           "is_active",
@@ -23014,12 +22988,6 @@
             "format": "int32",
             "type": [
               "integer",
-              "null"
-            ]
-          },
-          "display_units": {
-            "type": [
-              "string",
               "null"
             ]
           },
@@ -23082,26 +23050,6 @@
           },
           "site_id": {
             "format": "uuid",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "units_max": {
-            "format": "double",
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "units_min": {
-            "format": "double",
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "units_name": {
             "type": [
               "string",
               "null"
@@ -26906,6 +26854,64 @@
         ],
         "type": "object"
       },
+      "VersionLedgerRow": {
+        "description": "What one version of a calculation has computed on the stream arm: the readings whose curation\nledger names it, the span of instants they sit at, and when the computing happened.\n\nA stream pass mints no run: it recomputes continuously, and two passes under one version are\none row here. A version that computed nothing carries zeros and null spans, so the ledger shows\nthe set's history whole rather than only the versions that happened to leave rows.",
+        "properties": {
+          "first_computed": {
+            "description": "When the version first and last computed one of them.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "first_instant": {
+            "description": "The earliest and latest instant of those readings.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_computed": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_instant": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "readings": {
+            "description": "Distinct reading keys the version wrote at, not decisions: a reading moved twice under one\nversion is one reading.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "version_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "version_no": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version_id",
+          "version_no",
+          "readings",
+          "first_instant",
+          "last_instant",
+          "first_computed",
+          "last_computed"
+        ],
+        "type": "object"
+      },
       "VersionUsage": {
         "description": "What one version of a calculation has already produced: the readings whose stored provenance\nnames it, and the visits those readings belong to. A version that produced nothing carries\nzeros, because \"nothing stored\" and \"not counted\" are different claims.",
         "properties": {
@@ -27477,7 +27483,7 @@
         "operationId": "recompute_derived",
         "parameters": [
           {
-            "description": "Derived parameter definition UUID",
+            "description": "Calculation UUID",
             "in": "path",
             "name": "id",
             "required": true,
@@ -27499,7 +27505,7 @@
             "description": "Background recompute job triggered"
           },
           "404": {
-            "description": "Derived parameter definition not found"
+            "description": "Calculation not found"
           }
         },
         "summary": "Recompute every derived value for a given derived parameter definition. Backfills via\njoining source readings; tracked as a `reprocessing_jobs` row. Refreshes continuous\naggregates on completion. Requires `write_metadata`.",
@@ -44640,6 +44646,58 @@
         ]
       }
     },
+    "/api/sites/{site_id}/calculations": {
+      "post": {
+        "description": "Refused while an input is undeclared, naming each one: the calculation would be\n`not_applicable` there, learned after the fact from a job log. The outputs a successful apply\nmints are the site's declaration of the calculation, so they carry no review flag; the ones the\nchain mints on its own still do (Q193). Applying twice creates nothing the second time.",
+        "operationId": "apply_calculation",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "site_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyCalculationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyCalculationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "description": "The site does not declare every parameter the calculation reads"
+          },
+          "404": {
+            "description": "No site or no calculation with this id"
+          },
+          "409": {
+            "description": "The calculation is switched off"
+          }
+        },
+        "summary": "Apply a calculation at a site: check the site declares everything the calculation reads, and\nmint the output slots it lacks.",
+        "tags": [
+          "site_parameters"
+        ]
+      }
+    },
     "/api/sites/{site_id}/detail": {
       "get": {
         "operationId": "get_site_detail",
@@ -51352,6 +51410,42 @@
           }
         },
         "summary": "Run an unsaved formula set at a visit, in place of the calculation's stored formulas.",
+        "tags": [
+          "tool_scripts"
+        ]
+      }
+    },
+    "/api/tool_scripts/{id}/version_ledger": {
+      "get": {
+        "description": "The visit arm answers this with its runs; a stream pass mints none, so the history is read off\nthe curation ledger. Requires `read_data`: it is a reading of what was computed, not of how the\ncalculation is written.",
+        "operationId": "list_version_ledger",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/VersionLedgerRow"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "summary": "What each version of the calculation has computed on the stream arm, newest first (Q232).",
         "tags": [
           "tool_scripts"
         ]

@@ -32,6 +32,16 @@ describe('LivePreview', () => {
 		expect(sent.formulas.map((f) => f.code)).toEqual(['step', 'out']);
 	});
 
+	it('posts nothing while the only row is blank, and says so', async () => {
+		render(LivePreview, {
+			...props,
+			formulas: [{ code: '', formula: '', ordinal: 0, intermediate: false }]
+		});
+		await vi.advanceTimersByTimeAsync(500);
+		expect(previewDerived).not.toHaveBeenCalled();
+		expect(screen.getByText(/Nothing to preview yet/)).toBeTruthy();
+	});
+
 	it('refetches when the range changes', async () => {
 		render(LivePreview, props);
 		await vi.advanceTimersByTimeAsync(500);

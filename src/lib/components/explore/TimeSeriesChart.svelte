@@ -113,10 +113,7 @@
 							: Promise.resolve(null),
 					]);
 					const name = site?.name ?? siteId;
-					// Sites can serve one parameter in different units (ppb against ppt), which is
-					// exactly the comparison this tab is for, so every series carries its own.
-					const seriesUnits =
-						sp?.display_units ?? params.find((p) => p.id === paramId)?.default_units ?? null;
+					const seriesUnits = params.find((p) => p.id === paramId)?.default_units ?? null;
 					const series: typeof chartData = [];
 					if (cont)
 						series.push({

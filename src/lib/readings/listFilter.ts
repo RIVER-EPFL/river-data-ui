@@ -28,6 +28,25 @@ export function defaultFilter(now: Date = new Date()): ReadingsFilterState {
 	};
 }
 
+/**
+ * The filter a link into the list asks for: `site`, `parameter`, `from` and `to`. What the query
+ * does not name keeps its default, so a link naming a parameter and a span leaves the rest alone.
+ */
+export function filterFromQuery(
+	query: URLSearchParams,
+	now: Date = new Date(),
+): ReadingsFilterState {
+	const base = defaultFilter(now);
+	const named = (key: string) => query.get(key)?.trim() || null;
+	return {
+		...base,
+		siteId: named('site') ?? base.siteId,
+		parameterId: named('parameter') ?? base.parameterId,
+		from: named('from') ?? base.from,
+		to: named('to') ?? base.to,
+	};
+}
+
 export function readingsFilter(state: ReadingsFilterState): Record<string, unknown> {
 	const filter: Record<string, unknown> = {};
 	if (state.siteId) filter.site_id = state.siteId;

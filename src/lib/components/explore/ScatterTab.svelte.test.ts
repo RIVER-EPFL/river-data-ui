@@ -17,9 +17,9 @@ const params = [
 	{ id: 'p3', name: 'CDOM', default_units: 'ppb' },
 ];
 const siteParams = [
-	{ id: 'sp1', site_id: 'site-a', parameter_id: 'p1', display_units: null },
-	{ id: 'sp2', site_id: 'site-a', parameter_id: 'p2', display_units: null },
-	{ id: 'sp3', site_id: 'site-a', parameter_id: 'p3', display_units: null },
+	{ id: 'sp1', site_id: 'site-a', parameter_id: 'p1' },
+	{ id: 'sp2', site_id: 'site-a', parameter_id: 'p2' },
+	{ id: 'sp3', site_id: 'site-a', parameter_id: 'p3' },
 ];
 
 const START = 1_700_000_000_000;

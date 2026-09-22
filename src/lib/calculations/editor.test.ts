@@ -19,6 +19,7 @@ import {
 	inputRows,
 	outputRows,
 	parseReplicates,
+	previewable,
 	scalarInputs,
 	scalarOverrides,
 	type EditableFormula,
@@ -154,6 +155,16 @@ describe('ordering', () => {
 		expect(blankFormula(set).ordinal).toBe(4);
 		expect(blankFormula([]).ordinal).toBe(1);
 	});
+
+	it('leaves a row with no code or no expression out of what can be previewed', () => {
+		const rows = [
+			formula({ code: 'out', formula: 'a + 1', ordinal: 1 }),
+			formula({ code: '   ', formula: 'a + 2', ordinal: 2 }),
+			formula({ code: 'half', formula: '  ', ordinal: 3 }),
+		];
+		expect(previewable(rows).map((f) => f.code)).toEqual(['out']);
+		expect(previewable([blankFormula([])])).toEqual([]);
+	});
 });
 
 describe('a run at a visit', () => {
@@ -257,6 +268,13 @@ describe('what a formula may name', () => {
 		expect(vars.map((v) => v.name)).toContain('altitude_m');
 		expect(vars.find((v) => v.name === 'altitude_m')?.category).toBe('site property');
 		expect(vars.map((v) => v.name)).toContain('Dissolved_O2');
+	});
+
+	it('offers the numeric site columns only, which are the ones the server can serve', () => {
+		const properties = formulaVariables([])
+			.filter((v) => v.category === 'site property')
+			.map((v) => v.name);
+		expect(properties).toEqual(['latitude', 'longitude', 'altitude_m']);
 	});
 
 	it('leaves device health out, which is not a formula input', () => {

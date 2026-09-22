@@ -29,7 +29,12 @@ describe('the entries a timestamp is entered in', () => {
 
 	it('says a fixed offset keeps its offset all year', () => {
 		const utcPlusOne = zoneOptions(SUMMER).find((o) => o.value === 'UTC+01:00');
-		expect(utcPlusOne?.label).toBe('UTC+1, no summer time');
+		expect(utcPlusOne?.label).toBe('UTC+1, no DST');
+	});
+
+	it('labels UTC with nothing beside it', () => {
+		const utc = zoneOptions(SUMMER).find((o) => o.value === 'UTC');
+		expect(utc?.label).toBe('UTC');
 	});
 
 	it('labels a zone with the offset it applies at the wall time in the field', () => {
@@ -38,7 +43,7 @@ describe('the entries a timestamp is entered in', () => {
 			zoneOptions(wall)
 				.find((o) => o.value === 'Europe/Zurich')
 				?.label.replace(' (here)', '');
-		expect(zurich(SUMMER)).toBe('Europe/Zurich, UTC+2 in summer time');
+		expect(zurich(SUMMER)).toBe('Europe/Zurich, UTC+2 DST');
 		expect(zurich(WINTER)).toBe('Europe/Zurich, UTC+1');
 	});
 

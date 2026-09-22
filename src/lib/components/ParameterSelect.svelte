@@ -104,7 +104,7 @@
 		return siteRows.map((sp) => {
 			const p = catalogParam(sp.parameter_id);
 			const name = p?.name ?? sp.name ?? sp.parameter_id;
-			const units = sp.display_units ?? p?.default_units ?? '';
+			const units = p?.default_units ?? '';
 			return {
 				parameterId: sp.parameter_id,
 				label: units ? `${name} (${units})` : name,

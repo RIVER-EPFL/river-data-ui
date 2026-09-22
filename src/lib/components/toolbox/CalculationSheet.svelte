@@ -251,27 +251,39 @@
 		grids.set(block.key, instance);
 		instance.addHook('afterRender', () => queueMicrotask(redraw));
 		queueMicrotask(redraw);
+	}
+
+	// --- Dropping a palette entry ---
+	// The whole block takes the drop, not its table: a block with no rows mounts no table, and it
+	// is where the first input is expected to go.
+
+	function dragover(event: DragEvent) {
+		event.preventDefault();
+		if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+	}
+
+	/** The row the pointer is over, or null when it is over the block but not a row. */
+	function rowUnder(block: SheetBlock, target: HTMLElement | null): SheetRow | null {
+		const instance = grids.get(block.key);
+		const td = target?.closest('td') ?? null;
+		if (!instance || instance.isDestroyed || !td) return null;
+		const index = instance.getCoords(td)?.row ?? -1;
+		return index >= 0 ? ((entries.get(block.key) ?? [])[index]?.row ?? null) : null;
+	}
+
+	function dropped(block: SheetBlock, event: DragEvent) {
 		if (!ondrop) return;
-		instance.rootElement.addEventListener('dragover', (event: DragEvent) => {
-			event.preventDefault();
-			if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
-		});
-		instance.rootElement.addEventListener('drop', (event: DragEvent) => {
-			const text = event.dataTransfer?.getData('text/plain');
-			if (!text) return;
-			event.preventDefault();
-			let payload: DragPayload;
-			try {
-				payload = JSON.parse(text) as DragPayload;
-			} catch {
-				return;
-			}
-			const td = (event.target as HTMLElement).closest('td');
-			const at = td ? instance.getCoords(td) : null;
-			const index = at?.row ?? -1;
-			const row = index >= 0 ? ((entries.get(block.key) ?? [])[index]?.row ?? null) : null;
-			if (dropOn(block.key, row)) ondrop(block.key, row, payload);
-		});
+		const text = event.dataTransfer?.getData('text/plain');
+		if (!text) return;
+		event.preventDefault();
+		let payload: DragPayload;
+		try {
+			payload = JSON.parse(text) as DragPayload;
+		} catch {
+			return;
+		}
+		const row = rowUnder(block, event.target as HTMLElement | null);
+		if (dropOn(block.key, row)) ondrop(block.key, row, payload);
 	}
 	$effect(() => {
 		void highlight;
@@ -381,12 +393,16 @@
 		<section
 			aria-label={block.title}
 			class="min-w-0 rounded-md border border-brand-divider bg-brand-surface"
+			ondragover={ondrop ? dragover : undefined}
+			ondrop={ondrop ? (event) => dropped(block, event) : undefined}
 		>
 			{#if block.rows.length === 0}
 				<h4 class="px-3 py-2 text-sm font-semibold border-b border-brand-divider">{block.title}</h4>
 				<p class="px-3 py-3 text-sm text-brand-muted">
 					{block.key === 'inputs'
-						? 'Nothing read yet.'
+						? ondrop
+							? 'Drop a parameter or constant here, or write a formula that reads one.'
+							: 'Nothing read yet.'
 						: block.key === 'steps'
 							? 'No steps: every formula publishes.'
 							: 'Nothing published yet.'}

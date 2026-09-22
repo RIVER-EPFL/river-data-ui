@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { page } from '$app/state';
 
 	import { api, type Parameter, type Sensor, type Site, type StandardCurve } from '$api/crud';
 	import { listAll } from '$api/paged';
@@ -7,12 +8,17 @@
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import { siteRefs } from '$lib/siteRefs.svelte';
+	import { filterFromQuery } from '$lib/readings/listFilter';
 
 	let sites = $state<Site[] | null>(null);
 	let parameters = $state<Parameter[] | null>(null);
 	let instruments = $state<Sensor[] | null>(null);
 	let curves = $state<StandardCurve[] | null>(null);
 	let error = $state('');
+
+	// A link from elsewhere names what it wants listed: the version ledger sends a parameter and
+	// the span one version wrote at, so the list opens on those readings.
+	const initial = filterFromQuery(page.url.searchParams);
 
 	onMount(async () => {
 		try {
@@ -35,7 +41,7 @@
 	{#if error}
 		<ErrorNotice message={error} />
 	{:else if sites && parameters && instruments && curves}
-		<ReadingsList {sites} {parameters} {instruments} {curves} />
+		<ReadingsList {sites} {parameters} {instruments} {curves} {initial} />
 	{:else}
 		<p class="text-brand-muted">Loading…</p>
 	{/if}

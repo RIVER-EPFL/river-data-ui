@@ -49,7 +49,14 @@ export async function seedComputedVisit(
 			role,
 			ordinal,
 		});
-		await post('/site_parameters', { site_id: site.id, parameter_id: parameterId, name: code });
+		// The visit arm: a slot left at the column default is the stream engine's, and the chain
+		// skips an output it holds.
+		await post('/site_parameters', {
+			site_id: site.id,
+			parameter_id: parameterId,
+			name: code,
+			cadence: 'low',
+		});
 	};
 	const input = await post('/parameters', {
 		code: inputName,

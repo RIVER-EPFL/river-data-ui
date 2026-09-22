@@ -637,7 +637,7 @@
 	function paramLabel(sp: SiteParameter): string {
 		const param = params.find((p) => p.id === sp.parameter_id);
 		const name = param?.name ?? sp.name ?? sp.parameter_id;
-		const units = sp.display_units ?? param?.default_units ?? '';
+		const units = param?.default_units ?? '';
 		return units ? `${name} (${units})` : name;
 	}
 

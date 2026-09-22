@@ -135,28 +135,23 @@ export interface Site {
 }
 
 /**
- * The columns of a site's own row, which is what a formula's site source may name (D13): any
- * column resolves, and the kind check at calculate time is what refuses a text one in a number
- * input. The type check below is what keeps this list level with `Site`.
+ * The numeric columns of a site's own row, which is what a formula's site source may name (D13):
+ * the server resolves a site property to a number and reports anything else missing. The type
+ * check below is what keeps this list level with `Site`.
  */
 export const SITE_PROPERTIES = [
-	'id',
-	'project_id',
-	'subproject_id',
-	'name',
-	'description',
 	'latitude',
 	'longitude',
 	'altitude_m',
-	'public_code',
-	'created_at',
-	'discovered_at',
-] as const satisfies ReadonlyArray<keyof Site>;
+] as const satisfies ReadonlyArray<NumericSiteColumn>;
 
-type UnlistedSiteColumn = Exclude<keyof Site, (typeof SITE_PROPERTIES)[number]>;
-// A column added to `Site` and not to `SITE_PROPERTIES` fails here rather than in a formula.
-const _everySiteColumnIsListed: UnlistedSiteColumn extends never ? true : never = true;
-void _everySiteColumnIsListed;
+type NumericSiteColumn = {
+	[K in keyof Site]-?: NonNullable<Site[K]> extends number ? K : never;
+}[keyof Site];
+type UnlistedSiteColumn = Exclude<NumericSiteColumn, (typeof SITE_PROPERTIES)[number]>;
+// A numeric column added to `Site` and not to `SITE_PROPERTIES` fails here rather than in a formula.
+const _everyNumericSiteColumnIsListed: UnlistedSiteColumn extends never ? true : never = true;
+void _everyNumericSiteColumnIsListed;
 
 export interface Parameter {
 	id: string;
@@ -209,7 +204,6 @@ export interface SiteParameter {
 	parameter_id: string;
 	name: string | null;
 	sensor_type: string | null;
-	display_units: string | null;
 	sample_interval_sec: number | null;
 	decimal_places: number | null;
 	/** How this site fills the slot: 'manual' (typed by hand) or 'tool' (computed here). */

@@ -24,6 +24,7 @@ const draftRunFormulas = vi.fn(
 	(_id: string, _body: unknown) => new Promise((resolve) => pending.push(resolve)),
 );
 const saveFormulaSet = vi.fn();
+const listVersionLedger = vi.fn(async (_id: string): Promise<unknown[]> => []);
 const writes = vi.fn();
 
 vi.mock('$api/service', () => ({
@@ -41,6 +42,7 @@ vi.mock('$api/service', () => ({
 	})),
 	listSiteVisits: vi.fn(async () => ({ visits: [] })),
 	listToolVersionUsage: vi.fn(async () => []),
+	listVersionLedger: (id: string) => listVersionLedger(id),
 	previewDerived: vi.fn(async () => ({
 		site: { id: 's1', name: 'Martigny' },
 		times: [],
@@ -72,6 +74,7 @@ vi.mock('$api/crud', () => ({
 				per_replicate: null,
 				intermediate: false,
 				code_locked: null,
+				output_parameter_id: 'p-out',
 			},
 		]),
 		parameters: entity([
@@ -110,6 +113,7 @@ beforeEach(() => {
 	saveFormulaSet.mockClear();
 	writes.mockClear();
 	pending.length = 0;
+	listVersionLedger.mockResolvedValue([]);
 });
 
 describe('reading a calculation over its values', () => {
@@ -183,5 +187,45 @@ describe('reading a calculation over a site series', () => {
 		render(FormulaCalculation, { calculationId: 'calc-1' });
 		await waitFor(() => expect(screen.getByText("Over a site's series")).toBeTruthy());
 		expect(screen.getByText(/Move along the chart/)).toBeTruthy();
+	});
+});
+
+// Scenario: the calculation has already computed on a site's stream under two pinned versions.
+//
+// Expected behaviour: the page lists one row per version with what it wrote and over what span,
+// and each row links the output's readings over that span, where a row opens its record. A
+// continuous evaluation records no identity of its own, so the row is the version and not the pass.
+describe('what a calculation has computed on a stream', () => {
+	it('lists a row per version, linking the output readings over its span', async () => {
+		listVersionLedger.mockResolvedValue([
+			{
+				version_id: 'v2',
+				version_no: 2,
+				readings: 148,
+				first_instant: '2026-02-01T00:00:00Z',
+				last_instant: '2026-03-01T00:00:00Z',
+				first_computed: '2026-02-01T01:00:00Z',
+				last_computed: '2026-03-01T01:00:00Z',
+			},
+			{
+				version_id: 'v1',
+				version_no: 1,
+				readings: 0,
+				first_instant: null,
+				last_instant: null,
+				first_computed: null,
+				last_computed: null,
+			},
+		]);
+		render(FormulaCalculation, { calculationId: 'calc-1' });
+
+		await screen.findByText('Version 2');
+		expect(screen.getByText(/148 readings/)).toBeTruthy();
+		const link = screen.getByRole('link', { name: 'hs_k' }) as HTMLAnchorElement;
+		expect(link.getAttribute('href')).toContain('/readings?parameter=p-out');
+		expect(link.getAttribute('href')).toContain('from=2026-02-01T00%3A00%3A00Z');
+
+		expect(screen.getByText('Version 1')).toBeTruthy();
+		expect(screen.getByText('Nothing stored under this version.')).toBeTruthy();
 	});
 });

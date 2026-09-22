@@ -172,6 +172,14 @@ export function formulaSetBody(formulas: EditableFormula[], migrate: boolean): F
 	};
 }
 
+/**
+ * The formulas a preview can be asked for: a row with no code or no expression is still being
+ * written, and the server refuses the whole set over it.
+ */
+export function previewable<T extends { code: string; formula: string }>(formulas: T[]): T[] {
+	return formulas.filter((f) => f.code.trim() !== '' && f.formula.trim() !== '');
+}
+
 export type InputKind = 'replicates' | 'parameter' | 'constant' | 'step' | 'curve' | 'other';
 
 /** One thing the formula set reads, and how the run supplies it. */

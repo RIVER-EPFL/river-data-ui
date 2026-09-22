@@ -6,6 +6,7 @@
 	import { findCalculation } from '$lib/toolbox/route';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
+	import ApplyCalculationAtSite from '$components/toolbox/ApplyCalculationAtSite.svelte';
 	import FormulaCalculation from '$components/toolbox/FormulaCalculation.svelte';
 	import ScriptEditor from '$components/toolbox/ScriptEditor.svelte';
 
@@ -52,5 +53,11 @@
 		{#key calculation.id}
 			<ScriptEditor scriptId={calculation.id} />
 		{/key}
+		<details class="rounded-md border border-brand-divider bg-brand-surface">
+			<summary class="px-3 py-2 text-sm font-semibold cursor-pointer">Apply at a site<span class="ml-2 text-xs font-normal text-brand-muted">check the site measures what this reads, and add the columns it publishes</span></summary>
+			<div class="px-3 py-2">
+				<ApplyCalculationAtSite calculationId={calculation.id} />
+			</div>
+		</details>
 	</div>
 {/if}

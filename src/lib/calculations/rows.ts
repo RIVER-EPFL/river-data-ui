@@ -1,8 +1,10 @@
-// One list of everything that computes a parameter, whichever engine does it.
+// One list of every calculation that computes a parameter, whichever engine does it.
 //
 // A formula and an R script are two engines of one concept, and an admin asking "what computes DOM
-// at Saxon, and is it current" reads one list for both. Each row links to where it is authored: a
-// calculation's page for either engine, and `/derived` for a definition that belongs to none.
+// at Saxon, and is it current" reads one list for both. Each row links to the page its calculation
+// is authored on. A formula owned by no calculation is a shared step (Q156), which computes
+// nothing of its own and is read inside every calculation that declares it, so it is not a row
+// here (Q238).
 
 import type { DerivedParameter, Parameter } from '$api/crud';
 import type { SlotCoverage, ToolDescriptor, ToolScriptSummary } from '$api/service';
@@ -23,9 +25,8 @@ export interface CalculationRow {
 	key: string;
 	engine: CalculationEngine;
 	label: string;
-	/** The calculation's name, as a finding and a scoped recompute name it. Null for a standalone
-	 *  continuous definition, which belongs to no calculation and raises none. */
-	calculation: string | null;
+	/** The calculation's name, as a finding and a scoped recompute name it. */
+	calculation: string;
 	/** The parameter this calculation writes, by code. */
 	output_code: string;
 	output_parameter_id: string | null;
@@ -88,10 +89,11 @@ export function calculationRows(args: {
 	const rows: CalculationRow[] = [];
 
 	for (const d of derived) {
+		if (!d.tool_script_id) continue;
 		rows.push({
 			key: `formula:${d.id}`,
 			engine: 'formula',
-			calculation: d.tool_script_id ? (nameOf.get(d.tool_script_id) ?? null) : null,
+			calculation: nameOf.get(d.tool_script_id) ?? d.tool_script_id,
 			label: d.name || d.code,
 			output_code: d.output_parameter_id ? (codeOf.get(d.output_parameter_id) ?? d.code) : d.code,
 			output_parameter_id: d.output_parameter_id,
@@ -101,7 +103,7 @@ export function calculationRows(args: {
 			fires_on: 'each source reading',
 			definition: d.formula,
 			enabled: null,
-			href: d.tool_script_id ? `${base}/toolbox/${d.tool_script_id}` : `${base}/derived/${d.id}`,
+			href: toolboxHref(base, d.tool_script_id),
 			output_reading_count: null,
 			output_sources: [],
 		});

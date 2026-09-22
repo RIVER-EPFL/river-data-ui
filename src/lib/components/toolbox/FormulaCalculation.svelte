@@ -21,6 +21,7 @@
 		getToolScript,
 		listSiteVisits,
 		listToolVersionUsage,
+		listVersionLedger,
 		saveFormulaSet,
 		type FormulaDraftRunResponse,
 		type ToolRunTrace,
@@ -28,6 +29,7 @@
 		type StepDependents,
 		type ToolScriptDetail,
 		type ToolVersionUsage,
+		type VersionLedgerRow,
 		type VisitRow,
 	} from '$api/service';
 	import { listAll } from '$api/paged';
@@ -49,6 +51,7 @@
 		type EditableFormula,
 	} from '$lib/calculations/editor';
 	import { armConsequence, storedLabel } from '$lib/calculations/consequence';
+	import { ledgerLines, type LedgerOutput } from '$lib/calculations/versionLedger';
 	import { portalReference, replicatedCodes } from '$lib/calculations/members';
 	import { fromNum } from '$lib/derivedParameters';
 	import { curveField } from '$lib/tools/form';
@@ -68,6 +71,7 @@
 	import { formatDateTime } from '$lib/utils';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Badge from '$components/ui/Badge.svelte';
+	import ApplyCalculationAtSite from '$components/toolbox/ApplyCalculationAtSite.svelte';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
@@ -125,6 +129,11 @@
 	let recorded = $state<ToolRunTrace | null>(null);
 	/** The runs of this calculation at the chosen visit, newest first. */
 	let runsAtVisit = $state<ToolRunRow[]>([]);
+	// What each pinned version has already computed on the stream arm. Unlike a run, a continuous
+	// evaluation records no identity of its own, so the ledger is per version, not per evaluation.
+	let ledger = $state<VersionLedgerRow[]>([]);
+	/** The output parameters this calculation publishes, as the ledger links them. */
+	let publishedOutputs = $state<LedgerOutput[]>([]);
 
 	let siteId = $state(page.url.searchParams.get('site') ?? '');
 	let visits = $state<VisitRow[]>([]);
@@ -384,6 +393,12 @@
 			listToolVersionUsage(calculationId)
 				.then((rows) => (usage = rows))
 				.catch(() => (usage = []));
+			listVersionLedger(calculationId)
+				.then((rows) => (ledger = rows))
+				.catch(() => (ledger = []));
+			publishedOutputs = rows.data
+				.filter((f) => f.output_parameter_id)
+				.map((f) => ({ parameterId: f.output_parameter_id!, code: f.code }));
 			const declared = await declaredSteps(steps);
 			const bounded = await withBounds(rows.data.map(editableFormula), rows.data);
 			stored = [...bounded, ...declared];
@@ -690,6 +705,8 @@
 		}
 	}
 
+	const ledgerRows = $derived(ledgerLines(ledger, publishedOutputs, base));
+
 	/** What a run reads, so a change to any of it is a change to the numbers on screen. */
 	const runSignature = $derived(
 		JSON.stringify([
@@ -934,6 +951,42 @@
 			</section>
 		{/if}
 
+		{#if ledgerRows.length > 0}
+			<!-- What this calculation has computed on the stream arm. A continuous evaluation records
+			     no identity of its own, so a row is one pinned version, however many passes wrote
+			     under it (Q232). -->
+			<section class="rounded-md border border-brand-divider bg-brand-surface">
+				<h3 class="px-3 py-2 text-sm font-semibold border-b border-brand-divider">
+					Computed on a stream<span class="ml-2 text-xs font-normal text-brand-muted">what each version has already written</span>
+				</h3>
+				<ul class="divide-y divide-brand-divider">
+					{#each ledgerRows as line (line.versionId)}
+						<li class="px-3 py-2 text-sm">
+							<div class="flex flex-wrap items-baseline justify-between gap-2">
+								<span class="font-medium">Version {line.versionNo}</span>
+								<span class="text-xs text-brand-muted">
+									{line.readings} reading{line.readings === 1 ? '' : 's'}
+									{#if line.span}
+										· {formatDateTime(line.span.from)} to {formatDateTime(line.span.to)}
+									{/if}
+								</span>
+							</div>
+							{#if line.links.length > 0}
+								<p class="mt-1 text-xs">
+									{#each line.links as link, i (link.href)}
+										{#if i > 0}<span class="text-brand-muted"> · </span>{/if}
+										<a class="text-brand-primary hover:underline" href={link.href} title="Open the readings this version wrote, where a row opens its record">{link.code}</a>
+									{/each}
+								</p>
+							{:else}
+								<p class="mt-1 text-xs text-brand-muted">Nothing stored under this version.</p>
+							{/if}
+						</li>
+					{/each}
+				</ul>
+			</section>
+		{/if}
+
 		<!-- One save over the whole set, and what it does to the values already computed. -->
 		<section class="rounded-md border border-brand-divider bg-brand-surface px-3 py-2">
 			{#if unsaved}
@@ -970,6 +1023,13 @@
 				{/if}
 			{/each}
 		</section>
+
+		<details class="rounded-md border border-brand-divider bg-brand-surface">
+			<summary class="px-3 py-2 text-sm font-semibold cursor-pointer">Apply at a site<span class="ml-2 text-xs font-normal text-brand-muted">check the site measures what this reads, and add the columns it publishes</span></summary>
+			<div class="px-3 py-2">
+				<ApplyCalculationAtSite calculationId={calculation?.id ?? null} />
+			</div>
+		</details>
 
 		{#if reference.length > 0}
 			<!-- What the source computed these columns with, carried by the plan that paired them. -->

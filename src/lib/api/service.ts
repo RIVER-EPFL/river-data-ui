@@ -259,9 +259,6 @@ export const rollbackDeployment = (deploymentId: string) =>
 		{ deployment_id: deploymentId },
 	);
 
-export const recomputeDerived = (id: string) =>
-	POST<QueuedJobResponse>(`${ADMIN}/actions/derived_parameters/${id}/recompute`);
-
 export const invalidatePublicConfig = (code: string) =>
 	POST<InvalidatedConfigResponse>(`${ADMIN}/actions/invalidate_public_config/${code}`);
 
@@ -280,6 +277,16 @@ export type ApplyGroupResponse = components['schemas']['ApplyGroupResponse'];
 export const applyParameterGroup = (siteId: string, groupId: string, dryRun = false) =>
 	POST<ApplyGroupResponse>(`${SERVICE}/sites/${siteId}/parameter_groups`, {
 		group_id: groupId,
+		dry_run: dryRun,
+	});
+
+// One calculation at a site: the site's slots are checked against what the calculation reads, and
+// the output slots it lacks are minted. A dry run reports the four lists and writes nothing.
+export type ApplyCalculationResponse = components['schemas']['ApplyCalculationResponse'];
+
+export const applyCalculationAtSite = (siteId: string, calculationId: string, dryRun = false) =>
+	POST<ApplyCalculationResponse>(`${SERVICE}/sites/${siteId}/calculations`, {
+		calculation_id: calculationId,
 		dry_run: dryRun,
 	});
 
@@ -1367,6 +1374,12 @@ export interface ToolVersionUsage {
 /** Every version's stored usage, newest first. A version that produced nothing is a zero row. */
 export const listToolVersionUsage = (id: string) =>
 	GET<ToolVersionUsage[]>(`${ADMIN}/tool_scripts/${id}/version_usage`);
+
+/** What each pinned version of a calculation computed on the stream arm, newest first. */
+export type VersionLedgerRow = components['schemas']['VersionLedgerRow'];
+
+export const listVersionLedger = (id: string) =>
+	GET<VersionLedgerRow[]>(`${ADMIN}/tool_scripts/${id}/version_ledger`);
 
 // Script inspection. The runner parses the script and walks the tree; nothing is evaluated, so a
 // half-written script is safe to inspect and a syntax error is a 200 with `parse_ok: false`.

@@ -63,7 +63,7 @@
 	}
 
 	function paramUnits(sp: SiteParameter): string {
-		return sp.display_units ?? parameters.find((p) => p.id === sp.parameter_id)?.default_units ?? '';
+		return parameters.find((p) => p.id === sp.parameter_id)?.default_units ?? '';
 	}
 
 	// ── Subprojects ──────────────────────────────────────────────────

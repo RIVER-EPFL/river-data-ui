@@ -95,8 +95,8 @@
 				times: result.times.map((t) => new Date(t).getTime() / 1000),
 				xLabel: xParam?.name ?? 'X',
 				yLabel: yParam?.name ?? 'Y',
-				xUnits: xSp?.display_units ?? xParam?.default_units ?? '',
-				yUnits: ySp?.display_units ?? yParam?.default_units ?? '',
+				xUnits: xParam?.default_units ?? '',
+				yUnits: yParam?.default_units ?? '',
 			};
 		} catch {
 			scatterError = 'Failed to load scatter data.';

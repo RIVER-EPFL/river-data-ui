@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -142,6 +142,29 @@ describe('the tables as they are worked on', () => {
 		await userEvent.click(screen.getByRole('button', { name: 'Add output' }));
 		expect(onadd).toHaveBeenCalledWith('outputs');
 		expect(screen.queryByRole('button', { name: 'Add input' })).toBeNull();
+	});
+
+	it('takes a palette drop on an inputs block with no rows yet', async () => {
+		const ondrop = vi.fn();
+		const view = render(CalculationSheet, { blocks: sheetBlocks([], []), formulas: [], ondrop });
+		const inputs = view.container.querySelector('section[aria-label="Inputs"]')!;
+		const payload = { name: 'Field_BP', kind: 'parameter' };
+		fireEvent.drop(inputs, {
+			dataTransfer: { getData: () => JSON.stringify(payload) },
+		});
+		expect(ondrop).toHaveBeenCalledWith('inputs', null, payload);
+		expect(inputs.textContent).toContain('Drop a parameter or constant here');
+	});
+
+	it('leaves an empty steps or outputs block alone, having no row to write into', async () => {
+		const ondrop = vi.fn();
+		const view = render(CalculationSheet, { blocks: sheetBlocks([], []), formulas: [], ondrop });
+		for (const title of ['Steps', 'Outputs']) {
+			fireEvent.drop(view.container.querySelector(`section[aria-label="${title}"]`)!, {
+				dataTransfer: { getData: () => JSON.stringify({ name: 'Field_BP', kind: 'parameter' }) },
+			});
+		}
+		expect(ondrop).not.toHaveBeenCalled();
 	});
 
 	it('says what an outlined input row is, once, under the table', async () => {

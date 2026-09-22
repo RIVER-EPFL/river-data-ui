@@ -34,7 +34,6 @@
 		siteId: string;
 		siteName: string;
 		siteParameterId?: string;
-		displayUnits?: string | null;
 	}
 
 	let {
@@ -71,7 +70,6 @@
 	interface LoadedSeries {
 		siteId: string;
 		label: string;
-		seriesUnits: string;
 		times: number[];
 		values: (number | null)[];
 		/** Low-frequency spot/grab points, always fetched raw over the full window. */
@@ -185,13 +183,9 @@
 			const results = await Promise.all(
 				siteIds.map(async (siteId): Promise<LoadedSeries> => {
 					const opt = siteOptions.find((s) => s.siteId === siteId);
-					const siteName = opt?.siteName ?? siteId;
-					const seriesUnits =
-						opt?.displayUnits && opt.displayUnits !== units ? opt.displayUnits : units;
-					const label =
-						seriesUnits !== units ? `${siteName} [${seriesUnits}]` : siteName;
+					const label = opt?.siteName ?? siteId;
 					const empty: LoadedSeries = {
-						siteId, label, seriesUnits,
+						siteId, label,
 						times: [], values: [],
 						spot: { times: [], values: [] },
 						spotStats: new Map(),
@@ -236,7 +230,7 @@
 							spotStats: spot.stats ?? new Map<number, SpotPointStats>(),
 						};
 					} catch {
-						failed.push(siteName);
+						failed.push(label);
 						return empty;
 					}
 				}),
@@ -278,8 +272,6 @@
 		loaded.reduce((acc, s) => acc + s.times.length + s.spot.times.length, 0),
 	);
 
-	const mixedUnits = $derived(new Set(loaded.map((s) => s.seriesUnits)).size > 1);
-
 	// Data layout: [x, ...continuous per site, ...spot per site]. Spot series are transparent
 	// (they only range the y-scale); the plugin paints their diamonds/whiskers.
 	const chartData = $derived.by((): uPlot.AlignedData => {
@@ -300,12 +292,12 @@
 			spotAgreed: dispersions.has('agreed'),
 			spotSingle: dispersions.has('single'),
 			sdBar: dispersions.has('spread'),
-			units: mixedUnits ? null : units,
+			units,
 		};
 	});
 
 	const chartOptions = $derived.by((): uPlot.Options => {
-		const yLabel = axisLabel(parameterName, units, mixedUnits);
+		const yLabel = axisLabel(parameterName, units, false);
 		const gaps = makeGaps(GAP_THRESHOLDS[resolution] ?? 0);
 		const spotBase = 1 + loaded.length;
 		const specs: SpotSeriesSpec[] = loaded.map((s, i) => ({
@@ -323,7 +315,7 @@
 			axes: [makeAxis({}), makeAxis({ size: 60, label: yLabel })],
 			series: [
 				{ label: 'Time' },
-				...loaded.map((s, i) => ({ ...makeSeries(i, s.label, s.seriesUnits), gaps })),
+				...loaded.map((s, i) => ({ ...makeSeries(i, s.label, units), gaps })),
 				...loaded.map((s) => spotSeriesConfig(`${s.label} (spot)`)),
 			],
 			plugins: [spotMarkersPlugin(() => specs)],
@@ -434,9 +426,6 @@
 							<ChartKey presence={keyPresence} />
 							{#if failedSites.length > 0}
 								<p class="text-xs text-severity-warning">Failed to load: {failedSites.join(', ')}</p>
-							{/if}
-							{#if mixedUnits}
-								<p class="text-xs text-brand-muted">Sites report different display units; values share one axis.</p>
 							{/if}
 						</div>
 					{/if}
