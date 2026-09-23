@@ -27,9 +27,9 @@ describe('the entries a timestamp is entered in', () => {
 		expect(new Set(options.map((o) => o.value)).size).toBe(options.length);
 	});
 
-	it('says a fixed offset keeps its offset all year', () => {
+	it('labels a fixed offset by its offset alone', () => {
 		const utcPlusOne = zoneOptions(SUMMER).find((o) => o.value === 'UTC+01:00');
-		expect(utcPlusOne?.label).toBe('UTC+1, no DST');
+		expect(utcPlusOne?.label).toBe('UTC+1');
 	});
 
 	it('labels UTC with nothing beside it', () => {

@@ -20,7 +20,6 @@
 	import { type CurveSelection } from '$components/tools/CurvePicker.svelte';
 	import SaveResultsPanel, { type UsedCurve } from '$components/tools/SaveResultsPanel.svelte';
 	import StagedVisitBar from '$components/tools/StagedVisitBar.svelte';
-	import EntryHeader from '$components/dataEntry/EntryHeader.svelte';
 	import { stagedVisit, stagedVisitFrom, type StagedVisit } from '$lib/stores/visit.svelte';
 	import {
 		openedFrom,
@@ -339,7 +338,6 @@
 		{/if}
 	</div>
 
-	<EntryHeader />
 	<StagedVisitBar bind:this={visitBar} />
 	{#if reopenNotice}
 		<p class="text-sm text-severity-warning-text">{reopenNotice}</p>

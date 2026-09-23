@@ -2,8 +2,8 @@ import { expect, test, type APIRequestContext } from '@playwright/test';
 import { API_URL, BASE_PATH, saveFormulaSet, signIn, token } from './portal';
 
 // Scenario: an operator entering a field day opens Data entry from the sidebar. Expected
-// behaviour: station, date and New entry open the visit, a form computes its output there, and
-// the save writes into that visit.
+// behaviour: picking the station lists its visits in place, a visit added at a typed time is the
+// one chosen, a form computes its output there, and the save writes into that visit.
 
 async function seedFormula(request: APIRequestContext) {
 	const stamp = `${Date.now()}`;
@@ -52,6 +52,7 @@ async function seedFormula(request: APIRequestContext) {
 		ordinal: 1,
 	});
 	await declare(derived.output_parameter_id, outputName, 'output', 1);
+	await post('/collection_events/stage', { site_id: site.id, collected_at: '2025-06-10T09:00:00Z' });
 	return { siteId: site.id, siteName, calculation, inputName, outputName };
 }
 
@@ -62,8 +63,11 @@ test('a field day is entered from Data entry: station, date, a form, save', asyn
 	await page.getByRole('navigation').getByRole('link', { name: 'Data entry', exact: true }).first().click();
 	await expect(page.getByRole('heading', { name: 'Data entry', exact: true })).toBeVisible();
 	await page.getByLabel('Station').selectOption({ label: siteName });
-	await page.getByLabel('Date').fill('2025-06-15T09:00');
-	await page.getByRole('button', { name: 'New entry' }).click();
+	await expect(
+		page.getByRole('list', { name: 'Visits at this station' }).getByRole('button'),
+	).toHaveCount(1);
+	await page.getByLabel('New visit at').fill('2025-06-15T09:00');
+	await page.getByRole('button', { name: 'Add visit' }).click();
 	await expect(page.getByText('Field visit').first()).toBeVisible();
 	await expect(page.getByText(siteName).first()).toBeVisible();
 
@@ -93,7 +97,7 @@ test('a field day is entered from Data entry: station, date, a form, save', asyn
 	await expect(input).toHaveValue('7');
 
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
-	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
+	await expect(page.getByText('2 visits', { exact: true })).toBeVisible();
 });
 
 test('a link to the retired tools page lands on Data entry with its query', async ({ page }) => {

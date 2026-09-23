@@ -74,7 +74,7 @@
 	}
 </script>
 
-<Dialog bind:open title="New entry" maxWidth="md">
+<Dialog bind:open title="New visit" maxWidth="md">
 	{#snippet children()}
 		<div class="space-y-3">
 			<table class="w-full text-sm">

@@ -955,6 +955,13 @@ export const resolveReplicateAudit = (
 		| { mode: 'reject'; reason?: string },
 ) => POST<ResolveHoldResult>(`${ADMIN}/sync/replicate_audit_holds/${id}/resolve`, body);
 
+export type RejectPreview = components['schemas']['RejectPreview'];
+
+// What rejecting an intern's entry would withdraw beside it: the values computed from it. The
+// reject reads the same computation, so what is shown is what it takes.
+export const getRejectPreview = (id: string) =>
+	GET<RejectPreview>(`${ADMIN}/sync/replicate_audit_holds/${id}/reject_preview`);
+
 export type CurationDriftResponse = components['schemas']['CurationDriftResponse'];
 export type CurationDriftRow = components['schemas']['CurationDriftRow'];
 

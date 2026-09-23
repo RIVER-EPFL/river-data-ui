@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { base } from '$app/paths';
-	import { listReplicateAudits, resolveReplicateAudit, type ReplicateAuditHold } from '$api/service';
+	import {
+		getRejectPreview,
+		listReplicateAudits,
+		resolveReplicateAudit,
+		type RejectPreview,
+		type ReplicateAuditHold,
+	} from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatDateTime } from '$lib/utils';
 	import { KIND_LABEL, KIND_STYLE, KIND_TIP, VERIFICATION_KINDS } from '$lib/holds';
@@ -13,6 +19,30 @@
 	// the values entered in them.
 	let ruling = $state(false);
 	let reason = $state('');
+	// What rejecting the open entry would take with it (Q257), read before the reject is offered.
+	let preview = $state<RejectPreview | null>(null);
+	let previewError = $state<string | null>(null);
+
+	async function openDetail(hold: ReplicateAuditHold) {
+		reason = '';
+		preview = null;
+		previewError = null;
+		if (hold.kind !== 'unverified_entry') return;
+		try {
+			const read = await getRejectPreview(hold.id);
+			if (read.hold_id === hold.id) preview = read;
+		} catch (e) {
+			previewError = apiMessage(e);
+		}
+	}
+
+	function rejectMessage(): string {
+		const taken = preview?.withdrawn ?? [];
+		const base = 'Reject this entry? The value is withdrawn, stays on the record with the reason, and is not served.';
+		if (taken.length === 0) return base;
+		const names = [...new Set(taken.map((o) => o.name))].join(', ');
+		return `${base} It also withdraws ${taken.length} computed value${taken.length === 1 ? '' : 's'}: ${names}.`;
+	}
 
 	async function loadPage({ page, perPage }: { page: number; perPage: number }) {
 		const r = await listReplicateAudits({
@@ -73,7 +103,7 @@
 	colCount={5}
 	emptyText="Nothing is waiting for verification"
 	detailTitle="Pending verification"
-	onOpenDetail={() => { reason = ''; }}
+	onOpenDetail={openDetail}
 >
 	{#snippet head()}
 		<th class="text-left px-4 py-2 font-semibold">Date</th>
@@ -109,6 +139,27 @@
 		<p class="text-xs text-brand-muted mt-2">
 			{hold.site_name ?? 'Unknown site'}, {formatDateTime(hold.group_time)}{#if hold.kind === 'unverified_entry'}, {hold.parameter_name ?? hold.parameter_code}{/if}. Entered by {enteredBy(hold)}.
 		</p>
+		{#if hold.kind === 'unverified_entry'}
+			<div class="mt-3 text-xs">
+				{#if previewError}
+					<p class="text-severity-alarm">Could not read what a reject would take: {previewError}</p>
+				{:else if !preview}
+					<p class="text-brand-muted">Reading what was computed from this entry…</p>
+				{:else if preview.withdrawn.length === 0}
+					<p class="text-brand-muted">Nothing was computed from this entry, so a reject withdraws it alone.</p>
+				{:else}
+					<p class="font-semibold">A reject also withdraws what was computed from it:</p>
+					<ul class="mt-1 list-disc pl-5">
+						{#each preview.withdrawn as output (`${output.parameter_id}:${output.replicate_index}`)}
+							<li>
+								{output.name}{#if output.replicate_index > 0} (replicate {output.replicate_index + 1}){/if}
+								= {output.value ?? '-'}
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			</div>
+		{/if}
 	{/snippet}
 	{#snippet detailActions(hold, ctx)}
 		{#if hold.kind === 'unverified_entry'}
@@ -129,13 +180,13 @@
 				<Button variant="primary" disabled={ruling}>{ruling ? 'Saving…' : 'Verify'}</Button>
 			</ConfirmPopover>
 			<ConfirmPopover
-				message="Reject this entry? The value is withdrawn, stays on the record with the reason, and is not served."
+				message={rejectMessage()}
 				confirmLabel="Reject"
 				confirmVariant="alarm"
 				above
 				onconfirm={() => rule(hold, 'reject', ctx)}
 			>
-				<Button disabled={ruling}>Reject</Button>
+				<Button disabled={ruling || !preview}>Reject</Button>
 			</ConfirmPopover>
 		{:else}
 			<ConfirmPopover

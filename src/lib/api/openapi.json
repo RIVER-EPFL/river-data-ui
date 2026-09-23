@@ -17955,6 +17955,72 @@
         ],
         "type": "object"
       },
+      "RejectPreview": {
+        "description": "What rejecting an intern's entry would withdraw beside it (Q257).",
+        "properties": {
+          "entries": {
+            "description": "The entered readings the reject decides on.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "hold_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "withdrawn": {
+            "description": "The computed values that go with them, in the order the reject withdraws them.",
+            "items": {
+              "$ref": "#/components/schemas/RejectPreviewOutput"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "hold_id",
+          "entries",
+          "withdrawn"
+        ],
+        "type": "object"
+      },
+      "RejectPreviewOutput": {
+        "description": "One computed value a reject would withdraw.",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "parameter_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "replicate_index": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "time": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "value": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "parameter_id",
+          "code",
+          "name",
+          "time",
+          "replicate_index",
+          "value"
+        ],
+        "type": "object"
+      },
       "ReloadResponse": {
         "properties": {
           "body": {
@@ -48159,6 +48225,41 @@
           }
         },
         "summary": "Dismiss a calculation finding: the audit reported a missing, stale or skipped output here and\na person rules that no recomputation is owed.",
+        "tags": [
+          "sync"
+        ]
+      }
+    },
+    "/api/sync/replicate_audit_holds/{id}/reject_preview": {
+      "get": {
+        "operationId": "reject_preview",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectPreview"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "No pending unverified entry hold with this id"
+          }
+        },
+        "summary": "What rejecting an intern's entry would withdraw beside it: the values computed from it at its\nvisit, read by the same computation the reject acts on (Q257).",
         "tags": [
           "sync"
         ]

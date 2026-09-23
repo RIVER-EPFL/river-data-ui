@@ -6427,6 +6427,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sync/replicate_audit_holds/{id}/reject_preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What rejecting an intern's entry would withdraw beside it: the values computed from it at its
+         *     visit, read by the same computation the reject acts on (Q257).
+         */
+        get: operations["reject_preview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sync/replicate_audit_holds/{id}/release_brake": {
         parameters: {
             query?: never;
@@ -14712,6 +14732,28 @@ export interface components {
             source_name?: string | null;
             source_path?: string | null;
             source_system: string;
+        };
+        /** @description What rejecting an intern's entry would withdraw beside it (Q257). */
+        RejectPreview: {
+            /** @description The entered readings the reject decides on. */
+            entries: number;
+            /** Format: uuid */
+            hold_id: string;
+            /** @description The computed values that go with them, in the order the reject withdraws them. */
+            withdrawn: components["schemas"]["RejectPreviewOutput"][];
+        };
+        /** @description One computed value a reject would withdraw. */
+        RejectPreviewOutput: {
+            code: string;
+            name: string;
+            /** Format: uuid */
+            parameter_id: string;
+            /** Format: int32 */
+            replicate_index: number;
+            /** Format: date-time */
+            time: string;
+            /** Format: double */
+            value: number | null;
         };
         ReloadResponse: {
             /** @description The calculate body that reproduces the run: its stored inputs plus the calculation context. */
@@ -36056,6 +36098,34 @@ export interface operations {
                 content?: never;
             };
             /** @description No pending hold with this id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reject_preview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RejectPreview"];
+                };
+            };
+            /** @description No pending unverified entry hold with this id */
             404: {
                 headers: {
                     [name: string]: unknown;

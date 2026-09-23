@@ -89,7 +89,7 @@
 			aria-label="Time zone"
 			value={zone}
 			onchange={(e) => editZone(e.currentTarget.value)}
-			class="max-w-[10rem] px-2 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-xs"
+			class="max-w-[16rem] px-2 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-xs"
 		>
 			{#each options as option (option.value)}
 				<option value={option.value}>{option.label}</option>

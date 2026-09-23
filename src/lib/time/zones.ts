@@ -120,7 +120,7 @@ export function zoneOptions(wall?: string): ZoneOption[] {
 		...fixedOffsets().map((value) => ({
 			value,
 			group: 'offset' as const,
-			label: value === 'UTC' ? 'UTC' : `${offsetLabel(fixedOffsetMinutes(value) ?? 0)}, no DST`,
+			label: value === 'UTC' ? 'UTC' : offsetLabel(fixedOffsetMinutes(value) ?? 0),
 		})),
 		...pinned.map((z) => zone(z, 'pinned')),
 		...rest.map((z) => zone(z, 'zone')),

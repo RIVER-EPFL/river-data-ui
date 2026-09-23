@@ -445,7 +445,6 @@
 
 	function writableSlot(visit: VisitRow, slot: GridSlot): boolean {
 		return (
-			me.can('writeData') &&
 			editable(slot.column) &&
 			slotWritable(visit, slot.parameterId, slot.replicateIndex).writable
 		);
@@ -523,7 +522,7 @@
 		// A listed visit's date is read-only: its instant is what its readings are keyed on. A spare
 		// row's is where the new visit is named.
 		if (column < FROZEN_COLUMNS) {
-			return { readOnly: !(spareAt(row) && me.can('writeData')), renderer: renderFrozen };
+			return { readOnly: !(spareAt(row) && me.can('enterFieldData')), renderer: renderFrozen };
 		}
 		const at = sheetSlot(table, row, column);
 		return { readOnly: !at || !writableSlot(at.visit, at.slot), renderer: renderValue };
@@ -837,7 +836,7 @@
 			label.append(col.code);
 		}
 		if (col.units) label.append(mark(` (${col.units})`, 'sheet-mark'));
-		if (col.expanded && me.can('writeData')) {
+		if (col.expanded && me.can('enterFieldData')) {
 			label.append(
 				button(
 					'−',
@@ -1622,7 +1621,7 @@
 							</select>
 						</div>
 					{/if}
-					{#if me.can('writeData')}
+					{#if me.can('enterFieldData')}
 						<Button size="sm" variant="primary" onclick={() => (newVisitOpen = true)}>New visit</Button>
 						<NewVisitDialog bind:open={newVisitOpen} {siteId} onadded={() => loadVisits()} />
 					{/if}
@@ -1674,7 +1673,7 @@
 							</ConfirmPopover>
 						</div>
 					{/if}
-					{#if me.can('writeData')}
+					{#if me.can('enterFieldData')}
 						<div class="flex flex-wrap items-center gap-2">
 							{#if entering}
 								<Button
