@@ -4,8 +4,9 @@
 	import { goto } from '$app/navigation';
 	import { api } from '$api/crud';
 	import { getToolRunTrace, type ToolRunTrace } from '$api/service';
-	import type { ConsumedInput } from '$api/service';
+	import type { ConsumedInput, Decommission } from '$api/service';
 	import { markTip, markVariant, memberHref } from '$lib/provenance/consumed';
+	import { decommissionText } from '$lib/provenance/decommission';
 	import { formatEquation } from '$lib/standardCurves';
 	import { indexLetter } from '$lib/tools/runTable';
 	import { equationChain, inputOrigin } from '$lib/tools/equation';
@@ -24,6 +25,7 @@
 		paramName,
 		parameterCode,
 		consumed,
+		decommissioned,
 	}: {
 		provenance: Record<string, unknown>;
 		/** Resolver for saved parameter ids. Omitted, the card resolves the names it needs itself. */
@@ -33,6 +35,8 @@
 		/** What the run consumed, resolved against its sources. Given, each input names the
 		 * reading it was read from and whether that reading has moved since. */
 		consumed?: ConsumedInput[];
+		/** The decommission of the calculation the run executed, read as it stands now. */
+		decommissioned?: Decommission;
 	} = $props();
 
 	// The captured input behind one name of the blob, where the run recorded one.
@@ -207,6 +211,9 @@
 					<span class="font-mono text-brand-muted" title={version.hash}> ({version.hash.slice(0, 8)})</span>
 				{/if}
 			</div>
+			{#if decommissioned}
+				<div class="text-brand-accent-dark">{decommissionText(decommissioned)}</div>
+			{/if}
 			{#if version?.runnerImage || rVersionLabel}
 				<div class="text-brand-muted">
 					Runner

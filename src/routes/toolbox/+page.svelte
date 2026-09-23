@@ -26,6 +26,7 @@
 	} from '$lib/calculations/rows';
 	import {
 		calculationEntries,
+		isListed,
 		matchesSearch,
 		type CalculationEntry,
 	} from '$lib/toolbox/calculations';
@@ -35,13 +36,14 @@
 		type CalculationEngine,
 	} from '$lib/toolbox/newCalculation';
 	import { siteCalculationHref, toolboxHref } from '$lib/toolbox/route';
-	import { jobDetailPath } from '$lib/utils';
+	import { formatDate, jobDetailPath } from '$lib/utils';
 	import { AUTHOR_CALCULATIONS, authoringState, loadCatalog } from '$lib/toolbox/authoring';
 	import { me } from '$auth/me.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import CalculationFindings from '$components/tools/CalculationFindings.svelte';
+	import DecommissionCalculation from '$components/toolbox/DecommissionCalculation.svelte';
 	import CalculationSwitch from '$components/toolbox/CalculationSwitch.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 
@@ -58,6 +60,7 @@
 	let loadError = $state<string | null>(null);
 	let refused = $state(false);
 	let engineFilter = $state<'all' | 'formula' | 'script'>('all');
+	let showDecommissioned = $state(false);
 	let search = $state('');
 	let expanded = $state<string | null>(null);
 	let sitesOpen = $state<string | null>(null);
@@ -97,7 +100,10 @@
 	const missingInputs = $derived(unconfiguredInputs(rows));
 	const entries = $derived(
 		calculationEntries(rows, scripts, base, applied).filter(
-			(e) => (engineFilter === 'all' || e.engine === engineFilter) && matchesSearch(e, search)
+			(e) =>
+				(engineFilter === 'all' || e.engine === engineFilter) &&
+				isListed(e, showDecommissioned) &&
+				matchesSearch(e, search)
 		)
 	);
 
@@ -213,6 +219,10 @@
 					onclick={() => (engineFilter = value as typeof engineFilter)}
 				>{label}</button>
 			{/each}
+			<label class="ml-2 inline-flex items-center gap-1 text-brand-muted">
+				<input type="checkbox" bind:checked={showDecommissioned} />
+				Show decommissioned
+			</label>
 		</div>
 	</div>
 
@@ -409,8 +419,13 @@
 									{#if entry.versionless}
 										<Badge variant="muted">no version active</Badge>
 									{/if}
-									{#if access.authorable && entry.id && entry.enabled !== null}
+									{#if entry.decommissioned_at}
+										<Badge variant="muted">decommissioned {formatDate(entry.decommissioned_at)}</Badge>
+									{:else if access.authorable && entry.id && entry.enabled !== null}
 										<CalculationSwitch id={entry.id} enabled={entry.enabled} onchanged={refreshScripts} />
+										{#if me.can('admin')}
+											<DecommissionCalculation id={entry.id} ondecommissioned={refreshScripts} />
+										{/if}
 									{:else if entry.enabled === false}
 										<Badge variant="muted">off</Badge>
 									{:else if entry.enabled === true}

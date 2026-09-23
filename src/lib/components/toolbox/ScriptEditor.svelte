@@ -45,6 +45,7 @@
 	import TestCasesEditor from '$components/tools/TestCasesEditor.svelte';
 	import ValidationReport from '$components/tools/ValidationReport.svelte';
 	import CalculationSettings from '$components/toolbox/CalculationSettings.svelte';
+	import DecommissionBanner from '$components/toolbox/DecommissionBanner.svelte';
 	import { DEFAULT_TOLERANCE, runTestCase, type CaseRun } from '$lib/tools/draft';
 	import type { ToolFormSpec } from '$lib/tools/form';
 	import {
@@ -551,6 +552,7 @@
 		{:else}
 			{#if detail}
 				<div class="space-y-3 min-w-0">
+					<DecommissionBanner calculation={detail} />
 					<!-- Kept in view: a version is saved from wherever the author is on the page -->
 					<div class="sticky top-0 z-20 rounded-md border border-brand-divider bg-brand-surface p-3 space-y-2">
 						<div class="flex flex-wrap items-end gap-3">
@@ -560,7 +562,7 @@
 									{#if detail.active_version_no != null}
 										<span class="text-xs text-brand-muted">Active version {detail.active_version_no}</span>
 									{/if}
-									{#if !detail.enabled}<Badge variant="warning">off</Badge>{/if}
+									{#if !detail.enabled && !detail.decommissioned_at}<Badge variant="warning">off</Badge>{/if}
 								</div>
 								<p class="text-xs text-brand-muted">
 									{#if selectedVersion}

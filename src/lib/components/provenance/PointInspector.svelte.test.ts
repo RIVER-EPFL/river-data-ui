@@ -429,6 +429,54 @@ describe('PointInspector', () => {
 		expect(screen.getByText('DIC').closest('a')).toBeNull();
 	});
 
+	// Scenario: a pCO2 average the portal computed with calcPCO2, synced with the declaration on
+	// its stream, at a visit that holds one of the columns it read.
+	// Expected behaviour: the record names the function and opens the held column's record.
+	it('names the portal function a synced column was computed by, opening the inputs it holds', async () => {
+		open(
+			response([
+				{
+					origin: {
+						stream_id: 'stream',
+						source_system: 'cnet',
+						source_key: 'FP15:CO2_HS_Um_avg',
+						classification: 'sync',
+						portal_calculation: {
+							function: 'calcPCO2',
+							inputs: [
+								{
+									column: 'lab_co2_co2ppm',
+									point: {
+										site_id: 'site',
+										site_parameter_id: 'sp-co2',
+										time: '2026-07-14T09:00:00Z',
+										measurement_type: 'spot',
+									},
+								},
+								{ column: 'Field_BP' },
+							],
+						},
+					},
+					readings: [reading(0, 8.005)],
+					chain: {},
+					computation: {},
+					holds: [],
+				},
+			]),
+		);
+		await screen.findByText('8.005');
+		expect(screen.getByText('calcPCO2')).toBeTruthy();
+		const held = screen.getByText('lab_co2_co2ppm').closest('a')!;
+		expect(held.getAttribute('href')).toContain('/sites/site?point=sp-co2');
+		expect(screen.getByText('Field_BP').closest('a')).toBeNull();
+	});
+
+	it('names no portal function for a column the portal stores as entered', async () => {
+		open(handEntered());
+		await screen.findByText('8.005');
+		expect(screen.queryByText('Portal calculation')).toBeNull();
+	});
+
 	it('says the inputs are unknown for a computed value that recorded none', async () => {
 		const { container } = open(computed(formula));
 		await screen.findByText('8.005');
@@ -507,6 +555,25 @@ describe('PointInspector', () => {
 		);
 		const owned = await screen.findByRole('link', { name: 'pCO2 v2' });
 		expect(owned.getAttribute('href')).toContain('/toolbox/ts-1');
+	});
+
+	it('says the calculation behind a value was decommissioned, and keeps the link to it', async () => {
+		open(
+			computed({
+				...formula,
+				tool_script_id: 'ts-1',
+				decommissioned: { at: '2026-09-23T10:00:00Z', by: 'evan', reason: 'replaced by pco2_v2' },
+			}),
+		);
+		const link = await screen.findByRole('link', { name: 'pCO2 v2' });
+		expect(link.getAttribute('href')).toContain('/toolbox/ts-1');
+		expect(screen.getByText(/^Calculation decommissioned on .* by evan: replaced by pco2_v2$/)).toBeTruthy();
+	});
+
+	it('says nothing of a decommission while the calculation is live', async () => {
+		open(computed({ ...formula, tool_script_id: 'ts-1' }));
+		await screen.findByRole('link', { name: 'pCO2 v2' });
+		expect(screen.queryByText(/decommissioned/)).toBeNull();
 	});
 
 	it('says the formula is not recoverable for a value stored before versioning', async () => {

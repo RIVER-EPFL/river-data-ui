@@ -32,8 +32,11 @@ export function markTip(state: string): string {
 
 /** The point record a consumed reading opens; null while its stream is unpaired. */
 export function memberHref(basePath: string, member: ConsumedMember): string | null {
-	const point = member.point;
-	if (!point) return null;
+	return member.point ? slotHref(basePath, member.point) : null;
+}
+
+/** The site page's point record for a slot at an instant. */
+export function slotHref(basePath: string, point: NonNullable<ConsumedMember['point']>): string {
 	const params = new URLSearchParams();
 	writePointParams(params, {
 		siteParameterId: point.site_parameter_id,

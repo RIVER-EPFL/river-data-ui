@@ -215,7 +215,7 @@ export interface paths {
         /**
          * Invalidate the in-memory cache for a public project's API config. Use after editing
          *     public visibility settings to force a re-read on next public API request. Requires
-         *     `write_metadata`.
+         *     `write_metadata`, and the project among the caller's own.
          */
         post: operations["invalidate_public_config"];
         delete?: never;
@@ -7436,8 +7436,8 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Update a calculation's label, description or enabled switch (the code lives in versions).
-         *     Requires Administrator.
+         * Update a calculation's label, description or enabled switch (the code lives in versions). A
+         *     decommissioned calculation is not switched back on. Requires Administrator.
          */
         patch: operations["update_script"];
         trace?: never;
@@ -7453,6 +7453,27 @@ export interface paths {
         get: operations["list_activations"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tool_scripts/{id}/decommission": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decommission a calculation: it stops applying and firing at every site, and the decommission
+         *     records who, when and why. Nothing it computed is withdrawn; its values keep their version and
+         *     run. Requires Administrator.
+         */
+        post: operations["decommission_script"];
         delete?: never;
         options?: never;
         head?: never;
@@ -9039,6 +9060,8 @@ export interface components {
             active_version_no?: number;
             code: string;
             content_hash?: string;
+            /** @description The calculation's decommission, read as it stands now, absent while it is live. */
+            decommissioned?: components["schemas"]["Decommission"];
             /** Format: uuid */
             definition_id: string;
             formula?: string;
@@ -9497,6 +9520,11 @@ export interface components {
         };
         ComputationInfo: {
             created_by?: string;
+            /**
+             * @description The decommission of the calculation the run executed, read as it stands now: the blob is
+             *     frozen at run time and cannot carry it.
+             */
+            decommissioned?: components["schemas"]["Decommission"];
             label?: string;
             /** Format: double */
             max?: number;
@@ -10076,6 +10104,17 @@ export interface components {
             supersedes: string | null;
             /** Format: date-time */
             time: string;
+        };
+        /** @description A calculation's decommission: when, by whom and why (Q272). */
+        Decommission: {
+            /** Format: date-time */
+            at: string;
+            by: string;
+            reason: string;
+        };
+        DecommissionRequest: {
+            /** @description Why the calculation is stopped at every site; recorded with who and when. */
+            reason: string;
         };
         DefinitionMember: {
             /** @description The catalog code; the stable machine identity and the CSV column header. */
@@ -12474,6 +12513,11 @@ export interface components {
             ingested_at?: string;
             /** Format: date-time */
             paired_at?: string;
+            /**
+             * @description The portal function that computed this column and the columns it read, as the source
+             *     declared on the stream. Absent for a column the source stores as entered.
+             */
+            portal_calculation?: components["schemas"]["PortalCalculation"];
             /** @description The latest windowed-ingest pass whose claimed window covers the instant. */
             receipt?: components["schemas"]["ReceiptSummary"];
             source_key: string;
@@ -13958,6 +14002,22 @@ export interface components {
             parameter?: string | null;
             /** @description The units this source declares, against `existing.units`. */
             source_units?: string | null;
+        };
+        /** @description The portal function a synced column was computed by, as the source declared it. */
+        PortalCalculation: {
+            /** @description The source's own function name, verbatim (`calcPCO2`). */
+            function: string;
+            /** @description The columns it reads, in the order the source lists them. */
+            inputs: components["schemas"]["PortalInput"][];
+        };
+        /** @description One column a portal calculation reads. */
+        PortalInput: {
+            column: string;
+            /**
+             * @description The record it opens, where a stream of the same source at the same site holds it at the
+             *     same instant.
+             */
+            point?: components["schemas"]["SlotRef"];
         };
         PreviewDelta: {
             /** Format: double */
@@ -17825,6 +17885,14 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             created_by: string | null;
+            decommission_reason: string | null;
+            /**
+             * Format: date-time
+             * @description When the calculation was decommissioned. Set, it is never enabled again (Q272).
+             */
+            decommissioned_at: string | null;
+            /** @description The administrator who decommissioned it, from the authenticated caller. */
+            decommissioned_by: string | null;
             description: string | null;
             /**
              * @description Whether the tool is part of the calculation set: fired at visits by the chain, audited,
@@ -17863,6 +17931,14 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             created_by: string | null;
+            decommission_reason: string | null;
+            /**
+             * Format: date-time
+             * @description When the calculation was decommissioned. Set, it is never enabled again (Q272).
+             */
+            decommissioned_at: string | null;
+            /** @description The administrator who decommissioned it, from the authenticated caller. */
+            decommissioned_by: string | null;
             description: string | null;
             /**
              * @description Whether the tool is part of the calculation set: fired at visits by the chain, audited,
@@ -18977,6 +19053,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["RecalculateResponse"];
                 };
+            };
+            /** @description The calibration's instrument is deployed outside the caller's projects */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Calibration not found */
             404: {
@@ -29451,6 +29534,13 @@ export interface operations {
                     "application/json": components["schemas"]["SeasonalCheckResponse"];
                 };
             };
+            /** @description Site outside the caller's projects */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description Site not found */
             404: {
                 headers: {
@@ -31281,6 +31371,13 @@ export interface operations {
                     "application/json": components["schemas"]["RetireResponse"];
                 };
             };
+            /** @description The calibration's instrument is deployed outside the caller's projects */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description No such calibration */
             404: {
                 headers: {
@@ -31317,6 +31414,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["UnretireResponse"];
                 };
+            };
+            /** @description The calibration's instrument is deployed outside the caller's projects */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description No such calibration */
             404: {
@@ -34670,6 +34774,13 @@ export interface operations {
                     "application/json": components["schemas"]["RetireCurveResponse"];
                 };
             };
+            /** @description The curve's instrument is deployed outside the caller's projects */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description No such curve */
             404: {
                 headers: {
@@ -34706,6 +34817,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["RetireCurveResponse"];
                 };
+            };
+            /** @description The curve's instrument is deployed outside the caller's projects */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description No such curve */
             404: {
@@ -39114,6 +39232,13 @@ export interface operations {
                     "application/json": components["schemas"]["ToolScript"];
                 };
             };
+            /** @description Switching on a decommissioned calculation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     list_activations: {
@@ -39134,6 +39259,52 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ActivationRecord"][];
                 };
+            };
+        };
+    };
+    decommission_script: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecommissionRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolScript"];
+                };
+            };
+            /** @description The reason is blank */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such calculation */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Already decommissioned */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

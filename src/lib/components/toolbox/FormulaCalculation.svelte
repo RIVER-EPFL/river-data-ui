@@ -85,6 +85,7 @@
 	import FormulaPalette from '$components/formula/FormulaPalette.svelte';
 	import CalculationSites from '$components/toolbox/CalculationSites.svelte';
 	import CalculationSettings from '$components/toolbox/CalculationSettings.svelte';
+	import DecommissionBanner from '$components/toolbox/DecommissionBanner.svelte';
 	import CalculationSheet from '$components/toolbox/CalculationSheet.svelte';
 	import CellPanel from '$components/toolbox/CellPanel.svelte';
 	import CurvePicker, { emptyCurveSelection, type CurveSelection } from '$components/tools/CurvePicker.svelte';
@@ -864,10 +865,11 @@
 					<p class="text-sm text-brand-muted">
 						{calculation.name} · formula calculation
 						{#if calculation.active_version_no}· version {calculation.active_version_no}{/if}
-						{#if !calculation.enabled}· <Badge variant="warning">disabled</Badge>{/if}
+						{#if !calculation.enabled && !calculation.decommissioned_at}· <Badge variant="warning">disabled</Badge>{/if}
 					</p>
 					{#if calculation.description}<p class="text-sm text-brand-muted mt-1">{calculation.description}</p>{/if}
 					<CalculationSites name={calculation.name} />
+					<div class="mt-2"><DecommissionBanner {calculation} /></div>
 				{/if}
 			</div>
 		</div>

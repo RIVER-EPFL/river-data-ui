@@ -26,6 +26,8 @@ export interface CalculationEntry {
 	versionless: boolean;
 	/** The sites the chain fires it at, by name. Null when it is switched off. */
 	sites: CalculationSites['sites'] | null;
+	/** When it was decommissioned, null while it is live. */
+	decommissioned_at: string | null;
 }
 
 const FIRES_ON: Record<CalculationEngine, string> = {
@@ -83,6 +85,7 @@ export function calculationEntries(
 			enabled: s.enabled,
 			versionless: engine === 'script' && s.active_version_no == null,
 			sites: sitesOf.get(s.name) ?? null,
+			decommissioned_at: s.decommissioned_at ?? null,
 		};
 	});
 	for (const [calculation, outputs] of outputsOf) {
@@ -100,9 +103,15 @@ export function calculationEntries(
 			enabled: first.enabled,
 			versionless: false,
 			sites: sitesOf.get(calculation) ?? null,
+			decommissioned_at: null,
 		});
 	}
 	return entries.sort((a, b) => a.label.localeCompare(b.label));
+}
+
+/** Whether the Toolbox lists a calculation: a decommissioned one only when asked for. */
+export function isListed(entry: CalculationEntry, showDecommissioned: boolean): boolean {
+	return showDecommissioned || entry.decommissioned_at === null;
 }
 
 /** Whether a search matches the calculation's name or label, or the code of an output or input. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculationEntries, matchesSearch } from './calculations';
+import { calculationEntries, isListed, matchesSearch } from './calculations';
 import type { CalculationInput, CalculationRow } from '$lib/calculations/rows';
 import type { ToolScriptSummary } from '$api/service';
 
@@ -31,6 +31,15 @@ const scripts = [
 	{ id: 'sc-pco2', name: 'pco2', label: 'pCO2', engine: 'formula', enabled: true, active_version_no: null },
 	{ id: 'sc-dom', name: 'dom', label: 'DOM Indices', engine: 'script', enabled: false, active_version_no: 3 },
 	{ id: 'sc-new', name: 'draft', label: 'Draft', engine: 'script', enabled: true, active_version_no: null },
+	{
+		id: 'sc-old',
+		name: 'pco22',
+		label: 'pCO2 (old)',
+		engine: 'formula',
+		enabled: false,
+		active_version_no: null,
+		decommissioned_at: '2026-09-23T12:00:00Z',
+	},
 ] as ToolScriptSummary[];
 
 const rows = [
@@ -54,7 +63,7 @@ function entries() {
 
 describe('calculationEntries', () => {
 	it('gives each calculation one entry, whatever its output count', () => {
-		expect(entries().map((e) => e.calculation)).toEqual(['dom', 'draft', 'pco2']);
+		expect(entries().map((e) => e.calculation)).toEqual(['dom', 'draft', 'pco2', 'pco22']);
 	});
 
 	it('folds every output of a calculation under its entry', () => {
@@ -108,6 +117,25 @@ describe('calculationEntries', () => {
 		expect(sitesOf('draft')).toEqual([]);
 		// Switched off, so the chain fires it nowhere and the list does not name it.
 		expect(sitesOf('dom')).toBeNull();
+	});
+});
+
+describe('isListed', () => {
+	const find = (name: string) => entries().find((e) => e.calculation === name)!;
+
+	it('carries when a calculation was decommissioned, and null for a live one', () => {
+		expect(find('pco22').decommissioned_at).toBe('2026-09-23T12:00:00Z');
+		expect(find('pco2').decommissioned_at).toBeNull();
+	});
+
+	it('hides a decommissioned calculation until the filter asks for it', () => {
+		expect(isListed(find('pco22'), false)).toBe(false);
+		expect(isListed(find('pco22'), true)).toBe(true);
+	});
+
+	it('lists a live calculation whether the filter is on or off', () => {
+		expect(isListed(find('pco2'), false)).toBe(true);
+		expect(isListed(find('pco2'), true)).toBe(true);
 	});
 });
 

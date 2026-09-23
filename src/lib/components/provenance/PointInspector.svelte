@@ -40,6 +40,7 @@
 		type DecisionEntry,
 	} from '$lib/provenance/decisions';
 	import { leadingToken, ledgerLine, ledgerWeight } from '$lib/provenance/ledger';
+	import { decommissionText, recordDecommission } from '$lib/provenance/decommission';
 	import { originServiceHref } from '$lib/provenance/serviceLink';
 	import {
 		anyChanged,
@@ -48,6 +49,7 @@
 		markTip,
 		markVariant,
 		memberHref,
+		slotHref,
 		orderedInputs,
 	} from '$lib/provenance/consumed';
 	import { calculationHref, type ComputationAnchor } from '$lib/toolbox/route';
@@ -613,6 +615,7 @@
 {#snippet calculation(rec: ProvenanceRecord)}
 	{@const author = rec.computation?.created_by ?? NO_VALUE}
 	{@const what = computationText(rec)}
+	{@const retired = recordDecommission(rec)}
 	{#if what !== NO_VALUE || author !== NO_VALUE}
 		<div class={lineClass}>
 			{#if rec.calculation}
@@ -624,6 +627,32 @@
 				{@render inlineOptional('Computation', what, computationTip(rec), false)}
 			{/if}
 			{@render inlineOptional('Entered by', author, undefined, false)}
+		</div>
+		{#if retired}
+			<p class="text-xs text-brand-accent-dark">{decommissionText(retired)}</p>
+		{/if}
+	{/if}
+{/snippet}
+
+{#snippet portalCalculation(rec: ProvenanceRecord)}
+	{@const calc = rec.origin.portal_calculation}
+	{#if calc}
+		<div class={lineClass}>
+			<div class="contents" title="The portal function that computed this column, as the source declared it.">
+				<span class="text-xs text-brand-muted">Portal calculation</span>
+				<span class="text-brand-text">
+					<span class="font-mono">{calc.function}</span>
+					<span class="text-xs text-brand-muted">of</span>
+					{#each calc.inputs as input, i (input.column)}
+						{#if i > 0}<span class="text-brand-muted">, </span>{/if}
+						{#if input.point}
+							<a class="font-mono text-brand-primary hover:underline" href={slotHref(base, input.point)} title="Open the record of this column at the instant">{input.column}</a>
+						{:else}
+							<span class="font-mono">{input.column}</span>
+						{/if}
+					{/each}
+				</span>
+			</div>
 		</div>
 	{/if}
 {/snippet}
@@ -854,6 +883,7 @@
 					{/each}
 				</div>
 
+				{@render portalCalculation(rec)}
 				{#if cadence(rec) === 'derived'}{@render calculation(rec)}{/if}
 				{#if rec.readings.length === 1}
 					{@const r = rec.readings[0]}
@@ -1016,6 +1046,7 @@
 					<div class="mt-2">
 						<ProvenanceCard
 							provenance={rec.computation.provenance}
+							decommissioned={rec.computation.decommissioned}
 							parameterCode={resp.parameter_code}
 							consumed={rec.consumed}
 						/>

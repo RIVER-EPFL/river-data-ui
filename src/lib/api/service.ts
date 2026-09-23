@@ -1018,6 +1018,9 @@ export type ProvenanceChain = components['schemas']['ChainInfo'];
 // text is not what produced it.
 export type ProvenanceCalculation = components['schemas']['CalculationInfo'];
 
+// A calculation's decommission, read live: when, by whom and why it was stopped at every site.
+export type Decommission = components['schemas']['Decommission'];
+
 export type ProvenanceRecord = components['schemas']['ProvenanceRecord'];
 
 // One input a calculation consumed, beside what its source holds now.
@@ -1342,6 +1345,10 @@ export const updateToolScript = (
 	body: { label?: string; description?: string; enabled?: boolean },
 ) =>
 	PATCH<ToolScriptSummary>(`${ADMIN}/tool_scripts/${id}`, body);
+
+/** Stop a calculation at every site for good, recording who, when and `reason`. */
+export const decommissionToolScript = (id: string, reason: string) =>
+	POST<ToolScriptDetail>(`${ADMIN}/tool_scripts/${id}/decommission`, { reason });
 
 export const createToolVersion = (
 	id: string,
