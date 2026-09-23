@@ -56,7 +56,21 @@ describe('buildReadingsExportParams', () => {
 describe('exportColumns', () => {
 	it('names the value column by the parameter code', () => {
 		const columns = exportColumns(['DOC'], { ...base, measurementType: 'continuous' });
-		expect(columns).toEqual(['time', 'DOC', 'DOC_flagged', 'DOC_flag_reason']);
+		expect(columns).toEqual(['time', 'DOC', 'DOC_flagged', 'DOC_flag_reason', 'DOC_unverified']);
+	});
+
+	it('ends a raw file with the pending mark of every code, flagged rows or not', () => {
+		const columns = exportColumns(['DOC', 'TOC'], {
+			...base,
+			measurementType: 'continuous',
+			includeFlagged: false,
+		});
+		expect(columns).toEqual(['time', 'DOC', 'TOC', 'DOC_unverified', 'TOC_unverified']);
+	});
+
+	it('lists no pending column for a JSON export, whose marks are per point', () => {
+		const columns = exportColumns(['DOC'], { ...base, measurementType: 'continuous', format: 'json' });
+		expect(columns).toEqual(['time', 'DOC']);
 	});
 
 	it('lists the statistics and curve columns a spot export adds', () => {
@@ -74,8 +88,43 @@ describe('exportColumns', () => {
 			'DOC_n',
 			'DOC_mean',
 			'DOC_sd',
+			'DOC_median',
 			'DOC_min',
 			'DOC_max',
+			'DOC_unverified',
+		]);
+	});
+
+	it('groups each column kind across the codes, as the API writes them', () => {
+		const columns = exportColumns(['DOC', 'TOC'], {
+			...base,
+			measurementType: 'spot',
+			includeFlagged: false,
+		});
+		expect(columns).toEqual([
+			'time',
+			'DOC',
+			'TOC',
+			'DOC_calibration_id',
+			'TOC_calibration_id',
+			'DOC_standard_curve_id',
+			'TOC_standard_curve_id',
+			'DOC_sample_id',
+			'DOC_n',
+			'DOC_mean',
+			'DOC_sd',
+			'DOC_median',
+			'DOC_min',
+			'DOC_max',
+			'TOC_sample_id',
+			'TOC_n',
+			'TOC_mean',
+			'TOC_sd',
+			'TOC_median',
+			'TOC_min',
+			'TOC_max',
+			'DOC_unverified',
+			'TOC_unverified',
 		]);
 	});
 

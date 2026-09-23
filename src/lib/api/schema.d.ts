@@ -7223,26 +7223,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/tokens/{id}/usage": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Recent usage of an API token (most recent first, capped at 200) from the forensic audit log.
-         *     Admin-only, like all token management. Empty when auditing is disabled or the token is unused.
-         */
-        get: operations["token_usage"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/tool_runs": {
         parameters: {
             query?: never;
@@ -17723,17 +17703,6 @@ export interface components {
             warning_max: number | null;
             /** Format: double */
             warning_min: number | null;
-        };
-        /** @description One recorded use of an API token from the forensic audit log. */
-        TokenUsageEntry: {
-            /** Format: date-time */
-            created_at: string;
-            method: string;
-            path: string;
-            /** Format: uuid */
-            project_scope: string | null;
-            /** Format: int32 */
-            status_code: number;
         };
         /** @description A calculation's result as the runner returned it, stored nowhere. */
         ToolCalculation: {
@@ -38904,29 +38873,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-        };
-    };
-    token_usage: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Token id */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Recent token usage */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TokenUsageEntry"][];
-                };
             };
         };
     };

@@ -46,3 +46,18 @@ describe('the retracted mark', () => {
 		expect(entry.label).toContain('reversible');
 	});
 });
+
+describe('the pending mark', () => {
+	it('is named only when a pending entry is actually drawn', () => {
+		expect(chartKeyEntries({ spot: true }).map((e) => e.mark)).not.toContain('unverified');
+		expect(chartKeyEntries({ spot: true, unverified: true }).map((e) => e.mark)).toContain(
+			'unverified'
+		);
+	});
+
+	it('says what a pending entry is left out of, since the chart is the only place it shows', () => {
+		const [entry] = chartKeyEntries({ unverified: true });
+		expect(entry.label).toContain('public API');
+		expect(entry.label).toContain('alarms');
+	});
+});

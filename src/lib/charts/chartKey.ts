@@ -16,6 +16,7 @@ export type ChartMark =
 	| 'replicateDot'
 	| 'flagged'
 	| 'withdrawn'
+	| 'unverified'
 	| 'minMaxBand'
 	| 'sensorBand'
 	| 'calibrationMarker'
@@ -39,6 +40,7 @@ export interface ChartKeyPresence {
 	replicateDots?: boolean;
 	flagged?: boolean;
 	withdrawn?: boolean;
+	unverified?: boolean;
 	minMaxBand?: boolean;
 	sensorBands?: boolean;
 	calibrationMarkers?: boolean;
@@ -71,6 +73,11 @@ export function chartKeyEntries(p: ChartKeyPresence): ChartKeyEntry[] {
 	if (p.flagged) entries.push({ mark: 'flagged', label: 'Flagged, excluded from statistics' });
 	if (p.withdrawn)
 		entries.push({ mark: 'withdrawn', label: 'Retracted at source, not served (reversible)' });
+	if (p.unverified)
+		entries.push({
+			mark: 'unverified',
+			label: 'Awaiting countersignature, excluded from the public API, alarms and the check',
+		});
 	if (p.sensorBands)
 		entries.push({ mark: 'sensorBand', label: 'Which instrument was deployed' });
 	if (p.calibrationMarkers)

@@ -22,6 +22,7 @@
 	import { spotMarkersPlugin, spotWhiskerExtent, type SpotPointStats } from '$lib/charts/spotMarkers';
 	import { spotDispersion } from '$lib/charts/spotSummary';
 	import type { ChartKeyPresence } from '$lib/charts/chartKey';
+	import { pendingOnUnion } from '$lib/charts/pendingMarks';
 	import ChartKey from './ChartKey.svelte';
 	import { cursorPoints, stepCursor, type CursorPoint } from '$lib/charts/keyboardCursor';
 	import { continuousPointAt as continuousHit, type PointHit } from '$lib/charts/hitTest';
@@ -38,6 +39,9 @@
 		maxs?: (number | null)[] | null;
 		flags?: (boolean | null)[] | null;
 		flagReasons?: (string | null)[] | null;
+		/** Per-point countersignature state. The public API, the alarms and the seasonal check all
+		 *  leave such a reading out, so the chart is the only place it can be seen. */
+		unverified?: (boolean | null)[] | null;
 	}
 
 	let {
@@ -213,6 +217,9 @@
 			replicateDots: showReplicates && stats.some((s) => (s.replicates?.length ?? 0) > 1),
 			flagged: (chartData?.flags ?? []).some((f) => f === true) || (publishedSpotFlags()?.size ?? 0) > 0,
 			withdrawn: stats.some((s) => s.withdrawn === true),
+			unverified:
+				(chartData?.unverified ?? []).some((p) => p === true) ||
+				(spotData?.unverified ?? []).some((p) => p === true),
 			sensorBands: showSensorVectors && sensorBands.length > 0,
 			calibrationMarkers: showCalibrationMarkers && calibrationMarkers.length > 0,
 			alarmBands: showAlarmBands && alarmSeverityBands.length > 0,
@@ -334,6 +341,45 @@
 							ctx.lineTo(x0 + 4, top + height + ANNOTATION_TICK_HEIGHT);
 							ctx.closePath();
 							ctx.fill();
+						}
+						ctx.restore();
+					},
+				],
+			},
+		};
+	}
+
+	/// A ring around a point that is entered but not yet countersigned. The public API, the alarms
+	/// and the seasonal check all leave such a reading out, so this is the only mark that says so.
+	/// Each arm rings its own series, so a pending grab beside a continuous line is ringed on the grab.
+	function pendingPointPlugin(
+		pending: (boolean | null)[] | null | undefined,
+		seriesIdx: number,
+	): uPlot.Plugin {
+		if (seriesIdx < 1 || !pending || !pending.some((p) => p === true)) return { hooks: {} };
+		return {
+			hooks: {
+				draw: [
+					(u: uPlot) => {
+						const ctx = u.ctx;
+						const times = u.data[0] as number[];
+						const values = u.data[seriesIdx] as (number | null | undefined)[];
+						ctx.save();
+						ctx.strokeStyle = uPlotTheme.grabSampleStroke;
+						ctx.lineWidth = 1.5;
+						for (let i = 0; i < pending.length; i++) {
+							if (pending[i] !== true) continue;
+							const v = values[i];
+							if (v == null) continue;
+							ctx.beginPath();
+							ctx.arc(
+								u.valToPos(times[i], 'x', true),
+								u.valToPos(v, 'y', true),
+								uPlotTheme.flaggedSize + 2,
+								0,
+								Math.PI * 2,
+							);
+							ctx.stroke();
 						}
 						ctx.restore();
 					},
@@ -508,6 +554,8 @@
 		let contMaxs: (number | undefined)[] | null = null;
 		let flags: (boolean | null)[] | null = null;
 		let spotFlags: (boolean | null)[] | null = null;
+		let pending: (boolean | null)[] | null = null;
+		let spotPending: (boolean | null)[] | null = null;
 		let spotValues: (number | undefined)[] = [];
 
 		if (cont && spot) {
@@ -536,17 +584,21 @@
 				for (let i = 0; i < spot.times.length; i++) { const j = idx.get(spot.times[i]); if (j != null) fout[j] = spot.flags[i] ?? null; }
 				spotFlags = fout;
 			}
+			pending = pendingOnUnion(cont.times, cont.unverified, idx, union.length);
+			spotPending = pendingOnUnion(spot.times, spot.unverified, idx, union.length);
 		} else if (cont) {
 			times = cont.times;
 			contValues = toU(cont.values);
 			if (hasMinMax) { contMins = toU(cont.mins!); contMaxs = toU(cont.maxs!); }
 			flags = cont.flags ?? null;
+			pending = cont.unverified ?? null;
 		} else {
 			times = spot!.times;
 			spotValues = toU(spot!.values);
 			// With no continuous arm the flagged-point plugin reads the spot series itself, so its
 			// flags travel as `flags`; a marker is never drawn twice.
 			flags = spot!.flags ?? null;
+			pending = spot!.unverified ?? null;
 		}
 
 		// Series layout: index 1 is the continuous line (or, when there is no line, the spot
@@ -604,6 +656,8 @@
 				thresholdLinePlugin(),
 				calibrationMarkerPlugin(calMarkersRef, overlayVisRef),
 				flaggedPointPlugin(flags),
+				pendingPointPlugin(pending, 1),
+				pendingPointPlugin(spotPending, spotSeriesIdx),
 				spotDiamondPlugin(spotSeriesIdx, spotFlags),
 				cursorSyncPlugin(),
 			],

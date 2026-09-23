@@ -95,6 +95,7 @@ export function continuousSeries(
 				values: p.values,
 				flags: p.flagged ?? null,
 				flagReasons: p.flag_reasons ?? null,
+				unverified: p.unverified ?? null,
 			});
 		}
 		return { map, splits, firsts };
@@ -150,6 +151,7 @@ export function spotSeries(spotResult: ReadingsResponse | null): SpotSeries {
 			values: p.values,
 			flags: p.flagged ?? null,
 			flagReasons: p.flag_reasons ?? null,
+			unverified: p.unverified ?? null,
 		});
 		if (!p.parameter_id) continue;
 		const inner = stats.get(p.parameter_id) ?? new Map<number, SpotPointStats>();

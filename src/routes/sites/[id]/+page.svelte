@@ -10,6 +10,7 @@
 	import { api, type Site, type Project, type SiteParameter, type Parameter, type Sensor, type SensorDeployment, type SensorCalibration, type Note, type AlarmThreshold, type ParameterGroup, type ParameterGroupMember, type Sample, type Annotation, type Subproject } from '$api/crud';
 	import { GET, POST, PATCH } from '$api/client';
 	import { listAll } from '$api/paged';
+	import { allThresholds, siteDeployments, siteSlots } from '$lib/sites/siteCatalogs';
 	import {
 		cadenceConsequence,
 		cadenceLabel,
@@ -348,10 +349,10 @@
 		if (!site) return;
 		// Raw rows for the editor's override/reset lookups; resolved map for what actually applies.
 		const [th, resolved] = await Promise.all([
-			api.alarmThresholds.list({ perPage: 200 }),
+			allThresholds(),
 			getThresholds({ site_id: site.id }),
 		]);
-		thresholds = th.data;
+		thresholds = th;
 		resolvedThresholds = new Map(resolved.map((r) => [r.parameter_id, r]));
 	}
 
@@ -646,13 +647,13 @@
 
 			const [proj, sp, params, sens, deps, cals, n, th] = await Promise.all([
 				api.projects.get(s.project_id),
-				listAll(api.siteParameters, { filter: { site_id: id } }),
+				siteSlots(id),
 				listAll(api.parameters),
 				listAll(api.sensors),
-				listAll(api.sensorDeployments, { filter: { site_id: id } }),
+				siteDeployments(id),
 				listAll(api.sensorCalibrations),
 				api.notes.list({ perPage: 50, filter: { site_id: id }, sort: ['created_at', 'DESC'] }),
-				listAll(api.alarmThresholds),
+				allThresholds(),
 			]);
 			project = proj;
 			siteParameters = sp;
@@ -840,8 +841,7 @@
 	let moveSensor = $state<Sensor | null>(null);
 
 	async function reloadDeployments() {
-		const deps = await api.sensorDeployments.list({ perPage: 200, filter: { site_id: siteId } });
-		deployments = deps.data;
+		deployments = await siteDeployments(siteId);
 	}
 
 	async function handleRecallDeployment(sId: string) {
@@ -903,8 +903,7 @@
 	}
 
 	async function reloadSiteParameters() {
-		const sp = await api.siteParameters.list({ perPage: 200, filter: { site_id: siteId } });
-		siteParameters = sp.data;
+		siteParameters = await siteSlots(siteId);
 	}
 
 	// Notes
@@ -1032,8 +1031,7 @@
 				parameter_id: addParamId,
 				cadence: addParamCadence,
 			});
-			const sp = await api.siteParameters.list({ perPage: 200, filter: { site_id: siteId } });
-			siteParameters = sp.data;
+			await reloadSiteParameters();
 			addParamId = '';
 			addParamCadence = 'high';
 			showAddParameter = false;
@@ -1077,8 +1075,7 @@
 			const promised = groupPreview;
 			const applied = await applyParameterGroup(siteId, applyGroupId);
 			const landed = groupApplyPreview(applied, parameterName);
-			const sp = await api.siteParameters.list({ perPage: 200, filter: { site_id: siteId } });
-			siteParameters = sp.data;
+			await reloadSiteParameters();
 			applyGroupId = '';
 			groupPreview = null;
 			showApplyGroup = false;
@@ -1091,8 +1088,7 @@
 	async function removeParameter(spId: string) {
 		try {
 			await api.siteParameters.remove(spId);
-			const sp = await api.siteParameters.list({ perPage: 200, filter: { site_id: siteId } });
-			siteParameters = sp.data;
+			await reloadSiteParameters();
 			toastStore.success('Parameter removed');
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Failed to remove parameter');

@@ -51,8 +51,20 @@ describe('continuousSeries', () => {
 			values: [4],
 			flags: [true],
 			flagReasons: ['drift'],
+			unverified: null,
 		});
 		expect(series.splits.size).toBe(0);
+	});
+
+	it('carries which raw points are awaiting countersignature', () => {
+		const pending = {
+			times: ['2026-01-15T10:00:00Z', '2026-01-15T10:10:00Z'],
+			parameters: [{ id: 'sp1', values: [4, 5], unverified: [false, true] }],
+		} as unknown as ReadingsResponse;
+		expect(continuousSeries(pending, 'raw', false, label).map.get('sp1')?.unverified).toEqual([
+			false,
+			true,
+		]);
 	});
 
 	it('draws the first series of a split slot and keeps the rest beside it', () => {
@@ -139,6 +151,14 @@ describe('spotSeries', () => {
 		expect(series.standardCurveIds).toEqual([null, 'curveA', 'curveA']);
 		expect(series.calibrationIds).toEqual(['cal1', 'cal1', 'cal1']);
 		expect(series.curves.get('sam1')).toMatchObject({ curveId: 'curveA', mixed: false });
+	});
+
+	it('carries which spot points are awaiting countersignature', () => {
+		const pending = {
+			times: [at],
+			parameters: [{ id: 'sp1', parameter_id: 'par1', values: [412], unverified: [true] }],
+		} as unknown as ReadingsResponse;
+		expect(spotSeries(pending).map.get('sp1')?.unverified).toEqual([true]);
 	});
 
 	it('reads an empty response as no series', () => {

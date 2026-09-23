@@ -44,6 +44,9 @@ export interface ReadingsParameter {
 	/** Per-point retraction state; present when include_withdrawn=true, which is also what makes a
 	 *  fully retracted instant served at all. */
 	withdrawn?: (boolean | null)[] | null;
+	/** Per-point countersignature state, always served on the private arm. Such a reading is left
+	 *  out of the public API, the alarms and the seasonal check, so this is the only place it shows. */
+	unverified?: (boolean | null)[] | null;
 	/** Spot instants in the window the source has taken back in full, served or not. */
 	withdrawn_count?: number | null;
 	/** Per-point cadence (continuous/spot/derived); present when include_measurement_type=true. */

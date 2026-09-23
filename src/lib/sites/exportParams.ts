@@ -64,15 +64,15 @@ export function exportColumns(codes: string[], opts: ReadingsExportOptions): str
 	const columns = ['time', ...codes];
 	if (opts.resolution !== 'raw') return columns;
 	if (wantsSampleStats(opts.resolution, opts.measurementType)) {
-		for (const code of codes) {
-			columns.push(`${code}_calibration_id`, `${code}_standard_curve_id`);
-		}
+		for (const code of codes) columns.push(`${code}_calibration_id`);
+		for (const code of codes) columns.push(`${code}_standard_curve_id`);
 		for (const code of codes) {
 			columns.push(
 				`${code}_sample_id`,
 				`${code}_n`,
 				`${code}_mean`,
 				`${code}_sd`,
+				`${code}_median`,
 				`${code}_min`,
 				`${code}_max`
 			);
@@ -81,6 +81,9 @@ export function exportColumns(codes: string[], opts: ReadingsExportOptions): str
 	if (opts.includeFlagged && opts.format !== 'json') {
 		for (const code of codes) columns.push(`${code}_flagged`);
 		for (const code of codes) columns.push(`${code}_flag_reason`);
+	}
+	if (opts.format !== 'json') {
+		for (const code of codes) columns.push(`${code}_unverified`);
 	}
 	return columns;
 }

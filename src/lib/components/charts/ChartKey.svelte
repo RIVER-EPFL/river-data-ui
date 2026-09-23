@@ -39,6 +39,10 @@
 						<line x1="13" y1="2" x2="5" y2="10" stroke={uPlotTheme.flaggedColor} stroke-width="1.5" />
 					{:else if entry.mark === 'withdrawn'}
 						<circle cx="9" cy="6" r="4.5" fill="none" stroke={line} stroke-width="1.5" stroke-dasharray="3 2" opacity="0.6" />
+					{:else if entry.mark === 'unverified'}
+						<circle cx="9" cy="6" r="4.5" fill="none" stroke={line} stroke-width="1.5" />
+						<line x1="9" y1="3.5" x2="9" y2="6.5" stroke={line} stroke-width="1.5" />
+						<circle cx="9" cy="8.5" r="0.9" fill={line} />
 					{:else if entry.mark === 'minMaxBand'}
 						<rect x="1" y="3" width="16" height="6" fill={line} opacity="0.25" />
 					{:else if entry.mark === 'sensorBand'}
