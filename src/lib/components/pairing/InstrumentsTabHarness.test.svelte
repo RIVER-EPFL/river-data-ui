@@ -3,7 +3,8 @@
 	import type { PlanDeviceGroup } from '$api/service';
 	import type { InstrumentDecision } from '$lib/pairing/planGroups';
 
-	// Each row offers only its own proposal, which is enough to show the name.
+	// Each row offers only its own proposal, which is enough to show the name, and a row with nothing
+	// attached reads as unset, as the page reads it.
 	let {
 		instrumentDecisions,
 		planDevices = [],
@@ -23,7 +24,7 @@
 	{deviceDecisions}
 	{instrumentDecisions}
 	instrumentOptions={(d) => [{ label: 'Will be created', options: [{ value: `new:${d.proposedName}`, label: d.proposedName }] }]}
-	instrumentValue={(d) => `new:${d.proposedName}`}
+	instrumentValue={(d) => (d.group ? `new:${d.group.name}` : '')}
 	instrumentStatus={() => 'unset'}
 	instrumentRowId={(key) => `instrument-row-${key}`}
 	{coverage}

@@ -374,8 +374,8 @@
 		return th.warning_min == null && th.warning_max == null && th.alarm_min == null && th.alarm_max == null;
 	}
 
-	// Effective thresholds come from the backend's single resolver (GET /api/alarms/thresholds). The
-	// UI no longer re-implements the 3-tier resolution. Keyed by parameter_id (this page is one site).
+	// Effective thresholds come from the backend's single resolver (GET /api/alarms/thresholds), not
+	// a resolution of the page's own. Keyed by parameter_id (this page is one site).
 	// `thresholds` (raw rows) is still loaded for the editor's override/reset lookups.
 	let resolvedThresholds = $state<Map<string, ThresholdWithValue>>(new Map());
 

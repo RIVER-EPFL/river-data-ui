@@ -3,7 +3,7 @@
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 
-	// Multi-site time-series comparison now lives on the Explore page.
+	// Multi-site time-series comparison lives on the Explore page.
 	onMount(() => {
 		goto(`${base}/explore?tab=timeseries`, { replaceState: true });
 	});

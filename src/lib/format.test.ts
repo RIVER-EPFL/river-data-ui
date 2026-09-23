@@ -31,12 +31,11 @@ describe('formatMeasurement', () => {
 });
 
 describe('formatCount', () => {
-	// The reader's browser locale decided the grouping, so the same number read differently on
-	// de-CH (1'234'567), fr-CH (a narrow no-break space) and de-DE (1.234.567).
+	// The grouping does not follow the browser locale, which would read the same number differently
+	// on de-CH (1'234'567), fr-CH (a narrow no-break space) and de-DE (1.234.567).
 	it('groups the same way whatever the browser locale is', () => {
 		expect(formatCount(1234567)).toBe('1,234,567');
-		// The three conventions a browser at EPFL Valais actually produces, none of which this
-		// follows any more.
+		// The three conventions a browser at EPFL Valais produces, none of which this follows.
 		for (const locale of ['de-DE', 'de-CH', 'fr-CH']) {
 			expect(formatCount(1234567)).not.toBe((1234567).toLocaleString(locale));
 		}

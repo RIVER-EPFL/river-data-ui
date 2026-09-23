@@ -1,6 +1,6 @@
 import { GET } from './client';
 
-// ─── Phase 4 contract: sensor identity overlay payloads ───
+// ─── Sensor identity overlay payloads ───
 
 /** One contiguous deployment window for a (site, parameter) slot, as resolved by deployment history. */
 export interface SensorIdentityBand {

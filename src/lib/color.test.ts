@@ -33,7 +33,7 @@ describe('contrastRatio', () => {
 	});
 
 	it('flattens a translucent background onto the page backdrop before comparing', () => {
-		// The warning soft ground is 16% of #CA8A04 over white, i.e. a very light wash.
+		// The warning soft ground is 16% of #CA8A04 over white, ie. a very light wash.
 		const onSoft = contrastRatio('#1B2330', 'rgba(202,138,4,0.16)');
 		const onWhite = contrastRatio('#1B2330', '#FFFFFF');
 		expect(onSoft).toBeLessThan(onWhite);

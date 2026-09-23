@@ -3,7 +3,7 @@
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 
-	// Cross-parameter scatter now lives on the Explore page.
+	// Cross-parameter scatter lives on the Explore page.
 	onMount(() => {
 		goto(`${base}/explore?tab=scatter`, { replaceState: true });
 	});

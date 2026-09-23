@@ -44,3 +44,12 @@ export function planConflicts(entries: PairingPlanEntry[]): PlanConflict[] {
 export function conflictsOn(conflicts: PlanConflict[], tab: ReviewTab): PlanConflict[] {
 	return conflicts.filter((c) => c.tab === tab);
 }
+
+/** The way out a catalog warning offers: attach to the entry, or choose whose units win. */
+export type WarningResolution = 'attach' | 'units' | 'none';
+
+export function resolutionOf(kind: string): WarningResolution {
+	if (kind === 'catalog_match') return 'attach';
+	if (kind === 'units_mismatch') return 'units';
+	return 'none';
+}

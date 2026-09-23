@@ -1109,7 +1109,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The change trail of one subject, newest first. Requires `read_metadata`. */
+        /**
+         * The change trail of one subject, newest first, confined to the caller's projects the way
+         *     `/change_audit_entries` is. Requires `read_metadata`.
+         */
         get: operations["list_change_audit"];
         put?: never;
         post?: never;
@@ -1362,7 +1365,7 @@ export interface paths {
         };
         /**
          * One visit's grid row: every parameter measured at the event with its replicates, sample
-         *     statistics, tool provenance presence, and any open finding — plus findings for parameters
+         *     statistics, tool provenance presence, and any open finding, plus findings for parameters
          *     the audit says are missing entirely. Requires `read_data`.
          */
         get: operations["get_event_detail"];
@@ -6258,7 +6261,7 @@ export interface paths {
         };
         /**
          * List pairing plans, newest first, optionally narrowed to one source system or one status
-         *     (draft/applying/applied/reverting/reverted/superseded). Requires `read_metadata`.
+         *     (draft/applying/applied/reverting/reverted/superseded). Requires Administrator or `write_metadata`.
          */
         get: operations["list_pairing_plans"];
         put?: never;
@@ -6280,7 +6283,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get a single pairing plan with its full pairing list. Requires `read_metadata`. */
+        /** Get a single pairing plan with its full pairing list. Requires Administrator or `write_metadata`. */
         get: operations["get_pairing_plan"];
         put?: never;
         post?: never;
@@ -6320,7 +6323,7 @@ export interface paths {
         };
         /**
          * The instrument picture of a pairing plan: every instrument the plan binds, and the parameters
-         *     still without one. Requires `read_metadata`.
+         *     still without one. Requires Administrator or `write_metadata`.
          */
         get: operations["plan_instruments"];
         put?: never;
@@ -6360,7 +6363,7 @@ export interface paths {
         };
         /**
          * Get site metadata enrichment for a pairing plan: latitudes, longitudes, glacier names,
-         *     stream counts. Used by the pairing UI to display context. Requires `read_metadata`.
+         *     stream counts. Used by the pairing UI to display context. Requires Administrator or `write_metadata`.
          */
         get: operations["plan_site_metadata"];
         put?: never;
@@ -7614,8 +7617,8 @@ export interface paths {
          *     editable state, so a version validated in March can be wrong by June without anything about
          *     the version changing. Activation is the moment it starts answering
          *     `POST /tools/{name}/calculate`, which is the moment worth spending a case run on. The stamp
-         *     still gates the workflow, so an author cannot skip seeing the cases pass; it is no longer the
-         *     only thing standing between a failing version and production.
+         *     still gates the workflow, so an author cannot skip seeing the cases pass; it is not the only
+         *     thing standing between a failing version and production.
          *
          *     The price is that activation needs the runner: with the sidecar down there is no rollback, and
          *     no tool is calculating anything either way.
@@ -10876,7 +10879,7 @@ export interface components {
             /**
              * Format: uuid
              * @description A `seasonal_checks` row (from `/readings/seasonal_check`) covering this save's values.
-             *     When present, every reading's (parameter, value) must have been screened by that check —
+             *     When present, every reading's (parameter, value) must have been screened by that check:
              *     the portal's "any edit resets Check", enforced server-side. The check itself is advisory;
              *     naming a check that does not cover the values is refused.
              */
@@ -11880,8 +11883,8 @@ export interface components {
         /**
          * @description A same-event parameter read: when the request does not carry `param`, its value is resolved
          *     from the collection event's stored readings (the served spot value: the sample mean, else the
-         *     lowest unflagged replicate). This is the portal's cross-tool prefill — pCO2 pulling field
-         *     temperature, DOM pulling the DOC average — as a declaration instead of R code.
+         *     lowest unflagged replicate). This is the portal's cross-tool prefill (pCO2 pulling field
+         *     temperature, DOM pulling the DOC average) as a declaration instead of R code.
          */
         ManifestEventInput: {
             /**
@@ -11920,9 +11923,8 @@ export interface components {
          *
          *     `parameter_id` is authoritative when present, `suggested_parameter_code` is the fallback, and
          *     resolution is id first then code. Both halves exist because a manifest has to survive leaving
-         *     the database it was authored in: the seeded tools are inserted into a fresh database where no
-         *     parameter UUID exists yet, and dev and production give the same analyte different UUIDs, so a
-         *     code-only output has to keep working exactly as it did.
+         *     the database it was authored in: dev and production give the same analyte different UUIDs, so a
+         *     manifest carried between them resolves by code where its id names nothing.
          */
         ManifestOutput: {
             /**
@@ -13600,7 +13602,7 @@ export interface components {
             r_squared: number | null;
             /**
              * @description The review left this curve behind: it is not stored and the readings naming it are dropped
-             *     at the source. A skipped curve no longer blocks the apply.
+             *     at the source. A skipped curve does not block the apply.
              */
             skipped: boolean;
             skipped_by: string | null;
@@ -13650,11 +13652,6 @@ export interface components {
             curves: components["schemas"]["PlanCurveRef"][];
             /** Format: uuid */
             instrument_id: string | null;
-            /**
-             * @description The instruments the curve label matched when it matched more than one. The row is then a
-             *     choice between them rather than a suggestion.
-             */
-            label_candidates: components["schemas"]["PlanLabelCandidate"][];
             name: string;
             /**
              * @description An instrument already carrying the proposed name, when the proposal collides with one.
@@ -13667,10 +13664,7 @@ export interface components {
              *     back. Absent for an instrument that was never a proposal.
              */
             proposed_name: string | null;
-            /**
-             * @description `stream` | `curve_label` (suggested from the label) | `manual` | `ambiguous_label` (the
-             *     label matched more than one, so nothing is suggested) | `placeholder`.
-             */
+            /** @description `stream` | `source_key` | `manual` | `placeholder` | `parameter` | `device`. */
             resolved_by: string;
             /**
              * @description The decision's scope: `column:<curve column>` or `parameter:<source parameter>`, matching
@@ -13746,11 +13740,6 @@ export interface components {
              * @description The resolved instrument, or None when one has to be created.
              */
             id: string | null;
-            /**
-             * @description The instruments a curve label matched when it matched more than one. Which analyser the
-             *     source meant is not in the label, so the tie is named and nothing is suggested (Q195).
-             */
-            label_candidates: components["schemas"]["PlanLabelCandidate"][];
             name: string;
             /**
              * @description An instrument that already carries the proposed name. Creating a second one under it is
@@ -13765,9 +13754,9 @@ export interface components {
              */
             proposed_name?: string | null;
             /**
-             * @description `stream` (already attributed), `curve_label` (suggested from the source's own curve
-             *     labels), `manual` (repointed in the review), `ambiguous_label` (the label matched more than
-             *     one, so nothing is suggested), or `placeholder` (nothing matched).
+             * @description `stream` (already attributed), `source_key` (the source's own instrument under the key an
+             *     apply mints), `manual` (repointed in the review), or a proposal to confirm: `placeholder`
+             *     (a curve column's), `parameter` (a source parameter's) or `device` (a device feed's).
              */
             resolved_by: string;
             /**
@@ -13798,12 +13787,6 @@ export interface components {
              */
             job_id: string | null;
             status: string;
-        };
-        /** @description One instrument a curve label matched, enough of it to choose by. */
-        PlanLabelCandidate: {
-            /** Format: uuid */
-            id: string;
-            name: string;
         };
         PlanObjectUpdate: {
             accepted: boolean;
@@ -33668,6 +33651,13 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description The site is outside the caller's projects */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description No site or no calculation with this id */
             404: {
                 headers: {
@@ -33908,6 +33898,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ApplyGroupResponse"];
                 };
+            };
+            /** @description The site is outside the caller's projects */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description No site or no parameter group with this id */
             404: {
@@ -39447,6 +39444,13 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description The context `site_id` is outside the caller's projects */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description Unknown tool name */
             404: {
                 headers: {
@@ -39498,6 +39502,13 @@ export interface operations {
             };
             /** @description Invalid input for this tool, or a script error */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The context `site_id` is outside the caller's projects */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

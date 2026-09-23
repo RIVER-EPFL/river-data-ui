@@ -46,22 +46,6 @@ describe('suggestionAcceptance', () => {
 		expect(held).toBe(0);
 	});
 
-	it('accepts an attachment the plan read off a curve label', () => {
-		const { updates, held } = suggestionAcceptance([
-			decision({ group: group({ create: false, resolved_by: 'curve_label' }) }),
-		]);
-		expect(updates).toEqual([{ stream_id: 'doc-stream', instrument_confirmed: true }]);
-		expect(held).toBe(0);
-	});
-
-	it('holds back a curve label that matched two instruments', () => {
-		const { updates, held } = suggestionAcceptance([
-			decision({ group: group({ create: true, resolved_by: 'ambiguous_label' }) }),
-		]);
-		expect(updates).toEqual([]);
-		expect(held).toBe(1);
-	});
-
 	it('holds back a suggestion whose name an instrument already carries', () => {
 		const { updates, held } = suggestionAcceptance([
 			decision({

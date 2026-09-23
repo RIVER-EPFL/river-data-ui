@@ -28,18 +28,9 @@ export interface InstrumentDecision {
 	nameConflict: InstrumentNameConflict | null;
 }
 
-/**
- * A row still asking: nothing attached, or a suggestion nobody has confirmed. A suggestion is a
- * creation or an attachment the plan read off a curve label, and words agreeing is not the source
- * naming the instrument (Q195).
- */
+/** A row still asking: nothing attached, or a proposal nobody has confirmed. */
 export function isAskingInstrument(d: InstrumentDecision): boolean {
 	return d.group === null || !d.group.confirmed;
-}
-
-/** A row whose curve label matched more than one instrument, so the plan suggests neither. */
-export function isAmbiguousInstrument(d: InstrumentDecision): boolean {
-	return d.group?.resolved_by === 'ambiguous_label';
 }
 
 /**
@@ -69,8 +60,7 @@ export function deviceDecisions(devices: PlanDeviceGroup[]): InstrumentDecision[
 
 /**
  * The one PATCH that accepts every suggestion still asking, and how many are held back because the
- * row is a choice rather than a suggestion: a name an instrument already carries, or a curve label
- * that matched two of them.
+ * row is a choice rather than a suggestion: a name an instrument already carries.
  */
 export function suggestionAcceptance(decisions: InstrumentDecision[]): {
 	updates: PlanEntryUpdate[];
@@ -78,7 +68,7 @@ export function suggestionAcceptance(decisions: InstrumentDecision[]): {
 } {
 	const asking = decisions.filter(isAskingInstrument);
 	const updates = asking
-		.filter((d) => !d.nameConflict && !isAmbiguousInstrument(d))
+		.filter((d) => !d.nameConflict)
 		.map((d): PlanEntryUpdate =>
 			d.group === null
 				? { stream_id: d.anchorStreamId, instrument_name: d.proposedName, instrument_confirmed: true }

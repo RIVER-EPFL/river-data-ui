@@ -54,6 +54,16 @@ describe('InstrumentsTab lab instruments', () => {
 	});
 });
 
+describe('InstrumentsTab unset rows', () => {
+	it('offers no way to pair a lab row with no instrument, and shows it as still to choose', () => {
+		mount();
+		const picker = screen.getByRole('combobox', { name: 'Instrument for DOC' }) as HTMLSelectElement;
+		const labels = [...picker.options].map((o) => o.textContent?.trim());
+		expect(labels).not.toContain('no instrument');
+		expect(picker.selectedOptions[0]?.disabled).toBe(true);
+	});
+});
+
 describe('InstrumentsTab devices', () => {
 	it('lists one row per channel of a multi-channel device, above the lab instruments', () => {
 		mount({

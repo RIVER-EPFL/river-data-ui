@@ -3,7 +3,7 @@
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 
-	// The seasonal day-of-year overlay now lives on the Explore page.
+	// The seasonal day-of-year overlay lives on the Explore page.
 	onMount(() => {
 		goto(`${base}/explore?tab=doy`, { replaceState: true });
 	});

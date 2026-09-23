@@ -5,7 +5,7 @@ import { frozenButton, frozenDate, sheetCell } from './sheet';
 // Scenario: a site with a long list of visits, one of them open, and the reader scrolled down it.
 //
 // Expected behaviour: opening a visit's record leaves the table where the reader left it. Opening
-// one closes whatever row was open above it, which is what used to carry the page upwards.
+// one closes whatever row was open above it, which must not carry the page upwards.
 
 const VISITS = 30;
 

@@ -82,7 +82,7 @@
 	import ParametersTab from '$components/pairing/ParametersTab.svelte';
 	import { REVIEW_ROWS_PER_PAGE, type ReviewFilter } from '$components/pairing/ReviewTable.svelte';
 	import { applyBlockedReason, planGateItems } from '$lib/pairing/applyGate';
-	import { conflictsOn, planConflicts } from '$lib/pairing/conflicts';
+	import { conflictsOn, planConflicts, resolutionOf } from '$lib/pairing/conflicts';
 	import SitesTab from '$components/pairing/SitesTab.svelte';
 	import { chunked } from '$lib/pairing/chunked';
 
@@ -462,12 +462,8 @@
 	}
 
 	// Every option is a transition: attach an existing instrument, propose a creation (which is
-	// also how an attach is undone, since naming one proposes it), or attach nothing.
+	// also how an attach is undone, since naming one proposes it).
 	function chooseInstrument(d: InstrumentDecision, value: string) {
-		if (value === '') {
-			void detachInstrument(d.anchorStreamId);
-			return;
-		}
 		if (value.startsWith('db:')) {
 			void repointInstrument(d.anchorStreamId, value.slice(3));
 			return;
@@ -573,13 +569,6 @@
 			queueUpdate(batch, { immediate: true });
 			await flushUpdates();
 		}
-	}
-
-	// Detach, the inverse of an attach: the streams keep pairing, they just carry no instrument.
-	async function detachInstrument(streamId: string) {
-		queueUpdate([{ stream_id: streamId, instrument_clear: true }]);
-		try { await flushUpdates(); } catch { /* as above */ }
-		await loadPlanInstruments();
 	}
 
 	// An instrument that exists takes the curve now; one this plan will create takes it when the
@@ -1686,8 +1675,8 @@
 	});
 </script>
 
-<!-- A source parameter whose units disagree with the catalog entry it matches, with both ways
-     out, beside the parameters it is about rather than above the whole review. -->
+<!-- A source parameter the catalog already holds, or holds under other units, with the way out,
+     beside the parameters it is about rather than above the whole review. -->
 {#snippet unitConflicts()}
 	{#each uniqueWarnings as w (w.warning.message)}
 		<div class="rounded border border-severity-warning-border bg-severity-warning-soft px-3 py-2 text-sm text-severity-warning-text">
@@ -1702,9 +1691,9 @@
 					Affects {formatCount(w.count)} stream{w.count === 1 ? '' : 's'}.
 				</p>
 				<div class="flex flex-wrap items-center gap-2 mt-2">
-					{#if w.warning.kind === 'code_conflict'}
+					{#if resolutionOf(w.warning.kind) === 'attach'}
 						<Button size="sm" onclick={() => attachToCatalogParam(w)}>Attach to {ex.code}</Button>
-					{:else}
+					{:else if resolutionOf(w.warning.kind) === 'units'}
 						<Button size="sm" onclick={() => adoptCatalogUnits(w)}>Keep catalog units ({ex.units})</Button>
 						<Button size="sm" onclick={() => adoptSourceUnits(w)}>Use source units ({w.warning.source_units})</Button>
 					{/if}

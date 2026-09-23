@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { PairingPlanEntry } from '$api/service';
-import { conflictsOn, planConflicts } from './conflicts';
+import { conflictsOn, planConflicts, resolutionOf } from './conflicts';
 
 function entry(over: {
 	parameter?: string;
@@ -45,5 +45,20 @@ describe('planConflicts', () => {
 		expect(
 			planConflicts([entry({ warnings: [{ kind: 'near_duplicate', message: 'reads alike' }] })]),
 		).toEqual([]);
+	});
+});
+
+describe('resolutionOf', () => {
+	it('offers the attach on a code the catalog already holds', () => {
+		expect(resolutionOf('catalog_match')).toBe('attach');
+	});
+
+	it('offers a choice of units only where the units disagree', () => {
+		expect(resolutionOf('units_mismatch')).toBe('units');
+	});
+
+	it('offers neither on a finding with no catalog entry to act on', () => {
+		expect(resolutionOf('near_duplicate')).toBe('none');
+		expect(resolutionOf('duplicate_parameter_code')).toBe('none');
 	});
 });

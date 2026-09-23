@@ -7719,7 +7719,7 @@
         "additionalProperties": false,
         "properties": {
           "check_id": {
-            "description": "A `seasonal_checks` row (from `/readings/seasonal_check`) covering this save's values.\nWhen present, every reading's (parameter, value) must have been screened by that check —\nthe portal's \"any edit resets Check\", enforced server-side. The check itself is advisory;\nnaming a check that does not cover the values is refused.",
+            "description": "A `seasonal_checks` row (from `/readings/seasonal_check`) covering this save's values.\nWhen present, every reading's (parameter, value) must have been screened by that check:\nthe portal's \"any edit resets Check\", enforced server-side. The check itself is advisory;\nnaming a check that does not cover the values is refused.",
             "format": "uuid",
             "type": [
               "string",
@@ -9020,7 +9020,7 @@
               },
               {
                 "$ref": "#/components/schemas/SourceWindow",
-                "description": "A completeness claim: these readings are the source's complete content for this stream\nover `[from, to)`. The server diffs stored content against the payload and converges —\nnew rows insert, changed values correct in place, rows absent at source are stamped\nwithdrawn (never deleted). Sync-service callers only; spot streams only. Without it the\nrequest is a bare append, exactly the old semantics."
+                "description": "A completeness claim: these readings are the source's complete content for this stream\nover `[from, to)`. The server diffs stored content against the payload and converges:\nnew rows insert, changed values correct in place, rows absent at source are stamped\nwithdrawn (never deleted). Sync-service callers only; spot streams only. Without it the\nrequest is a bare append, exactly the old semantics."
               }
             ]
           }
@@ -10232,7 +10232,7 @@
       },
       "ManifestEventInput": {
         "additionalProperties": false,
-        "description": "A same-event parameter read: when the request does not carry `param`, its value is resolved\nfrom the collection event's stored readings (the served spot value: the sample mean, else the\nlowest unflagged replicate). This is the portal's cross-tool prefill — pCO2 pulling field\ntemperature, DOM pulling the DOC average — as a declaration instead of R code.",
+        "description": "A same-event parameter read: when the request does not carry `param`, its value is resolved\nfrom the collection event's stored readings (the served spot value: the sample mean, else the\nlowest unflagged replicate). This is the portal's cross-tool prefill (pCO2 pulling field\ntemperature, DOM pulling the DOC average) as a declaration instead of R code.",
         "properties": {
           "alignment": {
             "description": "How the value is reached (Q230): `exact` at the instant being computed, `hold` for the\nlast value measured at or before it. Absent is `exact`, which is what every manifest\nwritten before this meant.",
@@ -10306,7 +10306,7 @@
       },
       "ManifestOutput": {
         "additionalProperties": false,
-        "description": "An output that may be saved names the catalog parameter it is saved to twice over.\n\n`parameter_id` is authoritative when present, `suggested_parameter_code` is the fallback, and\nresolution is id first then code. Both halves exist because a manifest has to survive leaving\nthe database it was authored in: the seeded tools are inserted into a fresh database where no\nparameter UUID exists yet, and dev and production give the same analyte different UUIDs, so a\ncode-only output has to keep working exactly as it did.",
+        "description": "An output that may be saved names the catalog parameter it is saved to twice over.\n\n`parameter_id` is authoritative when present, `suggested_parameter_code` is the fallback, and\nresolution is id first then code. Both halves exist because a manifest has to survive leaving\nthe database it was authored in: dev and production give the same analyte different UUIDs, so a\nmanifest carried between them resolves by code where its id names nothing.",
         "properties": {
           "aggregate": {
             "description": "`mean` or `sd`: the engine computes this output over the curve-applied values of the\n`replicates` param `aggregate_of` names, so the preview a technician sees is the number\nthe database will later serve. The script never computes it; a script\nvalue under the same key is discarded.",
@@ -14634,7 +14634,7 @@
             ]
           },
           "skipped": {
-            "description": "The review left this curve behind: it is not stored and the readings naming it are dropped\nat the source. A skipped curve no longer blocks the apply.",
+            "description": "The review left this curve behind: it is not stored and the readings naming it are dropped\nat the source. A skipped curve does not block the apply.",
             "type": "boolean"
           },
           "skipped_by": {
@@ -14768,13 +14768,6 @@
               "null"
             ]
           },
-          "label_candidates": {
-            "description": "The instruments the curve label matched when it matched more than one. The row is then a\nchoice between them rather than a suggestion.",
-            "items": {
-              "$ref": "#/components/schemas/PlanLabelCandidate"
-            },
-            "type": "array"
-          },
           "name": {
             "type": "string"
           },
@@ -14796,7 +14789,7 @@
             ]
           },
           "resolved_by": {
-            "description": "`stream` | `curve_label` (suggested from the label) | `manual` | `ambiguous_label` (the\nlabel matched more than one, so nothing is suggested) | `placeholder`.",
+            "description": "`stream` | `source_key` | `manual` | `placeholder` | `parameter` | `device`.",
             "type": "string"
           },
           "scope": {
@@ -14837,8 +14830,7 @@
           "site_count",
           "anchor_stream_id",
           "curves",
-          "proposed_name",
-          "label_candidates"
+          "proposed_name"
         ],
         "type": "object"
       },
@@ -14963,13 +14955,6 @@
               "null"
             ]
           },
-          "label_candidates": {
-            "description": "The instruments a curve label matched when it matched more than one. Which analyser the\nsource meant is not in the label, so the tie is named and nothing is suggested (Q195).",
-            "items": {
-              "$ref": "#/components/schemas/PlanLabelCandidate"
-            },
-            "type": "array"
-          },
           "name": {
             "type": "string"
           },
@@ -14985,7 +14970,7 @@
             ]
           },
           "resolved_by": {
-            "description": "`stream` (already attributed), `curve_label` (suggested from the source's own curve\nlabels), `manual` (repointed in the review), `ambiguous_label` (the label matched more than\none, so nothing is suggested), or `placeholder` (nothing matched).",
+            "description": "`stream` (already attributed), `source_key` (the source's own instrument under the key an\napply mints), `manual` (repointed in the review), or a proposal to confirm: `placeholder`\n(a curve column's), `parameter` (a source parameter's) or `device` (a device feed's).",
             "type": "string"
           },
           "source_key": {
@@ -15007,8 +14992,7 @@
           "defaulted",
           "confirmed",
           "stamps_readings",
-          "curves",
-          "label_candidates"
+          "curves"
         ],
         "type": "object"
       },
@@ -15072,23 +15056,6 @@
         "required": [
           "job_id",
           "status"
-        ],
-        "type": "object"
-      },
-      "PlanLabelCandidate": {
-        "description": "One instrument a curve label matched, enough of it to choose by.",
-        "properties": {
-          "id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "name"
         ],
         "type": "object"
       },
@@ -30478,7 +30445,7 @@
             "description": "Changes, newest first"
           }
         },
-        "summary": "The change trail of one subject, newest first. Requires `read_metadata`.",
+        "summary": "The change trail of one subject, newest first, confined to the caller's projects the way\n`/change_audit_entries` is. Requires `read_metadata`.",
         "tags": [
           "admin"
         ]
@@ -31254,7 +31221,7 @@
             "description": "Unknown collection event"
           }
         },
-        "summary": "One visit's grid row: every parameter measured at the event with its replicates, sample\nstatistics, tool provenance presence, and any open finding — plus findings for parameters\nthe audit says are missing entirely. Requires `read_data`.",
+        "summary": "One visit's grid row: every parameter measured at the event with its replicates, sample\nstatistics, tool provenance presence, and any open finding, plus findings for parameters\nthe audit says are missing entirely. Requires `read_data`.",
         "tags": [
           "collection_events"
         ]
@@ -44970,6 +44937,9 @@
           "400": {
             "description": "The site does not declare every parameter the calculation reads"
           },
+          "403": {
+            "description": "The site is outside the caller's projects"
+          },
           "404": {
             "description": "No site or no calculation with this id"
           },
@@ -45371,6 +45341,9 @@
               }
             },
             "description": ""
+          },
+          "403": {
+            "description": "The site is outside the caller's projects"
           },
           "404": {
             "description": "No site or no parameter group with this id"
@@ -47746,7 +47719,7 @@
             "description": "Array of pairing plans without their entries"
           }
         },
-        "summary": "List pairing plans, newest first, optionally narrowed to one source system or one status\n(draft/applying/applied/reverting/reverted/superseded). Requires `read_metadata`.",
+        "summary": "List pairing plans, newest first, optionally narrowed to one source system or one status\n(draft/applying/applied/reverting/reverted/superseded). Requires Administrator or `write_metadata`.",
         "tags": [
           "sync"
         ]
@@ -47811,7 +47784,7 @@
             "description": "Plan not found"
           }
         },
-        "summary": "Get a single pairing plan with its full pairing list. Requires `read_metadata`.",
+        "summary": "Get a single pairing plan with its full pairing list. Requires Administrator or `write_metadata`.",
         "tags": [
           "sync"
         ]
@@ -47957,7 +47930,7 @@
             "description": "Plan not found"
           }
         },
-        "summary": "The instrument picture of a pairing plan: every instrument the plan binds, and the parameters\nstill without one. Requires `read_metadata`.",
+        "summary": "The instrument picture of a pairing plan: every instrument the plan binds, and the parameters\nstill without one. Requires Administrator or `write_metadata`.",
         "tags": [
           "sync"
         ]
@@ -48035,7 +48008,7 @@
             "description": "Plan not found"
           }
         },
-        "summary": "Get site metadata enrichment for a pairing plan: latitudes, longitudes, glacier names,\nstream counts. Used by the pairing UI to display context. Requires `read_metadata`.",
+        "summary": "Get site metadata enrichment for a pairing plan: latitudes, longitudes, glacier names,\nstream counts. Used by the pairing UI to display context. Requires Administrator or `write_metadata`.",
         "tags": [
           "sync"
         ]
@@ -51902,7 +51875,7 @@
     },
     "/api/tool_scripts/{id}/versions/{version_id}/activate": {
       "post": {
-        "description": "A version has to have been validated by hand, **and its cases are run again here** rather than\nread off `validated_at`. The stamp says the cases passed at a time, and what a case runs\nagainst outlives it: the constants table and the standard curves a case resolves are shared,\neditable state, so a version validated in March can be wrong by June without anything about\nthe version changing. Activation is the moment it starts answering\n`POST /tools/{name}/calculate`, which is the moment worth spending a case run on. The stamp\nstill gates the workflow, so an author cannot skip seeing the cases pass; it is no longer the\nonly thing standing between a failing version and production.\n\nThe price is that activation needs the runner: with the sidecar down there is no rollback, and\nno tool is calculating anything either way.\n\nThe manifest is re-checked against the catalog and the findings come back in `lint`. Those do\nnot block: a version whose outputs still resolve serves correctly, and refusing to activate it\nwould leave the operator with no way to put the repaired version live either. Requires\nAdministrator.",
+        "description": "A version has to have been validated by hand, **and its cases are run again here** rather than\nread off `validated_at`. The stamp says the cases passed at a time, and what a case runs\nagainst outlives it: the constants table and the standard curves a case resolves are shared,\neditable state, so a version validated in March can be wrong by June without anything about\nthe version changing. Activation is the moment it starts answering\n`POST /tools/{name}/calculate`, which is the moment worth spending a case run on. The stamp\nstill gates the workflow, so an author cannot skip seeing the cases pass; it is not the only\nthing standing between a failing version and production.\n\nThe price is that activation needs the runner: with the sidecar down there is no rollback, and\nno tool is calculating anything either way.\n\nThe manifest is re-checked against the catalog and the findings come back in `lint`. Those do\nnot block: a version whose outputs still resolve serves correctly, and refusing to activate it\nwould leave the operator with no way to put the repaired version live either. Requires\nAdministrator.",
         "operationId": "activate_version",
         "parameters": [
           {
@@ -52063,6 +52036,9 @@
           "400": {
             "description": "Invalid input for this tool, or a script error"
           },
+          "403": {
+            "description": "The context `site_id` is outside the caller's projects"
+          },
           "404": {
             "description": "Unknown tool name"
           },
@@ -52117,6 +52093,9 @@
           },
           "400": {
             "description": "Invalid input for this tool, or a script error"
+          },
+          "403": {
+            "description": "The context `site_id` is outside the caller's projects"
           },
           "404": {
             "description": "Unknown tool name"

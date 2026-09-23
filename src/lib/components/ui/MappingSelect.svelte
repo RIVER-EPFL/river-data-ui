@@ -65,6 +65,8 @@
 	{/if}
 	{#if noneLabel}
 		<option value="">{noneLabel}</option>
+	{:else if value === ''}
+		<option value="" disabled>choose…</option>
 	{/if}
 	{#each groups as group (group.label)}
 		{#if group.options.length > 0}
