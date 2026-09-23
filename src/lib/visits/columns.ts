@@ -18,6 +18,8 @@ export interface ParameterColumn {
 	expanded: boolean;
 	/** The calculation that writes this parameter, when one does. */
 	writtenBy: string | null;
+	/** The calculations that read this parameter, by name. */
+	readBy: string[];
 }
 
 /**
@@ -76,6 +78,7 @@ export function parameterColumns(
 			repeats,
 			expanded: open,
 			writtenBy: p.written_by ?? null,
+			readBy: p.read_by ?? [],
 		};
 	});
 }

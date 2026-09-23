@@ -7,12 +7,18 @@
 	import { untrack } from 'svelte';
 	import {
 		draftRunToolScript,
+		getCollectionEventDetail,
+		listSiteVisits,
+		type VisitRow,
 		type ToolDraftRunResponse,
 		type ToolLintFinding,
 		type ToolManifest,
 		type ToolTestCase,
 	} from '$api/service';
 	import Button from '$components/ui/Button.svelte';
+	import SiteSelect from '$components/SiteSelect.svelte';
+	import { formatDateTime } from '$lib/utils';
+	import { prefillFromVisit } from '$lib/tools/visitPrefill';
 	import ToolForm from '$components/tools/ToolForm.svelte';
 	import ToolRunError from '$components/tools/ToolRunError.svelte';
 	import { formatValue, toolRunFailure, type ToolRunFailure } from '$lib/tools/draft';
@@ -64,6 +70,45 @@
 	let buildError = $state('');
 	let caseName = $state('');
 
+	// A visit to run at: its values fill the form, and the run reads it as a save would, so a site
+	// property or a bound value the form does not show still reaches the script.
+	let siteId = $state('');
+	let visits = $state<VisitRow[]>([]);
+	let visitId = $state('');
+	let visitsLoading = $state(false);
+	let visitError = $state('');
+	const visit = $derived(visits.find((v) => v.id === visitId) ?? null);
+
+	async function chooseSite(site: string) {
+		visits = [];
+		visitId = '';
+		visitError = '';
+		if (!site) return;
+		visitsLoading = true;
+		try {
+			visits = (await listSiteVisits(site, { page_size: 50 })).visits;
+		} catch (e) {
+			visitError = e instanceof Error ? e.message : 'Failed to load visits';
+		} finally {
+			visitsLoading = false;
+		}
+	}
+
+	async function chooseVisit() {
+		visitError = '';
+		if (!visitId) return;
+		try {
+			const detail = await getCollectionEventDetail(visitId);
+			const prefill = prefillFromVisit(
+				{ params: spec.params, event_inputs: manifest.event_inputs ?? [] },
+				detail.cells,
+			);
+			form = initFormState(spec, prefill);
+		} catch (e) {
+			visitError = e instanceof Error ? e.message : 'Failed to read the visit';
+		}
+	}
+
 	// The params and curve slots as the form cares about them. A relabelled param does not
 	// disturb what is typed; a renamed or retyped one does.
 	const signature = $derived(
@@ -103,7 +148,9 @@
 				script,
 				entry_function: entryFunction.trim() || 'tool',
 				manifest,
-				inputs: built.body,
+				inputs: visit
+					? { ...built.body, site_id: siteId, collected_at: visit.collected_at }
+					: built.body,
 			});
 			// A refused body, a raised script and an unreachable runner all resolve now, carrying the
 			// lint findings with them; the catch is left for a 400 (an unreadable manifest, which has
@@ -159,7 +206,38 @@
 </script>
 
 <div class="p-3 space-y-3">
-	<ToolForm {spec} bind:form bind:curveSelections idPrefix="tm-preview" />
+	<div class="flex flex-wrap items-end gap-3">
+		<label class="text-xs text-brand-muted">
+			Site
+			<SiteSelect
+				bind:value={siteId}
+				placeholder=" - No site: typed values only - "
+				class="block mt-0.5 px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm"
+				onchange={(s) => chooseSite(s)}
+			/>
+		</label>
+		<label class="text-xs text-brand-muted">
+			Visit
+			<select
+				bind:value={visitId}
+				onchange={chooseVisit}
+				disabled={!siteId || visitsLoading}
+				class="block mt-0.5 px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm min-w-56"
+			>
+				<option value="">
+					{visitsLoading ? 'Loading…' : visits.length === 0 ? 'No visits' : 'Choose a visit…'}
+				</option>
+				{#each visits as v (v.id)}
+					<option value={v.id}>{formatDateTime(v.collected_at)} · {v.parameters_filled} filled</option>
+				{/each}
+			</select>
+		</label>
+	</div>
+	{#if visitError}
+		<p class="text-xs text-severity-alarm">{visitError}</p>
+	{/if}
+
+	<ToolForm {spec} bind:form bind:curveSelections idPrefix="tm-preview" siteId={siteId || null} />
 
 	{#if buildError}
 		<p class="text-xs text-severity-alarm">{buildError}</p>

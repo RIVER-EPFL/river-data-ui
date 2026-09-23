@@ -41,11 +41,46 @@ export interface BuilderManifest {
 	constants: string[];
 	curves: ToolCurveSlot[];
 	match_keywords: string[];
+	/** Set from a param's "Reads at a visit" field; see `withVisitBinding`. */
+	event_inputs: ToolEventInput[];
 	// Carried through untouched: the editor has no fields for these yet, and re-saving a
 	// version must not be what drops a declaration made in Raw JSON.
 	sections: ToolSection[];
 	site_inputs: ToolSiteInput[];
-	event_inputs: ToolEventInput[];
+}
+
+type Bindings = Pick<BuilderManifest, 'params' | 'event_inputs'>;
+
+/**
+ * The catalog code a param reads at a visit, or '' for none. A replicates param names its
+ * parameter itself; a scalar is bound through `event_inputs`.
+ */
+export function visitBinding(m: Bindings, name: string): string {
+	const param = m.params.find((p) => p.name === name);
+	if (param?.kind === 'replicates') return param.parameter_code ?? '';
+	return m.event_inputs.find((e) => e.param === name)?.parameter_code ?? '';
+}
+
+/** The manifest with `name` reading `code` at a visit; an empty code unbinds it. */
+export function withVisitBinding(m: Bindings, name: string, code: string): Bindings {
+	const param = m.params.find((p) => p.name === name);
+	const trimmed = code.trim();
+	if (param?.kind === 'replicates') {
+		return {
+			params: m.params.map((p) =>
+				p.name === name ? { ...p, parameter_code: trimmed || undefined } : p,
+			),
+			event_inputs: m.event_inputs,
+		};
+	}
+	const others = m.event_inputs.filter((e) => e.param !== name);
+	const existing = m.event_inputs.find((e) => e.param === name);
+	return {
+		params: m.params,
+		event_inputs: trimmed
+			? [...others, { ...existing, param: name, parameter_code: trimmed }]
+			: others,
+	};
 }
 
 function str(value: unknown, fallback = ''): string {

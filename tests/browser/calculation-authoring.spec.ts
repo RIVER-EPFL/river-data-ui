@@ -613,3 +613,114 @@ test('a one-input calculation is authored on two tables, never meeting Steps', a
 	await expect(block(page, 'Steps')).toHaveCount(0);
 	await expect(page.getByRole('checkbox', { name: 'Intermediate steps' })).not.toBeChecked();
 });
+
+// Scenario: an author checks a calculation against numbers of their own at a visit that already
+// holds values, typing one in place of what the visit stored.
+//
+// Expected behaviour: the output moves to what the typed value computes to, without a save, and
+// the visit's own value is left as it was.
+test('a value typed in place of the visit\'s moves the output', async ({ page, request }) => {
+	const { calculationId, siteId, visitId, inputCode, outputCode } =
+		await seedVisitCalculation(request);
+	await page.setViewportSize({ width: 1600, height: 1080 });
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/toolbox/${calculationId}?site=${siteId}&visit=${visitId}`);
+	await expect(calculationCell(page, outputCode)).toContainText(String((ENTERED_INPUT + 1) * 2));
+
+	const typed = 20;
+	await typeInto(page, calculationCell(page, inputCode), String(typed));
+	await expect(calculationCell(page, outputCode)).toContainText(String((typed + 1) * 2));
+
+	await page.reload();
+	await expect(calculationCell(page, inputCode)).toContainText(String(ENTERED_INPUT));
+});
+
+/** A site with one visit holding `value` for a fresh parameter, for a tool to be tried on. */
+async function seedVisitValue(request: APIRequestContext, value: number) {
+	const stamp = `${Date.now()}`;
+	const bearer = await token(request);
+	const headers = { Authorization: `Bearer ${bearer}` };
+	const post = async (path: string, data: unknown) => {
+		const response = await request.post(`${API_URL}/api${path}`, { headers, data });
+		expect(response.ok(), `${path} -> ${response.status()} ${await response.text()}`).toBeTruthy();
+		return response.json();
+	};
+	const code = `r_in_${stamp}`;
+	const project = await post('/projects', { name: `R visit ${stamp}` });
+	const site = await post('/sites', { name: `R visit ${stamp}`, project_id: project.id });
+	const parameter = await post('/parameters', {
+		code,
+		name: code,
+		category: 'measurement',
+		aliases: [],
+	});
+	await post('/site_parameters', { site_id: site.id, parameter_id: parameter.id, name: code });
+	const collectedAt = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+	await post('/grab_samples', {
+		site_id: site.id,
+		mode: 'replace',
+		readings: [{ parameter_id: parameter.id, value, time: collectedAt, replicate_index: 0 }],
+	});
+	await post('/collection_events/stage', { site_id: site.id, collected_at: collectedAt });
+	return { stamp, code, siteId: site.id };
+}
+
+// Scenario: a calculation that needs more than formulas is authored as an R script on the same
+// page, the more complicated toolsets being R run in the sidecar, and tried on another site's visit
+// before anything is saved.
+//
+// Expected behaviour: the script is typed, the page reads what it takes and returns and declares
+// both, the input is bound to the parameter a visit holds, and a run at the visit shows the output
+// computed from the visit's value; a value typed over it moves the output again.
+test('an R tool is authored on the page and run at a visit and on a typed value', async ({
+	page,
+	request,
+}) => {
+	const { stamp, code, siteId } = await seedVisitValue(request, 7);
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/toolbox`);
+	await page.getByRole('button', { name: 'New calculation' }).click();
+	await page.getByLabel('Engine').selectOption('script');
+	await page.getByRole('textbox', { name: 'Name' }).fill(`doubler_${stamp}`);
+	await page.getByRole('textbox', { name: 'Label' }).fill(`Doubler ${stamp}`);
+	await page.getByRole('button', { name: 'Create and open it' }).click();
+	await expect(page).toHaveURL(/\/toolbox\/[0-9a-f-]{36}/);
+
+	// Inserted rather than typed key by key: the editor closes a bracket as it is opened.
+	await page.locator('.cm-content').click();
+	await page.keyboard.press('ControlOrMeta+a');
+	await page.keyboard.insertText('tool <- function(inputs, constants, curves) list(y = 2 * inputs$x)');
+
+	const detection = page
+		.locator('.rounded-md')
+		.filter({ has: page.getByRole('heading', { name: 'Detection' }) })
+		.last();
+	await expect(detection).toContainText('Parsed');
+	// The input the script reads, then the output it returns, each declared from its own row.
+	const add = detection.getByRole('button', { name: 'Add', exact: true });
+	await expect(add).toHaveCount(2);
+	await add.first().click();
+	await expect(add).toHaveCount(1);
+	await add.first().click();
+	await expect(add).toHaveCount(0);
+
+	// What the script calls x is what a visit holds under the seeded parameter.
+	await page.getByRole('button', { name: 'More', exact: true }).first().click();
+	await page.getByLabel('Reads at a visit').fill(code);
+	await page.getByLabel('Reads at a visit').press('Tab');
+
+	const preview = page.locator('details', { has: page.locator('summary', { hasText: 'Preview' }) });
+	await preview.locator('summary').click();
+	await preview.getByRole('combobox', { name: 'Site' }).selectOption(siteId);
+	const visitPicker = preview.getByRole('combobox', { name: 'Visit' });
+	await expect(visitPicker.locator('option')).toHaveCount(2);
+	await visitPicker.selectOption({ index: 1 });
+	const x = preview.getByRole('spinbutton', { name: 'X', exact: true });
+	await expect(x).toHaveValue('7');
+	await preview.getByRole('button', { name: 'Run', exact: true }).click();
+	await expect(preview.getByRole('row', { name: 'y 14', exact: true })).toBeVisible();
+
+	await x.fill('3');
+	await preview.getByRole('button', { name: 'Run', exact: true }).click();
+	await expect(preview.getByRole('row', { name: 'y 6', exact: true })).toBeVisible();
+});

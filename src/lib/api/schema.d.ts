@@ -8935,7 +8935,7 @@ export interface components {
         CalculationHealth: {
             /** Format: int64 */
             missing_outputs: number;
-            repair?: null | components["schemas"]["CalculationRepair"];
+            repair: null | components["schemas"]["CalculationRepair"];
             /** Format: int64 */
             skipped_outputs: number;
             /** Format: int64 */
@@ -10575,6 +10575,11 @@ export interface components {
             name: string;
             /** Format: uuid */
             parameter_id: string;
+            /**
+             * @description The calculations that read this parameter, by tool name, so every cell of the column says
+             *     what a typed value feeds whichever visit it is typed at.
+             */
+            read_by?: string[];
             /**
              * @description The unit the column's numbers are in, from the site's slot when it declares one and the
              *     catalog default otherwise. A grid of bare numbers cannot be read without it.

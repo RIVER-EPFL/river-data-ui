@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
-	import { isToolParamCondition, type ToolParam } from '$api/service';
+	import type { Parameter } from '$api/crud';
+	import { isToolParamCondition, type ToolEventInput, type ToolParam } from '$api/service';
 	import Badge from '$components/ui/Badge.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import { markClass, paramField, type Severity } from '$lib/tools/validation';
@@ -24,15 +25,23 @@
 		kindBase,
 		makeEnumKind,
 		parseDefault,
+		visitBinding,
+		withVisitBinding,
 	} from './manifest';
 
 	let {
 		params = $bindable(),
+		eventInputs = $bindable([]),
+		catalog = [],
 		defaultErrors = $bindable([]),
 		marks = {},
 		onTouch,
 	}: {
 		params: ToolParam[];
+		/** Which catalog parameter each scalar param reads at a visit. */
+		eventInputs?: ToolEventInput[];
+		/** The parameters a param can be bound to, offered by code. */
+		catalog?: Parameter[];
 		/** Per row: why the default text does not parse for its kind, empty when it does. */
 		defaultErrors?: string[];
 		marks?: Record<string, Severity>;
@@ -40,6 +49,13 @@
 	} = $props();
 
 	const field = 'w-full px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-xs';
+	const catalogList = `param-catalog-${crypto.randomUUID()}`;
+
+	function bindVisit(name: string, code: string) {
+		const next = withVisitBinding({ params, event_inputs: eventInputs }, name, code);
+		params = next.params;
+		eventInputs = next.event_inputs;
+	}
 
 	// Defaults and enum variants are edited as text and only reach the manifest once they parse, so
 	// each row keeps its own buffer. Seeded once: the parent remounts this editor when it loads a
@@ -413,6 +429,18 @@
 								: ''}"
 						/>
 					</div>
+					<div class="flex flex-col gap-1 w-56">
+						<label for={paramField(i, 'visit')} class="font-medium">Reads at a visit</label>
+						<input
+							id={paramField(i, 'visit')}
+							type="text"
+							list={catalogList}
+							placeholder="Parameter code"
+							value={visitBinding({ params, event_inputs: eventInputs }, p.name)}
+							onchange={(e) => bindVisit(p.name, e.currentTarget.value)}
+							class="{field} font-mono"
+						/>
+					</div>
 					<div class="flex flex-col gap-1">
 						<span class="font-medium">Conditional</span>
 						{#if params[i].when !== null}
@@ -670,3 +698,9 @@
 <div class="px-3 py-2 border-t border-brand-divider">
 	<Button size="sm" onclick={addRow}>Add param</Button>
 </div>
+
+<datalist id={catalogList}>
+	{#each catalog as parameter (parameter.id)}
+		<option value={parameter.code}>{parameter.name}</option>
+	{/each}
+</datalist>

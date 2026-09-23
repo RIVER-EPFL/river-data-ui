@@ -41,6 +41,7 @@
 	import Button from '$components/ui/Button.svelte';
 	import ConfirmButton from '$components/ui/ConfirmButton.svelte';
 	import Tabs from '$components/ui/Tabs.svelte';
+	import { leavingLosesEntries, UNSAVED_PROMPT } from '$lib/visits/tableEdit';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import PaginationControls from '$components/ui/PaginationControls.svelte';
@@ -110,6 +111,15 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let activeTab = $state(0);
+	// The visits grid is unmounted when its tab is left, so what it holds unsaved is asked about
+	// first.
+	let visitsUnsaved = $state(false);
+	function chooseTab(next: number) {
+		const to = tabDefs[next]?.key ?? 'charts';
+		if (leavingLosesEntries(activeKey, to, visitsUnsaved) && !confirm(UNSAVED_PROMPT)) return;
+		if (to !== 'visits') visitsUnsaved = false;
+		activeTab = next;
+	}
 	// Tabs are dispatched by a stable key, not a hardcoded index, so the admin-only Status tab can be
 	// conditionally present without the body blocks below falling out of sync.
 	const tabDefs = $derived([
@@ -1237,7 +1247,7 @@
 			</div>
 		</div>
 
-		<Tabs tabs={tabLabels} bind:active={activeTab} />
+		<Tabs tabs={tabLabels} bind:active={() => activeTab, chooseTab} />
 
 		<!-- Charts tab -->
 		{#if activeKey === 'charts'}
@@ -1991,6 +2001,7 @@
 				{visitPointLink}
 				onFlag={(t) => { flagTarget = t; flagOpen = true; }}
 				onDataChanged={scheduleFetch}
+				onUnsaved={(u) => (visitsUnsaved = u)}
 			/>
 
 		<!-- Status tab (admin-only) -->

@@ -386,3 +386,30 @@ test('an empty visit is discarded from its own record', async ({ page, request }
 	await page.getByRole('button', { name: 'Discard this visit' }).click();
 	await expect(page.getByText('No visits recorded for this site.')).toBeVisible();
 });
+
+// Scenario: a value is typed into the grid and another tab of the site is chosen before Save.
+// Expected behaviour: the page asks first; declining keeps the grid and what was typed, and
+// accepting leaves it.
+test('leaving the visits tab with a typed value asks first', async ({ page, request }) => {
+	const { siteId } = await seedVisit(request);
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
+	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
+	await typeInto(page, /^groups_one_\w* at/, '4.8');
+	const save = page.getByRole('button', { name: /^Save \d+ value/ });
+	await expect(save).toContainText('Save 1 value');
+
+	const asked: string[] = [];
+	page.once('dialog', (dialog) => {
+		asked.push(dialog.message());
+		void dialog.dismiss();
+	});
+	await page.getByRole('button', { name: 'Charts', exact: true }).click();
+	expect(asked).toEqual(['These new values are not saved yet. Leave anyway?']);
+	await expect(save).toContainText('Save 1 value');
+	await expect(sheetCell(page, /^groups_one_\w* at/)).toHaveText('4.8');
+
+	page.once('dialog', (dialog) => void dialog.accept());
+	await page.getByRole('button', { name: 'Charts', exact: true }).click();
+	await expect(save).toBeHidden();
+});

@@ -42,6 +42,17 @@ export function cellRole(cell: Pick<EventCell, 'read_by' | 'written_by'>): CellR
 }
 
 /**
+ * The role every cell of a grid column carries, from what the listing says reads and writes its
+ * parameter. It holds whichever visit the cell is at and whether a value is stored there yet.
+ */
+export function columnRole(column: { readBy: string[]; writtenBy: string | null }): CellRoleInfo {
+	return cellRole({ read_by: column.readBy, written_by: column.writtenBy ?? undefined });
+}
+
+/** Every class a role puts on a cell, so a reused cell can be cleared of the last one's. */
+export const ROLE_CLASSES = ['border-l-2', 'border-brand-accent', 'border-brand-primary'];
+
+/**
  * The confirmation an edit needs before it is written: which scripts run again, which output
  * parameters move, and what each of those holds today (M52). Null when nothing reads the value,
  * which is when no confirmation is warranted.

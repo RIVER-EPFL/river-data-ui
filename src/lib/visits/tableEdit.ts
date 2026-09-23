@@ -220,6 +220,30 @@ export function pendingCount(edits: Edits, locale: string): number {
 }
 
 /**
+ * Whether leaving now loses something typed: any cell, or a date in a spare row, which stages a
+ * visit that exists nowhere else yet.
+ */
+export function hasUnsavedEntries(
+	edits: Edits,
+	spareDates: Readonly<Record<string, string>>,
+): boolean {
+	return (
+		Object.keys(edits).length > 0 || Object.values(spareDates).some((d) => d.trim() !== '')
+	);
+}
+
+/** What a person leaving the grid with unsaved values is asked. */
+export const UNSAVED_PROMPT = 'These new values are not saved yet. Leave anyway?';
+
+/**
+ * Whether a change of the site's tab loses what the visits grid holds: the grid is unmounted when
+ * its tab is left, so only leaving it with something typed asks.
+ */
+export function leavingLosesEntries(from: string, to: string, unsaved: boolean): boolean {
+	return unsaved && from === 'visits' && to !== 'visits';
+}
+
+/**
  * The replicate indices the table believed the store held, per group being entered into. The
  * replace reports back what it kept and what it retracted against this, so a curated value the
  * table could not write is named rather than silently dropped.

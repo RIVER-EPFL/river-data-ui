@@ -9,7 +9,7 @@
 	import { base } from '$app/paths';
 	import { me } from '$auth/me.svelte';
 	import { stagedVisit, stagedVisitFrom } from '$lib/stores/visit.svelte';
-	import { goto } from '$app/navigation';
+	import { beforeNavigate, goto } from '$app/navigation';
 	import { rowProvenanceLabel } from '$lib/origin';
 	import { lastRunOfCalculation } from '$lib/tools/visitPrefill';
 	import { deepLinkParameter } from '$lib/visits/link';
@@ -138,6 +138,8 @@
 		expectedReplicates,
 		cleared,
 		pendingCount,
+		hasUnsavedEntries,
+		UNSAVED_PROMPT,
 		pendingWrites,
 		withdrawalKeys,
 		storedAt,
@@ -146,7 +148,7 @@
 		pasteNotice,
 		type Edits,
 	} from '$lib/visits/tableEdit';
-	import { cellRole, cellWritable, editConsequence } from '$lib/visits/role';
+	import { cellRole, cellWritable, columnRole, editConsequence, ROLE_CLASSES } from '$lib/visits/role';
 	import { cellCurves } from '$lib/visits/curve';
 	import { instrumentCurves } from '$lib/visits/instrument';
 	import { curveRefs } from '$lib/curveRefs.svelte';
@@ -175,6 +177,7 @@
 		visitPointLink,
 		onFlag,
 		onDataChanged,
+		onUnsaved = () => {},
 	}: {
 		siteId: string;
 		siteName: string | null;
@@ -188,6 +191,9 @@
 		onFlag: (target: FlagTarget) => void;
 		/// A recompute wrote readings, so the page refetches what it plots.
 		onDataChanged: () => void;
+		/// Whether the grid holds something typed and not saved, so the page can ask before its
+		/// tab is left.
+		onUnsaved?: (unsaved: boolean) => void;
 	} = $props();
 
 	function openVisitFlag(visitId: string, replicates: SampleReplicate[]) {
@@ -535,6 +541,7 @@
 		'sheet-open-row',
 		'sheet-reads',
 		'sheet-read-by',
+		...ROLE_CLASSES,
 	];
 
 	/** A cell element is reused across positions, so each render starts from nothing. */
@@ -699,6 +706,11 @@
 		const when = spareDate === null ? formatDateTime(visit.collected_at) : spareDate;
 		td.classList.add('htRight', 'htNumeric');
 		if (!writable) td.classList.add('htDimmed');
+		// What the column is to the calculations, on every cell of it, so a value says what it
+		// feeds while it is typed. The selection below narrows this to the stored connections.
+		const role = columnRole(slot.column);
+		if (role.className) td.classList.add(...role.className.split(' '));
+		if (role.title) td.title = role.title;
 		if (refusedAt(row)) td.classList.add('sheet-refused');
 		// A spare row naming no date yet is placed rather than dated: there is no instant to say.
 		const repeat = open ? ` repeat ${slot.replicateIndex + 1}` : '';
@@ -982,6 +994,16 @@
 	const screened = $derived(checkSatisfied(writes, checks));
 	const entering = $derived(writes.some((w) => w.entries.length > 0));
 	const moved = $derived(pendingCount(written, locale));
+	const unsaved = $derived(hasUnsavedEntries(edits, spareDates));
+	$effect(() => onUnsaved(unsaved));
+
+	beforeNavigate((navigation) => {
+		if (unsaved && navigation.type !== 'leave' && !confirm(UNSAVED_PROMPT)) navigation.cancel();
+	});
+
+	function warnBeforeUnload(event: BeforeUnloadEvent) {
+		if (unsaved) event.preventDefault();
+	}
 	// Every cleared cell withdraws a stored replicate, by its own edit or by the replace of its group.
 	const withdrawn = $derived(Object.values(written).filter(cleared).length);
 
@@ -1534,6 +1556,8 @@
 		untrack(() => void openVisit(ev, true, selectParam));
 	});
 </script>
+
+<svelte:window onbeforeunload={warnBeforeUnload} />
 
 {#snippet calculationBadge(source: string | undefined, state: string | undefined)}
 	{@const badge = visitBadge(source, state)}

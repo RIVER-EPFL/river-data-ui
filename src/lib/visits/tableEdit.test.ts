@@ -15,7 +15,10 @@ import {
 	withdrawalKeys,
 	pasteNotice,
 	instrumentKey,
+	hasUnsavedEntries,
+	leavingLosesEntries,
 } from './tableEdit';
+import { keptAfterSave } from './spareRows';
 
 const LOCALE = 'en-GB';
 
@@ -244,5 +247,44 @@ describe('the instrument a group declares', () => {
 		});
 		expect(write.entries.filter((e) => e.parameterId === 'p-do').every((e) => e.sensorId === 'sensor-analyser')).toBe(true);
 		expect(write.entries.filter((e) => e.parameterId === 'p-temp').every((e) => e.sensorId === null)).toBe(true);
+	});
+});
+
+describe('hasUnsavedEntries', () => {
+	it('is false with nothing typed and no spare date', () => {
+		expect(hasUnsavedEntries({}, {})).toBe(false);
+		expect(hasUnsavedEntries({}, { 'new:0': '  ' })).toBe(false);
+	});
+
+	it('is true for one typed cell', () => {
+		expect(hasUnsavedEntries({ 'v1|p-do|0': '7' }, {})).toBe(true);
+	});
+
+	it('is true for a spare date with no cell beside it', () => {
+		expect(hasUnsavedEntries({}, { 'new:0': '2026-07-05' })).toBe(true);
+	});
+
+	it('is true for what a partial save leaves on screen', () => {
+		const kept = keptAfterSave(
+			{ 'v1|p-do|0': '7', 'new:0|p-do|0': '8.5' },
+			{ 'new:0': '2026-07-05' },
+			new Set(['new:0']),
+		);
+		expect(hasUnsavedEntries(kept.edits, kept.dates)).toBe(true);
+	});
+});
+
+describe('leavingLosesEntries', () => {
+	it('asks when the visits tab is left with something typed', () => {
+		expect(leavingLosesEntries('visits', 'charts', true)).toBe(true);
+	});
+
+	it('does not ask with nothing typed, or when staying on the visits tab', () => {
+		expect(leavingLosesEntries('visits', 'charts', false)).toBe(false);
+		expect(leavingLosesEntries('visits', 'visits', true)).toBe(false);
+	});
+
+	it('does not ask when leaving another tab', () => {
+		expect(leavingLosesEntries('charts', 'visits', true)).toBe(false);
 	});
 });

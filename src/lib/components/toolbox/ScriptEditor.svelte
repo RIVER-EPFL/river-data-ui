@@ -747,6 +747,8 @@
 								{#key builderSeed}
 									<ManifestParamsEditor
 										bind:params={manifest.params}
+										bind:eventInputs={manifest.event_inputs}
+										catalog={parameterCatalog}
 										bind:defaultErrors
 										{marks}
 										onTouch={touch}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cellRole, cellWritable, editConsequence } from './role';
+import { cellRole, cellWritable, columnRole, editConsequence } from './role';
 
 describe('cellRole', () => {
 	it('leaves a plain measurement unmarked, so the marked cells stand out', () => {
@@ -20,6 +20,23 @@ describe('cellRole', () => {
 		const info = cellRole({ written_by: 'doc', read_by: ['dom'] });
 		expect(info.role).toBe('output');
 		expect(info.title).toBe('Computed by doc, read by dom');
+	});
+});
+
+describe('columnRole', () => {
+	it('marks every cell of an input column and names what reads it, with nothing selected', () => {
+		const info = columnRole({ readBy: ['carbonate'], writtenBy: null });
+		expect(info.role).toBe('input');
+		expect(info.className).not.toBe('');
+		expect(info.title).toContain('Read by carbonate');
+	});
+
+	it('marks a computed column as an output', () => {
+		expect(columnRole({ readBy: [], writtenBy: 'carbonate' }).role).toBe('output');
+	});
+
+	it('leaves a column nothing touches unmarked', () => {
+		expect(columnRole({ readBy: [], writtenBy: null })).toEqual(cellRole({}));
 	});
 });
 

@@ -13,7 +13,7 @@ import type { StagedVisit } from '$lib/stores/visit.svelte';
  * hands it to the same two functions a "reload into tool" navigation uses.
  */
 export function prefillFromVisit(
-	tool: ToolDescriptor,
+	tool: Pick<ToolDescriptor, 'params' | 'event_inputs'>,
 	cells: EventCell[],
 ): Record<string, unknown> {
 	const byCode = new Map<string, EventCell>();
