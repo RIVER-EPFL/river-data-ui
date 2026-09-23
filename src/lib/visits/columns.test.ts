@@ -5,7 +5,6 @@ import {
 	CALCULATION_FILTER,
 	askedWidth,
 	calculationsOf,
-	columnSpan,
 	columnsInGroup,
 	expandable,
 	parameterColumns,
@@ -66,7 +65,6 @@ describe('the visits table column groups', () => {
 		const columns = parameterColumns(expected, visits, new Set());
 		expect(columns.map((c) => c.width)).toEqual([1, 1]);
 		expect(columns.map((c) => c.repeats)).toEqual([3, 1]);
-		expect(columnSpan(columns)).toBe(2);
 	});
 
 	it('opens the expanded parameter to its replicates and leaves its neighbours alone', () => {
@@ -75,7 +73,6 @@ describe('the visits table column groups', () => {
 			['DO', 3, 3, true],
 			['Temp', 1, 1, false],
 		]);
-		expect(columnSpan(columns)).toBe(4);
 	});
 
 	it('offers no expansion where every visit measured the parameter once', () => {

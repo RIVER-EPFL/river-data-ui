@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { seriesColor, seriesDash, swatchStyle } from '$lib/charts/legend';
+	import { seriesKey, swatchStyle } from '$lib/charts/legend';
 	import type uPlot from 'uplot';
 	import type { Parameter, Site, SiteParameter } from '$api/crud';
 	import { fetchSiteSeries, type Frequency } from '$lib/charts/multiSiteSeries';
@@ -402,7 +402,7 @@
 							<div class="flex gap-3 flex-wrap">
 								{#each loaded as series, i}
 									<div class="flex items-center gap-1.5 text-xs">
-										<span class="w-3 h-0.5 rounded" style={swatchStyle(seriesColor(i), seriesDash(i))}></span>
+										<span class="w-3 h-0.5 rounded" style={swatchStyle(seriesKey(i))}></span>
 										{series.label} ({series.doy.length} points)
 									</div>
 								{/each}

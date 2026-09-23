@@ -2,7 +2,7 @@
 	import { getChartSyncGroup } from '$lib/charts/chart-sync.svelte';
 	import { uPlotTheme } from '$lib/charts/uPlotTheme';
 	import { tokens } from '$lib/charts/tokens';
-	import { seriesColor, seriesDash, tooltipRow } from '$lib/charts/legend';
+	import { seriesKey, tooltipRow } from '$lib/charts/legend';
 	import { bandAtTime, calibrationAtTime, severityForValue } from '$lib/charts/overlay-plugins';
 	import { severityLabel } from '$lib/alarms';
 	import { curveRefs } from '$lib/curveRefs.svelte';
@@ -87,8 +87,7 @@
 
 		for (const [, reg] of group.registrations) {
 			const val = reg.values[c.idx];
-			const color = seriesColor(reg.paletteIndex);
-			const dash = seriesDash(reg.paletteIndex);
+			const { color, dash } = seriesKey(reg.paletteIndex);
 
 			const sevLevel = severityForValue(val, reg.threshold);
 			const severity: 'alarm' | 'warning' | null =
@@ -222,8 +221,8 @@
 		{#each shownRows as row}
 			<div class="flex items-center justify-between gap-4" style="font-size:12px;line-height:20px">
 				<span class="flex items-center gap-1.5">
-					<span style="display:inline-block;width:8px;height:8px;border-radius:50%;flex-shrink:0;{tooltipRow(row.color, row.dash).swatch}"></span>
-					<span style="color:{tooltipRow(row.color, row.dash).name};font-weight:500">{row.name}</span>
+					<span style="display:inline-block;width:8px;height:8px;border-radius:50%;flex-shrink:0;{tooltipRow(row).swatch}"></span>
+					<span style="color:{tooltipRow(row).name};font-weight:500">{row.name}</span>
 					{#if row.severity === 'alarm'}
 						<span style="font-size:9px;padding:0 4px;border-radius:3px;background:{tokens.severity.alarm.main};color:white;font-weight:700">{severityLabel('alarm')}</span>
 					{:else if row.severity === 'warning'}

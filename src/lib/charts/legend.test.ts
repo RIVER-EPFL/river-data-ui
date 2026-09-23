@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { seriesColor, seriesDash, seriesKey, spotMarkerColors, swatchStyle, tooltipRow } from './legend';
+import { seriesColor, seriesKey, spotMarkerColors, swatchStyle, tooltipRow } from './legend';
 import { tokens } from './tokens';
 
 describe('seriesColor', () => {
@@ -16,12 +16,12 @@ describe('seriesColor', () => {
 
 describe('seriesKey', () => {
 	it('gives the first cycle a solid line', () => {
-		expect(seriesDash(0)).toBeUndefined();
-		expect(seriesDash(7)).toBeUndefined();
+		expect(seriesKey(0).dash).toBeUndefined();
+		expect(seriesKey(7).dash).toBeUndefined();
 	});
 
 	it('adds a dash pattern once the palette has been spent', () => {
-		expect(seriesDash(8)).toBeDefined();
+		expect(seriesKey(8).dash).toBeDefined();
 	});
 
 	// A site page registers its measurement parameters and its device-health parameters into one
@@ -50,11 +50,15 @@ describe('spotMarkerColors', () => {
 
 describe('swatchStyle', () => {
 	it('paints the dash pattern it stands for, so the legend chip matches its line', () => {
-		expect(swatchStyle(seriesColor(0))).not.toMatch(/gradient/);
-		expect(swatchStyle(seriesColor(8), seriesDash(8))).toMatch(/gradient/);
+		expect(swatchStyle(seriesKey(0))).not.toMatch(/gradient/);
+		expect(swatchStyle(seriesKey(8))).toMatch(/gradient/);
 	});
 
 	it('outlines the chip', () => {
-		expect(tooltipRow(seriesColor(0)).swatch).toMatch(/box-shadow/);
+		expect(tooltipRow(seriesKey(0)).swatch).toMatch(/box-shadow/);
+	});
+
+	it('paints the tooltip row with the chip its legend draws', () => {
+		expect(tooltipRow(seriesKey(8)).swatch).toBe(swatchStyle(seriesKey(8)));
 	});
 });

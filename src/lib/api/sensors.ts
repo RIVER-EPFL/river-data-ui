@@ -95,28 +95,3 @@ export const getSensorDeploymentBands = (
 	`/api/sensors/${sensorId}/deployment_bands`,
 	params,
 );
-
-// ─── Calibration window data resolution ───
-
-export interface CalibrationWindowPoint {
-	time: string;
-	raw_value: number;
-	calibrated_value: number | null;
-	is_flagged: boolean;
-}
-
-export interface CalibrationWindowResponse {
-	calibration_id: string;
-	sensor_id: string;
-	parameter_id: string;
-	slope: number;
-	intercept: number;
-	valid_from: string;
-	valid_until: string | null;
-	point_count: number;
-	/** Down-sampled sample of points the window resolves (capped server-side, e.g. 2000). */
-	points: CalibrationWindowPoint[];
-}
-
-export const getCalibrationWindow = (calibrationId: string) =>
-	GET<CalibrationWindowResponse>(`/api/sensor_calibrations/${calibrationId}/window`);

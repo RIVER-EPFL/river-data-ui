@@ -1169,9 +1169,6 @@ export const decideChangeProposals = (
 	});
 
 // Roles
-export type KeycloakRole = components['schemas']['KeycloakRole'];
-
-export const listRoles = () => GET<KeycloakRole[]>(`${ADMIN}/roles`);
 export const assignUserRoles = (userId: string, roles: string[]) =>
 	POST(`${ADMIN}/users/${userId}/roles`, { roles });
 
@@ -1648,9 +1645,6 @@ export const listSchedules = () =>
 	getList<Schedule>(`${ADMIN}/schedules`, { perPage: 200, sort: ['job_name', 'ASC'] }).then(
 		(r) => r.data,
 	);
-
-export const getSchedule = (jobName: string) =>
-	GET<Schedule>(`${ADMIN}/schedules/${encodeURIComponent(jobName)}`);
 
 export const updateSchedule = (jobName: string, body: ScheduleUpdate) =>
 	PUT<Schedule>(`${ADMIN}/schedules/${encodeURIComponent(jobName)}`, body);

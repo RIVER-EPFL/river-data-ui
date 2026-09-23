@@ -1,6 +1,6 @@
 import uPlot from 'uplot';
 import { tokens } from './tokens';
-import { seriesColor, seriesDash } from './legend';
+import { seriesKey } from './legend';
 import { timezoneStore } from '$lib/stores/timezone.svelte';
 import { NO_VALUE, formatMeasurement } from '$lib/format';
 
@@ -53,10 +53,11 @@ export function makeSeries(
   units?: string | null,
   decimals?: number | null,
 ): uPlot.Series {
+  const { color, dash } = seriesKey(paletteIndex);
   return {
     label,
-    stroke: seriesColor(paletteIndex),
-    dash: seriesDash(paletteIndex),
+    stroke: color,
+    dash,
     width: uPlotTheme.lineWidth,
     value: (_u, v) =>
       v == null ? NO_VALUE : formatMeasurement(v, decimals) + (units ? ' ' + units : ''),

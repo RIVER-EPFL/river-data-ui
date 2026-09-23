@@ -56,7 +56,7 @@ describe('the data viz palette is legible where it is drawn', () => {
 	// The shared tooltip prints one row per series on a near-black ground.
 	for (let i = 0; i < 8; i++) {
 		it(`entry ${i} names its series legibly on the tooltip ground`, () => {
-			const row = tooltipRow(palette[i]);
+			const row = tooltipRow({ color: palette[i] });
 			expect(contrastRatio(row.name, tokens.chart.tooltipBg, tokens.brand.text)).toBeGreaterThanOrEqual(
 				4.5,
 			);
@@ -64,7 +64,7 @@ describe('the data viz palette is legible where it is drawn', () => {
 	}
 
 	it('outlines the tooltip swatch, so a dark entry is still a visible chip', () => {
-		expect(tooltipRow(palette[7]).swatch).toMatch(/box-shadow/);
+		expect(tooltipRow({ color: palette[7] }).swatch).toMatch(/box-shadow/);
 	});
 
 	it('separates its entries at least as well as the palette it replaced, under deuteranopia and protanopia', () => {

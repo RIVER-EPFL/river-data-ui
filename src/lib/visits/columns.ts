@@ -83,11 +83,6 @@ export function parameterColumns(
 	});
 }
 
-/** Columns across the whole grid, so an expanded row's panel spans it. */
-export function columnSpan(columns: ParameterColumn[]): number {
-	return columns.reduce((total, c) => total + c.width, 0);
-}
-
 /**
  * Expanding a parameter that holds one replicate everywhere draws the same single column it drew
  * collapsed, so the click reads as doing nothing. Only a group with repeats to show is expandable.

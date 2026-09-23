@@ -107,21 +107,3 @@ export function writeNumber(value: number, locale: string, decimals?: number | n
 			: { maximumFractionDigits: 20 };
 	return new Intl.NumberFormat(locale, { useGrouping: true, ...precision }).format(value);
 }
-
-/** Significant digits a statistic falls back to where its slot declares no precision. */
-const FALLBACK_DIGITS = 6;
-
-/**
- * A statistic beside the cells: the slot's precision where it declares one, six significant
- * digits where it does not, in the locale's own form.
- */
-export function writeStatistic(
-	value: number,
-	locale: string,
-	decimals?: number | null,
-): string {
-	if (typeof decimals === 'number' && Number.isInteger(decimals) && decimals >= 0) {
-		return writeNumber(value, locale, decimals);
-	}
-	return writeNumber(Number(value.toPrecision(FALLBACK_DIGITS)), locale);
-}

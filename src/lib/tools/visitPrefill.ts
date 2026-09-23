@@ -64,11 +64,6 @@ export function prefillFromVisit(
 	return prefill;
 }
 
-/** Whether opening this tool on the visit would put anything on screen. */
-export function hasVisitPrefill(tool: ToolDescriptor, cells: EventCell[]): boolean {
-	return Object.keys(prefillFromVisit(tool, cells)).length > 0;
-}
-
 /**
  * The run of `tool` this visit last saved, or null where it has never run here (Q192).
  *

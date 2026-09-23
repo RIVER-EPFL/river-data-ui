@@ -97,13 +97,6 @@ export const FORMULA_FUNCTION_HELP: Record<string, string> = {
 /** Names the language defines that take no arguments. */
 export const FORMULA_CONSTANTS = ['pi', 'e', 'na'] as const;
 
-/** What each of those means. `na` is the value a calculation could not produce. */
-export const FORMULA_CONSTANT_HELP: Record<string, string> = {
-	pi: '3.14159...',
-	e: "2.71828..., Euler's number",
-	na: 'Not available: the value a calculation could not produce. Nothing is stored for it'
-};
-
 /** The two names a curve slot binds; offered only to a formula that declares one. */
 export const CURVE_VARIABLES = ['curve_slope', 'curve_intercept'] as const;
 

@@ -280,14 +280,6 @@ export function alarmBandPlugin(
 	};
 }
 
-/** Hit-test: the severity band covering an x timestamp (seconds), for the tooltip. */
-export function severityBandAtTime(bands: AlarmSeverityBand[], tsSec: number): AlarmSeverityBand | null {
-	for (const b of bands) {
-		if (tsSec >= b.fromTs && tsSec <= b.toTs) return b;
-	}
-	return null;
-}
-
 /** Hit-test: which band contains an x timestamp (seconds), for hover → config link. */
 export function bandAtTime(bands: SensorIdentityBand[], tsSec: number): SensorIdentityBand | null {
 	for (const b of bands) {

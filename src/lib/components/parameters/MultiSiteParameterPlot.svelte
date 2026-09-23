@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type uPlot from 'uplot';
-	import { seriesColor, seriesDash, spotMarkerColors, swatchStyle } from '$lib/charts/legend';
+	import { seriesKey, spotMarkerColors, swatchStyle } from '$lib/charts/legend';
 	import { spotDispersion } from '$lib/charts/spotSummary';
 	import type { ChartKeyPresence } from '$lib/charts/chartKey';
 	import ChartKey from '$components/charts/ChartKey.svelte';
@@ -416,7 +416,7 @@
 							<div class="flex gap-3 flex-wrap">
 								{#each loaded as series, i}
 									<div class="flex items-center gap-1.5 text-xs">
-										<span class="w-3 h-0.5 rounded" style={swatchStyle(seriesColor(i), seriesDash(i))}></span>
+										<span class="w-3 h-0.5 rounded" style={swatchStyle(seriesKey(i))}></span>
 										{series.label}
 										({series.times.length} points{series.spot.times.length > 0 ? `, ${series.spot.times.length} spot` : ''})
 									</div>

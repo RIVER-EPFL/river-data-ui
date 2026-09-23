@@ -54,20 +54,6 @@ export function severityDescription(
 	return `${label}: ${parts.length ? parts.join(', ') : 'no active alarms'}`;
 }
 
-/** Badge variant (ui/Badge.svelte) for a severity. */
-export function severityBadgeVariant(s: Severity | number): 'alarm' | 'warning' | 'ok' | 'muted' {
-	switch (typeof s === 'number' ? severityFromLevel(s) : s) {
-		case 'alarm':
-			return 'alarm';
-		case 'warning':
-			return 'warning';
-		case 'ok':
-			return 'ok';
-		default:
-			return 'muted';
-	}
-}
-
 /**
  * Threshold range notation, shared by every surface that prints threshold bounds:
  * one-sided ranges use comparators ('≥ 5', '≤ 10'), two-sided use an en dash ('5 – 10'),

@@ -78,6 +78,7 @@
 	import {
 		SYNCED_VISIT_NOTICE,
 		allSynced,
+		computedHere,
 		entryNoticeFor,
 		visitBadge,
 		visitSourceLabel,
@@ -1801,9 +1802,8 @@
 											>Undo the withdrawal</Button>
 										{/if}
 										{#if me.can('writeData')}
-										<!-- Calculations do not run at a visit the sync created (Q41): the portal
-										     recomputes its own outputs, and the route refuses this. -->
-										{#if visitDetail.source !== 'portal_sync'}
+										<!-- The route refuses a recompute at a visit the sync created (Q41). -->
+										{#if computedHere(visitDetail.source)}
 											<Button
 												size="sm"
 												variant="secondary"

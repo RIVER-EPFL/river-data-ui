@@ -6,9 +6,11 @@
 	import { listAll } from '$api/paged';
 	import { readVaisalaFile } from '$lib/upload/vaisalaHeader';
 	import { api, type Site, type SiteParameter, type Parameter, type ReprocessingJob } from '$api/crud';
-	import { GET, POST } from '$api/client';
+	import { POST } from '$api/client';
 	import {
+		jobWaitLabel,
 		listTools,
+		pollJob,
 		type ToolDescriptor,
 		type SeasonalClass,
 		type SeasonalMethod,
@@ -120,6 +122,7 @@
 	let busy = $state(false);
 	let result = $state<ImportPlan | null>(null);
 	let job = $state<ReprocessingJob | null>(null);
+	let jobError = $state<string | null>(null);
 	let conflictMode = $state<'skip' | 'overwrite'>('skip');
 	// Cadence stamped on every imported reading: continuous sensor series or spot (grab/lab) results.
 	let measurementType = $state<'continuous' | 'spot'>('continuous');
@@ -288,6 +291,7 @@
 	async function runImport() {
 		busy = true;
 		job = null;
+		jobError = null;
 		try {
 			const body: Record<string, unknown> = {
 				site: siteId,
@@ -307,7 +311,7 @@
 			result = await POST<ImportPlan>('/api/readings/import_csv', body);
 			step = 'done';
 			toastStore.success('Import started');
-			if (result.derived_job_id) pollJob(result.derived_job_id);
+			if (result.derived_job_id) followImport(result.derived_job_id);
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : 'Import failed';
 			if (stagingSessionId && msg.includes('expired')) {
@@ -321,15 +325,11 @@
 	}
 
 	// Derived recompute + aggregate refresh run as a background job; poll it for progress.
-	async function pollJob(jobId: string) {
-		for (let i = 0; i < 180; i++) {
-			try {
-				job = await GET<ReprocessingJob>(`/api/reprocessing_jobs/${jobId}`);
-			} catch {
-				break;
-			}
-			if (job?.status === 'completed' || job?.status === 'failed') break;
-			await new Promise((r) => setTimeout(r, 1000));
+	async function followImport(jobId: string) {
+		try {
+			await pollJob(jobId, { onTick: (j) => (job = j) });
+		} catch (e) {
+			jobError = e instanceof Error ? e.message : 'The import job did not complete';
 		}
 	}
 
@@ -356,6 +356,7 @@
 		plan = null;
 		result = null;
 		job = null;
+		jobError = null;
 		conflictMode = 'skip';
 		measurementType = 'continuous';
 		valueState = 'corrected';
@@ -772,14 +773,14 @@
 						<div class="rounded-md bg-severity-ok-soft px-3 py-2 text-severity-ok">
 							Import complete - <strong>{job.readings_updated ?? 0}</strong> reading{(job.readings_updated ?? 0) === 1 ? '' : 's'} written ({Object.keys(result.mapped_columns).length} parameters).
 						</div>
-					{:else if job && job.status === 'failed'}
+					{:else if jobError}
 						<div class="rounded-md bg-severity-alarm-soft px-3 py-2 text-severity-alarm">
-							Import failed{#if job.error_message}: {job.error_message}{/if}
+							Import did not complete: {jobError}
 						</div>
 					{:else}
 						<div class="rounded-md bg-brand-bg px-3 py-2">
 							<span class="text-brand-muted">
-								Importing readings{#if job?.total}: {job?.progress ?? 0}/{job.total}{/if}…
+								Importing readings{#if job}: {jobWaitLabel(job)}{/if}…
 							</span>
 							<p class="text-xs text-brand-muted mt-1">This runs in the background - you can navigate away safely.</p>
 						</div>

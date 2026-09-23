@@ -22,11 +22,12 @@ export function seriesColor(index: number): string {
 }
 
 /** The dash pattern for a registration index: solid for the first cycle, then one per cycle. */
-export function seriesDash(index: number): number[] | undefined {
+function seriesDash(index: number): number[] | undefined {
 	const cycle = Math.floor(index / tokens.dataViz.length);
 	return cycle === 0 ? undefined : DASH_PATTERNS[(cycle - 1) % DASH_PATTERNS.length];
 }
 
+/** How a series is drawn and keyed: its colour, dashed once the palette has been spent. */
 export function seriesKey(index: number): SeriesKey {
 	return { color: seriesColor(index), dash: seriesDash(index) };
 }
@@ -41,7 +42,7 @@ export function spotMarkerColors(index: number): { fill: string; stroke: string 
  * A legend swatch: the series colour, striped when the series is drawn dashed, and outlined so a
  * dark entry is still bounded on the dark tooltip ground where the fill alone would vanish.
  */
-export function swatchStyle(color: string, dash?: number[]): string {
+export function swatchStyle({ color, dash }: SeriesKey): string {
 	const outline = 'box-shadow:0 0 0 1px rgba(255,255,255,0.85)';
 	if (!dash || dash.length < 2) return `background:${color};${outline}`;
 	const on = dash[0];
@@ -57,6 +58,6 @@ export function swatchStyle(color: string, dash?: number[]): string {
  * own text colour, because a palette chosen to be legible on the white plot area is not legible
  * as text on the dark tooltip.
  */
-export function tooltipRow(color: string, dash?: number[]): { swatch: string; name: string } {
-	return { swatch: swatchStyle(color, dash), name: tokens.chart.tooltipText };
+export function tooltipRow(key: SeriesKey): { swatch: string; name: string } {
+	return { swatch: swatchStyle(key), name: tokens.chart.tooltipText };
 }

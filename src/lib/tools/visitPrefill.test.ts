@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import type { EventCell, ToolDescriptor, ToolParam } from '$api/service';
 import {
-	hasVisitPrefill,
 	lastRunOfCalculation,
 	openedFrom,
 	prefillFromVisit,
@@ -93,7 +92,6 @@ describe('opening a tool on a visit that already holds values', () => {
 	it('takes nothing from a visit that has no reading for the parameter', () => {
 		expect(prefillFromVisit(tool(), [])).toEqual({});
 		expect(prefillFromVisit(tool(), [cell({ parameter_code: 'pH' })])).toEqual({});
-		expect(hasVisitPrefill(tool(), [])).toBe(false);
 	});
 
 	it('matches the parameter by id first and by code case-insensitively', () => {

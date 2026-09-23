@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type uPlot from 'uplot';
-	import { seriesColor, seriesDash, swatchStyle } from '$lib/charts/legend';
+	import { seriesKey, swatchStyle } from '$lib/charts/legend';
 	import type { Site, Parameter, SiteParameter } from '$api/crud';
 	import type { TimeSeriesSpec } from '$lib/explore/chartSpecs';
 	import Button from '$components/ui/Button.svelte';
@@ -368,7 +368,7 @@
 				<div class="flex gap-3 flex-wrap">
 					{#each chartData as series, i}
 						<div class="flex items-center gap-1.5 text-xs">
-							<span class="w-3 h-0.5 rounded" style={swatchStyle(seriesColor(i), seriesDash(i))}></span>
+							<span class="w-3 h-0.5 rounded" style={swatchStyle(seriesKey(i))}></span>
 							{series.site} ({series.values.length} points)
 						</div>
 					{/each}

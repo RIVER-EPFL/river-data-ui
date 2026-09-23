@@ -341,11 +341,6 @@ export function outputStorage(o: ManifestOutput): OutputStorage {
 	return o.per_replicate ? 'replicates' : 'single';
 }
 
-/** True when an output is saved to the catalog. */
-export function isStored(o: ManifestOutput): boolean {
-	return outputStorage(o) !== 'not_stored';
-}
-
 /** Whether an output names a catalog parameter by either half of the declaration. */
 export function hasParameterLink(o: ManifestOutput): boolean {
 	return !!o.parameter_id || !!o.suggested_parameter_code;
