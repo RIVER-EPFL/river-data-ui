@@ -4,6 +4,7 @@ import {
 	assignBody,
 	assignmentError,
 	groupApplyPreview,
+	groupAppliedMessage,
 	replicateSpec,
 	replicated,
 	roleLabel,
@@ -116,5 +117,68 @@ describe('groupApplyPreview', () => {
 			name: 'hs_temp',
 			role: 'Entry only',
 		});
+	});
+});
+
+describe('groupAppliedMessage', () => {
+	const slot = (id: string, code: string) => ({ parameter_id: id, parameter_code: code, role: 'measured' });
+	const names: Record<string, string> = { 'p-1': 'Depth', 'p-2': 'Temperature', 'p-3': 'Turbidity', 'p-4': 'CDOM' };
+	const nameOf = (id: string) => names[id] ?? null;
+	const promised = groupApplyPreview(
+		{ created: [slot('p-1', 'depth'), slot('p-2', 'temp')], existing: [slot('p-3', 'turb')] },
+		nameOf,
+	);
+
+	it('says only that the group applied when the write matches the preview', () => {
+		const landed = groupApplyPreview(
+			{ created: [slot('p-2', 'temp'), slot('p-1', 'depth')], existing: [slot('p-3', 'turb')] },
+			nameOf,
+		);
+		expect(groupAppliedMessage(promised, landed)).toBe('Group applied');
+	});
+
+	it('names a slot someone else added between the preview and the write', () => {
+		const landed = groupApplyPreview(
+			{ created: [slot('p-2', 'temp')], existing: [slot('p-1', 'depth'), slot('p-3', 'turb')] },
+			nameOf,
+		);
+		expect(groupAppliedMessage(promised, landed)).toBe(
+			'1 added, not the 2 previewed: Depth was added by someone else',
+		);
+	});
+
+	it('names a held slot someone else removed, which the write added back', () => {
+		const landed = groupApplyPreview(
+			{ created: [slot('p-1', 'depth'), slot('p-2', 'temp'), slot('p-3', 'turb')], existing: [] },
+			nameOf,
+		);
+		expect(groupAppliedMessage(promised, landed)).toBe(
+			'3 added, not the 2 previewed: Turbidity was removed by someone else and added back',
+		);
+	});
+
+	it('names members that joined or left the group since the preview', () => {
+		const landed = groupApplyPreview(
+			{ created: [slot('p-1', 'depth'), slot('p-4', 'cdom')], existing: [slot('p-3', 'turb')] },
+			nameOf,
+		);
+		expect(groupAppliedMessage(promised, landed)).toBe(
+			'2 added, as many as previewed: CDOM joined the group since the preview; Temperature left the group since the preview',
+		);
+	});
+
+	it('joins several names in one clause', () => {
+		const landed = groupApplyPreview(
+			{ created: [], existing: [slot('p-1', 'depth'), slot('p-2', 'temp'), slot('p-3', 'turb')] },
+			nameOf,
+		);
+		expect(groupAppliedMessage(promised, landed)).toBe(
+			'0 added, not the 2 previewed: Depth and Temperature were added by someone else',
+		);
+	});
+
+	it('says only that the group applied when there was no preview to compare against', () => {
+		const landed = groupApplyPreview({ created: [slot('p-1', 'depth')], existing: [] }, nameOf);
+		expect(groupAppliedMessage(null, landed)).toBe('Group applied');
 	});
 });

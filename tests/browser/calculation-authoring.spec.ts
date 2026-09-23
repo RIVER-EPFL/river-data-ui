@@ -527,6 +527,9 @@ test('pCO2 is typed on the page with its constants, fallback and families, and r
 			` * vol_water * gas_const_r_atm * lab_temp_k_${stamp}) / (gas_const_r_atm * vol_water * lab_temp_k_${stamp})`,
 		family: codes.ppm,
 	});
+	await expect(
+		page.locator(`td[data-sheet-row="CO2_HS_Um_avg_${stamp}"] .sheet-replicated`).first(),
+	).toBeVisible();
 
 	await addCell(page, {
 		block: 'step',

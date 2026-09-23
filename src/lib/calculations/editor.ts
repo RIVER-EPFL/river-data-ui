@@ -459,13 +459,24 @@ export function draftOutputs(manifest: unknown): ToolOutput[] {
 	return outputs.map((o) => ({ ...(o as object), parameter: null }) as ToolOutput);
 }
 
+/** A name the builder offers; `replicated` when a visit enters it several times. */
+export interface FormulaVariable {
+	name: string;
+	label: string;
+	category: string;
+	replicated: boolean;
+}
+
 /**
  * Everything the builder offers and the lint accepts as a variable: the measurement catalog, and
  * the site's own columns, which a formula reads through the server's site sources (D13).
+ * `replicated` is the codes a parameter group enters per replicate.
  */
 export function formulaVariables(
-	parameters: Parameter[]
-): Array<{ name: string; label: string; category: string }> {
+	parameters: Parameter[],
+	replicated: string[] = [],
+): FormulaVariable[] {
+	const perReplicate = new Set(replicated.map((c) => c.toLowerCase()));
 	return [
 		...parameters
 			.filter((p) => p.category !== 'device_health')
@@ -473,8 +484,14 @@ export function formulaVariables(
 				name: p.code,
 				label: `${p.name}${p.default_units ? ' (' + p.default_units + ')' : ''}`,
 				category: p.category,
+				replicated: perReplicate.has(p.code.toLowerCase()),
 			})),
-		...SITE_PROPERTIES.map((name) => ({ name, label: name, category: 'site property' })),
+		...SITE_PROPERTIES.map((name) => ({
+			name,
+			label: name,
+			category: 'site property',
+			replicated: false,
+		})),
 	];
 }
 

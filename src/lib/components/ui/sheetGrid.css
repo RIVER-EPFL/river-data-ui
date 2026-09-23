@@ -172,6 +172,14 @@
 	color: var(--color-brand-muted);
 }
 
+/* A row holding one value per replicate, beside its name in the label cell. */
+.sheet-grid .sheet-replicated {
+	display: inline-flex;
+	margin-left: 6px;
+	vertical-align: middle;
+	color: var(--color-brand-primary);
+}
+
 /* The formula a row computes, under its name in the label cell. */
 .sheet-grid .sheet-formula {
 	display: block;

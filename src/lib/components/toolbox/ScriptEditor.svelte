@@ -2,7 +2,6 @@
 	import { page } from '$app/state';
 	import {
 		getToolScript,
-		updateToolScript,
 		createToolVersion,
 		getToolVersion,
 		validateToolVersion,
@@ -45,6 +44,7 @@
 	import DraftRunPanel from '$components/tools/DraftRunPanel.svelte';
 	import TestCasesEditor from '$components/tools/TestCasesEditor.svelte';
 	import ValidationReport from '$components/tools/ValidationReport.svelte';
+	import CalculationSettings from '$components/toolbox/CalculationSettings.svelte';
 	import { DEFAULT_TOLERANCE, runTestCase, type CaseRun } from '$lib/tools/draft';
 	import type { ToolFormSpec } from '$lib/tools/form';
 	import {
@@ -157,9 +157,15 @@
 		activateDialogOpen = true;
 	}
 
-	let metaLabel = $state('');
-	let metaDescription = $state('');
-	let savingMeta = $state(false);
+	/** Reread the calculation's own fields without reloading the version being edited. */
+	async function refreshDetail() {
+		if (!detail) return;
+		try {
+			detail = await getToolScript(detail.id);
+		} catch (e) {
+			toastStore.error(apiMessage(e));
+		}
+	}
 
 	$effect(() => {
 		if (me.status !== 'ready' || !me.can('admin')) return;
@@ -227,8 +233,6 @@
 			listToolVersionUsage(id)
 				.then((rows) => (usage = rows))
 				.catch(() => (usage = []));
-			metaLabel = d.label;
-			metaDescription = d.description ?? '';
 			const active = d.versions.find((v) => v.active) ?? d.versions[0];
 			if (active) await selectVersion(active.id);
 			else {
@@ -525,37 +529,6 @@
 			activating = false;
 		}
 	}
-
-	let togglingEnabled = $state(false);
-	async function setEnabled(enabled: boolean) {
-		if (!detail) return;
-		togglingEnabled = true;
-		try {
-			await updateToolScript(detail.id, { enabled });
-			toastStore.success(enabled ? 'Calculation switched on' : 'Calculation switched off');
-			await selectScript(detail.id);
-		} catch (e) {
-			toastStore.error(apiMessage(e));
-		} finally {
-			togglingEnabled = false;
-		}
-	}
-
-	async function saveMeta() {
-		if (!detail) return;
-		savingMeta = true;
-		try {
-			await updateToolScript(detail.id, {
-				label: metaLabel,
-				description: metaDescription || undefined,
-			});
-			toastStore.success('Saved');
-		} catch (e) {
-			toastStore.error(apiMessage(e));
-		} finally {
-			savingMeta = false;
-		}
-	}
 </script>
 
 {#snippet countChips(c: SectionCount)}
@@ -587,18 +560,7 @@
 									{#if detail.active_version_no != null}
 										<span class="text-xs text-brand-muted">Active version {detail.active_version_no}</span>
 									{/if}
-									<label
-										class="flex items-center gap-1 text-xs"
-										title="On: runs at every visit where its inputs land, is audited and listed. Off: kept, activated, but fires at no visit."
-									>
-										<input
-											type="checkbox"
-											checked={detail.enabled}
-											disabled={togglingEnabled}
-											onchange={(e) => setEnabled((e.currentTarget as HTMLInputElement).checked)}
-										/>
-										Fires at visits
-									</label>
+									{#if !detail.enabled}<Badge variant="warning">off</Badge>{/if}
 								</div>
 								<p class="text-xs text-brand-muted">
 									{#if selectedVersion}
@@ -949,20 +911,10 @@
 
 					<details bind:open={showMeta} class="rounded-md border border-brand-divider bg-brand-surface">
 						<summary class="px-3 py-2 text-sm font-medium cursor-pointer">
-							Tool label and description
+							Calculation: label, description, on or off
 						</summary>
-						<div class="p-3 space-y-3">
-							<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-								<div class="flex flex-col gap-1">
-									<label for="tm-label" class="text-sm font-medium">Label</label>
-									<input id="tm-label" type="text" bind:value={metaLabel} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" />
-								</div>
-								<div class="flex flex-col gap-1">
-									<label for="tm-desc" class="text-sm font-medium">Description</label>
-									<input id="tm-desc" type="text" bind:value={metaDescription} class="px-3 py-1.5 border border-brand-divider rounded-md bg-brand-surface text-sm" />
-								</div>
-							</div>
-							<Button size="sm" onclick={saveMeta} disabled={savingMeta}>{savingMeta ? 'Saving…' : 'Save label'}</Button>
+						<div class="p-3">
+							<CalculationSettings calculation={detail} onsaved={refreshDetail} />
 						</div>
 					</details>
 

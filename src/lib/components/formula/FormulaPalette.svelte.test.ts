@@ -41,4 +41,24 @@ describe('FormulaPalette', () => {
 		expect(screen.queryByTitle(/Lab CO2/)).toBeNull();
 		expect(screen.getByTitle(/altitude_m/)).toBeTruthy();
 	});
+
+	it('marks a replicated variable and explains the mark once, below the list', () => {
+		render(FormulaPalette, {
+			variables: [
+				{ ...variables[0]!, replicated: true },
+				{ name: 'Field_BP', label: 'Field BP (hPa)', category: 'measurement', replicated: false },
+			],
+			onpick: vi.fn(),
+		});
+
+		const row = (title: RegExp) => screen.getByTitle(title);
+		expect(row(/Lab CO2/).querySelector('[aria-label="one value per replicate"]')).not.toBeNull();
+		expect(row(/Field BP/).querySelector('[aria-label="one value per replicate"]')).toBeNull();
+		expect(screen.getByText('entered or computed once per replicate')).toBeTruthy();
+	});
+
+	it('shows no legend when nothing in the list is replicated', () => {
+		render(FormulaPalette, { variables, onpick: vi.fn() });
+		expect(screen.queryByText('entered or computed once per replicate')).toBeNull();
+	});
 });

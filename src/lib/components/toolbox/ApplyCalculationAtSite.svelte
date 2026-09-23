@@ -3,6 +3,7 @@
 	import { listToolScripts, applyCalculationAtSite, type ToolScriptSummary } from '$api/service';
 	import { calculationApplyPreview, type CalculationApplyPreview } from '$lib/calculations/apply';
 	import { apiMessage } from '$lib/standardCurves';
+	import { findCalculation } from '$lib/toolbox/route';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
 
@@ -12,9 +13,12 @@
 	// calculation is picked.
 	let {
 		siteId,
+		chosen = null,
 		onapplied = null,
 	}: {
 		siteId: string;
+		/** A calculation to open on, by id or name, as a link from the Toolbox names it. */
+		chosen?: string | null;
 		onapplied?: (() => void) | null;
 	} = $props();
 
@@ -33,6 +37,7 @@
 		void listToolScripts()
 			.then((items) => {
 				calculations = items.filter((c) => c.enabled);
+				if (chosen) chosenCalculation = findCalculation(calculations, chosen)?.id ?? '';
 			})
 			.catch(() => {
 				calculations = [];

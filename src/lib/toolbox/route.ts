@@ -41,3 +41,9 @@ export function calculationHref(
 	if (!suffix) return href;
 	return `${href}${href.includes('?') ? '&' : '?'}${suffix}`;
 }
+
+/// A site's Parameters tab opened on one calculation: the apply panel with it chosen, which lists
+/// the reads the site declares and the outputs it holds. `key` is its id or its name.
+export function siteCalculationHref(base: string, siteId: string, key: string): string {
+	return `${base}/sites/${siteId}?tab=parameters&calculation=${encodeURIComponent(key)}`;
+}

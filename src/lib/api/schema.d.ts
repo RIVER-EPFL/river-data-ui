@@ -1085,6 +1085,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/calculations/sites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every enabled calculation and the sites it is active at, confined to the caller's projects. */
+        get: operations["get_calculation_sites"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/change_audit": {
         parameters: {
             query?: never;
@@ -8597,6 +8614,11 @@ export interface components {
             /** Format: int32 */
             rate_limit_per_second?: number | null;
         };
+        AppliedSite: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+        };
         AppliedSlot: {
             parameter_code: string;
             /** Format: uuid */
@@ -9081,6 +9103,18 @@ export interface components {
             formula_id?: string | null;
             /** Format: uuid */
             tool_script_id?: string | null;
+        };
+        /**
+         * @description Where one enabled calculation is active: the sites that declare every parameter it reads, or
+         *     already hold one of its outputs. The same test the chain applies before it runs at a visit.
+         */
+        CalculationSites: {
+            /** @description The calculation's name, as the chain and its findings record it. */
+            calculation: string;
+            /** Format: uuid */
+            calculation_id: string;
+            /** @description By name. */
+            sites: components["schemas"]["AppliedSite"][];
         };
         CalibrationBackfillCandidate: {
             /** Format: date-time */
@@ -20887,6 +20921,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CalculationHealth"][];
+                };
+            };
+        };
+    };
+    get_calculation_sites: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Where each calculation fires */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalculationSites"][];
                 };
             };
         };

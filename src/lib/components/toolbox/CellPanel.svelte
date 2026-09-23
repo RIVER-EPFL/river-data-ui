@@ -7,6 +7,7 @@
 	import { linksOf, type SheetRow, type SheetSelection } from '$lib/calculations/sheet';
 	import { perReplicateChoices } from '$lib/derivedParameters';
 	import { identifiers, type Diagnostic } from '$lib/formula/lint';
+	import type { DragPayload } from '$components/formula/ast';
 	import Badge from '$components/ui/Badge.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
@@ -72,6 +73,13 @@
 	export async function editFormula() {
 		await tick();
 		builder?.focus();
+	}
+
+	/** Hand a palette pick to the formula open here. False when no formula is open to take it. */
+	export function pick(payload: DragPayload): boolean {
+		if (!builder) return false;
+		builder.pick(payload);
+		return true;
 	}
 
 	const shared = $derived(Boolean(formula?.declarationId) && Boolean(formula?.shared));
@@ -242,6 +250,8 @@
 						</div>
 					</div>
 					<div class="min-w-0 space-y-2">
+						<!-- The builder holds its formula as a tree, so another row opens a fresh one. -->
+						{#key formula}
 						<VisualFormulaBuilder
 							bind:this={builder}
 							bind:value={formula.formula}
@@ -251,7 +261,9 @@
 							steps={stepsBefore}
 							hasCurve={formula.curve_slot.trim().length > 0}
 							ownCode={formula.code || undefined}
+							palette={false}
 						/>
+						{/key}
 						{#each diagnostics as diagnostic, i (i)}
 							<p class="text-xs text-severity-alarm">{diagnostic.message}</p>
 						{/each}

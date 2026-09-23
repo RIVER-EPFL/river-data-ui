@@ -1694,6 +1694,11 @@ export type CalculationHealth = components['schemas']['CalculationHealth'];
 /** The open findings standing against each calculation, and the visits an apply would cover. */
 export const getCalculationHealth = () => GET<CalculationHealth[]>(`${ADMIN}/calculations/health`);
 
+export type CalculationSites = components['schemas']['CalculationSites'];
+
+/** Every enabled calculation and the sites the chain fires it at, by name. */
+export const getCalculationSites = () => GET<CalculationSites[]>(`${ADMIN}/calculations/sites`);
+
 // The edit primitive (Q8, M60): the one path a stored measurement is changed by. Every edit is
 // routed by what produced the value, previewed before it is written, and reversible after.
 

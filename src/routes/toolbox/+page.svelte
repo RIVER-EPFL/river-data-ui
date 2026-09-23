@@ -7,10 +7,12 @@
 		createToolScript,
 		getCalculationClosure,
 		getCalculationHealth,
+		getCalculationSites,
 		listTools,
 		listToolScripts,
 		runEventRecompute,
 		type CalculationHealth,
+		type CalculationSites,
 		type SlotCoverage,
 		type ToolDescriptor,
 		type ToolScriptSummary,
@@ -21,14 +23,18 @@
 		calculationRows,
 		standingHealth,
 		unconfiguredInputs,
-		type CalculationRow,
 	} from '$lib/calculations/rows';
+	import {
+		calculationEntries,
+		matchesSearch,
+		type CalculationEntry,
+	} from '$lib/toolbox/calculations';
 	import {
 		labelFollowingName,
 		newCalculationRequest,
 		type CalculationEngine,
 	} from '$lib/toolbox/newCalculation';
-	import { toolboxHref } from '$lib/toolbox/route';
+	import { siteCalculationHref, toolboxHref } from '$lib/toolbox/route';
 	import { jobDetailPath } from '$lib/utils';
 	import { AUTHOR_CALCULATIONS, authoringState, loadCatalog } from '$lib/toolbox/authoring';
 	import { me } from '$auth/me.svelte';
@@ -36,6 +42,7 @@
 	import Button from '$components/ui/Button.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import CalculationFindings from '$components/tools/CalculationFindings.svelte';
+	import CalculationSwitch from '$components/toolbox/CalculationSwitch.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 
 	let formulas = $state<DerivedParameter[]>([]);
@@ -44,12 +51,16 @@
 	let parameters = $state<Parameter[]>([]);
 	let coverage = $state<SlotCoverage[]>([]);
 	let health = $state<CalculationHealth[]>([]);
+	let applied = $state<CalculationSites[]>([]);
 	let applying = $state<string | null>(null);
 	let findingsOpen = $state<string | null>(null);
 	let loading = $state(true);
 	let loadError = $state<string | null>(null);
 	let refused = $state(false);
 	let engineFilter = $state<'all' | 'formula' | 'script'>('all');
+	let search = $state('');
+	let expanded = $state<string | null>(null);
+	let sitesOpen = $state<string | null>(null);
 
 	// A new calculation. The engine is chosen here because it is a property of the calculation; a
 	// parameter group is not one of its properties (Q169).
@@ -81,23 +92,18 @@
 	}
 
 	const rows = $derived(
-		calculationRows({ derived: formulas, tools, scripts, parameters, coverage, base }).filter(
-			(r) => engineFilter === 'all' || r.engine === engineFilter
-		)
+		calculationRows({ derived: formulas, tools, scripts, parameters, coverage, base })
 	);
 	const missingInputs = $derived(unconfiguredInputs(rows));
-	/** Every calculation, whichever engine, including an R script with no version active yet,
-	 *  which serves no output and so has no row in the table below. */
-	const calculations = $derived(
-		scripts.map((s) => ({
-			...s,
-			formulas: formulas.filter((f) => f.tool_script_id === s.id).length,
-		}))
+	const entries = $derived(
+		calculationEntries(rows, scripts, base, applied).filter(
+			(e) => (engineFilter === 'all' || e.engine === engineFilter) && matchesSearch(e, search)
+		)
 	);
 
 	onMount(async () => {
 		try {
-			const [d, t, s, p, closure, h] = await Promise.all([
+			const [d, t, s, p, closure, h, a] = await Promise.all([
 				listAll<DerivedParameter>(api.derivedParameters),
 				listTools().catch(() => [] as ToolDescriptor[]),
 				loadCatalog(listToolScripts),
@@ -107,6 +113,7 @@
 					coverage: [],
 				})),
 				getCalculationHealth().catch(() => [] as CalculationHealth[]),
+				getCalculationSites().catch(() => [] as CalculationSites[]),
 			]);
 			formulas = d;
 			tools = t;
@@ -114,9 +121,10 @@
 			parameters = p;
 			coverage = closure.coverage ?? [];
 			health = h;
+			applied = a;
 			// A finding chip on a reading opens its calculation's findings.
 			const linked = page.url.searchParams.get('findings');
-			if (linked) findingsOpen = rows.find((r) => r.calculation === linked)?.key ?? null;
+			if (linked) findingsOpen = linked;
 			refused = s.status === 'refused';
 			loadError = (s.status === 'failed' && s.message) || null;
 		} catch (e) {
@@ -128,9 +136,9 @@
 
 	const healthOf = $derived(new Map(health.map((h) => [h.tool, h])));
 
-	/** The findings and the recompute standing against this row's calculation, if any. */
-	function standing(row: CalculationRow): CalculationHealth | undefined {
-		return standingHealth(healthOf.get(row.calculation));
+	/** The findings and the recompute standing against this calculation, if any. */
+	function standing(entry: CalculationEntry): CalculationHealth | undefined {
+		return standingHealth(healthOf.get(entry.calculation));
 	}
 
 	function healthTitle(h: CalculationHealth): string {
@@ -158,8 +166,18 @@
 		}
 	}
 
-	function inputTitle(row: CalculationRow): string {
-		return row.inputs
+	/** Reread the calculations after one is switched, with the sites it now fires at. */
+	async function refreshScripts() {
+		const [s, a] = await Promise.all([
+			loadCatalog(listToolScripts),
+			getCalculationSites().catch(() => applied),
+		]);
+		if (s.status === 'loaded') scripts = s.items;
+		applied = a;
+	}
+
+	function inputTitle(entry: CalculationEntry): string {
+		return entry.inputs
 			.map((i) =>
 				i.unconfigured
 					? `${i.code}: no site configures it`
@@ -180,6 +198,11 @@
 				input changes. The engine is a property of the calculation, a formula or an R script,
 				and Edit opens its formulas or its script.
 			</p>
+			{#if !loading && !loadError && access.authorable}
+				<Button variant="primary" class="mt-3" onclick={() => (composing = true)}>
+					New calculation
+				</Button>
+			{/if}
 		</div>
 		<div class="flex items-center gap-1.5 text-xs">
 			{#each [['all', 'All'], ['formula', 'Formulas'], ['script', 'Scripts']] as [value, label]}
@@ -200,95 +223,55 @@
 	{:else}
 		{#if !access.authorable}
 			<p class="text-sm text-brand-muted">{access.notice}</p>
-		{:else}
+		{:else if composing}
 			<div class="rounded-md border border-brand-divider bg-brand-surface px-4 py-3 text-sm">
-				<div class="flex items-center justify-between gap-3">
-					<div>
-						<p class="font-semibold">New calculation</p>
-						<p class="text-brand-muted text-xs mt-0.5">
-							A formula calculation is authored as tables of inputs, steps and outputs, over the
-							parameters the formulas name. An R tool is a calculation with the R script engine,
-							for what formulas cannot express: it defines <span class="font-mono">tool</span> in
-							R. Either is authored on its own page.
-						</p>
-					</div>
-					{#if !composing}
-						<Button size="sm" onclick={() => (composing = true)}>New calculation</Button>
-					{/if}
-				</div>
-				{#if composing}
-					<div class="mt-3 flex flex-wrap items-end gap-2">
-						<label class="text-xs text-brand-muted">
-							Engine
-							<select
-								bind:value={newEngine}
-								class="block mt-0.5 px-2 py-1 rounded border border-brand-divider bg-brand-surface text-sm text-brand-text"
-							>
-								<option value="formula">Formulas</option>
-								<option value="script">R script</option>
-							</select>
-						</label>
-						<label class="text-xs text-brand-muted">
-							Name
-							<input
-								value={newName}
-								oninput={(e) => {
-									newName = (e.target as HTMLInputElement).value;
-									newLabel = labelFollowingName({ value: newLabel, edited: labelEdited }, newName);
-								}}
-								placeholder="pco2"
-								class="block mt-0.5 px-2 py-1 rounded border border-brand-divider bg-brand-surface text-sm text-brand-text w-40"
-							/>
-						</label>
-						<label class="text-xs text-brand-muted">
-							Label
-							<input
-								value={newLabel}
-								oninput={(e) => {
-									newLabel = (e.target as HTMLInputElement).value;
-									labelEdited = true;
-								}}
-								placeholder="pCO2"
-								class="block mt-0.5 px-2 py-1 rounded border border-brand-divider bg-brand-surface text-sm text-brand-text w-40"
-							/>
-						</label>
-						<Button size="sm" onclick={createCalculation} disabled={creating}
-							>{creating ? 'Creating…' : 'Create and open it'}</Button
+				<p class="font-semibold">New calculation</p>
+				<p class="text-brand-muted text-xs mt-0.5">
+					A formula calculation is authored as tables of inputs, steps and outputs, over the
+					parameters the formulas name. An R tool is a calculation with the R script engine, for
+					what formulas cannot express: it defines <span class="font-mono">tool</span> in R.
+					Either is authored on its own page.
+				</p>
+				<div class="mt-3 flex flex-wrap items-end gap-2">
+					<label class="text-xs text-brand-muted">
+						Engine
+						<select
+							bind:value={newEngine}
+							class="block mt-0.5 px-2 py-1 rounded border border-brand-divider bg-brand-surface text-sm text-brand-text"
 						>
-						<Button size="sm" variant="ghost" onclick={() => (composing = false)}>Cancel</Button>
-					</div>
-				{/if}
-			</div>
-		{/if}
-
-		{#if calculations.length > 0}
-			<div class="rounded-md border border-brand-divider bg-brand-surface px-4 py-3 text-sm">
-				<p class="font-semibold">Calculations</p>
-				<ul class="mt-2 space-y-1">
-					{#each calculations as calculation (calculation.id)}
-						<li class="flex items-center justify-between gap-3">
-							<span>
-								{calculation.label || calculation.name}
-								<Badge variant={calculation.engine === 'formula' ? 'muted' : 'accent'}>
-									{calculation.engine === 'formula' ? 'formula' : 'R'}
-								</Badge>
-								<span class="text-brand-muted text-xs">
-									{#if calculation.engine === 'formula'}
-										{calculation.formulas} formula{calculation.formulas === 1 ? '' : 's'}
-									{:else if calculation.active_version_no != null}
-										version {calculation.active_version_no}
-									{:else}
-										no version active
-									{/if}
-								</span>
-							</span>
-							<a
-								href={toolboxHref(base, calculation.id)}
-								class="text-brand-primary no-underline hover:underline text-xs"
-							>Edit</a>
-						</li>
-					{/each}
-				</ul>
+							<option value="formula">Formulas</option>
+							<option value="script">R script</option>
+						</select>
+					</label>
+					<label class="text-xs text-brand-muted">
+						Name
+						<input
+							value={newName}
+							oninput={(e) => {
+								newName = (e.target as HTMLInputElement).value;
+								newLabel = labelFollowingName({ value: newLabel, edited: labelEdited }, newName);
+							}}
+							placeholder="pco2"
+							class="block mt-0.5 px-2 py-1 rounded border border-brand-divider bg-brand-surface text-sm text-brand-text w-40"
+						/>
+					</label>
+					<label class="text-xs text-brand-muted">
+						Label
+						<input
+							value={newLabel}
+							oninput={(e) => {
+								newLabel = (e.target as HTMLInputElement).value;
+								labelEdited = true;
+							}}
+							placeholder="pCO2"
+							class="block mt-0.5 px-2 py-1 rounded border border-brand-divider bg-brand-surface text-sm text-brand-text w-40"
+						/>
+					</label>
+					<Button size="sm" onclick={createCalculation} disabled={creating}
+						>{creating ? 'Creating…' : 'Create and open it'}</Button
+					>
+					<Button size="sm" variant="ghost" onclick={() => (composing = false)}>Cancel</Button>
+				</div>
 			</div>
 		{/if}
 
@@ -302,37 +285,62 @@
 			</div>
 		{/if}
 
+		<input
+			type="search"
+			bind:value={search}
+			aria-label="Search calculations"
+			placeholder="Search by name, output or input code"
+			class="w-full max-w-sm px-2 py-1 rounded border border-brand-divider bg-brand-surface text-sm text-brand-text"
+		/>
+
 		<div class="overflow-x-auto rounded-md border border-brand-divider bg-brand-surface">
 			<table class="w-full text-sm">
 				<thead class="bg-brand-bg text-left">
 					<tr class="border-b border-brand-divider">
-						<th class="px-3 py-2 font-semibold">Output</th>
 						<th class="px-3 py-2 font-semibold">Calculation</th>
 						<th class="px-3 py-2 font-semibold">Engine</th>
+						<th class="px-3 py-2 font-semibold">Outputs</th>
 						<th class="px-3 py-2 font-semibold">Inputs</th>
 						<th class="px-3 py-2 font-semibold">Fires on</th>
+						<th class="px-3 py-2 font-semibold">Sites</th>
 						<th class="px-3 py-2 font-semibold text-right">Stored</th>
-						<th class="px-3 py-2 font-semibold">From</th>
 						<th class="px-3 py-2 font-semibold">Health</th>
 						<th class="px-3 py-2 font-semibold">State</th>
 					</tr>
 				</thead>
 				<tbody>
-					{#each rows as row (row.key)}
+					{#each entries as entry (entry.calculation)}
 						<tr class="border-b border-brand-divider last:border-b-0">
-							<td class="px-3 py-2 font-mono text-xs">{row.output_code}</td>
 							<td class="px-3 py-2">
-								<a href={row.href} class="text-brand-primary hover:underline">{row.label}</a>
+								<a href={entry.href} class="text-brand-primary hover:underline">{entry.label}</a>
+								<span class="block font-mono text-[11px] text-brand-muted">{entry.calculation}</span>
 							</td>
 							<td class="px-3 py-2">
-								<Badge variant={row.engine === 'script' ? 'accent' : 'muted'}>{row.engine}</Badge>
-								<span class="ml-1.5 font-mono text-[11px] text-brand-muted">{row.definition}</span>
+								<Badge variant={entry.engine === 'script' ? 'accent' : 'muted'}>
+									{entry.engine === 'script' ? 'R' : 'formula'}
+								</Badge>
 							</td>
-							<td class="px-3 py-2 text-xs" title={inputTitle(row)}>
-								{#if row.inputs.length === 0}
+							<td class="px-3 py-2 text-xs">
+								{#if entry.outputs.length === 0}
+									<span class="text-brand-muted">none</span>
+								{:else}
+									<button
+										class="cursor-pointer text-left"
+										aria-expanded={expanded === entry.calculation}
+										title="Each output's formula, stored count and source"
+										onclick={() =>
+											(expanded = expanded === entry.calculation ? null : entry.calculation)}
+									>
+										<span class="font-mono">{entry.outputs.map((o) => o.output_code).join(', ')}</span>
+										<span class="text-brand-muted">{expanded === entry.calculation ? '▾' : '▸'}</span>
+									</button>
+								{/if}
+							</td>
+							<td class="px-3 py-2 text-xs" title={inputTitle(entry)}>
+								{#if entry.inputs.length === 0}
 									<span class="text-brand-muted">-</span>
 								{:else}
-									{#each row.inputs as input, i}
+									{#each entry.inputs as input, i}
 										{#if i > 0}<span class="text-brand-muted">, </span>{/if}
 										<span
 											class="font-mono {input.unconfigured
@@ -342,16 +350,29 @@
 									{/each}
 								{/if}
 							</td>
-							<td class="px-3 py-2 text-xs text-brand-muted">{row.fires_on}</td>
-							<td class="px-3 py-2 text-right font-mono text-xs">
-								{row.output_reading_count ?? '-'}
+							<td class="px-3 py-2 text-xs text-brand-muted">{entry.fires_on}</td>
+							<td class="px-3 py-2 text-xs">
+								{#if entry.sites === null}
+									<span class="text-brand-muted">-</span>
+								{:else if entry.sites.length === 0}
+									<span class="text-brand-muted">none</span>
+								{:else}
+									<button
+										class="cursor-pointer text-brand-primary hover:underline"
+										aria-expanded={sitesOpen === entry.calculation}
+										title="The sites this calculation fires at"
+										onclick={() =>
+											(sitesOpen = sitesOpen === entry.calculation ? null : entry.calculation)}
+									>
+										{entry.sites.length} site{entry.sites.length === 1 ? '' : 's'}
+										<span class="text-brand-muted">{sitesOpen === entry.calculation ? '▾' : '▸'}</span>
+									</button>
+								{/if}
 							</td>
-							<td class="px-3 py-2 text-xs text-brand-muted">
-								{row.output_sources.length > 0 ? row.output_sources.join(', ') : '-'}
-							</td>
+							<td class="px-3 py-2 text-right font-mono text-xs">{entry.stored ?? '-'}</td>
 							<td class="px-3 py-2">
-								{#if standing(row)}
-									{@const h = standing(row)!}
+								{#if standing(entry)}
+									{@const h = standing(entry)!}
 									<div class="flex items-center gap-1.5">
 										{#if h.repair}
 											<a href="{base}{jobDetailPath(h.repair.job_id)}" class="no-underline" title="The latest recompute of this calculation">
@@ -373,9 +394,10 @@
 											<Button
 												size="sm"
 												variant="ghost"
-												aria-expanded={findingsOpen === row.key}
-												onclick={() => (findingsOpen = findingsOpen === row.key ? null : row.key)}
-											>Findings {findingsOpen === row.key ? '▾' : '▸'}</Button>
+												aria-expanded={findingsOpen === entry.calculation}
+												onclick={() =>
+													(findingsOpen = findingsOpen === entry.calculation ? null : entry.calculation)}
+											>Findings {findingsOpen === entry.calculation ? '▾' : '▸'}</Button>
 										{/if}
 									</div>
 								{:else}
@@ -383,20 +405,69 @@
 								{/if}
 							</td>
 							<td class="px-3 py-2">
-								{#if row.enabled === false}
-									<Badge variant="muted">off</Badge>
-								{:else if row.enabled === true}
-									<Badge variant="ok">on</Badge>
-								{:else}
-									<span class="text-xs text-brand-muted">always</span>
-								{/if}
+								<div class="flex flex-wrap items-center gap-1.5">
+									{#if entry.versionless}
+										<Badge variant="muted">no version active</Badge>
+									{/if}
+									{#if access.authorable && entry.id && entry.enabled !== null}
+										<CalculationSwitch id={entry.id} enabled={entry.enabled} onchanged={refreshScripts} />
+									{:else if entry.enabled === false}
+										<Badge variant="muted">off</Badge>
+									{:else if entry.enabled === true}
+										<Badge variant="ok">on</Badge>
+									{:else}
+										<span class="text-xs text-brand-muted">always</span>
+									{/if}
+								</div>
 							</td>
 						</tr>
-						{#if findingsOpen === row.key && standing(row)}
+						{#if expanded === entry.calculation}
+							<tr class="border-b border-brand-divider bg-brand-bg/40">
+								<td colspan="9" class="px-3 py-2">
+									<table class="w-full text-xs">
+										<thead class="text-left text-brand-muted">
+											<tr>
+												<th class="px-2 py-1 font-semibold">Output</th>
+												<th class="px-2 py-1 font-semibold">{entry.engine === 'script' ? 'Version' : 'Formula'}</th>
+												<th class="px-2 py-1 font-semibold text-right">Stored</th>
+												<th class="px-2 py-1 font-semibold">From</th>
+											</tr>
+										</thead>
+										<tbody>
+											{#each entry.outputs as output (output.key)}
+												<tr>
+													<td class="px-2 py-1 font-mono">{output.output_code}</td>
+													<td class="px-2 py-1 font-mono text-brand-muted">{output.definition}</td>
+													<td class="px-2 py-1 text-right font-mono">{output.output_reading_count ?? '-'}</td>
+													<td class="px-2 py-1 text-brand-muted">
+														{output.output_sources.length > 0 ? output.output_sources.join(', ') : '-'}
+													</td>
+												</tr>
+											{/each}
+										</tbody>
+									</table>
+								</td>
+							</tr>
+						{/if}
+						{#if sitesOpen === entry.calculation && entry.sites}
+							<tr class="border-b border-brand-divider bg-brand-bg/40">
+								<td colspan="9" class="px-3 py-2 text-xs">
+									Fires at
+									{#each entry.sites as site, i (site.id)}
+										{#if i > 0}<span class="text-brand-muted"> · </span>{/if}
+										<a
+											class="text-brand-primary hover:underline"
+											href={siteCalculationHref(base, site.id, entry.calculation)}
+										>{site.name}</a>
+									{/each}
+								</td>
+							</tr>
+						{/if}
+						{#if findingsOpen === entry.calculation && standing(entry)}
 							<tr class="border-b border-brand-divider bg-brand-bg/40">
 								<td colspan="9" class="px-3 py-2">
 									<CalculationFindings
-										calculation={standing(row)!.tool}
+										calculation={standing(entry)!.tool}
 										onchange={async () => (health = await getCalculationHealth())}
 									/>
 								</td>
@@ -405,7 +476,7 @@
 					{:else}
 						<tr>
 							<td colspan="9" class="px-3 py-6 text-center text-sm text-brand-muted">
-								No calculations defined.
+								{search.trim() ? 'No calculation matches the search.' : 'No calculations defined.'}
 							</td>
 						</tr>
 					{/each}

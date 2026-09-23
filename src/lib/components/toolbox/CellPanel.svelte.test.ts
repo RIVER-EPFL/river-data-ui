@@ -119,6 +119,31 @@ describe('CellPanel', () => {
 		expect(screen.queryByLabelText('Warning max')).toBeNull();
 	});
 
+	it('mounts no palette of its own, the page holding the one palette', () => {
+		render(CellPanel, { row: rowFor('hs_k'), formula: formulas[0], formulas, variables });
+		expect(screen.queryByPlaceholderText('Search…')).toBeNull();
+	});
+
+	it('hands a palette pick to the formula open in it, and to the one opened after it', async () => {
+		const step = $state(formula({ ...formulas[0] }));
+		const output = $state(formula({ ...formulas[1] }));
+		const { component, rerender } = render(CellPanel, {
+			row: rowFor('hs_k'),
+			formula: step,
+			formulas,
+			variables,
+		});
+		await rerender({ row: rowFor('CO2_HS_Um'), formula: output });
+		expect(component.pick({ kind: 'operator', op: '+' })).toBe(true);
+		expect(output.formula).toBe('lab_co2 * hs_k + ?');
+		expect(step.formula).toBe('exp(lab_temp / 100)');
+	});
+
+	it('takes no palette pick on an input, which has no formula', () => {
+		const { component } = render(CellPanel, { row: rowFor('lab_temp'), formulas, variables });
+		expect(component.pick({ kind: 'variable', name: 'lab_co2' })).toBe(false);
+	});
+
 	it('names the formulas that read a chosen input', () => {
 		render(CellPanel, { row: rowFor('lab_temp'), formulas, variables });
 		expect(screen.getByRole('button', { name: 'hs_k' })).toBeTruthy();

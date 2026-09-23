@@ -18,9 +18,10 @@
 		type SheetRow,
 		type SheetSelection,
 	} from '$lib/calculations/sheet';
-	import type { DragPayload } from '$components/formula/ast';
+	import { readPayload, type DragPayload } from '$components/formula/ast';
 	import Button from '$components/ui/Button.svelte';
 	import { identifiers } from '$lib/formula/lint';
+	import { REPLICATE_MARK_SVG, REPLICATE_MARK_TITLE } from '$lib/calculations/replicateMark';
 	import SheetGrid from '$components/ui/SheetGrid.svelte';
 
 	// The portal's tables, side by side: what the visit and the catalog supplied, the steps of the
@@ -199,7 +200,9 @@
 			wordWrap: false,
 			width: '100%',
 			height: 'auto',
-			colWidths: (index: number) => (index === 0 ? 180 : 90),
+			// The least a table takes; the blocks sit side by side only where each gets this much.
+			colWidths: (index: number) => (index === 0 ? 120 : 72),
+			stretchH: 'all',
 			manualColumnResize: true,
 			fillHandle: false,
 			outsideClickDeselects: false,
@@ -286,6 +289,15 @@
 			tag.textContent = row.tag;
 			td.append(tag);
 		}
+		if (column === 0 && row.replicated) {
+			const mark = document.createElement('span');
+			mark.className = 'sheet-replicated';
+			mark.title = REPLICATE_MARK_TITLE;
+			mark.setAttribute('role', 'img');
+			mark.setAttribute('aria-label', REPLICATE_MARK_TITLE);
+			mark.innerHTML = REPLICATE_MARK_SVG;
+			td.append(mark);
+		}
 		const formula = column === 0 ? formulaOf(row) : null;
 		if (formula) {
 			const line = document.createElement('span');
@@ -349,15 +361,9 @@
 
 	function dropped(block: SheetBlock, event: DragEvent) {
 		if (!ondrop) return;
-		const text = event.dataTransfer?.getData('text/plain');
-		if (!text) return;
+		const payload = readPayload(event.dataTransfer);
+		if (!payload) return;
 		event.preventDefault();
-		let payload: DragPayload;
-		try {
-			payload = JSON.parse(text) as DragPayload;
-		} catch {
-			return;
-		}
 		const row = rowUnder(block, event.target as HTMLElement | null);
 		if (dropOn(block.key, row)) ondrop(block.key, row, payload);
 	}
@@ -455,7 +461,7 @@
 
 <svelte:window onscroll={redraw} onresize={redraw} />
 
-<div class="relative" bind:this={surface}>
+<div class="@container relative" bind:this={surface}>
 	{#if edges.length > 0}
 		<svg class="pointer-events-none absolute inset-0 h-full w-full z-10" aria-hidden="true">
 			{#each edges as edge (edge.key)}
@@ -481,7 +487,7 @@
 			{/if}
 		</div>
 	{/if}
-	<div class="grid gap-3 items-start {blocks.length === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-2'}">
+	<div class="grid gap-3 items-start @md:grid-cols-2 {blocks.length === 3 ? '@2xl:grid-cols-3' : ''}">
 	{#each blocks as block (block.key)}
 		<section
 			aria-label={block.title}

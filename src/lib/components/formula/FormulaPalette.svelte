@@ -3,7 +3,7 @@
 	import { tokens } from '$lib/charts/tokens';
 	import { FORMULA_FUNCTIONS, FORMULA_FUNCTION_HELP } from '$lib/formula/lint';
 	import type { Constant } from '$api/crud';
-	import Button from '$components/ui/Button.svelte';
+	import ReplicateMark from './ReplicateMark.svelte';
 
 	// Everything a formula can name, in one column: the catalog's variables by category, the
 	// engine's functions, the operators and the constants. Each entry is picked by click or key
@@ -13,15 +13,12 @@
 		variables = [],
 		constants = [],
 		onpick,
-		onclear,
 		ondrag,
 		class: className = '',
 	}: {
-		variables: Array<{ name: string; label: string; category?: string }>;
+		variables: Array<{ name: string; label: string; category?: string; replicated?: boolean }>;
 		constants?: Constant[];
 		onpick: (payload: DragPayload) => void;
-		/** Offered only where there is something to clear. */
-		onclear?: () => void;
 		/** What has just been picked up, for a drop target that cannot read the transfer early. */
 		ondrag?: (payload: DragPayload) => void;
 		class?: string;
@@ -42,6 +39,7 @@
 			return v.label.toLowerCase().includes(q) || v.name.toLowerCase().includes(q);
 		}),
 	);
+	const anyReplicated = $derived(variables.some((v) => v.replicated));
 	const filteredFns = $derived(FUNCTIONS.filter((f) => !search || f.includes(search.toLowerCase())));
 	const filteredConstants = $derived(
 		constants.filter((c) => !search || c.name.toLowerCase().includes(search.toLowerCase())),
@@ -137,6 +135,7 @@
 						>
 							<span class="w-1.5 h-1.5 rounded-full shrink-0" style:background={colorForVar(v.name)}></span>
 							<span class="font-mono text-brand-text truncate">{v.name}</span>
+							{#if v.replicated}<ReplicateMark />{/if}
 						</div>
 					{/each}
 				</div>
@@ -213,7 +212,12 @@
 		</div>
 	{/if}
 
-	{#if onclear}
-		<Button variant="ghost" size="sm" class="text-severity-alarm" onclick={onclear}>Clear formula</Button>
+	{#if anyReplicated}
+		<!-- Pinned to the foot of whichever box scrolls the palette, so it reads while scrolling. -->
+		<p
+			class="sticky bottom-0 -mx-2 -mb-2 flex items-center gap-1.5 border-t border-brand-divider bg-brand-surface px-2 py-1 text-[11px] text-brand-muted"
+		>
+			<ReplicateMark /> entered or computed once per replicate
+		</p>
 	{/if}
 </div>

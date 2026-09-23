@@ -126,10 +126,11 @@ test('applying a group shows its columns together and names the calculation decl
 });
 
 // Scenario: a calculation is applied at a site from the site's Parameters tab, the one place it is
-// applied, and the calculation's own page only says where it is applied.
+// applied, and the calculation's own page and the Toolbox only say where it is.
 //
-// Expected behaviour: the dry run names the output to add, Apply adds it, and the calculation page
-// links the site read-only with no apply control of its own.
+// Expected behaviour: the dry run names the output to add, Apply adds it, the calculation page
+// links the site read-only with no apply control of its own, and the Toolbox counts the site and
+// links it back to the Parameters tab opened on this calculation.
 test('a calculation applied from the Parameters tab is listed on its page as applied there', async ({
 	page,
 	request,
@@ -160,6 +161,14 @@ test('a calculation applied from the Parameters tab is listed on its page as app
 		'href',
 		`${BASE_PATH}/sites/${fixture.siteId}?tab=parameters`,
 	);
+
+	await page.goto(`${BASE_PATH}/toolbox`);
+	await page.getByRole('searchbox', { name: 'Search calculations' }).fill(fixture.calculation);
+	await page.getByRole('button', { name: /^1 site/ }).click();
+	await page.getByRole('cell', { name: /^Fires at/ }).getByRole('link', { name: fixture.groupLabel }).click();
+	await expect(page).toHaveURL(new RegExp(`/sites/${fixture.siteId}\\?tab=parameters&calculation=`));
+	await expect(page.getByLabel('Calculation')).toHaveValue(fixture.calculationId);
+	await expect(page.getByText('Already applied here.')).toBeVisible();
 });
 
 // Scenario: a site's Parameters tab read at a laptop width, with a slot to find among several.

@@ -213,7 +213,8 @@ describe('the steps switch', () => {
 			onsteps: vi.fn(),
 		});
 		expect(view.container.querySelector('section[aria-label="Steps"]')).toBeNull();
-		expect(view.container.querySelector('.lg\\:grid-cols-2')).not.toBeNull();
+		expect(view.container.querySelector('.\\@md\\:grid-cols-2')).not.toBeNull();
+		expect(view.container.querySelector('.\\@2xl\\:grid-cols-3')).toBeNull();
 		expect((screen.getByRole('checkbox', { name: 'Intermediate steps' }) as HTMLInputElement).checked).toBe(false);
 		await userEvent.click(screen.getByRole('button', { name: 'Add step' }));
 		expect(onadd).toHaveBeenCalledWith('steps');

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { type DragPayload, type FormulaNode, parseFromMeval, serializeToMeval, getNodeAtPath, replaceAtPath, hasEmptySlots, wrapWithOp, payloadToNode } from './ast';
+	import { type DragPayload, type FormulaNode, parseFromMeval, serializeToMeval, getNodeAtPath, replaceAtPath, hasEmptySlots, wrapWithOp, payloadToNode, readPayload } from './ast';
 	import {
 		applyCompletion,
 		callAt,
@@ -22,6 +22,7 @@
 		hasCurve = false,
 		ownCode = undefined,
 		diagnostics = $bindable([]),
+		palette = true,
 	}: {
 		value: string;
 		variables: Array<{ name: string; label: string; category?: string }>;
@@ -34,6 +35,8 @@
 		ownCode?: string;
 		/** What the text says wrong, read out so the page can hold Save while one stands. */
 		diagnostics?: Diagnostic[];
+		/** Whether the builder mounts its own palette; without one, a palette outside it calls `pick`. */
+		palette?: boolean;
 	} = $props();
 
 	let root = $state<FormulaNode>(value ? parseFromMeval(value) : { type: 'empty' });
@@ -63,8 +66,14 @@
 		}
 	}
 
+	// A drag from a palette outside the builder is known only by its transfer, which the browser
+	// withholds until the drop.
+	function carriesPayload(e: DragEvent): boolean {
+		return dragPayload !== null || Boolean(e.dataTransfer?.types.includes('text/plain'));
+	}
+
 	function onDragOver(e: DragEvent, path: string) {
-		if (!dragPayload) return;
+		if (!carriesPayload(e)) return;
 		e.preventDefault();
 		e.stopPropagation();
 		if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
@@ -79,9 +88,10 @@
 		e.preventDefault();
 		e.stopPropagation();
 		dragOverPath = null;
-		if (!dragPayload) return;
+		const payload = dragPayload ?? readPayload(e.dataTransfer);
+		if (!payload) return;
 		const existing = getNodeAtPath(root, path);
-		const node = payloadToNode(dragPayload, existing);
+		const node = payloadToNode(payload, existing);
 		root = replaceAtPath(root, path, node);
 		dragPayload = null;
 		selectedPath = null;
@@ -91,8 +101,9 @@
 
 	function onDropEmpty(e: DragEvent) {
 		e.preventDefault();
-		if (!dragPayload) return;
-		const node = payloadToNode(dragPayload, null);
+		const payload = dragPayload ?? readPayload(e.dataTransfer);
+		if (!payload) return;
+		const node = payloadToNode(payload, null);
 		root = node;
 		dragPayload = null;
 		selectedPath = null;
@@ -146,7 +157,11 @@
 		return null;
 	}
 
-	function clickPalette(payload: DragPayload) {
+	/**
+	 * A palette term picked by click or key: it fills the selected slot, replaces the selected term,
+	 * takes an empty formula, wraps the formula in an operator, or fills the first empty slot.
+	 */
+	export function pick(payload: DragPayload) {
 		if (selectedPath) {
 			const existing = getNodeAtPath(root, selectedPath);
 			const node = payloadToNode(payload, existing);
@@ -182,17 +197,10 @@
 		syncText();
 	}
 
-	function paletteKeydown(e: KeyboardEvent, payload: DragPayload) {
-		if (e.key === 'Enter' || e.key === ' ') {
-			e.preventDefault();
-			clickPalette(payload);
-		}
-	}
-
 	function clearAll() {
 		root = { type: 'empty' };
 		selectedPath = null;
-		syncText();
+		value = '';
 	}
 
 	function handleTextInput(e: Event) {
@@ -361,14 +369,15 @@
 	</div>
 
 	<div class="flex min-h-[260px]">
-		<FormulaPalette
-			{variables}
-			{constants}
-			onpick={clickPalette}
-			onclear={clearAll}
-			ondrag={(payload) => (dragPayload = payload)}
-			class="w-56 shrink-0 border-r border-brand-divider bg-brand-bg p-2 overflow-y-auto max-h-[460px]"
-		/>
+		{#if palette}
+			<FormulaPalette
+				{variables}
+				{constants}
+				onpick={pick}
+				ondrag={(payload) => (dragPayload = payload)}
+				class="w-56 shrink-0 border-r border-brand-divider bg-brand-bg p-2 overflow-y-auto max-h-[460px]"
+			/>
+		{/if}
 
 		<div class="flex-1 p-4 overflow-auto flex flex-col items-start gap-3">
 			{#if root.type === 'empty'}
@@ -393,6 +402,9 @@
 				class="px-2 py-1 text-[11px] font-mono rounded border border-dashed border-brand-divider bg-brand-bg text-brand-muted cursor-pointer hover:border-brand-primary hover:text-brand-primary"
 				title="Add a literal number you can type directly"
 			>+ number</button>
+			{#if root.type !== 'empty'}
+				<Button variant="ghost" size="sm" class="text-severity-alarm" onclick={clearAll}>Clear formula</Button>
+			{/if}
 		</div>
 	</div>
 </div>

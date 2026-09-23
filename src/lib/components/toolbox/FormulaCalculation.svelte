@@ -84,6 +84,7 @@
 	import SiteSelect from '$components/SiteSelect.svelte';
 	import FormulaPalette from '$components/formula/FormulaPalette.svelte';
 	import CalculationSites from '$components/toolbox/CalculationSites.svelte';
+	import CalculationSettings from '$components/toolbox/CalculationSettings.svelte';
 	import CalculationSheet from '$components/toolbox/CalculationSheet.svelte';
 	import CellPanel from '$components/toolbox/CellPanel.svelte';
 	import CurvePicker, { emptyCurveSelection, type CurveSelection } from '$components/tools/CurvePicker.svelte';
@@ -227,7 +228,7 @@
 		formulas.some((f) => f.id === null || isDirty(f)) || dropped.length > 0,
 	);
 	const visit = $derived(visits.find((v) => v.id === visitId) ?? null);
-	const paramVars = $derived(formulaVariables(parameters));
+	const paramVars = $derived(formulaVariables(parameters, replicated));
 	// A recorded run draws through the same tables a fresh one does: the trace route carries the
 	// values it produced and the manifest of the version it pinned, so nothing here re-resolves.
 	const shown = $derived(
@@ -396,6 +397,15 @@
 		}
 	}
 
+	/** Reread the calculation's own fields without discarding the formulas being edited. */
+	async function refreshCalculation() {
+		try {
+			calculation = await getToolScript(calculationId);
+		} catch (e) {
+			toastStore.error(e instanceof Error ? e.message : 'Could not reread the calculation');
+		}
+	}
+
 	async function load() {
 		loading = true;
 		error = '';
@@ -542,8 +552,9 @@
 			: null;
 	}
 
-	/** A palette pick is written into the formula the panel holds, at its end. */
+	/** A palette pick goes to the formula open in the panel, or at the end of the picked one. */
 	function insert(payload: DragPayload) {
+		if (cellPanel?.pick(payload)) return;
 		if (!picked) return;
 		picked.formula = insertIdentifier(picked.formula, payloadName(payload)).formula;
 	}
@@ -860,6 +871,16 @@
 				{/if}
 			</div>
 		</div>
+		{#if calculation}
+			<details class="mt-2 rounded-md border border-brand-divider bg-brand-surface">
+				<summary class="px-3 py-2 text-sm font-medium cursor-pointer">
+					Calculation: label, description, on or off
+				</summary>
+				<div class="p-3">
+					<CalculationSettings {calculation} onsaved={refreshCalculation} />
+				</div>
+			</details>
+		{/if}
 	</div>
 
 	{#if error}

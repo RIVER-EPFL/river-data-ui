@@ -28,6 +28,8 @@ export interface SheetRow {
 	code: string | null;
 	/** Nothing in the set reads it: a step computed for no one, an input no formula names. */
 	unused: boolean;
+	/** Holds one value per replicate: a replicated input, or a formula run per replicate. */
+	replicated: boolean;
 	/** A step this calculation reads through a declaration: its code is the owner's to change. */
 	declared?: boolean;
 	/** On a statistic, the output whose repeats it summarises. */
@@ -184,6 +186,7 @@ export function sheetBlocks(
 			note: source?.note ?? detail,
 			code: null,
 			unused,
+			replicated: band === 'replicated',
 			...(TAG_OF_KIND[kind] ? { tag: TAG_OF_KIND[kind] } : {}),
 			cells: input ? withTyped(input, cells, typed) : cells,
 		} satisfies SheetRow;
@@ -216,6 +219,7 @@ export function sheetBlocks(
 			note: row.note ?? null,
 			code: null,
 			unused: false,
+			replicated: false,
 			...(row.source ? { tag: row.source } : {}),
 			cells: [...row.cells, ...emptyCells(width)].slice(0, Math.max(1, width)),
 		});
@@ -240,6 +244,7 @@ export function sheetBlocks(
 			note: f.formula,
 			code: code || null,
 			unused: band === 'step' && !readCount.has(code),
+			replicated: f.per_replicate.trim().length > 0,
 			declared: f.declarationId != null,
 			cells,
 		};
@@ -257,6 +262,7 @@ export function sheetBlocks(
 		note: row.note ?? null,
 		code: null,
 		unused: false,
+		replicated: false,
 		aggregateOf: row.aggregateOf ?? null,
 		cells: [...row.cells, ...emptyCells(width)].slice(0, Math.max(1, width)),
 	}));

@@ -64,6 +64,52 @@ export function groupApplyPreview(
 	return { adding, held: response.existing.map(line), applicable: adding.length > 0 };
 }
 
+function namesClause(slots: PreviewSlot[], singular: string, plural: string): string {
+	const names = slots.map((s) => s.name);
+	const joined = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0];
+	return `${joined} ${names.length > 1 ? plural : singular}`;
+}
+
+/**
+ * The toast after Apply. The preview was the promise, so the write is only described where it
+ * differs from it: another operator changed the site's slots or the group between the two.
+ */
+export function groupAppliedMessage(promised: GroupApplyPreview | null, landed: GroupApplyPreview): string {
+	if (!promised) return 'Group applied';
+	const ids = (slots: PreviewSlot[]) => new Set(slots.map((s) => s.parameterId));
+	const willAdd = ids(promised.adding);
+	const wasHeld = ids(promised.held);
+	const added = ids(landed.adding);
+	const held = ids(landed.held);
+	const clauses = [
+		[landed.held.filter((s) => willAdd.has(s.parameterId)), 'was added by someone else', 'were added by someone else'],
+		[
+			landed.adding.filter((s) => wasHeld.has(s.parameterId)),
+			'was removed by someone else and added back',
+			'were removed by someone else and added back',
+		],
+		[
+			[...landed.adding, ...landed.held].filter((s) => !willAdd.has(s.parameterId) && !wasHeld.has(s.parameterId)),
+			'joined the group since the preview',
+			'joined the group since the preview',
+		],
+		[
+			[...promised.adding, ...promised.held].filter((s) => !added.has(s.parameterId) && !held.has(s.parameterId)),
+			'left the group since the preview',
+			'left the group since the preview',
+		],
+	] as const;
+	const drift = clauses
+		.filter(([slots]) => slots.length > 0)
+		.map(([slots, singular, plural]) => namesClause([...slots], singular, plural));
+	if (drift.length === 0) return 'Group applied';
+	const count =
+		landed.adding.length === promised.adding.length
+			? `${landed.adding.length} added, as many as previewed`
+			: `${landed.adding.length} added, not the ${promised.adding.length} previewed`;
+	return `${count}: ${drift.join('; ')}`;
+}
+
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 
 /**

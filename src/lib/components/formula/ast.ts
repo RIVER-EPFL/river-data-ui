@@ -171,6 +171,17 @@ export type DragPayload =
 	| { kind: 'function'; name: string }
 	| { kind: 'operator'; op: string };
 
+/** The payload a palette entry wrote into a drag's transfer, or null when it wrote none. */
+export function readPayload(transfer: DataTransfer | null | undefined): DragPayload | null {
+	const text = transfer?.getData('text/plain');
+	if (!text) return null;
+	try {
+		return JSON.parse(text) as DragPayload;
+	} catch {
+		return null;
+	}
+}
+
 const MULTI_ARG_FUNCTIONS = new Set(['min', 'max']);
 
 /**

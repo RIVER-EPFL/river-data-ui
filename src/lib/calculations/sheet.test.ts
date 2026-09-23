@@ -97,6 +97,19 @@ describe('sheet blocks', () => {
 		expect(outputs!.rows.map((r) => [r.key, r.band])).toEqual([['CO2_HS_Um', 'final']]);
 	});
 
+	it('marks the rows that hold one value per replicate', () => {
+		const [inputs, steps, outputs] = sheetBlocks(
+			set,
+			inputRows(set, parameters, constants, ['lab_co2']),
+		);
+		expect(inputs!.rows.map((r) => [r.key, r.replicated])).toEqual([
+			['lab_temp', false],
+			['lab_co2', true],
+		]);
+		expect(steps!.rows.map((r) => [r.key, r.replicated])).toEqual([['hs_k', false]]);
+		expect(outputs!.rows.map((r) => [r.key, r.replicated])).toEqual([['CO2_HS_Um', true]]);
+	});
+
 	it('marks a step no formula reads', () => {
 		const orphan = [
 			...set,

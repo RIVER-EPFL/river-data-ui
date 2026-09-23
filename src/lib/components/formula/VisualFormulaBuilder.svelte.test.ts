@@ -105,4 +105,38 @@ describe('VisualFormulaBuilder', () => {
 		await fireEvent.click(section('Functions'));
 		expect(within(palette()).getByText('sqrt()')).toBeTruthy();
 	});
+
+	it('mounts one palette when the palette is outside it', () => {
+		render(Harness, { variables, outside: true });
+		expect(screen.getAllByPlaceholderText('Search…')).toHaveLength(1);
+	});
+
+	it('fills the selected slot from a palette outside it', async () => {
+		render(Harness, { value: 'sqrt(DOC_ppb) + 1', variables, outside: true });
+		await fireEvent.click(token('DOC'));
+		await fireEvent.click(variable('Depth'));
+		expect(formula()).toBe('sqrt(Depth) + 1');
+	});
+
+	it('wraps the formula on an operator from a palette outside it, and fills the new slot next', async () => {
+		render(Harness, { value: 'DOC_ppb', variables, outside: true });
+		await fireEvent.click(screen.getByLabelText('Insert / operator'));
+		await fireEvent.click(variable('Depth'));
+		expect(formula()).toBe('DOC_ppb / Depth');
+	});
+
+	it('takes a term dropped from a palette outside it', async () => {
+		render(Harness, { variables, outside: true });
+		const payload = JSON.stringify({ kind: 'variable', name: 'Depth' });
+		const zone = screen.getByLabelText('Formula drop zone');
+		await fireEvent.dragOver(zone, { dataTransfer: { types: ['text/plain'], getData: () => '' } });
+		await fireEvent.drop(zone, { dataTransfer: { types: ['text/plain'], getData: () => payload } });
+		expect(formula()).toBe('Depth');
+	});
+
+	it('clears the formula from the canvas', async () => {
+		render(Harness, { value: 'DOC_ppb + 1', variables, outside: true });
+		await fireEvent.click(within(canvas()).getByRole('button', { name: 'Clear formula' }));
+		expect(formula()).toBe('');
+	});
 });

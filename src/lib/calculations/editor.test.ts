@@ -315,6 +315,16 @@ describe('what a formula may name', () => {
 		expect(properties).toEqual(['latitude', 'longitude', 'altitude_m']);
 	});
 
+	it('marks a parameter entered per replicate, and no other', () => {
+		const vars = formulaVariables(
+			[parameter('lab_co2_co2ppm'), parameter('Field_BP')],
+			['lab_co2_co2ppm'],
+		);
+		expect(vars.find((v) => v.name === 'lab_co2_co2ppm')?.replicated).toBe(true);
+		expect(vars.find((v) => v.name === 'Field_BP')?.replicated).toBe(false);
+		expect(vars.find((v) => v.name === 'altitude_m')?.replicated).toBe(false);
+	});
+
 	it('leaves device health out, which is not a formula input', () => {
 		const health = { ...parameter('Battery'), category: 'device_health' } as Parameter;
 		expect(formulaVariables([health]).map((v) => v.name)).not.toContain('Battery');

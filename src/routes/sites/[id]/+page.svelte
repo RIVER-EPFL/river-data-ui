@@ -18,7 +18,7 @@
 		otherCadence,
 		type SlotCalculation
 	} from '$lib/calculations/siteSlots';
-	import { groupApplyPreview, type GroupApplyPreview } from '$lib/parameters/groups';
+	import { groupApplyPreview, groupAppliedMessage, type GroupApplyPreview } from '$lib/parameters/groups';
 	import { applyParameterGroup, getThresholds, getActiveAlarms, getCalculationClosure, getGroupDefinition, getSiteExportSummary, type ThresholdWithValue, type ActiveAlarm, type ExportSummary } from '$api/service';
 	import { getSiteSensorIdentity, type SensorIdentityResponse } from '$api/sensors';
 	import {
@@ -1058,7 +1058,9 @@
 		} finally { addingParam = false; }
 	}
 
-	let showApplyCalculation = $state(false);
+	// A link from the Toolbox opens the tab on one calculation's apply panel.
+	const linkedCalculation = page.url.searchParams.get('calculation');
+	let showApplyCalculation = $state(linkedCalculation != null);
 	let showApplyGroup = $state(false);
 	let applyGroupId = $state('');
 	let applyingGroup = $state(false);
@@ -1067,13 +1069,15 @@
 	let groupPreview = $state<GroupApplyPreview | null>(null);
 	let previewingGroup = $state(false);
 
+	const parameterName = (id: string) => parameters.find((p) => p.id === id)?.name ?? null;
+
 	async function previewGroup(groupId: string) {
 		groupPreview = null;
 		if (!groupId) return;
 		previewingGroup = true;
 		try {
 			const dry = await applyParameterGroup(siteId, groupId, true);
-			groupPreview = groupApplyPreview(dry, (id) => parameters.find((p) => p.id === id)?.name ?? null);
+			groupPreview = groupApplyPreview(dry, parameterName);
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Failed to read what the group would add');
 		} finally { previewingGroup = false; }
@@ -1085,15 +1089,15 @@
 		if (!applyGroupId) return;
 		applyingGroup = true;
 		try {
+			const promised = groupPreview;
 			const applied = await applyParameterGroup(siteId, applyGroupId);
+			const landed = groupApplyPreview(applied, parameterName);
 			const sp = await api.siteParameters.list({ perPage: 200, filter: { site_id: siteId } });
 			siteParameters = sp.data;
 			applyGroupId = '';
 			groupPreview = null;
 			showApplyGroup = false;
-			toastStore.success(
-				`${applied.created.length} added, ${applied.existing.length} already here`,
-			);
+			toastStore.success(groupAppliedMessage(promised, landed));
 		} catch (e) {
 			toastStore.error(e instanceof Error ? e.message : 'Failed to apply group');
 		} finally { applyingGroup = false; }
@@ -1642,7 +1646,7 @@
 
 				{#if showApplyCalculation}
 					<div class="p-4 border-b border-brand-divider bg-brand-bg/50">
-						<ApplyCalculationAtSite {siteId} onapplied={reloadSiteParameters} />
+						<ApplyCalculationAtSite {siteId} chosen={linkedCalculation} onapplied={reloadSiteParameters} />
 					</div>
 				{/if}
 
