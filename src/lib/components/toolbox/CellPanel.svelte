@@ -134,7 +134,7 @@
 	</label>
 {/snippet}
 
-<section class="rounded-md border border-brand-divider bg-brand-surface">
+<section class="@container rounded-md border border-brand-divider bg-brand-surface">
 	<div class="px-3 py-2 border-b border-brand-divider">
 		<h3 class="text-sm font-semibold">
 			{row?.label ?? (formula ? formula.code || 'New formula' : 'No cell selected')}
@@ -155,9 +155,9 @@
 	{#if row || formula}
 		<div class="px-3 py-3 space-y-3">
 			{#if formula}
-				<!-- The row's own fields beside its formula rather than above it, so opening a cell
-				     does not push the sheet off the screen. -->
-				<div class="grid grid-cols-1 lg:grid-cols-[24rem_minmax(0,1fr)] gap-3 items-start">
+				<!-- The row's own fields beside its formula where the panel is wide enough, and above it
+				     in the pane beside the sheet. -->
+				<div class="grid grid-cols-1 @3xl:grid-cols-[24rem_minmax(0,1fr)] gap-3 items-start">
 					<div class="grid min-w-0 grid-cols-2 gap-2">
 						<label class="block text-xs text-brand-muted">Code
 							<input bind:value={formula.code} placeholder="CO2_HS_Um" class={inputCls} disabled={!!formula.codeLocked} title={formula.codeLocked ?? ''} />

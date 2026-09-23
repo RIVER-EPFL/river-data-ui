@@ -18,6 +18,8 @@ export interface RunCell {
 	value: number | null;
 	skipped: string | null;
 	trace?: CellTrace;
+	/** A number the author typed in place of what the run was given, held until cleared. */
+	typed?: boolean;
 }
 
 export interface RunRow {
@@ -29,9 +31,14 @@ export interface RunRow {
 	note?: string;
 	/** On a statistic, the output key whose repeats it summarises. */
 	aggregateOf?: string | null;
+	/** On a number that is the same at every visit, what supplied it. */
+	source?: FixedSource;
 	/** One cell per replicate column, in column order. */
 	cells: RunCell[];
 }
+
+/** What supplies a number that is the same at every visit. */
+export type FixedSource = 'site' | 'constant' | 'curve';
 
 export interface RunTables {
 	/** The replicate suffixes the run produced, in the order they appear ('A', 'B', …). Empty for
@@ -120,12 +127,19 @@ export interface RunInputTables {
 	fixed: RunRow[];
 }
 
-function valueRow(key: string, label: string, value: number | null, note?: string): RunRow {
+function valueRow(
+	key: string,
+	label: string,
+	value: number | null,
+	source: FixedSource,
+	note?: string,
+): RunRow {
 	return {
 		key,
 		label,
 		units: null,
 		...(note ? { note } : {}),
+		source,
 		cells: [{ value, skipped: null }],
 	};
 }
@@ -172,14 +186,15 @@ export function runInputTables(
 	});
 
 	const fixed: RunRow[] = [
-		...siteInputs.map((s) => valueRow(s.param, s.param, asNumber(s.value), s.property)),
-		...Object.entries(constants).map(([name, value]) => valueRow(name, name, asNumber(value))),
+		...siteInputs.map((s) => valueRow(s.param, s.param, asNumber(s.value), 'site', s.property)),
+		...Object.entries(constants).map(([name, value]) => valueRow(name, name, asNumber(value), 'constant')),
 		...curves.flatMap((slot) =>
 			(['slope', 'intercept'] as const).map((coefficient) =>
 				valueRow(
 					`${slot.name}.${coefficient}`,
 					`${slot.name} ${coefficient}`,
 					asNumber(slot.curve[coefficient]),
+					'curve',
 					slot.curve.label ?? undefined,
 				),
 			),

@@ -52,8 +52,9 @@
 	} from '$lib/calculations/editor';
 	import { armConsequence, storedLabel } from '$lib/calculations/consequence';
 	import { ledgerLines, type LedgerOutput } from '$lib/calculations/versionLedger';
+	import { historyPanes, openPane, type HistoryKey } from '$lib/calculations/historyPanes';
 	import { portalReference, replicatedCodes } from '$lib/calculations/members';
-	import { rankByReach, reachNote } from '$lib/calculations/siteReach';
+	import { fullReach, rankByReach, reachNote, visitsHoldingAll } from '$lib/calculations/siteReach';
 	import { heldInSet, holdWarning, holdable } from '$lib/calculations/heldInputs';
 	import { visitToOpen } from '$lib/visits/opening';
 	import { fromNum } from '$lib/derivedParameters';
@@ -66,6 +67,7 @@
 		sheetBlocks,
 		withReplicate,
 		type DeclaredInput,
+		type RowRemoval,
 		type SheetEdit,
 		type SheetRow,
 		type SheetSelection,
@@ -78,6 +80,7 @@
 	import Button from '$components/ui/Button.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
+	import Tabs from '$components/ui/Tabs.svelte';
 	import SiteSelect from '$components/SiteSelect.svelte';
 	import FormulaPalette from '$components/formula/FormulaPalette.svelte';
 	import CalculationSites from '$components/toolbox/CalculationSites.svelte';
@@ -203,9 +206,14 @@
 	const readsAtSite = $derived(
 		inputs.filter((i) => i.kind === 'parameter' || i.kind === 'replicates').map((i) => i.name),
 	);
-	// The sites to offer, the ones measuring most of what the set reads first: a site missing an
-	// input draws the part it can and names the rest, so the order is what says where to look.
-	const siteChoices = $derived(rankByReach(sitesWithAvailability, readsAtSite));
+	// The sites to offer: only those measuring everything the set reads, since a run anywhere else
+	// has an input missing.
+	const siteChoices = $derived(fullReach(rankByReach(sitesWithAvailability, readsAtSite)));
+	const readIds = $derived(
+		readsAtSite
+			.map((code) => parameters.find((p) => p.code === code)?.id)
+			.filter((id): id is string => !!id),
+	);
 	const reachById = $derived(new Map(siteChoices.map((r) => [r.id, r])));
 	// What the set holds between visits, and the caveat the author passes before saving it (Q230).
 	const held = $derived(heldInSet(formulas));
@@ -268,7 +276,10 @@
 	// them on, and its outputs, filled by the run.
 	let showSteps = $state(false);
 	const blocks = $derived(
-		sheetBlocks(formulas, inputs, declared, given, tables ?? undefined, showSteps),
+		sheetBlocks(formulas, inputs, declared, given, tables ?? undefined, showSteps, {
+			scalars: scalarText,
+			replicates: replicateText,
+		}),
 	);
 	const stale = $derived(recorded === null && run !== null && ranAt < scheduled);
 
@@ -644,6 +655,19 @@
 		selected = null;
 	}
 
+	/** What a row's remove control asked for, carried out on the pending set. */
+	function removeRow(removal: RowRemoval) {
+		if (removal.kind === 'input') {
+			declared = declared.filter((d) => d.name !== removal.name);
+			return;
+		}
+		if (removal.kind === 'refused') return;
+		const f = formulas.find((x) => rowKey(x) === removal.key);
+		if (!f) return;
+		if (removal.kind === 'stop-reading') void stopReading(f);
+		else remove(f);
+	}
+
 	/** Keep the site and the visit in the URL, so a calculation read at a visit is a link. */
 	function rememberVisit() {
 		const url = new URL(page.url);
@@ -667,8 +691,9 @@
 		}
 		visitsLoading = true;
 		try {
-			const res = await listSiteVisits(site, { page_size: 50 });
-			visits = res.visits;
+			// Every visit, unpaged: the ones holding the set's inputs may be anywhere in the list.
+			const res = await listSiteVisits(site);
+			visits = visitsHoldingAll(res.visits, readIds);
 			visitId = visitToOpen(visits, keep);
 			if (visitId) await runAtVisit();
 		} catch (e) {
@@ -761,6 +786,19 @@
 
 	const ledgerRows = $derived(ledgerLines(ledger, publishedOutputs, base));
 
+	const history = $derived(
+		historyPanes({
+			runs: runsAtVisit.length,
+			ledger: ledgerRows.length,
+			reference: reference.length,
+			versions: calculation?.versions.length ?? 0,
+		}),
+	);
+	let historyTab = $state<HistoryKey | null>(null);
+	let barHeight = $state(0);
+	const historyKey = $derived(openPane(history, historyTab));
+	const historyIndex = $derived(Math.max(0, history.findIndex((h) => h.key === historyKey)));
+
 	/** What a run reads, so a change to any of it is a change to the numbers on screen. */
 	const runSignature = $derived(
 		JSON.stringify([
@@ -831,7 +869,7 @@
 	{:else}
 		<!-- Kept in view: the site and the visit the whole page reads, and the save, from wherever
 		     the author is on it. -->
-		<div class="sticky top-0 z-20 rounded-md border border-brand-divider bg-brand-surface px-3 py-2 space-y-1">
+		<div bind:clientHeight={barHeight} class="sticky top-0 z-20 rounded-md border border-brand-divider bg-brand-surface px-3 py-2 space-y-1">
 			<div class="flex flex-wrap items-end gap-3">
 				<label class="text-xs text-brand-muted">Site
 					<SiteSelect
@@ -847,7 +885,7 @@
 				</label>
 				<label class="text-xs text-brand-muted">Visit
 					<select bind:value={visitId} onchange={chooseVisit} disabled={!siteId || visitsLoading} class="block mt-0.5 {inputCls} min-w-56">
-						<option value="">{visitsLoading ? 'Loading…' : visits.length === 0 ? 'No visits' : 'Choose a visit…'}</option>
+						<option value="">{visitsLoading ? 'Loading…' : visits.length === 0 ? 'No visit holds every input' : 'Choose a visit…'}</option>
 						{#each visits as v (v.id)}
 							<option value={v.id}>{formatDateTime(v.collected_at)} · {v.parameters_filled} filled</option>
 						{/each}
@@ -929,28 +967,24 @@
 			</div>
 		{/if}
 
-		<!-- The set over the chosen site's streams. It is folded away because the sheet is what the
-		     page is for; moving along the chart fills the tables at that instant. -->
+		<!-- The set over the chosen site's streams, a compact strip above the sheet; moving along the
+		     chart fills the tables at that instant. -->
 		{#if blocker}
 			<p class="text-xs text-brand-muted">This runs at field visits only: it reads {blocker}.</p>
 		{:else}
-			<details class="rounded-md border border-brand-divider bg-brand-surface">
-				<summary class="px-3 py-2 text-sm font-semibold cursor-pointer">Over its series<span class="ml-2 text-xs font-normal text-brand-muted">the set over the chosen site's streams; move along the chart to read an instant and the tables follow</span></summary>
-				<div class="px-3 py-3">
-					<LivePreview
-						formulas={previewSet}
-						{siteId}
-						sites={sitesWithAvailability}
-						constantNames={constants.map((c) => c.name)}
-						onhover={(at) => (hovered = at)}
-					/>
-				</div>
-			</details>
+			<LivePreview
+				formulas={previewSet}
+				{siteId}
+				sites={sitesWithAvailability}
+				constantNames={constants.map((c) => c.name)}
+				reads={readsAtSite}
+				onhover={(at) => (hovered = at)}
+			/>
 		{/if}
 
-		<!-- The calculation as tables of the visit's data, the selected cell under them and the
-		     palette beside both, so opening a cell leaves the sheet on screen. -->
-		<div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_14rem] gap-4 items-start">
+		<!-- The calculation as tables of the visit's data, with the selected cell and the palette in a
+		     pane beside them, so opening a cell leaves the sheet where it is. -->
+		<div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_24rem] gap-4 items-start">
 			<div class="min-w-0 space-y-4">
 			<section class="min-w-0 rounded-md border border-brand-divider bg-brand-surface">
 				<div class="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-brand-divider">
@@ -984,6 +1018,8 @@
 						ondrop={dropPayload}
 						onadd={addRow}
 						onsteps={(on) => (showSteps = on)}
+						onremove={removeRow}
+						declared={declared.map((d) => d.name)}
 					/>
 					{#if (run?.skipped?.length ?? 0) > 0}
 						<ul class="text-xs text-brand-muted">
@@ -994,6 +1030,12 @@
 					{/if}
 				</div>
 			</section>
+			</div>
+			<!-- Held under the site and visit bar, which is sticky too. -->
+			<div
+				class="min-w-0 space-y-4 xl:sticky xl:top-(--pane-top) xl:max-h-[calc(100vh-var(--pane-top)-4rem)] xl:overflow-y-auto"
+				style="--pane-top: {barHeight + 16}px"
+			>
 			<CellPanel
 				bind:this={cellPanel}
 				row={selectedRow}
@@ -1015,8 +1057,7 @@
 				onstopreading={stopReading}
 				onshowdependents={showDependents}
 			/>
-			</div>
-			<section aria-label="Palette" class="rounded-md border border-brand-divider bg-brand-surface xl:sticky xl:top-24">
+			<section aria-label="Palette" class="rounded-md border border-brand-divider bg-brand-surface">
 				<FormulaPalette
 					variables={paramVars}
 					{constants}
@@ -1024,6 +1065,7 @@
 					class="p-2 max-h-[460px] overflow-y-auto"
 				/>
 			</section>
+			</div>
 		</div>
 
 		{#if slots.length > 0}
@@ -1048,13 +1090,18 @@
 			</section>
 		{/if}
 
-		{#if runsAtVisit.length > 0}
-			<!-- Every run of this calculation at the visit: what was computed here, and when. -->
-			<details class="rounded-md border border-brand-divider bg-brand-surface">
-				<summary class="px-3 py-2 text-sm font-semibold cursor-pointer">
-					Runs at this visit<span class="ml-2 text-xs font-normal text-brand-muted">each one opens as it ran</span>
-				</summary>
-				<ul class="divide-y divide-brand-divider border-t border-brand-divider">
+		{#if history.length > 0}
+			<!-- What the calculation has already done and where it came from, one tab each beside the
+			     working surface rather than stacked under it. -->
+			<section class="rounded-md border border-brand-divider bg-brand-surface">
+				<Tabs
+					tabs={history.map((h) => h.label)}
+					bind:active={() => historyIndex, (i) => (historyTab = history[i]?.key ?? null)}
+				/>
+				{#if historyKey === 'runs'}
+				<!-- Every run of this calculation at the visit: what was computed here, and when. -->
+				<p class="px-3 pt-2 text-xs text-brand-muted">Each one opens as it ran.</p>
+				<ul class="divide-y divide-brand-divider">
 					{#each runsAtVisit as row (row.id)}
 						<li class="flex flex-wrap items-baseline justify-between gap-2 px-3 py-2 text-sm">
 							<a
@@ -1066,18 +1113,12 @@
 						</li>
 					{/each}
 				</ul>
-			</details>
-		{/if}
-
-		{#if ledgerRows.length > 0}
-			<!-- What this calculation has computed on the stream arm. A continuous evaluation records
-			     no identity of its own, so a row is one pinned version, however many passes wrote
-			     under it (Q232). -->
-			<details class="rounded-md border border-brand-divider bg-brand-surface">
-				<summary class="px-3 py-2 text-sm font-semibold cursor-pointer">
-					Computed on a stream<span class="ml-2 text-xs font-normal text-brand-muted">what each version has already written</span>
-				</summary>
-				<ul class="divide-y divide-brand-divider border-t border-brand-divider">
+				{:else if historyKey === 'ledger'}
+				<!-- What this calculation has computed on the stream arm. A continuous evaluation records
+				     no identity of its own, so a row is one pinned version, however many passes wrote
+				     under it (Q232). -->
+				<p class="px-3 pt-2 text-xs text-brand-muted">What each version has already written.</p>
+				<ul class="divide-y divide-brand-divider">
 					{#each ledgerRows as line (line.versionId)}
 						<li class="px-3 py-2 text-sm">
 							<div class="flex flex-wrap items-baseline justify-between gap-2">
@@ -1102,15 +1143,10 @@
 						</li>
 					{/each}
 				</ul>
-			</details>
-		{/if}
-
-
-		{#if reference.length > 0}
-			<!-- What the source computed these columns with, carried by the plan that paired them. -->
-			<details class="rounded-md border border-brand-divider bg-brand-surface">
-				<summary class="px-3 py-2 text-sm font-semibold cursor-pointer">Portal reference<span class="ml-2 text-xs font-normal text-brand-muted">what the source computed each column with, as its pairing plan recorded it</span></summary>
-				<ul class="divide-y divide-brand-divider border-t border-brand-divider">
+				{:else if historyKey === 'reference'}
+				<!-- What the source computed these columns with, carried by the plan that paired them. -->
+				<p class="px-3 pt-2 text-xs text-brand-muted">What the source computed each column with, as its pairing plan recorded it.</p>
+				<ul class="divide-y divide-brand-divider">
 					{#each reference as recorded (recorded.code)}
 						<li class="px-3 py-2 text-sm">
 							<span class="font-mono">{recorded.code}</span>
@@ -1119,15 +1155,11 @@
 						</li>
 					{/each}
 				</ul>
-			</details>
-		{/if}
-
-		{#if calculation && calculation.versions.length > 0}
-			<!-- Version history: which of them the record's values were computed under. -->
-			<details class="rounded-md border border-brand-divider bg-brand-surface">
-				<summary class="px-3 py-2 text-sm font-semibold cursor-pointer">Versions<span class="ml-2 text-xs font-normal text-brand-muted">every save mints one, and each holds the values computed while it was active</span></summary>
-				<ul class="divide-y divide-brand-divider border-t border-brand-divider">
-					{#each calculation.versions as version (version.id)}
+				{:else if historyKey === 'versions'}
+				<!-- Version history: which of them the record's values were computed under. -->
+				<p class="px-3 pt-2 text-xs text-brand-muted">Every save mints one, and each holds the values computed while it was active.</p>
+				<ul class="divide-y divide-brand-divider">
+					{#each calculation?.versions ?? [] as version (version.id)}
 						<li class="px-3 py-2 text-sm flex items-start justify-between gap-3 flex-wrap">
 							<div>
 								<span class="font-medium">Version {version.version_no}</span>
@@ -1139,7 +1171,8 @@
 						</li>
 					{/each}
 				</ul>
-			</details>
+				{/if}
+			</section>
 		{/if}
 	{/if}
 </div>

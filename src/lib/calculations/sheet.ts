@@ -1,7 +1,7 @@
 import type { InputRow } from './editor';
-import { dependencyOrder, type EditableFormula } from './editor';
+import { dependencyOrder, parseReplicates, type EditableFormula } from './editor';
 import { identifiers } from '$lib/formula/lint';
-import type { RunCell, RunInputTables, RunTables } from '$lib/tools/runTable';
+import type { FixedSource, RunCell, RunInputTables, RunTables } from '$lib/tools/runTable';
 import type { RunTraceStep } from '$api/service';
 
 /// A calculation as the portal draws it: three tables side by side, parameters down and replicate
@@ -32,6 +32,8 @@ export interface SheetRow {
 	declared?: boolean;
 	/** On a statistic, the output whose repeats it summarises. */
 	aggregateOf?: string | null;
+	/** On an input that is not typed at a visit, what supplies it. */
+	tag?: FixedSource;
 	cells: RunCell[];
 }
 
@@ -50,6 +52,34 @@ export interface DeclaredInput {
 	detail: string;
 }
 
+/** What the author typed into the input cells, as the page holds it: by input name. */
+export interface TypedInputs {
+	scalars: Record<string, string>;
+	replicates: Record<string, string>;
+}
+
+/**
+ * `cells` with what was typed for the input laid over them, each such cell marked: a family's list
+ * across its replicates, a number in place of a parameter, constant or site property. A curve slot
+ * takes nothing typed, and a blank or unreadable entry is not a value the run takes, so either
+ * keeps what the run was given.
+ */
+function withTyped(input: InputRow, cells: RunCell[], typed?: TypedInputs): RunCell[] {
+	if (!typed) return cells;
+	const scalar = input.kind === 'parameter' || input.kind === 'constant' || input.kind === 'other';
+	const text = scalar ? (typed.scalars[input.name] ?? '').trim() : '';
+	const values =
+		input.kind === 'replicates'
+			? parseReplicates(typed.replicates[input.name] ?? '')
+			: text === ''
+				? []
+				: [Number(text)];
+	return cells.map((cell, index) => {
+		const value = values[index];
+		return value != null && Number.isFinite(value) ? { value, skipped: null, typed: true } : cell;
+	});
+}
+
 const BAND_OF_KIND: Record<InputRow['kind'], SheetBand | null> = {
 	replicates: 'replicated',
 	parameter: 'single',
@@ -57,6 +87,12 @@ const BAND_OF_KIND: Record<InputRow['kind'], SheetBand | null> = {
 	curve: 'fixed',
 	other: 'fixed',
 	step: null,
+};
+
+const TAG_OF_KIND: Partial<Record<InputRow['kind'], FixedSource>> = {
+	constant: 'constant',
+	curve: 'curve',
+	other: 'site',
 };
 
 function emptyCells(width: number): RunCell[] {
@@ -100,7 +136,8 @@ export function linksOf(
  *
  * `run` is what the run was given and `tables` what it computed; without either the blocks still
  * carry a row per input, step and output, with empty cells. Every block is drawn against the same
- * replicate letters, so the tables line up side by side.
+ * replicate letters, so the tables line up side by side. `typed` is laid over what the run was
+ * given, so a number the author typed stays in its cell across reruns and the series preview.
  */
 export function sheetBlocks(
 	formulas: EditableFormula[],
@@ -109,6 +146,7 @@ export function sheetBlocks(
 	run?: RunInputTables,
 	tables?: RunTables,
 	showSteps = true,
+	typed?: TypedInputs,
 ): SheetBlock[] {
 	const columns = [...new Set([...(run?.columns ?? []), ...(tables?.columns ?? [])])].sort((a, b) =>
 		a.localeCompare(b),
@@ -124,7 +162,14 @@ export function sheetBlocks(
 	// --- Inputs ---
 	const given = new Map([...(run?.visit ?? []), ...(run?.fixed ?? [])].map((r) => [r.key, r]));
 	const taken = new Set<string>();
-	const inputRowsFor = (name: string, band: SheetBand, detail: string, unused: boolean) => {
+	const inputRowsFor = (
+		name: string,
+		kind: InputRow['kind'],
+		band: SheetBand,
+		detail: string,
+		unused: boolean,
+		input: InputRow | null = null,
+	) => {
 		const source = given.get(name);
 		if (source) taken.add(name);
 		const cells = emptyCells(width);
@@ -139,7 +184,8 @@ export function sheetBlocks(
 			note: source?.note ?? detail,
 			code: null,
 			unused,
-			cells,
+			...(TAG_OF_KIND[kind] ? { tag: TAG_OF_KIND[kind] } : {}),
+			cells: input ? withTyped(input, cells, typed) : cells,
 		} satisfies SheetRow;
 	};
 
@@ -147,13 +193,15 @@ export function sheetBlocks(
 	for (const input of inputs) {
 		const band = BAND_OF_KIND[input.kind];
 		if (!band) continue;
-		inputRows.push(inputRowsFor(input.name, band, input.detail, input.readBy.length === 0));
+		inputRows.push(
+			inputRowsFor(input.name, input.kind, band, input.detail, input.readBy.length === 0, input),
+		);
 	}
 	const named = new Set(inputRows.map((r) => r.key));
 	for (const entry of declared) {
 		if (named.has(entry.name)) continue;
 		inputRows.push(
-			inputRowsFor(entry.name, BAND_OF_KIND[entry.kind] ?? 'fixed', entry.detail, true),
+			inputRowsFor(entry.name, entry.kind, BAND_OF_KIND[entry.kind] ?? 'fixed', entry.detail, true),
 		);
 	}
 	// A number the run was given that no formula names as a variable: a curve's coefficients are
@@ -168,6 +216,7 @@ export function sheetBlocks(
 			note: row.note ?? null,
 			code: null,
 			unused: false,
+			...(row.source ? { tag: row.source } : {}),
 			cells: [...row.cells, ...emptyCells(width)].slice(0, Math.max(1, width)),
 		});
 	}
@@ -242,6 +291,51 @@ export function stepsOffRefusal(formulas: Array<Pick<EditableFormula, 'code' | '
  */
 export function rowKey(formula: Pick<EditableFormula, 'code' | 'ordinal'>): string {
 	return formula.code.trim() || `new-${formula.ordinal}`;
+}
+
+/**
+ * The formula a row computes, as its label cell shows it under the name. Null on an input, a
+ * statistic and a formula not yet written.
+ */
+export function formulaOf(row: SheetRow): string | null {
+	if (row.band !== 'step' && row.band !== 'read' && row.band !== 'final') return null;
+	const text = row.note?.trim() ?? '';
+	return text === '' ? null : text;
+}
+
+/** What the remove control on a row does, when the row has one. */
+export type RowRemoval =
+	| { kind: 'formula'; key: string; readers: string[] }
+	| { kind: 'stop-reading'; key: string }
+	| { kind: 'input'; name: string }
+	| { kind: 'refused'; reason: string };
+
+/**
+ * What removing `row` does. A formula leaves the pending set, naming the formulas still reading
+ * it; a shared step is no longer read here; an input brought in by hand leaves the inputs, and one
+ * a formula still names is refused with the formulas naming it. A statistic, a curve coefficient
+ * the run supplied and a step another calculation owns have no remove.
+ */
+export function rowRemoval(
+	row: SheetRow,
+	formulas: Array<Pick<EditableFormula, 'code' | 'formula' | 'ordinal' | 'declarationId' | 'shared'>>,
+	declared: string[],
+): RowRemoval | null {
+	if (row.band === 'statistics') return null;
+	const formula = formulas.find((f) => rowKey(f) === row.key);
+	if (formula) {
+		if (formula.declarationId) return formula.shared ? { kind: 'stop-reading', key: row.key } : null;
+		const code = formula.code.trim();
+		return { kind: 'formula', key: row.key, readers: code ? linksOf(formulas, code).readBy : [] };
+	}
+	if (row.code) return null;
+	const readers = formulas
+		.filter((f) => identifiers(f.formula).some((i) => i.name === row.key))
+		.map((f) => f.code.trim() || 'an unnamed formula');
+	if (readers.length > 0) {
+		return { kind: 'refused', reason: `${row.key} is read by ${readers.join(', ')}.` };
+	}
+	return declared.includes(row.key) ? { kind: 'input', name: row.key } : null;
 }
 
 /** What a typed cell means. A cell the set computes is not typed into, and yields nothing. */
@@ -370,4 +464,12 @@ export interface SheetSelection {
 	key: string;
 	/** 0 is the label column; 1 is the first replicate. */
 	column: number;
+}
+
+/**
+ * The column a connector line meets a row at. A row that is read sits left of its reader, so the
+ * line leaves it from its last cell and meets the reader at its label.
+ */
+export function edgeColumn(end: 'source' | 'reader', columnCount: number): number {
+	return end === 'source' ? Math.max(1, columnCount) : 0;
 }

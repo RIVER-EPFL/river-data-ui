@@ -6,10 +6,13 @@ import {
 	cellEdit,
 	contributors,
 	dropOn,
+	edgeColumn,
 	emptyBlockLine,
+	formulaOf,
 	insertIdentifier,
 	linksOf,
 	rowKey,
+	rowRemoval,
 	sheetBlocks,
 	stepsOffRefusal,
 	withReplicate,
@@ -57,6 +60,31 @@ const parameters = [
 const constants: Constant[] = [];
 
 describe('sheet blocks', () => {
+	it('tags a constant, a curve coefficient and a site property with what supplies it', () => {
+		const tagged = [
+			formula({ code: 'out', formula: 'lab_co2 * R_gas + curve_slope + altitude', ordinal: 1 }),
+		];
+		const withGas = [{ name: 'R_gas', value: 8.314, units: 'J/mol/K' }] as Constant[];
+		const [inputs] = sheetBlocks(tagged, inputRows(tagged, parameters, withGas));
+		expect(inputs!.rows.map((r) => [r.key, r.tag ?? null])).toEqual([
+			['lab_co2', null],
+			['R_gas', 'constant'],
+			['curve_slope', 'curve'],
+			['altitude', 'site'],
+		]);
+	});
+
+	it('tags a number the run was given that no formula names by where it came from', () => {
+		const given = runInputTables([], [], {}, [
+			{ name: 'co2', curve: { slope: 1.1, intercept: 0.2 } },
+		] as Parameters<typeof runInputTables>[3]);
+		const [inputs] = sheetBlocks(set, inputRows(set, parameters, constants), [], given);
+		expect(inputs!.rows.filter((r) => r.tag).map((r) => [r.key, r.tag])).toEqual([
+			['co2.slope', 'curve'],
+			['co2.intercept', 'curve'],
+		]);
+	});
+
 	it('bands the inputs, holds the steps apart and marks an output another formula reads', () => {
 		const blocks = sheetBlocks(set, inputRows(set, parameters, constants, ['lab_co2']));
 		expect(blocks.map((b) => b.key)).toEqual(['inputs', 'steps', 'outputs']);
@@ -188,6 +216,22 @@ describe('links', () => {
 
 	it('is empty for a code the set does not hold', () => {
 		expect(linksOf(set, 'nothing')).toEqual({ reads: [], readBy: [] });
+	});
+});
+
+describe('the formula in a row', () => {
+	const blocks = sheetBlocks(set, inputRows(set, parameters, constants, ['lab_co2']));
+	const row = (block: number, key: string) => blocks[block]!.rows.find((r) => r.key === key)!;
+
+	it('shows what a step and an output compute', () => {
+		expect(formulaOf(row(1, 'hs_k'))).toBe('exp(lab_temp / 100)');
+		expect(formulaOf(row(2, 'CO2_HS_Um'))).toBe('lab_co2 * hs_k');
+	});
+
+	it('shows nothing on an input or a formula not yet written', () => {
+		expect(formulaOf(row(0, 'lab_temp'))).toBeNull();
+		const blank = sheetBlocks([formula({ code: 'x', formula: '  ' })], []);
+		expect(formulaOf(blank.find((b) => b.key === 'outputs')!.rows[0]!)).toBeNull();
 	});
 });
 
@@ -406,5 +450,138 @@ describe('the steps block', () => {
 		expect(stepsOffRefusal(two)).toBe(
 			'Steps stay on while the calculation has steps: hs_k, an unnamed step.',
 		);
+	});
+});
+
+describe('edgeColumn', () => {
+	it('leaves a source row from its last cell', () => {
+		// label plus three replicate columns
+		expect(edgeColumn('source', 3)).toBe(3);
+	});
+
+	it('leaves a block with no value columns from the one blank cell the grid draws', () => {
+		expect(edgeColumn('source', 0)).toBe(1);
+	});
+
+	it('meets the reader at its label cell', () => {
+		expect(edgeColumn('reader', 3)).toBe(0);
+	});
+});
+
+describe('removing a row', () => {
+	const blocks = (declared: string[] = []) =>
+		sheetBlocks(
+			set,
+			inputRows(set, parameters, constants),
+			declared.map((name) => ({ name, kind: 'parameter' as const, detail: '' })),
+		);
+	const row = (key: string, declared: string[] = []) =>
+		blocks(declared)
+			.flatMap((b) => b.rows)
+			.find((r) => r.key === key)!;
+
+	it('drops an output nothing reads', () => {
+		expect(rowRemoval(row('CO2_HS_Um'), set, [])).toEqual({
+			kind: 'formula',
+			key: 'CO2_HS_Um',
+			readers: [],
+		});
+	});
+
+	it('names the formulas still reading a step', () => {
+		expect(rowRemoval(row('hs_k'), set, [])).toEqual({
+			kind: 'formula',
+			key: 'hs_k',
+			readers: ['CO2_HS_Um'],
+		});
+	});
+
+	it('drops a formula with no code yet by its place in the set', () => {
+		const blank = [...set, formula({ code: '', ordinal: 3 })];
+		expect(rowRemoval({ ...row('CO2_HS_Um'), key: 'new-3', code: null }, blank, [])).toEqual({
+			kind: 'formula',
+			key: 'new-3',
+			readers: [],
+		});
+	});
+
+	it('takes an input brought in by hand back out', () => {
+		expect(rowRemoval(row('Field_BP', ['Field_BP']), set, ['Field_BP'])).toEqual({
+			kind: 'input',
+			name: 'Field_BP',
+		});
+	});
+
+	it('refuses an input a formula still reads, naming the formula', () => {
+		expect(rowRemoval(row('lab_temp'), set, [])).toEqual({
+			kind: 'refused',
+			reason: 'lab_temp is read by hs_k.',
+		});
+		expect(rowRemoval(row('lab_temp', ['lab_temp']), set, ['lab_temp'])).toEqual({
+			kind: 'refused',
+			reason: 'lab_temp is read by hs_k.',
+		});
+	});
+
+	it('stops reading a shared step rather than dropping it', () => {
+		const shared = set.map((f) =>
+			f.code === 'hs_k' ? { ...f, declarationId: 'd1', shared: true } : f,
+		);
+		expect(rowRemoval(row('hs_k'), shared, [])).toEqual({ kind: 'stop-reading', key: 'hs_k' });
+	});
+
+	it('leaves a step another calculation owns alone', () => {
+		const owned = set.map((f) => (f.code === 'hs_k' ? { ...f, declarationId: 'd1' } : f));
+		expect(rowRemoval(row('hs_k'), owned, [])).toBeNull();
+	});
+
+	it('has no remove on a statistic', () => {
+		expect(
+			rowRemoval({ ...row('CO2_HS_Um'), key: 'CO2_HS_Um_avg', band: 'statistics', code: null }, set, []),
+		).toBeNull();
+	});
+});
+
+describe('typed input values', () => {
+	const rows = inputRows(set, parameters, constants, ['lab_co2']);
+	// The run's echo carries only what it resolved from storage: a typed input is absent from it.
+	const echo = runInputTables([{ param: 'lab_co2', value: [410, 430] }], [], {}, []);
+	const inputCells = (blocks: ReturnType<typeof sheetBlocks>, key: string) =>
+		blocks[0]!.rows.find((r) => r.key === key)!.cells;
+
+	it('keeps a typed scalar in its cell, marked, when the echo omits it', () => {
+		const blocks = sheetBlocks(set, rows, [], echo, undefined, true, {
+			scalars: { lab_temp: '21.5' },
+			replicates: {},
+		});
+		expect(inputCells(blocks, 'lab_temp')[0]).toEqual({ value: 21.5, skipped: null, typed: true });
+	});
+
+	it('keeps a typed replicate over the echoed or hovered one, and leaves the rest', () => {
+		const hovered = runInputTables([
+			{ param: 'lab_co2', value: [1, 2] },
+			{ param: 'lab_temp', value: 3 },
+		]);
+		const blocks = sheetBlocks(set, rows, [], hovered, undefined, true, {
+			scalars: {},
+			replicates: { lab_co2: ', 999' },
+		});
+		const cells = inputCells(blocks, 'lab_co2');
+		expect(cells[0]).toMatchObject({ value: 1 });
+		expect(cells[0]!.typed).toBeFalsy();
+		expect(cells[1]).toEqual({ value: 999, skipped: null, typed: true });
+		expect(inputCells(blocks, 'lab_temp')[0]).toMatchObject({ value: 3 });
+	});
+
+	it('falls back to the echo when the typed entry is empty or not a number', () => {
+		for (const text of ['', '  ', 'abc']) {
+			const blocks = sheetBlocks(set, rows, [], echo, undefined, true, {
+				scalars: { lab_temp: text },
+				replicates: { lab_co2: text },
+			});
+			expect(inputCells(blocks, 'lab_co2')[0]).toMatchObject({ value: 410 });
+			expect(inputCells(blocks, 'lab_co2')[0]!.typed).toBeFalsy();
+			expect(inputCells(blocks, 'lab_temp')[0]).toEqual({ value: null, skipped: null });
+		}
 	});
 });

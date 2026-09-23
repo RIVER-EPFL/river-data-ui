@@ -36,6 +36,9 @@ const formulas: EditableFormula[] = [
 	}),
 ];
 
+/** A cell's own text: a label cell also carries the formula of its row on a line of its own. */
+const labelOf = (td: Element) => td.firstChild?.textContent ?? '';
+
 const parameters = [
 	{
 		code: 'lab_co2',
@@ -86,16 +89,33 @@ describe('CalculationSheet', () => {
 		}
 	});
 
+	it('draws a row per input, step and output with no heading rows between them', async () => {
+		const view = render(CalculationSheet, { blocks: blocks(), formulas });
+		await waitFor(() => expect(view.container.textContent).toContain('CO2 headspace'));
+		const labels = [...view.container.querySelectorAll('td[data-sheet-column="0"]')].map(
+			(td) => td.getAttribute('data-sheet-row'),
+		);
+		expect(labels).toEqual(['lab_temp', 'lab_co2', 'hs_k', 'spare', 'CO2_HS_Um']);
+		expect(view.container.textContent).not.toMatch(/Per replicate|One per visit|Published/);
+	});
+
 	it('marks a step no formula reads', async () => {
 		const view = render(CalculationSheet, { blocks: blocks(), formulas });
 		await waitFor(() =>
 			expect(view.container.querySelectorAll('.sheet-unused').length).toBeGreaterThan(0),
 		);
-		const marked = [...view.container.querySelectorAll('td.sheet-unused')].map(
-			(td) => td.textContent,
-		);
+		const marked = [...view.container.querySelectorAll('td.sheet-unused')].map(labelOf);
 		expect(marked).toContain('spare');
 		expect(marked).not.toContain('hs_k');
+	});
+
+	it('shows the formula a row computes under its name', async () => {
+		const view = render(CalculationSheet, { blocks: blocks(), formulas });
+		await waitFor(() => expect(view.container.textContent).toContain('CO2 headspace'));
+		const lines = [...view.container.querySelectorAll('.sheet-formula')].map((el) => el.textContent);
+		expect(lines).toEqual(
+			expect.arrayContaining(['exp(lab_temp / 100)', 'lab_temp * 2', 'lab_co2 * hs_k']),
+		);
 	});
 
 	it('lights what the selected row reads and what reads it', async () => {
@@ -108,14 +128,10 @@ describe('CalculationSheet', () => {
 		await waitFor(() =>
 			expect(view.container.querySelectorAll('.sheet-reads').length).toBeGreaterThan(0),
 		);
-		const reads = [...view.container.querySelectorAll('td.sheet-reads')].map(
-			(td) => td.textContent,
-		);
+		const reads = [...view.container.querySelectorAll('td.sheet-reads')].map(labelOf);
 		expect(reads).toContain('hs_k');
 		expect(reads).toContain('lab_co2');
-		const readBy = [...view.container.querySelectorAll('td.sheet-read-by')].map(
-			(td) => td.textContent,
-		);
+		const readBy = [...view.container.querySelectorAll('td.sheet-read-by')].map(labelOf);
 		expect(readBy).toHaveLength(0);
 	});
 });
@@ -126,9 +142,7 @@ describe('the tables as they are worked on', () => {
 		await waitFor(() =>
 			expect(view.container.querySelectorAll('td.sheet-stale').length).toBeGreaterThan(0),
 		);
-		const dimmed = [...view.container.querySelectorAll('td.sheet-stale')].map(
-			(td) => td.textContent,
-		);
+		const dimmed = [...view.container.querySelectorAll('td.sheet-stale')].map(labelOf);
 		// Only what the set computed: an input cell holds what was typed into it.
 		expect(dimmed).toContain('hs_k');
 		expect(dimmed).not.toContain('lab_co2');
@@ -252,5 +266,59 @@ describe('links drawn between the tables', () => {
 		await waitFor(() => expect(view.container.querySelectorAll('line').length).toBeGreaterThan(0));
 		await view.rerender({ selected: null });
 		await waitFor(() => expect(view.container.querySelectorAll('line')).toHaveLength(0));
+	});
+});
+
+describe('the remove control on a row', () => {
+	it('drops a step nothing reads at once', async () => {
+		const onremove = vi.fn();
+		render(CalculationSheet, { blocks: blocks(), formulas, onremove });
+		await userEvent.click(await screen.findByRole('button', { name: 'Remove spare' }));
+		expect(onremove).toHaveBeenCalledWith({ kind: 'formula', key: 'spare', readers: [] });
+	});
+
+	it('asks before dropping a step another formula reads, naming it', async () => {
+		const onremove = vi.fn();
+		render(CalculationSheet, { blocks: blocks(), formulas, onremove });
+		await userEvent.click(await screen.findByRole('button', { name: 'Remove hs_k' }));
+		expect(onremove).not.toHaveBeenCalled();
+		const dialog = screen.getByRole('alertdialog');
+		expect(dialog.textContent).toContain('CO2_HS_Um still reads it');
+		await userEvent.click(screen.getByRole('button', { name: 'Drop' }));
+		expect(onremove).toHaveBeenCalledWith({ kind: 'formula', key: 'hs_k', readers: ['CO2_HS_Um'] });
+	});
+
+	it('refuses an input a formula reads, saying which', async () => {
+		const onremove = vi.fn();
+		render(CalculationSheet, { blocks: blocks(), formulas, onremove });
+		await userEvent.click(await screen.findByRole('button', { name: 'Remove lab_temp' }));
+		expect(onremove).not.toHaveBeenCalled();
+		expect(screen.getByText('lab_temp is read by hs_k, spare.')).toBeTruthy();
+	});
+
+	it('draws no remove control on a read-only sheet', async () => {
+		const view = render(CalculationSheet, { blocks: blocks(), formulas });
+		await waitFor(() => expect(view.container.textContent).toContain('CO2 headspace'));
+		expect(screen.queryByRole('button', { name: /^Remove / })).toBeNull();
+	});
+});
+
+describe('a typed input value', () => {
+	it('is drawn marked as typed', async () => {
+		const typed = sheetBlocks(
+			formulas,
+			inputRows(formulas, parameters, [], ['lab_co2']),
+			[],
+			undefined,
+			undefined,
+			true,
+			{ scalars: { lab_temp: '25' }, replicates: {} },
+		);
+		const view = render(CalculationSheet, { blocks: typed, formulas });
+		await waitFor(() =>
+			expect(view.container.querySelectorAll('td.sheet-typed').length).toBeGreaterThan(0),
+		);
+		const marked = [...view.container.querySelectorAll('td.sheet-typed')].map((td) => td.textContent);
+		expect(marked).toEqual(['25']);
 	});
 });

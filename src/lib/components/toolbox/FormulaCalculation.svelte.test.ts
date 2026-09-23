@@ -39,6 +39,7 @@ vi.mock('$api/service', () => ({
 		active_version_no: null,
 		versions: [],
 	})),
+	getSiteDetail: vi.fn(async () => ({ parameters: [] })),
 	listSiteVisits: vi.fn(async () => ({ visits: [] })),
 	listTools: vi.fn(async () => []),
 	listToolVersionUsage: vi.fn(async () => []),
@@ -214,8 +215,7 @@ describe('a calculation that corrects with a curve', () => {
 describe('reading a calculation over a site series', () => {
 	it('offers the series when every input is a parameter a site streams', async () => {
 		render(FormulaCalculation, { calculationId: 'calc-1' });
-		await waitFor(() => expect(screen.getByText('Over its series')).toBeTruthy());
-		expect(screen.getByText(/move along the chart/)).toBeTruthy();
+		await waitFor(() => expect(screen.getByText('Live preview')).toBeTruthy());
 	});
 });
 

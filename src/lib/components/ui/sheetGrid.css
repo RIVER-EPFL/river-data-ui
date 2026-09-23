@@ -124,13 +124,6 @@
 	color: inherit;
 	cursor: pointer;
 }
-.sheet-grid .handsontable td.sheet-band {
-	background-color: var(--color-brand-bg) !important;
-	color: var(--color-brand-muted) !important;
-	font-size: 11px;
-	letter-spacing: 0.04em;
-	text-transform: uppercase;
-}
 .sheet-grid .handsontable td.sheet-reads {
 	background-color: color-mix(in srgb, var(--color-brand-primary) 10%, transparent) !important;
 }
@@ -143,6 +136,50 @@
 }
 .sheet-grid .handsontable td.sheet-stale {
 	opacity: 0.55;
+}
+.sheet-grid .handsontable td.sheet-typed {
+	font-style: italic;
+	color: var(--color-brand-primary) !important;
+}
+/* The remove control on a row, kept at the right of its label cell. */
+.sheet-grid .handsontable td.sheet-removable {
+	position: relative;
+	padding-right: 20px;
+}
+.sheet-grid .sheet-remove {
+	position: absolute;
+	top: 50%;
+	right: 4px;
+	transform: translateY(-50%);
+	border: none;
+	background: transparent;
+	padding: 0 2px;
+	line-height: 1;
+	color: var(--color-brand-muted);
+	cursor: pointer;
+}
+.sheet-grid .sheet-remove:hover {
+	color: var(--color-severity-alarm);
+}
+
+/* What supplies an input that is not typed at a visit, beside its name in the label cell. */
+.sheet-grid .sheet-tag {
+	margin-left: 6px;
+	border-radius: 3px;
+	background-color: var(--color-brand-bg);
+	padding: 0 4px;
+	font-size: 10px;
+	color: var(--color-brand-muted);
+}
+
+/* The formula a row computes, under its name in the label cell. */
+.sheet-grid .sheet-formula {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	font-family: var(--font-mono, ui-monospace, monospace);
+	font-size: 11px;
+	color: var(--color-brand-muted);
 }
 
 /* The link between a selected cell and a cell it reads, drawn over the tables. */

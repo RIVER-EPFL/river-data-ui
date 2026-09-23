@@ -1,17 +1,24 @@
 <script lang="ts">
 	import uPlot from 'uplot';
 	import UPlotChart from '$lib/components/charts/UPlotChart.svelte';
-	import { previewDerived, type DraftFormula, type PreviewDerivedResponse } from '$api/service';
+	import {
+		getSiteDetail,
+		previewDerived,
+		type DraftFormula,
+		type PreviewDerivedResponse,
+	} from '$api/service';
 	import { tokens } from '$lib/charts/tokens';
 	import { tzDateOption } from '$lib/charts/uPlotTheme';
 	import { previewInstant, type PreviewInstant } from '$lib/tools/runTable';
 	import { drawable } from '$lib/calculations/editor';
+	import { readSpan } from '$lib/calculations/siteReach';
 
 	let {
 		formulas,
 		siteId,
 		sites,
 		constantNames = [],
+		reads = [],
 		onhover,
 	}: {
 		formulas: DraftFormula[];
@@ -20,11 +27,18 @@
 		sites: Array<{ id: string; name: string; availableParamNames?: string[] }>;
 		/** Catalog constants, which resolve server-side and need no series at the site. */
 		constantNames?: string[];
+		/** The parameter codes the set reads at a site, whose span the chart opens on. */
+		reads?: string[];
 		/** The instant under the cursor, so a caller can show the set's numbers there. */
 		onhover?: (at: PreviewInstant | null) => void;
 	} = $props();
 
-	let range = $state<'24h' | '7d' | '30d'>('24h');
+	type Range = 'all' | '1y' | '30d' | '7d';
+	const RANGES: Range[] = ['all', '1y', '30d', '7d'];
+	const RANGE_DAYS: Record<Exclude<Range, 'all'>, number> = { '1y': 365, '30d': 30, '7d': 7 };
+
+	let range = $state<Range>('all');
+	let span = $state<{ start: string; end: string } | null>(null);
 	let preview = $state<PreviewDerivedResponse | null>(null);
 	let previewError = $state<string | null>(null);
 	let loading = $state(false);
@@ -39,27 +53,43 @@
 	const ready = $derived(guide.draw);
 	const notDrawn = $derived(guide.skipped);
 
+	// The span the read parameters cover at the site: every range ends where the data does, so a
+	// grab-sampled site draws its visits rather than an empty recent window.
+	let spanToken = 0;
+	$effect(() => {
+		const site = siteId;
+		const codes = reads;
+		span = null;
+		if (!site) return;
+		const myToken = ++spanToken;
+		getSiteDetail(site)
+			.then((detail) => {
+				if (myToken === spanToken) span = readSpan(detail.parameters, codes);
+			})
+			.catch(() => {});
+	});
+
 	$effect(() => {
 		if (ready.length === 0 || !siteId) return;
-		// `range` is read here so the effect tracks it; runPreview runs from a timeout, outside
-		// the tracking scope.
-		const days = rangeDays(range);
+		// `range` and `span` are read here so the effect tracks them; runPreview runs from a
+		// timeout, outside the tracking scope.
+		const window = previewWindow(range, span);
 		const myToken = ++fetchToken;
 		const handle = setTimeout(() => {
-			void runPreview(myToken, days);
+			void runPreview(myToken, window);
 		}, 400);
 		return () => clearTimeout(handle);
 	});
 
-	function rangeDays(r: typeof range): number {
-		if (r === '24h') return 1;
-		return r === '7d' ? 7 : 30;
+	function previewWindow(r: Range, s: typeof span): { start: Date; end: Date } {
+		const end = s ? new Date(s.end) : new Date();
+		if (r === 'all' && s) return { start: new Date(s.start), end };
+		const start = new Date(end);
+		start.setUTCDate(end.getUTCDate() - (r === 'all' ? 365 : RANGE_DAYS[r]));
+		return { start, end };
 	}
 
-	async function runPreview(myToken: number, days: number) {
-		const end = new Date();
-		const start = new Date(end);
-		start.setUTCDate(end.getUTCDate() - days);
+	async function runPreview(myToken: number, { start, end }: { start: Date; end: Date }) {
 
 		loading = true;
 		previewError = null;
@@ -120,7 +150,7 @@
 		}
 		return {
 			width: 600,
-			height: 320,
+			height: 180,
 			...tzDateOption(),
 			cursor: { drag: { x: true, y: false } },
 			hooks: {
@@ -148,16 +178,16 @@
 		<span class="text-xs font-semibold text-brand-muted uppercase tracking-wider">Live preview</span>
 
 		<div class="flex gap-0.5">
-			{#each ['24h', '7d', '30d'] as r}
+			{#each RANGES as r (r)}
 				<button
-					onclick={() => (range = r as typeof range)}
+					onclick={() => (range = r)}
 					class="px-2 py-1 text-xs rounded cursor-pointer border-none {range === r ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
-				>{r}</button>
+				>{r === 'all' ? 'All' : r}</button>
 			{/each}
 		</div>
 	</div>
 
-	<div class="p-3 min-h-[340px]">
+	<div class="p-3 min-h-[200px]">
 		{#if formulas.length === 0}
 			<p class="text-sm text-brand-muted">Build a formula to see a preview here.</p>
 		{:else if ready.length === 0}

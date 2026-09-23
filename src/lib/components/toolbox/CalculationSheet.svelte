@@ -6,9 +6,13 @@
 		cellEdit,
 		contributors,
 		dropOn,
+		edgeColumn,
 		emptyBlockLine,
+		formulaOf,
 		linksOf,
+		rowRemoval,
 		stepsOffRefusal,
+		type RowRemoval,
 		type SheetBlock,
 		type SheetEdit,
 		type SheetRow,
@@ -41,6 +45,10 @@
 		onadd?: (block: 'steps' | 'outputs') => void;
 		/** Turn the steps block on or off. Without it the sheet carries no switch. */
 		onsteps?: (on: boolean) => void;
+		/** Remove a row. Without it the rows carry no remove control. */
+		onremove?: (removal: RowRemoval) => void;
+		/** The inputs brought in by hand, which are the only inputs a remove takes out. */
+		declared?: string[];
 	}
 
 	let {
@@ -54,6 +62,8 @@
 		ondrop,
 		onadd,
 		onsteps,
+		onremove,
+		declared = [],
 	}: Props = $props();
 
 	const showingSteps = $derived(blocks.some((b) => b.key === 'steps'));
@@ -74,33 +84,59 @@
 		onsteps?.(false);
 	}
 
-	/** A band heading, or one of the block's rows, in the order the grid draws them. */
-	type Entry = { band: string; row: SheetRow | null };
+	// --- Removing a row ---
+	// A removal the author may regret waits on a confirm under the tables; one that only takes out
+	// what nothing reads happens at once, since the save is what makes it stick.
 
-	const BAND_TITLES: Record<string, string> = {
-		replicated: 'Per replicate',
-		single: 'One per visit',
-		fixed: 'Constants, site and curves',
-		step: 'Steps',
-		read: 'Read by a later formula',
-		final: 'Published',
-		statistics: 'Mean and standard deviation',
-	};
+	let asking = $state<{ removal: RowRemoval; message: string } | null>(null);
+	let removeRefused = $state<string | null>(null);
 
-	function entriesOf(block: SheetBlock): Entry[] {
-		const entries: Entry[] = [];
-		let band = '';
-		for (const row of block.rows) {
-			if (row.band !== band) {
-				band = row.band;
-				entries.push({ band, row: null });
-			}
-			entries.push({ band, row });
+	function askRemove(removal: RowRemoval) {
+		removeRefused = null;
+		asking = null;
+		if (removal.kind === 'refused') {
+			removeRefused = removal.reason;
+		} else if (removal.kind === 'stop-reading') {
+			asking = {
+				removal,
+				message: `Stop reading ${removal.key} in this calculation? The step itself stays.`,
+			};
+		} else if (removal.kind === 'formula' && removal.readers.length > 0) {
+			const verb = removal.readers.length === 1 ? 'reads' : 'read';
+			asking = {
+				removal,
+				message: `Drop ${removal.key}? ${removal.readers.join(', ')} still ${verb} it. The save deletes it.`,
+			};
+		} else {
+			onremove?.(removal);
 		}
-		return entries;
 	}
 
-	const entries = $derived(new Map(blocks.map((b) => [b.key, entriesOf(b)])));
+	function confirmRemove() {
+		if (asking) onremove?.(asking.removal);
+		asking = null;
+	}
+
+	function removeButton(row: SheetRow, removal: RowRemoval): HTMLButtonElement {
+		const button = document.createElement('button');
+		button.type = 'button';
+		button.className = 'sheet-remove';
+		button.textContent = '×';
+		button.setAttribute('aria-label', `Remove ${row.label}`);
+		button.title =
+			removal.kind === 'refused'
+				? removal.reason
+				: removal.kind === 'stop-reading'
+					? 'Stop reading this step here'
+					: 'Remove';
+		// The grid selects and edits on mousedown, so the press never reaches it.
+		button.addEventListener('mousedown', (event) => event.stopPropagation());
+		button.addEventListener('click', (event) => {
+			event.stopPropagation();
+			askRemove(removal);
+		});
+		return button;
+	}
 
 	function fmt(value: number | null): string {
 		if (value === null) return '';
@@ -109,11 +145,10 @@
 
 	function dataOf(block: SheetBlock): string[][] {
 		const width = Math.max(1, block.columns.length);
-		return (entries.get(block.key) ?? []).map(({ band, row }) =>
-			row
-				? [row.label, ...row.cells.slice(0, width).map((c) => (c.skipped ? '—' : fmt(c.value)))]
-				: [BAND_TITLES[band] ?? band, ...Array.from({ length: width }, () => '')],
-		);
+		return block.rows.map((row) => [
+			row.label,
+			...row.cells.slice(0, width).map((c) => (c.skipped ? '—' : fmt(c.value))),
+		]);
 	}
 
 	const selectedRow = $derived(
@@ -143,11 +178,12 @@
 	const CLASSES = [
 		'htRight',
 		'htNumeric',
-		'sheet-band',
 		'sheet-reads',
 		'sheet-read-by',
 		'sheet-unused',
 		'sheet-stale',
+		'sheet-removable',
+		'sheet-typed',
 	];
 
 	/** What a cell would do if it were typed into, which is also what makes it writable. */
@@ -156,7 +192,7 @@
 	}
 
 	function settingsOf(block: SheetBlock): Omit<GridSettings, 'data' | 'licenseKey' | 'themeName'> {
-		const rows = entries.get(block.key) ?? [];
+		const rows = block.rows;
 		return {
 			colHeaders: [block.title, ...(block.columns.length > 0 ? block.columns : ['Value'])],
 			rowHeaders: false,
@@ -168,7 +204,7 @@
 			fillHandle: false,
 			outsideClickDeselects: false,
 			cells: (row: number, column: number) => ({
-				readOnly: !editOf(rows[row]?.row ?? null, column, ''),
+				readOnly: !editOf(rows[row] ?? null, column, ''),
 				renderer: (
 					_hot: unknown,
 					td: HTMLTableCellElement,
@@ -184,22 +220,22 @@
 					if (!change) continue;
 					const [row, prop, , next] = change;
 					const edit = editOf(
-						rows[row]?.row ?? null,
+						rows[row] ?? null,
 						Number(prop),
 						next == null ? '' : String(next),
 					);
 					if (edit) onedit?.(edit);
 				}
 			},
-			// A band heading is not a cell, and a repaint re-emits each grid's own selection: neither
-			// is written back, or the table last clicked would take the selection from the new one.
+			// A repaint re-emits each grid's own selection, which is not written back, or the table
+			// last clicked would take the selection from the new one.
 			afterSelection: (row: number, column: number) => {
 				// Only the table the person is working in speaks: the others re-emit what they still
 				// hold whenever they are drawn.
 				if (repainting || grids.get(block.key)?.isListening() === false) return;
 				const entry = rows[row];
-				if (!entry?.row) return;
-				const next = { block: block.key, key: entry.row.key, column };
+				if (!entry) return;
+				const next = { block: block.key, key: entry.key, column };
 				if (
 					next.block === selected?.block &&
 					next.key === selected?.key &&
@@ -215,7 +251,7 @@
 
 	function renderCell(
 		block: SheetBlock,
-		rows: Entry[],
+		rows: SheetRow[],
 		td: HTMLTableCellElement,
 		gridRow: number,
 		column: number,
@@ -226,15 +262,10 @@
 		td.removeAttribute('title');
 		td.removeAttribute('data-sheet-row');
 		td.removeAttribute('data-sheet-column');
-		const entry = rows[gridRow];
+		const row = rows[gridRow];
 		const text = value == null ? '' : String(value);
 		td.textContent = text;
-		if (!entry) return td;
-		if (!entry.row) {
-			td.classList.add('sheet-band');
-			return td;
-		}
-		const row = entry.row;
+		if (!row) return td;
 		td.setAttribute('data-sheet-row', row.key);
 		td.setAttribute('data-sheet-column', String(column));
 		if (column > 0) td.classList.add('htRight', 'htNumeric');
@@ -249,7 +280,29 @@
 		}
 		const cell = row.cells[column - 1];
 		if (column === 0 && row.note) td.title = row.note;
+		if (column === 0 && row.tag) {
+			const tag = document.createElement('span');
+			tag.className = 'sheet-tag';
+			tag.textContent = row.tag;
+			td.append(tag);
+		}
+		const formula = column === 0 ? formulaOf(row) : null;
+		if (formula) {
+			const line = document.createElement('span');
+			line.className = 'sheet-formula';
+			line.textContent = formula;
+			td.append(line);
+		}
+		const removal = column === 0 && onremove ? rowRemoval(row, formulas, declared) : null;
+		if (removal) {
+			td.classList.add('sheet-removable');
+			td.append(removeButton(row, removal));
+		}
 		if (column > 0 && cell?.skipped) td.title = cell.skipped;
+		if (column > 0 && cell?.typed) {
+			td.classList.add('sheet-typed');
+			td.title = 'typed; clear the cell to read the stored value';
+		}
 		if (column > 0 && row.code && cell && !cell.skipped) {
 			const read = contributors(trace, row.code, block.columns.length > 0 ? column - 1 : null);
 			if (read.length > 0) {
@@ -291,7 +344,7 @@
 		const td = target?.closest('td') ?? null;
 		if (!instance || instance.isDestroyed || !td) return null;
 		const index = instance.getCoords(td)?.row ?? -1;
-		return index >= 0 ? ((entries.get(block.key) ?? [])[index]?.row ?? null) : null;
+		return index >= 0 ? (block.rows[index] ?? null) : null;
 	}
 
 	function dropped(block: SheetBlock, event: DragEvent) {
@@ -340,14 +393,20 @@
 	let edges = $state<Edge[]>([]);
 	let offscreen = $state<string[]>([]);
 
-	/** Where a row sits: its label cell, and the table holding it. */
-	function anchorOf(key: string): { cell: HTMLElement | null; block: string; row: number } | null {
+	/** Where a row sits: the cell a line meets it at, and the table holding it. */
+	function anchorOf(
+		key: string,
+		end: 'source' | 'reader',
+	): { cell: HTMLElement | null; block: string; row: number } | null {
 		for (const block of blocks) {
-			const index = (entries.get(block.key) ?? []).findIndex((e) => e.row?.key === key);
+			const index = block.rows.findIndex((r) => r.key === key);
 			if (index < 0) continue;
 			const grid = grids.get(block.key);
-			const cell =
-				grid && !grid.isDestroyed ? ((grid.getCell(index, 0) as HTMLElement | null) ?? null) : null;
+			let cell: HTMLElement | null = null;
+			// A column scrolled out of the table has no cell, so fall back to the last one drawn.
+			for (let column = edgeColumn(end, block.columns.length); column >= 0 && !cell; column--) {
+				if (grid && !grid.isDestroyed) cell = (grid.getCell(index, column) as HTMLElement | null) ?? null;
+			}
 			return { cell, block: block.key, row: index };
 		}
 		return null;
@@ -355,7 +414,7 @@
 
 	function redraw() {
 		const box = surface?.getBoundingClientRect();
-		const target = selected ? anchorOf(selected.key)?.cell : null;
+		const target = selected ? anchorOf(selected.key, 'reader')?.cell : null;
 		if (!box || !target) {
 			edges = [];
 			offscreen = [];
@@ -366,7 +425,7 @@
 		const missing: string[] = [];
 		for (const key of reads) {
 			if (key === selected?.key) continue;
-			const anchor = anchorOf(key);
+			const anchor = anchorOf(key, 'source');
 			if (!anchor) continue;
 			if (!anchor.cell) {
 				missing.push(key);
@@ -387,7 +446,7 @@
 
 	/** Bring a source that is scrolled out of its table into view. */
 	function reveal(key: string) {
-		const anchor = anchorOf(key);
+		const anchor = anchorOf(key, 'source');
 		if (!anchor) return;
 		grids.get(anchor.block)?.scrollViewportTo({ row: anchor.row });
 		redraw();
@@ -459,6 +518,18 @@
 		</section>
 	{/each}
 	</div>
+	{#if asking}
+		<div role="alertdialog" aria-label="Confirm removal" class="mt-2 flex flex-wrap items-center gap-2 text-xs">
+			<span>{asking.message}</span>
+			<Button size="sm" variant="danger" onclick={confirmRemove}>
+				{asking.removal.kind === 'stop-reading' ? 'Stop reading' : 'Drop'}
+			</Button>
+			<Button size="sm" variant="ghost" onclick={() => (asking = null)}>Keep</Button>
+		</div>
+	{/if}
+	{#if removeRefused}
+		<p role="status" class="mt-2 text-xs text-severity-alarm">{removeRefused}</p>
+	{/if}
 	{#if offscreen.length > 0}
 		<p class="mt-1 text-[11px] text-brand-muted">
 			Read from out of view:

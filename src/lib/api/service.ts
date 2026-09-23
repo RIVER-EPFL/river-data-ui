@@ -1042,6 +1042,12 @@ export type VisitCell = components['schemas']['VisitCell'];
 
 export type VisitRow = components['schemas']['VisitRow'];
 
+export type SiteDetailResponse = components['schemas']['SiteDetailResponse'];
+
+/** A site with the span of its readings, per parameter and overall. */
+export const getSiteDetail = (siteId: string) =>
+	GET<SiteDetailResponse>(`${SERVICE}/sites/${siteId}/detail`);
+
 export type VisitsResponse = components['schemas']['VisitsResponse'];
 
 /** One column of the visits grid: the parameter, its units and the decimals its slot declares. */
