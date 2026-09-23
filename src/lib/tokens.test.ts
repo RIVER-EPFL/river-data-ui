@@ -3,11 +3,10 @@ import { emptyTokenForm, tokenFormOf, tokenPayload } from './tokens';
 import type { ApiToken } from '$api/crud';
 
 describe('tokenPayload', () => {
-	it('omits what a create has nothing to say about', () => {
-		expect(tokenPayload('create', emptyTokenForm(), 'Evan')).toEqual({
+	it('omits what a create has nothing to say about, the author included', () => {
+		expect(tokenPayload('create', emptyTokenForm())).toEqual({
 			name: '',
 			permissions: { read_metadata: true, read_data: true, write_metadata: false, write_data: false },
-			created_by: 'Evan',
 		});
 	});
 

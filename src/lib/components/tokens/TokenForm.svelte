@@ -5,7 +5,6 @@
 	import { listAll } from '$api/paged';
 	import { api, type Project, type TokenPermissions } from '$api/crud';
 	import { POST } from '$api/client';
-	import { auth } from '$auth/keycloak.svelte';
 	import { me } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { emptyTokenForm, tokenFormOf, tokenPayload } from '$lib/tokens';
@@ -97,7 +96,7 @@
 		if (!form.name) return;
 		saving = true;
 		try {
-			const payload = tokenPayload(mode, form, auth.identity?.fullName ?? '');
+			const payload = tokenPayload(mode, form);
 			if (mode === 'edit' && tokenId) {
 				await api.apiTokens.update(tokenId, payload);
 				toastStore.success('Token updated - changes take effect immediately');

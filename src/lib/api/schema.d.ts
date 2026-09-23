@@ -150,7 +150,8 @@ export interface paths {
         /**
          * Recompute every derived value for a given derived parameter definition. Backfills via
          *     joining source readings; tracked as a `reprocessing_jobs` row. Refreshes continuous
-         *     aggregates on completion. Requires `write_metadata`.
+         *     aggregates on completion. Requires `write_metadata`, and a caller confined to projects is
+         *     refused a calculation active at any site outside them, since the job rewrites every one.
          */
         post: operations["recompute_derived"];
         delete?: never;
@@ -3590,7 +3591,8 @@ export interface paths {
         put?: never;
         /**
          * Batch insert readings keyed by (site_id, parameter_id). Auto-creates "api" streams when
-         *     a (site, parameter) pair has none. 10MB body limit. Requires `write_data`.
+         *     a (site, parameter) pair has none, and pairs one to the site's slot once the site carries it; a
+         *     row is attributed from its stream's pairing. 10MB body limit. Requires `write_data`.
          */
         post: operations["insert_batch_readings"];
         delete?: never;
@@ -4480,9 +4482,9 @@ export interface paths {
         put?: never;
         /**
          * `POST /api/schedules/{job_name}/run_now`, fire one off-cadence run with the schedule's current
-         *     tunables snapshot and whatever inputs the kind declares. 404 if `job_name` is not a known job,
-         *     400 if it is not run by hand or an input it declares is missing. Requires `write_metadata`
-         *     (+ non-scoped token).
+         *     tunables snapshot and the inputs the kind declares, recorded under the caller. 404 if `job_name`
+         *     is not a known job, 400 if it is not run by hand, a key is not an input it declares, or an input
+         *     it requires is missing. Requires `write_metadata` (+ non-scoped token).
          */
         post: operations["run_now"];
         delete?: never;
@@ -5813,7 +5815,9 @@ export interface paths {
         put?: never;
         /**
          * Batch insert non-numeric device status events (e.g. "low_battery", "offline").
-         *     Auto-creates "api" streams as needed. 10MB body limit. Requires `write_data`.
+         *     Auto-creates "api" streams as needed. An event is attributed to its site and parameter only
+         *     when the site carries that parameter; otherwise it is stored unattributed on its unpaired
+         *     stream. 10MB body limit. Requires `write_data`.
          */
         post: operations["insert_batch_status_events"];
         delete?: never;
@@ -6518,9 +6522,11 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Revert a decision: a remediation's flags are removed (only the readings that resolution
+         * Revert a decision. A remediation's flags are removed (only the readings that resolution
          *     flagged, identified by the recorded reason) and the hold returns to review, `pending` or
-         *     `deferred` per the stream's current pairing.
+         *     `deferred` per the stream's current pairing. A ruling on an intern's entry or field day is rolled
+         *     back whole: its decisions, the outputs that followed them, the visit and the holds it closed
+         *     return to what they were, and the hold is `pending`.
          */
         post: operations["reopen_hold"];
         delete?: never;
@@ -7541,7 +7547,7 @@ export interface paths {
          * What each version of the calculation has computed on the stream arm, newest first (Q232).
          * @description The visit arm answers this with its runs; a stream pass mints none, so the history is read off
          *     the curation ledger. Requires `read_data`: it is a reading of what was computed, not of how the
-         *     calculation is written.
+         *     calculation is written, and a confined caller counts only what was computed at their own sites.
          */
         get: operations["list_version_ledger"];
         put?: never;
@@ -8335,6 +8341,7 @@ export interface components {
             category: string;
             /** Format: date-time */
             created_at: string | null;
+            /** @description The caller who created the row, stamped from the request; an update naming it is refused. */
             created_by: string | null;
             /** Format: date-time */
             end_time: string;
@@ -8363,7 +8370,6 @@ export interface components {
         };
         AnnotationCreate: {
             category: string;
-            created_by?: string | null;
             /** Format: date-time */
             end_time: string;
             /** Format: uuid */
@@ -8385,6 +8391,7 @@ export interface components {
             category: string;
             /** Format: date-time */
             created_at: string | null;
+            /** @description The caller who created the row, stamped from the request; an update naming it is refused. */
             created_by: string | null;
             /** Format: date-time */
             end_time: string;
@@ -8432,6 +8439,7 @@ export interface components {
             category: string;
             /** Format: date-time */
             created_at: string | null;
+            /** @description The caller who created the row, stamped from the request; an update naming it is refused. */
             created_by: string | null;
             /** Format: date-time */
             end_time: string;
@@ -8500,34 +8508,6 @@ export interface components {
              */
             time: string;
         };
-        ApiToken: {
-            /** Format: date-time */
-            created_at: string | null;
-            created_by: string | null;
-            /** @description Per-key allocation label, which external client/logger this key was issued to. */
-            description: string | null;
-            /** Format: date-time */
-            expires_at: string | null;
-            /** Format: uuid */
-            id: string;
-            is_active: boolean;
-            /** Format: date-time */
-            last_used_at: string | null;
-            name: string;
-            permissions: unknown;
-            /** Format: uuid */
-            project_scope: string | null;
-            /**
-             * Format: int32
-             * @description Optional per-token request ceiling (requests/second). NULL = unlimited.
-             */
-            rate_limit_per_second: number | null;
-            token?: string | null;
-            /** @description Argon2id PHC hash of the token secret. Excluded from create/update (set on mint). */
-            token_hash: string;
-            /** @description Non-secret indexed lookup key (`rvd_<token_prefix>_<secret>`); set on mint. */
-            token_prefix: string;
-        };
         ApiTokenAuditLogList: {
             /** Format: date-time */
             created_at: string;
@@ -8557,7 +8537,6 @@ export interface components {
             token_id: string;
         };
         ApiTokenCreate: {
-            created_by?: string | null;
             description?: string | null;
             /** Format: date-time */
             expires_at?: string | null;
@@ -8572,6 +8551,7 @@ export interface components {
         ApiTokenList: {
             /** Format: date-time */
             created_at: string | null;
+            /** @description The caller who created the row, stamped from the request; an update naming it is refused. */
             created_by: string | null;
             /** @description Per-key allocation label, which external client/logger this key was issued to. */
             description: string | null;
@@ -8599,6 +8579,7 @@ export interface components {
         ApiTokenResponse: {
             /** Format: date-time */
             created_at: string | null;
+            /** @description The caller who created the row, stamped from the request; an update naming it is refused. */
             created_by: string | null;
             /** @description Per-key allocation label, which external client/logger this key was issued to. */
             description: string | null;
@@ -8620,8 +8601,6 @@ export interface components {
             rate_limit_per_second: number | null;
             /** @description The one-time secret, populated only in the create/rotate response. Never stored. */
             token?: string | null;
-            /** @description Argon2id PHC hash of the token secret. Excluded from create/update (set on mint). */
-            token_hash: string;
             /** @description Non-secret indexed lookup key (`rvd_<token_prefix>_<secret>`); set on mint. */
             token_prefix: string;
         };
@@ -9432,7 +9411,6 @@ export interface components {
         CollectionEventCreate: {
             /** Format: date-time */
             collected_at: string;
-            created_by?: string | null;
             notes?: string | null;
             /** Format: uuid */
             site_id: string;
@@ -9442,6 +9420,7 @@ export interface components {
             collected_at: string;
             /** Format: date-time */
             created_at: string;
+            /** @description The caller who created the row, stamped from the request; an update naming it is refused. */
             created_by: string | null;
             /** Format: uuid */
             id: string;
@@ -9472,6 +9451,7 @@ export interface components {
             collected_at: string;
             /** Format: date-time */
             created_at: string;
+            /** @description The caller who created the row, stamped from the request; an update naming it is refused. */
             created_by: string | null;
             /** Format: uuid */
             id: string;
@@ -11495,9 +11475,9 @@ export interface components {
              */
             audit?: components["schemas"]["GroupAudit"][] | null;
             /**
-             * @description The writer declaring these readings collection events: spot replicate groups sharing an
-             *     instant form a `samples` row from the first reading, like `/grab_samples`. Sync-service
-             *     callers only; without it a group still forms a sample once it carries two replicates.
+             * @description Ignored: a spot group sharing an instant forms a `samples` row once it carries two
+             *     replicates, whatever the writer declares. Accepted so sync services built on
+             *     river-data-core 0.14 and earlier are not refused. Sync-service callers only.
              */
             collection?: boolean;
             /**
@@ -12292,7 +12272,6 @@ export interface components {
             sites: components["schemas"]["NavigatorSite"][];
         };
         NoteCreate: {
-            created_by?: string | null;
             /** Format: uuid */
             site_id: string;
             text: string;
@@ -12307,6 +12286,7 @@ export interface components {
         NoteList: {
             /** Format: date-time */
             created_at: string;
+            /** @description The caller who created the row, stamped from the request; an update naming it is refused. */
             created_by: string | null;
             /** Format: uuid */
             id: string;
@@ -12336,6 +12316,7 @@ export interface components {
         NoteResponse: {
             /** Format: date-time */
             created_at: string;
+            /** @description The caller who created the row, stamped from the request; an update naming it is refused. */
             created_by: string | null;
             /** Format: uuid */
             id: string;
@@ -12733,6 +12714,7 @@ export interface components {
             apply_result: null | components["schemas"]["ApplyResult"];
             /** Format: date-time */
             created_at: string;
+            /** @description The caller who created the row, stamped from the request; an update naming it is refused. */
             created_by: string | null;
             /**
              * @description Curves the review assigned to instruments this plan creates, `[{curve_id,
@@ -12763,7 +12745,6 @@ export interface components {
             version: number;
         };
         PairingPlanCreate: {
-            created_by?: string | null;
             entries: components["schemas"]["PlanEntries"];
             source_system: string;
             status?: string | null;
@@ -12780,6 +12761,7 @@ export interface components {
             apply_result: null | components["schemas"]["ApplyResult"];
             /** Format: date-time */
             created_at: string;
+            /** @description The caller who created the row, stamped from the request; an update naming it is refused. */
             created_by: string | null;
             /**
              * @description Curves the review assigned to instruments this plan creates, `[{curve_id,
@@ -12820,6 +12802,7 @@ export interface components {
             apply_result: null | components["schemas"]["ApplyResult"];
             /** Format: date-time */
             created_at: string;
+            /** @description The caller who created the row, stamped from the request; an update naming it is refused. */
             created_by: string | null;
             /**
              * @description Curves the review assigned to instruments this plan creates, `[{curve_id,
@@ -14517,7 +14500,12 @@ export interface components {
             withdrawn_reason?: string;
         };
         ReadingInput: {
-            /** Format: double */
+            /**
+             * Format: double
+             * @description The corrected value. Where a calibration covers the reading the server computes it from
+             *     that calibration, and a submitted value that differs is refused with 400. With no
+             *     calibration a submitted value is stored as given.
+             */
             calibrated_value?: number | null;
             /** Format: uuid */
             calibration_id?: string | null;
@@ -16009,7 +15997,10 @@ export interface components {
             retired_at: string | null;
             retired_by: string | null;
             retired_reason: string | null;
-            /** Format: uuid */
+            /**
+             * Format: uuid
+             * @description The instrument the curve was fitted on, fixed once created.
+             */
             sensor_id: string;
             /** Format: double */
             slope: number;
@@ -16057,7 +16048,10 @@ export interface components {
             retired_at: string | null;
             retired_by: string | null;
             retired_reason: string | null;
-            /** Format: uuid */
+            /**
+             * Format: uuid
+             * @description The instrument the curve was fitted on, fixed once created.
+             */
             sensor_id: string;
             /** Format: double */
             slope: number;
@@ -16087,8 +16081,6 @@ export interface components {
             performed_by?: string | null;
             /** Format: double */
             r_squared?: number | null;
-            /** Format: uuid */
-            sensor_id?: string | null;
             /** Format: double */
             slope?: number | null;
             /** Format: date-time */
@@ -17011,7 +17003,6 @@ export interface components {
         StandardCurveCreate: {
             /** Format: uuid */
             copied_from_id?: string | null;
-            created_by?: string | null;
             /** Format: date */
             fitted_on?: string | null;
             /** Format: double */
@@ -17036,8 +17027,8 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             /**
-             * @description Who fitted the curve, supplied by the caller as on notes, annotations, samples and pairing
-             *     plans. Writable, otherwise the column could never hold anything.
+             * @description Who entered the curve, stamped from the request that created it; an update naming it is
+             *     refused.
              */
             created_by: string | null;
             /**
@@ -17093,8 +17084,8 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             /**
-             * @description Who fitted the curve, supplied by the caller as on notes, annotations, samples and pairing
-             *     plans. Writable, otherwise the column could never hold anything.
+             * @description Who entered the curve, stamped from the request that created it; an update naming it is
+             *     refused.
              */
             created_by: string | null;
             /**
@@ -18699,6 +18690,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["QueuedJobResponse"];
                 };
+            };
+            /** @description The calculation is active at a site outside the caller's projects */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Calculation not found */
             404: {
@@ -28942,7 +28940,7 @@ export interface operations {
                     "application/json": components["schemas"]["BatchReadingsResponse"];
                 };
             };
-            /** @description Timestamp outside the admissible window, or non-finite value */
+            /** @description Timestamp outside the admissible window, non-finite value, or a calibrated_value the row's calibration does not produce */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -30885,7 +30883,7 @@ export interface operations {
                     "application/json": components["schemas"]["RunNowResponse"];
                 };
             };
-            /** @description The job is not run by hand, or an input it declares is missing */
+            /** @description The job is not run by hand, a key is not an input it declares, or a required input is missing */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -36463,8 +36461,22 @@ export interface operations {
                     "application/json": components["schemas"]["ResolveHoldResponse"];
                 };
             };
+            /** @description A ruling that recorded no decision set, which names the per-decision rollback route instead */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description No decided hold with this id */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The slot or visit has a pending hold again, a measurement at a field day was ruled on after it, or a reading the ruling decided has been decided again since */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -38853,7 +38865,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiToken"];
+                    "application/json": components["schemas"]["ApiTokenResponse"];
                 };
             };
             /** @description Token not found */
@@ -38883,7 +38895,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiToken"];
+                    "application/json": components["schemas"]["ApiTokenResponse"];
                 };
             };
             /** @description Token not found */

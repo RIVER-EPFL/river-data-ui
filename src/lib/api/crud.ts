@@ -286,10 +286,11 @@ export interface SensorCalibration {
  * It has no time columns, so it never takes part in calibration chaining.
  *
  * Only `sensor_id` and `name` are filterable; only `name` and `created_at` are sortable.
- * `created_by` is caller-supplied on create, not server-stamped.
+ * `created_by` is the caller who created the curve, stamped by the API; an update naming it is
+ * refused.
  *
  * A curve becomes immutable once a reading references it: the API refuses any change to
- * slope/intercept/r_squared/name/sensor_id/created_by (notes stay editable) and refuses delete.
+ * slope/intercept/r_squared/fitted_on/sensor_id (name and notes stay editable) and refuses delete.
  * Mint a new curve instead. `slope` of 0 is refused on create and update.
  */
 export interface StandardCurve {

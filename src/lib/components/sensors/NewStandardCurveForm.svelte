@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { api, type StandardCurve } from '$api/crud';
-	import { me } from '$auth/me.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import { apiMessage, emptyCurveForm, parseCurveForm, type CurveForm } from '$lib/standardCurves';
@@ -40,9 +39,6 @@
 			const curve = await api.standardCurves.create({
 				sensor_id: sensorId,
 				...parsed.values,
-				// The API stores created_by verbatim and freezes it on first use, so the column stays
-				// permanently empty unless the dashboard sends it here.
-				created_by: me.data?.email ?? null,
 			});
 			oncreated(curve);
 		} catch (e) {

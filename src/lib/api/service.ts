@@ -601,11 +601,11 @@ export const issueSyncCommand = (serviceId: string, command: string, payload?: o
 // Null clears the override, returning the service to its own configured cadence. The service
 // adopts the change on its next heartbeat.
 export const setSyncInterval = (serviceId: string, seconds: number | null) =>
-	PATCH<SyncService>(`${SERVICE}/sync_services/${serviceId}`, { sync_interval_secs: seconds });
+	PUT<SyncService>(`${SERVICE}/sync_services/${serviceId}`, { sync_interval_secs: seconds });
 
 // Whether the weekly sync_full_reassert job queues a full sync for this service.
 export const setFullReassert = (serviceId: string, enabled: boolean) =>
-	PATCH<SyncService>(`${SERVICE}/sync_services/${serviceId}`, { full_reassert_enabled: enabled });
+	PUT<SyncService>(`${SERVICE}/sync_services/${serviceId}`, { full_reassert_enabled: enabled });
 
 export const createServiceCredential = (serviceType: string) =>
 	POST<{ client_id: string; client_secret: string }>(`${ADMIN}/sync/credentials`, {

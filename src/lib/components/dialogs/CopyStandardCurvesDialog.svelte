@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api, type Sensor, type StandardCurve } from '$api/crud';
-	import { me } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { instrumentFilter, kindLabel, measuringInstruments, retiredSuffix } from '$lib/instruments/kind';
 	import Button from '$components/ui/Button.svelte';
@@ -112,7 +111,6 @@
 					r_squared: curve.r_squared,
 					copied_from_id: curve.id,
 					notes: `Copied from ${provenance}${curve.notes ? ` · ${curve.notes}` : ''}`,
-					created_by: me.data?.email ?? null,
 				});
 				taken.add(name);
 				copied += 1;

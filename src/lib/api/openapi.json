@@ -1087,6 +1087,7 @@
             ]
           },
           "created_by": {
+            "description": "The caller who created the row, stamped from the request; an update naming it is refused.",
             "type": [
               "string",
               "null"
@@ -1159,12 +1160,6 @@
           "category": {
             "type": "string"
           },
-          "created_by": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "end_time": {
             "format": "date-time",
             "type": "string"
@@ -1216,6 +1211,7 @@
             ]
           },
           "created_by": {
+            "description": "The caller who created the row, stamped from the request; an update naming it is refused.",
             "type": [
               "string",
               "null"
@@ -1329,6 +1325,7 @@
             ]
           },
           "created_by": {
+            "description": "The caller who created the row, stamped from the request; an update naming it is refused.",
             "type": [
               "string",
               "null"
@@ -1487,100 +1484,6 @@
         ],
         "type": "object"
       },
-      "ApiToken": {
-        "properties": {
-          "created_at": {
-            "format": "date-time",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "created_by": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "description": {
-            "description": "Per-key allocation label, which external client/logger this key was issued to.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "expires_at": {
-            "format": "date-time",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "is_active": {
-            "type": "boolean"
-          },
-          "last_used_at": {
-            "format": "date-time",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "name": {
-            "type": "string"
-          },
-          "permissions": {},
-          "project_scope": {
-            "format": "uuid",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "rate_limit_per_second": {
-            "description": "Optional per-token request ceiling (requests/second). NULL = unlimited.",
-            "format": "int32",
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "token": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "token_hash": {
-            "description": "Argon2id PHC hash of the token secret. Excluded from create/update (set on mint).",
-            "type": "string"
-          },
-          "token_prefix": {
-            "description": "Non-secret indexed lookup key (`rvd_<token_prefix>_<secret>`); set on mint.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "description",
-          "token_hash",
-          "token_prefix",
-          "project_scope",
-          "permissions",
-          "is_active",
-          "rate_limit_per_second",
-          "created_at",
-          "expires_at",
-          "last_used_at",
-          "created_by"
-        ],
-        "type": "object"
-      },
       "ApiTokenAuditLogList": {
         "properties": {
           "created_at": {
@@ -1669,12 +1572,6 @@
       },
       "ApiTokenCreate": {
         "properties": {
-          "created_by": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "description": {
             "type": [
               "string",
@@ -1729,6 +1626,7 @@
             ]
           },
           "created_by": {
+            "description": "The caller who created the row, stamped from the request; an update naming it is refused.",
             "type": [
               "string",
               "null"
@@ -1819,6 +1717,7 @@
             ]
           },
           "created_by": {
+            "description": "The caller who created the row, stamped from the request; an update naming it is refused.",
             "type": [
               "string",
               "null"
@@ -1878,10 +1777,6 @@
               "null"
             ]
           },
-          "token_hash": {
-            "description": "Argon2id PHC hash of the token secret. Excluded from create/update (set on mint).",
-            "type": "string"
-          },
           "token_prefix": {
             "description": "Non-secret indexed lookup key (`rvd_<token_prefix>_<secret>`); set on mint.",
             "type": "string"
@@ -1891,7 +1786,6 @@
           "id",
           "name",
           "description",
-          "token_hash",
           "token_prefix",
           "project_scope",
           "permissions",
@@ -3913,12 +3807,6 @@
             "format": "date-time",
             "type": "string"
           },
-          "created_by": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "notes": {
             "type": [
               "string",
@@ -3947,6 +3835,7 @@
             "type": "string"
           },
           "created_by": {
+            "description": "The caller who created the row, stamped from the request; an update naming it is refused.",
             "type": [
               "string",
               "null"
@@ -4015,6 +3904,7 @@
             "type": "string"
           },
           "created_by": {
+            "description": "The caller who created the row, stamped from the request; an update naming it is refused.",
             "type": [
               "string",
               "null"
@@ -9066,7 +8956,7 @@
             ]
           },
           "collection": {
-            "description": "The writer declaring these readings collection events: spot replicate groups sharing an\ninstant form a `samples` row from the first reading, like `/grab_samples`. Sync-service\ncallers only; without it a group still forms a sample once it carries two replicates.",
+            "description": "Ignored: a spot group sharing an instant forms a `samples` row once it carries two\nreplicates, whatever the writer declares. Accepted so sync services built on\nriver-data-core 0.14 and earlier are not refused. Sync-service callers only.",
             "type": "boolean"
           },
           "overwrite": {
@@ -11199,12 +11089,6 @@
       },
       "NoteCreate": {
         "properties": {
-          "created_by": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "site_id": {
             "format": "uuid",
             "type": "string"
@@ -11236,6 +11120,7 @@
             "type": "string"
           },
           "created_by": {
+            "description": "The caller who created the row, stamped from the request; an update naming it is refused.",
             "type": [
               "string",
               "null"
@@ -11318,6 +11203,7 @@
             "type": "string"
           },
           "created_by": {
+            "description": "The caller who created the row, stamped from the request; an update naming it is refused.",
             "type": [
               "string",
               "null"
@@ -12330,6 +12216,7 @@
             "type": "string"
           },
           "created_by": {
+            "description": "The caller who created the row, stamped from the request; an update naming it is refused.",
             "type": [
               "string",
               "null"
@@ -12389,12 +12276,6 @@
       },
       "PairingPlanCreate": {
         "properties": {
-          "created_by": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "entries": {
             "$ref": "#/components/schemas/PlanEntries"
           },
@@ -12446,6 +12327,7 @@
             "type": "string"
           },
           "created_by": {
+            "description": "The caller who created the row, stamped from the request; an update naming it is refused.",
             "type": [
               "string",
               "null"
@@ -12531,6 +12413,7 @@
             "type": "string"
           },
           "created_by": {
+            "description": "The caller who created the row, stamped from the request; an update naming it is refused.",
             "type": [
               "string",
               "null"
@@ -17179,6 +17062,7 @@
         "additionalProperties": false,
         "properties": {
           "calibrated_value": {
+            "description": "The corrected value. Where a calibration covers the reading the server computes it from\nthat calibration, and a submitted value that differs is refused with 400. With no\ncalibration a submitted value is stored as given.",
             "format": "double",
             "type": [
               "number",
@@ -20990,6 +20874,7 @@
         "type": "object"
       },
       "SensorCalibrationCreate": {
+        "additionalProperties": false,
         "properties": {
           "intercept": {
             "format": "double",
@@ -21120,6 +21005,7 @@
             ]
           },
           "sensor_id": {
+            "description": "The instrument the curve was fitted on, fixed once created.",
             "format": "uuid",
             "type": "string"
           },
@@ -21236,6 +21122,7 @@
             ]
           },
           "sensor_id": {
+            "description": "The instrument the curve was fitted on, fixed once created.",
             "format": "uuid",
             "type": "string"
           },
@@ -21281,6 +21168,7 @@
         "type": "object"
       },
       "SensorCalibrationUpdate": {
+        "additionalProperties": false,
         "properties": {
           "intercept": {
             "format": "double",
@@ -21318,13 +21206,6 @@
             "format": "double",
             "type": [
               "number",
-              "null"
-            ]
-          },
-          "sensor_id": {
-            "format": "uuid",
-            "type": [
-              "string",
               "null"
             ]
           },
@@ -23814,12 +23695,6 @@
               "null"
             ]
           },
-          "created_by": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "fitted_on": {
             "format": "date",
             "type": [
@@ -23881,7 +23756,7 @@
             "type": "string"
           },
           "created_by": {
-            "description": "Who fitted the curve, supplied by the caller as on notes, annotations, samples and pairing\nplans. Writable, otherwise the column could never hold anything.",
+            "description": "Who entered the curve, stamped from the request that created it; an update naming it is\nrefused.",
             "type": [
               "string",
               "null"
@@ -24002,7 +23877,7 @@
             "type": "string"
           },
           "created_by": {
-            "description": "Who fitted the curve, supplied by the caller as on notes, annotations, samples and pairing\nplans. Writable, otherwise the column could never hold anything.",
+            "description": "Who entered the curve, stamped from the request that created it; an update naming it is\nrefused.",
             "type": [
               "string",
               "null"
@@ -27890,11 +27765,14 @@
             },
             "description": "Background recompute job triggered"
           },
+          "403": {
+            "description": "The calculation is active at a site outside the caller's projects"
+          },
           "404": {
             "description": "Calculation not found"
           }
         },
-        "summary": "Recompute every derived value for a given derived parameter definition. Backfills via\njoining source readings; tracked as a `reprocessing_jobs` row. Refreshes continuous\naggregates on completion. Requires `write_metadata`.",
+        "summary": "Recompute every derived value for a given derived parameter definition. Backfills via\njoining source readings; tracked as a `reprocessing_jobs` row. Refreshes continuous\naggregates on completion. Requires `write_metadata`, and a caller confined to projects is\nrefused a calculation active at any site outside them, since the job rewrites every one.",
         "tags": [
           "actions"
         ]
@@ -39334,13 +39212,13 @@
             "description": "Inserted count"
           },
           "400": {
-            "description": "Timestamp outside the admissible window, or non-finite value"
+            "description": "Timestamp outside the admissible window, non-finite value, or a calibrated_value the row's calibration does not produce"
           },
           "413": {
             "description": "Body exceeds 10MB limit"
           }
         },
-        "summary": "Batch insert readings keyed by (site_id, parameter_id). Auto-creates \"api\" streams when\na (site, parameter) pair has none. 10MB body limit. Requires `write_data`.",
+        "summary": "Batch insert readings keyed by (site_id, parameter_id). Auto-creates \"api\" streams when\na (site, parameter) pair has none, and pairs one to the site's slot once the site carries it; a\nrow is attributed from its stream's pairing. 10MB body limit. Requires `write_data`.",
         "tags": [
           "ingestion"
         ]
@@ -41634,13 +41512,13 @@
             "description": "The enqueued run"
           },
           "400": {
-            "description": "The job is not run by hand, or an input it declares is missing"
+            "description": "The job is not run by hand, a key is not an input it declares, or a required input is missing"
           },
           "404": {
             "description": "No job of that name is registered"
           }
         },
-        "summary": "`POST /api/schedules/{job_name}/run_now`, fire one off-cadence run with the schedule's current\ntunables snapshot and whatever inputs the kind declares. 404 if `job_name` is not a known job,\n400 if it is not run by hand or an input it declares is missing. Requires `write_metadata`\n(+ non-scoped token).",
+        "summary": "`POST /api/schedules/{job_name}/run_now`, fire one off-cadence run with the schedule's current\ntunables snapshot and the inputs the kind declares, recorded under the caller. 404 if `job_name`\nis not a known job, 400 if it is not run by hand, a key is not an input it declares, or an input\nit requires is missing. Requires `write_metadata` (+ non-scoped token).",
         "tags": [
           "schedules"
         ]
@@ -46773,7 +46651,7 @@
             "description": "Body exceeds 10MB limit"
           }
         },
-        "summary": "Batch insert non-numeric device status events (e.g. \"low_battery\", \"offline\").\nAuto-creates \"api\" streams as needed. 10MB body limit. Requires `write_data`.",
+        "summary": "Batch insert non-numeric device status events (e.g. \"low_battery\", \"offline\").\nAuto-creates \"api\" streams as needed. An event is attributed to its site and parameter only\nwhen the site carries that parameter; otherwise it is stored unattributed on its unpaired\nstream. 10MB body limit. Requires `write_data`.",
         "tags": [
           "ingestion"
         ]
@@ -48654,11 +48532,17 @@
             },
             "description": ""
           },
+          "400": {
+            "description": "A ruling that recorded no decision set, which names the per-decision rollback route instead"
+          },
           "404": {
             "description": "No decided hold with this id"
+          },
+          "409": {
+            "description": "The slot or visit has a pending hold again, a measurement at a field day was ruled on after it, or a reading the ruling decided has been decided again since"
           }
         },
-        "summary": "Revert a decision: a remediation's flags are removed (only the readings that resolution\nflagged, identified by the recorded reason) and the hold returns to review, `pending` or\n`deferred` per the stream's current pairing.",
+        "summary": "Revert a decision. A remediation's flags are removed (only the readings that resolution\nflagged, identified by the recorded reason) and the hold returns to review, `pending` or\n`deferred` per the stream's current pairing. A ruling on an intern's entry or field day is rolled\nback whole: its decisions, the outputs that followed them, the visit and the holds it closed\nreturn to what they were, and the hold is `pending`.",
         "tags": [
           "sync"
         ]
@@ -51278,7 +51162,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiToken"
+                  "$ref": "#/components/schemas/ApiTokenResponse"
                 }
               }
             },
@@ -51314,7 +51198,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiToken"
+                  "$ref": "#/components/schemas/ApiTokenResponse"
                 }
               }
             },
@@ -51974,7 +51858,7 @@
     },
     "/api/tool_scripts/{id}/version_ledger": {
       "get": {
-        "description": "The visit arm answers this with its runs; a stream pass mints none, so the history is read off\nthe curation ledger. Requires `read_data`: it is a reading of what was computed, not of how the\ncalculation is written.",
+        "description": "The visit arm answers this with its runs; a stream pass mints none, so the history is read off\nthe curation ledger. Requires `read_data`: it is a reading of what was computed, not of how the\ncalculation is written, and a confined caller counts only what was computed at their own sites.",
         "operationId": "list_version_ledger",
         "parameters": [
           {

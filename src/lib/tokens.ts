@@ -50,7 +50,6 @@ export function tokenFormOf(token: ApiToken): TokenFormState {
 export function tokenPayload(
 	mode: 'create' | 'edit',
 	form: TokenFormState,
-	createdBy = '',
 ): Record<string, unknown> {
 	const rate = form.rateLimit && Number(form.rateLimit) > 0 ? Number(form.rateLimit) : null;
 	const expiry = form.expiryMode === 'custom' && form.expiresAt ? form.expiresAt : null;
@@ -71,7 +70,6 @@ export function tokenPayload(
 	const payload: Record<string, unknown> = {
 		name: form.name,
 		permissions: form.permissions,
-		created_by: createdBy,
 	};
 	if (description) payload.description = description;
 	if (scope) payload.project_scope = scope;
