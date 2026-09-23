@@ -69,15 +69,17 @@ describe('CellPanel', () => {
 		expect(onselect).toHaveBeenCalledWith('CO2_HS_Um');
 	});
 
-	it('leaves a shared step read-only, with what it feeds and a way to stop reading it', () => {
-		const shared = formula({ ...formulas[0], declarationId: 'decl-1' });
+	it('edits a shared step in place, with what it feeds and a way to stop reading it', () => {
+		const shared = formula({ ...formulas[0], declarationId: 'decl-1', shared: true });
 		render(CellPanel, {
 			row: rowFor('hs_k'),
 			formula: shared,
 			formulas,
 			variables,
 		});
-		expect(screen.queryByLabelText('Code')).toBeNull();
+		expect((screen.getByLabelText('Code') as HTMLInputElement).value).toBe('hs_k');
+		expect(screen.getByLabelText('Units')).toBeTruthy();
+		expect(screen.getByText(/every calculation that declares it/)).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'What it feeds' })).toBeTruthy();
 		expect(screen.getAllByRole('button', { name: 'Stop reading' }).length).toBeGreaterThan(0);
 	});
@@ -89,6 +91,15 @@ describe('CellPanel', () => {
 		expect(whose.value).toBe('false');
 		await userEvent.selectOptions(whose, 'true');
 		expect(step.shared).toBe(true);
+	});
+
+	it('brings a declared step back into this calculation alone', async () => {
+		const step = $state(formula({ ...formulas[0], id: 'f-1', declarationId: 'decl-1', shared: true }));
+		render(CellPanel, { row: rowFor('hs_k'), formula: step, formulas, variables });
+		const whose = screen.getByLabelText(/^Read by/) as HTMLSelectElement;
+		expect(whose.value).toBe('true');
+		await userEvent.selectOptions(whose, 'false');
+		expect(step.shared).toBe(false);
 	});
 
 	it('does not offer it on an output, which publishes under its own parameter', () => {

@@ -77,18 +77,39 @@ export function editableFormula(stored: DerivedParameter): EditableFormula {
 /**
  * A formula this calculation reads without owning: a step belonging to no calculation, which every
  * calculation that declares it reads under this code. The set save leaves it out; it is written on
- * its own and declared into the calculation.
+ * its own and declared into the calculation. A declared step the author stops sharing is saved
+ * into the set, which takes it back as this calculation's own.
  */
 export function isSharedStep(f: EditableFormula): boolean {
-	return f.declarationId != null || (f.shared && f.intermediate);
+	return f.shared && f.intermediate;
 }
 
+/** The fields of a step the calculation that declares it may correct. */
+const STEP_FIELDS = [
+	'code',
+	'name',
+	'units',
+	'description',
+	'formula',
+	'per_replicate',
+	'curve_slot',
+] as const;
+
 /**
- * The shared steps the save writes beside the set: one it has no declaration for yet. A formula
- * with an id is unowned in place and keeps its identity; one without is created unowned.
+ * The shared steps the save writes beside the set: one it has no declaration for yet, and one
+ * declared here whose fields differ from the stored step. A formula with an id is written in place
+ * and keeps its identity; one without is created unowned.
  */
-export function sharedStepWrites(formulas: EditableFormula[]): EditableFormula[] {
-	return formulas.filter((f) => isSharedStep(f) && !f.declarationId);
+export function sharedStepWrites(
+	formulas: EditableFormula[],
+	stored: EditableFormula[] = [],
+): EditableFormula[] {
+	return formulas.filter((f) => {
+		if (!isSharedStep(f)) return false;
+		if (!f.declarationId) return true;
+		const was = stored.find((s) => s.id === f.id);
+		return !was || STEP_FIELDS.some((field) => was[field] !== f[field]);
+	});
 }
 
 /** A blank formula placed after the last one. */

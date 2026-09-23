@@ -1,26 +1,18 @@
 /**
  * Where the vendored portal functions end inside a stored tool script.
  *
- * A version stores one script. The seeds build it as the wrapper preceded by only the prelude
- * functions it calls, and nothing in the text marks that join, so the boundary is recovered by
- * reading the prelude's own provenance: every
- * vendored block opens with the line `# Source: cnet-data-portal (MIT, mclement18)`, and each block
- * is a top-level function closing on a bare `}`. The prelude is therefore the run from the top of
- * the script through the close of the last vendored block, plus the blank lines before the author's
- * first line.
+ * A version stores one script, authored through `/tool_scripts`. When a portal function is carried
+ * into it verbatim, each carried block opens with the line `# Source: cnet-data-portal (MIT,
+ * mclement18)` and is a top-level function closing on a bare `}`. That line is this project's
+ * convention for a carried block, not a line the portal file holds. The prelude is the run from the
+ * top of the script through the close of the last carried block, plus the blank lines before the
+ * author's first line, and the editor write-protects it.
  *
- * Matching the prelude text instead was tried and rejected: the seed migration inserts a version
- * once and never revisits it, so a database holds whichever revision of `prelude.R` was current when
- * it was first migrated. The dev database and the working tree already disagree by 25 lines, which
- * a text or hash match would read as "no prelude here" on every seeded script.
- *
- * Detection fails safe by requiring the script to *open* with that provenance line. A script written
- * from scratch in the portal does not, so it reports no prelude at all and stays a plain document
- * with every line editable. A seeded tool that calls none of the portal functions (discharge) is
- * read the same way, correctly: it carries none.
+ * Detection requires the script to *open* with the marker. A script written from scratch does not,
+ * so it reports no prelude and stays a plain document with every line editable.
  */
 
-/** The provenance line each vendored block carries, copied from the portal's own header. */
+/** The line opening each block carried from the portal. */
 const VENDOR_MARKER = '# Source: cnet-data-portal';
 
 export interface ScriptStructure {

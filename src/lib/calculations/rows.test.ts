@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { calculationRows, unconfiguredInputs } from './rows';
+import { calculationRows, standingHealth, unconfiguredInputs } from './rows';
 import type { DerivedParameter, Parameter } from '$api/crud';
-import type { SlotCoverage, ToolDescriptor, ToolScriptSummary } from '$api/service';
+import type {
+	CalculationHealth,
+	SlotCoverage,
+	ToolDescriptor,
+	ToolScriptSummary,
+} from '$api/service';
 
 const parameters = [
 	{ id: 'p-doc', code: 'DOC' },
@@ -163,5 +168,32 @@ describe('the calculation a row belongs to', () => {
 			base: '',
 		});
 		expect(listed.map((r) => r.engine)).toEqual(['formula']);
+	});
+});
+
+describe('what a calculation row says about its health', () => {
+	const health = (over: Partial<CalculationHealth>): CalculationHealth => ({
+		tool: 'pco2',
+		stale_visits: 0,
+		missing_outputs: 0,
+		stale_outputs: 0,
+		skipped_outputs: 0,
+		repair: null,
+		...over,
+	});
+
+	it('says nothing with no finding and no run to watch', () => {
+		expect(standingHealth(health({}))).toBeUndefined();
+		expect(standingHealth(undefined)).toBeUndefined();
+	});
+
+	it('shows a failed recompute even when it left no finding standing', () => {
+		const failed = health({ repair: { job_id: 'j-1', state: 'failed' } });
+		expect(standingHealth(failed)).toBe(failed);
+	});
+
+	it('shows the open findings', () => {
+		const stale = health({ stale_visits: 3, stale_outputs: 3 });
+		expect(standingHealth(stale)).toBe(stale);
 	});
 });

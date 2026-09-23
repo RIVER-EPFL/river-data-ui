@@ -418,7 +418,7 @@ describe('the set a save posts', () => {
 	});
 
 	it('leaves out a step read through a declaration', () => {
-		const shared = formula({ id: 'z', code: 'bp', formula: '1', ordinal: 3, declarationId: 'd-1' });
+		const shared = formula({ id: 'z', code: 'bp', formula: '1', ordinal: 3, intermediate: true, shared: true, declarationId: 'd-1' });
 		expect(formulaSetBody([...edited, shared], false).formulas.map((f) => f.code)).toEqual([
 			'CO2_HS_Um',
 			'pCO2_HS_uatm',
@@ -472,8 +472,25 @@ describe('a step any calculation may read', () => {
 
 	it('is written once: a step already declared here is left alone', () => {
 		const declared = step({ id: 'f-1', shared: true, declarationId: 'd-1' });
-		expect(sharedStepWrites([declared])).toEqual([]);
+		expect(sharedStepWrites([declared], [declared])).toEqual([]);
 		expect(formulaSetBody([declared], false).formulas).toEqual([]);
+	});
+
+	it('is written again when the author corrects it where it is declared', () => {
+		const declared = step({ id: 'f-1', shared: true, declarationId: 'd-1' });
+		const corrected = { ...declared, formula: 'WTW_Temp_degC_1 + 273.16', units: 'K' };
+		expect(sharedStepWrites([corrected], [declared]).map((f) => f.formula)).toEqual([
+			'WTW_Temp_degC_1 + 273.16',
+		]);
+		expect(formulaSetBody([corrected], false).formulas).toEqual([]);
+	});
+
+	it('returns to the set, under its id, when the author stops sharing a declared step', () => {
+		const declared = step({ id: 'f-1', shared: true, declarationId: 'd-1' });
+		const unshared = { ...declared, shared: false };
+		expect(isSharedStep(unshared)).toBe(false);
+		expect(sharedStepWrites([unshared], [declared])).toEqual([]);
+		expect(formulaSetBody([unshared], false).formulas.map((f) => f.id)).toEqual(['f-1']);
 	});
 
 	it('keeps its identity when a stored step of this calculation is shared', () => {

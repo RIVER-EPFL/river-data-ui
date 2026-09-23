@@ -7,7 +7,12 @@
 // here (Q238).
 
 import type { DerivedParameter, Parameter } from '$api/crud';
-import type { SlotCoverage, ToolDescriptor, ToolScriptSummary } from '$api/service';
+import type {
+	CalculationHealth,
+	SlotCoverage,
+	ToolDescriptor,
+	ToolScriptSummary,
+} from '$api/service';
 import { toolboxHref } from '$lib/toolbox/route';
 
 export type CalculationEngine = 'formula' | 'script';
@@ -150,4 +155,13 @@ export function unconfiguredInputs(rows: CalculationRow[]): string[] {
 		}
 	}
 	return [...codes].sort();
+}
+
+/**
+ * The health a calculation's row shows: its open findings, or a recompute still running or failed.
+ * A failed run is shown whatever the findings say, since a run that failed after clearing them
+ * leaves none. Undefined when there is nothing to show.
+ */
+export function standingHealth(h: CalculationHealth | undefined): CalculationHealth | undefined {
+	return h && (h.stale_visits > 0 || h.repair) ? h : undefined;
 }

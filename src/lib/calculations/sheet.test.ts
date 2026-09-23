@@ -222,6 +222,24 @@ describe('cell edits', () => {
 		expect(cellEdit(row(2, 'CO2_HS_Um'), 1, '12')).toBeNull();
 		expect(cellEdit(row(0, 'lab_co2'), 0, 'x')).toBeNull();
 	});
+
+	it('leaves a step read through a declaration to the calculation that owns it', () => {
+		const withDeclared = [
+			...set,
+			formula({
+				code: 'water_k',
+				formula: 'lab_temp + 273.15',
+				intermediate: true,
+				declarationId: 'decl-1',
+				ordinal: 3,
+			}),
+		];
+		const steps = sheetBlocks(withDeclared, inputRows(withDeclared, parameters, constants))[1]!;
+		const declared = steps.rows.find((r) => r.key === 'water_k')!;
+		const owned = steps.rows.find((r) => r.key === 'hs_k')!;
+		expect(cellEdit(declared, 0, 'x')).toBeNull();
+		expect(cellEdit(owned, 0, 'x')).toEqual({ kind: 'code', key: 'hs_k', text: 'x' });
+	});
 });
 
 describe('inserting an identifier', () => {

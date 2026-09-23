@@ -147,6 +147,9 @@
 		type Edits,
 	} from '$lib/visits/tableEdit';
 	import { cellRole, cellWritable, editConsequence } from '$lib/visits/role';
+	import { cellCurves } from '$lib/visits/curve';
+	import { instrumentCurves } from '$lib/visits/instrument';
+	import { curveRefs } from '$lib/curveRefs.svelte';
 	import { seasonalFindingLabel } from '$lib/seasonal';
 	import { readUntilSettled, runOutputs, runReportLine } from '$lib/visits/recompute';
 	import Dialog from '$components/ui/Dialog.svelte';
@@ -350,6 +353,11 @@
 	// group enters. Nothing declares one for a correction: that value already names what made it.
 	let declaredInstruments = $state<Record<string, string>>({});
 	let instruments = $state<Sensor[]>([]);
+	// A declared instrument says how many curves it carries, so a declaration of one with none is
+	// visible where it is made.
+	$effect(() => {
+		curveRefs.ensureCurveCounts(Object.values(declaredInstruments));
+	});
 
 	// The spare area under the last listed visit: a date typed or pasted there stages a visit at
 	// that instant, and the values beside it are that visit's entries, saved by the same one Save.
@@ -1807,6 +1815,7 @@
 											<th class="py-1 pr-3 text-left font-medium">Parameter</th>
 											<th class="py-1 pr-3 text-left font-medium">Served</th>
 											<th class="py-1 pr-3 text-left font-medium">Replicates</th>
+											<th class="py-1 pr-3 text-left font-medium">Curve</th>
 											<th class="py-1 pr-3 text-left font-medium">Provenance</th>
 											<th class="py-1 text-left font-medium">Finding</th>
 										</tr>
@@ -1848,6 +1857,15 @@
 																>
 															{/each}
 														</select>
+														{@const curves = instrumentCurves(declared, curveRefs.curveCount(declared))}
+														{#if curves}
+															<a
+																class="ml-1 text-[10px] text-brand-primary hover:underline"
+																href="{base}{curves.href}"
+																title="The standard curves of the instrument declared here"
+																onclick={(e) => e.stopPropagation()}
+															>{curves.label}</a>
+														{/if}
 													{/if}
 													{#if cell && cellRole(cell).title}
 														{@const owner = cellRole(cell).role === 'output' ? cell.written_by : (cell.read_by ?? [])[0]}
@@ -1864,6 +1882,7 @@
 												{#if !cell}
 													<!-- A slot the site declares and the visit did not measure. It has a row so a
 													     first measurement can say what took it (U69). -->
+													<td class="py-1 pr-3 text-brand-muted">-</td>
 													<td class="py-1 pr-3 text-brand-muted">-</td>
 													<td class="py-1 pr-3 text-brand-muted">-</td>
 													<td class="py-1 pr-3 text-brand-muted">not measured</td>
@@ -1886,6 +1905,30 @@
 													{cell.replicates
 														.map((r) => `${formatMeasurement(r.calibrated_value ?? r.raw_value, decimalsForParameter(cell.parameter_id))}${r.flagged ? '*' : ''}${r.withdrawn ? '†' : ''}`)
 														.join(', ')}
+												</td>
+												<td class="py-1 pr-3">
+													{#each cellCurves(cell, base) as curve, i (curve.id)}
+														{#if i > 0}<span class="text-brand-muted">, </span>{/if}
+														{@const title = `${curve.equation}${curve.retired ? ', retired' : ''}`}
+														{#if curve.target.kind === 'calculation'}
+															{@const tool = curve.target.tool}
+															<button
+																type="button"
+																class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline"
+																title="{title}. Open {tool} at this visit, on the curve its last run here used"
+																onclick={(e) => { e.stopPropagation(); void openCalculation(tool, visitDetail!); }}
+															>{curve.label}</button>
+														{:else}
+															<a
+																class="text-brand-primary hover:underline"
+																href={curve.target.href}
+																title="{title}. Open this standard curve on the lab instrument"
+																onclick={(e) => e.stopPropagation()}
+															>{curve.label}</a>
+														{/if}
+													{:else}
+														<span class="text-brand-muted">-</span>
+													{/each}
 												</td>
 												<td class="py-1 pr-3 relative">
 													{#if cell.has_provenance && cell.tool_run_id}

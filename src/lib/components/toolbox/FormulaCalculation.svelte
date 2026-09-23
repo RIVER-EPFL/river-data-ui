@@ -435,7 +435,7 @@
 			const declared = await declaredSteps(steps);
 			const bounded = await withBounds(rows.data.map(editableFormula), rows.data);
 			stored = [...bounded, ...declared];
-			formulas = [...bounded.map((f) => ({ ...f, thresholds: { ...f.thresholds } })), ...declared];
+			formulas = [...bounded, ...declared].map((f) => ({ ...f, thresholds: { ...f.thresholds } }));
 			parameters = params;
 			constants = consts;
 			members = memberRows;
@@ -542,12 +542,12 @@
 	 * version being replaced produced: left where they are, or recomputed under the new one.
 	 */
 	/**
-	 * Write the steps the author marked shared, before the set save leaves them out. A step with an
-	 * id is unowned in place, so what already reads it goes on reading it; one without is created.
-	 * Either way this calculation reads it through a declaration afterwards.
+	 * Write the steps the author marked shared or corrected, before the set save leaves them out. A
+	 * step with an id is written in place, so what already reads it goes on reading it; one without
+	 * is created. Either way this calculation reads it through a declaration afterwards.
 	 */
 	async function writeSharedSteps() {
-		for (const step of sharedStepWrites(formulas)) {
+		for (const step of sharedStepWrites(formulas, stored)) {
 			const values = {
 				code: step.code.trim(),
 				name: step.name.trim() || step.code.trim(),
@@ -562,6 +562,7 @@
 			const written = step.id
 				? await api.derivedParameters.update(step.id, values)
 				: await api.derivedParameters.create(values);
+			if (step.declarationId) continue;
 			await api.calculationSharedSteps.create({
 				tool_script_id: calculationId,
 				formula_id: written.id,

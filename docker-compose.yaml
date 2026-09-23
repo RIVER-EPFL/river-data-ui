@@ -511,6 +511,10 @@ services:
         condition: service_healthy
       river-db-keycloak:
         condition: service_healthy
+      # The image's healthcheck passes only once a script can run, so the first run under `all`
+      # does not reach the runner before it can answer.
+      river-tools-r:
+        condition: service_healthy
     entrypoint: ["bacon", "--headless", "test-integration"]
     volumes:
       - ../river-data-api/src:/app/src

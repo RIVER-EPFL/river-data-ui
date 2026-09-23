@@ -8935,6 +8935,7 @@ export interface components {
         CalculationHealth: {
             /** Format: int64 */
             missing_outputs: number;
+            repair?: null | components["schemas"]["CalculationRepair"];
             /** Format: int64 */
             skipped_outputs: number;
             /** Format: int64 */
@@ -8988,6 +8989,13 @@ export interface components {
             version_id?: string;
             /** Format: int32 */
             version_no?: number;
+        };
+        /** @description A calculation's latest recompute run, named so its logs can be opened. */
+        CalculationRepair: {
+            /** Format: uuid */
+            job_id: string;
+            /** @description `queued`, `running` or `failed`. */
+            state: string;
         };
         CalculationSharedStepCreate: {
             /** Format: uuid */

@@ -74,7 +74,7 @@
 		builder?.focus();
 	}
 
-	const shared = $derived(Boolean(formula?.declarationId));
+	const shared = $derived(Boolean(formula?.declarationId) && Boolean(formula?.shared));
 	const links = $derived(formula ? linksOf(formulas, formula.code) : { reads: [], readBy: [] });
 	// An input's readers are the formulas naming it; a formula's are what `linksOf` gives.
 	const readBy = $derived(
@@ -116,6 +116,24 @@
 	{/if}
 {/snippet}
 
+{#snippet whose(step: EditableFormula)}
+	<!-- Whose the step is. A shared one belongs to no calculation, so the save writes it on its
+	     own and declares it here rather than into the set. -->
+	<label class="col-span-2 block text-xs text-brand-muted">Read by
+		<select bind:value={step.shared} class={inputCls}>
+			<option value={false}>This calculation only</option>
+			<option value={true}>Any calculation that declares it</option>
+		</select>
+		<span class="mt-1 block text-[11px] text-brand-muted">
+			{step.shared
+				? 'Written on its own, belonging to no calculation, and brought into this one. Editing it later changes it everywhere it is read.'
+				: step.declarationId
+					? 'Saved back into this calculation as its own. Refused while another calculation still reads it.'
+					: 'Written into this calculation, and read by its formulas alone.'}
+		</span>
+	</label>
+{/snippet}
+
 <section class="rounded-md border border-brand-divider bg-brand-surface">
 	<div class="px-3 py-2 border-b border-brand-divider">
 		<h3 class="text-sm font-semibold">
@@ -127,7 +145,7 @@
 			{#if !row && !formula}
 				Select a cell to see what made it and to edit the formula behind it.
 			{:else if formula}
-				{shared ? 'A step written in another calculation and read here.' : 'The formula this row computes.'}
+				{shared ? 'A step belonging to no calculation, read here.' : 'The formula this row computes.'}
 			{:else}
 				{row?.note ?? 'A value the run was given.'}
 			{/if}
@@ -136,7 +154,7 @@
 
 	{#if row || formula}
 		<div class="px-3 py-3 space-y-3">
-			{#if formula && !shared}
+			{#if formula}
 				<!-- The row's own fields beside its formula rather than above it, so opening a cell
 				     does not push the sheet off the screen. -->
 				<div class="grid grid-cols-1 lg:grid-cols-[24rem_minmax(0,1fr)] gap-3 items-start">
@@ -170,54 +188,57 @@
 								{/if}
 							</select>
 						</label>
-						<label class="col-span-2 flex items-start gap-2 text-sm">
-							<input type="checkbox" bind:checked={formula.intermediate} class="mt-1" />
-							<span>A step of the calculation
-								<span class="block text-xs text-brand-muted">Handed to the formulas after it under its code, stored nowhere.</span>
-								{#if consequence}<span class="block text-xs text-brand-muted">{consequence}</span>{/if}
-							</span>
-						</label>
-						{#if formula.intermediate}
-							<!-- Whose the step is. A shared one belongs to no calculation, so the save writes it
-							     on its own and declares it here rather than into the set. -->
-							<label class="col-span-2 block text-xs text-brand-muted">Read by
-								<select bind:value={formula.shared} class={inputCls}>
-									<option value={false}>This calculation only</option>
-									<option value={true}>Any calculation that declares it</option>
-								</select>
-								<span class="mt-1 block text-[11px] text-brand-muted">
-									{formula.shared
-										? 'Written on its own, belonging to no calculation, and brought into this one. Editing it later changes it everywhere it is read.'
-										: 'Written into this calculation, and read by its formulas alone.'}
+						{#if shared}
+							<p class="col-span-2 text-xs text-brand-muted">
+								Stored once and read by every calculation that declares it, so a change saved here
+								is what each of them computes.
+							</p>
+							{@render whose(formula)}
+						{:else}
+							<label class="col-span-2 flex items-start gap-2 text-sm">
+								<input type="checkbox" bind:checked={formula.intermediate} class="mt-1" />
+								<span>A step of the calculation
+									<span class="block text-xs text-brand-muted">Handed to the formulas after it under its code, stored nowhere.</span>
+									{#if consequence}<span class="block text-xs text-brand-muted">{consequence}</span>{/if}
 								</span>
 							</label>
-						{:else}
-							<!-- The output parameter's own bounds: its `alarm_thresholds` row with no site, which
-							     a site-specific row overrides. -->
-							<fieldset class="col-span-2 border border-brand-divider rounded px-2 py-2">
-								<legend class="text-xs text-brand-muted px-1">Bounds on {formula.code || 'the output'}</legend>
-								<div class="grid grid-cols-4 gap-2">
-									<label class="text-xs text-brand-muted">Warning min
-										<input type="number" step="any" bind:value={formula.thresholds.warningMin} class={inputCls} />
-									</label>
-									<label class="text-xs text-brand-muted">Warning max
-										<input type="number" step="any" bind:value={formula.thresholds.warningMax} class={inputCls} />
-									</label>
-									<label class="text-xs text-brand-muted">Alarm min
-										<input type="number" step="any" bind:value={formula.thresholds.alarmMin} class={inputCls} />
-									</label>
-									<label class="text-xs text-brand-muted">Alarm max
-										<input type="number" step="any" bind:value={formula.thresholds.alarmMax} class={inputCls} />
-									</label>
-								</div>
-								<p class="mt-1 text-[11px] text-brand-muted">Written when the set is saved. A site with bounds of its own keeps them.</p>
-							</fieldset>
+							{#if formula.intermediate}
+								{@render whose(formula)}
+							{:else}
+								<!-- The output parameter's own bounds: its `alarm_thresholds` row with no site, which
+								     a site-specific row overrides. -->
+								<fieldset class="col-span-2 border border-brand-divider rounded px-2 py-2">
+									<legend class="text-xs text-brand-muted px-1">Bounds on {formula.code || 'the output'}</legend>
+									<div class="grid grid-cols-4 gap-2">
+										<label class="text-xs text-brand-muted">Warning min
+											<input type="number" step="any" bind:value={formula.thresholds.warningMin} class={inputCls} />
+										</label>
+										<label class="text-xs text-brand-muted">Warning max
+											<input type="number" step="any" bind:value={formula.thresholds.warningMax} class={inputCls} />
+										</label>
+										<label class="text-xs text-brand-muted">Alarm min
+											<input type="number" step="any" bind:value={formula.thresholds.alarmMin} class={inputCls} />
+										</label>
+										<label class="text-xs text-brand-muted">Alarm max
+											<input type="number" step="any" bind:value={formula.thresholds.alarmMax} class={inputCls} />
+										</label>
+									</div>
+									<p class="mt-1 text-[11px] text-brand-muted">Written when the set is saved. A site with bounds of its own keeps them.</p>
+								</fieldset>
+							{/if}
 						{/if}
 						<div class="col-span-2 flex flex-wrap gap-2">
 							<Button size="sm" disabled={busy} onclick={() => onedited?.()}>Read it at the visit again</Button>
-							<ConfirmPopover message="Drop {formula.code || 'this formula'} from the calculation? The save deletes it." confirmLabel="Drop" onconfirm={() => ondrop?.(formula!)}>
-								<Button size="sm" variant="ghost" disabled={busy}>Drop</Button>
-							</ConfirmPopover>
+							{#if shared}
+								<Button size="sm" variant="ghost" disabled={busy} onclick={() => onshowdependents?.(formula!)}>What it feeds</Button>
+								<ConfirmPopover message="Stop reading {formula.code} in this calculation? The step itself stays." confirmLabel="Stop reading" onconfirm={() => onstopreading?.(formula!)}>
+									<Button size="sm" variant="ghost" disabled={busy}>Stop reading</Button>
+								</ConfirmPopover>
+							{:else if !formula.declarationId}
+								<ConfirmPopover message="Drop {formula.code || 'this formula'} from the calculation? The save deletes it." confirmLabel="Drop" onconfirm={() => ondrop?.(formula!)}>
+									<Button size="sm" variant="ghost" disabled={busy}>Drop</Button>
+								</ConfirmPopover>
+							{/if}
 						</div>
 					</div>
 					<div class="min-w-0 space-y-2">
@@ -236,16 +257,7 @@
 						{/each}
 					</div>
 				</div>
-			{:else if formula && shared}
-				<p class="font-mono text-xs break-all">{formula.formula}</p>
-				{#if formula.description}<p class="text-xs text-brand-muted">{formula.description}</p>{/if}
-				<div class="flex flex-wrap gap-2">
-					<Button size="sm" variant="ghost" disabled={busy} onclick={() => onshowdependents?.(formula!)}>What it feeds</Button>
-					<ConfirmPopover message="Stop reading {formula.code} in this calculation? The step itself stays." confirmLabel="Stop reading" onconfirm={() => onstopreading?.(formula!)}>
-						<Button size="sm" variant="ghost" disabled={busy}>Stop reading</Button>
-					</ConfirmPopover>
-				</div>
-				{#if dependents}
+				{#if shared && dependents}
 					<ul class="text-xs">
 						{#each dependents.calculations as reader (reader.tool_script_id)}
 							<li>

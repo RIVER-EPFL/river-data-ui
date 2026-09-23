@@ -17,13 +17,19 @@
 	} from '$api/service';
 	import { api, type DerivedParameter, type Parameter } from '$api/crud';
 	import { listAll } from '$api/paged';
-	import { calculationRows, unconfiguredInputs, type CalculationRow } from '$lib/calculations/rows';
+	import {
+		calculationRows,
+		standingHealth,
+		unconfiguredInputs,
+		type CalculationRow,
+	} from '$lib/calculations/rows';
 	import {
 		labelFollowingName,
 		newCalculationRequest,
 		type CalculationEngine,
 	} from '$lib/toolbox/newCalculation';
 	import { toolboxHref } from '$lib/toolbox/route';
+	import { jobDetailPath } from '$lib/utils';
 	import { AUTHOR_CALCULATIONS, authoringState, loadCatalog } from '$lib/toolbox/authoring';
 	import { me } from '$auth/me.svelte';
 	import Badge from '$components/ui/Badge.svelte';
@@ -122,10 +128,9 @@
 
 	const healthOf = $derived(new Map(health.map((h) => [h.tool, h])));
 
-	/** The findings standing against the calculation this row's output belongs to, if any. */
+	/** The findings and the recompute standing against this row's calculation, if any. */
 	function standing(row: CalculationRow): CalculationHealth | undefined {
-		const h = healthOf.get(row.calculation);
-		return h && h.stale_visits > 0 ? h : undefined;
+		return standingHealth(healthOf.get(row.calculation));
 	}
 
 	function healthTitle(h: CalculationHealth): string {
@@ -348,21 +353,30 @@
 								{#if standing(row)}
 									{@const h = standing(row)!}
 									<div class="flex items-center gap-1.5">
-										<Badge variant="warning" title={healthTitle(h)}>
-											{h.stale_visits} stale visit{h.stale_visits === 1 ? '' : 's'}
-										</Badge>
-										<Button
-											size="sm"
-											variant="secondary"
-											disabled={applying === h.tool}
-											onclick={() => applyStale(h.tool, h.stale_visits)}
-										>{applying === h.tool ? 'Queueing…' : 'Recompute them'}</Button>
-										<Button
-											size="sm"
-											variant="ghost"
-											aria-expanded={findingsOpen === row.key}
-											onclick={() => (findingsOpen = findingsOpen === row.key ? null : row.key)}
-										>Findings {findingsOpen === row.key ? '▾' : '▸'}</Button>
+										{#if h.repair}
+											<a href="{base}{jobDetailPath(h.repair.job_id)}" class="no-underline" title="The latest recompute of this calculation">
+												<Badge variant={h.repair.state === 'failed' ? 'alarm' : 'muted'}>
+													{h.repair.state === 'failed' ? 'recompute failed' : `recompute ${h.repair.state}`}
+												</Badge>
+											</a>
+										{/if}
+										{#if h.stale_visits > 0}
+											<Badge variant="warning" title={healthTitle(h)}>
+												{h.stale_visits} stale visit{h.stale_visits === 1 ? '' : 's'}
+											</Badge>
+											<Button
+												size="sm"
+												variant="secondary"
+												disabled={applying === h.tool}
+												onclick={() => applyStale(h.tool, h.stale_visits)}
+											>{applying === h.tool ? 'Queueing…' : 'Recompute them'}</Button>
+											<Button
+												size="sm"
+												variant="ghost"
+												aria-expanded={findingsOpen === row.key}
+												onclick={() => (findingsOpen = findingsOpen === row.key ? null : row.key)}
+											>Findings {findingsOpen === row.key ? '▾' : '▸'}</Button>
+										{/if}
 									</div>
 								{:else}
 									<span class="text-xs text-brand-muted">-</span>

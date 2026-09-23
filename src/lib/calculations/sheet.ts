@@ -28,6 +28,8 @@ export interface SheetRow {
 	code: string | null;
 	/** Nothing in the set reads it: a step computed for no one, an input no formula names. */
 	unused: boolean;
+	/** A step this calculation reads through a declaration: its code is the owner's to change. */
+	declared?: boolean;
 	/** On a statistic, the output whose repeats it summarises. */
 	aggregateOf?: string | null;
 	cells: RunCell[];
@@ -189,6 +191,7 @@ export function sheetBlocks(
 			note: f.formula,
 			code: code || null,
 			unused: band === 'step' && !readCount.has(code),
+			declared: f.declarationId != null,
 			cells,
 		};
 	};
@@ -254,7 +257,7 @@ export type SheetEdit =
  */
 export function cellEdit(row: SheetRow, column: number, text: string): SheetEdit | null {
 	const computes = row.band === 'step' || row.band === 'read' || row.band === 'final';
-	if (column === 0) return computes ? { kind: 'code', key: row.key, text } : null;
+	if (column === 0) return computes && !row.declared ? { kind: 'code', key: row.key, text } : null;
 	if (computes || row.band === 'statistics') return null;
 	if (row.band === 'replicated')
 		return { kind: 'replicate', name: row.key, index: column - 1, text };
