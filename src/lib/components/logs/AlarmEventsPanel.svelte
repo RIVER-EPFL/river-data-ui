@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { listAll } from '$api/paged';
 	import { downloadBlob } from '$lib/download';
 	import { api, type Parameter } from '$api/crud';
 	import {
@@ -166,8 +167,8 @@
 
 	onMount(async () => {
 		try {
-			const paramsResult = await api.parameters.list({ perPage: 500 });
-			paramMap = new Map(paramsResult.data.map((p: Parameter) => [p.id, p.name]));
+			const params = await listAll(api.parameters);
+			paramMap = new Map(params.map((p: Parameter) => [p.id, p.name]));
 		} catch {
 			/* lookups are best-effort; tables fall back to ids/names from events */
 		}

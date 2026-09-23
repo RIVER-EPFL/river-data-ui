@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
+	import { listAll } from '$api/paged';
 	import { api, type Sensor, type ReprocessingJob, type JobLogLine } from '$api/crud';
 	import { getJobLogs, rerunJob, cancelJob } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
@@ -112,11 +113,11 @@
 
 	onMount(async () => {
 		const [sensors, derived] = await Promise.all([
-			api.sensors.list({ perPage: 500 }),
-			api.derivedParameters.list({ perPage: 500 }),
+			listAll(api.sensors),
+			listAll(api.derivedParameters),
 		]);
-		sensorMap = new Map(sensors.data.map((s: Sensor) => [s.id, s.name ?? s.serial_number ?? s.id]));
-		derivedMap = new Map(derived.data.map((d) => [d.id, d.name || d.code]));
+		sensorMap = new Map(sensors.map((s: Sensor) => [s.id, s.name ?? s.serial_number ?? s.id]));
+		derivedMap = new Map(derived.map((d) => [d.id, d.name || d.code]));
 	});
 
 	function jobTarget(job: ReprocessingJob): { label: string; href: string | null } {

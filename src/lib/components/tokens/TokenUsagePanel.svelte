@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { listAll } from '$api/paged';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import CopyButton from '$components/ui/CopyButton.svelte';
 	import { GET } from '$api/client';
@@ -59,11 +60,11 @@
 		try {
 			const [, spResult, paramResult] = await Promise.all([
 				siteRefs.ensure(),
-				api.siteParameters.list({ perPage: 1000 }),
-				api.parameters.list({ perPage: 500 }),
+				listAll(api.siteParameters),
+				listAll(api.parameters),
 			]);
-			allSiteParams = spResult.data;
-			paramNames = Object.fromEntries(paramResult.data.map((p) => [p.id, p.name]));
+			allSiteParams = spResult;
+			paramNames = Object.fromEntries(paramResult.map((p) => [p.id, p.name]));
 			if (sites.length) siteId = sites[0].id;
 		} catch {
 			// Fall back to <site-id> / <parameter-id> placeholders if discovery fails.

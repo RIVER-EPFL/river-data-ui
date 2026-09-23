@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { listAll } from '$api/paged';
 	import { downloadBlob } from '$lib/download';
 	import Papa from 'papaparse';
 	import { api, type Parameter, type Subproject, type SiteParameter } from '$api/crud';
@@ -176,11 +177,11 @@
 		try {
 			const [, p, sp] = await Promise.all([
 				siteRefs.ensure(),
-				api.parameters.list({ perPage: 500 }),
-				api.subprojects.list({ perPage: 1000, sort: ['name', 'ASC'] }),
+				listAll(api.parameters),
+				listAll(api.subprojects, { sort: ['name', 'ASC'] }),
 			]);
-			params = p.data;
-			subprojects = sp.data;
+			params = p;
+			subprojects = sp;
 		} catch (e) {
 			toastStore.error('Failed to load sites/parameters');
 		} finally {

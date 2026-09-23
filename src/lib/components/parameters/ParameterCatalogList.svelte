@@ -2,6 +2,7 @@
 	import { base } from '$app/paths';
 	import { untrack } from 'svelte';
 	import { page } from '$app/state';
+	import { listAll } from '$api/paged';
 	import { api, type AlarmThreshold, type Parameter } from '$api/crud';
 	import ConfirmParameterButton from '$components/parameters/ConfirmParameterButton.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
@@ -77,18 +78,18 @@
 	async function loadParameters({ page: p, perPage, sort }: PageRequest) {
 		if (parameters.length === 0) {
 			const [paramRes, spRes, siteRes, derivedRes, thresholds] = await Promise.all([
-				api.parameters.list({ perPage: 500, sort: ['name', 'ASC'] }),
-				api.siteParameters.list({ perPage: 500 }),
-				api.sites.list({ perPage: 200 }),
-				api.derivedParameters.list({ perPage: 500 }),
+				listAll(api.parameters, { sort: ['name', 'ASC'] }),
+				listAll(api.siteParameters),
+				listAll(api.sites),
+				listAll(api.derivedParameters),
 				globalThresholdsByParameter(),
 			]);
-			parameters = paramRes.data;
+			parameters = paramRes;
 			globalThresholds = thresholds;
 
-			const siteNames = new Map(siteRes.data.map((s) => [s.id, s.name]));
+			const siteNames = new Map(siteRes.map((s) => [s.id, s.name]));
 			const byParam: Record<string, Map<string, string>> = {};
-			for (const sp of spRes.data) {
+			for (const sp of spRes) {
 				if (!sp.parameter_id) continue;
 				(byParam[sp.parameter_id] ??= new Map()).set(sp.site_id, siteNames.get(sp.site_id) ?? sp.site_id);
 			}
@@ -99,7 +100,7 @@
 			sitesByParam = out;
 
 			const defs: Record<string, string> = {};
-			for (const d of derivedRes.data) {
+			for (const d of derivedRes) {
 				if (d.output_parameter_id && d.tool_script_id) defs[d.output_parameter_id] = d.tool_script_id;
 			}
 			calculationByOutput = defs;

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { listAll } from '$api/paged';
 	import RangePresets from '$components/charts/RangePresets.svelte';
 	import { presetWindow, type RangePreset } from '$lib/charts/rangePresets';
 	import { onMount } from 'svelte';
@@ -237,14 +238,14 @@
 				api.sensors.get(sensorId),
 				api.sensorCalibrations.list({ perPage: 100, filter: { sensor_id: sensorId }, sort: ['valid_from', 'DESC'] }),
 				api.sensorDeployments.list({ perPage: 100, filter: { sensor_id: sensorId }, sort: ['deployed_from', 'DESC'] }),
-				api.sites.list({ perPage: 200 }),
-				api.parameters.list({ perPage: 500 }),
+				listAll(api.sites),
+				listAll(api.parameters),
 			]);
 			sensor = s;
 			calibrations = cals.data;
 			deployments = deps.data;
-			sites = sitesResult.data;
-			parameters = params.data;
+			sites = sitesResult;
+			parameters = params;
 		} finally {
 			loading = false;
 		}

@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
+	import { listAll } from '$api/paged';
 	import { api, type Sensor, type SensorDeployment, type SensorCalibration } from '$api/crud';
 	import {
 		retagSensorFrequency,
@@ -90,9 +91,9 @@
 	// Curves are global (grouped by sensor), so they load once for the whole catalog.
 	async function loadCurveCounts() {
 		try {
-			const res = await api.sensorCalibrations.list({ perPage: 1000, sort: ['sensor_id', 'ASC'] });
+			const curves = await listAll(api.sensorCalibrations, { sort: ['sensor_id', 'ASC'] });
 			const counts = new Map<string, number>();
-			for (const c of res.data) counts.set(c.sensor_id, (counts.get(c.sensor_id) ?? 0) + 1);
+			for (const c of curves) counts.set(c.sensor_id, (counts.get(c.sensor_id) ?? 0) + 1);
 			curveCountBySensor = counts;
 		} catch {
 			// Counts are non-critical; leave them blank rather than failing the whole page.
@@ -242,8 +243,8 @@
 
 	onMount(async () => {
 		try {
-			const params = await api.parameters.list({ perPage: 1000, sort: ['code', 'ASC'] });
-			parameterNames = new Map(params.data.map((p) => [p.id, p.name]));
+			const params = await listAll(api.parameters, { sort: ['code', 'ASC'] });
+			parameterNames = new Map(params.map((p) => [p.id, p.name]));
 		} catch {
 			parameterNames = new Map();
 		}

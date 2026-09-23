@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
+	import { listAll } from '$api/paged';
 	import { api, type ApiToken, type ApiTokenAuditLog, type Project } from '$api/crud';
 	import { getAuditStatusCodes } from '$api/service';
 	import { statusBadgeClass, formatDateTime } from '$lib/utils';
@@ -51,11 +52,11 @@
 	onMount(async () => {
 		const [tokRes, projRes, codes] = await Promise.all([
 			api.apiTokens.list({ perPage: 200 }).catch(() => ({ data: [], total: 0 })),
-			api.projects.list({ perPage: 100 }).catch(() => ({ data: [], total: 0 })),
+			listAll(api.projects).catch(() => []),
 			getAuditStatusCodes().catch(() => [] as number[]),
 		]);
 		tokens = tokRes.data;
-		projects = projRes.data;
+		projects = projRes;
 		statusOptions = codes;
 	});
 

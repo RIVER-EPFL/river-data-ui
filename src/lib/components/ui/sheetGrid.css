@@ -3,8 +3,9 @@
 	isolation: isolate;
 }
 
-/* The grid's own theme variables, taken from the brand tokens. */
-.sheet-grid.ht-theme-classic {
+/* The grid's own theme variables, taken from the brand tokens. Handsontable puts the theme class on
+   a wrapper inside the grid's element. */
+.sheet-grid .ht-theme-classic {
 	--ht-font-family: inherit;
 	--ht-font-size: 13px;
 	--ht-foreground-color: var(--color-brand-text);
@@ -27,39 +28,55 @@
 	--ht-header-highlighted-background-color: color-mix(in srgb, var(--color-brand-primary) 18%, var(--color-brand-bg));
 }
 
-/* Cell states a caller's renderer sets. Unlayered, like the grid's own rules they sit over. */
-.sheet-grid td.sheet-struck {
-	color: var(--color-brand-muted);
+/* Cell states a caller's renderer sets. Unlayered, like the grid's own rules they sit over, and
+   scoped under `.handsontable` to outrank its row stripes. Handsontable's read-only colour and
+   background are !important, and these states stand on read-only cells too. */
+/* The open visit's row, first so that any state a cell carries wins over it. */
+.sheet-grid .handsontable td.sheet-open-row {
+	background-color: color-mix(in srgb, var(--color-brand-primary) 6%, var(--color-brand-surface)) !important;
+}
+.sheet-grid .handsontable td.sheet-struck {
+	color: var(--color-brand-muted) !important;
 	text-decoration: line-through;
 }
-.sheet-grid td.sheet-warning,
+.sheet-grid .handsontable td.sheet-warning,
 .sheet-grid .sheet-mark.sheet-warning {
-	color: var(--color-severity-warning);
+	color: var(--color-severity-warning) !important;
 }
 /* A spare row the grid refuses: the mark is the refusal, not the line beside the Save. */
-.sheet-grid td.sheet-refused {
-	background-color: var(--color-severity-alarm-soft);
-	color: var(--color-severity-alarm);
+.sheet-grid .handsontable td.sheet-refused {
+	background-color: var(--color-severity-alarm-soft) !important;
+	color: var(--color-severity-alarm) !important;
 }
-.sheet-grid td.sheet-finding {
+.sheet-grid .handsontable td.sheet-finding {
+	background-color: var(--color-severity-warning-soft) !important;
+}
+/* A row's index: shaded where its visit has findings, struck where the field day was rejected,
+   marked as the key marks a pending one. */
+.sheet-grid .handsontable th.sheet-finding {
 	background-color: var(--color-severity-warning-soft);
+	color: var(--color-severity-warning-text);
+	cursor: pointer;
 }
-.sheet-grid td.sheet-edited {
+.sheet-grid .handsontable th.sheet-struck {
+	text-decoration: line-through;
+}
+.sheet-grid th.sheet-pending .rowHeader::after {
+	content: '?';
+}
+.sheet-grid .handsontable td.sheet-edited {
 	box-shadow: inset 3px 0 0 var(--color-brand-primary);
 }
 /* A calculated cell showing what the typed values would make it, before any Save. */
-.sheet-grid td.sheet-preview {
-	background-color: color-mix(in srgb, var(--color-brand-primary) 12%, var(--color-brand-surface));
+.sheet-grid .handsontable td.sheet-preview {
+	background-color: color-mix(in srgb, var(--color-brand-primary) 12%, var(--color-brand-surface)) !important;
 	font-style: italic;
 }
 /* The same cell while its answer is in flight or could not be worked out: the number in it is the
    stored one, and is not the answer. */
-.sheet-grid td.sheet-preview-pending {
-	color: var(--color-brand-muted);
+.sheet-grid .handsontable td.sheet-preview-pending {
+	color: var(--color-brand-muted) !important;
 	font-style: italic;
-}
-.sheet-grid td.sheet-open-row {
-	background-color: color-mix(in srgb, var(--color-brand-primary) 6%, var(--color-brand-surface));
 }
 .sheet-grid .sheet-mark {
 	margin-left: 2px;
@@ -107,24 +124,24 @@
 	color: inherit;
 	cursor: pointer;
 }
-.sheet-grid td.sheet-band {
-	background-color: var(--color-brand-bg);
-	color: var(--color-brand-muted);
+.sheet-grid .handsontable td.sheet-band {
+	background-color: var(--color-brand-bg) !important;
+	color: var(--color-brand-muted) !important;
 	font-size: 11px;
 	letter-spacing: 0.04em;
 	text-transform: uppercase;
 }
-.sheet-grid td.sheet-reads {
-	background-color: color-mix(in srgb, var(--color-brand-primary) 10%, transparent);
+.sheet-grid .handsontable td.sheet-reads {
+	background-color: color-mix(in srgb, var(--color-brand-primary) 10%, transparent) !important;
 }
-.sheet-grid td.sheet-read-by {
-	background-color: color-mix(in srgb, var(--color-brand-accent) 10%, transparent);
+.sheet-grid .handsontable td.sheet-read-by {
+	background-color: color-mix(in srgb, var(--color-brand-accent) 10%, transparent) !important;
 }
-.sheet-grid td.sheet-unused {
+.sheet-grid .handsontable td.sheet-unused {
 	box-shadow: inset 0 0 0 1px var(--color-brand-divider);
-	color: var(--color-brand-muted);
+	color: var(--color-brand-muted) !important;
 }
-.sheet-grid td.sheet-stale {
+.sheet-grid .handsontable td.sheet-stale {
 	opacity: 0.55;
 }
 

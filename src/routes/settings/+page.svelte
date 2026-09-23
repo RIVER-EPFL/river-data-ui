@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { listAll } from '$api/paged';
 	import { auth } from '$auth/keycloak.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import {
@@ -105,13 +106,13 @@
 			const [n, c, p, s] = await Promise.all([
 				getMyNotifications(),
 				getNotificationChannels(),
-				api.projects.list({ perPage: 500 }),
-				api.sites.list({ perPage: 1000 }),
+				listAll(api.projects),
+				listAll(api.sites),
 			]);
 			me = n;
 			channels = c;
-			projects = p.data;
-			sites = s.data;
+			projects = p;
+			sites = s;
 			mutedSites = deriveMuted(n);
 			subscribedChannels = deriveChannels(n);
 

@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/svelte";
+import { render, screen, waitFor, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -213,10 +213,14 @@ describe("SiteVisitsTab", () => {
     render(SiteVisitsTab, props({ declared: 2 }));
 
     // A visit whose outputs no calculation will write does not read like one that just recomputed.
-    await screen.findAllByText("not calculated here");
-    const grid = within(document.querySelector<HTMLElement>(".ht_master")!);
-    expect(grid.getAllByText("not calculated here")).toHaveLength(1);
-    expect(grid.getByTitle(SYNCED_VISIT_NOTICE)).toBeTruthy();
+    // The row's index says so, and the date column carries the date alone.
+    await screen.findAllByText("100.80");
+    const indices = () =>
+      [...document.querySelectorAll<HTMLElement>(".ht_master tbody th")].filter((th) =>
+        th.title.includes(SYNCED_VISIT_NOTICE),
+      );
+    await waitFor(() => expect(indices()).toHaveLength(1));
+    expect(screen.queryAllByText("not calculated here")).toHaveLength(0);
   });
 
   it("states the synced notice once when every listed visit came from the portal", async () => {

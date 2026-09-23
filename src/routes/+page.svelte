@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
+	import { listAll } from '$api/paged';
 	import { api, type Site, type Project } from '$api/crud';
 	import { getAlarmSummary, type AlarmSummaryResponse } from '$api/service';
 	import { formatRelativeTime, formatDateTime } from '$lib/utils';
@@ -64,12 +65,12 @@
 	onMount(async () => {
 		try {
 			const [p, s, a] = await Promise.all([
-				api.projects.list({ perPage: 100 }),
-				api.sites.list({ perPage: 100 }),
+				listAll(api.projects),
+				listAll(api.sites),
 				getAlarmSummary().catch(() => null),
 			]);
-			projects = p.data;
-			sites = s.data;
+			projects = p;
+			sites = s;
 			alarms = a;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load dashboard';

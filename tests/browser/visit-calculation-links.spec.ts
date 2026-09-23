@@ -462,3 +462,31 @@ test('a corrected cell names its curve on the grid', async ({ page, request }) =
 		`Corrected with ${curveName}`,
 	);
 });
+
+// Scenario: a selection on the Visits grid, whose read-only cells Handsontable paints itself.
+//
+// Expected behaviour: the cell a calculation connects to the selection is tinted over the read-only
+// background, and the grid takes the brand's colours rather than Handsontable's defaults.
+test('the grid draws its cell states and the brand colours over its own read-only styling', async ({
+	page,
+	request,
+}) => {
+	const { siteId, inputName, outputName } = await seedComputedVisit(request);
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
+	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
+
+	await sheetCell(page, new RegExp(`^${inputName} at`)).click();
+	const output = sheetCell(page, new RegExp(`^${outputName} at`));
+	await expect(output).toHaveClass(/sheet-read/);
+	await expect(output).toHaveClass(/htDimmed/);
+	const background = (el: Element) => getComputedStyle(el).backgroundColor;
+	const readOnly = await page.locator('.ht_master td.htDimmed:not([class*="sheet-read"])').first().evaluate(background);
+	expect(await output.evaluate(background), 'the connection tint shows on a read-only cell').not.toBe(readOnly);
+
+	const [accent, primary] = await page.evaluate(() => [
+		getComputedStyle(document.querySelector('.sheet-grid .ht-theme-classic')!).getPropertyValue('--ht-accent-color').trim(),
+		getComputedStyle(document.documentElement).getPropertyValue('--color-brand-primary').trim(),
+	]);
+	expect(accent).toBe(primary);
+});

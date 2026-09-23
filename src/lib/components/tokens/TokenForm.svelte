@@ -2,6 +2,7 @@
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { onMount, untrack } from 'svelte';
+	import { listAll } from '$api/paged';
 	import { api, type Project, type TokenPermissions } from '$api/crud';
 	import { POST } from '$api/client';
 	import { auth } from '$auth/keycloak.svelte';
@@ -80,9 +81,9 @@
 		try {
 			const [token, projResult] = await Promise.all([
 				mode === 'edit' && tokenId ? api.apiTokens.get(tokenId) : Promise.resolve(null),
-				api.projects.list({ perPage: 100 }),
+				listAll(api.projects),
 			]);
-			projects = projResult.data;
+			projects = projResult;
 			if (token) form = tokenFormOf(token);
 		} catch (e: unknown) {
 			error = e instanceof Error ? e.message : 'Failed to load token';

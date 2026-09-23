@@ -4,6 +4,7 @@
 	// it opens.
 	import { tick, untrack } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
+	import { listAll } from '$api/paged';
 	import { downloadBlob } from '$lib/download';
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
@@ -54,8 +55,6 @@
 	import {
 		cellRecord,
 		findingLabel,
-		findingKinds,
-		findingsChipTitle,
 		firstFindingParameter,
 		recordRows,
 		slotTableLabel,
@@ -155,6 +154,7 @@
 	} from '$lib/visits/tableEdit';
 	import { cellRole, cellWritable, columnRole, editConsequence, ROLE_CLASSES } from '$lib/visits/role';
 	import { cellCurves, visitCellCurveMark } from '$lib/visits/curve';
+	import { cellFinding, visitRowHeader } from '$lib/visits/rowHeader';
 	import { instrumentCurves } from '$lib/visits/instrument';
 	import { curveRefs } from '$lib/curveRefs.svelte';
 	import { seasonalFindingLabel } from '$lib/seasonal';
@@ -325,11 +325,11 @@
 			const [groupRows, members, sensors] = await Promise.all([
 				api.parameterGroups.list({ perPage: 200, sort: ['ordinal', 'ASC'] }),
 				api.parameterGroupMembers.list({ perPage: 1000 }),
-				api.sensors.list({ perPage: 500, sort: ['name', 'ASC'] }),
+				listAll(api.sensors, { sort: ['name', 'ASC'] }),
 			]);
 			groups = groupRows.data;
 			groupOf = Object.fromEntries(members.data.map((m) => [m.parameter_id, m.group_id]));
-			instruments = sensors.data;
+			instruments = sensors;
 		} catch {
 			// These are affordances; without them the table still lists and saves.
 		}
@@ -514,6 +514,7 @@
 				},
 			],
 			cells: cellMeta,
+			afterGetRowHeader: renderRowHeader,
 		} as SheetSettings;
 	});
 
@@ -571,28 +572,6 @@
 		return span;
 	}
 
-	/** A chip that opens the visit where what it counts can be read. */
-	function chipButton(
-		label: string,
-		variant: BadgeVariant,
-		title: string,
-		open: () => void,
-	): HTMLButtonElement {
-		const button = document.createElement('button');
-		button.type = 'button';
-		button.className = `ml-1 cursor-pointer border-none ${BADGE_BASE} ${BADGE_VARIANTS[variant]}`;
-		button.textContent = label;
-		button.title = title;
-		// As on the date button: a selection change re-renders the cell mid-press, and a button
-		// replaced between mousedown and mouseup is sent no click.
-		button.addEventListener('mousedown', (e) => e.stopPropagation());
-		button.addEventListener('click', (e) => {
-			e.stopPropagation();
-			open();
-		});
-		return button;
-	}
-
 	/**
 	 * The selected cell's corner control, which opens the record of that one recording. Alt+Enter
 	 * does the same from the keyboard, including on a cell open to typing, where Enter edits.
@@ -638,37 +617,6 @@
 		button.addEventListener('mousedown', (e) => e.stopPropagation());
 		button.addEventListener('click', () => void openVisit(visit.id));
 		td.append(button);
-		if (visit.findings_open > 0) {
-			const kinds = findingKinds(visit.cells);
-			const onFinding = firstFindingParameter(visit.cells);
-			td.append(
-				chipButton(
-					`${visit.findings_open} finding${visit.findings_open === 1 ? '' : 's'}`,
-					'warning',
-					findingsChipTitle(visit.findings_open, kinds),
-					() => {
-						if (onFinding) void openVisitCell(visit.id, onFinding);
-						else void openVisit(visit.id, true);
-					},
-				),
-			);
-		}
-		// A site whose every visit is synced states the notice once above the grid, so the chip
-		// says nothing there that the row beside it does not.
-		const calculation = visitBadge(visit.source, visit.recompute);
-		if (calculation && !(everySynced && visit.source === 'portal_sync')) {
-			td.append(chip(calculation.label, calculation.variant, calculation.title));
-		}
-		const state = verificationBadge(visit.unverified, visit.withdrawn_at);
-		if (state) {
-			td.append(
-				chip(
-					state.label,
-					state.variant,
-					verificationNoticeFor(visit.unverified, visit.withdrawn_at) ?? state.label,
-				),
-			);
-		}
 		return td;
 	}
 
@@ -770,12 +718,12 @@
 		const state = open ? replicate : cell;
 		if (state?.withdrawn) td.classList.add('sheet-struck');
 		if (state?.flagged || (open && replicate?.unverified)) td.classList.add('sheet-warning');
-		if (!open && (cell?.finding === 'stale_output' || cell?.finding === 'skipped_output')) {
-			td.classList.add('sheet-finding');
-		}
+		const finding = open ? null : cellFinding(cell);
+		if (finding) td.classList.add(finding.className);
 		if (writable || typed) {
 			td.append(displayText(at, edits, writable));
 			if (!open && !typed) markCurve(td, cell);
+			if (finding) td.title = [td.title, finding.title].filter(Boolean).join('\n');
 			return td;
 		}
 		if (open) {
@@ -804,6 +752,7 @@
 			}
 		}
 		td.title = [
+			finding?.title,
 			visitCellStatistics(cell, slot.column.decimals, slot.column.units),
 			`Open the record of ${slot.column.name} at this visit`,
 		]
@@ -821,6 +770,19 @@
 		corrected.title = curve.title;
 		td.append(corrected);
 		td.title = [td.title, curve.title].filter(Boolean).join('\n');
+	}
+
+	const ROW_HEADER_CLASSES = ['sheet-finding', 'sheet-struck', 'sheet-pending'];
+
+	/** A row's index, toned by its findings and its field day's verification. */
+	function renderRowHeader(row: number, th: HTMLTableCellElement) {
+		th.classList.remove(...ROW_HEADER_CLASSES);
+		th.removeAttribute('title');
+		const visit = table.rows[row];
+		if (!visit || isSpare(visit.id)) return;
+		const header = visitRowHeader(visit, everySynced);
+		if (header.classNames.length) th.classList.add(...header.classNames);
+		if (header.title) th.title = header.title;
 	}
 
 	/** The group header's own controls: open to the repeats, and one repeat fewer or more. */
@@ -939,6 +901,16 @@
 			dataVersion += 1;
 		});
 		instance.addHook('afterGetColHeader', renderGroupHeader);
+		// The index of a row with findings opens the visit on the first of them, so one standing in
+		// a group off screen is still reached from its row.
+		instance.addHook('afterOnCellMouseDown', (_event: MouseEvent, coords: { row: number; col: number }) => {
+			if (coords.col !== -1 || coords.row < 0) return;
+			const visit = table.rows[coords.row];
+			if (!visit || isSpare(visit.id) || !visitRowHeader(visit, everySynced).opensFindings) return;
+			const onFinding = firstFindingParameter(visit.cells);
+			if (onFinding) void openVisitCell(visit.id, onFinding);
+			else void openVisit(visit.id, true);
+		});
 		instance.addHook('afterSelection', (row: number, column: number) => {
 			void selectSlot(row, column);
 		});

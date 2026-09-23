@@ -10412,7 +10412,7 @@ export interface components {
             site_id?: string | null;
         };
         EventCell: {
-            /** @description The oldest open event-audit finding for this cell. */
+            /** @description The oldest open finding for this cell, slot-keyed or placed through its stream's pairing. */
             finding?: components["schemas"]["CellFinding"];
             /** @description A server-built tool-run blob is stored on the measurement. */
             has_provenance: boolean;
@@ -10909,8 +10909,8 @@ export interface components {
              */
             preview: components["schemas"]["GrabPreview"][];
             /**
-             * @description Rows removed by `mode: replace` before the insert. Only the grab stream's own rows at the
-             *     instant are candidates; rows another source wrote at the same slot and time are untouched.
+             * @description Rows `mode: replace` rewrote in place. Only the grab stream's own rows at the instant are
+             *     candidates; rows another source wrote at the same slot and time are untouched.
              */
             replaced: number;
             samples_created: number;

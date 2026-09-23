@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { base } from '$app/paths';
+	import { listAll } from '$api/paged';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
@@ -53,10 +54,10 @@
 		try {
 			const [tokenResult, projectResult] = await Promise.all([
 				api.apiTokens.list({ perPage: 200 }),
-				api.projects.list({ perPage: 100 }),
+				listAll(api.projects),
 			]);
 			tokens = tokenResult.data;
-			projects = projectResult.data;
+			projects = projectResult;
 		} catch (e: unknown) {
 			error = e instanceof Error ? e.message : 'Failed to load tokens';
 		} finally {

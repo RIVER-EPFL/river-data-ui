@@ -3,6 +3,7 @@
 	import { base } from '$app/paths';
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { listAll } from '$api/paged';
 	import { ApiError } from '$api/client';
 	import { api, type DataStream, type SiteParameter, type Site, type Parameter, type Project } from '$api/crud';
 	import {
@@ -1242,15 +1243,15 @@
 			}
 			const [result, spResult, sResult, pResult] = await Promise.all([
 				api.dataStreams.list({ page: currentPage, perPage, sort: [sortField, sortOrder], filter: f }),
-				siteParams.length === 0 ? api.siteParameters.list({ perPage: 500 }) : Promise.resolve(null),
-				sites.length === 0 ? api.sites.list({ perPage: 200 }) : Promise.resolve(null),
-				params.length === 0 ? api.parameters.list({ perPage: 500 }) : Promise.resolve(null),
+				siteParams.length === 0 ? listAll(api.siteParameters) : Promise.resolve(null),
+				sites.length === 0 ? listAll(api.sites) : Promise.resolve(null),
+				params.length === 0 ? listAll(api.parameters) : Promise.resolve(null),
 			]);
 			streams = result.data;
 			total = result.total;
-			if (spResult) siteParams = spResult.data;
-			if (sResult) sites = sResult.data;
-			if (pResult) params = pResult.data;
+			if (spResult) siteParams = spResult;
+			if (sResult) sites = sResult;
+			if (pResult) params = pResult;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load streams';
 			toastStore.error('Failed to load streams');
@@ -1427,10 +1428,10 @@
 		try {
 			const [loaded, paramResult, siteResult, instrumentResult, projectResult] = await Promise.all([
 				loadPlan(),
-				api.parameters.list({ perPage: 1000 }),
-				api.sites.list({ perPage: 1000 }),
+				listAll(api.parameters),
+				listAll(api.sites),
 				api.sensors.list({ perPage: 500, filter: { is_lab_instrument: true } }),
-				api.projects.list({ perPage: 1000 }),
+				listAll(api.projects),
 			]);
 			labInstruments = instrumentResult.data.map((s) => ({
 				id: s.id,
@@ -1439,11 +1440,11 @@
 			}));
 			plan = loaded;
 			planEntries = [...loaded.entries];
-			params = paramResult.data;
-			sites = siteResult.data;
+			params = paramResult;
+			sites = siteResult;
 			existingParams = params;
 			existingSites = sites;
-			existingProjects = projectResult.data;
+			existingProjects = projectResult;
 			expandedSites = new Set();
 			expandedReplicates = new Set();
 			lastSavedAt = null;

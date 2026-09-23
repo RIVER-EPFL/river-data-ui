@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
+	import { listAll } from '$api/paged';
 	import { api, type Site, type Project, type Subproject } from '$api/crud';
 	import { formatRelativeTime } from '$lib/utils';
 	import {
@@ -118,15 +119,15 @@
 					sort: [sortField, sortOrder],
 					filter,
 				}),
-				projects.length === 0 ? api.projects.list({ perPage: 100 }) : Promise.resolve(null),
+				projects.length === 0 ? listAll(api.projects) : Promise.resolve(null),
 				subprojects.length === 0
-					? api.subprojects.list({ perPage: 1000 })
+					? listAll(api.subprojects)
 					: Promise.resolve(null),
 			]);
 			sites = result.data;
 			total = result.total;
-			if (projectResult) projects = projectResult.data;
-			if (subprojectResult) subprojects = subprojectResult.data;
+			if (projectResult) projects = projectResult;
+			if (subprojectResult) subprojects = subprojectResult;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load sites';
 		} finally {

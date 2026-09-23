@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
 	import Papa from 'papaparse';
+	import { listAll } from '$api/paged';
 	import { readVaisalaFile } from '$lib/upload/vaisalaHeader';
 	import { api, type Site, type SiteParameter, type Parameter, type ReprocessingJob } from '$api/crud';
 	import { GET, POST } from '$api/client';
@@ -181,12 +182,12 @@
 			const [s, sp, params, t] = await Promise.all([
 				api.sites.get(siteId),
 				api.siteParameters.list({ perPage: 200, filter: { site_id: siteId } }),
-				api.parameters.list({ perPage: 500 }),
+				listAll(api.parameters),
 				listTools().catch(() => [] as ToolDescriptor[]),
 			]);
 			site = s;
 			tools = t;
-			const unitsById = new Map(params.data.map((p: Parameter) => [p.id, p.default_units]));
+			const unitsById = new Map(params.map((p: Parameter) => [p.id, p.default_units]));
 			siteParamOptions = sp.data
 				.filter((p: SiteParameter) => p.entry_mode !== 'tool')
 				.map((p: SiteParameter) => {

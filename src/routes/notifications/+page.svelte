@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy, untrack } from 'svelte';
 	import { base } from '$app/paths';
+	import { listAll } from '$api/paged';
 	import { createUrlTab } from '$lib/urlTab.svelte';
 	import { me } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
@@ -254,9 +255,9 @@
 		try {
 			const [, p] = await Promise.all([
 				siteRefs.ensure(),
-				api.parameters.list({ perPage: 1000 }),
+				listAll(api.parameters),
 			]);
-			parameters = p.data;
+			parameters = p;
 		} catch {
 			/* lookups are best-effort; tables fall back to ids */
 		}

@@ -3,6 +3,7 @@
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { listAll } from '$api/paged';
 	import { api, type Parameter, type ParameterGroup, type ParameterGroupMember } from '$api/crud';
 	import { getGroupDefinition, type GroupDefinitionMember } from '$api/service';
 	import type { components } from '$api/schema';
@@ -40,14 +41,14 @@
 			api.parameterGroups.list({ perPage: 200, sort: ['ordinal', 'ASC'] }),
 			getGroupDefinition(groupId),
 			api.parameterGroupMembers.list({ perPage: 500, filter: { group_id: groupId } }),
-			api.parameters.list({ perPage: 1000, sort: ['code', 'ASC'] }),
+			listAll(api.parameters, { sort: ['code', 'ASC'] }),
 		]);
 		group = g;
 		groups = all.data;
 		columns = definition.members;
 		calculations = definition.calculations;
 		members = memberRows.data;
-		parameters = catalog.data;
+		parameters = catalog;
 	}
 
 	onMount(async () => {

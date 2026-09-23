@@ -3,6 +3,7 @@
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { listAll } from '$api/paged';
 	import { api, type AlarmThreshold, type Parameter, type Site, type SiteParameter } from '$api/crud';
 	import { formatThresholdRange } from '$lib/alarms';
 	import { toolboxHref } from '$lib/toolbox/route';
@@ -28,20 +29,20 @@
 			const [p, sp, s, defs, thresholds] = await Promise.all([
 				api.parameters.get(paramId),
 				api.siteParameters.list({ perPage: 500, filter: { parameter_id: paramId, is_active: true } }),
-				api.sites.list({ perPage: 200 }),
-				api.derivedParameters.list({ perPage: 500 }),
+				listAll(api.sites),
+				listAll(api.derivedParameters),
 				api.alarmThresholds.list({ perPage: 200, filter: { parameter_id: paramId } }),
 			]);
 			// A computed parameter is managed on the page of the calculation that writes it, where its
 			// formula, its preview and its recompute live.
-			const formula = defs.data.find((d) => d.output_parameter_id === paramId && d.tool_script_id);
+			const formula = defs.find((d) => d.output_parameter_id === paramId && d.tool_script_id);
 			if (formula?.tool_script_id) {
 				goto(toolboxHref(base, formula.tool_script_id), { replaceState: true });
 				return;
 			}
 			param = p;
 			siteParams = sp.data;
-			sites = s.data;
+			sites = s;
 			globalThreshold = thresholds.data.find((t) => t.site_id === null) ?? null;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load parameter';

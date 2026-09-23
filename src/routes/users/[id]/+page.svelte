@@ -3,6 +3,7 @@
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { listAll } from '$api/paged';
 	import { crudClient, api, type Project } from '$api/crud';
 	import { assignUserRoles, getUserGrants, setUserGrants } from '$api/service';
 	import { accessRoles, roleLabel, roleBadgeVariant } from '$lib/users';
@@ -48,10 +49,10 @@
 		try {
 			user = await usersClient.get(userId);
 			const [projRes, grants] = await Promise.all([
-				api.projects.list({ perPage: 1000, sort: ['name', 'ASC'] }),
+				listAll(api.projects, { sort: ['name', 'ASC'] }),
 				getUserGrants(userId),
 			]);
-			projects = projRes.data;
+			projects = projRes;
 			grantedIds = new Set(grants.map((g) => g.project_id));
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);

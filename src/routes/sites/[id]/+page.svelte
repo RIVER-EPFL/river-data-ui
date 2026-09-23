@@ -661,23 +661,23 @@
 
 			const [proj, sp, params, sens, deps, cals, n, th] = await Promise.all([
 				api.projects.get(s.project_id),
-				api.siteParameters.list({ perPage: 100, filter: { site_id: id } }),
-				api.parameters.list({ perPage: 500 }),
-				api.sensors.list({ perPage: 200 }),
-				api.sensorDeployments.list({ perPage: 200, filter: { site_id: id } }),
-				api.sensorCalibrations.list({ perPage: 500 }),
+				listAll(api.siteParameters, { filter: { site_id: id } }),
+				listAll(api.parameters),
+				listAll(api.sensors),
+				listAll(api.sensorDeployments, { filter: { site_id: id } }),
+				listAll(api.sensorCalibrations),
 				api.notes.list({ perPage: 50, filter: { site_id: id }, sort: ['created_at', 'DESC'] }),
-				api.alarmThresholds.list({ perPage: 200 }),
+				listAll(api.alarmThresholds),
 			]);
 			project = proj;
-			siteParameters = sp.data;
-			parameters = params.data;
+			siteParameters = sp;
+			parameters = params;
 			// Only what something could have been measured on is offered as a slot's instrument.
-			sensors = measuringInstruments(sens.data);
-			deployments = deps.data;
-			calibrations = cals.data;
+			sensors = measuringInstruments(sens);
+			deployments = deps;
+			calibrations = cals;
 			notes = n.data;
-			thresholds = th.data;
+			thresholds = th;
 			resolvedThresholds = new Map(
 				(await getThresholds({ site_id: id })).map((r) => [r.parameter_id, r]),
 			);

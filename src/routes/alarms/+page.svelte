@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { listAll } from '$api/paged';
 	import { formatMeasurement } from '$lib/format';
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
@@ -147,11 +148,11 @@
 		try {
 			const [siteRows, paramsResult] = await Promise.all([
 				siteRefs.ensure(),
-				api.parameters.list({ perPage: 500 }),
+				listAll(api.parameters),
 			]);
 			siteMap = new Map(siteRows.map((s: Site) => [s.id, s.name]));
-			paramMap = new Map(paramsResult.data.map((p: Parameter) => [p.id, p.name]));
-			paramUnits = new Map(paramsResult.data.map((p: Parameter) => [p.id, p.default_units ?? null]));
+			paramMap = new Map(paramsResult.map((p: Parameter) => [p.id, p.name]));
+			paramUnits = new Map(paramsResult.map((p: Parameter) => [p.id, p.default_units ?? null]));
 		} catch {
 			/* lookups are best-effort; tables fall back to ids/names */
 		}

@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
+	import { listAll } from '$api/paged';
 	import { api, type Project, type Site, type SiteParameter, type Parameter, type Subproject } from '$api/crud';
 	import { invalidatePublicConfig, getVersion } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
@@ -40,15 +41,15 @@
 			const [p, s, params, subs, projs] = await Promise.all([
 				api.projects.get(projectId),
 				api.sites.list({ perPage: 100, filter: { project_id: projectId } }),
-				api.parameters.list({ perPage: 500 }),
+				listAll(api.parameters),
 				api.subprojects.list({ perPage: 1000, sort: ['name', 'ASC'], filter: { project_id: projectId } }),
-				api.projects.list({ perPage: 100, sort: ['name', 'ASC'] }),
+				listAll(api.projects, { sort: ['name', 'ASC'] }),
 			]);
 			project = p;
 			sites = s.data;
-			parameters = params.data;
+			parameters = params;
 			subprojects = subs.data;
-			allProjects = projs.data;
+			allProjects = projs;
 		} finally {
 			loading = false;
 		}

@@ -6688,7 +6688,7 @@
         "properties": {
           "finding": {
             "$ref": "#/components/schemas/CellFinding",
-            "description": "The oldest open event-audit finding for this cell."
+            "description": "The oldest open finding for this cell, slot-keyed or placed through its stream's pairing."
           },
           "has_provenance": {
             "description": "A server-built tool-run blob is stored on the measurement.",
@@ -7792,7 +7792,7 @@
             "type": "array"
           },
           "replaced": {
-            "description": "Rows removed by `mode: replace` before the insert. Only the grab stream's own rows at the\ninstant are candidates; rows another source wrote at the same slot and time are untouched.",
+            "description": "Rows `mode: replace` rewrote in place. Only the grab stream's own rows at the instant are\ncandidates; rows another source wrote at the same slot and time are untouched.",
             "minimum": 0,
             "type": "integer"
           },

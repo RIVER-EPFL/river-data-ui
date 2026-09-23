@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { listAll } from '$api/paged';
 	import { listReplicateAudits, type ReplicateAuditHold, type HoldKind } from '$api/service';
 	import { api, type Parameter, type Site } from '$api/crud';
 	import { dayBounds, dayOf, formatDateTime } from '$lib/utils';
@@ -55,11 +56,11 @@
 	onMount(async () => {
 		try {
 			const [s, p] = await Promise.all([
-				api.sites.list({ perPage: 500, sort: ['name', 'ASC'] }),
-				api.parameters.list({ perPage: 500, sort: ['name', 'ASC'] }),
+				listAll(api.sites, { sort: ['name', 'ASC'] }),
+				listAll(api.parameters, { sort: ['name', 'ASC'] }),
 			]);
-			sites = s.data;
-			parameters = p.data;
+			sites = s;
+			parameters = p;
 		} catch {
 			// The lists only feed the dropdowns; the browse still reads without them.
 		}

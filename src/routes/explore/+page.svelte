@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { listAll } from '$api/paged';
 	import { api, type Site, type Parameter, type SiteParameter } from '$api/crud';
 	import { page } from '$app/state';
 	import type { Frequency } from '$lib/charts/multiSiteSeries';
@@ -32,13 +33,13 @@
 	onMount(async () => {
 		try {
 			const [s, p, sp] = await Promise.all([
-				api.sites.list({ perPage: 200 }),
-				api.parameters.list({ perPage: 500 }),
-				api.siteParameters.list({ perPage: 1000 }),
+				listAll(api.sites),
+				listAll(api.parameters),
+				listAll(api.siteParameters),
 			]);
-			sites = s.data;
-			allParams = p.data;
-			allSiteParams = sp.data;
+			sites = s;
+			allParams = p;
+			allSiteParams = sp;
 		} catch (e) {
 			pageError = e instanceof Error ? e.message : 'Failed to load metadata';
 		} finally {

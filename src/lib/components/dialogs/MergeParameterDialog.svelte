@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { listAll } from '$api/paged';
 	import { api, type Parameter } from '$api/crud';
 	import { mergeParameters } from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
@@ -30,8 +31,8 @@
 	$effect(() => {
 		if (open && allParams.length === 0) {
 			loading = true;
-			api.parameters.list({ perPage: 500 }).then((res) => {
-				allParams = res.data;
+			listAll(api.parameters).then((rows) => {
+				allParams = rows;
 				loading = false;
 			});
 		}

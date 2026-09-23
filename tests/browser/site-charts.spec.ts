@@ -10,20 +10,31 @@ async function openSeededSite(page: Page) {
 	await page.goto(`${new URL(page.url()).pathname}?tab=charts`);
 }
 
+/**
+ * Chart `index`'s plot area, scrolled into view. A chart is rebuilt each time its data or options
+ * land, and the site's reads land one after another, so a plot replaced while it is measured is
+ * measured again.
+ */
 async function plotBox(page: Page, index: number) {
 	const plot = page.locator('.u-over').nth(index);
-	await expect(plot).toBeVisible();
-	await plot.scrollIntoViewIfNeeded();
-	return (await plot.boundingBox())!;
+	let box: Awaited<ReturnType<typeof plot.boundingBox>> = null;
+	await expect(async () => {
+		await plot.scrollIntoViewIfNeeded({ timeout: 2_000 });
+		box = await plot.boundingBox();
+		expect(box).not.toBeNull();
+	}).toPass();
+	return box!;
 }
 
 test('hovering a site chart raises the shared tooltip', async ({ page }) => {
 	await openSeededSite(page);
-	const box = await plotBox(page, 0);
-	await page.mouse.move(box.x + box.width * 0.6, box.y + box.height / 2);
-
 	const tooltip = page.getByTestId('chart-tooltip');
-	await expect(tooltip).toBeVisible();
+	let box = await plotBox(page, 0);
+	await expect(async () => {
+		box = await plotBox(page, 0);
+		await page.mouse.move(box.x + box.width * 0.6, box.y + box.height / 2);
+		await expect(tooltip).toBeVisible({ timeout: 2_000 });
+	}).toPass();
 	await expect(tooltip).toContainText(/\d{2}:\d{2}/);
 
 	await page.mouse.move(box.x - 40, box.y - 40);
@@ -113,13 +124,17 @@ async function openSpotSite(page: Page, request: APIRequestContext) {
  */
 async function clickTheMarker(page: Page, index: number) {
 	const plot = page.locator('.u-over').nth(index);
-	await plot.scrollIntoViewIfNeeded();
-	const box = (await plot.boundingBox())!;
-	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-	const point = plot.locator('.u-cursor-pt').filter({ visible: true }).first();
-	const at = (await point.boundingBox())!;
-	await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
-	await expect.poll(() => plot.evaluate((el) => el.style.cursor)).toBe('pointer');
+	await expect(async () => {
+		const box = await plotBox(page, index);
+		await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+		const point = plot.locator('.u-cursor-pt').filter({ visible: true }).first();
+		const at = await point.boundingBox({ timeout: 2_000 });
+		expect(at).not.toBeNull();
+		await page.mouse.move(at!.x + at!.width / 2, at!.y + at!.height / 2);
+		await expect
+			.poll(() => plot.evaluate((el) => el.style.cursor), { timeout: 2_000 })
+			.toBe('pointer');
+	}).toPass();
 	await page.mouse.down();
 	await page.mouse.up();
 	await expect(page.getByRole('button', { name: 'Close' })).toBeVisible();

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { base } from '$app/paths';
 	import { onMount } from 'svelte';
+	import { listAll } from '$api/paged';
 	import CrudForm from '$components/crud/CrudForm.svelte';
 	import { api } from '$api/crud';
 	import { siteNavigator } from '$lib/stores/sites.svelte';
@@ -11,12 +12,12 @@
 
 	onMount(async () => {
 		const [projects, subprojects] = await Promise.all([
-			api.projects.list({ perPage: 100, sort: ['name', 'ASC'] }),
-			api.subprojects.list({ perPage: 1000, sort: ['name', 'ASC'] }),
+			listAll(api.projects, { sort: ['name', 'ASC'] }),
+			listAll(api.subprojects, { sort: ['name', 'ASC'] }),
 		]);
-		projectOptions = projects.data.map((p) => ({ value: p.id, label: p.name }));
-		const projectName = new Map(projects.data.map((p) => [p.id, p.name]));
-		subprojectOptions = subprojects.data.map((s) => ({
+		projectOptions = projects.map((p) => ({ value: p.id, label: p.name }));
+		const projectName = new Map(projects.map((p) => [p.id, p.name]));
+		subprojectOptions = subprojects.map((s) => ({
 			value: s.id,
 			label: `${projectName.get(s.project_id) ?? '-'} - ${s.name}`,
 		}));
