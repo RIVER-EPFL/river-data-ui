@@ -7,6 +7,7 @@
 	import { api, type Parameter, type ParameterGroup, type ParameterGroupMember } from '$api/crud';
 	import { getGroupDefinition, type GroupDefinitionMember } from '$api/service';
 	import type { components } from '$api/schema';
+	import { allParameterGroups, parameterGroupMembers } from '$lib/sites/siteCatalogs';
 	import { assignBody, assignmentError, replicateSpec, replicated, roleLabel } from '$lib/parameters/groups';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Badge from '$components/ui/Badge.svelte';
@@ -38,16 +39,16 @@
 	async function load() {
 		const [g, all, definition, memberRows, catalog] = await Promise.all([
 			api.parameterGroups.get(groupId),
-			api.parameterGroups.list({ perPage: 200, sort: ['ordinal', 'ASC'] }),
+			allParameterGroups(),
 			getGroupDefinition(groupId),
-			api.parameterGroupMembers.list({ perPage: 500, filter: { group_id: groupId } }),
+			parameterGroupMembers(groupId),
 			listAll(api.parameters, { sort: ['code', 'ASC'] }),
 		]);
 		group = g;
-		groups = all.data;
+		groups = all;
 		columns = definition.members;
 		calculations = definition.calculations;
-		members = memberRows.data;
+		members = memberRows;
 		parameters = catalog;
 	}
 

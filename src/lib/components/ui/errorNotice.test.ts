@@ -12,7 +12,7 @@ describe('page errors', () => {
 
 	it('draw no alarm box of their own', () => {
 		const box =
-			/<(div|p)\b[^>]*class="(?![^"]*text-xs)[^"]*\bseverity-alarm[^"]*"[^>]*>\s*(?:[A-Za-z ]+:\s*)?\{(?:error|parseError)\}\s*<\/\1>/;
+			/<(div|p|td)\b[^>]*class="(?![^"]*text-xs)[^"]*\bseverity-alarm[^"]*"[^>]*>\s*(?:[A-Za-z ,]+:\s*)?\{(?:error|\w+Error)\}\s*<\/\1>/;
 		const found = sources.filter(({ text }) => box.test(text)).map(({ file }) => file);
 		expect(found).toEqual([]);
 	});

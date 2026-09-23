@@ -13,6 +13,8 @@ const BASE_URL = process.env.E2E_BASE_URL ?? `http://localhost:${PORT}`;
 
 export default defineConfig({
 	testDir: 'tests/browser',
+	// The `*.test.ts` files beside the stories are vitest's.
+	testMatch: '*.spec.ts',
 	timeout: 60_000,
 	expect: { timeout: 15_000 },
 	workers: 1,

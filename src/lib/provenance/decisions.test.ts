@@ -3,6 +3,7 @@ import type { ReadingDecision } from '$api/service';
 import {
 	changedFields,
 	decisionLabel,
+	rulingHold,
 	timelineEntries,
 	undoable,
 } from './decisions';
@@ -100,5 +101,25 @@ describe('undoable', () => {
 	it('falls back to the kind where an older API sends no verdict', () => {
 		expect(undoable(decision({}))).toBe(true);
 		expect(undoable(decision({ kind: 'rollback' }))).toBe(false);
+	});
+
+	it('offers no undo for a decision a standing ruling recorded', () => {
+		expect(
+			undoable(decision({ kind: 'verify', reversible: true, ruling_hold_id: 'h1' })),
+		).toBe(false);
+	});
+});
+
+describe('rulingHold', () => {
+	it('names the hold a standing ruling is reopened from', () => {
+		expect(rulingHold(decision({ kind: 'verify', ruling_hold_id: 'h1' }))).toBe('h1');
+	});
+
+	it('names none for a decision no standing ruling recorded', () => {
+		expect(rulingHold(decision({ ruling_hold_id: null }))).toBeNull();
+		expect(rulingHold(decision({}))).toBeNull();
+		expect(
+			rulingHold(decision({ kind: 'verify', ruling_hold_id: 'h1', rolled_back_by: 'r1' })),
+		).toBeNull();
 	});
 });

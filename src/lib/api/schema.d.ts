@@ -5815,8 +5815,8 @@ export interface paths {
         put?: never;
         /**
          * Batch insert non-numeric device status events (e.g. "low_battery", "offline").
-         *     Auto-creates "api" streams as needed. An event is attributed to its site and parameter only
-         *     when the site carries that parameter; otherwise it is stored unattributed on its unpaired
+         *     Auto-creates "api" streams as needed, and pairs one to the site's slot once the site carries
+         *     it; an event is attributed from its stream's pairing and stored unattributed on an unpaired
          *     stream. 10MB body limit. Requires `write_data`.
          */
         post: operations["insert_batch_status_events"];
@@ -10063,6 +10063,12 @@ export interface components {
             reversible: boolean;
             /** Format: uuid */
             rolled_back_by: string | null;
+            /**
+             * Format: uuid
+             * @description The verification hold whose standing ruling recorded this decision's set. Such a decision
+             *     is undone by reopening that hold, never by a rollback.
+             */
+            ruling_hold_id: string | null;
             /** Format: uuid */
             set_id: string | null;
             /** Format: uuid */
@@ -29116,7 +29122,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Already rolled back */
+            /** @description Already rolled back, or a verification ruling's set, which its hold's reopen undoes */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -29153,7 +29159,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Already rolled back, or a decision that projects nothing */
+            /** @description Already rolled back, a decision that projects nothing, or a verification ruling's, which its hold's reopen undoes */
             409: {
                 headers: {
                     [name: string]: unknown;

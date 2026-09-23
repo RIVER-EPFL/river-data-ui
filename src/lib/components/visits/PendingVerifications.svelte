@@ -12,6 +12,7 @@
 	import { KIND_LABEL, KIND_STYLE, KIND_TIP, VERIFICATION_KINDS } from '$lib/holds';
 	import { apiMessage } from '$lib/standardCurves';
 	import Button from '$components/ui/Button.svelte';
+	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import EventPanel from '$components/logs/EventPanel.svelte';
 
@@ -150,7 +151,7 @@
 		{#if hold.kind === 'unverified_entry'}
 			<div class="mt-3 text-xs">
 				{#if previewError}
-					<p class="text-severity-alarm">Could not read what a reject would take: {previewError}</p>
+					<ErrorNotice message="Could not read what a reject would take: {previewError}" />
 				{:else if !preview}
 					<p class="text-brand-muted">Reading what was computed from this entry…</p>
 				{:else if preview.withdrawn.length === 0}

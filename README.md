@@ -72,13 +72,13 @@ change history in one schema, so that each of these is a query rather than a rec
 | Standard curve | A linear correction of a laboratory method, selected per observation |
 | Formula | A versioned calculation producing a derived reading |
 
-```text
- Site
-  └── Site parameter ─────── paired with ───── Data stream ── Readings (time, raw, corrected)
- Instrument ── Deployment (site, parameter, interval)
-            └─ Calibration (sensor)  or  Standard curve (laboratory method)
- Visit (site, time) ── low-frequency readings and their replicates ── derived readings
-```
+The core of the database schema, generated from the migrations:
+
+![Core schema](https://raw.githubusercontent.com/RIVER-EPFL/river-data-api/main/docs/schema-core.svg)
+
+Every table is in the
+[full schema diagram](https://github.com/RIVER-EPFL/river-data-api/blob/main/docs/schema.svg),
+and the API README describes the data model in words.
 
 ## Design principles
 

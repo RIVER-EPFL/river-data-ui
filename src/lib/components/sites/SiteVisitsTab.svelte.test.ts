@@ -1,5 +1,4 @@
 import {
-  configure,
   render,
   screen,
   waitFor,
@@ -36,10 +35,7 @@ vi.mock("$auth/me.svelte", () => ({
   },
 }));
 
-// Every case mounts Handsontable, whose first render outlasts testing-library's one-second wait
-// on a loaded machine.
-configure({ asyncUtilTimeout: 15_000 });
-vi.setConfig({ testTimeout: 40_000 });
+// Every case mounts Handsontable; vitest's own waitFor does not read testing-library's timeout.
 const settle = { timeout: 15_000 };
 
 const SiteVisitsTab = (await import("./SiteVisitsTab.svelte")).default;

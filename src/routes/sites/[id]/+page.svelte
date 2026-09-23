@@ -10,7 +10,7 @@
 	import { api, type Site, type Project, type SiteParameter, type Parameter, type Sensor, type SensorDeployment, type SensorCalibration, type Note, type AlarmThreshold, type ParameterGroup, type ParameterGroupMember, type Sample, type Annotation, type Subproject } from '$api/crud';
 	import { GET, POST, PATCH } from '$api/client';
 	import { listAll } from '$api/paged';
-	import { allThresholds, siteDeployments, siteSlots } from '$lib/sites/siteCatalogs';
+	import { allParameterGroups, allThresholds, siteDeployments, siteSlots } from '$lib/sites/siteCatalogs';
 	import {
 		cadenceConsequence,
 		cadenceLabel,
@@ -722,11 +722,8 @@
 		samplesSiteId = id;
 		samplesPage = 1;
 		try {
-			const [groupResult] = await Promise.all([
-				api.parameterGroups.list({ perPage: 200, sort: ['ordinal', 'ASC'] }),
-				loadSamples(),
-			]);
-			parameterGroups = groupResult.data;
+			const [groups] = await Promise.all([allParameterGroups(), loadSamples()]);
+			parameterGroups = groups;
 		} catch (e) {
 			toastStore.error(e instanceof Error ? `Failed to load parameter groups / samples: ${e.message}` : 'Failed to load parameter groups / samples');
 		}

@@ -8,6 +8,7 @@
 	import { formatDateTime } from '$lib/utils';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
+	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import ProvenanceCard from '$components/samples/ProvenanceCard.svelte';
 	import { formatMeasurement } from '$lib/format';
 
@@ -274,7 +275,7 @@
 						{armed.mode === 'flag' ? 'Flagging' : 'Restoring'} replicate {armed.index}
 					</p>
 					{#if previewError}
-						<p class="text-severity-alarm">{previewError}</p>
+						<ErrorNotice message={previewError} />
 					{:else if preview}
 						<table class="w-full">
 							<thead class="text-brand-muted">

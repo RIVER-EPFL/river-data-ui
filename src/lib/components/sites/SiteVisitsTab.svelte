@@ -89,6 +89,7 @@
 	import TimestampInput from '$components/ui/TimestampInput.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
 	import { visitsExtent, isDraggableExtent, type Extent } from '$lib/sites/visitsExtent';
+	import { allParameterGroups, parameterGroupMembers } from '$lib/sites/siteCatalogs';
 	import Badge from '$components/ui/Badge.svelte';
 	import { BADGE_BASE, BADGE_VARIANTS, type BadgeVariant } from '$components/ui/badge';
 	import SheetGrid from '$components/ui/SheetGrid.svelte';
@@ -325,12 +326,12 @@
 	async function loadGroups() {
 		try {
 			const [groupRows, members, sensors] = await Promise.all([
-				api.parameterGroups.list({ perPage: 200, sort: ['ordinal', 'ASC'] }),
-				api.parameterGroupMembers.list({ perPage: 1000 }),
+				allParameterGroups(),
+				parameterGroupMembers(),
 				listAll(api.sensors, { sort: ['name', 'ASC'] }),
 			]);
-			groups = groupRows.data;
-			groupOf = Object.fromEntries(members.data.map((m) => [m.parameter_id, m.group_id]));
+			groups = groupRows;
+			groupOf = Object.fromEntries(members.map((m) => [m.parameter_id, m.group_id]));
 			instruments = sensors;
 		} catch {
 			// These are affordances; without them the table still lists and saves.

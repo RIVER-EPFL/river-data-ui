@@ -15,6 +15,7 @@
 		getReadingLedger,
 		rollbackEdit,
 		rollbackEditSet,
+		reopenReplicateAudit,
 		type LedgerEntry,
 		type ReadingDecision,
 		type ConsumedInput,
@@ -35,6 +36,7 @@
 		changedFields,
 		decisionLabel,
 		fieldLabel,
+		rulingHold,
 		timelineEntries,
 		undoable,
 		type DecisionEntry,
@@ -240,6 +242,25 @@
 			historyError = {
 				...historyError,
 				[i]: e instanceof Error ? e.message : String(e),
+			};
+		} finally {
+			rollingBack = null;
+		}
+	}
+
+	// A manager's ruling is undone by reopening its hold, which rolls back its decisions and returns
+	// the hold, the visit and the holds it closed to the review queue together.
+	async function reopenRuling(i: number, rec: ProvenanceRecord, e: DecisionEntry, hold: string) {
+		rollingBack = e.head.id;
+		try {
+			await reopenReplicateAudit(hold);
+			toastStore.success('Ruling reopened');
+			await loadHistory(i, rec);
+			await changed();
+		} catch (err) {
+			historyError = {
+				...historyError,
+				[i]: err instanceof Error ? err.message : String(err),
 			};
 		} finally {
 			rollingBack = null;
@@ -1062,6 +1083,7 @@
 {#snippet line(i: number, rec: ProvenanceRecord, entry: LedgerEntry, muted: boolean)}
 	{@const decision = decisionFor(i, entry)}
 	{@const href = entryHref(rec, entry)}
+	{@const ruling = decision ? rulingHold(decision.head) : null}
 	<li class="flex flex-wrap items-baseline gap-x-2">
 		<span class:font-medium={!muted}>
 			{decision ? decisionLabel(decision.head.kind) : ledgerLine(entry).text}
@@ -1091,6 +1113,17 @@
 		{/if}
 		{#if decision?.head.rolled_back_by}
 			<span class="text-brand-muted">rolled back</span>
+		{:else if decision && ruling}
+			{#if me.can('manageSensors')}
+				<button
+					class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline disabled:opacity-50"
+					disabled={rollingBack === decision.head.id}
+					title="Rolls back the ruling and returns its hold to the review queue"
+					onclick={() => reopenRuling(i, rec, decision, ruling)}>Reopen ruling</button
+				>
+			{:else}
+				<span class="text-brand-muted">a manager's ruling, undone by reopening it</span>
+			{/if}
 		{:else if decision && undoable(decision.head)}
 			<button
 				class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline disabled:opacity-50"

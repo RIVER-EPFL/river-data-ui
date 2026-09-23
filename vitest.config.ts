@@ -42,6 +42,9 @@ export default defineConfig({
 					name: 'component',
 					environment: 'jsdom',
 					env: TIMEZONE,
+					// A component that mounts Handsontable or uPlot pays for its import in the first case of
+					// its file, which outlasts the five-second default on a loaded machine.
+					testTimeout: 40_000,
 					include: ['src/**/*.svelte.test.ts'],
 					setupFiles: ['src/tests/setup.ts'],
 				},

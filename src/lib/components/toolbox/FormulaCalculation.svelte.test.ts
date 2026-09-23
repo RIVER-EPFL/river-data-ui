@@ -119,11 +119,6 @@ vi.mock('$app/state', () => ({ page: { url: new URL('http://localhost/toolbox/ca
 
 const FormulaCalculation = (await import('./FormulaCalculation.svelte')).default;
 
-// Every test here mounts the whole page and waits on the 400 ms rerun debounce, on real timers.
-vi.setConfig({ testTimeout: 40_000 });
-// How long a wait on that debounce may take on a loaded machine.
-const settle = { timeout: 15_000 };
-
 beforeEach(() => {
 	draftRunFormulas.mockClear();
 	saveFormulaSet.mockClear();
@@ -135,7 +130,7 @@ beforeEach(() => {
 describe('reading a calculation over its values', () => {
 	it('previews through draft_run alone, and writes nothing', async () => {
 		render(FormulaCalculation, { calculationId: 'calc-1' });
-		await waitFor(() => expect(draftRunFormulas).toHaveBeenCalled(), settle);
+		await waitFor(() => expect(draftRunFormulas).toHaveBeenCalled());
 		pending.shift()?.(result(2));
 		expect(saveFormulaSet).not.toHaveBeenCalled();
 		expect(writes).not.toHaveBeenCalled();
@@ -143,7 +138,7 @@ describe('reading a calculation over its values', () => {
 
 	it('runs on the typed numbers alone when no visit is chosen', async () => {
 		render(FormulaCalculation, { calculationId: 'calc-1' });
-		await waitFor(() => expect(draftRunFormulas).toHaveBeenCalled(), settle);
+		await waitFor(() => expect(draftRunFormulas).toHaveBeenCalled());
 		pending.shift()?.(result(2));
 		const body = draftRunFormulas.mock.calls.at(-1)?.[1] as {
 			inputs: Record<string, unknown>;
@@ -156,15 +151,15 @@ describe('reading a calculation over its values', () => {
 describe('two runs in flight', () => {
 	it('keeps the later run`s numbers when an earlier one answers after it', async () => {
 		const view = render(FormulaCalculation, { calculationId: 'calc-1' });
-		await waitFor(() => expect(draftRunFormulas).toHaveBeenCalledTimes(1), settle);
+		await waitFor(() => expect(draftRunFormulas).toHaveBeenCalledTimes(1));
 		// Editing the set is what reruns it: there is no Run button, the site and the visit are the
 		// page's own, and a change reads the set again once it has settled.
 		await fireEvent.click(await screen.findByRole('button', { name: 'Add output' }));
-		await waitFor(() => expect(draftRunFormulas).toHaveBeenCalledTimes(2), settle);
+		await waitFor(() => expect(draftRunFormulas).toHaveBeenCalledTimes(2));
 
 		const [first, second] = pending.splice(0, 2);
 		second!(result(20));
-		await waitFor(() => expect(view.container.textContent).toContain('20'), settle);
+		await waitFor(() => expect(view.container.textContent).toContain('20'));
 		first!(result(10));
 		await new Promise((resolve) => setTimeout(resolve, 20));
 		expect(view.container.textContent).toContain('20');
@@ -209,14 +204,14 @@ describe('a calculation that corrects with a curve', () => {
 			total: 1,
 		});
 		render(FormulaCalculation, { calculationId: 'calc-1' });
-		await waitFor(() => expect(screen.getByText('Curve slot doc')).toBeTruthy(), settle);
+		await waitFor(() => expect(screen.getByText('Curve slot doc')).toBeTruthy());
 	});
 });
 
 describe('reading a calculation over a site series', () => {
 	it('offers the series when every input is a parameter a site streams', async () => {
 		render(FormulaCalculation, { calculationId: 'calc-1' });
-		await waitFor(() => expect(screen.getByText('Live preview')).toBeTruthy(), settle);
+		await waitFor(() => expect(screen.getByText('Live preview')).toBeTruthy());
 	});
 });
 

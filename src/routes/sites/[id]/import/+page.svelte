@@ -775,9 +775,7 @@
 							Import complete - <strong>{job.readings_updated ?? 0}</strong> reading{(job.readings_updated ?? 0) === 1 ? '' : 's'} written ({Object.keys(result.mapped_columns).length} parameters).
 						</div>
 					{:else if jobError}
-						<div class="rounded-md bg-severity-alarm-soft px-3 py-2 text-severity-alarm">
-							Import did not complete: {jobError}
-						</div>
+						<ErrorNotice message="Import did not complete: {jobError}" />
 					{:else}
 						<div class="rounded-md bg-brand-bg px-3 py-2">
 							<span class="text-brand-muted">

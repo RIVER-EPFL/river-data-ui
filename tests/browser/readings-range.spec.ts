@@ -21,11 +21,20 @@ test('dragging the Readings scrub bar reloads the list over the dragged window',
 	const headers = { Authorization: `Bearer ${await token(request)}` };
 	const filter = encodeURIComponent(JSON.stringify({ name: SEEDED_SITE }));
 	const [site] = await (await request.get(`${API_URL}/api/sites?filter=${filter}`, { headers })).json();
+	const detail = await (await request.get(`${API_URL}/api/sites/${site.id}/detail`, { headers })).json();
+	const extentEnd = Date.parse(detail.data_end);
 
 	await signIn(page);
 	await page.goto(`${BASE_PATH}/readings?site=${site.id}`);
 	const lower = page.locator('.noUi-handle-lower');
 	await expect(lower).toBeVisible();
+	// The slider first spans the last seven days and is rebuilt on the site's extent when that
+	// arrives, which moves the handle, so it is measured once the slider ends where the data do.
+	const sliderEnd = async () =>
+		Number(await page.locator('.noUi-handle-upper').getAttribute('aria-valuemax'));
+	await expect.poll(sliderEnd).toBeCloseTo(extentEnd, -4);
+	// A slider that was just set ignores a press until its tap state clears.
+	await expect(page.locator('.noUi-target')).not.toHaveClass(/noUi-state-tap/);
 
 	const box = await lower.boundingBox();
 	if (!box) throw new Error('the lower handle has no box');

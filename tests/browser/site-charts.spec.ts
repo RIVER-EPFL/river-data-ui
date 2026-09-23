@@ -1,13 +1,14 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import { API_URL, BASE_PATH, SEEDED_SITE, signIn, token } from './portal';
 
-async function openSeededSite(page: Page) {
+/** The seeded site's charts, reached in one navigation after signing in. */
+async function openSeededSite(page: Page, request: APIRequestContext) {
+	const headers = { Authorization: `Bearer ${await token(request)}` };
+	const filter = encodeURIComponent(JSON.stringify({ name: SEEDED_SITE }));
+	const [site] = await (await request.get(`${API_URL}/api/sites?filter=${filter}`, { headers })).json();
 	await signIn(page);
-	await page.goto(`${BASE_PATH}/sites`);
-	await page.getByRole('link', { name: SEEDED_SITE, exact: true }).first().click();
-	await page.waitForURL(new RegExp(`${BASE_PATH}/sites/[0-9a-f-]{36}`));
 	// A spot-only site opens on its visits, so a charts story names the tab it is about.
-	await page.goto(`${new URL(page.url()).pathname}?tab=charts`);
+	await page.goto(`${BASE_PATH}/sites/${site.id}?tab=charts`);
 }
 
 /**
@@ -26,8 +27,8 @@ async function plotBox(page: Page, index: number) {
 	return box!;
 }
 
-test('hovering a site chart raises the shared tooltip', async ({ page }) => {
-	await openSeededSite(page);
+test('hovering a site chart raises the shared tooltip', async ({ page, request }) => {
+	await openSeededSite(page, request);
 	const tooltip = page.getByTestId('chart-tooltip');
 	let box = await plotBox(page, 0);
 	await expect(async () => {
@@ -41,8 +42,8 @@ test('hovering a site chart raises the shared tooltip', async ({ page }) => {
 	await expect(tooltip).toBeHidden();
 });
 
-test('one tooltip serves every chart on the site', async ({ page }) => {
-	await openSeededSite(page);
+test('one tooltip serves every chart on the site', async ({ page, request }) => {
+	await openSeededSite(page, request);
 	await plotBox(page, 0);
 	expect(await page.locator('.u-over').count()).toBeGreaterThan(1);
 
@@ -51,8 +52,8 @@ test('one tooltip serves every chart on the site', async ({ page }) => {
 	await expect(page.getByTestId('chart-tooltip')).toHaveCount(1);
 });
 
-test('dragging across a chart moves the whole site to that window', async ({ page }) => {
-	await openSeededSite(page);
+test('dragging across a chart moves the whole site to that window', async ({ page, request }) => {
+	await openSeededSite(page, request);
 	const label = page.getByTestId('chart-window-label');
 	const before = await label.innerText();
 

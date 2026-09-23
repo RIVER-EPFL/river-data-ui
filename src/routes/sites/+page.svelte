@@ -14,6 +14,7 @@
 	import { me } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
+	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import OriginBadge from '$components/crud/OriginBadge.svelte';
 	import OriginFilter from '$components/crud/OriginFilter.svelte';
 	import { originFilter, type Origin } from '$lib/origin';
@@ -244,7 +245,7 @@
 				{#if loading}
 					<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">Loading…</td></tr>
 				{:else if error}
-					<tr><td colspan="6" class="px-4 py-8 text-center text-severity-alarm">{error}</td></tr>
+					<tr><td colspan="6" class="px-4 py-4"><ErrorNotice message={error} /></td></tr>
 				{:else if sites.length === 0}
 					<tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">No sites found</td></tr>
 				{:else}

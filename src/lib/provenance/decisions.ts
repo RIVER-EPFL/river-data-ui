@@ -138,6 +138,14 @@ export function timelineEntries(decisions: ReadingDecision[]): DecisionEntry[] {
 /// that does not send the field leaves the decision to the kind alone.
 export function undoable(d: ReadingDecision): boolean {
 	if (d.rolled_back_by) return false;
+	if (rulingHold(d)) return false;
 	if (d.reversible !== undefined) return d.reversible;
 	return d.kind !== 'rollback';
+}
+
+/// The verification hold a standing ruling recorded this decision under. The ruling is undone by
+/// reopening that hold, which returns it to the review queue, never by rolling the decision back.
+export function rulingHold(d: ReadingDecision): string | null {
+	if (d.rolled_back_by) return null;
+	return d.ruling_hold_id ?? null;
 }

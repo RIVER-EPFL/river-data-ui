@@ -8,12 +8,15 @@ const getReadingProvenance = vi.fn();
 const getReadingDecisions = vi.fn();
 const getReadingLedger = vi.fn();
 const rollbackEdit = vi.fn();
+const rollbackEditSet = vi.fn();
+const reopenReplicateAudit = vi.fn();
 vi.mock('$api/service', () => ({
 	getReadingProvenance: (q: unknown) => getReadingProvenance(q),
 	getReadingDecisions: (q: unknown) => getReadingDecisions(q),
 	getReadingLedger: (q: unknown) => getReadingLedger(q),
 	rollbackEdit: (id: string) => rollbackEdit(id),
-	rollbackEditSet: vi.fn(),
+	rollbackEditSet: (id: string) => rollbackEditSet(id),
+	reopenReplicateAudit: (id: string) => reopenReplicateAudit(id),
 }));
 
 /** The ledger arm of a decision the panel also reads through `/readings/decisions`. */
@@ -174,6 +177,40 @@ describe('PointInspector', () => {
 		expect(screen.getAllByText('Roll back')).toHaveLength(1);
 		// The change itself, which the record held and the panel used not to show.
 		expect(container.textContent).toContain('8.005 → 11');
+	});
+
+	it('offers the ruling reopen in place of Roll back for a standing ruling', async () => {
+		getReadingLedger.mockResolvedValue({
+			time: '2026-07-14T09:00:00Z',
+			entries: [decisionEntry('v0', 'verify', '2026-08-02T11:00:00Z')],
+			truncated: false,
+		});
+		const verify = (id: string, index: number) => ({
+			id,
+			stream_id: 'stream',
+			time: '2026-07-14T09:00:00Z',
+			replicate_index: index,
+			kind: 'verify',
+			old: { unverified: true },
+			new: { unverified: false },
+			actor: 'manager',
+			at: '2026-08-02T11:00:00Z',
+			origin: 'audit',
+			reversible: true,
+			set_id: 'set-1',
+			ruling_hold_id: 'hold-1',
+		});
+		getReadingDecisions.mockResolvedValue([verify('v0', 0), verify('v1', 1)]);
+		reopenReplicateAudit.mockResolvedValue({ status: 'pending' });
+		open(handEntered());
+		await screen.findByText('8.005');
+		(await screen.findByText('Show history')).click();
+		await screen.findByText('Entry verified');
+		expect(screen.queryByText('Roll back')).toBeNull();
+		(await screen.findByText('Reopen ruling')).click();
+		await waitFor(() => expect(reopenReplicateAudit).toHaveBeenCalledWith('hold-1'));
+		expect(rollbackEdit).not.toHaveBeenCalled();
+		expect(rollbackEditSet).not.toHaveBeenCalled();
 	});
 
 	it('reads one history from every record that holds part of it, filtered by severity', async () => {
