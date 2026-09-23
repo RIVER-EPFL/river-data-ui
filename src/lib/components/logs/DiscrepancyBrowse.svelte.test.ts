@@ -42,6 +42,7 @@ function tag(extra: Record<string, unknown> = {}) {
 		relative_delta: 0.2,
 		mean_relative_delta: 0.02,
 		sd_relative_delta: 0.2,
+		awaiting_inputs: [],
 		...extra,
 	};
 }

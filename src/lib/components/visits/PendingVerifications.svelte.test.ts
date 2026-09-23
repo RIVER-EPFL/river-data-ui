@@ -24,6 +24,7 @@ describe('PendingVerifications', () => {
 					parameter_name: 'Dissolved organic carbon',
 					group_time: '2025-03-04T09:00:00Z',
 					computed: { state: 'unverified', entered_by: 'intern1@test.local' },
+					awaiting_inputs: [],
 				},
 			],
 			total: 1,
@@ -59,6 +60,29 @@ describe('PendingVerifications', () => {
 		expect(await screen.findByText(/pCO2/)).toBeTruthy();
 		expect(screen.getByText(/412\.5/)).toBeTruthy();
 		expect(getRejectPreview).toHaveBeenCalledWith('hold-1');
+	});
+
+	it('offers no verify on a computed value whose inputs are still pending', async () => {
+		listReplicateAudits.mockReset().mockResolvedValue({
+			holds: [
+				{
+					id: 'hold-2',
+					kind: 'unverified_entry',
+					site_id: 'site-1',
+					site_name: 'Martigny',
+					parameter_name: 'pCO2',
+					group_time: '2025-03-04T09:00:00Z',
+					computed: { state: 'unverified', entered_by: 'intern1@test.local' },
+					awaiting_inputs: [{ parameter_id: 'p-dic', code: 'DIC', name: 'Dissolved inorganic carbon' }],
+				},
+			],
+			total: 1,
+		});
+		getRejectPreview.mockReset().mockResolvedValue({ hold_id: 'hold-2', entries: 1, withdrawn: [] });
+		render(PendingVerifications);
+		await fireEvent.click(await screen.findByText('intern1@test.local'));
+		expect(await screen.findByText(/Released when its inputs are verified: Dissolved inorganic carbon/)).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Verify' })).toBeNull();
 	});
 
 	it('says a reject takes nothing else when nothing was computed from the entry', async () => {

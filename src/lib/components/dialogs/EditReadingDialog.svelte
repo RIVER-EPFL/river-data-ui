@@ -1,9 +1,11 @@
 <script lang="ts">
 	import {
 		commitEdit,
+		detachOutput,
 		inspectEdits,
 		previewEdit,
 		reloadToolRun,
+		returnOutput,
 		type EditDecisionBody,
 		type EditOptionKind,
 		type EditPreviewResponse,
@@ -16,10 +18,12 @@
 		EDIT_METHODS,
 		commonOptions,
 		fieldLabel,
+		isDirect,
 		isRoute,
 		movedFields,
 		needsTarget,
 		needsValue,
+		outputSlots,
 		previewIsEmpty,
 		selectionRoute,
 	} from '$lib/provenance/edits';
@@ -88,7 +92,7 @@
 
 	/** The decision as it stands, or null while it is still missing what it carries. */
 	function decision(): EditDecisionBody | null {
-		if (!chosen || isRoute(chosen)) return null;
+		if (!chosen || isRoute(chosen) || isDirect(chosen)) return null;
 		if (needsValue(chosen)) {
 			const parsed = Number(value);
 			if (value.trim() === '' || Number.isNaN(parsed)) return null;
@@ -137,6 +141,25 @@
 			toastStore.success(
 				`${result.rows_decided} reading${result.rows_decided === 1 ? '' : 's'} edited`,
 			);
+			open = false;
+			onsuccess?.();
+		} catch (e) {
+			previewError = e instanceof Error ? e.message : String(e);
+		} finally {
+			committing = false;
+		}
+	}
+
+	/** A detach or a return, recorded by its own route for every slot instant selected. */
+	async function applyDirect() {
+		if (!chosen || !isDirect(chosen)) return;
+		const call = chosen === 'detach' ? detachOutput : returnOutput;
+		committing = true;
+		try {
+			for (const slot of outputSlots(rows)) {
+				await call({ ...slot, reason: reason || undefined });
+			}
+			toastStore.success(chosen === 'detach' ? 'Detached from the calculation' : 'Returned to the calculation');
 			open = false;
 			onsuccess?.();
 		} catch (e) {
@@ -206,6 +229,12 @@
 				<Button variant="primary" onclick={reopen}>Open the calculation</Button>
 			{:else if chosen === 'edit_deployment' || chosen === 'edit_calibration'}
 				<p class="text-sm text-gray-500">{method?.leaves}</p>
+			{:else if chosen && isDirect(chosen)}
+				<label class="block text-sm">
+					Reason
+					<input class="mt-1 w-full rounded border px-2 py-1" bind:value={reason} />
+				</label>
+				{#if previewError}<ErrorNotice message={previewError} />{/if}
 			{:else if chosen}
 				{#if needsValue(chosen)}
 					<label class="block text-sm">
@@ -279,7 +308,11 @@
 
 	{#snippet actions()}
 		<Button onclick={() => (open = false)}>Cancel</Button>
-		{#if chosen && !isRoute(chosen)}
+		{#if chosen && isDirect(chosen)}
+			<Button variant="primary" loading={committing} disabled={committing} onclick={applyDirect}
+				>{chosen === 'detach' ? 'Detach' : 'Return'}</Button
+			>
+		{:else if chosen && !isRoute(chosen)}
 			<Button
 				variant="primary"
 				loading={committing}

@@ -121,6 +121,8 @@ const FormulaCalculation = (await import('./FormulaCalculation.svelte')).default
 
 // Every test here mounts the whole page and waits on the 400 ms rerun debounce, on real timers.
 vi.setConfig({ testTimeout: 40_000 });
+// How long a wait on that debounce may take on a loaded machine.
+const settle = { timeout: 15_000 };
 
 beforeEach(() => {
 	draftRunFormulas.mockClear();
@@ -133,7 +135,7 @@ beforeEach(() => {
 describe('reading a calculation over its values', () => {
 	it('previews through draft_run alone, and writes nothing', async () => {
 		render(FormulaCalculation, { calculationId: 'calc-1' });
-		await waitFor(() => expect(draftRunFormulas).toHaveBeenCalled());
+		await waitFor(() => expect(draftRunFormulas).toHaveBeenCalled(), settle);
 		pending.shift()?.(result(2));
 		expect(saveFormulaSet).not.toHaveBeenCalled();
 		expect(writes).not.toHaveBeenCalled();
@@ -141,7 +143,7 @@ describe('reading a calculation over its values', () => {
 
 	it('runs on the typed numbers alone when no visit is chosen', async () => {
 		render(FormulaCalculation, { calculationId: 'calc-1' });
-		await waitFor(() => expect(draftRunFormulas).toHaveBeenCalled());
+		await waitFor(() => expect(draftRunFormulas).toHaveBeenCalled(), settle);
 		pending.shift()?.(result(2));
 		const body = draftRunFormulas.mock.calls.at(-1)?.[1] as {
 			inputs: Record<string, unknown>;
@@ -153,7 +155,6 @@ describe('reading a calculation over its values', () => {
 
 describe('two runs in flight', () => {
 	it('keeps the later run`s numbers when an earlier one answers after it', async () => {
-		const settle = { timeout: 15_000 };
 		const view = render(FormulaCalculation, { calculationId: 'calc-1' });
 		await waitFor(() => expect(draftRunFormulas).toHaveBeenCalledTimes(1), settle);
 		// Editing the set is what reruns it: there is no Run button, the site and the visit are the
@@ -208,14 +209,14 @@ describe('a calculation that corrects with a curve', () => {
 			total: 1,
 		});
 		render(FormulaCalculation, { calculationId: 'calc-1' });
-		await waitFor(() => expect(screen.getByText('Curve slot doc')).toBeTruthy());
+		await waitFor(() => expect(screen.getByText('Curve slot doc')).toBeTruthy(), settle);
 	});
 });
 
 describe('reading a calculation over a site series', () => {
 	it('offers the series when every input is a parameter a site streams', async () => {
 		render(FormulaCalculation, { calculationId: 'calc-1' });
-		await waitFor(() => expect(screen.getByText('Live preview')).toBeTruthy());
+		await waitFor(() => expect(screen.getByText('Live preview')).toBeTruthy(), settle);
 	});
 });
 

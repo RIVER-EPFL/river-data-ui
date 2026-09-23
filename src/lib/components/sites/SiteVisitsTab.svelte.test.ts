@@ -1,4 +1,10 @@
-import { render, screen, waitFor, within } from "@testing-library/svelte";
+import {
+  configure,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -26,6 +32,12 @@ vi.mock("$auth/me.svelte", () => ({
     data: null,
   },
 }));
+
+// Every case mounts Handsontable, whose first render outlasts testing-library's one-second wait
+// on a loaded machine.
+configure({ asyncUtilTimeout: 15_000 });
+vi.setConfig({ testTimeout: 40_000 });
+const settle = { timeout: 15_000 };
 
 const SiteVisitsTab = (await import("./SiteVisitsTab.svelte")).default;
 const { timezoneStore } = await import("$lib/stores/timezone.svelte");
@@ -64,6 +76,9 @@ const cell = (id: string) => ({
     {
       replicate_index: 0,
       value: STORED,
+      raw_value: STORED,
+      calibration_id: null,
+      standard_curve_id: null,
       stream_id: `stream-${id}`,
       flagged: false,
       withdrawn: false,
@@ -399,6 +414,7 @@ describe("SiteVisitsTab", () => {
         expect(
           view.container.querySelectorAll("td.sheet-reads").length,
         ).toBeGreaterThan(0),
+        settle,
       );
       expect(cellOf("TEMP").classList.contains("sheet-reads")).toBe(true);
       expect(cellOf("PCO2").classList.contains("sheet-reads")).toBe(false);
@@ -412,6 +428,7 @@ describe("SiteVisitsTab", () => {
         expect(
           view.container.querySelectorAll("td.sheet-read-by").length,
         ).toBeGreaterThan(0),
+        settle,
       );
       expect(cellOf("PCO2").classList.contains("sheet-read-by")).toBe(true);
     });

@@ -37,6 +37,7 @@ function proposalHold(extra: Record<string, unknown> = {}) {
 		relative_delta: 0,
 		mean_relative_delta: 0,
 		sd_relative_delta: 0,
+		awaiting_inputs: [],
 		...extra,
 	};
 }

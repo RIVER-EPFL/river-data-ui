@@ -1753,6 +1753,18 @@ export const commitEdit = (
 	preview_id: string,
 ) => POST<EditCommitResponse>(`${SERVICE}/readings/edits`, { selection, decision, preview_id });
 
+/** A tool output's slot at one instant, the unit a detach or a return decides. */
+export type OutputSlotRequest = components['schemas']['OutputSlotRequest'];
+export type OwnershipResponse = components['schemas']['OwnershipResponse'];
+
+/** Take an output slot at an instant away from its calculation (Q40's admin override). */
+export const detachOutput = (body: OutputSlotRequest) =>
+	POST<OwnershipResponse>(`${SERVICE}/readings/detach`, body);
+
+/** Give a detached output slot back to its calculation. */
+export const returnOutput = (body: OutputSlotRequest) =>
+	POST<OwnershipResponse>(`${SERVICE}/readings/return`, body);
+
 export const rollbackEdit = (decisionId: string) =>
 	POST<{ rollback_id: string }>(`${SERVICE}/readings/edits/${decisionId}/rollback`, {});
 

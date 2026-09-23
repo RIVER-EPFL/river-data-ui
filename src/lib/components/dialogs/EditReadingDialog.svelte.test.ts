@@ -7,6 +7,8 @@ const inspectEdits = vi.fn();
 const previewEdit = vi.fn();
 const commitEdit = vi.fn();
 const reloadToolRun = vi.fn();
+const detachOutput = vi.fn();
+const returnOutput = vi.fn();
 const goto = vi.fn();
 
 vi.mock('$app/navigation', () => ({
@@ -18,6 +20,8 @@ vi.mock('$api/service', () => ({
 	previewEdit: (s: unknown, d: unknown) => previewEdit(s, d),
 	commitEdit: (s: unknown, d: unknown, p: unknown) => commitEdit(s, d, p),
 	reloadToolRun: (id: string) => reloadToolRun(id),
+	detachOutput: (b: unknown) => detachOutput(b),
+	returnOutput: (b: unknown) => returnOutput(b),
 }));
 
 const EditReadingDialog = (await import('./EditReadingDialog.svelte')).default;
@@ -41,6 +45,8 @@ function row(options: EditOptionKind[], hasToolRun = false, runId?: string): Ins
 		},
 		options,
 		tool_run_id: runId,
+		site_id: 'site',
+		parameter_id: 'param',
 	};
 }
 
@@ -52,6 +58,8 @@ beforeEach(() => {
 	commitEdit.mockReset();
 	reloadToolRun.mockReset();
 	goto.mockReset();
+	detachOutput.mockReset();
+	returnOutput.mockReset();
 });
 
 describe('the edit dialog', () => {
@@ -99,6 +107,39 @@ describe('the edit dialog', () => {
 		expect(screen.getByText('Flag')).toBeTruthy();
 		expect(screen.queryByText('Correct the value')).toBeNull();
 		expect(screen.queryByText('Reopen the calculation')).toBeNull();
+	});
+
+	// Scenario: an administrator takes a tool-run output away from its calculation.
+	// Expected behaviour: the detach route is called for the row's slot and instant, with the
+	// reason, and the edits preview is never asked about an ownership change it refuses.
+	it('detaches through the detach route rather than previewing an edit', async () => {
+		inspectEdits.mockResolvedValue({ rows: [row(['reopen_run', 'detach'], true, 'run-1')] });
+		detachOutput.mockResolvedValue({ owner: 'manual', rows_decided: 1 });
+		render(EditReadingDialog, { open: true, selection });
+		await fireEvent.click(await screen.findByLabelText(/Detach from the calculation/));
+		await fireEvent.input(screen.getByLabelText('Reason'), { target: { value: 'lab override' } });
+		await fireEvent.click(screen.getByRole('button', { name: 'Detach' }));
+		await waitFor(() =>
+			expect(detachOutput).toHaveBeenCalledWith({
+				site_id: 'site',
+				parameter_id: 'param',
+				time: '2026-07-14T09:00:00Z',
+				reason: 'lab override',
+			}),
+		);
+		expect(previewEdit).not.toHaveBeenCalled();
+	});
+
+	it('returns a detached slot through the return route', async () => {
+		const detached = row(['value_correction', 'return']);
+		detached.provenance.slot_detached = true;
+		inspectEdits.mockResolvedValue({ rows: [detached] });
+		returnOutput.mockResolvedValue({ owner: 'tool', rows_decided: 1 });
+		render(EditReadingDialog, { open: true, selection });
+		await fireEvent.click(await screen.findByLabelText(/Return to the calculation/));
+		await fireEvent.click(screen.getByRole('button', { name: 'Return' }));
+		await waitFor(() => expect(returnOutput).toHaveBeenCalled());
+		expect(previewEdit).not.toHaveBeenCalled();
 	});
 
 	it('says when nothing is stored at the selection', async () => {

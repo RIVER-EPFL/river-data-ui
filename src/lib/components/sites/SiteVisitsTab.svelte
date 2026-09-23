@@ -147,6 +147,7 @@
 		pendingWrites,
 		withdrawalKeys,
 		storedAt,
+		typeableReplicate,
 		instrumentKey,
 		isSpare,
 		pasteNotice,
@@ -1006,9 +1007,14 @@
 	// Every cleared cell withdraws a stored replicate, by its own edit or by the replace of its group.
 	const withdrawn = $derived(Object.values(written).filter(cleared).length);
 
-	/** Whether this account may type over what the store holds at this slot (Q21). */
+	/**
+	 * Whether this account may type over what the store holds at this slot (Q21), and whether what
+	 * it holds is a measurement the table can take back.
+	 */
 	function slotWritable(visit: VisitRow, parameterId: string, replicateIndex: number) {
-		return cellWritable(me.level, storedAt(visit, parameterId, replicateIndex)?.value ?? null);
+		const stored = storedAt(visit, parameterId, replicateIndex);
+		const role = cellWritable(me.level, stored?.value ?? null);
+		return role.writable ? typeableReplicate(stored) : role;
 	}
 
 	// The site history each visit's entries are screened against, one call per visit entering a

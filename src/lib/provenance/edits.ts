@@ -129,7 +129,25 @@ export function needsTarget(kind: EditOptionKind): boolean {
 
 /** Options that are a route somewhere else rather than a decision this dialog commits. */
 export function isRoute(kind: EditOptionKind): boolean {
-	return kind === 'reopen_run' || kind === 'edit_deployment';
+	return kind === 'reopen_run' || kind === 'edit_deployment' || kind === 'edit_calibration';
+}
+
+/** Options recorded by their own route, which the edits preview refuses as not an edit. */
+export function isDirect(kind: EditOptionKind): boolean {
+	return kind === 'detach' || kind === 'return';
+}
+
+/** The slot instants a set of rows sits at, once each, which a detach or return names. */
+export function outputSlots(
+	rows: InspectedRow[],
+): Array<{ site_id: string; parameter_id: string; time: string }> {
+	const seen = new Map<string, { site_id: string; parameter_id: string; time: string }>();
+	for (const r of rows) {
+		if (!r.site_id || !r.parameter_id) continue;
+		const key = `${r.site_id}|${r.parameter_id}|${r.time}`;
+		if (!seen.has(key)) seen.set(key, { site_id: r.site_id, parameter_id: r.parameter_id, time: r.time });
+	}
+	return [...seen.values()];
 }
 
 /** The route a selection takes, from what the rows say. Mixed selections are named as such. */

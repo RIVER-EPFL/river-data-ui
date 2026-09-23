@@ -5,9 +5,12 @@ import {
 	EDIT_METHODS,
 	commonOptions,
 	fieldLabel,
+	isDirect,
+	isRoute,
 	movedFields,
 	needsTarget,
 	needsValue,
+	outputSlots,
 	previewIsEmpty,
 	selectionRoute,
 } from './edits';
@@ -115,5 +118,41 @@ describe('what the preview shows', () => {
 		expect(
 			previewIsEmpty([still], [{ sample_id: 'x', before: { mean: 1 }, after: { mean: 2 } }]),
 		).toBe(false);
+	});
+});
+
+describe('the options that do not go through the edits route', () => {
+	it('sends a deployment or a calibration edit to its own editor', () => {
+		expect(isRoute('edit_deployment')).toBe(true);
+		expect(isRoute('edit_calibration')).toBe(true);
+		expect(isRoute('value_correction')).toBe(false);
+	});
+
+	it('records a detach and a return through their own routes, never previewed as an edit', () => {
+		expect(isDirect('detach')).toBe(true);
+		expect(isDirect('return')).toBe(true);
+		expect(isDirect('flag')).toBe(false);
+	});
+});
+
+describe('outputSlots', () => {
+	const at = (site: string | undefined, parameter: string | undefined, time: string) =>
+		({ site_id: site, parameter_id: parameter, time }) as InspectedRow;
+
+	it('names each slot instant once, however many replicates it holds', () => {
+		expect(
+			outputSlots([
+				at('s', 'p', '2026-07-14T09:00:00Z'),
+				at('s', 'p', '2026-07-14T09:00:00Z'),
+				at('s', 'q', '2026-07-14T09:00:00Z'),
+			]),
+		).toEqual([
+			{ site_id: 's', parameter_id: 'p', time: '2026-07-14T09:00:00Z' },
+			{ site_id: 's', parameter_id: 'q', time: '2026-07-14T09:00:00Z' },
+		]);
+	});
+
+	it('leaves out a row paired to no slot', () => {
+		expect(outputSlots([at(undefined, undefined, '2026-07-14T09:00:00Z')])).toEqual([]);
 	});
 });

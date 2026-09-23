@@ -54,6 +54,11 @@
 		return { data: r.holds, total: r.total };
 	}
 
+	// A computed value is released by the verify of its last pending input (Q257), never ahead of it.
+	function awaited(hold: ReplicateAuditHold): string {
+		return hold.awaiting_inputs.map((i) => i.name).join(', ');
+	}
+
 	function enteredBy(hold: ReplicateAuditHold): string {
 		const computed = hold.computed as { entered_by?: string } | null;
 		return computed?.entered_by ?? '-';
@@ -121,6 +126,9 @@
 			</span>
 			{#if hold.kind === 'unverified_entry'}
 				<span class="ml-1">{hold.parameter_name ?? hold.parameter_code ?? ''}</span>
+				{#if hold.awaiting_inputs.length > 0}
+					<span class="ml-1 text-brand-muted">(waits on {awaited(hold)})</span>
+				{/if}
 			{/if}
 		</td>
 		<td class="px-4 py-2 text-xs text-brand-muted">{enteredBy(hold)}</td>
@@ -170,15 +178,19 @@
 				aria-label="Reason for rejecting"
 				class="px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-xs"
 			/>
-			<ConfirmPopover
-				message="Verify this entry? The value is served as it stands and the decision is recorded against it."
-				confirmLabel="Verify"
-				confirmVariant="primary"
-				above
-				onconfirm={() => rule(hold, 'verify', ctx)}
-			>
-				<Button variant="primary" disabled={ruling}>{ruling ? 'Saving…' : 'Verify'}</Button>
-			</ConfirmPopover>
+			{#if hold.awaiting_inputs.length > 0}
+				<span class="text-xs text-brand-muted">Released when its inputs are verified: {awaited(hold)}</span>
+			{:else}
+				<ConfirmPopover
+					message="Verify this entry? The value is served as it stands and the decision is recorded against it."
+					confirmLabel="Verify"
+					confirmVariant="primary"
+					above
+					onconfirm={() => rule(hold, 'verify', ctx)}
+				>
+					<Button variant="primary" disabled={ruling}>{ruling ? 'Saving…' : 'Verify'}</Button>
+				</ConfirmPopover>
+			{/if}
 			<ConfirmPopover
 				message={rejectMessage()}
 				confirmLabel="Reject"

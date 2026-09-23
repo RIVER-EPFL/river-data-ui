@@ -8750,6 +8750,13 @@ export interface components {
         AuditStatusCodes: {
             status_codes: number[];
         };
+        /** @description An input a computed value waits on. */
+        AwaitedInput: {
+            code: string;
+            name: string;
+            /** Format: uuid */
+            parameter_id: string;
+        };
         BackfillAttributionRequest: {
             /** @description Backfill every candidate. */
             all?: boolean;
@@ -11131,6 +11138,11 @@ export interface components {
             acknowledged_at: string | null;
             acknowledged_by: string | null;
             /**
+             * @description On a pending entry that was computed: the inputs it was computed from that are still
+             *     pending. It is released when they are verified, and cannot be verified before (Q257).
+             */
+            awaiting_inputs: components["schemas"]["AwaitedInput"][];
+            /**
              * @description Signature of the disagreement: `n_mismatch` | `source_sd_matches_n_divisor` |
              *     `stale_subset` | `unexplained`. Computed from the stored expectation and recompute, never
              *     persisted.
@@ -11689,11 +11701,19 @@ export interface components {
         };
         InspectedRow: {
             options: components["schemas"]["EditOption"][];
+            /** Format: uuid */
+            parameter_id?: string;
             provenance: components["schemas"]["RowProvenance"];
             /** Format: double */
             raw_value: number;
             /** Format: int32 */
             replicate_index: number;
+            /**
+             * Format: uuid
+             * @description The slot the row is paired to, which is what detaching or returning an output names.
+             *     Absent on an unpaired row.
+             */
+            site_id?: string;
             /** Format: uuid */
             stream_id: string;
             /** Format: date-time */
@@ -18394,9 +18414,25 @@ export interface components {
          *     `/collection_events/{id}/detail`, which is what the point record reads.
          */
         VisitReplicate: {
+            /**
+             * Format: uuid
+             * @description The windowed calibration that corrected it, if one did.
+             */
+            calibration_id: string | null;
             flagged: boolean;
+            /**
+             * Format: double
+             * @description The measurement before any curve: what an entry into this replicate's group sends back
+             *     for it, since the save corrects what it is sent.
+             */
+            raw_value: number;
             /** Format: int32 */
             replicate_index: number;
+            /**
+             * Format: uuid
+             * @description The standard curve chosen for it, if one was.
+             */
+            standard_curve_id: string | null;
             /**
              * Format: uuid
              * @description The feed this replicate came in on. With the instant and the index it is the key a

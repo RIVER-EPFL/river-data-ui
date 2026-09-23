@@ -17,15 +17,24 @@ import {
 	instrumentKey,
 	hasUnsavedEntries,
 	leavingLosesEntries,
+	typeableReplicate,
 } from './tableEdit';
 import { keptAfterSave } from './spareRows';
 
 const LOCALE = 'en-GB';
 
-function replicate(index: number, value: number, streamId = 'stream-do') {
+function replicate(
+	index: number,
+	value: number,
+	streamId = 'stream-do',
+	curve: { raw: number; standardCurveId?: string; calibrationId?: string } | null = null,
+) {
 	return {
 		replicate_index: index,
 		value,
+		raw_value: curve?.raw ?? value,
+		calibration_id: curve?.calibrationId ?? null,
+		standard_curve_id: curve?.standardCurveId ?? null,
 		stream_id: streamId,
 		flagged: false,
 		withdrawn: false,
@@ -286,5 +295,31 @@ describe('leavingLosesEntries', () => {
 
 	it('does not ask when leaving another tab', () => {
 		expect(leavingLosesEntries('charts', 'visits', true)).toBe(false);
+	});
+});
+
+describe('a replicate a curve corrects', () => {
+	// DOC measured 120 on a plate whose curve halves it, served as 60.
+	const curved = visit('v9', {
+		'p-doc': [replicate(0, 60, 'stream-doc', { raw: 120, standardCurveId: 'curve-1' })],
+	});
+
+	it('travels as its measurement when its group takes a new repeat', () => {
+		const edits = setCell({}, curved, 'p-doc', 1, '55', LOCALE);
+		const [write] = pendingWrites([curved], edits, LOCALE);
+		expect(write.entries).toEqual([
+			{ parameterId: 'p-doc', replicateIndex: 0, value: 120, sensorId: null },
+			{ parameterId: 'p-doc', replicateIndex: 1, value: 55, sensorId: null },
+		]);
+	});
+
+	it('takes no keystroke, since a number typed over it would be corrected twice', () => {
+		const stored = storedAt(curved, 'p-doc', 0);
+		expect(typeableReplicate(stored).writable).toBe(false);
+		expect(typeableReplicate(stored).reason).toMatch(/point record/);
+		const calibrated = replicate(0, 110, 'stream-do', { raw: 100, calibrationId: 'cal-1' });
+		expect(typeableReplicate(calibrated).writable).toBe(false);
+		expect(typeableReplicate(replicate(0, 10)).writable).toBe(true);
+		expect(typeableReplicate(null).writable).toBe(true);
 	});
 });

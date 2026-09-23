@@ -32,6 +32,7 @@ const TAG = {
 	relative_delta: 0.2,
 	mean_relative_delta: 0.02,
 	sd_relative_delta: 0.2,
+	awaiting_inputs: [],
 };
 
 test('the discrepancies at one reading are listed read-only with a link back to it', async ({ page }) => {

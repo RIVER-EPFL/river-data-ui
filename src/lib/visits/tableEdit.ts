@@ -53,6 +53,25 @@ export function editable(column: ParameterColumn): boolean {
 	return column.expanded || column.repeats === 1;
 }
 
+/**
+ * Whether a stored replicate takes a keystroke in the table. The table shows the corrected value
+ * and the save corrects what it is sent, so a number typed over a replicate a calibration or a
+ * standard curve corrects would be corrected a second time. Its measurement is changed in its
+ * point record instead.
+ */
+export function typeableReplicate(stored: VisitReplicate | null): {
+	writable: boolean;
+	reason: string | null;
+} {
+	if (stored === null || (stored.calibration_id === null && stored.standard_curve_id === null)) {
+		return { writable: true, reason: null };
+	}
+	return {
+		writable: false,
+		reason: 'Corrected through a curve: change its measurement in the point record.',
+	};
+}
+
 /** A blank typed over a cell, as opposed to text that could not be read as a number. */
 export function cleared(raw: string): boolean {
 	return raw.trim() === '';
@@ -202,11 +221,15 @@ function groupsOf(
 	return entries;
 }
 
-/** What a group carries at one slot: the number typed, nothing where it was cleared, else the store's. */
+/**
+ * What a group carries at one slot: the number typed, nothing where it was cleared, else the
+ * store's measurement. The save corrects what it is sent, so an untouched replicate travels as the
+ * raw value it was measured at, not as the corrected value the table shows.
+ */
 function groupValue(raw: string | undefined, stored: VisitReplicate | null, locale: string): number | null {
-	if (raw === undefined) return stored?.value ?? null;
+	if (raw === undefined) return stored?.raw_value ?? null;
 	if (cleared(raw)) return null;
-	return readNumber(raw, locale) ?? stored?.value ?? null;
+	return readNumber(raw, locale) ?? stored?.raw_value ?? null;
 }
 
 /**

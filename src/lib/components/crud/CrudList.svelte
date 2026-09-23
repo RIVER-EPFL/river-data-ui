@@ -196,7 +196,7 @@
 	{#if empty && !loading && items.length === 0}
 		{@render empty()}
 	{:else}
-	<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
+	<div class="rounded-md border border-brand-divider bg-brand-surface overflow-x-auto">
 		<table class="w-full text-sm">
 			<thead>
 				<tr class="bg-brand-bg border-b border-brand-divider">
@@ -216,7 +216,7 @@
 						</th>
 					{/each}
 					{#if actions}
-						<th class="text-left px-4 py-2 font-semibold">{actionsLabel}</th>
+						<th class="sticky right-0 bg-brand-bg text-left px-4 py-2 font-semibold">{actionsLabel}</th>
 					{/if}
 				</tr>
 			</thead>
@@ -251,7 +251,7 @@
 							{/each}
 							{#if actions}
 								<!-- A control in this cell acts on its row; it never also follows the row's link. -->
-								<td class="px-4 py-2" onclick={(e) => e.stopPropagation()}>
+								<td class="sticky right-0 bg-brand-surface px-4 py-2" onclick={(e) => e.stopPropagation()}>
 									{@render actions(row)}
 								</td>
 							{/if}

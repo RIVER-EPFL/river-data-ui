@@ -66,6 +66,25 @@ describe('CrudList', () => {
 		expect(screen.getByText('Edit Martigny')).toBeTruthy();
 	});
 
+	// A table wider than a phone scrolls inside its box, and the row's actions stay on screen.
+	it('scrolls a wide table sideways and keeps the actions column in view', async () => {
+		const { container } = render(CrudListHarness, {
+			load: loader(),
+			columns: COLUMNS,
+			withActions: true,
+		});
+		await settle();
+		const table = container.querySelector('table')!;
+		expect(table.parentElement!.classList).toContain('overflow-x-auto');
+		expect(table.parentElement!.classList).not.toContain('overflow-hidden');
+		const actionsHeader = container.querySelector('thead th:last-child')!;
+		const actionsCell = screen.getByText('Edit Martigny').closest('td')!;
+		for (const cell of [actionsHeader, actionsCell]) {
+			expect(cell.classList).toContain('sticky');
+			expect(cell.classList).toContain('right-0');
+		}
+	});
+
 	it('renders an expansion row under each row, spanning the table', async () => {
 		const { container } = render(CrudListHarness, {
 			load: loader(),
