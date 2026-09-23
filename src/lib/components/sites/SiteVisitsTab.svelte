@@ -29,15 +29,18 @@
 		commitEdit,
 		rollbackEditSet,
 		getCalculationClosure,
+		listTools,
 		seasonalCheck,
 		getCollectionEventDetail,
 		previewCollectionEvent,
+		previewUnstagedVisit,
 		recomputeCollectionEvent,
 		runEventAudit,
 		runEventRecompute,
 		pollJob,
 		getToolRunTrace,
 		type ToolRunTrace,
+		type VisitCell,
 		type VisitRow,
 		type VisitsResponse,
 		type EventDetailResponse,
@@ -94,7 +97,9 @@
 	import CellEquation from '$components/tools/CellEquation.svelte';
 	import { inputOrigin } from '$lib/tools/equation';
 	import {
+		CALCULATION_FILTER,
 		askedWidth,
+		calculationsOf,
 		columnsInGroup,
 		expandable,
 		parameterColumns,
@@ -149,7 +154,7 @@
 		type Edits,
 	} from '$lib/visits/tableEdit';
 	import { cellRole, cellWritable, columnRole, editConsequence, ROLE_CLASSES } from '$lib/visits/role';
-	import { cellCurves } from '$lib/visits/curve';
+	import { cellCurves, visitCellCurveMark } from '$lib/visits/curve';
 	import { instrumentCurves } from '$lib/visits/instrument';
 	import { curveRefs } from '$lib/curveRefs.svelte';
 	import { seasonalFindingLabel } from '$lib/seasonal';
@@ -311,6 +316,9 @@
 	let groups = $state<ParameterGroup[]>([]);
 	let groupOf = $state<Record<string, string>>({});
 	let groupFilter = $state('');
+	// Each calculation's label by tool name, for the filter and the headers of what it writes.
+	let toolLabels = $state<Record<string, string>>({});
+	const toolLabel = (name: string) => toolLabels[name] ?? name;
 
 	async function loadGroups() {
 		try {
@@ -325,19 +333,22 @@
 		} catch {
 			// These are affordances; without them the table still lists and saves.
 		}
+		try {
+			toolLabels = Object.fromEntries((await listTools()).map((t) => [t.name, t.label]));
+		} catch {
+			// Without labels a calculation is named by its tool name.
+		}
 	}
 
 	let expandedColumns = $state<Set<string>>(new Set());
 	// Repeats the operator has asked a group for, past what the store holds. A field day that took
 	// a fourth measurement needs the column before it can hold the value.
 	let askedColumns = $state<Map<string, number>>(new Map());
-	const groupColumns = $derived(
-		columnsInGroup(
-			parameterColumns(visitColumns, visits, expandedColumns, askedColumns),
-			groupOf,
-			groupFilter,
-		),
+	const allColumns = $derived(
+		parameterColumns(visitColumns, visits, expandedColumns, askedColumns),
 	);
+	const siteCalculations = $derived(calculationsOf(allColumns));
+	const groupColumns = $derived(columnsInGroup(allColumns, groupOf, groupFilter));
 
 
 	// Typing into the table. One Save writes every visit it touched; the model that decides what a
@@ -764,6 +775,7 @@
 		}
 		if (writable || typed) {
 			td.append(displayText(at, edits, writable));
+			if (!open && !typed) markCurve(td, cell);
 			return td;
 		}
 		if (open) {
@@ -797,7 +809,18 @@
 		]
 			.filter(Boolean)
 			.join('\n');
+		markCurve(td, cell);
 		return td;
+	}
+
+	/** The curve a stored value was corrected through, as a mark and a line of the cell's title. */
+	function markCurve(td: HTMLTableCellElement, cell: VisitCell | null | undefined) {
+		const curve = cell && cell.value != null ? visitCellCurveMark(cell) : null;
+		if (!curve) return;
+		const corrected = mark(curve.text, 'sheet-mark');
+		corrected.title = curve.title;
+		td.append(corrected);
+		td.title = [td.title, curve.title].filter(Boolean).join('\n');
 	}
 
 	/** The group header's own controls: open to the repeats, and one repeat fewer or more. */
@@ -836,6 +859,12 @@
 			label.append(col.code);
 		}
 		if (col.units) label.append(mark(` (${col.units})`, 'sheet-mark'));
+		if (col.writtenBy) {
+			const calculated = mark(` = ${toolLabel(col.writtenBy)}`, 'sheet-mark');
+			th.title = `${col.name}, calculated by ${toolLabel(col.writtenBy)}`;
+			calculated.title = th.title;
+			label.append(calculated);
+		}
 		if (col.expanded && me.can('enterFieldData')) {
 			label.append(
 				button(
@@ -952,11 +981,7 @@
 	// ask is made once the typing settles; an answer about a grid the operator has already typed
 	// past is dropped rather than drawn.
 	$effect(() => {
-		const asks = previewAsks(
-			table.rows.filter((row) => !isSpare(row.id)),
-			edits,
-			locale,
-		);
+		const asks = previewAsks(table.rows, edits, locale);
 		untrack(() => schedulePreviews(asks));
 	});
 
@@ -972,7 +997,10 @@
 	async function runPreviews(asks: PreviewAsk[]) {
 		for (const ask of asks) {
 			try {
-				previews = settled(previews, ask, await previewCollectionEvent(ask.eventId, ask.cells));
+				const preview = ask.at
+					? await previewUnstagedVisit(siteId, ask.at, ask.cells)
+					: await previewCollectionEvent(ask.eventId, ask.cells);
+				previews = settled(previews, ask, preview);
 			} catch (e) {
 				previews = failed(previews, ask, e instanceof Error ? e.message : String(e));
 			}
@@ -1604,20 +1632,29 @@
 					{#if visitsStart || visitsEnd}
 						<Button size="sm" onclick={() => { visitsStart = null; visitsEnd = null; }}>All dates</Button>
 					{/if}
-					{#if groups.length > 0}
+					{#if groups.length > 0 || siteCalculations.length > 0}
 						<div>
 							<label for="visits-group" class="text-xs text-brand-muted block mb-1">Parameter group</label>
 							<select
 								id="visits-group"
 								bind:value={groupFilter}
 								class="px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm"
-								title="Narrow the table to one group. Every parameter the site is assigned keeps its column either way."
+								title="Narrow the table to one group, or to the inputs and outputs of one calculation. Every parameter the site is assigned keeps its column either way."
 							>
 								<option value="">All groups</option>
 								{#each groups as group (group.id)}
 									<option value={group.id}>{group.label}</option>
 								{/each}
-								<option value="none">Ungrouped</option>
+								{#if groups.length > 0}
+									<option value="none">Ungrouped</option>
+								{/if}
+								{#if siteCalculations.length > 0}
+									<optgroup label="Calculations">
+										{#each siteCalculations as tool (tool)}
+											<option value={`${CALCULATION_FILTER}${tool}`}>{toolLabel(tool)}</option>
+										{/each}
+									</optgroup>
+								{/if}
 							</select>
 						</div>
 					{/if}
@@ -2012,6 +2049,9 @@
 					{/if}
 					{#if visits.some((v) => v.cells.some((c) => visitCellMarker(c)))}
 						<p class="text-[11px] text-brand-muted">* flagged · † withdrawn at source · ? pending verification</p>
+					{/if}
+					{#if visits.some((v) => v.cells.some((c) => visitCellCurveMark(c)))}
+						<p class="text-[11px] text-brand-muted">c corrected with a standard curve, named on hover</p>
 					{/if}
 				{/if}
 			</div>

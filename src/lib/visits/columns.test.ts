@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import type { ExpectedParameter, VisitRow } from '$api/service';
 import {
+	CALCULATION_FILTER,
 	askedWidth,
+	calculationsOf,
 	columnSpan,
 	columnsInGroup,
 	expandable,
@@ -141,5 +143,26 @@ describe('narrowing the table to one parameter group', () => {
 
 	it('keeps a parameter belonging to nothing reachable', () => {
 		expect(columnsInGroup(columns, groupOf, 'none').map((c) => c.code)).toEqual(['Temp']);
+	});
+});
+
+describe('narrowing the table to one calculation', () => {
+	const withCalculation: ExpectedParameter[] = [
+		{ parameter_id: 'p-ffff', code: 'ffff', name: 'Output', written_by: 'evan' },
+		{ parameter_id: 'p-co2', code: 'lab_co2_ch4', name: 'Lab CO2' },
+		{ parameter_id: 'p-b', code: 'B', name: 'Input B', read_by: ['evan'] },
+		{ parameter_id: 'p-a', code: 'A', name: 'Input A', read_by: ['evan', 'other'] },
+	];
+	const columns = parameterColumns(withCalculation, visits, new Set());
+	const groupOf = { 'p-ffff': 'g-carbon', 'p-co2': 'g-carbon' };
+
+	it('shows the inputs it reads, then the outputs it writes, whatever their group', () => {
+		expect(
+			columnsInGroup(columns, groupOf, `${CALCULATION_FILTER}evan`).map((c) => c.code),
+		).toEqual(['B', 'A', 'ffff']);
+	});
+
+	it('lists each calculation the columns name once', () => {
+		expect(calculationsOf(columns)).toEqual(['evan', 'other']);
 	});
 });

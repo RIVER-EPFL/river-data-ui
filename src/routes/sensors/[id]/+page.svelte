@@ -1,4 +1,6 @@
 <script lang="ts">
+	import RangePresets from '$components/charts/RangePresets.svelte';
+	import { presetWindow, type RangePreset } from '$lib/charts/rangePresets';
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
@@ -97,12 +99,6 @@
 	);
 	const gapThreshold = $derived(GAP_THRESHOLDS[chartResolution] ?? 0);
 	const windowLabel = $derived(formatWindowLabel((chartEnd - chartStart) / 86400000));
-	const activeRange = $derived.by(() => {
-		const rangeMs: Record<string, number> = { '24h': 86400000, '7d': 604800000, '30d': 2592000000, '90d': 7776000000 };
-		const dur = chartEnd - chartStart;
-		for (const [key, ms] of Object.entries(rangeMs)) if (Math.abs(dur - ms) < 60000) return key;
-		return null;
-	});
 
 	function scheduleFetch() {
 		if (fetchTimer) clearTimeout(fetchTimer);
@@ -135,10 +131,8 @@
 		}
 	}
 
-	function updateChartRange(range: string) {
-		const rangeMs: Record<string, number> = { '24h': 86400000, '7d': 604800000, '30d': 2592000000, '90d': 7776000000 };
-		chartEnd = sliderMax;
-		chartStart = Math.max(sliderMin, chartEnd - rangeMs[range]);
+	function updateChartRange(range: RangePreset) {
+		({ start: chartStart, end: chartEnd } = presetWindow(range, sliderMax, sliderMin));
 		scheduleFetch();
 	}
 	function onSliderChange(start: number, end: number) { chartStart = start; chartEnd = end; scheduleFetch(); }
@@ -417,14 +411,7 @@
 			<div class="rounded-md border border-brand-divider bg-brand-surface px-4 py-3 space-y-3">
 				<div class="flex items-center gap-3 flex-wrap">
 					<span class="text-xs text-brand-muted font-semibold uppercase tracking-wider">Range</span>
-					<div class="flex gap-0.5">
-						{#each ['24h', '7d', '30d', '90d'] as range}
-							<button
-								onclick={() => updateChartRange(range)}
-								class="px-2.5 py-1 text-xs rounded cursor-pointer border-none {activeRange === range ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
-							>{range}</button>
-						{/each}
-					</div>
+					<RangePresets start={chartStart} end={chartEnd} onpick={updateChartRange} />
 
 					<div class="w-px h-5 bg-brand-divider mx-1"></div>
 

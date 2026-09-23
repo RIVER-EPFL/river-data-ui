@@ -1,4 +1,6 @@
 <script lang="ts">
+	import RangePresets from '$components/charts/RangePresets.svelte';
+	import { presetWindow, type RangePreset } from '$lib/charts/rangePresets';
 	import { provenanceKindLabel } from '$lib/origin';
 	import { measuringInstruments } from '$lib/instruments/kind';
 	import { onMount, onDestroy, untrack } from 'svelte';
@@ -40,6 +42,8 @@
 	import ApplyCalculationAtSite from '$components/toolbox/ApplyCalculationAtSite.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import ConfirmButton from '$components/ui/ConfirmButton.svelte';
+	import RowMenu from '$components/ui/RowMenu.svelte';
+	import { NO_FILTER, filterSlotGroups, groupKey, isFiltering, slotConfiguration, type SlotFilter } from '$lib/sites/slotTable';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import { leavingLosesEntries, UNSAVED_PROMPT } from '$lib/visits/tableEdit';
 	import Dialog from '$components/ui/Dialog.svelte';
@@ -64,7 +68,7 @@
 	import ParameterChart, { type ChartData } from '$components/charts/ParameterChart.svelte';
 	import { GAP_THRESHOLDS } from '$lib/charts/uPlotTheme';
 	import { autoResolution, type Frequency } from '$lib/charts/multiSiteSeries';
-	import { byCadence, openingTab, siteCadence } from '$lib/sites/cadence';
+	import { byCadence, heldCadences, openingTab, siteCadence } from '$lib/sites/cadence';
 	import { initialChartRange } from '$lib/charts/initialRange';
 	import type { SpotPointStats } from '$lib/charts/spotMarkers';
 	import FrequencyChips from '$components/charts/FrequencyChips.svelte';
@@ -434,17 +438,8 @@
 	let paramExtents = $state<Map<string, SiteDetailParameter>>(new Map());
 
 	// Which cadences the site actually holds, over its whole record. Drives the Frequency chips so
-	// a cadence with nothing behind it can't be selected into an empty set of charts.
-	const frequencyAvailable = $derived.by(() => {
-		const rows = [...paramExtents.values()];
-		const avail = {
-			high: rows.some((p) => p.has_continuous),
-			low: rows.some((p) => p.has_spot),
-		};
-		// A site with no readings at all reports neither; leave every chip live rather than
-		// locking the control over a site that simply has nothing yet.
-		return avail.high || avail.low ? avail : { high: true, low: true };
-	});
+	// a cadence with nothing behind it is not offered.
+	const frequencyAvailable = $derived(heldCadences([...paramExtents.values()]));
 
 	let sliderRef: TimeRangeSlider | undefined = $state();
 
@@ -577,10 +572,8 @@
 		}
 	}
 
-	function updateChartRange(range: string) {
-		const rangeMs: Record<string, number> = { '24h': 86400000, '7d': 604800000, '30d': 2592000000, '90d': 7776000000 };
-		chartEnd = Date.now();
-		chartStart = chartEnd - rangeMs[range];
+	function updateChartRange(range: RangePreset) {
+		({ start: chartStart, end: chartEnd } = presetWindow(range, Date.now()));
 		scheduleFetch();
 	}
 
@@ -601,15 +594,6 @@
 		chartEnd = sliderMax;
 		scheduleFetch();
 	}
-
-	const activeRange = $derived.by(() => {
-		const rangeMs: Record<string, number> = { '24h': 86400000, '7d': 604800000, '30d': 2592000000, '90d': 7776000000 };
-		const dur = chartEnd - chartStart;
-		for (const [key, ms] of Object.entries(rangeMs)) {
-			if (Math.abs(dur - ms) < 60000) return key;
-		}
-		return null;
-	});
 
 	// Notes
 	let addNoteOpen = $state(false);
@@ -703,9 +687,10 @@
 				const detailRes = await GET<SiteDetailResponse>(`/api/sites/${id}/detail`);
 				if (detailRes.data_start) sliderMin = new Date(detailRes.data_start).getTime();
 				if (detailRes.data_end) sliderMax = new Date(detailRes.data_end).getTime();
-				// A single-cadence site opens on that cadence; a mixed one keeps the All default. A
-				// spot-only site opens on its visits: every value it holds is a visit value, and
-				// the charts would be one per parameter of a few dozen points.
+				// A site holding one cadence opens on it, whatever its slots declare; one holding
+				// both keeps the All default. A spot-only site opens on its visits: every value it
+				// holds is a visit value, and the charts would be one per parameter of a few dozen
+				// points.
 				{
 					const cadence = siteCadence(detailRes.parameters);
 					if (cadence !== 'all') frequency = cadence;
@@ -962,6 +947,39 @@
 	// belongs to no group, so what ties the two is the parameters they share: the closure names the
 	// calculations this site's slots feed, and a group's definition names the page each one lives on.
 	const slotGroups = $derived(groupSlots(siteParameters, groupMembers, parameterGroups, slotCalculations));
+
+	const SLOT_COLUMNS = 6;
+	let slotFilter = $state<SlotFilter>({ ...NO_FILTER });
+	let expandedSlots = $state<string[]>([]);
+	const shownSlotGroups = $derived(
+		filterSlotGroups(
+			slotGroups,
+			slotFilter,
+			(id) => ({ code: paramCode(id), name: paramName(id) }),
+			slotCalculations,
+		),
+	);
+	const shownSlotCount = $derived(shownSlotGroups.reduce((n, g) => n + g.slots.length, 0));
+
+	function filterChipClass(on: boolean): string {
+		return `cursor-pointer rounded border-none px-2 py-1 text-xs ${on ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}`;
+	}
+
+	function cadenceShort(cadence: string | undefined): string {
+		return cadence === 'low' ? 'Low' : 'High';
+	}
+
+	function toggleSlot(id: string) {
+		expandedSlots = expandedSlots.includes(id)
+			? expandedSlots.filter((k) => k !== id)
+			: [...expandedSlots, id];
+	}
+
+	/** A press on the row opens its configuration, unless it landed on one of the row's own controls. */
+	function rowClicked(e: MouseEvent, id: string) {
+		if ((e.target as HTMLElement).closest('button, a, input, select, label, [role="button"]')) return;
+		toggleSlot(id);
+	}
 
 	function toggleGroup(key: string) {
 		collapsedGroups = collapsedGroups.includes(key)
@@ -1256,14 +1274,7 @@
 				<div class="rounded-md border border-brand-divider bg-brand-surface px-4 py-3 space-y-3">
 					<div class="flex items-center gap-3 flex-wrap">
 						<span class="text-xs text-brand-muted font-semibold uppercase tracking-wider">Range</span>
-						<div class="flex gap-0.5">
-							{#each ['24h', '7d', '30d', '90d'] as range}
-								<button
-									onclick={() => updateChartRange(range)}
-									class="px-2.5 py-1 text-xs rounded cursor-pointer border-none {activeRange === range ? 'bg-brand-primary text-white' : 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
-								>{range}</button>
-							{/each}
-						</div>
+						<RangePresets start={chartStart} end={chartEnd} onpick={updateChartRange} />
 
 						<div class="w-px h-5 bg-brand-divider mx-1"></div>
 
@@ -1662,25 +1673,60 @@
 					</div>
 				{/if}
 
+				<div class="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-brand-divider">
+					<input
+						type="search"
+						class="w-56 rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
+						placeholder="Search code or name"
+						aria-label="Search parameters by code or name"
+						bind:value={slotFilter.query}
+					/>
+					<button type="button" class={filterChipClass(slotFilter.calculated)} aria-pressed={slotFilter.calculated}
+						title="Only the slots a calculation publishes"
+						onclick={() => (slotFilter.calculated = !slotFilter.calculated)}>Calculated</button>
+					<button type="button" class={filterChipClass(slotFilter.needsReview)} aria-pressed={slotFilter.needsReview}
+						title="Only the slots a tool save added, awaiting confirmation"
+						onclick={() => (slotFilter.needsReview = !slotFilter.needsReview)}>Needs review</button>
+					{#each ['high', 'low'] as const as cadence (cadence)}
+						<button type="button" class={filterChipClass(slotFilter.cadence === cadence)} aria-pressed={slotFilter.cadence === cadence}
+							onclick={() => (slotFilter.cadence = slotFilter.cadence === cadence ? null : cadence)}>{cadenceLabel(cadence)}</button>
+					{/each}
+					<select
+						class="rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
+						aria-label="Show one group"
+						bind:value={slotFilter.group}
+					>
+						<option value={null}>Every group</option>
+						{#each slotGroups as g (groupKey(g))}
+							<option value={groupKey(g)}>{g.label}</option>
+						{/each}
+					</select>
+					{#if isFiltering(slotFilter)}
+						<span class="text-xs text-brand-muted">{shownSlotCount} of {siteParameters.length} shown</span>
+						<Button variant="ghost" size="sm" onclick={() => (slotFilter = { ...NO_FILTER })}>Clear</Button>
+					{/if}
+					<span class="ml-auto flex gap-1">
+						<Button variant="ghost" size="sm" onclick={() => (collapsedGroups = [])}>Expand all</Button>
+						<Button variant="ghost" size="sm" onclick={() => (collapsedGroups = slotGroups.map(groupKey))}>Collapse all</Button>
+					</span>
+				</div>
+
+				<div class="overflow-x-auto">
 				<table class="w-full text-sm">
 					<thead><tr class="bg-brand-bg border-b border-brand-divider">
-						<th class="text-left px-4 py-2 font-semibold">Code</th>
-						<th class="text-left px-4 py-2 font-semibold">Parameter</th>
-						<th class="text-left px-4 py-2 font-semibold">Units</th>
-						<th class="text-left px-4 py-2 font-semibold">Interval</th>
-						<th class="text-left px-4 py-2 font-semibold">Decimals</th>
-						<th class="text-left px-4 py-2 font-semibold">Instrument</th>
-						<th class="text-left px-4 py-2 font-semibold">Warning</th>
-						<th class="text-left px-4 py-2 font-semibold">Alarm</th>
-						<th class="text-left px-4 py-2 font-semibold">Active</th>
-						<th class="text-right px-4 py-2 font-semibold">Actions</th>
+						<th class="text-left px-3 py-1.5 font-semibold">Code</th>
+						<th class="text-left px-3 py-1.5 font-semibold">Parameter</th>
+						<th class="text-left px-3 py-1.5 font-semibold" title="Units · sample interval · decimal places · instrument. Open a row to edit them.">Configuration</th>
+						<th class="text-left px-3 py-1.5 font-semibold">Thresholds</th>
+						<th class="text-left px-3 py-1.5 font-semibold">Active</th>
+						<th class="sticky right-0 bg-brand-bg text-right px-3 py-1.5 font-semibold">Actions</th>
 					</tr></thead>
 					<tbody>
-						{#each slotGroups as slotGroup (slotGroup.id ?? 'ungrouped')}
-							{@const key = slotGroup.id ?? 'ungrouped'}
-							{@const collapsed = collapsedGroups.includes(key)}
+						{#each shownSlotGroups as slotGroup (groupKey(slotGroup))}
+							{@const key = groupKey(slotGroup)}
+							{@const collapsed = !isFiltering(slotFilter) && collapsedGroups.includes(key)}
 							<tr class="border-b border-brand-divider bg-brand-bg/60">
-								<td colspan="10" class="px-4 py-2">
+								<td colspan={SLOT_COLUMNS} class="px-3 py-1.5">
 									<button
 										type="button"
 										class="inline-flex items-center gap-2 text-sm font-semibold"
@@ -1701,15 +1747,25 @@
 								</td>
 							</tr>
 							{#if !collapsed}
-								{#each slotGroup.slots as sp}
+								{#each slotGroup.slots as sp (sp.id)}
 								{@const th = effectiveThreshold(sp.parameter_id)}
 								{@const disabled = th != null && isThresholdDisabled(th)}
 								{@const warn = th && !disabled ? formatThresholdRange(th.warning_min, th.warning_max, paramUnits(sp)) : null}
 								{@const alarm = th && !disabled ? formatThresholdRange(th.alarm_min, th.alarm_max, paramUnits(sp)) : null}
-								<tr class="border-b border-brand-divider last:border-b-0">
-									<td class="px-4 py-2 font-mono text-xs">{paramCode(sp.parameter_id)}</td>
-									<td class="px-4 py-2 font-semibold">
-										{paramName(sp.parameter_id)}
+								{@const open = expandedSlots.includes(sp.id)}
+								{@const configuration = slotConfiguration({ units: paramUnits(sp), intervalSec: sp.sample_interval_sec, decimals: sp.decimal_places, instrument: sp.instrument_sensor_id ? sensorName(sp.instrument_sensor_id) : null })}
+								<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/40 cursor-pointer" onclick={(e) => rowClicked(e, sp.id)}>
+									<td class="px-3 py-1 font-mono text-xs whitespace-nowrap">
+										<button
+											type="button"
+											class="cursor-pointer border-none bg-transparent p-0 font-mono text-xs"
+											aria-expanded={open}
+											title="Configure {paramName(sp.parameter_id)}: interval, decimal places and instrument"
+											onclick={(e) => { e.stopPropagation(); toggleSlot(sp.id); }}
+										><span class="text-brand-muted" aria-hidden="true">{open ? '▾' : '▸'}</span> {paramCode(sp.parameter_id)}</button>
+									</td>
+									<td class="px-3 py-1 whitespace-nowrap">
+										<span class="inline-block max-w-[16rem] truncate align-bottom font-semibold" title={paramName(sp.parameter_id)}>{paramName(sp.parameter_id)}</span>
 										{#if sp.needs_review}
 											<span class="ml-1 rounded bg-severity-warning-soft px-1.5 py-0.5 text-xs font-medium text-severity-warning-text" title="Added by a tool save, awaiting confirmation">Needs review</span>
 										{/if}
@@ -1724,111 +1780,138 @@
 												onconfirm={() =>
 													updateSlot(sp, { cadence: otherCadence(sp.cadence) }, 'cadence')}
 											>
-												<Button variant="ghost" size="sm" class="text-brand-primary"
-													>{cadenceLabel(sp.cadence)}</Button
-												>
+												<button
+													type="button"
+													class="ml-1 cursor-pointer rounded border-none bg-brand-bg px-1.5 py-0.5 text-xs text-brand-primary hover:underline"
+													title="{cadenceLabel(sp.cadence)}. Declare the other cadence"
+												>{cadenceShort(sp.cadence)}</button>
 											</ConfirmPopover>
 										{:else}
-											<span class="ml-1 text-xs text-brand-muted">{cadenceLabel(sp.cadence)}</span>
+											<span class="ml-1 rounded bg-brand-bg px-1.5 py-0.5 text-xs text-brand-muted" title={cadenceLabel(sp.cadence)}>{cadenceShort(sp.cadence)}</span>
 										{/if}
 									</td>
-									<td class="px-4 py-2 text-xs">
-										{parameters.find((p) => p.id === sp.parameter_id)?.default_units ?? ''}
+									<td class="px-3 py-1 text-xs whitespace-nowrap">
+										{#if configuration}{configuration}{:else}<span class="text-brand-muted">None</span>{/if}
 									</td>
-									<td class="px-4 py-2">
-										<input
-											type="number"
-											min="0"
-											class="w-24 rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
-											title="Expected seconds between readings"
-											aria-label="Sample interval in seconds for {paramName(sp.parameter_id)}"
-											placeholder="None"
-											value={sp.sample_interval_sec ?? ''}
-											onchange={(e) => {
-												const v = slotNumber(e.currentTarget.value);
-												if (v !== undefined) updateSlot(sp, { sample_interval_sec: v }, 'sample interval');
-											}}
-										/>
+									<td class="px-3 py-1 text-xs whitespace-nowrap">
+										{#if disabled}
+											<span class="text-brand-muted italic">Disabled</span>
+										{:else if !warn && !alarm}
+											<span class="text-brand-muted">None</span>
+										{:else}
+											{#if warn}<span class="text-severity-warning" title="Warning range">{warn}</span>{/if}
+											{#if warn && alarm}<span class="text-brand-muted"> · </span>{/if}
+											{#if alarm}<span class="text-severity-alarm" title="Alarm range">{alarm}</span>{/if}
+										{/if}
 									</td>
-									<td class="px-4 py-2">
-										<input
-											type="number"
-											min="0"
-											max="10"
-											class="w-16 rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
-											title="How many decimal places this slot is shown and published at. Stored readings keep their full precision either way."
-											aria-label="Decimal places for {paramName(sp.parameter_id)}"
-											placeholder="Default"
-											value={sp.decimal_places ?? ''}
-											onchange={(e) => {
-												const v = slotNumber(e.currentTarget.value);
-												if (v !== undefined) updateSlot(sp, { decimal_places: v }, 'decimal places');
-											}}
-										/>
-									</td>
-									<td class="px-4 py-2">
-										<select
-											class="rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
-											title="What measures this parameter here. A value entered or calculated at this site names it; undeclared leaves the entry channel's own marker."
-											aria-label="Instrument for {paramName(sp.parameter_id)}"
-											value={sp.instrument_sensor_id ?? ''}
-											onchange={(e) => declareInstrument(sp, e.currentTarget.value)}
-										>
-											<option value="">Undeclared</option>
-											{#each sensors as sensor}
-												<option value={sensor.id}>{sensor.name}</option>
-											{/each}
-										</select>
-									</td>
-									{#if disabled}
-										<td class="px-4 py-2 text-xs text-brand-muted italic" colspan="2">Disabled</td>
-									{:else}
-										<td class="px-4 py-2 text-xs text-severity-warning">{#if warn}{warn}{:else}<span class="text-brand-muted">None</span>{/if}</td>
-										<td class="px-4 py-2 text-xs text-severity-alarm">{#if alarm}{alarm}{:else}<span class="text-brand-muted">None</span>{/if}</td>
-									{/if}
-									<td class="px-4 py-2">
+									<td class="px-3 py-1">
 										<input
 											type="checkbox"
 											title="A retired slot keeps its readings and its configuration, and stops being alarmed on or listed as a place this parameter is measured"
 											aria-label="Active at this site: {paramName(sp.parameter_id)}"
 											checked={sp.is_active ?? false}
+											onclick={(e) => e.stopPropagation()}
 											onchange={(e) => updateSlot(sp, { is_active: e.currentTarget.checked }, e.currentTarget.checked ? 'active' : 'retired')}
 										/>
 									</td>
-									<td class="px-4 py-2 text-right whitespace-nowrap space-x-1">
+									<td class="sticky right-0 bg-brand-surface px-3 py-1 text-right whitespace-nowrap">
 										<ConfirmSiteParameterButton
 											siteParameter={sp}
 											label={paramName(sp.parameter_id)}
 											onconfirmed={reloadSiteParameters}
 										/>
-										<Button
-											variant="ghost"
-											size="sm"
-											class="text-brand-primary"
-											onclick={() => openThresholdDialog(sp.parameter_id, paramName(sp.parameter_id))}
-										>{th && !disabled ? 'Edit' : 'Set'} thresholds</Button>
-										<Button
-											variant="ghost"
-											size="sm"
-											class="text-brand-primary"
-											onclick={() => openMergeSiteParameter(sp)}
-										>Merge…</Button>
-										<ConfirmButton
-											label="Remove"
-											confirmLabel="Click again to remove"
-											consequence="The slot's configuration, its display settings and its site threshold override go; a slot holding readings is refused"
-											onconfirm={() => removeParameter(sp.id)}
-										/>
+										<RowMenu label="Actions for {paramName(sp.parameter_id)}">
+											{#snippet children(close)}
+												<Button
+													variant="ghost"
+													size="sm"
+													class="justify-start text-brand-primary"
+													onclick={() => { close(); openThresholdDialog(sp.parameter_id, paramName(sp.parameter_id)); }}
+												>{th && !disabled ? 'Edit' : 'Set'} thresholds</Button>
+												<Button
+													variant="ghost"
+													size="sm"
+													class="justify-start text-brand-primary"
+													onclick={() => { close(); openMergeSiteParameter(sp); }}
+												>Merge…</Button>
+												<ConfirmButton
+													label="Remove"
+													confirmLabel="Click again to remove"
+													consequence="The slot's configuration, its display settings and its site threshold override go; a slot holding readings is refused"
+													onconfirm={() => { close(); removeParameter(sp.id); }}
+												/>
+											{/snippet}
+										</RowMenu>
 									</td>
 								</tr>
+								{#if open}
+									<tr class="border-b border-brand-divider bg-brand-bg/40">
+										<td colspan={SLOT_COLUMNS} class="px-3 py-2">
+											<div class="flex flex-wrap items-end gap-4">
+												<label class="text-xs">
+													<span class="block mb-1 font-medium">Sample interval (s)</span>
+													<input
+														type="number"
+														min="0"
+														class="w-24 rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
+														title="Expected seconds between readings"
+														aria-label="Sample interval in seconds for {paramName(sp.parameter_id)}"
+														placeholder="None"
+														value={sp.sample_interval_sec ?? ''}
+														onchange={(e) => {
+															const v = slotNumber(e.currentTarget.value);
+															if (v !== undefined) updateSlot(sp, { sample_interval_sec: v }, 'sample interval');
+														}}
+													/>
+												</label>
+												<label class="text-xs">
+													<span class="block mb-1 font-medium">Decimal places</span>
+													<input
+														type="number"
+														min="0"
+														max="10"
+														class="w-16 rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
+														title="How many decimal places this slot is shown and published at. Stored readings keep their full precision either way."
+														aria-label="Decimal places for {paramName(sp.parameter_id)}"
+														placeholder="Default"
+														value={sp.decimal_places ?? ''}
+														onchange={(e) => {
+															const v = slotNumber(e.currentTarget.value);
+															if (v !== undefined) updateSlot(sp, { decimal_places: v }, 'decimal places');
+														}}
+													/>
+												</label>
+												<label class="text-xs">
+													<span class="block mb-1 font-medium">Instrument</span>
+													<select
+														class="rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
+														title="What measures this parameter here. A value entered or calculated at this site names it; undeclared leaves the entry channel's own marker."
+														aria-label="Instrument for {paramName(sp.parameter_id)}"
+														value={sp.instrument_sensor_id ?? ''}
+														onchange={(e) => declareInstrument(sp, e.currentTarget.value)}
+													>
+														<option value="">Undeclared</option>
+														{#each sensors as sensor}
+															<option value={sensor.id}>{sensor.name}</option>
+														{/each}
+													</select>
+												</label>
+												<span class="text-xs text-brand-muted">Units are the catalog's: {paramUnits(sp) || 'none'}</span>
+											</div>
+										</td>
+									</tr>
+								{/if}
 								{/each}
 							{/if}
 						{/each}
 						{#if siteParameters.length === 0}
-							<tr><td colspan="10" class="px-4 py-6 text-center text-brand-muted">No parameters configured</td></tr>
+							<tr><td colspan={SLOT_COLUMNS} class="px-4 py-6 text-center text-brand-muted">No parameters configured</td></tr>
+						{:else if shownSlotGroups.length === 0}
+							<tr><td colspan={SLOT_COLUMNS} class="px-4 py-6 text-center text-brand-muted">No parameter matches the filter</td></tr>
 						{/if}
 					</tbody>
 				</table>
+				</div>
 			</div>
 
 		<!-- Sensors tab -->

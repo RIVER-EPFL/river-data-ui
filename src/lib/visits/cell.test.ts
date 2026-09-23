@@ -32,6 +32,7 @@ function cell(over: Partial<VisitCell>): VisitCell {
 		n_unverified: 0,
 		replicates: [],
 		has_provenance: false,
+		curves: [],
 		...over,
 	};
 }

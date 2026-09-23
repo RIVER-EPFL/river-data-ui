@@ -5,7 +5,7 @@
 	import PointInspector from '$components/provenance/PointInspector.svelte';
 	import SiteSelect from '$components/SiteSelect.svelte';
 	import Badge from '$components/ui/Badge.svelte';
-	import TimestampInput from '$components/ui/TimestampInput.svelte';
+	import TimeRangeControls from '$components/charts/TimeRangeControls.svelte';
 	import { NO_VALUE, formatMeasurement } from '$lib/format';
 	import { provenanceKindLabel } from '$lib/origin';
 	import {
@@ -36,6 +36,10 @@
 	// svelte-ignore state_referenced_locally
 	let filter = $state<ReadingsFilterState>({ ...initial });
 	let open = $state<string | null>(null);
+	// The window the slider shows; the filter takes it when a person moves it.
+	let rangeStart = $state(filter.from ? Date.parse(filter.from) : 0);
+	let rangeEnd = $state(filter.to ? Date.parse(filter.to) : Date.now());
+	const rangeSites = $derived(filter.siteId ? [filter.siteId] : sites.map((s) => s.id));
 
 	const rowKey = (r: Reading) => `${r.stream_id}|${r.time}|${r.replicate_index}`;
 	const loadPage: PageLoader<Reading> = (params) =>
@@ -98,24 +102,6 @@
 			<option value="">All standard curves</option>
 			{#each curves as curve (curve.id)}<option value={curve.id}>{curveLabel(curve)}</option>{/each}
 		</select>
-		<label class="text-sm text-brand-muted flex items-center gap-1">
-			From
-			<TimestampInput
-				ariaLabel="From"
-				compact
-				value={filter.from}
-				onchange={(instant) => { filter.from = instant; reload(); }}
-			/>
-		</label>
-		<label class="text-sm text-brand-muted flex items-center gap-1">
-			To
-			<TimestampInput
-				ariaLabel="To"
-				compact
-				value={filter.to}
-				onchange={(instant) => { filter.to = instant; reload(); }}
-			/>
-		</label>
 		<select
 			bind:value={filter.kind}
 			onchange={reload}
@@ -139,6 +125,19 @@
 			<input type="checkbox" bind:checked={filter.unverifiedOnly} onchange={reload} />
 			Unverified only
 		</label>
+		<div class="basis-full">
+			<TimeRangeControls
+				label="Time"
+				siteIds={rangeSites}
+				bind:start={rangeStart}
+				bind:end={rangeEnd}
+				onchange={(start, end) => {
+					filter.from = new Date(start).toISOString();
+					filter.to = new Date(end).toISOString();
+					reload();
+				}}
+			/>
+		</div>
 	{/snippet}
 
 	{#snippet cell({ column, row, text })}

@@ -10,6 +10,7 @@ import { API_URL, BASE_PATH, saveFormulaSet, signIn, token } from './portal';
 
 interface Fixture {
 	siteId: string;
+	groupId: string;
 	groupLabel: string;
 	calculation: string;
 	calculationId: string;
@@ -73,6 +74,7 @@ async function seedGroup(request: APIRequestContext): Promise<Fixture> {
 
 	return {
 		siteId: site.id,
+		groupId: group.id,
 		groupLabel,
 		calculation,
 		calculationId: script.id,
@@ -158,4 +160,67 @@ test('a calculation applied from the Parameters tab is listed on its page as app
 		'href',
 		`${BASE_PATH}/sites/${fixture.siteId}?tab=parameters`,
 	);
+});
+
+// Scenario: a site's Parameters tab read at a laptop width, with a slot to find among several.
+//
+// Expected behaviour: each slot is one line whose actions stay in view without the page scrolling
+// sideways; the search leaves the slots whose code or name matches, Calculated leaves only what a
+// calculation publishes, and opening a row reaches the controls its configuration line summarises.
+test('the Parameters tab fits a laptop window and finds a slot by name or by being calculated', async ({
+	page,
+	request,
+}) => {
+	const fixture = await seedGroup(request);
+	const headers = { Authorization: `Bearer ${await token(request)}` };
+	const post = async (path: string, data: unknown) => {
+		const response = await request.post(`${API_URL}/api${path}`, { headers, data });
+		expect(response.ok(), `${path} -> ${response.status()} ${await response.text()}`).toBeTruthy();
+		return response.json();
+	};
+	await post(`/sites/${fixture.siteId}/parameter_groups`, { group_id: fixture.groupId });
+	const oxygen = await post('/parameters', {
+		code: `DO_${fixture.calculation}`,
+		name: 'Dissolved oxygen',
+		category: 'measurement',
+		aliases: [],
+	});
+	await post('/site_parameters', {
+		site_id: fixture.siteId,
+		parameter_id: oxygen.id,
+		name: 'Dissolved oxygen',
+		cadence: 'low',
+	});
+
+	await page.setViewportSize({ width: 1230, height: 800 });
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/sites/${fixture.siteId}?tab=parameters`);
+	const rowOf = (code: string) => page.getByRole('row', { name: new RegExp(`^${code}`) });
+	await expect(rowOf(fixture.inputName)).toBeVisible();
+
+	expect(
+		await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth),
+		'the page does not scroll sideways',
+	).toBeLessThanOrEqual(1);
+	const actions = page.getByRole('button', { name: `Actions for ${fixture.inputName}` });
+	await expect(actions).toBeInViewport();
+	await actions.click();
+	await expect(page.getByRole('menu').getByRole('button', { name: 'Merge…' })).toBeVisible();
+	await page.keyboard.press('Escape');
+
+	const search = page.getByRole('searchbox', { name: 'Search parameters by code or name' });
+	await search.fill('dissolved');
+	await expect(rowOf(oxygen.code)).toBeVisible();
+	await expect(rowOf(fixture.inputName)).toBeHidden();
+	await search.fill('');
+
+	await page.getByRole('button', { name: 'Calculated', exact: true }).click();
+	await expect(rowOf(fixture.outputName)).toBeVisible();
+	await expect(rowOf(fixture.inputName)).toBeHidden();
+	await expect(rowOf(oxygen.code)).toBeHidden();
+	await page.getByRole('button', { name: 'Calculated', exact: true }).click();
+
+	await rowOf(oxygen.code).getByRole('button', { name: oxygen.code }).click();
+	await expect(page.getByLabel('Sample interval in seconds for Dissolved oxygen')).toBeVisible();
+	await expect(page.getByLabel('Instrument for Dissolved oxygen')).toBeVisible();
 });

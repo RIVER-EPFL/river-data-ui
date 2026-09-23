@@ -123,10 +123,27 @@ export function slotsOf(columns: ParameterColumn[]): GridSlot[] {
 	);
 }
 
+/** The filter value that narrows to one calculation: this prefix and the calculation's tool name. */
+export const CALCULATION_FILTER = 'calculation:';
+
+/** Every calculation the columns read or write, once each, in the order the columns first name it. */
+export function calculationsOf(columns: ParameterColumn[]): string[] {
+	const names = columns.flatMap((c) => [...c.readBy, ...(c.writtenBy ? [c.writtenBy] : [])]);
+	return [...new Set(names)];
+}
+
+/** One calculation's columns: the inputs it reads, then the outputs it writes. */
+export function columnsOfCalculation(columns: ParameterColumn[], tool: string): ParameterColumn[] {
+	return [
+		...columns.filter((c) => c.readBy.includes(tool)),
+		...columns.filter((c) => c.writtenBy === tool && !c.readBy.includes(tool)),
+	];
+}
+
 /**
  * The columns of one parameter group. `""` is every column; `"none"` is the columns no group
  * claims, which keeps a parameter belonging to nothing reachable rather than filtered out of
- * existence.
+ * existence; a `CALCULATION_FILTER` value is one calculation's columns.
  */
 export function columnsInGroup(
 	columns: ParameterColumn[],
@@ -134,6 +151,9 @@ export function columnsInGroup(
 	groupId: string,
 ): ParameterColumn[] {
 	if (groupId === '') return columns;
+	if (groupId.startsWith(CALCULATION_FILTER)) {
+		return columnsOfCalculation(columns, groupId.slice(CALCULATION_FILTER.length));
+	}
 	if (groupId === 'none') return columns.filter((c) => !groupOf[c.parameterId]);
 	return columns.filter((c) => groupOf[c.parameterId] === groupId);
 }

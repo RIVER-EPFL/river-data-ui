@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { EventCell } from '$api/service';
-import { cellCurves } from './curve';
+import { cellCurves, visitCellCurveMark } from './curve';
 
 interface Curve {
 	id: string;
@@ -67,5 +67,23 @@ describe('cellCurves', () => {
 		const other = { ...curve, id: 'c0ffee00-0000-4000-8000-000000000002', name: null };
 		const labels = cellCurves(cellWith([other, curve, other]), '/admin').map((c) => c.label);
 		expect(labels).toEqual(['Curve c0ffee00', 'plate 7']);
+	});
+});
+
+describe('visitCellCurveMark', () => {
+	it('marks nothing on a value no curve corrected', () => {
+		expect(visitCellCurveMark({ curves: [] })).toBeNull();
+	});
+
+	it('names the curve a corrected value was made with', () => {
+		const mark = visitCellCurveMark({ curves: [{ id: curve.id, name: 'Curve 2026-03' }] });
+		expect(mark).toEqual({ text: 'c', title: 'Corrected with Curve 2026-03' });
+	});
+
+	it('names every curve of a group corrected through two, and an unnamed one by its id', () => {
+		const mark = visitCellCurveMark({
+			curves: [{ id: curve.id, name: 'plate 7' }, { id: 'abcdef12-0000-4000-8000-000000000002' }],
+		});
+		expect(mark?.title).toBe('Corrected with plate 7, Curve abcdef12');
 	});
 });

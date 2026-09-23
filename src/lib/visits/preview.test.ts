@@ -17,6 +17,8 @@ import {
 	type PreviewAsk,
 	type VisitPreview,
 } from './preview';
+import { spareRow } from './spareRows';
+import { spareId } from './tableEdit';
 
 const LOCALE = 'en-GB';
 
@@ -113,6 +115,28 @@ describe('what the operator has staged at a visit', () => {
 		const later = previewAsks(visits, { 'v1|p-do|0': '5' }, LOCALE)[0];
 		expect(again.signature).toBe(first.signature);
 		expect(later.signature).not.toBe(first.signature);
+	});
+
+	it('asks about a dated spare row at its site and instant, and not about an undated one', () => {
+		const dated = spareRow(spareId(0), '2026-06-02T09:00:00.000Z');
+		const undated = spareRow(spareId(1));
+		const edits = { [`${dated.id}|p-do|0`]: '6', [`${undated.id}|p-do|0`]: '7' };
+		const asks = previewAsks([...visits, dated, undated], edits, LOCALE);
+		expect(asks).toHaveLength(1);
+		expect(asks[0].eventId).toBe(dated.id);
+		expect(asks[0].at).toBe('2026-06-02T09:00:00.000Z');
+		expect(asks[0].cells).toEqual([{ parameter_id: 'p-do', replicate_index: 0, value: 6 }]);
+	});
+
+	it('asks a listed visit by its id alone', () => {
+		expect(previewAsks(visits, { 'v1|p-do|0': '4' }, LOCALE)[0].at).toBeUndefined();
+	});
+
+	it('asks a spare row again when its date moves', () => {
+		const edits = { [`${spareId(0)}|p-do|0`]: '6' };
+		const morning = previewAsks([spareRow(spareId(0), '2026-06-02T09:00:00.000Z')], edits, LOCALE);
+		const noon = previewAsks([spareRow(spareId(0), '2026-06-02T12:00:00.000Z')], edits, LOCALE);
+		expect(noon[0].signature).not.toBe(morning[0].signature);
 	});
 
 	it('distinguishes a cleared cell from one nobody touched', () => {

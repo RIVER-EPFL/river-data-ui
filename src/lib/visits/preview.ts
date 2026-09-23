@@ -1,7 +1,7 @@
 import type { EventPreview, StagedCell, VisitRow } from '$api/service';
 import type { GridSlot } from './columns';
 import { readNumber } from './number';
-import { cleared, storedAt, type Edits } from './tableEdit';
+import { cleared, isSpare, storedAt, type Edits } from './tableEdit';
 
 // What the calculations would say, given what the operator has typed and not saved. The server
 // runs the same chain the Save runs and stores none of it (Q212); this decides which visits to ask
@@ -35,6 +35,8 @@ export function stagedCells(visit: VisitRow, edits: Edits, locale: string): Stag
 /** One visit's ask: what to send, and the signature that says whether it is still the latest. */
 export interface PreviewAsk {
 	eventId: string;
+	/** A spare row's instant: it has no visit yet, so it is asked at its site and this instant. */
+	at?: string;
 	cells: StagedCell[];
 	signature: string;
 }
@@ -47,15 +49,27 @@ export function signatureOf(cells: StagedCell[]): string {
  * The visits worth asking about: those the operator has typed a readable change into. A visit the
  * table only shows, or one whose every typed cell is unreadable, asks nothing.
  *
- * A row of the spare area has no visit to run calculations at until it is staged, so it is left
- * out: its values are previewed once Save opens the visit.
+ * A row of the spare area has no visit yet, so it is asked at the instant its date names, and a row
+ * naming no date asks nothing.
  */
 export function previewAsks(visits: VisitRow[], edits: Edits, locale: string): PreviewAsk[] {
 	const asks: PreviewAsk[] = [];
 	for (const visit of visits) {
+		const spare = isSpare(visit.id);
+		if (spare && !visit.collected_at) continue;
 		const cells = stagedCells(visit, edits, locale);
 		if (cells.length === 0) continue;
-		asks.push({ eventId: visit.id, cells, signature: signatureOf(cells) });
+		const signature = signatureOf(cells);
+		asks.push(
+			spare
+				? {
+						eventId: visit.id,
+						at: visit.collected_at,
+						cells,
+						signature: `${visit.collected_at}|${signature}`,
+					}
+				: { eventId: visit.id, cells, signature },
+		);
 	}
 	return asks;
 }

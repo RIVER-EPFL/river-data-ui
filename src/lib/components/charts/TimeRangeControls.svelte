@@ -1,18 +1,23 @@
 <script lang="ts">
+	import RangePresets from '$components/charts/RangePresets.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
 	import TimestampInput from '$components/ui/TimestampInput.svelte';
 	import { fetchSiteExtent } from '$lib/charts/multiSiteSeries';
+	import { presetWindow, type RangePreset } from '$lib/charts/rangePresets';
 
 	let {
 		siteIds = [],
 		start = $bindable(0),
 		end = $bindable(0),
 		label = 'Time range',
+		onchange,
 	}: {
 		siteIds?: string[];
 		start: number;
 		end: number;
 		label?: string;
+		/** Called when a person moves the range: a drag, a preset or a typed instant. */
+		onchange?: (start: number, end: number) => void;
 	} = $props();
 
 	// Slider bounds derived from the selected sites' data extent; seeded to the last 7 days.
@@ -57,6 +62,12 @@
 	function onSliderChange(s: number, e: number) {
 		start = s;
 		end = e;
+		onchange?.(start, end);
+	}
+
+	function onPreset(preset: RangePreset) {
+		({ start, end } = presetWindow(preset, boundMax, boundMin));
+		onchange?.(start, end);
 	}
 
 	// Manual entry binds instants, clamped to the bounds the slider spans.
@@ -65,16 +76,23 @@
 	function onStartInput(instant: string) {
 		if (!instant) return;
 		start = Math.min(clamp(new Date(instant).getTime()), end);
+		onchange?.(start, end);
 	}
 
 	function onEndInput(instant: string) {
 		if (!instant) return;
 		end = Math.max(clamp(new Date(instant).getTime()), start);
+		onchange?.(start, end);
 	}
 </script>
 
 <div>
-	<span class="text-sm font-medium block mb-1">{label}</span>
+	<div class="flex items-center gap-3 mb-1">
+		<span class="text-sm font-medium">{label}</span>
+		{#if boundMin < boundMax}
+			<RangePresets {start} {end} onpick={onPreset} />
+		{/if}
+	</div>
 	{#if boundMin < boundMax}
 		<div class="px-1 pb-6">
 			<TimeRangeSlider min={boundMin} max={boundMax} bind:start bind:end onchange={onSliderChange} />

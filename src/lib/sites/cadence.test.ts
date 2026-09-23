@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { byCadence, coversCadence, openingTab, siteCadence } from './cadence';
+import {
+	byCadence,
+	coversCadence,
+	heldCadences,
+	heldChoice,
+	offeredCadences,
+	openingTab,
+	siteCadence,
+} from './cadence';
 
 const sensor = { id: 'sensor', has_continuous: true, has_spot: false };
 const grab = { id: 'grab', has_continuous: false, has_spot: true };
@@ -71,3 +79,51 @@ describe('the cadence a site opens in', () => {
 		expect(openingTab([])).toBe('charts');
 	});
 });
+
+describe('the cadence a site opens in, read off what its rows hold', () => {
+	const spotDeclaredHigh = { frequency: 'high', reading_count: 43, has_spot: true, has_continuous: false };
+	const logger = { frequency: 'high', reading_count: 8640, has_spot: false, has_continuous: true };
+	const loggerDeclaredLow = { frequency: 'low', reading_count: 8640, has_spot: false, has_continuous: true };
+
+	// Every CNET slot on dev before B472: declared high, holding grabs only.
+	it('opens spot-only data declared high on Low and on the visits', () => {
+		expect(siteCadence([spotDeclaredHigh, spotDeclaredHigh])).toBe('low');
+		expect(openingTab([spotDeclaredHigh])).toBe('visits');
+	});
+
+	it('opens continuous-only data on High and on the charts, whatever the declaration', () => {
+		expect(siteCadence([logger, loggerDeclaredLow])).toBe('high');
+		expect(openingTab([loggerDeclaredLow])).toBe('charts');
+	});
+
+	it('opens a site holding both on All and on the charts', () => {
+		expect(siteCadence([spotDeclaredHigh, logger])).toBe('all');
+		expect(openingTab([spotDeclaredHigh, logger])).toBe('charts');
+	});
+});
+
+describe('the cadences the chips offer', () => {
+	it('offers only Low where only spot data is held', () => {
+		const held = heldCadences([{ has_spot: true, has_continuous: false }]);
+		expect(offeredCadences(held)).toEqual(['low']);
+		expect(heldChoice('high', held)).toBe('low');
+		expect(heldChoice('all', held)).toBe('low');
+	});
+
+	it('offers only High where only continuous data is held', () => {
+		const held = heldCadences([{ has_continuous: true }]);
+		expect(offeredCadences(held)).toEqual(['high']);
+		expect(heldChoice('low', held)).toBe('high');
+	});
+
+	it('offers all three where both are held, and keeps the choice', () => {
+		const held = heldCadences([{ has_continuous: true }, { has_spot: true }]);
+		expect(offeredCadences(held)).toEqual(['high', 'low', 'all']);
+		expect(heldChoice('low', held)).toBe('low');
+	});
+
+	it('leaves every chip live over a site holding nothing yet', () => {
+		expect(offeredCadences(heldCadences([]))).toEqual(['high', 'low', 'all']);
+	});
+});
+

@@ -391,3 +391,74 @@ test('the row header reopens a calculation on the curve its last run here used',
 	);
 	await expect(page.getByRole('combobox', { name: `${CURVE_SLOT} curve` })).toContainText(curveName);
 });
+
+/** A visit holding one measurement entered raw with the standard curve that corrects it. */
+async function seedCorrectedVisit(request: APIRequestContext) {
+	const stamp = `${Date.now()}`;
+	const bearer = await token(request);
+	const headers = { Authorization: `Bearer ${bearer}` };
+	const post = async (path: string, data: unknown) => {
+		const response = await request.post(`${API_URL}/api${path}`, { headers, data });
+		expect(response.ok(), `${path} -> ${response.status()} ${await response.text()}`).toBeTruthy();
+		return response.json();
+	};
+
+	const code = `b469_${stamp}`;
+	const siteName = `Corrected ${stamp}`;
+	const project = await post('/projects', { name: siteName });
+	const site = await post('/sites', { name: siteName, project_id: project.id });
+	const parameter = await post('/parameters', {
+		code,
+		name: code,
+		category: 'measurement',
+		aliases: [],
+	});
+	await post('/site_parameters', {
+		site_id: site.id,
+		parameter_id: parameter.id,
+		name: code,
+		cadence: 'low',
+	});
+	const instrument = await post('/sensors', { name: `Plate ${stamp}`, serial_number: `B469-${stamp}` });
+	const curveName = `Curve ${stamp}`;
+	const curve = await post('/standard_curves', {
+		sensor_id: instrument.id,
+		name: curveName,
+		slope: 3,
+		intercept: 1,
+	});
+	const collectedAt = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+	await post('/grab_samples', {
+		site_id: site.id,
+		mode: 'replace',
+		readings: [
+			{
+				parameter_id: parameter.id,
+				value: ENTERED,
+				time: collectedAt,
+				replicate_index: 0,
+				sensor_id: instrument.id,
+				standard_curve_id: curve.id,
+			},
+		],
+	});
+	await post('/collection_events/stage', { site_id: site.id, collected_at: collectedAt });
+	return { siteId: site.id, code, curveName };
+}
+
+// Scenario: a measurement corrected with a standard curve, read on the Visits grid.
+//
+// Expected behaviour (Q97): the cell names the curve on hover without the visit being opened.
+test('a corrected cell names its curve on the grid', async ({ page, request }) => {
+	const { siteId, code, curveName } = await seedCorrectedVisit(request);
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
+	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
+
+	const corrected = sheetCell(page, new RegExp(`^${code} at`));
+	await expect(corrected).toHaveAttribute('title', new RegExp(`Corrected with ${curveName}`));
+	await expect(corrected.locator('.sheet-mark', { hasText: /^c$/ })).toHaveAttribute(
+		'title',
+		`Corrected with ${curveName}`,
+	);
+});

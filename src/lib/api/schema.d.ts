@@ -1238,6 +1238,27 @@ export interface paths {
         patch: operations["update_many_collection_events"];
         trace?: never;
     };
+    "/api/collection_events/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * [`preview_collection_event`] at a site and instant no visit stands at yet: a row typed into the
+         *     grid's spare area, previewed before Save opens its visit. Opens nothing. Any member down to
+         *     intern.
+         */
+        post: operations["preview_unstaged_visit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/collection_events/stage": {
         parameters: {
             query?: never;
@@ -1349,7 +1370,7 @@ export interface paths {
          * What the calculation chain would produce at a visit, given the cells the operator has typed
          *     and not saved. The same walk the recompute runs, against the same inputs, storing nothing: no
          *     run, no reading, no decision, no finding, no output slot and no job, so no value it returns can
-         *     be cited as provenance (Q212). Save is what executes and stores. Requires `write_data`.
+         *     be cited as provenance (Q212). Save is what executes and stores. Any member down to intern (Q240).
          */
         post: operations["preview_collection_event"];
         delete?: never;
@@ -10826,7 +10847,6 @@ export interface components {
              *     naming a check that does not cover the values is refused.
              */
             check_id?: string | null;
-            created_by?: string | null;
             /** @description Compute the preview and report existing groups without writing anything. */
             dry_run?: boolean;
             /**
@@ -14002,6 +14022,14 @@ export interface components {
             n: number;
             /** Format: double */
             sd: number | null;
+        };
+        /** @description A preview at a site and instant no visit stands at yet: the typed cells of a new row. */
+        PreviewUnstagedRequest: {
+            /** Format: date-time */
+            collected_at: string;
+            /** Format: uuid */
+            site_id: string;
+            staged?: components["schemas"]["StagedCell"][];
         };
         /**
          * @description One value the chain would produce at a visit, were the staged cells saved. `value` is absent
@@ -18152,6 +18180,11 @@ export interface components {
             visits: number;
         };
         VisitCell: {
+            /**
+             * @description Each distinct standard curve the group's replicates were corrected through, in replicate
+             *     order (Q97). Empty for a value no curve corrected.
+             */
+            curves: components["schemas"]["VisitCellCurve"][];
             /** @description Kind of the oldest open finding on this cell, when one exists. */
             finding?: string;
             /**
@@ -18220,6 +18253,12 @@ export interface components {
             value?: number;
             /** @description Every replicate in the group is withdrawn. */
             withdrawn: boolean;
+        };
+        /** @description A curve a listing's cell was corrected through: what the grid names it by. */
+        VisitCellCurve: {
+            /** Format: uuid */
+            id: string;
+            name?: string;
         };
         VisitListRow: {
             /** Format: date-time */
@@ -21327,6 +21366,37 @@ export interface operations {
                 content: {
                     "text/plain": string;
                 };
+            };
+        };
+    };
+    preview_unstaged_visit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewUnstagedRequest"];
+            };
+        };
+        responses: {
+            /** @description What the chain would produce */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventPreview"];
+                };
+            };
+            /** @description A staged cell names a parameter the site does not carry */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { BASE_PATH, signIn } from './portal';
 import { seedComputedVisit } from './computedVisit';
-import { sheetCell, typeInto } from './sheet';
+import { frozenCell, sheetCell, typeInto } from './sheet';
 
 // Scenario: a scientist types a correction into the visits table and wants to see what it does to
 // the values the calculations write, before deciding to save it.
@@ -51,4 +51,55 @@ test('a typed correction previews its calculated value, and only Save writes it'
 	await expect(output).toHaveText(new RegExp(`^${CORRECTED * 2}\\b`), { timeout: 30_000 });
 	await expect(output).not.toHaveAttribute('title', /not saved yet/);
 	await expect.poll(visit.served, { timeout: 30_000 }).toBe(CORRECTED * 2);
+});
+
+// Scenario: someone types into the visits table and then leaves it before saving.
+// Expected behaviour: leaving through the app asks first, and staying keeps what was typed; closing
+// the tab raises the browser's own unload warning.
+test('leaving the table with a typed value asks first, in the app and on unload', async ({
+	page,
+	request,
+}) => {
+	const visit = await seedComputedVisit(request, 't157', ENTERED);
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/sites/${visit.siteId}?tab=visits`);
+	const input = sheetCell(page, new RegExp(`^${visit.inputName} at`));
+	await expect(input).toHaveText(String(ENTERED));
+	await typeInto(page, input, String(CORRECTED));
+
+	const asked = page.waitForEvent('dialog');
+	void page.getByRole('navigation').getByRole('link', { name: 'Parameters', exact: true }).first().click();
+	const prompt = await asked;
+	expect(prompt.message()).toContain('not saved yet');
+	await prompt.dismiss();
+	await expect(page).toHaveURL(new RegExp(`/sites/${visit.siteId}`));
+	await expect(input).toHaveText(String(CORRECTED));
+
+	const unloading = page.waitForEvent('dialog');
+	await page.close({ runBeforeUnload: true });
+	const warning = await unloading;
+	expect(warning.type()).toBe('beforeunload');
+	await warning.dismiss();
+});
+
+// Scenario: a new visit is typed into the spare row under the table, its date and then its input.
+// Expected behaviour: its calculated cell previews what the typed value makes it before Save opens
+// the visit, as a listed visit's does.
+test('a new row previews its calculated value before the visit is opened', async ({
+	page,
+	request,
+}) => {
+	const visit = await seedComputedVisit(request, 'b471', ENTERED);
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/sites/${visit.siteId}?tab=visits`);
+	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
+
+	const day = new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10);
+	await typeInto(page, frozenCell(page, 1), day);
+	const input = sheetCell(page, new RegExp(`^${visit.inputName} at`)).nth(1);
+	const output = sheetCell(page, new RegExp(`^${visit.outputName} at`)).nth(1);
+	await typeInto(page, input, String(CORRECTED));
+
+	await expect(output).toHaveText(new RegExp(`^${CORRECTED * 2}\\b`));
+	await expect(output).toHaveAttribute('title', /not saved yet/);
 });

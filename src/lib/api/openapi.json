@@ -7684,12 +7684,6 @@
               "null"
             ]
           },
-          "created_by": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "dry_run": {
             "description": "Compute the preview and report existing groups without writing anything.",
             "type": "boolean"
@@ -15889,6 +15883,31 @@
           "n",
           "mean",
           "sd"
+        ],
+        "type": "object"
+      },
+      "PreviewUnstagedRequest": {
+        "additionalProperties": false,
+        "description": "A preview at a site and instant no visit stands at yet: the typed cells of a new row.",
+        "properties": {
+          "collected_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "site_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "staged": {
+            "items": {
+              "$ref": "#/components/schemas/StagedCell"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "site_id",
+          "collected_at"
         ],
         "type": "object"
       },
@@ -27084,6 +27103,13 @@
       },
       "VisitCell": {
         "properties": {
+          "curves": {
+            "description": "Each distinct standard curve the group's replicates were corrected through, in replicate\norder (Q97). Empty for a value no curve corrected.",
+            "items": {
+              "$ref": "#/components/schemas/VisitCellCurve"
+            },
+            "type": "array"
+          },
           "finding": {
             "description": "Kind of the oldest open finding on this cell, when one exists.",
             "type": "string"
@@ -27179,7 +27205,24 @@
           "n_withdrawn",
           "n_unverified",
           "replicates",
-          "has_provenance"
+          "has_provenance",
+          "curves"
+        ],
+        "type": "object"
+      },
+      "VisitCellCurve": {
+        "description": "A curve a listing's cell was corrected through: what the grid names it by.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
         ],
         "type": "object"
       },
@@ -30890,6 +30933,40 @@
         "summary": "Create many collection_events"
       }
     },
+    "/api/collection_events/preview": {
+      "post": {
+        "operationId": "preview_unstaged_visit",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewUnstagedRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventPreview"
+                }
+              }
+            },
+            "description": "What the chain would produce"
+          },
+          "400": {
+            "description": "A staged cell names a parameter the site does not carry"
+          }
+        },
+        "summary": "[`preview_collection_event`] at a site and instant no visit stands at yet: a row typed into the\ngrid's spare area, previewed before Save opens its visit. Opens nothing. Any member down to\nintern.",
+        "tags": [
+          "collection_events"
+        ]
+      }
+    },
     "/api/collection_events/stage": {
       "post": {
         "operationId": "stage_collection_event",
@@ -31160,7 +31237,7 @@
             "description": "Unknown collection event"
           }
         },
-        "summary": "What the calculation chain would produce at a visit, given the cells the operator has typed\nand not saved. The same walk the recompute runs, against the same inputs, storing nothing: no\nrun, no reading, no decision, no finding, no output slot and no job, so no value it returns can\nbe cited as provenance (Q212). Save is what executes and stores. Requires `write_data`.",
+        "summary": "What the calculation chain would produce at a visit, given the cells the operator has typed\nand not saved. The same walk the recompute runs, against the same inputs, storing nothing: no\nrun, no reading, no decision, no finding, no output slot and no job, so no value it returns can\nbe cited as provenance (Q212). Save is what executes and stores. Any member down to intern (Q240).",
         "tags": [
           "collection_events"
         ]

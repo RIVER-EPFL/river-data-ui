@@ -1109,6 +1109,14 @@ export type EventPreview = components['schemas']['EventPreview'];
 export const previewCollectionEvent = (id: string, staged: StagedCell[]) =>
 	POST<EventPreview>(`${SERVICE}/collection_events/${id}/preview`, { staged });
 
+/** The same preview at a site and instant no visit stands at yet: a new row of the grid. */
+export const previewUnstagedVisit = (siteId: string, collectedAt: string, staged: StagedCell[]) =>
+	POST<EventPreview>(`${SERVICE}/collection_events/preview`, {
+		site_id: siteId,
+		collected_at: collectedAt,
+		staged,
+	});
+
 export const runEventAudit = (req: { site_id?: string; collection_event_id?: string }) =>
 	POST<{ job_id: string | null }>(`${SERVICE}/actions/event_audit`, req);
 

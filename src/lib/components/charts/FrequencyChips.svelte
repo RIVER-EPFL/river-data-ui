@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Frequency } from '$lib/charts/multiSiteSeries';
+	import { heldChoice, offeredCadences } from '$lib/sites/cadence';
 
 	let {
 		value = $bindable<Frequency>('high'),
@@ -7,47 +8,34 @@
 		onchange,
 	}: {
 		value?: Frequency;
-		/** Which cadences the data actually holds. An unheld one is shown dimmed and refuses selection. */
+		/** Which cadences the data actually holds. Only those are offered, and All only with both. */
 		available?: { high: boolean; low: boolean };
 		onchange?: () => void;
 	} = $props();
 
-	const CHIPS: Array<[Frequency, string]> = [
-		['high', 'High'],
-		['low', 'Low'],
-		['all', 'All'],
-	];
+	const LABELS: Record<Frequency, string> = { high: 'High', low: 'Low', all: 'All' };
+	const offered = $derived(offeredCadences(available));
 
-	function enabled(val: Frequency): boolean {
-		if (val === 'all') return available.high || available.low;
-		return val === 'high' ? available.high : available.low;
-	}
-
-	const MISSING: Record<string, string> = {
-		high: 'No continuous (sensor) data here',
-		low: 'No low-frequency (grab/spot) data here',
-		all: 'No data here',
-	};
+	// A value bound from outside can name a cadence the data does not hold; the chips never show
+	// one chosen that is not offered.
+	$effect(() => {
+		const held = heldChoice(value, available);
+		if (held !== value) value = held;
+	});
 
 	function select(val: Frequency) {
-		if (!enabled(val)) return;
 		value = val;
 		onchange?.();
 	}
 </script>
 
 <div class="flex gap-0.5" title="High = continuous field-sensor line · Low = grab/spot samples · All = both">
-	{#each CHIPS as [val, label]}
-		{@const on = enabled(val)}
+	{#each offered as val (val)}
 		<button
 			onclick={() => select(val)}
-			disabled={!on}
-			title={on ? undefined : MISSING[val]}
-			class="px-2 py-1 text-xs rounded border-none {value === val
+			class="px-2 py-1 text-xs rounded border-none cursor-pointer {value === val
 				? 'bg-brand-primary text-white'
-				: on
-					? 'bg-brand-bg text-brand-muted hover:text-brand-text'
-					: 'bg-brand-bg text-brand-muted opacity-40 line-through'} {on ? 'cursor-pointer' : 'cursor-not-allowed'}"
-		>{label}</button>
+				: 'bg-brand-bg text-brand-muted hover:text-brand-text'}"
+		>{LABELS[val]}</button>
 	{/each}
 </div>

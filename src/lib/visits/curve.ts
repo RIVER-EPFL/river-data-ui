@@ -3,7 +3,8 @@
 // calculation badge's split, the calculation for a curve a run applied and the lab instrument's
 // curves otherwise.
 
-import type { EventCell } from '$api/service';
+import type { EventCell, VisitCell } from '$api/service';
+import type { CellMarker } from '$lib/visits/cell';
 import { curveLabel, formatEquation } from '$lib/standardCurves';
 
 export type CurveTarget =
@@ -44,4 +45,15 @@ export function cellCurves(cell: Pick<EventCell, 'record' | 'tool'>, base: strin
 		});
 	}
 	return curves;
+}
+
+/**
+ * The mark a wide-table cell carries when a curve corrected its value, naming each curve on hover,
+ * so which curve a value was made with is read without opening the visit.
+ */
+export function visitCellCurveMark(cell: Pick<VisitCell, 'curves'>): CellMarker | null {
+	const curves = cell.curves ?? [];
+	if (!curves.length) return null;
+	const names = curves.map((c) => curveLabel({ id: c.id, name: c.name ?? null }));
+	return { text: 'c', title: `Corrected with ${names.join(', ')}` };
 }

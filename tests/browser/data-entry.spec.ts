@@ -100,6 +100,23 @@ test('a field day is entered from Data entry: station, date, a form, save', asyn
 	await expect(page.getByText('2 visits', { exact: true })).toBeVisible();
 });
 
+test('closing Data entry with a value typed raises the unload warning', async ({ page, request }) => {
+	const { siteName, calculation, inputName } = await seedFormula(request);
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/data-entry`);
+	await page.getByLabel('Station').selectOption({ label: siteName });
+	await page.getByLabel('New visit at').fill('2025-06-16T09:00');
+	await page.getByRole('button', { name: 'Add visit' }).click();
+	await page.getByRole('button', { name: new RegExp(`^${calculation}`) }).click();
+	await page.getByRole('spinbutton', { name: inputName }).fill('7');
+
+	const unloading = page.waitForEvent('dialog');
+	await page.close({ runBeforeUnload: true });
+	const warning = await unloading;
+	expect(warning.type()).toBe('beforeunload');
+	await warning.dismiss();
+});
+
 test('a link to the retired tools page lands on Data entry with its query', async ({ page }) => {
 	await signIn(page);
 	await page.goto(`${BASE_PATH}/tools?tool=doc`);
