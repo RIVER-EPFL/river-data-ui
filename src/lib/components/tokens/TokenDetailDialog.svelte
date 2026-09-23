@@ -25,7 +25,7 @@
 	let logsLoading = $state(false);
 	let logsError = $state('');
 
-	// Pull this key's recent requests from the same audit log the global /logs view reads, so the
+	// Pull this key's recent requests from the same audit log the System page's Logs tab reads, so the
 	// activity sits next to the key instead of in a detached page.
 	$effect(() => {
 		if (!open || !token) return;
@@ -108,7 +108,7 @@
 						<div class="flex items-center justify-between">
 							<h4 class="text-sm font-semibold">Recent activity</h4>
 							<a
-								href="{base}/logs?tab=audit&token={token.id}"
+								href="{base}/system?tab=logs&token={token.id}"
 								class="text-xs text-brand-primary no-underline hover:underline">View all logs →</a
 							>
 						</div>

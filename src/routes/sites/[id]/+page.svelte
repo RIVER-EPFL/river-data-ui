@@ -45,6 +45,7 @@
 	import RowMenu from '$components/ui/RowMenu.svelte';
 	import { NO_FILTER, filterSlotGroups, groupKey, isFiltering, slotConfiguration, type SlotFilter } from '$lib/sites/slotTable';
 	import Tabs from '$components/ui/Tabs.svelte';
+	import { createUrlTab } from '$lib/urlTab.svelte';
 	import { leavingLosesEntries, UNSAVED_PROMPT } from '$lib/visits/tableEdit';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
@@ -114,16 +115,9 @@
 	let samplesSiteId = '';
 	let loading = $state(true);
 	let error = $state<string | null>(null);
-	let activeTab = $state(0);
 	// The visits grid is unmounted when its tab is left, so what it holds unsaved is asked about
 	// first.
 	let visitsUnsaved = $state(false);
-	function chooseTab(next: number) {
-		const to = tabDefs[next]?.key ?? 'charts';
-		if (leavingLosesEntries(activeKey, to, visitsUnsaved) && !confirm(UNSAVED_PROMPT)) return;
-		if (to !== 'visits') visitsUnsaved = false;
-		activeTab = next;
-	}
 	// Tabs are dispatched by a stable key, not a hardcoded index, so the admin-only Status tab can be
 	// conditionally present without the body blocks below falling out of sync.
 	const tabDefs = $derived([
@@ -137,31 +131,22 @@
 		{ key: 'notes', label: 'Notes' },
 	]);
 	const tabLabels = $derived(tabDefs.map((t) => t.label));
-	const activeKey = $derived(tabDefs[activeTab]?.key ?? 'charts');
-
-	// URL-synced tab (?tab=), so visits and provenance links can land on a specific tab. The reader
-	// must not track `activeTab`: a click sets it before the writeback lands, so tracking it would
-	// re-run this from the stale URL and snap the tab back, locking the page on its first choice.
-	$effect(() => {
-		const wanted = page.url.searchParams.get('tab');
-		if (!wanted) return;
-		const idx = tabDefs.findIndex((t) => t.key === wanted);
-		if (idx >= 0 && idx !== untrack(() => activeTab)) activeTab = idx;
-	});
-	$effect(() => {
-		const key = activeKey;
-		const current = page.url.searchParams.get('tab') ?? 'charts';
-		if (current === key) return;
-		// A named tab this render can't resolve is a deep link waiting on data (Status appears only
-		// once the caller's role has loaded). Writing back would erase the request before it lands.
-		if (!tabDefs.some((t) => t.key === current)) return;
-		const url = new URL(page.url.href);
-		if (key === 'charts') url.searchParams.delete('tab');
-		else url.searchParams.set('tab', key);
-		if (key !== 'visits') url.searchParams.delete('event');
-		if (key !== 'charts') writePointParams(url.searchParams, null);
-		goto(url, { replaceState: true, noScroll: true, keepFocus: true });
-	});
+	// URL-synced tab (?tab=), so visits and provenance links can land on a specific tab. Charts is
+	// the bare URL, which is how the opening-tab choice below knows the reader has not picked one.
+	const tab = createUrlTab({ keys: () => tabDefs.map((t) => t.key), omitDefault: true });
+	// A visit and a chart point belong to their own tab, so leaving it drops them from the URL.
+	function leaveTab(key: string) {
+		return (url: URL) => {
+			if (key !== 'visits') url.searchParams.delete('event');
+			if (key !== 'charts') writePointParams(url.searchParams, null);
+		};
+	}
+	function chooseTab(next: number) {
+		const to = tabDefs[next]?.key ?? 'charts';
+		if (leavingLosesEntries(tab.key, to, visitsUnsaved) && !confirm(UNSAVED_PROMPT)) return;
+		if (to !== 'visits') visitsUnsaved = false;
+		tab.go(to, leaveTab(to));
+	}
 	let statsOpen = $state(false);
 
 	// --- Point inspector: the pinned provenance record under a clicked chart point ---
@@ -214,7 +199,7 @@
 		pointRestored = true;
 	});
 	$effect(() => {
-		if (!pointRestored || activeKey !== 'charts') return;
+		if (!pointRestored || tab.key !== 'charts') return;
 		const wanted: PointRef | null = inspector
 			? {
 					siteParameterId: inspector.siteParameterId,
@@ -696,9 +681,9 @@
 					if (cadence !== 'all') frequency = cadence;
 					// Only from the untouched default: a deep link, or a tab clicked while the
 					// detail was in flight, is the reader's choice and stands.
-					if (!page.url.searchParams.get('tab') && activeTab === 0) {
-						const wanted = tabDefs.findIndex((t) => t.key === openingTab(detailRes.parameters));
-						if (wanted >= 0) activeTab = wanted;
+					if (!page.url.searchParams.get('tab') && tab.key === 'charts') {
+						const wanted = openingTab(detailRes.parameters);
+						if (tabDefs.some((t) => t.key === wanted)) tab.go(wanted, leaveTab(wanted));
 					}
 				}
 				if (deepLink) {
@@ -1269,10 +1254,10 @@
 			</div>
 		</div>
 
-		<Tabs tabs={tabLabels} bind:active={() => activeTab, chooseTab} />
+		<Tabs tabs={tabLabels} bind:active={() => tab.index, chooseTab} />
 
 		<!-- Charts tab -->
-		{#if activeKey === 'charts'}
+		{#if tab.key === 'charts'}
 			<div class="space-y-3">
 				<!-- Shared time controls -->
 				<div class="rounded-md border border-brand-divider bg-brand-surface px-4 py-3 space-y-3">
@@ -1559,7 +1544,7 @@
 			<SharedChartTooltip syncKey={cursorSyncKey} />
 
 		<!-- Parameters tab -->
-		{:else if activeKey === 'parameters'}
+		{:else if tab.key === 'parameters'}
 			<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 				<div class="flex items-center justify-between px-4 py-3 bg-brand-bg border-b border-brand-divider">
 					<span class="text-sm font-semibold">
@@ -1919,7 +1904,7 @@
 			</div>
 
 		<!-- Sensors tab -->
-		{:else if activeKey === 'sensors'}
+		{:else if tab.key === 'sensors'}
 			<div class="flex items-center justify-between mb-3">
 				<span class="text-sm font-semibold">Deployed sensors ({deployedSensors.length})</span>
 				<Button size="sm" onclick={() => (deployHereOpen = true)}>Deploy sensor here</Button>
@@ -1991,7 +1976,7 @@
 			</div>
 
 		<!-- Samples tab -->
-		{:else if activeKey === 'samples'}
+		{:else if tab.key === 'samples'}
 			<div class="space-y-3">
 				{#if samplesLoading}
 					<p class="text-sm text-brand-muted">Loading samples…</p>
@@ -2069,19 +2054,19 @@
 			</div>
 
 		<!-- Sensor vs grab: each grab value against the continuous average just after it -->
-		{:else if activeKey === 'comparison'}
+		{:else if tab.key === 'comparison'}
 			<SensorVsGrabPanel
 				siteId={site?.id ?? ''}
 				parameters={comparisonParameters}
 			/>
 
 		<!-- Visits tab: the portal's wide data row, one per field date -->
-		{:else if activeKey === 'visits'}
+		{:else if tab.key === 'visits'}
 			<SiteVisitsTab
 				{siteId}
 				siteName={site?.name ?? null}
 				{siteParameters}
-				active={activeKey === 'visits'}
+				active={tab.key === 'visits'}
 				{paramName}
 				{unitsForParameter}
 				{decimalsForParameter}
@@ -2092,11 +2077,11 @@
 			/>
 
 		<!-- Status tab (admin-only) -->
-		{:else if activeKey === 'status'}
-			<SiteStatusTab {siteId} active={activeKey === 'status'} {paramName} />
+		{:else if tab.key === 'status'}
+			<SiteStatusTab {siteId} active={tab.key === 'status'} {paramName} />
 
 		<!-- Notes tab -->
-		{:else if activeKey === 'notes'}
+		{:else if tab.key === 'notes'}
 			<div class="space-y-3">
 				<Button variant="primary" onclick={() => addNoteOpen = true}>Add Note</Button>
 				{#each notes as note}

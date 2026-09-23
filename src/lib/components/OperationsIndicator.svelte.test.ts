@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
+import { base } from '$app/paths';
 
 const list = vi.fn();
 vi.mock('$api/crud', () => ({ api: { reprocessingJobs: { list: () => list() } } }));
@@ -29,5 +30,13 @@ describe('operations indicator', () => {
 		(await screen.findByRole('button')).click();
 		const link = await screen.findByRole('link', { name: /Applying pairing plan/ });
 		expect(link.getAttribute('href')).toContain('/system?tab=jobs&job=job-7');
+	});
+
+	it('links View all straight to the System page Jobs tab', async () => {
+		list.mockResolvedValue({ data: [job], total: 1 });
+		render(OperationsIndicator, {});
+		(await screen.findByRole('button')).click();
+		const link = await screen.findByRole('link', { name: 'View all' });
+		expect(link.getAttribute('href')).toBe(`${base}/system?tab=jobs`);
 	});
 });

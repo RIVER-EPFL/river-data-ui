@@ -3,13 +3,10 @@
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
+	import { logsRedirectTarget } from '$lib/logsRedirect';
 
-	// Logs merged into the unified System page (Logs / Jobs tabs). Preserve a jobs deep-link;
-	// audit / sync / anything else lands on the Logs tab.
 	onMount(() => {
-		const tab = page.url.searchParams.get('tab') === 'jobs' ? 'jobs' : 'logs';
-		const job = page.url.searchParams.get('job');
-		goto(`${base}/system?tab=${tab}${job ? `&job=${job}` : ''}`, { replaceState: true });
+		goto(`${base}${logsRedirectTarget(page.url.searchParams)}`, { replaceState: true });
 	});
 </script>
 
