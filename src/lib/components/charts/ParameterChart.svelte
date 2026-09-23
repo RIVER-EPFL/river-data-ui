@@ -9,6 +9,7 @@
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { api, type AlarmThreshold, type Annotation } from '$api/crud';
 	import AnnotateDialog from '$components/dialogs/AnnotateDialog.svelte';
+	import Button from '$components/ui/Button.svelte';
 	import FlagDialog from '$components/dialogs/FlagDialog.svelte';
 	import ReplicateFlagDialog from '$components/dialogs/ReplicateFlagDialog.svelte';
 	import {
@@ -28,7 +29,7 @@
 	import { spotMarkerColors, seriesColor } from '$lib/charts/legend';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
-	import { formatDateTime, formatInstant } from '$lib/utils';
+	import { formatClockTime, formatDateTime, formatInstant } from '$lib/utils';
 
 	export interface ChartData {
 		times: number[];
@@ -892,7 +893,7 @@
 			start.toLocaleDateString(undefined, { timeZone: zone }) ===
 			end.toLocaleDateString(undefined, { timeZone: zone });
 		return sameDay
-			? `${formatInstant(start.getTime())} – ${end.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', timeZone: zone })}`
+			? `${formatInstant(start.getTime())} – ${formatClockTime(end)}`
 			: `${formatInstant(start.getTime())} → ${formatInstant(end.getTime())}`;
 	}
 
@@ -1014,9 +1015,9 @@
 					{isAlarm ? 'Alarm' : 'Warning'} active for {breachDuration(since)} since {formatDateTime(since)}
 				</a>
 			{/if}
-			<button onclick={() => startSelection('annotate')} class="px-1.5 py-0.5 text-xs text-brand-primary bg-transparent border border-brand-primary/50 rounded cursor-pointer hover:bg-brand-primary/5" title="Annotate a time range">Annotate</button>
-			<button onclick={() => startSelection('flag')} class="px-1.5 py-0.5 text-xs text-severity-alarm bg-transparent border border-severity-alarm-border rounded cursor-pointer hover:bg-severity-alarm-soft" title="Flag readings in a range">Flag</button>
-			<button onclick={() => startSelection('unflag')} class="px-1.5 py-0.5 text-xs text-brand-muted bg-transparent border border-brand-divider rounded cursor-pointer hover:bg-brand-bg" title="Unflag readings in a range">Unflag</button>
+			<Button variant="secondary" size="sm" onclick={() => startSelection('annotate')} title="Annotate a time range">Annotate</Button>
+			<Button variant="danger" size="sm" onclick={() => startSelection('flag')} title="Flag readings in a range">Flag</Button>
+			<Button variant="secondary" size="sm" onclick={() => startSelection('unflag')} title="Unflag readings in a range">Unflag</Button>
 		</div>
 	</div>
 	{#if modeBanner}
@@ -1051,11 +1052,13 @@
 							{#if deletingId === a.id}
 								<span class="text-brand-muted text-[10px]">deleting…</span>
 							{:else if confirmDeleteId === a.id}
-								<button
+								<Button
+									variant="danger"
+									size="sm"
+									class="px-1 py-0 leading-none text-[10px]"
 									onclick={() => deleteAnnotation(a.id)}
-									class="text-severity-alarm hover:bg-severity-alarm hover:text-white cursor-pointer bg-transparent border border-severity-alarm/50 rounded px-1 leading-none text-[10px]"
 									title="Confirm delete"
-								>Delete?</button>
+								>Delete?</Button>
 								<button
 									onclick={() => confirmDeleteId = null}
 									class="text-brand-muted hover:text-brand-text cursor-pointer bg-transparent border-none px-0.5 leading-none text-sm"

@@ -2,7 +2,7 @@
 	// The site's export dialog: readings in long format, plus the replicate, annotation and alarm
 	// files the range can carry. The page owns the range the charts show and hands it over here.
 	import { getSiteExportSummary, type ExportSummary } from '$api/service';
-	import { downloadBlob } from '$lib/download';
+	import { download } from '$api/client';
 	import type { SiteParameter } from '$api/crud';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { buildReadingsExportParams, exportColumns } from '$lib/sites/exportParams';
@@ -136,18 +136,6 @@
 		if (!exportStartMs || !exportEndMs) return;
 		exportLoading = true;
 		try {
-			const { auth } = await import('$auth/keycloak.svelte');
-			await auth.ensureToken();
-			const download = async (url: string, filename: string) => {
-				const response = await fetch(url, {
-					headers: auth.token ? { Authorization: `Bearer ${auth.token}` } : undefined,
-				});
-				if (!response.ok) {
-					const detail = await response.text().catch(() => response.statusText);
-					throw new Error(`${response.status}: ${detail.slice(0, 200)}`);
-				}
-				downloadBlob(await response.blob(), filename);
-			};
 			const rangeParams = () => {
 				const params = new URLSearchParams({
 					start: new Date(exportStartMs).toISOString(),

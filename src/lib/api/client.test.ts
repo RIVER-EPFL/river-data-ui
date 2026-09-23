@@ -4,7 +4,12 @@ vi.mock('$auth/keycloak.svelte', () => ({
 	auth: { token: 'tok', ensureToken: async () => {} },
 }));
 
-const { GET, POST, getList, ApiError } = await import('./client');
+const downloadBlob = vi.fn();
+vi.mock('$lib/download', () => ({
+	downloadBlob: (blob: Blob, filename: string) => downloadBlob(blob, filename),
+}));
+
+const { GET, POST, getList, download, ApiError } = await import('./client');
 
 function respond(body: unknown, init: { status?: number; headers?: Record<string, string> } = {}) {
 	const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
@@ -69,5 +74,33 @@ describe('getList', () => {
 	it('reports a zero total when the server sends no content-range', async () => {
 		respond([]);
 		expect((await getList('/api/sites')).total).toBe(0);
+	});
+});
+
+describe('download', () => {
+	it('fetches with the bearer token and hands the blob to the browser', async () => {
+		const blob = new Blob(['a,b\n1,2\n'], { type: 'text/csv' });
+		const f = vi.fn(async (_url: string, _init?: RequestInit) => ({
+			ok: true,
+			status: 200,
+			statusText: 'OK',
+			headers: new Headers(),
+			blob: async () => blob,
+		}));
+		vi.stubGlobal('fetch', f);
+
+		await download('/api/sites/s1/visits?format=csv', 'visits.csv');
+
+		expect(f.mock.calls[0][0]).toBe('/api/sites/s1/visits?format=csv');
+		const headers = (f.mock.calls[0][1] as unknown as { headers: Headers }).headers;
+		expect(headers.get('Authorization')).toBe('Bearer tok');
+		expect(downloadBlob).toHaveBeenCalledWith(blob, 'visits.csv');
+	});
+
+	it('throws ApiError carrying the status on a non-2xx', async () => {
+		respond('forbidden', { status: 403 });
+		const err = await download('/api/x', 'x.csv').catch((e) => e);
+		expect(err).toBeInstanceOf(ApiError);
+		expect(err.status).toBe(403);
 	});
 });

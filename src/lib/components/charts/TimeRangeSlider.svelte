@@ -5,7 +5,7 @@
 	import { tokens } from '$lib/charts/tokens';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import { pipLabel } from '$lib/charts/timeRangePips';
-	import { dayStart } from '$lib/utils';
+	import { dayStart, formatInstant } from '$lib/utils';
 
 	let {
 		min,
@@ -91,14 +91,6 @@
 		return { mode: PipsMode.Count as const, values: 6, density: 100, format };
 	}
 
-	function fmtDateTimeFull(v: number): string {
-		return new Date(v).toLocaleString('en-US', {
-			month: 'short', day: 'numeric', year: 'numeric',
-			hour: '2-digit', minute: '2-digit',
-			timeZone: timezoneStore.zone,
-		});
-	}
-
 	function initSlider() {
 		if (slider) slider.destroy();
 		if (!el || min >= max) return;
@@ -112,8 +104,8 @@
 			range: buildSliderRange(),
 			step: 600000,
 			tooltips: [
-				{ to: (v: number) => fmtDateTimeFull(v) },
-				{ to: (v: number) => fmtDateTimeFull(v) },
+				{ to: (v: number) => formatInstant(v) },
+				{ to: (v: number) => formatInstant(v) },
 			],
 			pips: buildPips(),
 		});
@@ -230,7 +222,7 @@
 	}
 	.slider-track :global(.noUi-value) {
 		font-size: 9px;
-		color: var(--color-brand-textMuted, #5A6472);
+		color: var(--color-brand-muted);
 		top: 8px;
 	}
 	/* Zone labels */

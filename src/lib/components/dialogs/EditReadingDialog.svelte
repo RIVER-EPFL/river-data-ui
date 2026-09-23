@@ -184,14 +184,14 @@
 
 <Dialog bind:open {title} maxWidth="md">
 	{#if loading}
-		<p class="text-sm text-gray-500">Reading the record…</p>
+		<p class="text-sm text-brand-muted">Reading the record…</p>
 	{:else if error}
 		<ErrorNotice message={error} />
 	{:else if route === 'empty'}
-		<p class="text-sm text-gray-500">Nothing is stored at that selection.</p>
+		<p class="text-sm text-brand-muted">Nothing is stored at that selection.</p>
 	{:else}
 		<div class="space-y-4">
-			<p class="text-sm text-gray-600 dark:text-gray-300">
+			<p class="text-sm text-brand-muted">
 				{#if route === 'tool'}
 					A calculation produced {rows.length === 1 ? 'this value' : 'these values'}, so
 					{rows.length === 1 ? 'it is' : 'they are'} corrected by reopening the run rather than
@@ -210,7 +210,7 @@
 			</p>
 
 			<fieldset class="space-y-2">
-				<legend class="text-xs font-semibold uppercase tracking-wide text-gray-500">
+				<legend class="text-xs font-semibold uppercase tracking-wide text-brand-muted">
 					What to do
 				</legend>
 				{#each options as option (option)}
@@ -218,8 +218,8 @@
 						<input type="radio" name="edit-option" value={option} bind:group={chosen} />
 						<span>
 							<span class="font-medium">{EDIT_METHODS[option].label}</span>
-							<span class="block text-xs text-gray-500">{EDIT_METHODS[option].changes}</span>
-							<span class="block text-xs text-gray-400">{EDIT_METHODS[option].leaves}</span>
+							<span class="block text-xs text-brand-muted">{EDIT_METHODS[option].changes}</span>
+							<span class="block text-xs text-brand-muted">{EDIT_METHODS[option].leaves}</span>
 						</span>
 					</label>
 				{/each}
@@ -228,7 +228,7 @@
 			{#if chosen === 'reopen_run' && toolRunId}
 				<Button variant="primary" onclick={reopen}>Open the calculation</Button>
 			{:else if chosen === 'edit_deployment' || chosen === 'edit_calibration'}
-				<p class="text-sm text-gray-500">{method?.leaves}</p>
+				<p class="text-sm text-brand-muted">{method?.leaves}</p>
 			{:else if chosen && isDirect(chosen)}
 				<label class="block text-sm">
 					Reason
@@ -259,21 +259,21 @@
 				</label>
 
 				{#if previewing}
-					<p class="text-sm text-gray-500">Working out what this changes…</p>
+					<p class="text-sm text-brand-muted">Working out what this changes…</p>
 				{:else if previewError}
 					<ErrorNotice message={previewError} />
 				{:else if preview}
-					<div class="rounded border border-gray-200 p-3 text-sm dark:border-gray-700">
-						<p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+					<div class="rounded border border-brand-divider p-3 text-sm">
+						<p class="mb-2 text-xs font-semibold uppercase tracking-wide text-brand-muted">
 							What this changes
 						</p>
 						{#if previewIsEmpty(preview.rows, preview.samples)}
-							<p class="text-gray-500">Nothing: the readings already stand this way.</p>
+							<p class="text-brand-muted">Nothing: the readings already stand this way.</p>
 						{:else}
 							{#each preview.rows as row (row.stream_id + row.time + row.replicate_index)}
 								{#each movedFields(row.before, row.after) as moved (moved.field)}
 									<p>
-										<span class="text-gray-500"
+										<span class="text-brand-muted"
 											>{formatDateTime(row.time)} · replicate {row.replicate_index} ·
 											{fieldLabel(moved.field)}</span
 										>
@@ -284,18 +284,18 @@
 							{#each preview.samples as sample (sample.sample_id)}
 								{#each movedFields(sample.before, sample.after) as moved (moved.field)}
 									<p>
-										<span class="text-gray-500">Group {fieldLabel(moved.field)}</span>
+										<span class="text-brand-muted">Group {fieldLabel(moved.field)}</span>
 										<span class="ml-1">{String(moved.before ?? '—')} → {String(moved.after ?? '—')}</span>
 									</p>
 								{/each}
 							{/each}
 						{/if}
 						{#if preview.calculations.length > 0}
-							<p class="mt-2 text-xs text-gray-500">
+							<p class="mt-2 text-xs text-brand-muted">
 								Recomputes afterwards: {preview.calculations.map((c) => c.label).join(', ')}
 							</p>
 						{/if}
-						<ul class="mt-2 list-disc pl-4 text-xs text-gray-400">
+						<ul class="mt-2 list-disc pl-4 text-xs text-brand-muted">
 							{#each preview.not_previewed as note (note)}
 								<li>{note}</li>
 							{/each}

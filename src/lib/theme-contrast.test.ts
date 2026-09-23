@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { contrastRatio } from './color';
@@ -79,5 +79,28 @@ describe('color scheme', () => {
 		const body = css.match(/\nbody\s*\{([^}]*)\}/);
 		expect(body).not.toBeNull();
 		expect(body![1]).toMatch(/color-scheme:\s*light/);
+	});
+});
+
+describe('components colour with the brand tokens', () => {
+	const root = fileURLToPath(new URL('..', import.meta.url));
+	const sources = readdirSync(root, { recursive: true, encoding: 'utf-8' })
+		.filter((f) => /\.(svelte|ts|css)$/.test(f) && !/\.test\.ts$/.test(f))
+		.map((f) => ({ file: f, text: readFileSync(`${root}/${f}`, 'utf-8') }));
+
+	it('uses no Tailwind grey palette class', () => {
+		const grey = /\b(?:text|border|bg|divide|ring|placeholder)-(?:gray|slate|zinc|neutral|stone)-\d+/g;
+		const found = sources.flatMap(({ file, text }) => (text.match(grey) ?? []).map((c) => `${file}: ${c}`));
+		expect(found).toEqual([]);
+	});
+
+	it('reads only colour variables app.css declares', () => {
+		const undeclared = sources.flatMap(({ file, text }) =>
+			[...text.matchAll(/var\(--color-([A-Za-z0-9-]+)/g)]
+				.map((m) => m[1])
+				.filter((name) => !css.includes(`--color-${name}:`))
+				.map((name) => `${file}: --color-${name}`),
+		);
+		expect(undeclared).toEqual([]);
 	});
 });

@@ -12,7 +12,10 @@ const listSiteVisits = vi.fn();
 const runEventRecompute = vi.fn();
 const pollJob = vi.fn();
 const getCollectionEventDetail = vi.fn();
+const downloadSiteVisitsCsv = vi.fn();
 vi.mock("$api/service", () => ({
+  downloadSiteVisitsCsv: (siteId: string, range: unknown, filename: string) =>
+    downloadSiteVisitsCsv(siteId, range, filename),
   listSiteVisits: (siteId: string, range: unknown) =>
     listSiteVisits(siteId, range),
   getCollectionEventDetail: (id: string) => getCollectionEventDetail(id),
@@ -503,5 +506,51 @@ describe("SiteVisitsTab", () => {
     const stored = await screen.findByText("100.80");
     expect(stored.closest("td")?.classList.contains("htDimmed")).toBe(true);
     level.value = 3;
+  });
+
+  it("downloads the grid csv through the authenticated client", async () => {
+    listSiteVisits.mockResolvedValue({
+      site_id: "site-1",
+      page: 1,
+      page_size: 50,
+      total: 2,
+      expected_parameters: [column("declared", "DOC", 2)],
+      visits: [
+        {
+          id: "visit-2",
+          collected_at: "2025-07-15T08:00:00Z",
+          created_by: "tester",
+          source: "manual",
+          notes: null,
+          parameters_filled: 1,
+          findings_open: 0,
+          recompute: "current",
+          cells: [cell("declared")],
+        },
+        {
+          id: "visit-1",
+          collected_at: "2025-06-01T08:00:00Z",
+          created_by: "tester",
+          source: "manual",
+          notes: null,
+          parameters_filled: 1,
+          findings_open: 0,
+          recompute: "current",
+          cells: [cell("declared")],
+        },
+      ],
+    });
+    downloadSiteVisitsCsv.mockResolvedValue(undefined);
+
+    render(SiteVisitsTab, props({ declared: 2 }));
+    await screen.findAllByText("100.80");
+    await userEvent.click(screen.getByRole("button", { name: "Download grid CSV" }));
+
+    await waitFor(() => expect(downloadSiteVisitsCsv).toHaveBeenCalledTimes(1));
+    expect(downloadSiteVisitsCsv).toHaveBeenCalledWith(
+      "site-1",
+      {},
+      "FP15_visits_2025-06-01_2025-07-15.csv",
+    );
   });
 });

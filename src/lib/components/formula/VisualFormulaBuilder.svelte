@@ -397,11 +397,7 @@
 				</div>
 			{/if}
 
-			<button
-				onclick={appendNumber}
-				class="px-2 py-1 text-[11px] font-mono rounded border border-dashed border-brand-divider bg-brand-bg text-brand-muted cursor-pointer hover:border-brand-primary hover:text-brand-primary"
-				title="Add a literal number you can type directly"
-			>+ number</button>
+			<Button variant="secondary" size="sm" class="font-mono" onclick={appendNumber} title="Add a literal number you can type directly">+ number</Button>
 			{#if root.type !== 'empty'}
 				<Button variant="ghost" size="sm" class="text-severity-alarm" onclick={clearAll}>Clear formula</Button>
 			{/if}

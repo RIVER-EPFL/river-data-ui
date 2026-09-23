@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { LastUsedCurve } from '$api/service';
+	import Button from '$components/ui/Button.svelte';
 	import { formatDate } from '$lib/utils';
 
 	// One line naming the instrument and curve the last grab at a slot recorded, with the tip
@@ -29,11 +30,7 @@
 	<div class="flex items-center gap-1 text-xs text-brand-muted">
 		Last used here: {line(last)}
 		{#if canUse && onuse}
-			<button
-				type="button"
-				class="rounded border border-brand-divider px-1 text-[11px] text-brand-primary hover:underline"
-				onclick={onuse}
-			>Use this curve</button>
+			<Button variant="secondary" size="sm" onclick={onuse}>Use this curve</Button>
 		{/if}
 		<span class="group relative inline-block">
 			<button

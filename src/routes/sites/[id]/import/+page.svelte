@@ -17,6 +17,7 @@
 	} from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
+	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import CurvePicker, {
 		emptyCurveSelection,
 		type CurveSelection,
@@ -396,7 +397,7 @@
 				class="mt-1 block w-full text-sm"
 			/>
 			{#if parseError}
-				<p class="mt-2 rounded-md bg-severity-alarm-soft px-3 py-2 text-sm text-severity-alarm">{parseError}</p>
+				<div class="mt-2"><ErrorNotice message={parseError} /></div>
 			{/if}
 
 			{#if previewHeaders.length > 0 && !parseError}

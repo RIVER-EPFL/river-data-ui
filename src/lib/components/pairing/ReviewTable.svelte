@@ -17,6 +17,7 @@
 
 <script lang="ts" generics="T">
 	import Button from '$components/ui/Button.svelte';
+	import PaginationControls from '$components/ui/PaginationControls.svelte';
 	import PairSkipToggle from '$components/ui/PairSkipToggle.svelte';
 	import ReviewButton from '$components/pairing/ReviewButton.svelte';
 	import { formatCount } from '$lib/format';
@@ -213,13 +214,5 @@
 		</table>
 	</div>
 
-	{#if totalPages > 1}
-		<div class="flex items-center justify-between text-xs text-brand-muted">
-			<span>Page {current + 1} of {totalPages}</span>
-			<div class="flex gap-1">
-				<Button size="sm" onclick={() => (page = Math.max(0, current - 1))} disabled={current === 0}>Prev</Button>
-				<Button size="sm" onclick={() => (page = Math.min(totalPages - 1, current + 1))} disabled={current >= totalPages - 1}>Next</Button>
-			</div>
-		</div>
-	{/if}
+	<PaginationControls total={shown.length} page={current + 1} perPage={REVIEW_ROWS_PER_PAGE} onPageChange={(p) => (page = p - 1)} />
 </div>

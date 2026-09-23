@@ -973,7 +973,7 @@
 					</div>
 				{#if showHistory.has(i)}
 					<div class="mt-2 text-xs">
-						<div class="mb-1 flex items-center gap-2 text-gray-500">
+						<div class="mb-1 flex items-center gap-2 text-brand-muted">
 							<span>History</span>
 							{#each [['all', 'Everything'], ['warning', 'Warnings'], ['error', 'Failures']] as [level, label] (level)}
 								<button
@@ -987,7 +987,7 @@
 						{#if historyError[i]}
 							<ErrorNotice message={historyError[i]} />
 						{:else if (history[i] ?? []).length === 0}
-							<p class="text-gray-500">
+							<p class="text-brand-muted">
 								Nothing has happened to this reading: it stands as it arrived.
 							</p>
 						{:else}
@@ -997,19 +997,19 @@
 								{/each}
 							</ul>
 							{#if adminEntries(i).length > 0}
-								<div class="mt-2 border-t border-gray-200 pt-1">
+								<div class="mt-2 border-t border-brand-divider pt-1">
 									{#if adminEntries(i).length > ADMIN_SHOWN}
 										<button
-											class="cursor-pointer border-none bg-transparent p-0 text-gray-500 hover:underline"
+											class="cursor-pointer border-none bg-transparent p-0 text-brand-muted hover:underline"
 											onclick={() => toggleAdmin(i)}
 											>Administrative ({formatCount(adminEntries(i).length)}), {showAllAdmin.has(i)
 												? 'show fewer'
 												: 'show all'}</button
 										>
 									{:else}
-										<span class="text-gray-500">Administrative</span>
+										<span class="text-brand-muted">Administrative</span>
 									{/if}
-									<ul class="mt-1 space-y-1 text-gray-500">
+									<ul class="mt-1 space-y-1 text-brand-muted">
 										{#each shownAdmin(i) as entry (entry.source + entry.id + entry.at)}
 											{@render line(i, rec, entry, true)}
 										{/each}
@@ -1067,30 +1067,30 @@
 			{decision ? decisionLabel(decision.head.kind) : ledgerLine(entry).text}
 		</span>
 		{#if decision && decision.members.length > 1}
-			<span class="text-gray-500" title={memberRows(decision)}
+			<span class="text-brand-muted" title={memberRows(decision)}
 				>{formatCount(decision.members.length)} readings</span
 			>
 		{/if}
 		{#if entry.severity !== 'info'}
 			<Badge variant={entry.severity === 'error' ? 'alarm' : 'warning'}>{entry.severity}</Badge>
 		{/if}
-		<span class="text-gray-500">
+		<span class="text-brand-muted">
 			{formatDateTime(entry.at)}{entry.actor ? ` · ${entry.actor}` : ''}
 		</span>
 		{#each decision ? changedFields(decision.head) : [] as c (c.field)}
-			<span class="text-gray-500">
+			<span class="text-brand-muted">
 				{fieldLabel(c.field)}
 				{cellText(c.from)} → {cellText(c.to)}
 			</span>
 		{/each}
 		{#if decision?.head.reason}
-			<span class="text-gray-500">“{decision.head.reason}”</span>
+			<span class="text-brand-muted">“{decision.head.reason}”</span>
 		{/if}
 		{#if href}
 			<a class="text-brand-primary hover:underline" {href}>Open</a>
 		{/if}
 		{#if decision?.head.rolled_back_by}
-			<span class="text-gray-400">rolled back</span>
+			<span class="text-brand-muted">rolled back</span>
 		{:else if decision && undoable(decision.head)}
 			<button
 				class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline disabled:opacity-50"

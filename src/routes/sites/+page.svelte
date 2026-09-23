@@ -18,6 +18,7 @@
 	import OriginFilter from '$components/crud/OriginFilter.svelte';
 	import { originFilter, type Origin } from '$lib/origin';
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
+	import PaginationControls from '$components/ui/PaginationControls.svelte';
 	import { formatCount } from '$lib/format';
 
 	let sites = $state<Site[]>([]);
@@ -155,8 +156,6 @@
 		load();
 	}
 
-	const totalPages = $derived(Math.ceil(total / perPage));
-
 	onMount(() => { load(); loadBackfill(); loadSensorCounts(); });
 </script>
 
@@ -270,12 +269,15 @@
 									<div class="flex flex-col gap-0.5">
 										{#if backfillBySite.get(site.id)}
 											{@const bf = backfillBySite.get(site.id)!}
-											<button
+											<Button
+												variant="secondary"
+												size="sm"
+												class="whitespace-nowrap"
 												onclick={() => runBackfill({ site_id: site.id }, site.id)}
 												disabled={backfilling !== null}
+												loading={backfilling === site.id}
 												title="Attribute {formatCount(bf.claimable_count)} unattributed readings across {bf.deployments} deployment(s)"
-												class="px-2 py-0.5 text-xs rounded bg-severity-warning-soft text-severity-warning cursor-pointer border-none hover:opacity-80 disabled:opacity-50 whitespace-nowrap"
-											>{backfilling === site.id ? '…' : `Backfill (${formatCount(bf.claimable_count)})`}</button>
+											>Backfill ({formatCount(bf.claimable_count)})</Button>
 										{/if}
 										{#if sensorCountBySite.get(site.id)}
 											<a href="{base}/sites/{site.id}" class="text-xs text-brand-muted no-underline hover:text-brand-primary hover:underline">
@@ -294,27 +296,5 @@
 		</table>
 	</div>
 
-	<!-- Pagination -->
-	{#if totalPages > 1}
-		<div class="flex items-center justify-between text-sm text-brand-muted">
-			<span>{total} total</span>
-			<div class="flex items-center gap-2">
-				<Button
-					size="sm"
-					onclick={() => { currentPage = Math.max(1, currentPage - 1); load(); }}
-					disabled={currentPage <= 1}
-				>
-					Prev
-				</Button>
-				<span>{currentPage} / {totalPages}</span>
-				<Button
-					size="sm"
-					onclick={() => { currentPage = Math.min(totalPages, currentPage + 1); load(); }}
-					disabled={currentPage >= totalPages}
-				>
-					Next
-				</Button>
-			</div>
-		</div>
-	{/if}
+	<PaginationControls {total} page={currentPage} {perPage} onPageChange={(p) => { currentPage = p; load(); }} />
 </div>

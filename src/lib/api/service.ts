@@ -1,4 +1,4 @@
-import { ApiError, GET, POST, PATCH, PUT, DELETE, getList } from './client';
+import { ApiError, GET, POST, PATCH, PUT, DELETE, getList, download } from './client';
 import type { ApiToken, DataStream, JobLogLine, ReprocessingJob } from './crud';
 import type { components } from './schema';
 
@@ -366,23 +366,29 @@ export type SensorVsGrabRow = components['schemas']['SensorVsGrabRow'];
 export type SensorVsGrabResponse = components['schemas']['SensorVsGrabResponse'];
 
 // Each grab value against the continuous average over a window after it, the portals' comparison.
-export const getSensorVsGrab = (
-	siteId: string,
-	q: {
-		parameter_id: string;
-		start?: string;
-		end?: string;
-		window_start_hours?: number;
-		window_end_hours?: number;
-	},
-) => {
+export type SensorVsGrabQuery = {
+	parameter_id: string;
+	start?: string;
+	end?: string;
+	window_start_hours?: number;
+	window_end_hours?: number;
+};
+
+function sensorVsGrabPath(siteId: string, q: SensorVsGrabQuery, format?: 'csv'): string {
 	const params = new URLSearchParams({ parameter_id: q.parameter_id });
 	if (q.start) params.set('start', q.start);
 	if (q.end) params.set('end', q.end);
 	if (q.window_start_hours != null) params.set('window_start_hours', String(q.window_start_hours));
 	if (q.window_end_hours != null) params.set('window_end_hours', String(q.window_end_hours));
-	return GET<SensorVsGrabResponse>(`${SERVICE}/sites/${siteId}/export/sensor-vs-grab?${params}`);
-};
+	if (format) params.set('format', format);
+	return `${SERVICE}/sites/${siteId}/export/sensor-vs-grab?${params}`;
+}
+
+export const getSensorVsGrab = (siteId: string, q: SensorVsGrabQuery) =>
+	GET<SensorVsGrabResponse>(sensorVsGrabPath(siteId, q));
+
+export const downloadSensorVsGrabCsv = (siteId: string, q: SensorVsGrabQuery, filename: string) =>
+	download(sensorVsGrabPath(siteId, q, 'csv'), filename);
 
 export const swapSensors = (body: {
 	outgoing_sensor_id: string;
@@ -1063,6 +1069,17 @@ export const listSiteVisits = (
 	siteId: string,
 	opts: { start?: string; end?: string; page?: number; page_size?: number } = {},
 ) => GET<VisitsResponse>(`${SERVICE}/sites/${siteId}/visits`, { ...opts });
+
+// The visits grid as the server writes it to CSV, over the range the grid shows.
+export const downloadSiteVisitsCsv = (
+	siteId: string,
+	range: { start?: string; end?: string },
+	filename: string,
+) =>
+	download(
+		`${SERVICE}/sites/${siteId}/visits?${new URLSearchParams({ format: 'csv', ...range })}`,
+		filename,
+	);
 
 // The cross-site visits list: the counts without the cells, sortable server-side.
 

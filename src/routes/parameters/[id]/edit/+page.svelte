@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import CrudForm from '$components/crud/CrudForm.svelte';
+	import Button from '$components/ui/Button.svelte';
 	import MergeParameterDialog from '$components/dialogs/MergeParameterDialog.svelte';
 	import ConfirmParameterButton from '$components/parameters/ConfirmParameterButton.svelte';
 	import { api, type Parameter } from '$api/crud';
@@ -50,12 +51,9 @@
 {#if paramData}
 	<div class="mt-8 pt-6 border-t border-brand-divider max-w-2xl">
 		<h3 class="text-sm font-semibold text-brand-muted mb-2">Danger Zone</h3>
-		<button
-			onclick={() => mergeOpen = true}
-			class="px-3 py-1.5 border border-severity-alarm text-severity-alarm rounded-md text-sm cursor-pointer bg-transparent hover:bg-severity-alarm/10"
-		>
+		<Button variant="danger" size="sm" onclick={() => mergeOpen = true}>
 			Merge into another parameter…
-		</button>
+		</Button>
 		<p class="mt-1 text-xs text-brand-muted">
 			Absorb this parameter into another. All readings, streams, and references will be moved. This cannot be undone.
 		</p>

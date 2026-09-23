@@ -5,7 +5,6 @@
 	import { tick, untrack } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import { listAll } from '$api/paged';
-	import { downloadBlob } from '$lib/download';
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
 	import { me } from '$auth/me.svelte';
@@ -23,6 +22,7 @@
 		type Sensor,
 	} from '$api/crud';
 	import {
+		downloadSiteVisitsCsv,
 		listSiteVisits,
 		stageCollectionEvents,
 		saveGrabSample,
@@ -1368,21 +1368,11 @@
 		if (visits.length === 0) return;
 		visitsDownloading = true;
 		try {
-			const { auth } = await import('$auth/keycloak.svelte');
-			await auth.ensureToken();
-			const params = new URLSearchParams({ format: 'csv', ...visitsRange() });
-			const response = await fetch(`/api/sites/${siteId}/visits?${params}`, {
-				headers: auth.token ? { Authorization: `Bearer ${auth.token}` } : undefined,
-			});
-			if (!response.ok) {
-				const detail = await response.text().catch(() => response.statusText);
-				throw new Error(`${response.status}: ${detail.slice(0, 200)}`);
-			}
 			const day = (iso: string) => iso.slice(0, 10);
 			const first = visitsStart ? day(visitsStart) : day(visits[visits.length - 1].collected_at);
 			const last = visitsEnd ? day(visitsEnd) : day(visits[0].collected_at);
 			const slug = (siteName ?? 'site').replace(/[^A-Za-z0-9]/g, '_');
-			downloadBlob(await response.blob(), `${slug}_visits_${first}_${last}.csv`);
+			await downloadSiteVisitsCsv(siteId, visitsRange(), `${slug}_visits_${first}_${last}.csv`);
 		} catch (e) {
 			toastStore.error(e instanceof Error ? `Download failed: ${e.message}` : 'Download failed');
 		} finally {

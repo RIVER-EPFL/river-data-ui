@@ -6,7 +6,7 @@ type Reach = Pick<
 >;
 
 function month(iso: string, zone: string | undefined): string {
-	return new Date(iso).toLocaleString('en-GB', { month: 'short', year: 'numeric', timeZone: zone });
+	return new Date(iso).toLocaleString(undefined, { month: 'short', year: 'numeric', timeZone: zone });
 }
 
 function list(items: string[]): string {

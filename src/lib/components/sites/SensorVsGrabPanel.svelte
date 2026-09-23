@@ -2,7 +2,12 @@
 	// The portal's grab-versus-sensor comparison: each grab value against the average of the
 	// continuous series over a window that starts a couple of hours after it, so the two are read
 	// at the same water.
-	import { getSensorVsGrab, type SensorVsGrabRow } from '$api/service';
+	import {
+		downloadSensorVsGrabCsv,
+		getSensorVsGrab,
+		type SensorVsGrabQuery,
+		type SensorVsGrabRow,
+	} from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatDateTime } from '$lib/utils';
 	import Button from '$components/ui/Button.svelte';
@@ -22,19 +27,27 @@
 	let loading = $state(false);
 	let loaded = $state(false);
 
-	async function load() {
-		if (!parameterId) return;
+	let downloading = $state(false);
+
+	function query(): SensorVsGrabQuery | null {
+		if (!parameterId) return null;
 		if (windowEndHours <= windowStartHours) {
 			toastStore.error('The window must end after it starts');
-			return;
+			return null;
 		}
+		return {
+			parameter_id: parameterId,
+			window_start_hours: windowStartHours,
+			window_end_hours: windowEndHours,
+		};
+	}
+
+	async function load() {
+		const q = query();
+		if (!q) return;
 		loading = true;
 		try {
-			const res = await getSensorVsGrab(siteId, {
-				parameter_id: parameterId,
-				window_start_hours: windowStartHours,
-				window_end_hours: windowEndHours,
-			});
+			const res = await getSensorVsGrab(siteId, q);
 			rows = res.rows;
 			loaded = true;
 		} catch (e) {
@@ -44,12 +57,23 @@
 		}
 	}
 
-	const csvHref = $derived(
-		parameterId
-			? `/api/sites/${siteId}/export/sensor-vs-grab?parameter_id=${parameterId}` +
-					`&window_start_hours=${windowStartHours}&window_end_hours=${windowEndHours}&format=csv`
-			: '',
-	);
+	async function downloadCsv() {
+		const q = query();
+		if (!q) return;
+		const label = parameters.find((p) => p.id === q.parameter_id)?.label ?? 'parameter';
+		downloading = true;
+		try {
+			await downloadSensorVsGrabCsv(
+				siteId,
+				q,
+				`${label.replace(/[^A-Za-z0-9]/g, '_')}_sensor_vs_grab.csv`,
+			);
+		} catch (e) {
+			toastStore.error(e instanceof Error ? `Download failed: ${e.message}` : 'Download failed');
+		} finally {
+			downloading = false;
+		}
+	}
 
 	function fmt(v: number | null): string {
 		return v == null ? '-' : String(v);
@@ -97,8 +121,10 @@
 		<Button variant="primary" disabled={loading || !parameterId} onclick={load}>
 			{loading ? 'Comparing…' : 'Compare'}
 		</Button>
-		{#if csvHref}
-			<a href={csvHref} class="text-sm text-brand-primary hover:underline">Download CSV</a>
+		{#if parameterId}
+			<Button variant="secondary" disabled={downloading} onclick={downloadCsv}>
+				Download CSV
+			</Button>
 		{/if}
 	</div>
 

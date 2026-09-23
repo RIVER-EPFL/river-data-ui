@@ -581,7 +581,7 @@
 				</div>
 			{/if}
 			<div class="flex justify-end mb-2">
-				<button onclick={() => addCalOpen = !addCalOpen} class="px-3 py-1 text-sm {addCalOpen ? 'bg-brand-bg text-brand-muted border border-brand-divider' : 'bg-brand-primary text-white border-none'} rounded-md cursor-pointer">{addCalOpen ? 'Cancel' : '+ Add Calibration'}</button>
+				<Button variant={addCalOpen ? 'secondary' : 'primary'} size="sm" onclick={() => addCalOpen = !addCalOpen}>{addCalOpen ? 'Cancel' : '+ Add Calibration'}</Button>
 			</div>
 			{#if addCalOpen}
 				<div class="rounded-md border border-brand-primary/30 bg-brand-primary/5 p-4 mb-3">

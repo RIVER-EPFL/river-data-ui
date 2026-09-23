@@ -26,4 +26,14 @@ describe('ConfirmPopover', () => {
 		const panel = screen.getByText('Proceed?').parentElement;
 		expect(panel?.className).toContain('max-w-');
 	});
+
+	it('renders Cancel and Confirm as non-submitting Buttons', async () => {
+		render(ConfirmPopoverHarness, { message: 'Proceed?' });
+		await fireEvent.click(screen.getByText('Trigger'));
+		const cancel = screen.getByRole('button', { name: 'Cancel' });
+		const confirm = screen.getByRole('button', { name: 'Confirm' });
+		expect(cancel.getAttribute('type')).toBe('button');
+		expect(confirm.getAttribute('type')).toBe('button');
+		expect(confirm.className).toContain('bg-severity-alarm');
+	});
 });

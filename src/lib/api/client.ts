@@ -1,4 +1,5 @@
 import { auth } from '$auth/keycloak.svelte';
+import { downloadBlob } from '$lib/download';
 
 export class ApiError extends Error {
 	constructor(
@@ -9,7 +10,7 @@ export class ApiError extends Error {
 	}
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function send(path: string, init?: RequestInit): Promise<Response> {
 	await auth.ensureToken();
 
 	const headers = new Headers(init?.headers);
@@ -25,9 +26,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 		const text = await res.text().catch(() => res.statusText);
 		throw new ApiError(res.status, text);
 	}
+	return res;
+}
 
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+	const res = await send(path, init);
 	if (res.status === 204) return undefined as T;
 	return res.json();
+}
+
+// Fetch a file with the caller's credentials and hand it to the browser as a download.
+export async function download(path: string, filename: string): Promise<void> {
+	const res = await send(path);
+	downloadBlob(await res.blob(), filename);
 }
 
 export function GET<T>(path: string, params?: Record<string, unknown>): Promise<T> {

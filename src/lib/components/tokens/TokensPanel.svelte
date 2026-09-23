@@ -11,6 +11,7 @@
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { formatDateTime } from '$lib/utils';
 	import Button from '$components/ui/Button.svelte';
+	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import TokenDetailDialog from '$components/tokens/TokenDetailDialog.svelte';
@@ -300,7 +301,7 @@
 	{:else if loading}
 		<p class="text-sm text-brand-muted">Loading…</p>
 	{:else if error}
-		<div class="p-3 bg-severity-alarm-soft border border-severity-alarm-border rounded-md text-sm text-severity-alarm">{error}</div>
+		<ErrorNotice message={error} />
 	{:else if tokens.length === 0}
 		<p class="text-sm text-brand-muted">No tokens yet. Create one to let an external client or logger push data via the API.</p>
 	{:else}

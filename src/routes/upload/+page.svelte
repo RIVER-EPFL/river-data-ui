@@ -679,9 +679,7 @@
 				</div>
 
 				{#if parseError}
-					<div class="rounded-md border border-severity-alarm-border bg-severity-alarm-soft px-4 py-3 text-sm text-severity-alarm">
-						Parse error: {parseError}
-					</div>
+					<ErrorNotice>Parse error: {parseError}</ErrorNotice>
 				{/if}
 
 				{#if wideFile}

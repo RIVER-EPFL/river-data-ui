@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Button from './Button.svelte';
+
 	let {
 		message = 'Are you sure?',
 		confirmLabel = 'Confirm',
@@ -18,11 +20,6 @@
 	} = $props();
 
 	let open = $state(false);
-
-	const btnClass: Record<string, string> = {
-		alarm: 'bg-severity-alarm text-white hover:bg-severity-alarm/90',
-		primary: 'bg-brand-primary text-white hover:bg-brand-primary-dark',
-	};
 </script>
 
 <div class="relative inline-block">
@@ -36,18 +33,14 @@
 				<div class="mb-3">{@render detail()}</div>
 			{/if}
 			<div class="flex gap-2 justify-end">
-				<button
-					class="px-3 py-1 text-sm bg-transparent border border-brand-divider rounded cursor-pointer hover:bg-brand-bg"
-					onclick={() => (open = false)}
-				>
-					Cancel
-				</button>
-				<button
-					class="px-3 py-1 text-sm rounded cursor-pointer border-none {btnClass[confirmVariant]}"
+				<Button variant="secondary" size="sm" onclick={() => (open = false)}>Cancel</Button>
+				<Button
+					variant={confirmVariant === 'primary' ? 'primary' : 'danger'}
+					size="sm"
 					onclick={() => { onconfirm(); open = false; }}
 				>
 					{confirmLabel}
-				</button>
+				</Button>
 			</div>
 		</div>
 	{/if}

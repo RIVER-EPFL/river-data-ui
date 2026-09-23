@@ -7,6 +7,7 @@
 	import { getAlarmSummary, type AlarmSummaryResponse } from '$api/service';
 	import { formatRelativeTime, formatDateTime } from '$lib/utils';
 	import { severityDescription } from '$lib/alarms';
+	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import SiteMap, { type SiteStatus } from '$components/dashboard/SiteMap.svelte';
 
 	type SiteSummary = AlarmSummaryResponse['by_site'][number];
@@ -90,7 +91,7 @@
 	{#if loading}
 		<p class="text-brand-muted">Loading…</p>
 	{:else if error}
-		<p class="text-severity-alarm">{error}</p>
+		<ErrorNotice message={error} />
 	{:else}
 		{#if sites.length > 0}
 			<!-- Project filter + info -->

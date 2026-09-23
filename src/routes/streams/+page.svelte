@@ -46,6 +46,7 @@
 		type SiteGroup,
 	} from '$lib/pairing/planGroups';
 	import { toastStore } from '$lib/stores/toast.svelte';
+	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import { formatRelativeTime, holdKindBreakdown } from '$lib/utils';
 	import { createUrlTab } from '$lib/urlTab.svelte';
 	import { createDraftQueue } from '$lib/pairing/draftQueue';
@@ -64,6 +65,7 @@
 	import StreamBrake from '$components/streams/StreamBrake.svelte';
 	import { formatClockTime, formatDateTime, formatSignificant } from '$lib/utils';
 	import Button from '$components/ui/Button.svelte';
+	import PaginationControls from '$components/ui/PaginationControls.svelte';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import ReplicateFamilyBadge from '$components/streams/ReplicateFamilyBadge.svelte';
 	import ChangeProposalsPanel from '$components/logs/ChangeProposalsPanel.svelte';
@@ -101,7 +103,6 @@
 	);
 	let currentPage = $state(1);
 	const perPage = 25;
-	const totalPages = $derived(Math.ceil(total / perPage));
 	let error = $state<string | null>(null);
 	let searchQuery = $state(page.url.searchParams.get('q') ?? '');
 	let sortField = $state('source_key');
@@ -1935,7 +1936,7 @@
 		{/if}
 
 		{#if error}
-			<div class="px-3 py-2 rounded-md bg-severity-alarm-soft text-severity-alarm text-sm">{error}</div>
+			<ErrorNotice message={error} />
 		{/if}
 
 		<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
@@ -2029,16 +2030,7 @@
 			</table>
 		</div>
 
-		{#if totalPages > 1}
-			<div class="flex items-center justify-between text-sm text-brand-muted">
-				<span>{total} total</span>
-				<div class="flex items-center gap-2">
-					<Button size="sm" onclick={() => { currentPage = Math.max(1, currentPage - 1); load(); }} disabled={currentPage <= 1}>Prev</Button>
-					<span>{currentPage} / {totalPages}</span>
-					<Button size="sm" onclick={() => { currentPage = Math.min(totalPages, currentPage + 1); load(); }} disabled={currentPage >= totalPages}>Next</Button>
-				</div>
-			</div>
-		{/if}
+		<PaginationControls {total} page={currentPage} {perPage} onPageChange={(p) => { currentPage = p; load(); }} />
 
 		{/if}
 	</div>
