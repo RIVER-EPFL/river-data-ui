@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ProvenanceResponse } from '$api/service';
-import { formatDateTime } from '$lib/utils';
+import { formatCompactInstant, formatDateTime } from '$lib/utils';
 
 const getReadingProvenance = vi.fn();
 const getReadingLedger = vi.fn();
@@ -168,7 +168,38 @@ describe('PointInspector', () => {
 		}
 	});
 
-	it('reports when the value on display arrived, not when the row first did', async () => {
+	// Scenario: a synced value corrected after it first arrived. Expected behaviour: the history
+	// carries both the first arrival and the correction that wrote the value on display.
+	it('lists the first arrival and the correction that wrote the value as history rows', async () => {
+		decisionRows = [
+			{
+				id: 'd1',
+				stream_id: 'stream',
+				time: '2026-07-14T09:00:00Z',
+				kind: 'value_correction',
+				old: { raw_value: 8 },
+				new: { raw_value: 8.005 },
+				actor: 'lab',
+				at: '2026-08-02T11:00:00Z',
+				origin: 'sync',
+				reversible: true,
+			},
+		];
+		getReadingLedger.mockResolvedValue({
+			time: '2026-07-14T09:00:00Z',
+			entries: [
+				decisionEntry('d1', 'value_correction', '2026-08-02T11:00:00Z'),
+				{
+					id: 'stream',
+					source: 'arrival',
+					severity: 'info',
+					what: 'arrived',
+					at: '2026-07-15T04:00:00Z',
+					new: { origin: 'sync', source_system: 'cnet', source_key: 'FP15:pH', replicates: [0] },
+				},
+			],
+			truncated: false,
+		});
 		const resp = response([
 			{
 				origin: {
@@ -190,10 +221,15 @@ describe('PointInspector', () => {
 				holds: [],
 			},
 		]);
-		const { container } = open(resp);
-		await screen.findByText('8.005');
-		expect(container.textContent).toContain(formatDateTime('2026-08-02T11:00:00Z'));
-		expect(container.textContent).not.toContain(formatDateTime('2026-07-15T04:00:00Z'));
+		open(resp);
+		await screen.findByText('Value corrected');
+		const history = screen.getByRole('region', { name: 'History' });
+		const rows = Array.from(history.querySelectorAll('tbody tr')).map((r) => r.textContent ?? '');
+		expect(rows).toHaveLength(2);
+		expect(rows[0]).toContain('Value corrected');
+		expect(rows[0]).toContain(formatCompactInstant('2026-08-02T11:00:00Z').slice(0, 16));
+		expect(rows[1]).toContain('Arrived on cnet · FP15:pH');
+		expect(rows[1]).toContain(formatCompactInstant('2026-07-15T04:00:00Z').slice(0, 16));
 	});
 
 	it('offers Roll back only where the API says the kind can be rolled back', async () => {
@@ -240,7 +276,7 @@ describe('PointInspector', () => {
 		expect(container.textContent).toContain('8.005 → 11');
 	});
 
-	it('rolls back this reading or the whole edit, each after naming what it puts back', async () => {
+	it('rolls back this reading alone, after naming what it puts back, even when its edit changed others', async () => {
 		getReadingLedger.mockResolvedValue({
 			time: '2026-07-14T09:00:00Z',
 			entries: [decisionEntry('d1', 'value_correction', '2026-08-02T11:00:00Z')],
@@ -261,30 +297,19 @@ describe('PointInspector', () => {
 			rolled_back_by: null,
 			set_id: 'set-1',
 		});
-		// One member here: the switch that picked the endpoint by the local member count would have
-		// rolled back this reading alone, leaving the edit's other stream as it was.
 		decisionRows = ([corrected('d1', 'stream', 8.005, 11)]);
-		getEditSet.mockResolvedValue({
-			set_id: 'set-1',
-			members: [
-				{ decision: corrected('d1', 'stream', 8.005, 11), parameter_code: 'pH', parameter_name: 'pH' },
-				{ decision: corrected('d2', 'other', 20, 25), parameter_code: 'temp', parameter_name: 'Temperature' },
-			],
-		});
-		rollbackEditSet.mockResolvedValue({ set_id: 'set-1', rolled_back: 2 });
+		rollbackEdit.mockResolvedValue({});
 		open(handEntered());
 		await screen.findByText('8.005');
-		expect(await screen.findByRole('button', { name: 'Roll back this reading' })).toBeTruthy();
-		(await screen.findByRole('button', { name: 'Roll back the whole edit' })).click();
+		expect(screen.queryByRole('button', { name: 'Roll back the whole edit' })).toBeNull();
+		(await screen.findByRole('button', { name: 'Roll back this reading' })).click();
 
 		const dialog = await screen.findByRole('dialog');
-		await waitFor(() => expect(dialog.textContent).toContain('temp replicate 0: Measured 25 → 20'));
-		expect(dialog.textContent).toContain('pH replicate 0: Measured 11 → 8.005');
-		expect(getEditSet).toHaveBeenCalledWith('set-1');
-		expect(rollbackEditSet).not.toHaveBeenCalled();
+		await waitFor(() => expect(dialog.textContent).toContain('Measured 11 → 8.005'));
+		expect(dialog.textContent).not.toContain('Measured 25 → 20');
 		(await screen.findByRole('button', { name: 'Roll back' })).click();
-		await waitFor(() => expect(rollbackEditSet).toHaveBeenCalledWith('set-1'));
-		expect(rollbackEdit).not.toHaveBeenCalled();
+		await waitFor(() => expect(rollbackEdit).toHaveBeenCalledWith('d1'));
+		expect(rollbackEditSet).not.toHaveBeenCalled();
 	});
 
 	it('offers the ruling reopen in place of Roll back for a standing ruling', async () => {
@@ -880,14 +905,75 @@ describe('PointInspector', () => {
 			expect(container.textContent).toContain(`valid ${formatDateTime('2026-01-01T00:00:00Z')} to ${formatDateTime('2026-12-31T00:00:00Z')}`);
 		});
 
-		it('prints the receipt as its counters and window bounds', async () => {
-			const { container } = open(syncedGroup());
+		// Scenario: a synced record whose stream arrived, was paired and was reconciled.
+		// Expected behaviour: each is a history row of its own carrying every field it has.
+		it('lists arrival, pairing and the receipt as history rows, every count and the window', async () => {
+			getReadingLedger.mockResolvedValue({
+				time: '2026-07-14T09:00:00Z',
+				entries: [
+					{
+						id: 'receipt-1',
+						source: 'ingest',
+						severity: 'warning',
+						what: 'windowed ingest: 3 new, 1 changed',
+						at: '2026-07-15T04:00:00Z',
+						new: {
+							submitted: 42,
+							new: 3,
+							changed: 1,
+							unchanged: 37,
+							withdrawn: 1,
+							rejected: 1,
+							braked: false,
+							window_from: '2026-07-01T00:00:00Z',
+							window_to: '2026-07-31T00:00:00Z',
+						},
+					},
+					{
+						id: 'stream-7',
+						source: 'arrival',
+						severity: 'info',
+						what: 'arrived',
+						at: '2026-07-10T04:00:00Z',
+						new: { origin: 'sync', source_system: 'cnet', source_key: 'FP15:DOC_avg_ppb:reps', replicates: [0, 1, 2] },
+					},
+					{
+						id: 'stream-7',
+						source: 'pairing',
+						severity: 'info',
+						what: 'paired',
+						at: '2026-05-02T10:00:00Z',
+						new: { source_system: 'cnet', source_key: 'FP15:DOC_avg_ppb:reps', site_parameter_id: 'sp-1' },
+					},
+				],
+				truncated: false,
+			});
+			open(syncedGroup());
+			await screen.findAllByText('41.2');
+			const history = screen.getByRole('region', { name: 'History' });
+			await waitFor(() => expect(history.querySelectorAll('tbody tr')).toHaveLength(3));
+			const rows = Array.from(history.querySelectorAll('tbody tr')).map((r) => r.textContent ?? '');
+			for (const part of ['42 submitted', '3 new', '1 changed', '37 unchanged', '1 withdrawn', '1 rejected']) {
+				expect(rows[0]).toContain(part);
+			}
+			expect(rows[0]).toContain(formatDateTime('2026-07-01T00:00:00Z'));
+			expect(rows[0]).toContain(formatDateTime('2026-07-31T00:00:00Z'));
+			expect(rows[1]).toContain('Arrived on cnet · FP15:DOC_avg_ppb:reps');
+			expect(rows[1]).toContain(formatCompactInstant('2026-07-10T04:00:00Z').slice(0, 16));
+			expect(rows[2]).toContain('Stream cnet · FP15:DOC_avg_ppb:reps paired');
+			expect(rows[2]).toContain(formatCompactInstant('2026-05-02T10:00:00Z').slice(0, 16));
+		});
+
+		it('prints origin and stream among the record fields, with no Administrative block', async () => {
+			const resp = syncedGroup();
+			const rec = resp.records[0] as { readings: Record<string, unknown>[] };
+			rec.readings[0] = { ...rec.readings[0], provenance_kind: 'sync' };
+			const { container } = open(resp);
 			await screen.findAllByText('41.2');
 			const text = container.textContent ?? '';
-			for (const part of ['42 submitted', '3 new', '1 changed', '37 unchanged', '1 withdrawn', '1 rejected']) {
-				expect(text).toContain(part);
-			}
-			expect(text).toContain(formatDateTime('2026-07-01T00:00:00Z'));
+			expect(text).not.toContain('Administrative');
+			expect(screen.getByText('Origin')).toBeTruthy();
+			expect(text).toContain('cnet · FP15:DOC_avg_ppb:reps');
 		});
 
 		it('tags the record with its cadence, source name, instrument window and author', async () => {
@@ -921,8 +1007,8 @@ describe('PointInspector', () => {
 			expect(screen.queryByText('Notes')).toBeNull();
 		});
 
-		// What a scientist opens the record for: the replicates, then what they compute to. The
-		// arrival and pairing stamps are administrative and follow.
+		// What a scientist opens the record for: the replicates, then what they compute to. Where the
+		// value came from follows.
 		it('leads with the replicates and their statistics, before any metadata row', async () => {
 			const { container } = open(syncedGroup());
 			await screen.findAllByText('41.2');
@@ -931,7 +1017,7 @@ describe('PointInspector', () => {
 				expect(text).toContain(value);
 			}
 			expect(text.indexOf('0.1414')).toBeLessThan(text.indexOf('Instrument'));
-			expect(text.indexOf('41.2')).toBeLessThan(text.indexOf('Administrative'));
+			expect(text.indexOf('41.2')).toBeLessThan(text.indexOf('Stream'));
 		});
 
 		// Scenario: a scientist clicks a spot point under a chart.
@@ -950,9 +1036,7 @@ describe('PointInspector', () => {
 			for (const led of ['Replicates', 'Mean', 'Standard deviation', 'Instrument', 'Run by']) {
 				expect(strip).toContain(led);
 			}
-			expect(strip).not.toContain('Administrative');
 			expect(details[0].querySelector('table')).not.toBeNull();
-			expect(details[0].textContent).toContain('Administrative');
 			// The history is not behind the disclosure: it is open beside the record (Q313).
 			const history = screen.getByRole('region', { name: 'History' });
 			expect(details[0].contains(history)).toBe(false);
@@ -987,15 +1071,12 @@ describe('PointInspector', () => {
 			expect(panel.querySelector('.overflow-y-auto')).not.toBeNull();
 		});
 
-		it('files the arrival and pairing stamps under the administrative block, not the header', async () => {
+		it('leaves the arrival and pairing stamps to the history', async () => {
 			const { container } = open(syncedGroup());
 			await screen.findAllByText('41.2');
-			const admin = container.querySelector('details')!;
-			expect(admin.open).toBe(false);
-			const text = admin.textContent ?? '';
-			expect(text).toContain(formatDateTime('2026-05-02T10:00:00Z'));
-			expect(text).toContain('cnet · FP15:DOC_avg_ppb:reps');
-			expect(container.textContent).not.toContain(`paired ${formatDateTime('2026-05-02T10:00:00Z')}`);
+			const record = container.textContent!.slice(0, container.textContent!.indexOf('History'));
+			expect(record).not.toContain(formatDateTime('2026-05-02T10:00:00Z'));
+			expect(record).toContain('cnet · FP15:DOC_avg_ppb:reps');
 		});
 	});
 

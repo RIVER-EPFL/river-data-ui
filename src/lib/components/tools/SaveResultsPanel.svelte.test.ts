@@ -1,11 +1,18 @@
-import { render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
 
-// Every read the panel makes resolves empty: what is under test is which rows the save carries.
-const empty = () => new Proxy({}, { get: () => async () => ({ data: [], total: 0 }) });
-vi.mock('$api/crud', () => ({ api: new Proxy({}, { get: () => empty() }) }));
-vi.mock('$api/paged', () => ({ listAll: async () => [] }));
+// Every read resolves empty but the catalog and the site's parameters, which map the output `out`.
+const resource = (name: string | symbol) =>
+	new Proxy({}, { get: (_, key) => (key === 'name' ? name : async () => ({ data: [], total: 0 })) });
+vi.mock('$api/crud', () => ({ api: new Proxy({}, { get: (_, name) => resource(name) }) }));
+vi.mock('$api/paged', () => ({
+	listAll: async (resource: { name: string }) =>
+		({
+			parameters: [{ id: 'p-out', code: 'out', name: 'Out', aliases: [] }],
+			siteParameters: [{ id: 'sp-out', site_id: 'site-1', parameter_id: 'p-out', name: 'Out' }],
+		})[resource.name] ?? [],
+}));
 vi.mock('$api/service', () => ({
 	saveGrabSample: async () => ({ preview: [], existing_groups: [], calculations: [] }),
 	grabConflictGroups: () => null,
@@ -46,5 +53,22 @@ describe('SaveResultsPanel', () => {
 		const row = note.closest('tr')!;
 		const box = row.querySelector('input[type="checkbox"]') as HTMLInputElement;
 		expect(box.checked).toBe(true);
+	});
+
+	it("holds the bar's Save until a check covers the values on screen", async () => {
+		const view = render(SaveResultsPanel, { ...props, onsave: () => {} } as never);
+		const save = (await screen.findByRole('button', { name: 'Save to Site' })) as HTMLButtonElement;
+		expect(save.disabled).toBe(true);
+		expect(save.title).toBe('Check these values against the site history first');
+
+		const check = screen.getByRole('button', { name: 'Check against site history' }) as HTMLButtonElement;
+		await vi.waitFor(() => expect(check.disabled).toBe(false));
+		await fireEvent.click(check);
+		await vi.waitFor(() => expect(save.disabled).toBe(false));
+
+		await view.rerender({ ...props, onsave: () => {}, results: { out: 29 } } as never);
+		await tick();
+		const resaved = screen.getByRole('button', { name: 'Save to Site' }) as HTMLButtonElement;
+		expect(resaved.disabled).toBe(true);
 	});
 });

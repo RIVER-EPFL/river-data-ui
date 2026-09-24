@@ -60,13 +60,17 @@ describe('ReplicateFlagDialog', () => {
 		expect(labels).toEqual(['Replicate', 'Value (permil)', 'Calibration', 'Standard curve', 'State', 'Flag']);
 	});
 
-	// The Value column was sized to its header while its numbers were underlined links, so the
-	// header ran into the next one.
-	it('sizes the columns explicitly rather than letting the content set them', () => {
+	// Scenario: the dialog is 600px wide. Expected behaviour: the narrow columns are sized
+	// explicitly and leave the two curve columns room, so the Flag column stays inside the dialog.
+	it('fixes the narrow columns and leaves the curve columns the rest of the dialog', () => {
 		const { container } = open();
-		const cols = container.querySelectorAll('colgroup col');
+		const cols = Array.from(container.querySelectorAll('colgroup col'));
 		expect(cols.length).toBe(6);
-		expect(Array.from(cols).every((c) => c.getAttribute('style'))).toBe(true);
+		const fixed = cols.map((c) => Number(/width:\s*([\d.]+)rem/.exec(c.getAttribute('style') ?? '')?.[1] ?? 0));
+		expect(fixed[2]).toBe(0);
+		expect(fixed[3]).toBe(0);
+		// 600px less the dialog's padding is 34.5rem; each curve column keeps at least 6rem.
+		expect(fixed.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(34.5 - 12);
 	});
 
 	it('sets the numbers in right-aligned tabular figures', () => {

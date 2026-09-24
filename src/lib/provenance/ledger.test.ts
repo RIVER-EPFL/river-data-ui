@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { HOLD_KINDS, type LedgerEntry, type ReadingDecision } from '$api/service';
+import { formatDateTime } from '$lib/utils';
 import { DECISION_KINDS } from './decisions';
 import { CHANGE_KINDS, historyRows, ledgerLine } from './ledger';
 
@@ -57,12 +58,36 @@ describe('ledgerLine', () => {
 		);
 	});
 
-	it('reads an ingest pass by its counts, and a braked one by the brake', () => {
-		expect(ledgerLine(entry('ingest', 'ignored', { new: { new: 3, changed: 1 } }))).toBe(
-			'Reloaded from the source: 3 new, 1 changed',
+	it('reads an ingest pass by every count and its window, and a braked one by the brake', () => {
+		const line = ledgerLine(
+			entry('ingest', 'ignored', {
+				new: {
+					submitted: 3,
+					new: 0,
+					changed: 0,
+					unchanged: 3,
+					withdrawn: 0,
+					rejected: 0,
+					window_from: '0001-01-01T00:00:00Z',
+					window_to: '2024-09-24T00:00:00Z',
+				},
+			}),
+		);
+		expect(line).toBe(
+			`Reloaded from the source: 3 submitted, 0 new, 0 changed, 3 unchanged, 0 withdrawn, 0 rejected; window from the beginning to ${formatDateTime('2024-09-24T00:00:00Z')}`,
 		);
 		expect(ledgerLine(entry('ingest', 'ignored', { new: { braked: true } }))).toBe(
 			'Reload from the source stopped by the brake',
+		);
+	});
+
+	it('names the stream a value arrived on and the stream paired to its slot', () => {
+		const stream = { source_system: 'cnet', source_key: 'FP11:A_T' };
+		expect(ledgerLine(entry('arrival', 'arrived', { new: { ...stream, origin: 'sync' } }))).toMatch(
+			/^Arrived on cnet · FP11:A_T, /,
+		);
+		expect(ledgerLine(entry('pairing', 'paired', { new: stream }))).toBe(
+			'Stream cnet · FP11:A_T paired to this parameter at the site',
 		);
 	});
 

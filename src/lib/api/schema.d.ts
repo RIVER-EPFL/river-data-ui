@@ -3842,8 +3842,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Everything that happened to one measured instant, in time order: the decisions taken on it, the
-         *     ingest passes that carried it, the review holds it raised, the tool run that computed it, the
+         * Everything that happened to one measured instant, in time order: its arrival, the pairing of
+         *     its stream, the decisions taken on it, the ingest passes that carried it, the review holds it raised, the tool run that computed it, the
          *     jobs that rewrote it and what they skipped, the slot edits that changed how it is served, and
          *     the alarms it raised. Requires `read_data`.
          */
@@ -12001,8 +12001,8 @@ export interface components {
             /** @description `error`, `warning` or `info`, derived per source shape at the read. */
             severity: string;
             /**
-             * @description Which record this came from: `decision`, `ingest`, `hold`, `tool_run`, `job`, `job_log`,
-             *     `change` or `alarm`.
+             * @description Which record this came from: `arrival`, `pairing`, `decision`, `ingest`, `hold`,
+             *     `tool_run`, `job`, `job_log`, `change` or `alarm`.
              */
             source: string;
             /** @description What happened, in the source's own vocabulary. */

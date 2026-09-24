@@ -20,6 +20,7 @@ import {
 	formulaVariables,
 	inputRows,
 	receivedSteps,
+	stepOffers,
 	untilLeft,
 	readOnlyThroughGuards,
 	outputRows,
@@ -790,5 +791,52 @@ describe('renaming a formula', () => {
 		];
 		carryRename(set, set[0]!, 'e5');
 		expect(set[1]!.formula).toBe('2e5 * e6');
+	});
+});
+
+describe('the steps the picker offers', () => {
+	const stored = (id: string, code: string, text: string, owner: string | null = null) =>
+		({
+			id,
+			code,
+			name: code,
+			units: '',
+			formula: text,
+			ordinal: 0,
+			tool_script_id: owner,
+			intermediate: true,
+		}) as unknown as DerivedParameter;
+	const steps = [
+		stored('f-1', 'water_k', 'WTW_Temp_degC_1 + 273.15', 'pco2'),
+		stored('f-2', 'kh', '0.034 * exp(c_const * (1 / water_k - 1 / 298.15))', 'pco2'),
+		stored('f-3', 'shared_k', 'Dissolved_O2'),
+		stored('f-4', 'elsewhere', 'Dissolved_O2', 'other'),
+		stored('f-5', 'reads_shared', 'shared_k * 2', 'pco2'),
+	];
+	const owners = new Map([['pco2', 'pco2real']]);
+
+	it('names the owner and the owned step reading it brings along', () => {
+		const [kh] = stepOffers([steps[1]], steps, owners);
+		expect(kh.owner).toBe('pco2real');
+		expect(kh.formula).toBe('0.034 * exp(c_const * (1 / water_k - 1 / 298.15))');
+		expect(kh.chain).toEqual([{ code: 'water_k', formula: 'WTW_Temp_degC_1 + 273.15' }]);
+		expect(kh.label).toBe('kh · pco2real · brings in 1 more step: water_k');
+	});
+
+	it('brings nothing along for a shared step, or one reading only shared steps', () => {
+		const [shared, readsShared] = stepOffers([steps[2], steps[4]], steps, owners);
+		expect(shared.label).toBe('shared_k · shared');
+		expect(readsShared.chain).toEqual([]);
+	});
+
+	it('orders a deeper chain each step after the steps it reads', () => {
+		const chain = [
+			stored('a', 'a', 'Dissolved_O2', 'x'),
+			stored('b', 'b', 'a + 1', 'x'),
+			stored('c', 'c', 'b * a', 'x'),
+		];
+		const [c] = stepOffers([chain[2]], chain, new Map());
+		expect(c.chain.map((s) => s.code)).toEqual(['a', 'b']);
+		expect(c.label).toBe('c · another calculation · brings in 2 more steps: a, b');
 	});
 });

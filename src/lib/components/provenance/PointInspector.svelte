@@ -9,13 +9,10 @@
 		type ProvenanceReading,
 		type ProvenanceCalibrationRef,
 		type ProvenanceCalculation,
-		type ReceiptSummary,
 		replayDerived,
 		type ReplayResult,
 		getReadingLedger,
 		rollbackEdit,
-		rollbackEditSet,
-		getEditSet,
 		reopenReplicateAudit,
 		type LedgerEntry,
 		type ConsumedInput,
@@ -47,7 +44,7 @@
 	import { decommissionText, recordDecommission } from '$lib/provenance/decommission';
 	import { takeoverText } from '$lib/provenance/takeover';
 	import { originServiceHref } from '$lib/provenance/serviceLink';
-	import { computedOrigin, valueLabel, windowStartText } from '$lib/provenance/recordLabels';
+	import { computedOrigin, valueLabel } from '$lib/provenance/recordLabels';
 	import {
 		anyChanged,
 		captureLine,
@@ -144,11 +141,29 @@
 				return holdHref(rec, held ?? { id: entry.id, kind: leadingToken(entry.what), status: 'resolved' });
 			}
 			case 'ingest':
+			case 'arrival':
+			case 'pairing':
 				return `${base}/streams?q=${encodeURIComponent(rec.origin.source_key)}`;
 			case 'alarm':
 				return `${base}/alarms`;
 			default:
 				return null;
+		}
+	}
+
+	function openTitle(entry: LedgerEntry): string {
+		switch (entry.source) {
+			case 'job':
+			case 'job_log':
+				return 'Open this job and its log';
+			case 'hold':
+				return 'Open this hold in the review queue';
+			case 'ingest':
+				return 'Open the stream this pass wrote';
+			case 'alarm':
+				return 'Open the alarms';
+			default:
+				return 'Open';
 		}
 	}
 
@@ -193,48 +208,31 @@
 		i: number;
 		rec: ProvenanceRecord;
 		entry: DecisionEntry;
-		scope: 'reading' | 'set';
 		lines: string[];
 		loading: boolean;
 		error: string;
 	} | null>(null);
 	let recoveryOpen = $state(false);
 
-	async function askRollback(i: number, rec: ProvenanceRecord, entry: DecisionEntry, scope: 'reading' | 'set') {
-		const code = resp?.parameter_code ?? null;
+	function askRollback(i: number, rec: ProvenanceRecord, entry: DecisionEntry) {
+		const code = resp?.parameter_code ?? parameterName ?? null;
 		recovery = {
 			i,
 			rec,
 			entry,
-			scope,
-			lines:
-				scope === 'reading'
-					? restoredLines(entry.members.map((decision) => ({ decision, parameter_code: code })))
-					: [],
-			loading: scope === 'set',
+			lines: restoredLines(entry.members.map((decision) => ({ decision, parameter_code: code }))),
+			loading: false,
 			error: '',
 		};
 		recoveryOpen = true;
-		if (scope !== 'set' || !entry.set_id) return;
-		try {
-			const set = await getEditSet(entry.set_id);
-			if (recovery?.entry.head.id === entry.head.id) recovery = { ...recovery, lines: restoredLines(set.members), loading: false };
-		} catch (e) {
-			if (recovery?.entry.head.id === entry.head.id)
-				recovery = { ...recovery, loading: false, error: e instanceof Error ? e.message : String(e) };
-		}
 	}
 
 	async function rollBack() {
 		if (!recovery) return;
-		const { i, rec, entry, scope } = recovery;
+		const { i, rec, entry } = recovery;
 		rollingBack = entry.head.id;
 		try {
-			if (scope === 'set' && entry.set_id) {
-				await rollbackEditSet(entry.set_id);
-			} else {
-				for (const d of entry.members.filter((m) => !m.rolled_back_by)) await rollbackEdit(d.id);
-			}
+			for (const d of entry.members.filter((m) => !m.rolled_back_by)) await rollbackEdit(d.id);
 			toastStore.success(`${decisionLabel(entry.head.kind)} rolled back`);
 			recoveryOpen = false;
 			await loadHistory(i, rec);
@@ -357,11 +355,6 @@
 
 	// Every reading says where it came from, whether its story is stored on the row (a tool run, a
 	// chain, a CSV import, a hand entry, a batch) or resolved from what the row points at.
-	function recordArrivedText(rec: ProvenanceRecord): string {
-		const at = rec.origin.value_arrived_at ?? rec.origin.ingested_at;
-		return at ? formatDateTime(at) : NO_VALUE;
-	}
-
 	function originText(r: ProvenanceReading): string {
 		return provenanceKindLabel(r.provenance_kind) ?? NO_VALUE;
 	}
@@ -400,22 +393,6 @@
 			{ label: 'pending', n: rec.readings.filter((r) => !r.withdrawn_at && !r.is_flagged && r.unverified).length },
 		];
 		return counts.filter((c) => c.n > 0);
-	}
-
-	function receiptText(rc: ReceiptSummary): string {
-		const counts = [
-			`${formatCount(rc.submitted)} submitted`,
-			`${formatCount(rc.new_rows)} new`,
-			`${formatCount(rc.changed)} changed`,
-			`${formatCount(rc.unchanged)} unchanged`,
-			`${formatCount(rc.withdrawn)} withdrawn`,
-			`${formatCount(rc.rejected_total)} rejected`,
-		].join(', ');
-		const window =
-			rc.window_from && rc.window_to
-				? `; window ${windowStartText(rc.window_from)} to ${formatDateTime(rc.window_to)}`
-				: '';
-		return `${formatDateTime(rc.at)}: ${counts}${window}`;
 	}
 
 	function computationText(rec: ProvenanceRecord): string {
@@ -863,23 +840,6 @@
 	</table>
 {/snippet}
 
-{#snippet administrative(rec: ProvenanceRecord)}
-	<div class="mt-2">
-		<p class="text-xs text-brand-muted">Administrative</p>
-		<dl class={gridClass}>
-			{@render optional('Arrived', recordArrivedText(rec), 'When it reached the store', false)}
-			{@render optional('Paired', rec.origin.paired_at ? formatDateTime(rec.origin.paired_at) : NO_VALUE, 'When the stream was paired to the slot', false)}
-			{#if rec.readings[0]}
-				{@render optional('Origin', originText(rec.readings[0]), 'The write path that produced it', false)}
-			{/if}
-			{@render optional('Stream', `${rec.origin.source_system} · ${rec.origin.source_key}`, undefined, false)}
-			{#if rec.origin.receipt}
-				{@render field('Reconciliation', receiptText(rec.origin.receipt), 'The windowed pass covering this instant', false)}
-			{/if}
-		</dl>
-	</div>
-{/snippet}
-
 <!-- The record is bounded: unfolding its details scrolls inside the panel rather than pushing
      whatever follows the chart off the screen. -->
 <div
@@ -900,7 +860,7 @@
 		{/if}
 	</div>
 
-	<div class="min-h-0 flex-1 overflow-y-auto">
+	<div class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
 	{#if loading}
 		<p class="text-brand-muted">Loading…</p>
 	{:else if error}
@@ -1013,6 +973,12 @@
 				{:else}
 					{@render statistics(rec)}
 				{/if}
+				<dl class="contents">
+					{#if rec.readings[0]}
+						{@render optional('Origin', originText(rec.readings[0]), 'The write path that produced it', false)}
+					{/if}
+					{@render optional('Stream', `${rec.origin.source_system} · ${rec.origin.source_key}`, undefined, false)}
+				</dl>
 				{#each rec.readings.filter((r) => r.overridden) as r (r.replicate_index)}
 					<p class="col-span-full text-xs" data-testid="overridden">
 						<Badge variant="warning">overridden</Badge>
@@ -1025,9 +991,8 @@
 				{@render consumed(rec)}
 
 				<details class="mt-2">
-					<summary class="cursor-pointer text-xs text-brand-muted">Details</summary>
+					<summary class="w-fit cursor-pointer text-xs text-brand-muted">Details</summary>
 					{#if rec.readings.length > 1}{@render replicateTable(rec)}{/if}
-					{@render administrative(rec)}
 					<div class="mt-2 flex flex-wrap items-center gap-x-3 text-xs">
 						{#if rec.computation?.provenance}
 							<button
@@ -1118,7 +1083,8 @@
 							<th class="py-0.5 pr-2 font-normal">Change</th>
 							<th class="py-0.5 pr-2 font-normal">Reason</th>
 							<th class="py-0.5 pr-2 font-normal">Who</th>
-							<th class="py-0.5 font-normal"><span class="sr-only">Actions</span></th>
+							<th class="py-0.5 pr-2 font-normal">Open</th>
+							<th class="py-0.5 font-normal" aria-label="Roll back"></th>
 						</tr>
 					</thead>
 					<tbody>
@@ -1178,9 +1144,6 @@
 			{#if row.severity !== 'info'}
 				<Badge variant={row.severity === 'error' ? 'alarm' : 'warning'}>{row.severity}</Badge>
 			{/if}
-			{#if href}
-				<a class="font-medium text-brand-primary underline underline-offset-2" {href}>Open</a>
-			{/if}
 		</td>
 		<td class="py-1 pr-2 text-brand-muted">
 			{#each row.changes as c (c.field)}
@@ -1192,6 +1155,15 @@
 		<td class="py-1 pr-2 text-brand-muted">{row.reason ?? ''}</td>
 		<td class="py-1 pr-2 text-brand-muted">
 			{row.who ?? ''}{row.who ? ' · ' : ''}{row.origin}
+		</td>
+		<td class="py-1 pr-2">
+			{#if href}
+				<a
+					class="inline-block rounded border border-brand-divider px-1.5 py-0.5 text-brand-primary hover:border-brand-primary hover:bg-brand-primary/5"
+					{href}
+					title={openTitle(row.entry)}>Open</a
+				>
+			{/if}
 		</td>
 		<td class="py-1">
 			<div class="flex flex-col items-start gap-0.5">
@@ -1216,18 +1188,8 @@
 					disabled={rollingBack === decision.head.id}
 					aria-label="Roll back this reading"
 					title="Roll back this reading: puts back its values from before this decision"
-					onclick={() => askRollback(i, rec, decision, 'reading')}>Roll back</Button
+					onclick={() => askRollback(i, rec, decision)}>Roll back</Button
 				>
-				{#if decision.set_id}
-					<Button
-						size="sm"
-						variant="ghost"
-						disabled={rollingBack === decision.head.id}
-							aria-label="Roll back the whole edit"
-						title="Roll back the whole edit: puts back every value the same edit changed, on this reading and any other"
-						onclick={() => askRollback(i, rec, decision, 'set')}>Whole edit</Button
-					>
-				{/if}
 			{/if}
 			</div>
 		</td>
@@ -1237,7 +1199,7 @@
 {#if recovery}
 	<RollbackDialog
 		bind:open={recoveryOpen}
-		title={recovery.scope === 'set' ? 'Roll back the whole edit' : 'Roll back this reading'}
+		title="Roll back this reading"
 		lines={recovery.lines}
 		loading={recovery.loading}
 		busy={rollingBack === recovery.entry.head.id}

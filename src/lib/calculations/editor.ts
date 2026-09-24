@@ -148,6 +148,60 @@ export function receivedSteps(declared: EditableFormula[], steps: DerivedParamet
 	return received;
 }
 
+/** A step another calculation wrote or shares, as the "Bring in a step" picker offers it. */
+export interface StepOffer {
+	id: string;
+	code: string;
+	formula: string;
+	/** The calculation that owns it, null for a shared step. */
+	owner: string | null;
+	/** The owner's steps it reads, and those they read, each read one first; they come with it. */
+	chain: Array<{ code: string; formula: string }>;
+	/** The picker row: code, owner and what comes with it. */
+	label: string;
+}
+
+/**
+ * What the picker offers: each step this calculation neither owns nor reads, with the owned
+ * steps bringing it in shares alongside it (Q334), the order the API releases them in.
+ */
+export function stepOffers(
+	candidates: DerivedParameter[],
+	steps: DerivedParameter[],
+	owners: ReadonlyMap<string, string>,
+): StepOffer[] {
+	return candidates.map((step) => {
+		const owned = steps.filter(
+			(s) => s.intermediate && s.tool_script_id && s.tool_script_id === step.tool_script_id,
+		);
+		const chain: DerivedParameter[] = [];
+		const seen = new Set<string>([step.id]);
+		const visit = (text: string) => {
+			for (const { name } of identifiers(text)) {
+				const read = owned.find((s) => s.code === name);
+				if (!read || seen.has(read.id)) continue;
+				seen.add(read.id);
+				visit(read.formula);
+				chain.push(read);
+			}
+		};
+		visit(step.formula);
+		const owner = step.tool_script_id ? (owners.get(step.tool_script_id) ?? 'another calculation') : null;
+		const comes =
+			chain.length === 0
+				? ''
+				: ` · brings in ${chain.length} more step${chain.length === 1 ? '' : 's'}: ${chain.map((s) => s.code).join(', ')}`;
+		return {
+			id: step.id,
+			code: step.code,
+			formula: step.formula,
+			owner,
+			chain: chain.map((s) => ({ code: s.code, formula: s.formula })),
+			label: `${step.code} · ${owner ?? 'shared'}${comes}`,
+		};
+	});
+}
+
 /** A blank formula placed after the last one. */
 export function blankFormula(existing: EditableFormula[]): EditableFormula {
 	const last = existing.reduce((max, f) => Math.max(max, f.ordinal), 0);

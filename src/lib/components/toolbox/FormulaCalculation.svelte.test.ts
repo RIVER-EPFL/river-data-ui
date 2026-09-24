@@ -42,6 +42,7 @@ vi.mock('$api/service', () => ({
 	listVisitsHolding: vi.fn(async () => []),
 	listVisitSites: vi.fn(async () => []),
 	listTools: vi.fn(async () => []),
+	listToolScripts: vi.fn(async () => []),
 	listToolVersionUsage: vi.fn(async () => []),
 	listVersionLedger: (id: string) => listVersionLedger(id),
 	previewDerived: vi.fn(async () => ({

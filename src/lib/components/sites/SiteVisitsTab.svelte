@@ -466,7 +466,6 @@
 	let hot: HotInstance | null = null;
 	// Every redraw asked for inside one frame is drawn once.
 	const requestRender = oncePerFrame(() => renderLive(hot));
-	let canUndo = $state(false);
 	// Bumped where the typed cells are cleared, so the grid reloads what the store holds.
 	let dataVersion = $state(0);
 	let pasteUnreadable = 0;
@@ -918,7 +917,6 @@
 
 	function gridReady(instance: HotInstance) {
 		hot = instance;
-		const undoRedo = instance.getPlugin('undoRedo');
 		instance.addHook('beforeChange', (changes, source) => {
 			const applied = applyChanges(
 				table,
@@ -938,8 +936,6 @@
 			if (source === 'CopyPaste.paste') pasteUnreadable = applied.unreadable;
 			else pasteRefusal = pasteNotice({ edits, unreadable: applied.unreadable, overflow: 0 });
 		});
-		instance.addHook('afterChange', () => (canUndo = undoRedo.isUndoAvailable()));
-		instance.addHook('afterLoadData', () => (canUndo = false));
 		// A block running past the last row grows the spare area onto it first, because the paste
 		// fills the rows the table has and drops the rest.
 		instance.addHook('beforePaste', (data, coords) => {
@@ -997,10 +993,6 @@
 			if (!instance.getCellMeta(row, col).readOnly) return;
 			void openRecordAt(row, col);
 		});
-	}
-
-	function undoEdit() {
-		hot?.getPlugin('undoRedo').undo();
 	}
 
 	function discardEdits() {
@@ -1828,85 +1820,90 @@
 						</div>
 					{/if}
 					{#if me.can('enterFieldData')}
-						{#if unsaved || typing}
-							<div
-								class="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border border-brand-primary/40 bg-brand-primary/5 px-3 py-2"
-								role="region"
-								aria-label="Unsaved changes"
-							>
-								<span class="text-sm font-medium text-brand-text">{saveCounts(moved, newVisits.length)} not saved</span>
+						<!-- Always drawn at one height, so typing never moves the grid under the pointer. -->
+						<div
+							class="flex items-center gap-x-3 rounded-md border px-3 py-2 transition-colors {unsaved || typing
+								? 'border-brand-primary/40 bg-brand-primary/5'
+								: 'border-brand-divider bg-brand-surface'}"
+							role="region"
+							aria-label="Unsaved changes"
+						>
+							<span class="min-w-0 truncate text-sm {unsaved || typing ? 'font-medium text-brand-text' : 'text-brand-muted'}">
+								{#if !(unsaved || typing)}
+									No unsaved changes
+								{:else if typing && !screened && !checking}
+									{saveCounts(moved, newVisits.length)} not saved · check them before saving
+								{:else}
+									{saveCounts(moved, newVisits.length)} not saved
+								{/if}
+							</span>
+							<Button
+								size="sm"
+								variant="ghost"
+								disabled={!(unsaved || typing)}
+								title="Clear every value typed since the last save. Ctrl+Z steps back one change at a time."
+								onclick={discardEdits}
+							>Undo changes</Button>
+							<div class="ml-auto flex shrink-0 items-center gap-2">
 								<Button
 									size="sm"
-									variant="ghost"
-									onclick={undoEdit}
-									disabled={!canUndo}
-									title="Undo the last change you typed or pasted (Ctrl+Z). Nothing is written until Save."
-								>Undo</Button>
-								<Button size="sm" variant="ghost" onclick={discardEdits}>Discard what you typed</Button>
-								<div class="ml-auto flex items-center gap-2">
-									{#if typing}
-										<Button
-											size="sm"
-											variant={screened ? 'secondary' : 'primary'}
-											disabled={screened}
-											loading={checking}
-											title="Screen what you have entered or corrected against this site's seasonal distribution. A save is held to exactly the values its check covered."
-											onclick={runChecks}
-										>{checking ? 'Checking…' : screened ? 'Checked' : 'Check against site history'}</Button>
-										<span class="text-brand-muted" aria-hidden="true">→</span>
-									{/if}
-									<Button
-										size="sm"
-										variant={screened ? 'primary' : 'secondary'}
-										disabled={(moved === 0 && newVisits.length === 0) || !screened}
-										title={moved > 0 && !screened ? 'Check these values against the site history first' : undefined}
-										onclick={askToSave}
-									>{saveLabel(moved, newVisits.length)}</Button>
-								</div>
-								{#if typing && !screened && !checking}
-									<p class="basis-full text-right text-xs text-brand-muted">Check the values against this site's history first. Save opens once they are checked.</p>
-								{/if}
+									variant={typing && !screened ? 'primary' : 'secondary'}
+									disabled={!typing || screened}
+									loading={checking}
+									title="Screen what you have entered or corrected against this site's seasonal distribution. A save is held to exactly the values its check covered."
+									onclick={runChecks}
+								>{checking ? 'Checking…' : typing && screened ? 'Checked' : 'Check against site history'}</Button>
+								<span class="text-brand-muted" aria-hidden="true">→</span>
+								<Button
+									size="sm"
+									variant={(unsaved || typing) && screened ? 'primary' : 'secondary'}
+									disabled={(moved === 0 && newVisits.length === 0) || !screened}
+									title={moved > 0 && !screened ? 'Check these values against the site history first' : undefined}
+									onclick={askToSave}
+								>{saveLabel(moved, newVisits.length)}</Button>
 							</div>
-						{/if}
-						{#if saveRefusal || pasteRefusal || spareRefusal || previewLine || runReport}
-							<div class="flex flex-col gap-0.5 text-xs">
-								{#if saveRefusal}
-									<span class="text-severity-alarm">{saveRefusal}</span>
-								{/if}
-								{#if pasteRefusal}
-									<span class="text-severity-warning-text">{pasteRefusal}</span>
-								{/if}
-								{#if spareRefusal}
-									<span class="text-severity-alarm">{spareRefusal}</span>
-								{/if}
-								{#if previewLine}
-									<span class="text-brand-muted">{previewLine}</span>
-								{/if}
-								{#if runReport}
-									<span class="text-brand-muted">{runReport}</span>
-								{/if}
-							</div>
-						{/if}
-						{#if lastSave.length > 0}
-							<div class="flex flex-wrap items-center gap-2 text-xs text-brand-muted" data-save-recovery>
-								<span>Saved over stored values. To put them back:</span>
-								{#each lastSave as visit (visit.eventId)}
-									<Button size="sm" variant="ghost" onclick={() => askToRollBackSave(visit)}
-										>Roll back the save at {formatDateTime(visit.collectedAt)}</Button
-									>
-								{/each}
-								<span>Each value's own history also rolls it back on its own.</span>
-							</div>
-						{/if}
-						{#if seasonalFindings.length > 0}
-							<div class="flex flex-col gap-0.5">
-								{#each seasonalFindings as finding (finding.parameterId + finding.text)}
-									<span class="text-xs text-severity-warning-text">{finding.text}</span>
-								{/each}
-							</div>
-						{/if}
+						</div>
 					{/if}
 					<SheetGrid data={gridData} settings={gridSettings} onready={gridReady} class="text-sm" />
+					{#if me.can('enterFieldData')}
+					{#if saveRefusal || pasteRefusal || spareRefusal || previewLine || runReport}
+						<div class="flex flex-col gap-0.5 text-xs">
+							{#if saveRefusal}
+								<span class="text-severity-alarm">{saveRefusal}</span>
+							{/if}
+							{#if pasteRefusal}
+								<span class="text-severity-warning-text">{pasteRefusal}</span>
+							{/if}
+							{#if spareRefusal}
+								<span class="text-severity-alarm">{spareRefusal}</span>
+							{/if}
+							{#if previewLine}
+								<span class="text-brand-muted">{previewLine}</span>
+							{/if}
+							{#if runReport}
+								<span class="text-brand-muted">{runReport}</span>
+							{/if}
+						</div>
+					{/if}
+					{#if lastSave.length > 0}
+						<div class="flex flex-wrap items-center gap-2 text-xs text-brand-muted" data-save-recovery>
+							<span>Saved over stored values. To put them back:</span>
+							{#each lastSave as visit (visit.eventId)}
+								<Button size="sm" variant="ghost" onclick={() => askToRollBackSave(visit)}
+									>Roll back the save at {formatDateTime(visit.collectedAt)}</Button
+								>
+							{/each}
+							<span>Each value's own history also rolls it back on its own.</span>
+						</div>
+					{/if}
+					{#if seasonalFindings.length > 0}
+						<div class="flex flex-col gap-0.5">
+							{#each seasonalFindings as finding (finding.parameterId + finding.text)}
+								<span class="text-xs text-severity-warning-text">{finding.text}</span>
+							{/each}
+						</div>
+					{/if}
+					{/if}
 					{#if expandedVisit}
 						{@const v = { id: expandedVisit }}
 						<div class="rounded-md border border-brand-divider bg-brand-bg/50 px-4 py-3">

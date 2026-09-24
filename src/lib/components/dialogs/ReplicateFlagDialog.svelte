@@ -162,12 +162,13 @@
 		<div class="space-y-3">
 			<div class="text-xs text-brand-muted font-mono">{formatDateTime(timeIso)}</div>
 			<table class="w-full text-sm table-fixed">
+				<!-- The narrow columns are fixed; calibration and curve share what is left and truncate. -->
 				<colgroup>
 					<col style="width:4.5rem" />
-					<col style="width:7rem" />
-					<col style="width:9rem" />
-					<col style="width:9rem" />
 					<col style="width:6rem" />
+					<col />
+					<col />
+					<col style="width:5.5rem" />
 					<col style="width:5.5rem" />
 				</colgroup>
 				<thead>

@@ -34,8 +34,8 @@ test('a typed correction previews its calculated value, and only Save writes it'
 	await expect(page.getByText(/calculated value.* shown unsaved/)).toBeVisible();
 	expect(await visit.served()).toBe(ENTERED * 2);
 
-	// Undo takes the typing back, and the calculated cell goes back to what the store holds.
-	await page.getByRole('button', { name: 'Undo' }).click();
+	// Undo changes takes the typing back, and the calculated cell goes back to what the store holds.
+	await page.getByRole('button', { name: 'Undo changes' }).click();
 	await expect(input).toHaveText(String(ENTERED));
 	await expect(output).toHaveText(new RegExp(`^${ENTERED * 2}\\b`));
 	await expect(output).not.toHaveAttribute('title', /not saved yet/);

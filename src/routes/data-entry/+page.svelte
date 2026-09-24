@@ -433,12 +433,14 @@
 					<div class="rounded-md border border-brand-divider bg-brand-surface p-4">
 						<div class="flex items-center justify-between mb-3">
 							<h3 class="text-sm font-semibold">Results</h3>
-							<Button
-								variant="primary"
-								size="sm"
-								disabled={calculating}
-								onclick={openSave}
-							>{calculating ? 'Calculating…' : 'Save to Site'}</Button>
+							{#if !stagedVisit.current}
+								<Button
+									variant="primary"
+									size="sm"
+									disabled={calculating}
+									onclick={openSave}
+								>{calculating ? 'Calculating…' : 'Save to Site'}</Button>
+							{/if}
 						</div>
 						{#if (result.site_inputs?.length ?? 0) > 0 || (result.event_inputs?.length ?? 0) > 0}
 							<div class="text-xs text-brand-muted bg-brand-bg border border-brand-divider rounded-md px-2 py-1 mb-2 space-y-0.5">
@@ -461,6 +463,8 @@
 							contextSiteId={contextSiteId || null}
 							contextTime={contextIso || null}
 							visitLocked={!!stagedVisit.current}
+							onsave={openSave}
+							saveBusy={calculating}
 							visitRecompute={stagedVisit.detail?.recompute}
 							onsaved={() => {
 								if (savedCandidate) snapshot = savedCandidate;

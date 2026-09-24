@@ -133,14 +133,14 @@ test('a mistaken save over two visits is rolled back one visit at a time', async
 	await page.getByRole('button', { name: inputName, exact: true }).click();
 	// The record and its history fit the panel's width: nothing scrolls sideways.
 	const record = page.getByTestId('point-record');
-	await expect(record.getByRole('button', { name: 'Roll back the whole edit' }).first()).toBeVisible();
+	await expect(record.getByRole('button', { name: 'Roll back this reading' }).first()).toBeVisible();
 	const overflow = await record.evaluate((el) =>
 		[el, ...el.querySelectorAll('*')]
-			.filter((node) => !node.classList.contains('sr-only') && node.scrollWidth > node.clientWidth + 1 && getComputedStyle(node).overflowX !== 'visible')
+			.filter((node) => node.scrollWidth > node.clientWidth && getComputedStyle(node).overflowX !== 'visible' && getComputedStyle(node).overflowX !== 'hidden')
 			.map((node) => `${node.tagName}.${node.className} ${node.scrollWidth}/${node.clientWidth}`),
 	);
 	expect(overflow).toEqual([]);
-	await page.getByRole('button', { name: 'Roll back the whole edit' }).first().click();
+	await page.getByRole('button', { name: 'Roll back this reading' }).first().click();
 	await expect(dialog.locator('[data-rollback-lines]')).toHaveText(
 		`${inputName} replicate 0: Measured 25 → ${EARLIER}`,
 	);

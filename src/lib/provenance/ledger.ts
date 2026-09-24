@@ -1,7 +1,9 @@
 import type { HoldKind, LedgerEntry, ReadingDecision } from '$api/service';
 import { formatCount } from '$lib/format';
-import { triggerLabel } from '$lib/utils';
+import { provenanceKindLabel } from '$lib/origin';
+import { formatDateTime, triggerLabel } from '$lib/utils';
 import { changedFields, decisionLabel, timelineEntries, type DecisionEntry, type FieldChange } from './decisions';
+import { windowStartText } from './recordLabels';
 
 /// The edits `change_audit` records against a catalogue parameter or a site's slot: the two
 /// subjects the reading ledger reads, under the trigger's `{subject}_{op}` and the merge's own.
@@ -112,12 +114,42 @@ function jobLine(entry: LedgerEntry): string {
 	return `${triggerLabel(trigger)} ${status}${failure ? `: ${failure}` : ''}`;
 }
 
+/// Every count the reconciliation receipt carries, and the window it claimed.
 function ingestLine(entry: LedgerEntry): string {
-	const counts = (entry.new ?? {}) as Record<string, number | boolean>;
-	if (counts.braked) return 'Reload from the source stopped by the brake';
-	const changed = Number(counts.changed ?? 0);
-	const added = Number(counts.new ?? 0);
-	return `Reloaded from the source: ${formatCount(added)} new, ${formatCount(changed)} changed`;
+	const receipt = (entry.new ?? {}) as Record<string, number | boolean | string | null>;
+	if (receipt.braked) return 'Reload from the source stopped by the brake';
+	const count = (key: string) => formatCount(Number(receipt[key] ?? 0));
+	const counts = [
+		`${count('submitted')} submitted`,
+		`${count('new')} new`,
+		`${count('changed')} changed`,
+		`${count('unchanged')} unchanged`,
+		`${count('withdrawn')} withdrawn`,
+		`${count('rejected')} rejected`,
+	].join(', ');
+	const from = receipt.window_from;
+	const to = receipt.window_to;
+	const window =
+		typeof from === 'string' && typeof to === 'string'
+			? `; window ${windowStartText(from)} to ${formatDateTime(to)}`
+			: '';
+	return `Reloaded from the source: ${counts}${window}`;
+}
+
+function streamText(entry: LedgerEntry): string {
+	const stream = (entry.new ?? {}) as Record<string, unknown>;
+	return `${stream.source_system ?? ''} · ${stream.source_key ?? ''}`;
+}
+
+/// When the value reached the store, by which write path and on which stream.
+function arrivalLine(entry: LedgerEntry): string {
+	const detail = (entry.new ?? {}) as Record<string, unknown>;
+	const origin = provenanceKindLabel((detail.origin as string | null) ?? undefined);
+	return `Arrived on ${streamText(entry)}${origin ? `, ${origin}` : ''}`;
+}
+
+function pairingLine(entry: LedgerEntry): string {
+	return `Stream ${streamText(entry)} paired to this parameter at the site`;
 }
 
 function toolRunLine(entry: LedgerEntry): string {
@@ -148,6 +180,10 @@ export function ledgerLine(entry: LedgerEntry): string {
 			return entry.what;
 		case 'ingest':
 			return ingestLine(entry);
+		case 'arrival':
+			return arrivalLine(entry);
+		case 'pairing':
+			return pairingLine(entry);
 		case 'tool_run':
 			return toolRunLine(entry);
 		case 'alarm':
@@ -170,6 +206,8 @@ const DECISION_ORIGINS: Record<string, string> = {
 };
 
 const SOURCE_ORIGINS: Record<string, string> = {
+	arrival: 'store',
+	pairing: 'pairing',
 	ingest: 'sync',
 	tool_run: 'tool',
 	job: 'job',

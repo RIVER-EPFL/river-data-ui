@@ -72,6 +72,8 @@
 		contextSiteId = null,
 		contextTime = null,
 		visitLocked = false,
+		onsave,
+		saveBusy = false,
 		onsaved,
 	}: {
 		open: boolean;
@@ -114,6 +116,10 @@
 		 * and are shown rather than chosen: an edit here would write into a different visit.
 		 */
 		visitLocked?: boolean;
+		/** Opens the save from the bar, which with a visit staged is the only Save the page shows. */
+		onsave?: () => void;
+		/** The caller is recomputing the run the save names. */
+		saveBusy?: boolean;
 		/** Called after a successful save, so a caller can refresh what the visit now records. */
 		/** Re-read the staged visit. Awaited, so the run report reads what the save landed. */
 		onsaved?: () => Promise<void> | void;
@@ -901,9 +907,26 @@
 		{/if}
 		<div class="flex items-center justify-between gap-2">
 			<span class="font-semibold">Seasonal check</span>
-			<Button size="sm" onclick={runCheck} disabled={checking || !canSave}>
-				{checking ? 'Checking…' : checkSatisfied ? 'Re-check' : 'Check against site history'}
-			</Button>
+			<div class="flex items-center gap-2">
+				<Button
+					size="sm"
+					variant={checkSatisfied ? 'secondary' : 'primary'}
+					onclick={runCheck}
+					disabled={checking || !canSave}
+				>
+					{checking ? 'Checking…' : checkSatisfied ? 'Re-check' : 'Check against site history'}
+				</Button>
+				{#if onsave}
+					<span class="text-brand-muted" aria-hidden="true">→</span>
+					<Button
+						size="sm"
+						variant={checkSatisfied ? 'primary' : 'secondary'}
+						disabled={saveBusy || !checkSatisfied}
+						title={checkSatisfied ? undefined : 'Check these values against the site history first'}
+						onclick={onsave}
+					>{saveBusy ? 'Calculating…' : 'Save to Site'}</Button>
+				{/if}
+			</div>
 		</div>
 		{#if checkStale}
 			<p class="text-severity-warning-text">

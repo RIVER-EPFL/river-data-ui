@@ -119,9 +119,12 @@ test('a cell is typed in place and one Save writes every visit it touched', asyn
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
 	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
 
-	// Nothing has moved, so there is nothing to save and no Save is offered.
+	// Nothing has moved, so there is nothing to save.
 	const save = page.getByRole('button', { name: /^Save \d+ value/ });
-	await expect(save).toHaveCount(0);
+	await expect(save).toBeDisabled();
+	// The bar is drawn before anything is typed, so typing never moves the grid.
+	const gridTop = async () => (await page.locator('.sheet-grid').first().boundingBox())?.y;
+	const before = await gridTop();
 
 	// Every value is a cell of the sheet, not a text box inside one.
 	await expect(page.locator('.ht_master td input')).toHaveCount(0);
@@ -129,6 +132,7 @@ test('a cell is typed in place and one Save writes every visit it touched', asyn
 	// A correction on a stored value, and an entry in a slot the visit never held.
 	await typeInto(page, /^groups_one_\w* at/, '4.8');
 	await expect(save).toContainText('Save 1 value');
+	expect(await gridTop()).toBe(before);
 	// A correction is screened against the site's history like an entry (Q262).
 	await expect(save).toBeDisabled();
 
@@ -146,7 +150,7 @@ test('a cell is typed in place and one Save writes every visit it touched', asyn
 	await expect(dialog).toContainText('1 corrected in place');
 	await dialog.getByRole('button', { name: 'Save', exact: true }).click();
 	await expect(dialog).toBeHidden();
-	await expect(save).toHaveCount(0);
+	await expect(save).toBeDisabled();
 
 	// Both came back from the store, and the visit's record still opens on its date, where the
 	// fill count has moved with the new measurement.
@@ -178,8 +182,8 @@ test('the keyboard walks the sheet: Tab along a visit, Enter down to the next da
 	await expect(single.nth(1)).toHaveText('4.7');
 	await expect(page.getByRole('button', { name: /^Save \d+ value/ })).toContainText('Save 2 values');
 
-	// Undo takes the last keystroke back, and the store's value with it.
-	await page.getByRole('button', { name: 'Undo', exact: true }).click();
+	// Ctrl+Z takes the last keystroke back, and the store's value with it.
+	await page.keyboard.press('Control+z');
 	await expect(single.nth(1)).toHaveText('4.4');
 	await expect(page.getByRole('button', { name: /^Save \d+ value/ })).toContainText('Save 1 value');
 });

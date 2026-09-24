@@ -21,6 +21,7 @@
 		getToolScript,
 		listVisitSites,
 		listVisitsHolding,
+		listToolScripts,
 		listToolVersionUsage,
 		listVersionLedger,
 		saveFormulaSet,
@@ -44,6 +45,7 @@
 		draftRunBody,
 		editableFormula,
 		receivedSteps,
+		stepOffers,
 		formulaSetBody,
 		formulaVariables,
 		inputRows,
@@ -54,7 +56,9 @@
 		setOutputs,
 		thresholdWrites,
 		type EditableFormula,
+		type StepOffer,
 	} from '$lib/calculations/editor';
+	import { apiMessage } from '$lib/standardCurves';
 	import { storedLabel, versionConsequence } from '$lib/calculations/consequence';
 	import { takeoverLine } from '$lib/calculations/takeover';
 	import { ledgerLines, type LedgerOutput } from '$lib/calculations/versionLedger';
@@ -186,8 +190,9 @@
 	let allSiteParams = $state<SiteParameter[]>([]);
 
 	// Steps this calculation reads but does not own (Q156), and the ones it could bring in.
-	let shareable = $state<DerivedParameter[]>([]);
+	let shareable = $state<StepOffer[]>([]);
 	let declaring = $state('');
+	const offered = $derived(shareable.find((o) => o.id === declaring) ?? null);
 	let dependents = $state<Record<string, StepDependents>>({});
 
 	const usageByVersion = $derived(new Map(usage.map((u) => [u.version_id, u])));
@@ -394,7 +399,8 @@
 	}
 
 	async function declare() {
-		if (!declaring) return;
+		if (!offered) return;
+		const brought = [...offered.chain.map((s) => s.code), offered.code];
 		busy = true;
 		try {
 			await api.calculationSharedSteps.create({
@@ -403,9 +409,9 @@
 			});
 			declaring = '';
 			await load();
-			toastStore.success('Step brought in');
+			toastStore.success(`Brought in ${brought.join(', ')}`);
 		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Could not bring the step in');
+			toastStore.error(`Could not bring in ${offered.code}: ${apiMessage(e)}`);
 		} finally {
 			busy = false;
 		}
@@ -447,7 +453,7 @@
 		loading = true;
 		error = '';
 		try {
-			const [script, rows, params, consts, steps, memberRows] = await Promise.all([
+			const [script, rows, params, consts, steps, memberRows, scripts] = await Promise.all([
 				getToolScript(calculationId),
 				api.derivedParameters.list({
 					perPage: 500,
@@ -462,6 +468,7 @@
 					sort: ['code', 'ASC'],
 				}),
 				listAll<ParameterGroupMember>(api.parameterGroupMembers, { perPage: 500 }),
+				listToolScripts().catch(() => []),
 			]);
 			listAll<Site>(api.sites, { perPage: 200, sort: ['name', 'ASC'] })
 				.then((rows) => (allSites = rows))
@@ -491,7 +498,11 @@
 			members = memberRows;
 			// A step this calculation already reads, or already owns, is not one to bring in.
 			const own = new Set(stored.map((f) => f.id));
-			shareable = steps.filter((s) => !own.has(s.id));
+			shareable = stepOffers(
+				steps.filter((s) => !own.has(s.id)),
+				steps,
+				new Map(scripts.map((c) => [c.id, c.name])),
+			);
 		} catch (e) {
 			error =
 				e instanceof ApiError && (e.status === 401 || e.status === 403)
@@ -995,14 +1006,26 @@
 						{#if shareable.length > 0}
 							<select bind:value={declaring} class={inputCls} aria-label="A step written elsewhere">
 								<option value="">Bring in a step…</option>
-								{#each shareable as step (step.id)}
-									<option value={step.id}>{step.code}{step.name && step.name !== step.code ? ` · ${step.name}` : ''}</option>
+								{#each shareable as offer (offer.id)}
+									<option value={offer.id} title="{offer.code} = {offer.formula}">{offer.label}</option>
 								{/each}
 							</select>
 							<Button size="sm" disabled={busy || !declaring} onclick={declare}>Bring in</Button>
 						{/if}
 					</div>
 				</div>
+				{#if offered}
+					<div class="px-3 py-2 border-b border-brand-divider text-xs" aria-label="What bringing in {offered.code} shares">
+						<p class="text-brand-muted">
+							{offered.owner ? `Written by ${offered.owner}; bringing it in shares it` : 'Already shared'}{offered.chain.length > 0 ? ' with the steps it reads:' : '.'}
+						</p>
+						<ul class="mt-1 space-y-0.5 font-mono">
+							{#each [...offered.chain, offered] as step (step.code)}
+								<li><span class="font-semibold">{step.code}</span> = {step.formula}</li>
+							{/each}
+						</ul>
+					</div>
+				{/if}
 				<div class="px-3 py-3 space-y-3">
 					<CalculationSheet
 						{blocks}
