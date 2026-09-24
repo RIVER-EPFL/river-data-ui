@@ -131,8 +131,15 @@ test('a mistaken save over two visits is rolled back one visit at a time', async
 
 	await frozenButton(page, { name: frozenDate(earlierAt) }).click();
 	await page.getByRole('button', { name: inputName, exact: true }).click();
-	await page.getByText('Details', { exact: true }).first().click();
-	await page.getByText('Show history').first().click();
+	// The record and its history fit the panel's width: nothing scrolls sideways.
+	const record = page.getByTestId('point-record');
+	await expect(record.getByRole('button', { name: 'Roll back the whole edit' }).first()).toBeVisible();
+	const overflow = await record.evaluate((el) =>
+		[el, ...el.querySelectorAll('*')]
+			.filter((node) => !node.classList.contains('sr-only') && node.scrollWidth > node.clientWidth + 1 && getComputedStyle(node).overflowX !== 'visible')
+			.map((node) => `${node.tagName}.${node.className} ${node.scrollWidth}/${node.clientWidth}`),
+	);
+	expect(overflow).toEqual([]);
 	await page.getByRole('button', { name: 'Roll back the whole edit' }).first().click();
 	await expect(dialog.locator('[data-rollback-lines]')).toHaveText(
 		`${inputName} replicate 0: Measured 25 → ${EARLIER}`,

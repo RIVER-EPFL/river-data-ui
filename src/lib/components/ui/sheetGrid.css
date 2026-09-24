@@ -208,3 +208,17 @@
 	stroke: var(--color-brand-accent);
 	stroke-dasharray: none;
 }
+.sheet-grid th:has(> .sheet-row-controls) {
+	position: relative;
+}
+.sheet-grid .sheet-row-controls {
+	position: absolute;
+	top: 50%;
+	left: 4px;
+	transform: translateY(-50%);
+	display: flex;
+	gap: 2px;
+}
+.sheet-grid .sheet-row-controls .sheet-header-button {
+	margin-left: 0;
+}

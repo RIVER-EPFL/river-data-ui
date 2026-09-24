@@ -1,5 +1,6 @@
 import type { VisitCell, VisitReplicate, VisitRow } from '$api/service';
 import { formatMeasurement } from '$lib/format';
+import { BROWSER_ZONE } from '$lib/time/zones';
 import { formatCompactInstant, zoneLabel } from '$lib/utils';
 import type { GridSlot, ParameterColumn } from './columns';
 import { readNumber, writeNumber } from './number';
@@ -8,6 +9,14 @@ import { cellOf, isSpare, setCell, slotKey, spareId, storedAt, type Edits } from
 
 // The visit's date stays frozen beside the measurement slots.
 export const FROZEN_COLUMNS = 1;
+
+/**
+ * The zone the Date column prints and a new row's bare date is read in: the page's, as the header
+ * selector names it (undefined for the browser's own).
+ */
+export function sheetZone(display: string | undefined): string {
+	return display ?? BROWSER_ZONE;
+}
 
 export type HeaderCell = string | { label: string; colspan: number };
 

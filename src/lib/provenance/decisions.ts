@@ -139,14 +139,6 @@ export function timelineEntries(decisions: ReadingDecision[]): DecisionEntry[] {
 	return entries;
 }
 
-/// The ledger with each set's decisions reduced to its head, which renders for the whole set.
-export function withoutSetMembers(entries: LedgerEntry[], decisions: ReadingDecision[]): LedgerEntry[] {
-	const members = new Set(
-		timelineEntries(decisions).flatMap((e) => e.members.slice(1).map((m) => m.id)),
-	);
-	return entries.filter((e) => e.source !== 'decision' || !members.has(e.id));
-}
-
 /// Whether the timeline offers to undo an entry. The API says which kinds `rollback` accepts
 /// (`reversible` on the row), so the reader never keeps its own copy of that list; an older API
 /// that does not send the field leaves the decision to the kind alone.

@@ -147,7 +147,12 @@ test('a row added by hand opens a visit at the date typed into it', async ({ pag
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
 	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
 
-	await page.getByRole('button', { name: 'Add a row' }).click();
+	// The plus sits in the grid's corner, so it stays under the pointer however many rows it adds.
+	const more = page.getByRole('button', { name: 'One new row more' });
+	const before = await more.boundingBox();
+	await more.click();
+	await more.click();
+	expect(await more.boundingBox()).toEqual(before);
 	await typeInto(page, frozenCell(page, 2), when);
 
 	const save = page.getByRole('button', { name: /^Save / });
@@ -159,31 +164,36 @@ test('a row added by hand opens a visit at the date typed into it', async ({ pag
 	await expect(page.getByText('2 visits', { exact: true })).toBeVisible();
 });
 
-test('a bare date pasted under the table is read in the zone picked above it', async ({
-	page,
-	request,
-}) => {
-	const { siteId } = await seedSite(request);
-	const when = day(-3);
-	// Tokyo keeps UTC+9 all year, so a day there starts at 15:00 the evening before, wherever
-	// the browser running this sits.
-	const eveningBefore = new Date(`${when}T00:00:00Z`);
-	eveningBefore.setUTCDate(eveningBefore.getUTCDate() - 1);
-	const inTokyo = `${eveningBefore.toISOString().slice(0, 10)} 15:00:00Z`;
+test.describe('a browser in Tokyo', () => {
+	test.use({ timezoneId: 'Asia/Tokyo' });
 
-	await signIn(page);
-	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
-	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
+	test('a bare date pasted under the table is read in the zone the page selector names', async ({
+		page,
+		request,
+	}) => {
+		const { siteId } = await seedSite(request);
+		const when = day(-3);
+		// Tokyo keeps UTC+9 all year, so a day there starts at 15:00 the evening before.
+		const eveningBefore = new Date(`${when}T00:00:00Z`);
+		eveningBefore.setUTCDate(eveningBefore.getUTCDate() - 1);
+		const inTokyo = `${eveningBefore.toISOString().slice(0, 10)} 15:00:00Z`;
 
-	const zone = page.getByLabel('Zone new rows are dated in');
-	await zone.selectOption('Asia/Tokyo');
-	await frozenCell(page, 1).click();
-	await paste(page, `${when}\t5.1`);
+		await signIn(page);
+		await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
+		await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
+		await expect(page.getByLabel('Zone new rows are dated in')).toHaveCount(0);
+		const header = page.locator('.ht_master .colHeader').filter({ hasText: /^Date / });
+		await expect(header).toHaveText('Date (Asia/Tokyo)');
 
-	const staged = page.locator('.ht_clone_inline_start').getByText('new visit at');
-	await expect(staged).toHaveText(`new visit at ${inTokyo}`);
+		await frozenCell(page, 1).click();
+		await paste(page, `${when}\t5.1`);
 
-	// The same cell, read in UTC, opens the visit at the start of the day it names.
-	await zone.selectOption('UTC');
-	await expect(staged).toHaveText(`new visit at ${when} 00:00:00Z`);
+		const staged = page.locator('.ht_clone_inline_start').getByText('new visit at');
+		await expect(staged).toHaveText(`new visit at ${inTokyo}`);
+
+		// The same cell, read in UTC, opens the visit at the start of the day it names.
+		await page.getByRole('button', { name: 'Local', exact: true }).click();
+		await expect(header).toHaveText('Date (UTC)');
+		await expect(staged).toHaveText(`new visit at ${when} 00:00:00Z`);
+	});
 });

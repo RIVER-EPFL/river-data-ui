@@ -10175,6 +10175,10 @@
             "format": "date-time",
             "type": "string"
           },
+          "decision": {
+            "$ref": "#/components/schemas/DecisionRow",
+            "description": "On a `decision` entry, the decision itself: its kind, reason, origin, set and whether it\nmay still be rolled back, so the history renders and undoes it from this read alone."
+          },
           "id": {
             "description": "The row this entry is, so a reader can open it where it lives.",
             "format": "uuid",

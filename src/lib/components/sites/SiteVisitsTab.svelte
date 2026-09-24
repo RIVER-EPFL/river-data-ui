@@ -50,7 +50,6 @@
 	import type { SampleReplicate } from '$lib/api/types';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
-	import { appliedOffset, entryZone, zoneOptions } from '$lib/time/zones';
 	import { formatDateTime } from '$lib/utils';
 	import { formatMeasurement } from '$lib/format';
 	import {
@@ -117,6 +116,7 @@
 		pasteOverflow,
 		sheetData,
 		sheetHeaders,
+		sheetZone,
 		sheetSlot,
 		visitDates,
 		type SheetTable,
@@ -126,6 +126,7 @@
 		keptAfterSave,
 		namedInstants,
 		racedRows,
+		saveCounts,
 		saveLabel,
 		savedLine,
 		spareCount,
@@ -400,12 +401,7 @@
 	// paged, so a date typed here is looked up against the store rather than against the rows on
 	// screen (Q225).
 	let standingElsewhere = $state<string[]>([]);
-	// The zone a date with no offset of its own is read in, so a field day recorded elsewhere is
-	// pasted as it was written. Until somebody picks one it is the zone the Date column prints.
-	let pickedZone = $state<string | null>(null);
-	const zones = zoneOptions();
-	const readZone = $derived(entryZone(pickedZone, timezoneStore.zone));
-	const readOffset = $derived(appliedOffset(readZone).label);
+	const readZone = $derived(sheetZone(timezoneStore.zone));
 	const spareRowCount = $derived(spareCount(spareDates, edits, askedSpares));
 	const spares = $derived(
 		spareVisits(spareDates, spareRowCount, standingInstants(visits, standingElsewhere), readZone),
@@ -492,9 +488,9 @@
 		void visits;
 		void slots;
 		void me.level;
-		void timezoneStore.zone;
+		void readZone;
 		return untrack(() =>
-			sheetData(table, edits, spareDates, locale, timezoneStore.zone, writableSlot),
+			sheetData(table, edits, spareDates, locale, readZone, writableSlot),
 		);
 	});
 
@@ -504,8 +500,9 @@
 		void me.level;
 		void visits;
 		return {
-			nestedHeaders: sheetHeaders(groupColumns, timezoneStore.zone),
+			nestedHeaders: sheetHeaders(groupColumns, readZone),
 			rowHeaders: true,
+			rowHeaderWidth: 72,
 			wordWrap: false,
 			fixedColumnsStart: FROZEN_COLUMNS,
 			colWidths: (index: number) => (index === 0 ? 180 : 100),
@@ -820,8 +817,41 @@
 		if (header.title) th.title = header.title;
 	}
 
+	/** The corner over the row index carries one new row more, and one fewer while the last is empty. */
+	function renderSpareControls(th: HTMLTableCellElement) {
+		th.querySelector('.sheet-row-controls')?.remove();
+		// The corner is drawn in every overlay; only the frozen top-left one is seen.
+		if (!me.can('enterFieldData') || !th.closest('.ht_clone_top_inline_start_corner')) return;
+		const controls = document.createElement('span');
+		controls.className = 'sheet-row-controls';
+		const button = (text: string, aria: string, onclick: () => void) => {
+			const b = document.createElement('button');
+			b.type = 'button';
+			b.className = 'sheet-header-button';
+			b.textContent = text;
+			b.setAttribute('aria-label', aria);
+			b.title = aria;
+			b.addEventListener('mousedown', (e) => e.stopPropagation());
+			b.addEventListener('click', (e) => {
+				e.stopPropagation();
+				onclick();
+			});
+			return b;
+		};
+		// The plus comes first, so the minus appearing beside it never shifts it.
+		controls.append(button('+', 'One new row more', () => (askedSpares = spares.length + 1)));
+		if (spares.length > spareCount(spareDates, edits, 1)) {
+			controls.append(button('−', 'One new row fewer', () => (askedSpares = spares.length - 1)));
+		}
+		th.append(controls);
+	}
+
 	/** The group header's own controls: open to the repeats, and one repeat fewer or more. */
 	function renderGroupHeader(column: number, th: HTMLTableCellElement, level: number) {
+		if (column < 0) {
+			if (level === 0) renderSpareControls(th);
+			return;
+		}
 		if (level !== 0 || column < FROZEN_COLUMNS) return;
 		const col = groupStartingAt(column);
 		const label = th.querySelector('.colHeader');
@@ -1253,7 +1283,11 @@
 		} finally {
 			saving = false;
 		}
-		const settled = await readUntilSettled(async () => (await loadVisits()) ?? visits);
+		const open = expandedVisit;
+		const [settled] = await Promise.all([
+			readUntilSettled(async () => (await loadVisits()) ?? visits),
+			open ? refreshVisitDetail(open) : undefined,
+		]);
 		if (settled) {
 			awaiting = {};
 			requestRender();
@@ -1765,7 +1799,8 @@
 					<p class="text-sm text-brand-muted">{visitsStart || visitsEnd ? 'No visits in this range.' : 'No visits recorded for this site.'}</p>
 				{:else}
 					{#if me.can('writeData')}
-						<div class="flex items-center gap-2">
+						<div class="flex items-center justify-end gap-1.5" role="group" aria-label="Recompute visits">
+							<span class="text-xs text-brand-muted">Recompute</span>
 							<Button
 								size="sm"
 								variant="secondary"
@@ -1773,7 +1808,7 @@
 								title="Recompute every visit at this site with an open missing- or stale-output finding, in one tracked job. Unchanged calculations are skipped; the findings a run repairs close with it."
 								onclick={() => applyToVisits(true)}
 							>
-								{staleApplyBusy ? 'Recomputing…' : `Recompute stale visits${staleVisitCount > 0 ? ` (${staleVisitCount} listed)` : ''}`}
+								{staleApplyBusy ? 'Recomputing…' : `Stale only${staleVisitCount > 0 ? ` (${staleVisitCount})` : ''}`}
 							</Button>
 							<ConfirmPopover
 								message={`Run every calculation declared at this site at ${visits.length} visit${visits.length === 1 ? '' : 's'}${visitsStart || visitsEnd ? ' in this range' : ''}, whether or not a finding was raised there. A calculation that has never run here computes its outputs for the first time; one whose inputs and version are unchanged is left alone.`}
@@ -1785,53 +1820,21 @@
 									size="sm"
 									variant="secondary"
 									disabled={staleApplyBusy}
-									title="Compute a newly authored calculation at the visits already entered: every listed visit is recomputed, not only those with an open finding."
+									title="Every listed visit, not only those with an open finding: computes a calculation newly applied here at the visits already entered."
 								>
-									Compute at listed visits
+									All listed visits
 								</Button>
 							</ConfirmPopover>
 						</div>
 					{/if}
 					{#if me.can('enterFieldData')}
-						<div class="flex flex-wrap items-center gap-2">
-							{#if typing}
-								<Button
-									size="sm"
-									variant="secondary"
-									disabled={screened}
-									loading={checking}
-									title="Screen what you have entered or corrected against this site's seasonal distribution. A save is held to exactly the values its check covered."
-									onclick={runChecks}
-								>{checking ? 'Checking…' : screened ? 'Checked' : 'Check against site history'}</Button>
-							{/if}
-							<Button
-								size="sm"
-								variant="secondary"
-								title="One more row under the table, to open a visit at a date this site has none at"
-								onclick={() => (askedSpares = spares.length + 1)}
-							>Add a row</Button>
-							<label class="flex items-center gap-1.5 text-xs text-brand-muted">
-								New rows dated in
-								<select
-									aria-label="Zone new rows are dated in"
-									value={readZone}
-									onchange={(e) => (pickedZone = e.currentTarget.value)}
-									class="max-w-[12rem] rounded-md border border-brand-divider bg-brand-surface px-2 py-1 text-xs"
-								>
-									{#each zones as zone (zone.value)}
-										<option value={zone.value}>{zone.label}</option>
-									{/each}
-								</select>
-								<span class="tabular-nums">{readOffset} applied</span>
-							</label>
-							<Button
-								size="sm"
-								variant="primary"
-								disabled={(moved === 0 && newVisits.length === 0) || !screened}
-								title={moved > 0 && !screened ? 'Check these values against the site history first' : undefined}
-								onclick={askToSave}
-							>{saveLabel(moved, newVisits.length)}</Button>
-							{#if moved > 0 || newVisits.length > 0}
+						{#if unsaved || typing}
+							<div
+								class="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border border-brand-primary/40 bg-brand-primary/5 px-3 py-2"
+								role="region"
+								aria-label="Unsaved changes"
+							>
+								<span class="text-sm font-medium text-brand-text">{saveCounts(moved, newVisits.length)} not saved</span>
 								<Button
 									size="sm"
 									variant="ghost"
@@ -1840,23 +1843,50 @@
 									title="Undo the last change you typed or pasted (Ctrl+Z). Nothing is written until Save."
 								>Undo</Button>
 								<Button size="sm" variant="ghost" onclick={discardEdits}>Discard what you typed</Button>
-							{/if}
-							{#if saveRefusal}
-								<span class="text-xs text-severity-alarm">{saveRefusal}</span>
-							{/if}
-							{#if pasteRefusal}
-								<span class="text-xs text-severity-warning-text">{pasteRefusal}</span>
-							{/if}
-							{#if spareRefusal}
-								<span class="text-xs text-severity-alarm">{spareRefusal}</span>
-							{/if}
-							{#if previewLine}
-								<span class="text-xs text-brand-muted">{previewLine}</span>
-							{/if}
-							{#if runReport}
-								<span class="text-xs text-brand-muted">{runReport}</span>
-							{/if}
-						</div>
+								<div class="ml-auto flex items-center gap-2">
+									{#if typing}
+										<Button
+											size="sm"
+											variant={screened ? 'secondary' : 'primary'}
+											disabled={screened}
+											loading={checking}
+											title="Screen what you have entered or corrected against this site's seasonal distribution. A save is held to exactly the values its check covered."
+											onclick={runChecks}
+										>{checking ? 'Checking…' : screened ? 'Checked' : 'Check against site history'}</Button>
+										<span class="text-brand-muted" aria-hidden="true">→</span>
+									{/if}
+									<Button
+										size="sm"
+										variant={screened ? 'primary' : 'secondary'}
+										disabled={(moved === 0 && newVisits.length === 0) || !screened}
+										title={moved > 0 && !screened ? 'Check these values against the site history first' : undefined}
+										onclick={askToSave}
+									>{saveLabel(moved, newVisits.length)}</Button>
+								</div>
+								{#if typing && !screened && !checking}
+									<p class="basis-full text-right text-xs text-brand-muted">Check the values against this site's history first. Save opens once they are checked.</p>
+								{/if}
+							</div>
+						{/if}
+						{#if saveRefusal || pasteRefusal || spareRefusal || previewLine || runReport}
+							<div class="flex flex-col gap-0.5 text-xs">
+								{#if saveRefusal}
+									<span class="text-severity-alarm">{saveRefusal}</span>
+								{/if}
+								{#if pasteRefusal}
+									<span class="text-severity-warning-text">{pasteRefusal}</span>
+								{/if}
+								{#if spareRefusal}
+									<span class="text-severity-alarm">{spareRefusal}</span>
+								{/if}
+								{#if previewLine}
+									<span class="text-brand-muted">{previewLine}</span>
+								{/if}
+								{#if runReport}
+									<span class="text-brand-muted">{runReport}</span>
+								{/if}
+							</div>
+						{/if}
 						{#if lastSave.length > 0}
 							<div class="flex flex-wrap items-center gap-2 text-xs text-brand-muted" data-save-recovery>
 								<span>Saved over stored values. To put them back:</span>

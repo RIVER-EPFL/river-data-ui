@@ -11987,6 +11987,11 @@ export interface components {
             /** Format: date-time */
             at: string;
             /**
+             * @description On a `decision` entry, the decision itself: its kind, reason, origin, set and whether it
+             *     may still be rolled back, so the history renders and undoes it from this read alone.
+             */
+            decision?: components["schemas"]["DecisionRow"];
+            /**
              * Format: uuid
              * @description The row this entry is, so a reader can open it where it lives.
              */

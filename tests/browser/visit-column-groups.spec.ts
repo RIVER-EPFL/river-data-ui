@@ -119,9 +119,9 @@ test('a cell is typed in place and one Save writes every visit it touched', asyn
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
 	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
 
-	// Nothing has moved, so there is nothing to save.
+	// Nothing has moved, so there is nothing to save and no Save is offered.
 	const save = page.getByRole('button', { name: /^Save \d+ value/ });
-	await expect(save).toBeDisabled();
+	await expect(save).toHaveCount(0);
 
 	// Every value is a cell of the sheet, not a text box inside one.
 	await expect(page.locator('.ht_master td input')).toHaveCount(0);
@@ -146,7 +146,7 @@ test('a cell is typed in place and one Save writes every visit it touched', asyn
 	await expect(dialog).toContainText('1 corrected in place');
 	await dialog.getByRole('button', { name: 'Save', exact: true }).click();
 	await expect(dialog).toBeHidden();
-	await expect(save).toBeDisabled();
+	await expect(save).toHaveCount(0);
 
 	// Both came back from the store, and the visit's record still opens on its date, where the
 	// fill count has moved with the new measurement.
@@ -348,31 +348,44 @@ test("the visit's record declares what measured a parameter, and the value carri
 	page,
 	request,
 }) => {
-	const { siteId, code } = await seedVisit(request);
+	const { siteId, emptyCode } = await seedVisit(request);
 	await signIn(page);
 	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
 	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
 
-	// The declaration is on the visit's own record, beside the parameter it is about.
+	// A stored value names what it was measured on, so it offers no declaration.
 	await frozenButton(page, { name: /./ }).first().click();
+	await expect(
+		page.getByRole('combobox', { name: /^Instrument for the next entry of Triplicate parameter/ }),
+	).toHaveCount(0);
+	await expect(page.getByRole('link', { name: /Triplicate parameter \(grab entry\)$/ })).toHaveAttribute(
+		'title',
+		'The instrument this value was measured on',
+	);
+
+	// The declaration is on the visit's own record, beside the parameter still to be entered.
 	const picker = page.getByRole('combobox', {
-		name: 'Instrument for Triplicate parameter at this visit',
+		name: 'Instrument for the next entry of Unmeasured parameter at this visit',
 	});
 	await expect(picker).toHaveValue('');
 	const options = await picker.locator('option').all();
 	expect(options.length, 'the register has instruments to choose from').toBeGreaterThan(1);
+	const instrument = (await options[1].textContent())!.trim();
 	await picker.selectOption({ index: 1 });
 
-	// A repeat entered under it saves, and the column keeps what was typed.
-	await headerButton(page, { name: code, exact: true }).click();
-	await headerButton(page, { name: `One repeat more for ${code}` }).click();
-	await typeInto(page, new RegExp(`^${code} repeat 4 at`), '16');
+	// A value entered under it saves, and the record then names the instrument it carries.
+	await typeInto(page, new RegExp(`^${emptyCode} at`), '7.5');
 	await page.getByRole('button', { name: 'Check against site history' }).click();
 	await page.getByRole('button', { name: /^Save \d+ value/ }).click();
 	const dialog = page.getByRole('dialog');
 	await dialog.getByRole('button', { name: 'Save', exact: true }).click();
 	await expect(dialog).toBeHidden();
-	await expect(sheetCell(page, new RegExp(`^${code} repeat 4 at`))).toHaveText('16');
+	await expect(sheetCell(page, new RegExp(`^${emptyCode} at`))).toHaveText('7.5');
+	await expect(picker).toHaveCount(0);
+	await expect(page.getByRole('link', { name: instrument, exact: true })).toHaveAttribute(
+		'title',
+		'The instrument this value was measured on',
+	);
 });
 
 test('an empty visit is discarded from its own record', async ({ page, request }) => {

@@ -12,10 +12,12 @@ import {
 	sheetData,
 	sheetHeaders,
 	sheetSlot,
+	sheetZone,
 	storedValue,
 	visitDates,
 	type SheetTable,
 } from './sheet';
+import { BROWSER_ZONE } from '$lib/time/zones';
 import { gridRows, spareVisits, standingInstants } from './spareRows';
 
 const LOCALE = 'en-GB';
@@ -102,6 +104,21 @@ describe('the visits sheet', () => {
 		expect(sheetData(table(visits, slots), {}, {}, LOCALE, 'Europe/Zurich', always)[0][0]).toBe('2026-06-01 10:00:00');
 		expect(sheetHeaders(columns, 'UTC')[1][0]).toBe('Date (UTC)');
 		expect(sheetData(table(visits, slots), {}, {}, LOCALE, 'UTC', always)[0][0]).toBe('2026-06-01 08:00:00');
+	});
+
+	it('heads the date column and reads a new row in the zone the page selector names', () => {
+		const columns = parameterColumns(expected, visits, new Set());
+		const bare = { 'new:0': '2026-07-05' };
+		const utc = sheetZone('UTC');
+		expect(sheetHeaders(columns, utc)[1][0]).toBe('Date (UTC)');
+		expect(spareVisits(bare, 1, new Set(), utc)[0].collectedAt).toBe('2026-07-05T00:00:00.000Z');
+		// Local is the browser's own zone, the one the header then names.
+		const local = sheetZone(undefined);
+		expect(local).toBe(BROWSER_ZONE);
+		expect(sheetHeaders(columns, local)[1][0]).toBe(`Date (${BROWSER_ZONE})`);
+		expect(spareVisits(bare, 1, new Set(), local)[0].collectedAt).toBe(
+			new Date(2026, 6, 5).toISOString(),
+		);
 	});
 
 	it('changes nothing but the date when the zone changes, so a staged value survives the switch', () => {

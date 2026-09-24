@@ -149,7 +149,7 @@ describe("SiteVisitsTab", () => {
     expect(screen.queryByText("100.800003")).toBeNull();
   });
 
-  it("redraws the date column in the zone the header toggle names", async () => {
+  it("redraws the date column in the zone the header toggle names, with no zone picker of its own", async () => {
     listSiteVisits.mockResolvedValue({
       site_id: "site-1",
       page: 1,
@@ -178,6 +178,8 @@ describe("SiteVisitsTab", () => {
     await screen.findByText("100.80");
     const grid = within(document.querySelector<HTMLElement>(".ht_master")!);
 
+    // The page selector is the only zone the table answers to.
+    expect(screen.queryByLabelText("Zone new rows are dated in")).toBeNull();
     timezoneStore.set("utc");
     expect(await grid.findByText("Date (UTC)")).toBeTruthy();
     expect(grid.getByRole("button", { name: "2025-06-01 08:00:00" })).toBeTruthy();
@@ -250,7 +252,7 @@ describe("SiteVisitsTab", () => {
 
     render(SiteVisitsTab, props({ declared: 2 }));
 
-    await userEvent.click(await screen.findByText("Compute at listed visits"));
+    await userEvent.click(await screen.findByText("All listed visits"));
     await userEvent.click(screen.getByText("Compute"));
 
     expect(runEventRecompute).toHaveBeenCalledWith({

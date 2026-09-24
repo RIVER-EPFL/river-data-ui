@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { base } from '$app/paths';
 	import { visitHref } from '$lib/visits/link';
 	import {
@@ -9,7 +10,6 @@
 		type ProvenanceCalibrationRef,
 		type ProvenanceCalculation,
 		type ReceiptSummary,
-		getReadingDecisions,
 		replayDerived,
 		type ReplayResult,
 		getReadingLedger,
@@ -18,7 +18,6 @@
 		getEditSet,
 		reopenReplicateAudit,
 		type LedgerEntry,
-		type ReadingDecision,
 		type ConsumedInput,
 	} from '$api/service';
 	import { TAG_KINDS, holdHref as holdLinkHref, type HoldLink } from '$lib/holds';
@@ -27,25 +26,24 @@
 	import { curveLabel, formatEquation } from '$lib/standardCurves';
 	import { classificationLabel, originPhrase, provenanceKindLabel } from '$lib/origin';
 	import { NO_VALUE, formatCount, formatMeasurement, numericCell } from '$lib/format';
-	import { formatDateTime } from '$lib/utils';
+	import { formatCompactInstant, formatDateTime } from '$lib/utils';
+	import { timezoneStore } from '$lib/stores/timezone.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Badge from '$components/ui/Badge.svelte';
+	import Button from '$components/ui/Button.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import ProvenanceCard from '$components/samples/ProvenanceCard.svelte';
 	import EditReadingDialog from '$components/dialogs/EditReadingDialog.svelte';
 	import RollbackDialog from '$components/provenance/RollbackDialog.svelte';
 	import {
-		changedFields,
 		decisionLabel,
 		fieldLabel,
 		restoredLines,
 		rulingHold,
-		timelineEntries,
 		undoable,
-		withoutSetMembers,
 		type DecisionEntry,
 	} from '$lib/provenance/decisions';
-	import { leadingToken, ledgerLine, ledgerWeight } from '$lib/provenance/ledger';
+	import { historyRows, leadingToken, type HistoryRow } from '$lib/provenance/ledger';
 	import { decommissionText, recordDecommission } from '$lib/provenance/decommission';
 	import { takeoverText } from '$lib/provenance/takeover';
 	import { originServiceHref } from '$lib/provenance/serviceLink';
@@ -112,70 +110,25 @@
 	/// The arithmetic behind a derived value, read on request: the formula the computation
 	/// recorded, over the values it recorded. Keyed by the record it belongs to.
 	let replays = $state<Record<number, ReplayResult | { error: string }>>({});
-	// The history of one record, fetched on demand: it is the audit trail, not part of the value,
-	// so it is not on the critical path of reading the record. The ledger is the timeline; the
-	// decisions read beside it is what says which of its entries an operator may still undo.
-	let showHistory = $state<Set<number>>(new Set());
+	// The history of each record, read with the record: every dated thing that happened to it, the
+	// decisions riding on their entries so each row can be rolled back from this one read.
 	let history = $state<Record<number, LedgerEntry[]>>({});
-	let decisions = $state<Record<number, ReadingDecision[]>>({});
 	let historyError = $state<Record<number, string>>({});
 	let severity = $state<'all' | 'error' | 'warning'>('all');
-	// The administrative half of a history, folded to its newest few until a reader asks for it.
-	let showAllAdmin = $state<Set<number>>(new Set());
 	let rollingBack = $state<string | null>(null);
 	let editOpen = $state(false);
 	let editSelection = $state<{ keys: { stream_id: string; time: string }[] } | null>(null);
 	let editInitial = $state<'override' | null>(null);
 
-	// How many administrative entries a folded history shows before the rest are behind the count.
-	const ADMIN_SHOWN = 3;
-
-	function valueEntries(i: number): LedgerEntry[] {
-		return withoutSetMembers(history[i] ?? [], decisions[i] ?? []).filter((e) => ledgerWeight(e) === 'value');
-	}
-
-	function adminEntries(i: number): LedgerEntry[] {
-		return (history[i] ?? []).filter((e) => ledgerWeight(e) === 'administrative');
-	}
-
-	function shownAdmin(i: number): LedgerEntry[] {
-		const all = adminEntries(i);
-		return showAllAdmin.has(i) ? all : all.slice(0, ADMIN_SHOWN);
-	}
-
-	function toggleAdmin(i: number) {
-		const next = new Set(showAllAdmin);
-		if (next.has(i)) next.delete(i);
-		else next.add(i);
-		showAllAdmin = next;
-	}
-
-	async function toggleHistory(i: number, rec: ProvenanceRecord) {
-		const next = new Set(showHistory);
-		if (next.has(i)) {
-			next.delete(i);
-			showHistory = next;
-			return;
-		}
-		next.add(i);
-		showHistory = next;
-		await loadHistory(i, rec);
-	}
-
 	// The severity is the one filter, and the endpoint applies it, so changing it re-reads every
 	// record already open rather than hiding rows it already holds.
 	async function filterBy(level: 'all' | 'error' | 'warning') {
 		severity = level;
-		for (const i of showHistory) {
-			const rec = resp?.records[i];
-			if (rec) await loadHistory(i, rec);
-		}
+		await loadAllHistory();
 	}
 
-	/** The decision behind a ledger entry, where the entry is one: only that arm can be undone. */
-	function decisionFor(i: number, entry: LedgerEntry): DecisionEntry | undefined {
-		if (entry.source !== 'decision') return undefined;
-		return timelineEntries(decisions[i] ?? []).find((e) => e.head.id === entry.id);
+	async function loadAllHistory() {
+		for (const [i, rec] of (resp?.records ?? []).entries()) await loadHistory(i, rec);
 	}
 
 	/** Where an entry lives, for the records that have a page of their own. */
@@ -200,6 +153,11 @@
 	}
 
 	function cellText(v: unknown): string {
+		if (typeof v === 'number') return fmt(v);
+		return rawText(v);
+	}
+
+	function rawText(v: unknown): string {
 		if (v === null || v === undefined || v === '') return NO_VALUE;
 		return typeof v === 'string' ? v : JSON.stringify(v);
 	}
@@ -219,10 +177,6 @@
 				...(severity === 'all' ? {} : { severity }),
 			});
 			history = { ...history, [i]: ledger.entries };
-			decisions = {
-				...decisions,
-				[i]: await getReadingDecisions({ stream_id: rec.origin.stream_id, time: timeIso }),
-			};
 			historyError = { ...historyError, [i]: '' };
 		} catch (e) {
 			historyError = {
@@ -361,10 +315,10 @@
 	}
 
 	const unitSuffix = $derived(units ? ` (${units})` : '');
-	// One line of labelled values: the strip reads left to right, not as a column of rows.
-	const lineClass = 'mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-0.5';
-	const gridClass =
-		'mt-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 sm:grid-cols-[auto_minmax(0,1fr)_auto_minmax(0,1fr)]';
+	// Each fact is a label above its value; the groups share one grid across the record's width.
+	const factsClass = 'mt-2 grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] gap-x-6 gap-y-2';
+	const lineClass = 'contents';
+	const gridClass = factsClass;
 
 	function cadence(rec: ProvenanceRecord): string {
 		return rec.readings[0]?.measurement_type ?? 'continuous';
@@ -552,6 +506,7 @@
 		if (preloaded && !ownRecord) {
 			resp = preloaded;
 			loading = false;
+			void loadAllHistory();
 			return;
 		}
 		loading = true;
@@ -569,17 +524,19 @@
 		} finally {
 			loading = false;
 		}
+		void loadAllHistory();
 	}
 
 	$effect(() => {
 		const key = `${siteId}|${parameterId}|${timeIso}|${measurementType ?? ''}|${revision}`;
 		void key;
 		showToolRun = new Set();
-		showHistory = new Set();
+		history = {};
 		replays = {};
 		error = '';
 		ownRecord = false;
-		void load();
+		// The key above is the whole dependency: what the load reads must not re-run it.
+		untrack(() => void load());
 	});
 
 	/// Ask for a derived record's own arithmetic. It is read once per record and kept, because
@@ -621,11 +578,9 @@
 </script>
 
 {#snippet field(label: string, value: string, tip: string | undefined, numeric: boolean)}
-	<div class="contents" title={tip}>
-		<dt class="py-0.5 text-xs text-brand-muted">{label}</dt>
-		<dd
-			class="py-0.5 text-brand-text {numeric ? 'text-right font-mono tabular-nums' : ''}"
-		>{value}</dd>
+	<div class="flex min-w-0 flex-col" title={tip}>
+		<dt class="text-xs text-brand-muted">{label}</dt>
+		<dd class="text-brand-text {numeric ? 'font-mono tabular-nums' : ''}">{value}</dd>
 	</div>
 {/snippet}
 
@@ -672,7 +627,7 @@
 {/snippet}
 
 {#snippet inlineField(label: string, value: string, tip: string | undefined, numeric: boolean)}
-	<div class="contents" title={tip}>
+	<div class="flex min-w-0 flex-col" title={tip}>
 		<span class="text-xs text-brand-muted">{label}</span>
 		<span class="text-brand-text {numeric ? 'font-mono tabular-nums' : ''}">{value}</span>
 	</div>
@@ -701,11 +656,13 @@
 {#snippet calculation(rec: ProvenanceRecord)}
 	{@const author = rec.computation?.created_by ?? NO_VALUE}
 	{@const what = computationText(rec)}
+	{@const label = rec.computation?.label || NO_VALUE}
+	{@const notes = rec.computation?.notes || NO_VALUE}
 	{@const retired = recordDecommission(rec)}
-	{#if what !== NO_VALUE || author !== NO_VALUE}
+	{#if what !== NO_VALUE || author !== NO_VALUE || label !== NO_VALUE || notes !== NO_VALUE}
 		<div class={lineClass}>
 			{#if rec.calculation}
-				<div class="contents" title={computationTip(rec)}>
+				<div class="flex min-w-0 flex-col" title={computationTip(rec)}>
 					<span class="text-xs text-brand-muted">Computation</span>
 					<a class="text-brand-primary hover:underline" href={calculationHref(base, rec.calculation, computationAnchor(rec))}>{what}</a>
 				</div>
@@ -713,9 +670,11 @@
 				{@render inlineOptional('Computation', what, computationTip(rec), false)}
 			{/if}
 			{@render inlineOptional('Run by', author, undefined, false)}
+			{@render inlineOptional('Label', label, 'The label named when the value was saved', false)}
+			{@render inlineOptional('Notes', notes, 'The notes entered when the value was saved', false)}
 		</div>
 		{#if retired}
-			<p class="text-xs text-brand-accent-dark">{decommissionText(retired)}</p>
+			<p class="col-span-full text-xs text-brand-accent-dark">{decommissionText(retired)}</p>
 		{/if}
 	{/if}
 {/snippet}
@@ -724,7 +683,7 @@
 	{@const calc = rec.origin.portal_calculation}
 	{#if calc}
 		<div class={lineClass}>
-			<div class="contents" title="The portal function that computed this column, as the source declared it.">
+			<div class="flex min-w-0 flex-col" title="The portal function that computed this column, as the source declared it.">
 				<span class="text-xs text-brand-muted">Portal calculation</span>
 				<span class="text-brand-text">
 					<span class="font-mono">{calc.function}</span>
@@ -750,13 +709,13 @@
 		<div class={lineClass}>
 			{@render inlineOptional('Instrument', named, undefined, false)}
 			{#if r?.calibration}
-				<div class="contents" title="The windowed calibration applied to the measurement.">
+				<div class="flex min-w-0 flex-col" title="The windowed calibration applied to the measurement.">
 					<span class="text-xs text-brand-muted">Calibration</span>
 					<span class="text-brand-text">{@render calibrationCell(r, rec.chain.sensor?.id)}</span>
 				</div>
 			{/if}
 			{#if r?.standard_curve}
-				<div class="contents" title="The lab curve chosen for this measurement.">
+				<div class="flex min-w-0 flex-col" title="The lab curve chosen for this measurement.">
 					<span class="text-xs text-brand-muted">Standard curve</span>
 					<span class="text-brand-text">{@render curveCell(r)}</span>
 				</div>
@@ -960,7 +919,11 @@
 		{/each}
 		{#each resp.records as rec, i (rec.origin.stream_id)}
 			{@const serviceHref = originServiceHref(base, rec.origin, me.can('admin'))}
-			<div class={i > 0 ? 'mt-3 border-t border-brand-divider pt-3' : 'mt-2'}>
+			<div class="@container {i > 0 ? 'mt-3 border-t border-brand-divider pt-3' : 'mt-2'}">
+			<!-- The record, then its history under it at full width, open on arrival. -->
+			<div class="space-y-3">
+			<div class="min-w-0">
+				<div class="flex flex-wrap items-start gap-2">
 				<div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
 					{#if serviceHref}
 						<a href={serviceHref} class="inline-flex" title="Open the sync service that wrote it">
@@ -982,12 +945,67 @@
 						</a>
 					{/each}
 				</div>
+					<div
+						role="group"
+						aria-label="Actions"
+						class="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-xs"
+					>
+						{#if onflag && rec.readings.length > 0 && flaggable(rec)}
+							<button
+								class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline"
+								onclick={() => onflag(replicatesOf(rec))}>Flag replicates</button
+							>
+						{/if}
+						{#if rec.event}
+							<a
+								class="text-brand-primary hover:underline"
+								href="{base}{visitHref(siteId, rec.event.id, parameterId)}"
+								title="Visit of {formatDateTime(rec.event.collected_at)}, {rec.event.source === 'portal_sync'
+									? `synced from the portal${rec.event.created_by ? ` by ${rec.event.created_by}` : ''}`
+									: originPhrase('entry', { actor: rec.event.created_by ?? undefined })}."
+								>Open visit</a
+							>
+						{/if}
+						{#if rec.chain.sensor}
+							<a
+								class="text-brand-primary hover:underline"
+								href="{base}/sensors/{rec.chain.sensor.id}"
+								title={instrumentText(rec)}>Open instrument</a
+							>
+						{/if}
+						<a
+							class="text-brand-primary hover:underline"
+							href="{base}/streams?q={encodeURIComponent(rec.origin.source_key)}"
+							title="{rec.origin.source_system} · {rec.origin.source_key}">Open stream</a
+						>
+						{#if link && i === 0}
+							<button
+								class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline"
+								title={link}
+								onclick={copyLink}>Copy link</button
+							>
+						{/if}
+						<button
+							class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline"
+							title="What produced it decides what may be done to it"
+							onclick={() => openEdit(rec)}>Edit</button
+						>
+						{#if overridable(rec)}
+							<button
+								class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline"
+								title="Replace the calculated value by hand; the calculation stops writing it here"
+								onclick={() => openEdit(rec, 'override')}>Override</button
+							>
+						{/if}
+					</div>
+				</div>
 
+				<div class={factsClass}>
 				{@render portalCalculation(rec)}
 				{#if cadence(rec) === 'derived'}{@render calculation(rec)}{/if}
 				{#if rec.readings.length === 1}
 					{@const r = rec.readings[0]}
-					<dl class={gridClass}>
+					<dl class="contents">
 						{@render field(`${valueLabel(rec)}${unitSuffix}`, fmt(r.raw_value), undefined, true)}
 						{@render optional(`Corrected${unitSuffix}`, fmt(r.calibrated_value), undefined, true)}
 						{@render optional('State', stateText(r), stateTip(r), false)}
@@ -996,79 +1014,21 @@
 					{@render statistics(rec)}
 				{/if}
 				{#each rec.readings.filter((r) => r.overridden) as r (r.replicate_index)}
-					<p class="mt-1 text-xs" data-testid="overridden">
+					<p class="col-span-full text-xs" data-testid="overridden">
 						<Badge variant="warning">overridden</Badge>
 						<span class="ml-1 text-brand-text">{overrideText(r)}</span>
 					</p>
 				{/each}
 				{@render instrument(rec)}
 				{#if cadence(rec) !== 'derived'}{@render calculation(rec)}{/if}
-				{@render consumed(rec)}
-
-				<div
-					role="group"
-					aria-label="Actions"
-					class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs"
-				>
-					{#if onflag && rec.readings.length > 0 && flaggable(rec)}
-						<button
-							class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline"
-							onclick={() => onflag(replicatesOf(rec))}>Flag replicates</button
-						>
-					{/if}
-					{#if rec.event}
-						<a
-							class="text-brand-primary hover:underline"
-							href="{base}{visitHref(siteId, rec.event.id, parameterId)}"
-							title="Visit of {formatDateTime(rec.event.collected_at)}, {rec.event.source === 'portal_sync'
-								? `synced from the portal${rec.event.created_by ? ` by ${rec.event.created_by}` : ''}`
-								: originPhrase('entry', { actor: rec.event.created_by ?? undefined })}."
-							>Open visit</a
-						>
-					{/if}
-					{#if rec.chain.sensor}
-						<a
-							class="text-brand-primary hover:underline"
-							href="{base}/sensors/{rec.chain.sensor.id}"
-							title={instrumentText(rec)}>Open instrument</a
-						>
-					{/if}
-					<a
-						class="text-brand-primary hover:underline"
-						href="{base}/streams?q={encodeURIComponent(rec.origin.source_key)}"
-						title="{rec.origin.source_system} · {rec.origin.source_key}">Open stream</a
-					>
-					{#if link && i === 0}
-						<button
-							class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline"
-							title={link}
-							onclick={copyLink}>Copy link</button
-						>
-					{/if}
-					<button
-						class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline"
-						title="What produced it decides what may be done to it"
-						onclick={() => openEdit(rec)}>Edit</button
-					>
-					{#if overridable(rec)}
-						<button
-							class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline"
-							title="Replace the calculated value by hand; the calculation stops writing it here"
-							onclick={() => openEdit(rec, 'override')}>Override</button
-						>
-					{/if}
 				</div>
+				{@render consumed(rec)}
 
 				<details class="mt-2">
 					<summary class="cursor-pointer text-xs text-brand-muted">Details</summary>
 					{#if rec.readings.length > 1}{@render replicateTable(rec)}{/if}
 					{@render administrative(rec)}
 					<div class="mt-2 flex flex-wrap items-center gap-x-3 text-xs">
-						<button
-							class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline"
-							onclick={() => toggleHistory(i, rec)}
-							>{showHistory.has(i) ? 'Hide history' : 'Show history'}</button
-						>
 						{#if rec.computation?.provenance}
 							<button
 								class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline"
@@ -1084,54 +1044,6 @@
 							>
 						{/if}
 					</div>
-				{#if showHistory.has(i)}
-					<div class="mt-2 text-xs">
-						<div class="mb-1 flex items-center gap-2 text-brand-muted">
-							<span>History</span>
-							{#each [['all', 'Everything'], ['warning', 'Warnings'], ['error', 'Failures']] as [level, label] (level)}
-								<button
-									class="cursor-pointer border-none bg-transparent p-0 hover:underline"
-									class:font-medium={severity === level}
-									class:text-brand-primary={severity === level}
-									onclick={() => filterBy(level as 'all' | 'error' | 'warning')}>{label}</button
-								>
-							{/each}
-						</div>
-						{#if historyError[i]}
-							<ErrorNotice message={historyError[i]} />
-						{:else if (history[i] ?? []).length === 0}
-							<p class="text-brand-muted">
-								Nothing has happened to this reading: it stands as it arrived.
-							</p>
-						{:else}
-							<ul class="space-y-1">
-								{#each valueEntries(i) as entry (entry.source + entry.id + entry.at)}
-									{@render line(i, rec, entry, false)}
-								{/each}
-							</ul>
-							{#if adminEntries(i).length > 0}
-								<div class="mt-2 border-t border-brand-divider pt-1">
-									{#if adminEntries(i).length > ADMIN_SHOWN}
-										<button
-											class="cursor-pointer border-none bg-transparent p-0 text-brand-muted hover:underline"
-											onclick={() => toggleAdmin(i)}
-											>Administrative ({formatCount(adminEntries(i).length)}), {showAllAdmin.has(i)
-												? 'show fewer'
-												: 'show all'}</button
-										>
-									{:else}
-										<span class="text-brand-muted">Administrative</span>
-									{/if}
-									<ul class="mt-1 space-y-1 text-brand-muted">
-										{#each shownAdmin(i) as entry (entry.source + entry.id + entry.at)}
-											{@render line(i, rec, entry, true)}
-										{/each}
-									</ul>
-								</div>
-							{/if}
-						{/if}
-					</div>
-				{/if}
 				{#if replays[i]}
 					<!-- The formula the computation recorded, run again over the values it recorded.
 					     A replayed number that is not the stored one means the row moved outside
@@ -1167,72 +1079,159 @@
 				{/if}
 				</details>
 			</div>
+			{@render historyPanel(i, rec)}
+			</div>
+			</div>
 		{/each}
 	{/if}
 	</div>
 </div>
 
-{#snippet line(i: number, rec: ProvenanceRecord, entry: LedgerEntry, muted: boolean)}
-	{@const decision = decisionFor(i, entry)}
-	{@const href = entryHref(rec, entry)}
+{#snippet historyPanel(i: number, rec: ProvenanceRecord)}
+	{@const rows = historyRows(history[i] ?? [])}
+	<section class="min-w-0 text-xs" aria-label="History">
+		<div class="mb-1 flex items-center gap-2 text-brand-muted">
+			<span class="font-medium text-brand-text">History</span>
+			{#each [['all', 'Everything'], ['warning', 'Warnings'], ['error', 'Failures']] as [level, label] (level)}
+				<button
+					class="cursor-pointer border-none bg-transparent p-0 hover:underline"
+					class:font-medium={severity === level}
+					class:text-brand-primary={severity === level}
+					onclick={() => filterBy(level as 'all' | 'error' | 'warning')}>{label}</button
+				>
+			{/each}
+		</div>
+		{#if historyError[i]}
+			<ErrorNotice message={historyError[i]} />
+		{:else if !history[i]}
+			<p class="text-brand-muted">Loading…</p>
+		{:else if rows.length === 0}
+			<p class="text-brand-muted">Nothing has happened to this reading: it stands as it arrived.</p>
+		{:else}
+			{@render timeAxis(rows)}
+			<div class="overflow-x-auto">
+				<table class="w-full border-collapse">
+					<thead>
+						<tr class="text-left text-brand-muted">
+							<th class="py-0.5 pr-2 font-normal">Date</th>
+							<th class="py-0.5 pr-2 font-normal">What</th>
+							<th class="py-0.5 pr-2 font-normal">Change</th>
+							<th class="py-0.5 pr-2 font-normal">Reason</th>
+							<th class="py-0.5 pr-2 font-normal">Who</th>
+							<th class="py-0.5 font-normal"><span class="sr-only">Actions</span></th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each rows as row (row.key)}
+							{@render historyRow(i, rec, row)}
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	</section>
+{/snippet}
+
+{#snippet timeAxis(rows: HistoryRow[])}
+	{@const times = rows.map((r) => Date.parse(r.at))}
+	{@const first = Math.min(...times)}
+	{@const span = Math.max(...times) - first}
+	<!-- One mark per row, so a change reads as a point in time. -->
+	<div class="mb-2" data-testid="history-axis">
+		<div class="relative h-3 border-b border-brand-divider">
+			{#each rows as row (row.key)}
+				<span
+					class="absolute bottom-0 h-3 w-0.5 -translate-x-1/2 {row.severity === 'error'
+						? 'bg-severity-alarm'
+						: row.severity === 'warning'
+							? 'bg-severity-warning'
+							: row.decision
+								? 'bg-brand-primary'
+								: 'bg-brand-muted'}"
+					style="left: {span > 0 ? ((Date.parse(row.at) - first) / span) * 100 : 50}%"
+					title="{row.what}, {formatDateTime(row.at)}"
+				></span>
+			{/each}
+		</div>
+		<div class="flex justify-between text-[11px] text-brand-muted">
+			<span>{formatDateTime(new Date(first).toISOString())}</span>
+			{#if span > 0}<span>{formatDateTime(new Date(first + span).toISOString())}</span>{/if}
+		</div>
+	</div>
+{/snippet}
+
+{#snippet historyRow(i: number, rec: ProvenanceRecord, row: HistoryRow)}
+	{@const decision = row.decision}
+	{@const href = entryHref(rec, row.entry)}
 	{@const ruling = decision ? rulingHold(decision.head) : null}
-	<li class="flex flex-wrap items-baseline gap-x-2">
-		<span class:font-medium={!muted}>
-			{decision ? decisionLabel(decision.head.kind) : ledgerLine(entry).text}
-		</span>
-		{#if decision && decision.members.length > 1}
-			<span class="text-brand-muted" title={memberRows(decision)}
-				>{formatCount(decision.members.length)} readings</span
-			>
-		{/if}
-		{#if entry.severity !== 'info'}
-			<Badge variant={entry.severity === 'error' ? 'alarm' : 'warning'}>{entry.severity}</Badge>
-		{/if}
-		<span class="text-brand-muted">
-			{formatDateTime(entry.at)}{entry.actor ? ` · ${entry.actor}` : ''}
-		</span>
-		{#each decision ? changedFields(decision.head) : [] as c (c.field)}
-			<span class="text-brand-muted">
-				{fieldLabel(c.field)}
-				{cellText(c.from)} → {cellText(c.to)}
-			</span>
-		{/each}
-		{#if decision?.head.reason}
-			<span class="text-brand-muted">“{decision.head.reason}”</span>
-		{/if}
-		{#if href}
-			<a class="text-brand-primary hover:underline" {href}>Open</a>
-		{/if}
-		{#if decision?.head.rolled_back_by}
-			<span class="text-brand-muted">rolled back</span>
-		{:else if decision && ruling}
-			{#if me.can('manageSensors')}
-				<button
-					class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline disabled:opacity-50"
-					disabled={rollingBack === decision.head.id}
-					title="Rolls back the ruling and returns its hold to the review queue"
-					onclick={() => reopenRuling(i, rec, decision, ruling)}>Reopen ruling</button
-				>
-			{:else}
-				<span class="text-brand-muted">a manager's ruling, undone by reopening it</span>
-			{/if}
-		{:else if decision && undoable(decision.head)}
-			<button
-				class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline disabled:opacity-50"
-				disabled={rollingBack === decision.head.id}
-				title="Puts back this reading's values from before this decision"
-				onclick={() => askRollback(i, rec, decision, 'reading')}>Roll back this reading</button
-			>
-			{#if decision.set_id}
-				<button
-					class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline disabled:opacity-50"
-					disabled={rollingBack === decision.head.id}
-					title="Puts back every value the same edit changed, on this reading and any other"
-					onclick={() => askRollback(i, rec, decision, 'set')}>Roll back the whole edit</button
+	<tr class="border-t border-brand-divider align-top">
+		<td class="py-1 pr-2 whitespace-nowrap text-brand-muted tabular-nums" title={formatDateTime(row.at)}
+			>{formatCompactInstant(row.at, timezoneStore.zone).slice(0, 16)}</td
+		>
+		<td class="py-1 pr-2">
+			<span class="font-medium">{row.what}</span>
+			{#if decision && decision.members.length > 1}
+				<span class="text-brand-muted" title={memberRows(decision)}
+					>, {formatCount(decision.members.length)} readings</span
 				>
 			{/if}
-		{/if}
-	</li>
+			{#if row.severity !== 'info'}
+				<Badge variant={row.severity === 'error' ? 'alarm' : 'warning'}>{row.severity}</Badge>
+			{/if}
+			{#if href}
+				<a class="font-medium text-brand-primary underline underline-offset-2" {href}>Open</a>
+			{/if}
+		</td>
+		<td class="py-1 pr-2 text-brand-muted">
+			{#each row.changes as c (c.field)}
+				<span class="block" title="{fieldLabel(c.field)} {rawText(c.from)} → {rawText(c.to)}"
+					>{fieldLabel(c.field)} {cellText(c.from)} → {cellText(c.to)}</span
+				>
+			{/each}
+		</td>
+		<td class="py-1 pr-2 text-brand-muted">{row.reason ?? ''}</td>
+		<td class="py-1 pr-2 text-brand-muted">
+			{row.who ?? ''}{row.who ? ' · ' : ''}{row.origin}
+		</td>
+		<td class="py-1">
+			<div class="flex flex-col items-start gap-0.5">
+			{#if decision?.head.rolled_back_by}
+				<span class="text-brand-muted">rolled back</span>
+			{:else if decision && ruling}
+				{#if me.can('manageSensors')}
+					<Button
+						size="sm"
+						variant="ghost"
+						disabled={rollingBack === decision.head.id}
+						title="Rolls back the ruling and returns its hold to the review queue"
+						onclick={() => reopenRuling(i, rec, decision, ruling)}>Reopen ruling</Button
+					>
+				{:else}
+					<span class="text-brand-muted">a manager's ruling, undone by reopening it</span>
+				{/if}
+			{:else if decision && undoable(decision.head)}
+				<Button
+					size="sm"
+					variant="ghost"
+					disabled={rollingBack === decision.head.id}
+					aria-label="Roll back this reading"
+					title="Roll back this reading: puts back its values from before this decision"
+					onclick={() => askRollback(i, rec, decision, 'reading')}>Roll back</Button
+				>
+				{#if decision.set_id}
+					<Button
+						size="sm"
+						variant="ghost"
+						disabled={rollingBack === decision.head.id}
+							aria-label="Roll back the whole edit"
+						title="Roll back the whole edit: puts back every value the same edit changed, on this reading and any other"
+						onclick={() => askRollback(i, rec, decision, 'set')}>Whole edit</Button
+					>
+				{/if}
+			{/if}
+			</div>
+		</td>
+	</tr>
 {/snippet}
 
 {#if recovery}

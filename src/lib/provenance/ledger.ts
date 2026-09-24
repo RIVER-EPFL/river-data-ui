@@ -1,16 +1,7 @@
-import type { HoldKind, LedgerEntry } from '$api/service';
+import type { HoldKind, LedgerEntry, ReadingDecision } from '$api/service';
 import { formatCount } from '$lib/format';
 import { triggerLabel } from '$lib/utils';
-import { decisionLabel } from './decisions';
-
-/// Whether an entry moved the number a reader came for, or says something about how it is
-/// administered. A value entry is drawn in full; an administrative one is faded and folded away.
-export type LedgerWeight = 'value' | 'administrative';
-
-export interface LedgerLine {
-	text: string;
-	weight: LedgerWeight;
-}
+import { changedFields, decisionLabel, timelineEntries, type DecisionEntry, type FieldChange } from './decisions';
 
 /// The edits `change_audit` records against a catalogue parameter or a site's slot: the two
 /// subjects the reading ledger reads, under the trigger's `{subject}_{op}` and the merge's own.
@@ -95,69 +86,55 @@ export function leadingToken(what: string): string {
 	return what.split(/[\s:(]/, 1)[0] ?? what;
 }
 
-function decisionLine(entry: LedgerEntry): LedgerLine {
-	return { text: decisionLabel(leadingToken(entry.what)), weight: 'value' };
+function decisionLine(entry: LedgerEntry): string {
+	return decisionLabel(leadingToken(entry.what));
 }
 
-function holdLine(entry: LedgerEntry): LedgerLine {
+function holdLine(entry: LedgerEntry): string {
 	const match = /^(\S+) \((.+)\)$/.exec(entry.what);
 	const kind = match?.[1] ?? entry.what;
 	const status = match?.[2] ?? '';
 	const label = labelled(HOLD_LABELS as Record<string, string>, kind, entry.what);
 	const state = status ? labelled(HOLD_STATUSES, status, status) : '';
-	return { text: state ? `${label}, ${state}` : label, weight: 'administrative' };
+	return state ? `${label}, ${state}` : label;
 }
 
-function changeLine(entry: LedgerEntry): LedgerLine {
-	return {
-		text: labelled(CHANGE_LABELS as Record<string, string>, entry.what, entry.what),
-		weight: 'administrative',
-	};
+function changeLine(entry: LedgerEntry): string {
+	return labelled(CHANGE_LABELS as Record<string, string>, entry.what, entry.what);
 }
 
-/// A job says what it was for and how it ended. It counts as a value entry only where it moved
-/// rows: a sweep that found nothing to do is plumbing.
-function jobLine(entry: LedgerEntry): LedgerLine {
+/// A job says what it was for and how it ended.
+function jobLine(entry: LedgerEntry): string {
 	const [trigger, ...rest] = entry.what.split(' ');
 	const tail = rest.join(' ');
 	const failure = tail.startsWith('failed:') ? tail.slice('failed:'.length).trim() : null;
 	const status = failure === null ? labelled(JOB_STATUSES, tail, tail) : 'failed';
-	const moved = Number((entry.new as { readings_updated?: number } | null)?.readings_updated ?? 0);
-	const text = `${triggerLabel(trigger)} ${status}${failure ? `: ${failure}` : ''}`;
-	return { text, weight: moved > 0 ? 'value' : 'administrative' };
+	return `${triggerLabel(trigger)} ${status}${failure ? `: ${failure}` : ''}`;
 }
 
-function ingestLine(entry: LedgerEntry): LedgerLine {
+function ingestLine(entry: LedgerEntry): string {
 	const counts = (entry.new ?? {}) as Record<string, number | boolean>;
-	if (counts.braked) {
-		return { text: 'Reload from the source stopped by the brake', weight: 'administrative' };
-	}
+	if (counts.braked) return 'Reload from the source stopped by the brake';
 	const changed = Number(counts.changed ?? 0);
 	const added = Number(counts.new ?? 0);
-	return {
-		text: `Reloaded from the source: ${formatCount(added)} new, ${formatCount(changed)} changed`,
-		weight: 'administrative',
-	};
+	return `Reloaded from the source: ${formatCount(added)} new, ${formatCount(changed)} changed`;
 }
 
-function toolRunLine(entry: LedgerEntry): LedgerLine {
+function toolRunLine(entry: LedgerEntry): string {
 	const match = /^(.+) \((.+)\)$/.exec(entry.what);
 	const tool = match?.[1] ?? entry.what;
 	const source = match?.[2] ?? '';
 	const how = source ? labelled(RUN_SOURCES, source, source) : '';
-	return { text: `Calculated by ${tool}${how ? `, run ${how}` : ''}`, weight: 'value' };
+	return `Calculated by ${tool}${how ? `, run ${how}` : ''}`;
 }
 
-function alarmLine(entry: LedgerEntry): LedgerLine {
-	return {
-		text: entry.what.endsWith('resolved') ? 'Alarm raised, since resolved' : 'Alarm raised',
-		weight: 'administrative',
-	};
+function alarmLine(entry: LedgerEntry): string {
+	return entry.what.endsWith('resolved') ? 'Alarm raised, since resolved' : 'Alarm raised';
 }
 
 /// Every arm `GET /readings/ledger` unions, in plain words. An arm this build does not know
 /// prints what the API said rather than nothing.
-export function ledgerLine(entry: LedgerEntry): LedgerLine {
+export function ledgerLine(entry: LedgerEntry): string {
 	switch (entry.source) {
 		case 'decision':
 			return decisionLine(entry);
@@ -168,7 +145,7 @@ export function ledgerLine(entry: LedgerEntry): LedgerLine {
 		case 'job':
 			return jobLine(entry);
 		case 'job_log':
-			return { text: entry.what, weight: 'administrative' };
+			return entry.what;
 		case 'ingest':
 			return ingestLine(entry);
 		case 'tool_run':
@@ -176,12 +153,73 @@ export function ledgerLine(entry: LedgerEntry): LedgerLine {
 		case 'alarm':
 			return alarmLine(entry);
 		default:
-			return { text: entry.what, weight: 'administrative' };
+			return entry.what;
 	}
 }
 
-/// A failure or a warning is never faded: it is what a reader opened the history to find.
-export function ledgerWeight(entry: LedgerEntry): LedgerWeight {
-	if (entry.severity !== 'info') return 'value';
-	return ledgerLine(entry).weight;
+/// Who made a change, in the words the history table prints beside the actor.
+const DECISION_ORIGINS: Record<string, string> = {
+	manual: 'person',
+	sync: 'sync',
+	csv: 'import',
+	audit: 'review',
+	chain: 'chain',
+	rollback: 'rollback',
+	system: 'system',
+	janitor: 'sweep',
+};
+
+const SOURCE_ORIGINS: Record<string, string> = {
+	ingest: 'sync',
+	tool_run: 'tool',
+	job: 'job',
+	job_log: 'job',
+	hold: 'review',
+	alarm: 'sweep',
+	change: 'person',
+};
+
+/// One row of a record's history table: one dated event, a set of decisions being one act.
+export interface HistoryRow {
+	key: string;
+	at: string;
+	what: string;
+	changes: FieldChange[];
+	reason: string | null;
+	who: string | null;
+	origin: string;
+	severity: string;
+	/// The decision the row undoes, where it is one.
+	decision: DecisionEntry | null;
+	entry: LedgerEntry;
+}
+
+/// The ledger as the history table's rows, newest first. The decisions ride on their entries, so
+/// a set's decisions at this reading read as one row under the set's first decision.
+export function historyRows(entries: LedgerEntry[]): HistoryRow[] {
+	const decisions = entries
+		.map((e) => e.decision)
+		.filter((d): d is ReadingDecision => !!d);
+	const acts = timelineEntries(decisions);
+	const heads = new Map(acts.map((a) => [a.head.id, a]));
+	const members = new Set(acts.flatMap((a) => a.members.slice(1).map((m) => m.id)));
+	return entries
+		.filter((e) => e.source !== 'decision' || !members.has(e.id))
+		.map((entry): HistoryRow => {
+			const act = entry.source === 'decision' ? (heads.get(entry.id) ?? null) : null;
+			const d = act?.head ?? null;
+			return {
+				key: `${entry.source}:${entry.id}:${entry.at}`,
+				at: entry.at,
+				what: d ? decisionLabel(d.kind) : ledgerLine(entry),
+				changes: d ? changedFields(d) : [],
+				reason: d?.reason?.trim() ? d.reason : null,
+				who: entry.actor ?? null,
+				origin: d ? (DECISION_ORIGINS[d.origin] ?? d.origin) : (SOURCE_ORIGINS[entry.source] ?? entry.source),
+				severity: entry.severity,
+				decision: act,
+				entry,
+			};
+		})
+		.sort((a, b) => b.at.localeCompare(a.at));
 }

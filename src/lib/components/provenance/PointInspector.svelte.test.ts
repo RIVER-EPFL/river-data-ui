@@ -5,25 +5,34 @@ import type { ProvenanceResponse } from '$api/service';
 import { formatDateTime } from '$lib/utils';
 
 const getReadingProvenance = vi.fn();
-const getReadingDecisions = vi.fn();
 const getReadingLedger = vi.fn();
+/** The decision rows the API carries on the ledger's decision entries, matched by id. */
+let decisionRows: Array<{ id: string } & Record<string, unknown>> = [];
 const rollbackEdit = vi.fn();
 const rollbackEditSet = vi.fn();
 const getEditSet = vi.fn();
 const reopenReplicateAudit = vi.fn();
 vi.mock('$api/service', () => ({
 	getReadingProvenance: (q: unknown) => getReadingProvenance(q),
-	getReadingDecisions: (q: unknown) => getReadingDecisions(q),
-	getReadingLedger: (q: unknown) => getReadingLedger(q),
+	getReadingLedger: async (q: unknown) => carried(await getReadingLedger(q)),
 	rollbackEdit: (id: string) => rollbackEdit(id),
 	rollbackEditSet: (id: string) => rollbackEditSet(id),
 	getEditSet: (id: string) => getEditSet(id),
 	reopenReplicateAudit: (id: string) => reopenReplicateAudit(id),
 }));
 
-/** The ledger arm of a decision the panel also reads through `/readings/decisions`. */
+/** The ledger arm of a decision; its row rides on it from `decisionRows`. */
 function decisionEntry(id: string, what: string, at: string) {
 	return { id, source: 'decision', severity: 'info', actor: 'lab', what, at };
+}
+
+function carried(ledger: { entries: { id: string; source: string }[] }) {
+	return {
+		...ledger,
+		entries: ledger.entries.map((e) =>
+			e.source === 'decision' ? { ...e, decision: decisionRows.find((d) => d.id === e.id) } : e,
+		),
+	};
 }
 
 const admin = { value: false };
@@ -88,6 +97,8 @@ function open(resp: unknown, props: Record<string, unknown> = {}) {
 beforeEach(() => {
 	vi.clearAllMocks();
 	admin.value = false;
+	decisionRows = [];
+	getReadingLedger.mockResolvedValue({ time: '2026-07-14T09:00:00Z', entries: [], truncated: false });
 });
 
 // A calculated value: one replicate a tool run produced, with the override the record may carry.
@@ -194,7 +205,7 @@ describe('PointInspector', () => {
 			],
 			truncated: false,
 		});
-		getReadingDecisions.mockResolvedValue([
+		decisionRows = ([
 			{
 				id: 'd1',
 				stream_id: 'stream',
@@ -222,10 +233,9 @@ describe('PointInspector', () => {
 		]);
 		const { container } = open(handEntered());
 		await screen.findByText('8.005');
-		(await screen.findByText('Show history')).click();
 		await screen.findByText('Value corrected');
 		expect(screen.getByText('Calculated by a chain run')).toBeTruthy();
-		expect(screen.getAllByText('Roll back this reading')).toHaveLength(1);
+		expect(screen.getAllByRole('button', { name: 'Roll back this reading' })).toHaveLength(1);
 		// The change itself, which the record held and the panel used not to show.
 		expect(container.textContent).toContain('8.005 → 11');
 	});
@@ -253,7 +263,7 @@ describe('PointInspector', () => {
 		});
 		// One member here: the switch that picked the endpoint by the local member count would have
 		// rolled back this reading alone, leaving the edit's other stream as it was.
-		getReadingDecisions.mockResolvedValue([corrected('d1', 'stream', 8.005, 11)]);
+		decisionRows = ([corrected('d1', 'stream', 8.005, 11)]);
 		getEditSet.mockResolvedValue({
 			set_id: 'set-1',
 			members: [
@@ -264,9 +274,8 @@ describe('PointInspector', () => {
 		rollbackEditSet.mockResolvedValue({ set_id: 'set-1', rolled_back: 2 });
 		open(handEntered());
 		await screen.findByText('8.005');
-		(await screen.findByText('Show history')).click();
-		expect(await screen.findByText('Roll back this reading')).toBeTruthy();
-		(await screen.findByText('Roll back the whole edit')).click();
+		expect(await screen.findByRole('button', { name: 'Roll back this reading' })).toBeTruthy();
+		(await screen.findByRole('button', { name: 'Roll back the whole edit' })).click();
 
 		const dialog = await screen.findByRole('dialog');
 		await waitFor(() => expect(dialog.textContent).toContain('temp replicate 0: Measured 25 → 20'));
@@ -299,14 +308,13 @@ describe('PointInspector', () => {
 			set_id: 'set-1',
 			ruling_hold_id: 'hold-1',
 		});
-		getReadingDecisions.mockResolvedValue([verify('v0', 0), verify('v1', 1)]);
+		decisionRows = ([verify('v0', 0), verify('v1', 1)]);
 		reopenReplicateAudit.mockResolvedValue({ status: 'pending' });
 		open(handEntered());
 		await screen.findByText('8.005');
-		(await screen.findByText('Show history')).click();
 		await screen.findByText('Entry verified');
-		expect(screen.queryByText('Roll back this reading')).toBeNull();
-		expect(screen.queryByText('Roll back the whole edit')).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Roll back this reading' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Roll back the whole edit' })).toBeNull();
 		(await screen.findByText('Reopen ruling')).click();
 		await waitFor(() => expect(reopenReplicateAudit).toHaveBeenCalledWith('hold-1'));
 		expect(rollbackEdit).not.toHaveBeenCalled();
@@ -314,7 +322,7 @@ describe('PointInspector', () => {
 	});
 
 	it('reads one history from every record that holds part of it, filtered by severity', async () => {
-		getReadingDecisions.mockResolvedValue([]);
+		decisionRows = ([]);
 		getReadingLedger.mockImplementation((q: { severity?: string }) => {
 			const entries = [
 				{
@@ -336,7 +344,6 @@ describe('PointInspector', () => {
 		});
 		open(handEntered());
 		await screen.findByText('8.005');
-		(await screen.findByText('Show history')).click();
 		expect(await screen.findByText('Manual reprocess failed: the pool timed out')).toBeTruthy();
 		const held = 'Statistics disagreement raised, waiting for a ruling';
 		expect(screen.getByText(held)).toBeTruthy();
@@ -346,11 +353,11 @@ describe('PointInspector', () => {
 		expect(screen.getByText('Manual reprocess failed: the pool timed out')).toBeTruthy();
 	});
 
-	// Scenario: a fresh value whose history is a recompute that moved nothing and two catalogue
-	// inserts. Expected behaviour: no arm code reaches the screen, and the three sit under
-	// Administrative rather than above the decision that set the value.
-	it('leads on what moved the value and fades what only administers it', async () => {
-		getReadingDecisions.mockResolvedValue([
+	// Scenario: a value whose history is a correction, a recompute that moved nothing and two
+	// catalogue inserts. Expected behaviour: no arm code reaches the screen, every entry is a row
+	// of one table in date order, and nothing is folded away under Administrative.
+	it('lists every dated entry as one table, newest first', async () => {
+		decisionRows = ([
 			{
 				id: 'd1',
 				stream_id: 'stream',
@@ -397,48 +404,27 @@ describe('PointInspector', () => {
 		});
 		const { container } = open(handEntered());
 		await screen.findByText('8.005');
-		(await screen.findByText('Show history')).click();
 		await screen.findByText('Value corrected');
 
-		const text = container.textContent ?? '';
+		const history = screen.getByRole('region', { name: 'History' });
+		const text = history.textContent ?? '';
 		expect(text).not.toContain('site_parameter_insert');
 		expect(text).not.toContain('parameter_insert');
 		expect(text).not.toContain('event_recompute');
-		expect(screen.getByText('Parameter added at this site')).toBeTruthy();
-		expect(screen.getByText('Visit recompute completed')).toBeTruthy();
-
-		const corrected = text.indexOf('Value corrected');
-		expect(corrected).toBeLessThan(text.indexOf('Visit recompute completed'));
-		expect(corrected).toBeLessThan(text.indexOf('Parameter added at this site'));
-	});
-
-	it('folds an administrative history past the newest three behind its count', async () => {
-		getReadingDecisions.mockResolvedValue([]);
-		getReadingLedger.mockResolvedValue({
-			time: '2026-07-14T09:00:00Z',
-			entries: Array.from({ length: 5 }, (_, n) => ({
-				id: `c${n}`,
-				source: 'change',
-				severity: 'info',
-				what: 'site_parameter_update',
-				at: `2026-07-1${n}T10:00:00Z`,
-			})),
-			truncated: false,
-		});
-		const slot = 'How this site serves the parameter changed';
-		open(handEntered());
-		await screen.findByText('8.005');
-		(await screen.findByText('Show history')).click();
-		await screen.findByText('Administrative (5), show all');
-		expect(screen.getAllByText(slot)).toHaveLength(3);
-
-		(await screen.findByText('Administrative (5), show all')).click();
-		await screen.findByText('Administrative (5), show fewer');
-		expect(screen.getAllByText(slot)).toHaveLength(5);
+		expect(text).not.toContain('Administrative');
+		const rows = Array.from(history.querySelectorAll('tbody tr')).map((r) => r.textContent ?? '');
+		expect(rows).toHaveLength(4);
+		expect(rows[0]).toContain('Value corrected');
+		expect(rows[0]).toContain('8.005 → 8.11');
+		expect(rows[1]).toContain('Visit recompute completed');
+		expect(rows[2]).toContain('Parameter added at this site');
+		expect(rows[3]).toContain('Parameter added to the catalogue');
+		expect(history.querySelectorAll('[data-testid="history-axis"] span[title]')).toHaveLength(4);
+		expect(container.textContent).not.toContain('show all');
 	});
 
 	it('opens a job entry on the job it names, and a tag entry on the discrepancies at this reading', async () => {
-		getReadingDecisions.mockResolvedValue([]);
+		decisionRows = ([]);
 		getReadingLedger.mockResolvedValue({
 			time: '2026-07-14T09:00:00Z',
 			entries: [
@@ -450,9 +436,8 @@ describe('PointInspector', () => {
 		});
 		const { container } = open(syncedGroup());
 		await screen.findAllByText('41.2');
-		(await screen.findByText('Show history')).click();
 		await screen.findByText('Visit recompute completed');
-		const hrefs = Array.from(container.querySelectorAll('li a')).map((a) => a.getAttribute('href'));
+		const hrefs = Array.from(container.querySelectorAll('tr a')).map((a) => a.getAttribute('href'));
 		expect(hrefs.filter((h) => h === '/admin/system?tab=jobs&job=job-1')).toHaveLength(2);
 		expect(hrefs.some((h) => h?.includes('review=discrepancies') && h.includes('tags_kind=replicate_stats'))).toBe(true);
 	});
@@ -464,11 +449,11 @@ describe('PointInspector', () => {
 		expect(screen.getAllByText('-').length).toBeGreaterThan(0);
 	});
 
-	it('sets the numbers in right-aligned tabular figures', async () => {
+	it('sets the numbers in tabular figures under their label', async () => {
 		open(handEntered());
 		const cell = (await screen.findByText('8.005')).closest('dd')!;
-		expect(cell.className).toContain('text-right');
 		expect(cell.className).toContain('tabular-nums');
+		expect(cell.previousElementSibling?.tagName).toBe('DT');
 	});
 
 	it('names the sample formula as a tip on the standard deviation rather than a paragraph', async () => {
@@ -916,6 +901,26 @@ describe('PointInspector', () => {
 			expect(text).toContain('evan');
 		});
 
+		it('prints the label and notes the save named beside the author', async () => {
+			const resp = syncedGroup();
+			const rec = resp.records[0] as { computation: Record<string, unknown> };
+			rec.computation = { ...rec.computation, label: 'field campaign', notes: 'filter clogged on rep 2' };
+			const { container } = open(resp);
+			await screen.findAllByText('41.2');
+			const text = container.textContent ?? '';
+			expect(screen.getByText('Label')).toBeTruthy();
+			expect(text).toContain('field campaign');
+			expect(screen.getByText('Notes')).toBeTruthy();
+			expect(text).toContain('filter clogged on rep 2');
+		});
+
+		it('prints no label or notes line when the save named neither', async () => {
+			open(syncedGroup());
+			await screen.findAllByText('41.2');
+			expect(screen.queryByText('Label')).toBeNull();
+			expect(screen.queryByText('Notes')).toBeNull();
+		});
+
 		// What a scientist opens the record for: the replicates, then what they compute to. The
 		// arrival and pairing stamps are administrative and follow.
 		it('leads with the replicates and their statistics, before any metadata row', async () => {
@@ -948,16 +953,16 @@ describe('PointInspector', () => {
 			expect(strip).not.toContain('Administrative');
 			expect(details[0].querySelector('table')).not.toBeNull();
 			expect(details[0].textContent).toContain('Administrative');
-			expect(details[0].textContent).toContain('Show history');
-			const actions = screen.getByRole('group', { name: 'Actions' });
-			expect(actions.textContent).not.toContain('Show history');
+			// The history is not behind the disclosure: it is open beside the record (Q313).
+			const history = screen.getByRole('region', { name: 'History' });
+			expect(details[0].contains(history)).toBe(false);
 		});
 
-		it('reads the statistics as one line rather than a column of rows', async () => {
+		it('lays the statistics out as labelled fields on one grid', async () => {
 			const { container } = open(syncedGroup());
 			await screen.findAllByText('41.2');
-			const line = screen.getByText('Standard deviation').parentElement!.parentElement!;
-			expect(line.className).toContain('flex');
+			const line = screen.getByText('Standard deviation').closest('.grid')!;
+			expect(line).not.toBeNull();
 			expect(line.textContent).toContain('Replicates');
 			expect(line.textContent).toContain('41.4');
 		});
@@ -1064,7 +1069,7 @@ describe('PointInspector', () => {
 				entries: [decisionEntry('d1', 'value_correction', '2026-08-02T11:00:00Z')],
 				truncated: false,
 			});
-			getReadingDecisions.mockResolvedValue([
+			decisionRows = ([
 				{
 					id: 'd1',
 					stream_id: 'stream',
@@ -1106,8 +1111,7 @@ describe('PointInspector', () => {
 
 			await screen.findByText('11');
 			expect(getReadingProvenance).not.toHaveBeenCalled();
-			(await screen.findByText('Show history')).click();
-			(await screen.findByText('Roll back this reading')).click();
+			(await screen.findByRole('button', { name: 'Roll back this reading' })).click();
 			const dialog = await screen.findByRole('dialog');
 			expect(dialog.textContent).toContain('Measured 11 → 8.005');
 			expect(rollbackEdit).not.toHaveBeenCalled();
