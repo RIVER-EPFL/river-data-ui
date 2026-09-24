@@ -13,6 +13,7 @@
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import Markdown from '$lib/components/Markdown.svelte';
+	import DecommissionedBadge from '$components/parameters/DecommissionedBadge.svelte';
 
 	let project = $state<Project | null>(null);
 	let sites = $state<Site[]>([]);
@@ -55,8 +56,12 @@
 		}
 	});
 
+	function paramById(parameterId: string): Parameter | undefined {
+		return parameters.find((p) => p.id === parameterId);
+	}
+
 	function paramName(parameterId: string): string {
-		return parameters.find((p) => p.id === parameterId)?.name ?? parameterId;
+		return paramById(parameterId)?.name ?? parameterId;
 	}
 
 	function paramCode(parameterId: string): string {
@@ -600,11 +605,14 @@
 												</tr></thead>
 												<tbody>
 													{#each siteParams[site.id] as sp}
+														{@const retired = paramById(sp.parameter_id)?.decommissioned_by}
 														<tr class="border-b border-brand-divider last:border-b-0">
 															<td class="px-8 py-1.5 font-mono text-xs">{paramCode(sp.parameter_id)}</td>
 															<td class="px-4 py-1.5">
 																{paramName(sp.parameter_id)}
-																{#if sp.entry_mode === 'tool'}
+																{#if retired}
+																	<DecommissionedBadge by={retired} />
+																{:else if sp.entry_mode === 'tool'}
 																	<span class="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-brand-accent/15 text-brand-accent-dark align-middle">derived</span>
 																{/if}
 															</td>

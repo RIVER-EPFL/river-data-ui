@@ -24,9 +24,11 @@
 		listToolVersionUsage,
 		listVersionLedger,
 		saveFormulaSet,
+		formulaTakeovers,
 		type FormulaDraftRunResponse,
 		type ToolRunTrace,
 		type GivenUpOutput,
+		type Takeover,
 		type StepDependents,
 		type ToolScriptDetail,
 		type ToolVersionUsage,
@@ -54,6 +56,7 @@
 		type EditableFormula,
 	} from '$lib/calculations/editor';
 	import { storedLabel, versionConsequence } from '$lib/calculations/consequence';
+	import { takeoverLine } from '$lib/calculations/takeover';
 	import { ledgerLines, type LedgerOutput } from '$lib/calculations/versionLedger';
 	import { historyPanes, openPane, type HistoryKey } from '$lib/calculations/historyPanes';
 	import {
@@ -82,7 +85,7 @@
 		type SheetSelection,
 	} from '$lib/calculations/sheet';
 	import type { DragPayload } from '$components/formula/ast';
-	import { formatDateTime } from '$lib/utils';
+	import { formatDate, formatDateTime } from '$lib/utils';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Badge from '$components/ui/Badge.svelte';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
@@ -120,6 +123,8 @@
 	let busy = $state(false);
 	/** What the last save stopped publishing, so the page says what it left behind. */
 	let givenUp: GivenUpOutput[] = $state([]);
+	// Columns the last save would take over, waiting on the author's confirm (Q299).
+	let takingOver = $state<Takeover[]>([]);
 
 	let diagnostics = $state<Diagnostic[]>([]);
 	// The cell the reader is on, and the formula the panel edits: the selected row's, or one just
@@ -630,13 +635,17 @@
 	 * Write the whole formula set as one version, with the shared steps the author marked or
 	 * corrected. The values the version being replaced produced are recomputed under the new one.
 	 */
-	async function saveSet() {
+	async function saveSet(takeOver: string[] = []) {
 		if (diagnostics.length > 0 || !unsaved) return;
 		busy = true;
+		takingOver = [];
 		try {
 			const edited = formulas;
 			const before = stored;
-			const res = await saveFormulaSet(calculationId, formulaSetBody(formulas, stored));
+			const res = await saveFormulaSet(calculationId, {
+				...formulaSetBody(formulas, stored),
+				take_over: takeOver,
+			});
 			givenUp = res.given_up ?? [];
 			await writeBounds(edited, before);
 			await load();
@@ -648,7 +657,9 @@
 						: `Version ${res.version_no} saved`,
 			);
 		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Save failed');
+			const offered = formulaTakeovers(e);
+			if (offered) takingOver = offered;
+			else toastStore.error(e instanceof Error ? e.message : 'Save failed');
 		} finally {
 			busy = false;
 		}
@@ -942,11 +953,11 @@
 						{#if holdCaveat}
 							<!-- A set holding an input between visits is not what an author assumes, so the
 							     caveat is passed before the save rather than found afterwards. -->
-							<ConfirmPopover message={holdCaveat} confirmLabel="Save as a new version" onconfirm={saveSet}>
+							<ConfirmPopover message={holdCaveat} confirmLabel="Save as a new version" onconfirm={() => saveSet()}>
 								<Button size="sm" variant="primary" loading={busy} disabled={busy || diagnostics.length > 0} title={saveBlocked}>Save as a new version</Button>
 							</ConfirmPopover>
 						{:else}
-							<Button size="sm" variant="primary" loading={busy} disabled={busy || diagnostics.length > 0} title={saveBlocked} onclick={saveSet}>Save as a new version</Button>
+							<Button size="sm" variant="primary" loading={busy} disabled={busy || diagnostics.length > 0} title={saveBlocked} onclick={() => saveSet()}>Save as a new version</Button>
 						{/if}
 					{:else}
 						<span class="text-xs text-brand-muted">Saved. The calculation runs as its active version.</span>
@@ -966,6 +977,17 @@
 			{/if}
 		</div>
 
+		{#if takingOver.length > 0}
+			<div role="alertdialog" aria-label="Take over a column" class="rounded-md border border-severity-warning bg-brand-surface px-3 py-2 space-y-2">
+				{#each takingOver as take (take.code)}
+					<p class="text-sm">{takeoverLine(take, formatDate)}</p>
+				{/each}
+				<div class="flex flex-wrap gap-2">
+					<Button size="sm" variant="primary" loading={busy} onclick={() => saveSet(takingOver.map((t) => t.code))}>Take over and save</Button>
+					<Button size="sm" variant="ghost" onclick={() => (takingOver = [])}>Keep editing</Button>
+				</div>
+			</div>
+		{/if}
 		{#if runError}<ErrorNotice message={runError} />{/if}
 		{#if !recorded && run && !run.ran && run.failure}
 			<ErrorNotice message={run.failure.message} />

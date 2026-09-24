@@ -290,26 +290,34 @@ export function instrumentKey(eventId: string, parameterId: string): string {
 	return `${eventId}|${parameterId}`;
 }
 
-/** The pairs a visit's check has to cover: the entry half of its save, which is what is screened. */
-export function entryValues(write: VisitWrite): { parameter_id: string; value: number }[] {
-	return write.entries.map((e) => ({ parameter_id: e.parameterId, value: e.value }));
+/** Whether a visit's save writes a typed value, entered or corrected, and so needs a check. */
+export function needsCheck(write: VisitWrite): boolean {
+	return write.entries.length > 0 || write.corrections.length > 0;
+}
+
+/** The pairs a visit's check has to cover: every value its save types, entered or corrected. */
+export function screenedValues(write: VisitWrite): { parameter_id: string; value: number }[] {
+	return [
+		...write.entries.map((e) => ({ parameter_id: e.parameterId, value: e.value })),
+		...write.corrections.map((c) => ({ parameter_id: c.parameterId, value: c.value })),
+	];
 }
 
 /**
  * What a visit's screening was run against. A save naming a check is held by the server to exactly
- * the values it screened, so any edit to that visit's entries re-arms the gate.
+ * the values it screened, so any edit to that visit's values re-arms the gate.
  */
 export function checkSignature(write: VisitWrite): string {
-	return `${write.eventId}|${JSON.stringify(entryValues(write))}`;
+	return `${write.eventId}|${JSON.stringify(screenedValues(write))}`;
 }
 
-/** Whether every visit entering a value has a current screening behind it. */
+/** Whether every visit typing a value has a current screening behind it. */
 export function checkSatisfied(
 	writes: VisitWrite[],
 	checks: Record<string, { id: string; signature: string }>,
 ): boolean {
 	return writes
-		.filter((w) => w.entries.length > 0)
+		.filter(needsCheck)
 		.every((w) => checks[w.eventId]?.signature === checkSignature(w));
 }
 

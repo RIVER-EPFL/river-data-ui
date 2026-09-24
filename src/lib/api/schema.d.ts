@@ -7489,6 +7489,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tool_scripts/{id}/commissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A calculation's decommissions and recommissions, newest first. Requires Administrator. */
+        get: operations["list_commissions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tool_scripts/{id}/decommission": {
         parameters: {
             query?: never;
@@ -7555,6 +7572,27 @@ export interface paths {
          *     200, as the script draft run does.
          */
         post: operations["draft_run_formulas"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tool_scripts/{id}/recommission": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bring a decommissioned calculation back (Q279), switched off: an administrator switches it on
+         *     once it should fire again. It gets the name it held back unless another calculation took it
+         *     meanwhile. The recommission records who, when and why. Requires Administrator.
+         */
+        post: operations["recommission_script"];
         delete?: never;
         options?: never;
         head?: never;
@@ -9559,6 +9597,17 @@ export interface components {
             result: Record<string, never>;
             status: string;
         };
+        /** @description One decommission or recommission, newest first in a history. */
+        CommissionRecord: {
+            actor: string;
+            /** Format: date-time */
+            at: string;
+            /** @description `decommissioned` or `recommissioned`. */
+            event: string;
+            /** @description The name the calculation held before the event. */
+            name: string;
+            reason: string;
+        };
         ComputationInfo: {
             created_by?: string;
             /**
@@ -9609,6 +9658,19 @@ export interface components {
             /** @description `queued`, always. */
             status: string;
             total_timestamps: number;
+        };
+        /**
+         * @description A catalog curve a calculation's output was computed through, with the coefficients the run
+         *     used.
+         */
+        ComputedCurve: {
+            /** Format: uuid */
+            id: string;
+            /** Format: double */
+            intercept: number;
+            name?: string;
+            /** Format: double */
+            slope: number;
         };
         /**
          * @description How to handle readings that collide with an existing (stream_id, time, replicate_index).
@@ -10163,6 +10225,14 @@ export interface components {
             /** @description Why the calculation is stopped at every site; recorded with who and when. */
             reason: string;
         };
+        /** @description A decommissioned calculation that published a parameter, and when it was decommissioned. */
+        DecommissionedBy: {
+            /** Format: date-time */
+            at: string;
+            calculation: string;
+            /** Format: uuid */
+            tool_script_id: string;
+        };
         DefinitionMember: {
             /** @description The catalog code; the stable machine identity and the CSV column header. */
             code: string;
@@ -10454,6 +10524,12 @@ export interface components {
         /** @description The decision an edit request carries: what to do, and the one value it needs. */
         EditDecision: {
             /**
+             * Format: uuid
+             * @description The seasonal check that screened a `value_correction`'s corrected values; required when
+             *     the correction covers a grab (spot) reading.
+             */
+            check_id?: string;
+            /**
              * @description `value_correction` | `flag` | `unflag` | `withdraw` | `reassert` | `curve` |
              *     `verify` | `reject`.
              */
@@ -10557,6 +10633,11 @@ export interface components {
             site_id?: string | null;
         };
         EventCell: {
+            /**
+             * @description The catalog curves a calculation computed this value through, read from its run and the
+             *     version that ran (Q268). Apart from `curves`, which a row's own correction names.
+             */
+            computed_curves: components["schemas"]["ComputedCurve"][];
             /** @description The oldest open finding for this cell, slot-keyed or placed through its stream's pairing. */
             finding?: components["schemas"]["CellFinding"];
             /** @description A server-built tool-run blob is stored on the measurement. */
@@ -11316,10 +11397,9 @@ export interface components {
         ImportCheck: {
             /**
              * Format: uuid
-             * @description The stored check a commit must name. Set by `dry_run`; echoed by a commit that named one;
-             *     `null` on a commit that needed none (nothing outside the range).
+             * @description The stored check a commit must name: stored by `dry_run`, echoed by the commit.
              */
-            check_id: string | null;
+            check_id: string;
             /** @description The cells that warn, in file order, capped at `IMPORT_CHECK_FINDINGS_CAP`. */
             findings: components["schemas"]["ScreenedCell"][];
             method: components["schemas"]["SeasonalMethod"];
@@ -11361,8 +11441,7 @@ export interface components {
              * Format: uuid
              * @description The seasonal check a `dry_run` of this file returned (`check.check_id`). A spot or tool
              *     file is screened against the site's seasonal distribution; a commit naming the check is
-             *     held to exactly the values it screened, and a commit naming none is refused when the
-             *     screen finds a value outside the recorded range.
+             *     held to exactly the values it screened, and a commit naming none is refused.
              */
             check_id?: string | null;
             /** @description Behaviour on (stream_id, time, replicate_index) collisions. Defaults to `skip`. */
@@ -13018,6 +13097,7 @@ export interface components {
             code: string;
             /** Format: date-time */
             created_at: string | null;
+            decommissioned_by: null | components["schemas"]["DecommissionedBy"];
             default_units: string;
             description: string | null;
             /** Format: uuid */
@@ -13295,6 +13375,7 @@ export interface components {
             code: string;
             /** Format: date-time */
             created_at: string | null;
+            decommissioned_by: null | components["schemas"]["DecommissionedBy"];
             default_units: string;
             description: string | null;
             /** Format: uuid */
@@ -13411,6 +13492,20 @@ export interface components {
              */
             time_points: number;
             units?: string;
+        };
+        /** @description A calculation continuing a parameter's series, as the change audit records it. */
+        ParameterTakeover: {
+            /** Format: date-time */
+            at: string;
+            by: string | null;
+            /** @description The calculation computing it since. */
+            calculation: string;
+            /** Format: uuid */
+            calculation_id: string | null;
+            /** @description The decommissioned calculation's name, or the portal function. */
+            computed_by: string;
+            /** @description What computed the series before: `decommissioned` (a calculation) or `portal`. */
+            kind: string;
         };
         ParameterUpdate: {
             aliases?: string[] | null;
@@ -14378,6 +14473,11 @@ export interface components {
             records: components["schemas"]["ProvenanceRecord"][];
             /** Format: uuid */
             site_id: string | null;
+            /**
+             * @description Every time a calculation took the parameter's series over (Q299), oldest first. It holds
+             *     for every value under the parameter, before and after, so no stored record is rewritten.
+             */
+            takeovers?: components["schemas"]["ParameterTakeover"][];
             /** Format: date-time */
             time: string;
             /** @description The slot's unit when it declares one, the catalog default otherwise. */
@@ -14898,6 +14998,18 @@ export interface components {
             stream_id: string;
             /** Format: int64 */
             total: number;
+        };
+        RecommissionRequest: {
+            /** @description Why the calculation is brought back; recorded with who and when. */
+            reason: string;
+        };
+        /**
+         * @description A recommissioned calculation, and whether it got its name back: a name another calculation
+         *     took meanwhile stays with that one.
+         */
+        RecommissionResponse: {
+            calculation: components["schemas"]["ToolScript"];
+            name_restored: boolean;
         };
         /** @description What one reconciliation pass changed. */
         ReconcileAlarmsResponse: {
@@ -15793,6 +15905,12 @@ export interface components {
              *     mints holds them and the version they supersede is the one the page was editing.
              */
             shared_steps?: components["schemas"]["SavedSharedStep"][];
+            /**
+             * @description The output codes the author confirmed to take over (Q299): a decommissioned calculation's
+             *     column, or one the portal computed. An eligible code not named here is refused with a 409
+             *     whose detail is the [`Takeover`] list.
+             */
+            take_over?: string[];
         };
         /** @description What one set-level save wrote. */
         SaveFormulaSetResponse: {
@@ -15805,6 +15923,8 @@ export interface components {
             given_up?: components["schemas"]["GivenUpOutput"][];
             /** @description Whether the migration of the superseded version's values was enqueued. */
             migrated: boolean;
+            /** @description The codes this save took over, each recorded in `change_audit`. */
+            taken_over?: string[];
             updated: number;
             /**
              * Format: uuid
@@ -17845,6 +17965,33 @@ export interface components {
             /** Format: int32 */
             sync_interval_secs?: number | null;
         };
+        /** @description A catalog parameter a save would take over, as the refusal names it for the confirm. */
+        Takeover: {
+            code: string;
+            /** @description The decommissioned calculation's name, or the portal function that computed the column. */
+            computed_by: string;
+            /** Format: date-time */
+            first_reading: string | null;
+            /** @description `decommissioned` or `portal`. */
+            kind: string;
+            /** Format: date-time */
+            last_reading: string | null;
+            /** Format: uuid */
+            parameter_id: string;
+            parameter_name: string;
+            /** Format: int64 */
+            readings: number;
+            source_systems: string[];
+            units: string;
+        };
+        /** @description The body of the 409 a save answers with when an output would take over a column unconfirmed. */
+        TakeoverConflict: {
+            detail: components["schemas"]["TakeoverDetail"];
+            error: string;
+        };
+        TakeoverDetail: {
+            take_over: components["schemas"]["Takeover"][];
+        };
         TestResult: {
             error: string | null;
             recipient: string;
@@ -18050,7 +18197,8 @@ export interface components {
             decommission_reason: string | null;
             /**
              * Format: date-time
-             * @description When the calculation was decommissioned. Set, it is never enabled again (Q272).
+             * @description When the calculation was decommissioned. Set, it is not enabled until a recommission
+             *     clears it (Q279).
              */
             decommissioned_at: string | null;
             /** @description The administrator who decommissioned it, from the authenticated caller. */
@@ -18096,7 +18244,8 @@ export interface components {
             decommission_reason: string | null;
             /**
              * Format: date-time
-             * @description When the calculation was decommissioned. Set, it is never enabled again (Q272).
+             * @description When the calculation was decommissioned. Set, it is not enabled until a recommission
+             *     clears it (Q279).
              */
             decommissioned_at: string | null;
             /** @description The administrator who decommissioned it, from the authenticated caller. */
@@ -18435,6 +18584,11 @@ export interface components {
             visits: number;
         };
         VisitCell: {
+            /**
+             * @description The catalog curves a calculation computed this value through, read from its run and the
+             *     version that ran (Q268). Apart from `curves`, which a row's own correction names.
+             */
+            computed_curves: components["schemas"]["ComputedCurve"][];
             /**
              * @description Each distinct standard curve the group's replicates were corrected through, in replicate
              *     order (Q97). Empty for a value no curve corrected.
@@ -39516,6 +39670,27 @@ export interface operations {
             };
         };
     };
+    list_commissions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommissionRecord"][];
+                };
+            };
+        };
+    };
     decommission_script: {
         parameters: {
             query?: never;
@@ -39601,6 +39776,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description An output code would take over a column something else computed; confirm it in `take_over` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TakeoverConflict"];
+                };
+            };
         };
     };
     draft_run_formulas: {
@@ -39637,6 +39821,52 @@ export interface operations {
             };
             /** @description No such calculation */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    recommission_script: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecommissionRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecommissionResponse"];
+                };
+            };
+            /** @description The reason is blank */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such calculation */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not decommissioned */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

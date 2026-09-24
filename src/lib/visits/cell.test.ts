@@ -33,6 +33,7 @@ function cell(over: Partial<VisitCell>): VisitCell {
 		replicates: [],
 		has_provenance: false,
 		curves: [],
+		computed_curves: [],
 		...over,
 	};
 }
@@ -102,6 +103,7 @@ describe('visitCounts', () => {
 			origin: 'manual',
 			has_provenance: false,
 			replicates: [],
+			computed_curves: [],
 			...over,
 		};
 	}
@@ -143,6 +145,7 @@ function eventCell(parameterId: string, streamId: string, record: EventCell['rec
 		origin: 'manual',
 		has_provenance: false,
 		replicates: [],
+		computed_curves: [],
 		record,
 	};
 }

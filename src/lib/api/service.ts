@@ -1020,6 +1020,7 @@ export type ProvenanceCalculation = components['schemas']['CalculationInfo'];
 
 // A calculation's decommission, read live: when, by whom and why it was stopped at every site.
 export type Decommission = components['schemas']['Decommission'];
+export type ParameterTakeover = components['schemas']['ParameterTakeover'];
 
 export type ProvenanceRecord = components['schemas']['ProvenanceRecord'];
 
@@ -1378,9 +1379,20 @@ export const updateToolScript = (
 ) =>
 	PATCH<ToolScriptSummary>(`${ADMIN}/tool_scripts/${id}`, body);
 
-/** Stop a calculation at every site for good, recording who, when and `reason`. */
+/** Stop a calculation at every site and free its name, recording who, when and `reason`. */
 export const decommissionToolScript = (id: string, reason: string) =>
 	POST<ToolScriptDetail>(`${ADMIN}/tool_scripts/${id}/decommission`, { reason });
+
+export type RecommissionResponse = components['schemas']['RecommissionResponse'];
+export type CommissionRecord = components['schemas']['CommissionRecord'];
+
+/** Bring a decommissioned calculation back, switched off, recording who, when and `reason`. */
+export const recommissionToolScript = (id: string, reason: string) =>
+	POST<RecommissionResponse>(`${ADMIN}/tool_scripts/${id}/recommission`, { reason });
+
+/** A calculation's decommissions and recommissions, newest first. */
+export const listCommissions = (id: string) =>
+	GET<CommissionRecord[]>(`${ADMIN}/tool_scripts/${id}/commissions`);
 
 export const createToolVersion = (
 	id: string,
@@ -1558,7 +1570,11 @@ export interface FormulaSetSave {
 	formulas: SavedFormula[];
 	/** Written in the same transaction as the set, so the save's one version holds them. */
 	shared_steps: SavedSharedStep[];
+	/** The output codes the author confirmed to take over (Q299). */
+	take_over?: string[];
 }
+
+export type Takeover = components['schemas']['Takeover'];
 
 /** A catalog parameter a formula published until the save ticked it as a step. */
 export interface GivenUpOutput {
@@ -1582,11 +1598,24 @@ export interface FormulaSetSaveResponse {
 	migrated: boolean;
 	/** Present when the save turned an output into a step. Absent when it turned none. */
 	given_up?: GivenUpOutput[];
+	/** The codes the save took over. Absent when it took over none. */
+	taken_over?: string[];
 }
 
 /** Save a calculation's whole formula set as one version. */
 export const saveFormulaSet = (calculationId: string, body: FormulaSetSave) =>
 	POST<FormulaSetSaveResponse>(`${ADMIN}/tool_scripts/${calculationId}/formulas`, body);
+
+/** The columns a refused formula set save would take over (409 { error, detail }); null otherwise. */
+export function formulaTakeovers(e: unknown): Takeover[] | null {
+	if (!(e instanceof ApiError) || e.status !== 409) return null;
+	try {
+		const body = JSON.parse(e.message) as { detail?: { take_over?: Takeover[] } };
+		return Array.isArray(body.detail?.take_over) ? body.detail.take_over : null;
+	} catch {
+		return null;
+	}
+}
 
 /** Lint findings from a refused version create (409 { error, detail }); null otherwise. */
 export function toolLintFindings(e: unknown): ToolLintFinding[] | null {

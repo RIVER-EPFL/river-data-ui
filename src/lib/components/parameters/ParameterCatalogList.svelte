@@ -9,6 +9,7 @@
 	import CrudList from '$components/crud/CrudList.svelte';
 	import type { Column, PageRequest } from '$components/crud/CrudList.svelte';
 	import Badge from '$components/ui/Badge.svelte';
+	import DecommissionedBadge from '$components/parameters/DecommissionedBadge.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import { formatThresholdRange, globalThresholdsByParameter } from '$lib/alarms';
 	import { toolboxHref } from '$lib/toolbox/route';
@@ -48,6 +49,7 @@
 	// A row a calculation minted and gave up is still a parameter; hiding them is the way to read
 	// the catalogue as what is being measured.
 	let hideUnpublished = $state(false);
+	let hideDecommissioned = $state(false);
 
 	let list = $state<ReturnType<typeof CrudList> | null>(null);
 
@@ -118,7 +120,7 @@
 	);
 
 	function isDerived(p: Parameter): boolean {
-		return !!calculationByOutput[p.id];
+		return !!calculationByOutput[p.id] && !p.decommissioned_by;
 	}
 	function siteRefs(p: Parameter): SiteRef[] {
 		return sitesByParam[p.id] ?? [];
@@ -131,6 +133,7 @@
 			if (excludedTypes.has(isDerived(p) ? 'derived' : 'direct')) return false;
 			if (reviewOnly && !p.needs_review) return false;
 			if (hideUnpublished && p.unpublished_by) return false;
+			if (hideDecommissioned && p.decommissioned_by) return false;
 			if (q) {
 				const hay = `${p.name ?? ''} ${p.code ?? ''} ${p.description ?? ''}`.toLowerCase();
 				if (!hay.includes(q)) return false;
@@ -141,6 +144,7 @@
 
 	const reviewCount = $derived(parameters.filter((p) => p.needs_review).length);
 	const unpublishedCount = $derived(parameters.filter((p) => p.unpublished_by).length);
+	const decommissionedCount = $derived(parameters.filter((p) => p.decommissioned_by).length);
 
 	// The confirmed row is replaced in place. With the filter on it drops out of the list, which is
 	// how a run through the unreviewed entries advances.
@@ -216,6 +220,12 @@
 				Hide no longer published&nbsp;({unpublishedCount})
 			</label>
 		{/if}
+		{#if decommissionedCount > 0}
+			<label class="flex items-center gap-1 text-xs text-brand-muted cursor-pointer" title="Entries only a decommissioned calculation published: nothing computes them now">
+				<input type="checkbox" bind:checked={hideDecommissioned} onchange={reload} />
+				Hide decommissioned&nbsp;({decommissionedCount})
+			</label>
+		{/if}
 	{/snippet}
 
 	{#snippet cell({ column, row, text }: { column: Column; row: Parameter; text: string })}
@@ -241,7 +251,9 @@
 					>no longer published</Badge>
 				</span>
 			{/if}
-			{#if calcId}
+			{#if row.decommissioned_by}
+				<DecommissionedBadge by={row.decommissioned_by} />
+			{:else if calcId}
 				<a href={toolboxHref(base, calcId)} title="Formula-derived parameter - view the calculation that writes it" class="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-brand-accent/15 text-brand-accent-dark align-middle no-underline hover:underline">derived</a>
 			{/if}
 		{:else if column.key === 'warning' || column.key === 'alarm'}

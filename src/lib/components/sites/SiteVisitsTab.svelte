@@ -137,8 +137,9 @@
 		checkSignature,
 		correctionKeys,
 		editable,
-		entryValues,
 		expectedReplicates,
+		needsCheck,
+		screenedValues,
 		cleared,
 		pendingCount,
 		hasUnsavedEntries,
@@ -153,7 +154,7 @@
 		type Edits,
 	} from '$lib/visits/tableEdit';
 	import { cellRole, cellWritable, columnRole, editConsequence, ROLE_CLASSES } from '$lib/visits/role';
-	import { cellCurves, visitCellCurveMark } from '$lib/visits/curve';
+	import { cellCurves, visitCellComputedCurveMark, visitCellCurveMark } from '$lib/visits/curve';
 	import { cellFinding, visitRowHeader } from '$lib/visits/rowHeader';
 	import { instrumentCurves } from '$lib/visits/instrument';
 	import { curveRefs } from '$lib/curveRefs.svelte';
@@ -356,8 +357,8 @@
 	let edits = $state<Edits>({});
 	let saving = $state(false);
 	let saveRefusal = $state('');
-	// One screening per visit entering a value: the server holds each save to exactly the values
-	// its own check covered, and a visit's check re-arms when that visit's entries move.
+	// One screening per visit typing a value: the server holds each save to exactly the values its
+	// own check covered, and a visit's check re-arms when that visit's entries or corrections move.
 	let checks = $state<Record<string, { id: string; signature: string }>>({});
 	let checking = $state(false);
 	let seasonalFindings = $state<{ parameterId: string; text: string }[]>([]);
@@ -761,14 +762,19 @@
 		return td;
 	}
 
-	/** The curve a stored value was corrected through, as a mark and a line of the cell's title. */
+	/**
+	 * The curve a stored value was corrected through, and the one its calculation computed it
+	 * through, each as a mark and a line of the cell's title.
+	 */
 	function markCurve(td: HTMLTableCellElement, cell: VisitCell | null | undefined) {
-		const curve = cell && cell.value != null ? visitCellCurveMark(cell) : null;
-		if (!curve) return;
-		const corrected = mark(curve.text, 'sheet-mark');
-		corrected.title = curve.title;
-		td.append(corrected);
-		td.title = [td.title, curve.title].filter(Boolean).join('\n');
+		if (!cell || cell.value == null) return;
+		for (const curve of [visitCellCurveMark(cell), visitCellComputedCurveMark(cell)]) {
+			if (!curve) continue;
+			const marked = mark(curve.text, 'sheet-mark');
+			marked.title = curve.title;
+			td.append(marked);
+			td.title = [td.title, curve.title].filter(Boolean).join('\n');
+		}
 	}
 
 	const ROW_HEADER_CLASSES = ['sheet-finding', 'sheet-struck', 'sheet-pending'];
@@ -990,7 +996,7 @@
 	});
 
 	const screened = $derived(checkSatisfied(writes, checks));
-	const entering = $derived(writes.some((w) => w.entries.length > 0));
+	const typing = $derived(writes.some(needsCheck));
 	const moved = $derived(pendingCount(written, locale));
 	const unsaved = $derived(hasUnsavedEntries(edits, spareDates));
 	$effect(() => onUnsaved(unsaved));
@@ -1015,20 +1021,19 @@
 		return role.writable ? typeableReplicate(stored) : role;
 	}
 
-	// The site history each visit's entries are screened against, one call per visit entering a
-	// value. Nothing is screened for a save that only corrects: a correction moves a value the
-	// site already holds.
+	// The site history each visit's entered and corrected values are screened against, one call
+	// per visit typing a value.
 	async function runChecks() {
 		checking = true;
 		seasonalFindings = [];
 		try {
 			const found: { parameterId: string; text: string }[] = [];
 			for (const write of writes) {
-				if (write.entries.length === 0) continue;
+				if (!needsCheck(write)) continue;
 				const response = await seasonalCheck({
 					site_id: siteId,
 					time: write.collectedAt,
-					values: entryValues(write),
+					values: screenedValues(write),
 				});
 				checks = {
 					...checks,
@@ -1163,8 +1168,14 @@
 				}
 				if (write.corrections.length > 0) {
 					const selection = { keys: correctionKeys([write]) };
-					const preview = await previewEdit(selection, CORRECTION);
-					saved.setIds.push((await commitEdit(selection, CORRECTION, preview.preview_id)).set_id);
+					const decision = {
+						...CORRECTION,
+						...(checks[write.eventId]?.signature === checkSignature(write)
+							? { check_id: checks[write.eventId].id }
+							: {}),
+					};
+					const preview = await previewEdit(selection, decision);
+					saved.setIds.push((await commitEdit(selection, decision, preview.preview_id)).set_id);
 				}
 				if (write.entries.length > 0) {
 					const visit = table.rows.find((v) => v.id === write.eventId)!;
@@ -1739,13 +1750,13 @@
 					{/if}
 					{#if me.can('enterFieldData')}
 						<div class="flex flex-wrap items-center gap-2">
-							{#if entering}
+							{#if typing}
 								<Button
 									size="sm"
 									variant="secondary"
 									disabled={screened}
 									loading={checking}
-									title="Screen what you have entered against this site's seasonal distribution. A save is held to exactly the values its check covered."
+									title="Screen what you have entered or corrected against this site's seasonal distribution. A save is held to exactly the values its check covered."
 									onclick={runChecks}
 								>{checking ? 'Checking…' : screened ? 'Checked' : 'Check against site history'}</Button>
 							{/if}
@@ -2006,15 +2017,16 @@
 												<td class="py-1 pr-3">
 													{#each cellCurves(cell, base) as curve, i (curve.id)}
 														{#if i > 0}<span class="text-brand-muted">, </span>{/if}
-														{@const title = `${curve.equation}${curve.retired ? ', retired' : ''}`}
+														{@const title = `${curve.computed ? 'Computed with' : 'Corrected with'} ${curve.label}: ${curve.equation}${curve.retired ? ', retired' : ''}`}
 														{#if curve.target.kind === 'calculation'}
 															{@const tool = curve.target.tool}
+															{#if curve.computed}<span class="text-brand-muted">computed with </span>{/if}
 															<button
 																type="button"
 																class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline"
 																title="{title}. Open {tool} at this visit, on the curve its last run here used"
 																onclick={(e) => { e.stopPropagation(); void openCalculation(tool, visitDetail!); }}
-															>{curve.label}</button>
+															>{curve.label}</button>{#if curve.computed}{' '}<span class="text-brand-muted">({curve.equation})</span>{/if}
 														{:else}
 															<a
 																class="text-brand-primary hover:underline"
@@ -2089,6 +2101,9 @@
 					{/if}
 					{#if visits.some((v) => v.cells.some((c) => visitCellCurveMark(c)))}
 						<p class="text-[11px] text-brand-muted">c corrected with a standard curve, named on hover</p>
+					{/if}
+					{#if visits.some((v) => v.cells.some((c) => visitCellComputedCurveMark(c)))}
+						<p class="text-[11px] text-brand-muted">f computed with a standard curve by its calculation, named on hover</p>
 					{/if}
 				{/if}
 			</div>

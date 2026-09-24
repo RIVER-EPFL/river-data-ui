@@ -65,6 +65,7 @@
 	import MergeSiteParameterDialog from '$components/dialogs/MergeSiteParameterDialog.svelte';
 	import ConfirmSiteParameterButton from '$components/parameters/ConfirmSiteParameterButton.svelte';
 	import CalculationChip from '$components/calculations/CalculationChip.svelte';
+	import DecommissionedBadge from '$components/parameters/DecommissionedBadge.svelte';
 	import PointInspector from '$components/provenance/PointInspector.svelte';
 	import ReplicateFlagDialog from '$components/dialogs/ReplicateFlagDialog.svelte';
 	import ParameterChart, { type ChartData } from '$components/charts/ParameterChart.svelte';
@@ -1735,6 +1736,7 @@
 								{@const warn = th && !disabled ? formatThresholdRange(th.warning_min, th.warning_max, paramUnits(sp)) : null}
 								{@const alarm = th && !disabled ? formatThresholdRange(th.alarm_min, th.alarm_max, paramUnits(sp)) : null}
 								{@const open = expandedSlots.includes(sp.id)}
+								{@const retired = parameters.find((p) => p.id === sp.parameter_id)?.decommissioned_by}
 								{@const configuration = slotConfiguration({ units: paramUnits(sp), intervalSec: sp.sample_interval_sec, decimals: sp.decimal_places, instrument: sp.instrument_sensor_id ? sensorName(sp.instrument_sensor_id) : null })}
 								<tr class="border-b border-brand-divider last:border-b-0 hover:bg-brand-bg/40 cursor-pointer" onclick={(e) => rowClicked(e, sp.id)}>
 									<td class="px-3 py-1 font-mono text-xs whitespace-nowrap">
@@ -1751,6 +1753,7 @@
 										{#if sp.needs_review}
 											<span class="ml-1 rounded bg-severity-warning-soft px-1.5 py-0.5 text-xs font-medium text-severity-warning-text" title="Added by a tool save, awaiting confirmation">Needs review</span>
 										{/if}
+										{#if retired}<DecommissionedBadge by={retired} />{/if}
 										{#each slotCalculations.get(sp.parameter_id) ?? [] as calculation}
 											<CalculationChip {calculation} />
 										{/each}

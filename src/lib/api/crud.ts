@@ -166,8 +166,16 @@ export interface Parameter {
 	/** The calculation that minted this row and no longer publishes it, where one did: a formula
 	 *  ticked as a step still names this code. Read from the formulas, never stored. */
 	unpublished_by?: string | null;
+	/** The decommissioned calculation that last published it, while no live one does (Q299). */
+	decommissioned_by?: DecommissionedBy | null;
 	created_at: string;
 	updated_at: string;
+}
+
+export interface DecommissionedBy {
+	tool_script_id: string;
+	calculation: string;
+	at: string;
 }
 
 /** A scientific category of parameters: the portal's categories, in their own order. */

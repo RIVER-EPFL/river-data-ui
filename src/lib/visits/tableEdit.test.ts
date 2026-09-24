@@ -8,7 +8,8 @@ import {
 	setCell,
 	slotKey,
 	storedAt,
-	entryValues,
+	screenedValues,
+	needsCheck,
 	checkSignature,
 	checkSatisfied,
 	correctionKeys,
@@ -191,10 +192,10 @@ describe('clearing a cell', () => {
 });
 
 describe('the gates a table save passes', () => {
-	it('screens the entry half of each visit, and re-arms when a value moves', () => {
+	it('screens each visit\'s entered values, and re-arms when a value moves', () => {
 		const edits = setCell({}, visits[0], 'p-do', 2, '14', LOCALE);
 		const [write] = pendingWrites(visits, edits, LOCALE);
-		expect(entryValues(write)).toEqual([
+		expect(screenedValues(write)).toEqual([
 			{ parameter_id: 'p-do', value: 10 },
 			{ parameter_id: 'p-do', value: 12 },
 			{ parameter_id: 'p-do', value: 14 },
@@ -208,9 +209,23 @@ describe('the gates a table save passes', () => {
 		expect(checkSatisfied([after], checks)).toBe(false);
 	});
 
-	it('asks for no screening where the save only corrects', () => {
+	it('screens a correction the way it screens an entry', () => {
 		const edits = setCell({}, visits[0], 'p-temp', 0, '4.5', LOCALE);
 		const writes = pendingWrites(visits, edits, LOCALE);
+		expect(needsCheck(writes[0])).toBe(true);
+		expect(screenedValues(writes[0])).toEqual([{ parameter_id: 'p-temp', value: 4.5 }]);
+		expect(checkSatisfied(writes, {})).toBe(false);
+
+		const checks = { v1: { id: 'check-1', signature: checkSignature(writes[0]) } };
+		expect(checkSatisfied(writes, checks)).toBe(true);
+		const moved = pendingWrites(visits, setCell({}, visits[0], 'p-temp', 0, '4.6', LOCALE), LOCALE);
+		expect(checkSatisfied(moved, checks)).toBe(false);
+	});
+
+	it('asks for no screening where the save only withdraws', () => {
+		const edits = setCell({}, visits[0], 'p-temp', 0, '', LOCALE);
+		const writes = pendingWrites(visits, edits, LOCALE);
+		expect(needsCheck(writes[0])).toBe(false);
 		expect(checkSatisfied(writes, {})).toBe(true);
 	});
 

@@ -463,6 +463,31 @@ test('a corrected cell names its curve on the grid', async ({ page, request }) =
 	);
 });
 
+// Scenario: a value a formula calculation computed through a standard curve, read on the Visits
+// grid.
+//
+// Expected behaviour (Q268): the cell names the curve on hover as the one it was computed with,
+// apart from a curve that corrected a measurement, and the visit's slot table names it with the
+// coefficients the run used.
+test('a computed cell names the curve its calculation used', async ({ page, request }) => {
+	const { siteId, outputName, curveName } = await seedCurveRun(request);
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
+	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
+
+	const computed = sheetCell(page, new RegExp(`^${outputName} at`));
+	await expect(computed).toHaveAttribute('title', new RegExp(`Computed with ${curveName}`));
+	await expect(computed.locator('.sheet-mark', { hasText: /^f$/ })).toHaveAttribute(
+		'title',
+		`Computed with ${curveName}`,
+	);
+	await expect(computed.locator('.sheet-mark', { hasText: /^c$/ })).toHaveCount(0);
+
+	await frozenButton(page, { name: /./ }).first().click();
+	const slotRow = page.locator('tr').filter({ hasText: outputName }).filter({ hasText: 'computed with' });
+	await expect(slotRow).toContainText(`computed with ${curveName} (y = 3x + 1)`);
+});
+
 // Scenario: a selection on the Visits grid, whose read-only cells Handsontable paints itself.
 //
 // Expected behaviour: the cell a calculation connects to the selection is tinted over the read-only

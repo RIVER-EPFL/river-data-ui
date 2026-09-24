@@ -434,7 +434,7 @@
 									{:else if access.authorable && entry.id && entry.enabled !== null}
 										<CalculationSwitch id={entry.id} enabled={entry.enabled} onchanged={refreshScripts} />
 										{#if me.can('admin')}
-											<DecommissionCalculation id={entry.id} ondecommissioned={refreshScripts} />
+											<DecommissionCalculation id={entry.id} onchanged={refreshScripts} />
 										{/if}
 									{:else if entry.enabled === false}
 										<Badge variant="muted">off</Badge>

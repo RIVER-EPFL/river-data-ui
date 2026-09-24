@@ -1,10 +1,12 @@
 <script lang="ts">
-	import { updateToolScript } from '$api/service';
+	import { listCommissions, updateToolScript, type CommissionRecord } from '$api/service';
 	import { apiMessage } from '$lib/standardCurves';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import CalculationSwitch from '$components/toolbox/CalculationSwitch.svelte';
 	import DecommissionCalculation from '$components/toolbox/DecommissionCalculation.svelte';
+	import { commissionLine } from '$lib/toolbox/decommission';
+	import { formatDateTime } from '$lib/utils';
 	import { me } from '$auth/me.svelte';
 
 	let {
@@ -28,6 +30,16 @@
 	$effect(() => {
 		label = calculation.label;
 		description = calculation.description ?? '';
+	});
+
+	// Every decommission and recommission, re-read whenever the stamp moves.
+	let history = $state<CommissionRecord[]>([]);
+	$effect(() => {
+		void calculation.decommissioned_at;
+		if (!me.can('admin')) return;
+		listCommissions(calculation.id)
+			.then((rows) => (history = rows))
+			.catch(() => (history = []));
 	});
 
 	async function save() {
@@ -72,7 +84,18 @@
 		</div>
 	</div>
 	<Button size="sm" onclick={save} disabled={saving || !label.trim()}>{saving ? 'Saving…' : 'Save label'}</Button>
-	{#if me.can('admin') && !calculation.decommissioned_at}
-		<DecommissionCalculation id={calculation.id} ondecommissioned={() => onsaved?.()} />
+	{#if me.can('admin')}
+		<DecommissionCalculation
+			id={calculation.id}
+			decommissioned={!!calculation.decommissioned_at}
+			onchanged={() => onsaved?.()}
+		/>
+		{#if history.length > 0}
+			<ul class="space-y-0.5 text-xs text-brand-muted" aria-label="Commission history">
+				{#each history as c (c.at + c.event)}
+					<li>{formatDateTime(c.at)} · {commissionLine(c)}</li>
+				{/each}
+			</ul>
+		{/if}
 	{/if}
 </div>

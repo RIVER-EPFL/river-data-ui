@@ -5,6 +5,11 @@ import CalculationSettings from './CalculationSettings.svelte';
 
 const updateToolScript = vi.fn(async (_id: string, _body: unknown) => ({}));
 const decommissionToolScript = vi.fn(async (_id: string, _reason: string) => ({}));
+const recommissionToolScript = vi.fn(async (_id: string, _reason: string) => ({
+	calculation: { name: 'pco2' },
+	name_restored: true,
+}));
+const listCommissions = vi.fn(async (_id: string): Promise<unknown[]> => []);
 const getCalculationSites = vi.fn(async () => [
 	{
 		calculation_id: 'calc-1',
@@ -19,6 +24,8 @@ const getCalculationSites = vi.fn(async () => [
 vi.mock('$api/service', () => ({
 	updateToolScript: (id: string, body: unknown) => updateToolScript(id, body),
 	decommissionToolScript: (id: string, reason: string) => decommissionToolScript(id, reason),
+	recommissionToolScript: (id: string, reason: string) => recommissionToolScript(id, reason),
+	listCommissions: (id: string) => listCommissions(id),
 	getCalculationSites: () => getCalculationSites(),
 }));
 
@@ -38,6 +45,8 @@ describe('CalculationSettings', () => {
 	beforeEach(() => {
 		updateToolScript.mockClear();
 		decommissionToolScript.mockClear();
+		recommissionToolScript.mockClear();
+		listCommissions.mockClear();
 		admin.value = true;
 	});
 
@@ -83,11 +92,25 @@ describe('CalculationSettings', () => {
 		expect(screen.queryByRole('button', { name: 'Decommission' })).toBeNull();
 	});
 
-	it('offers no decommission once a calculation is decommissioned', () => {
+	it('offers a recommission in place of the decommission once a calculation is decommissioned', async () => {
+		const onsaved = vi.fn();
+		listCommissions.mockResolvedValueOnce([
+			{ event: 'decommissioned', name: 'pco2', actor: 'admin', at: '2026-09-23T12:00:00Z', reason: 'a slip' },
+		]);
 		render(CalculationSettings, {
 			calculation: { ...calculation, enabled: false, decommissioned_at: '2026-09-23T12:00:00Z' },
+			onsaved,
 		});
 		expect(screen.queryByRole('button', { name: 'Decommission' })).toBeNull();
+		expect(await screen.findByText(/Decommissioned by admin, as pco2: a slip/)).toBeTruthy();
+		await fireEvent.click(screen.getByRole('button', { name: 'Recommission' }));
+		const confirm = screen.getAllByRole('button', { name: 'Recommission' }).at(-1) as HTMLButtonElement;
+		expect(confirm.disabled).toBe(true);
+		await fireEvent.input(screen.getByLabelText('Reason'), { target: { value: 'decommissioned by mistake' } });
+		await fireEvent.click(confirm);
+		await waitFor(() => expect(onsaved).toHaveBeenCalled());
+		expect(recommissionToolScript).toHaveBeenCalledWith('calc-1', 'decommissioned by mistake');
+		expect(decommissionToolScript).not.toHaveBeenCalled();
 	});
 
 	it('does not save an empty label', async () => {

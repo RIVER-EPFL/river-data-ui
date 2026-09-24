@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { EventCell } from '$api/service';
-import { cellCurves, visitCellCurveMark } from './curve';
+import { cellCurves, visitCellComputedCurveMark, visitCellCurveMark } from './curve';
 
 interface Curve {
 	id: string;
@@ -46,6 +46,7 @@ describe('cellCurves', () => {
 			equation: 'y = 1.05x - 2',
 			retired: false,
 			target: { kind: 'calculation', tool: 'doc' },
+			computed: false,
 		});
 	});
 
@@ -85,5 +86,37 @@ describe('visitCellCurveMark', () => {
 			curves: [{ id: curve.id, name: 'plate 7' }, { id: 'abcdef12-0000-4000-8000-000000000002' }],
 		});
 		expect(mark?.title).toBe('Corrected with plate 7, Curve abcdef12');
+	});
+});
+
+describe('computed curves', () => {
+	const computed = { id: 'c0ffee00-0000-4000-8000-000000000002', name: 'Curve 2026-03', slope: 2, intercept: 0.5 };
+
+	it('names a curve the calculation computed the value through, with the run\'s coefficients', () => {
+		const cell = { ...cellWith([], 'pco2'), computed_curves: [computed] };
+		expect(cellCurves(cell, '/admin')).toEqual([
+			{
+				id: computed.id,
+				label: 'Curve 2026-03',
+				equation: 'y = 2x + 0.5',
+				retired: false,
+				target: { kind: 'calculation', tool: 'pco2' },
+				computed: true,
+			},
+		]);
+	});
+
+	it('keeps a corrected curve and a computed one apart', () => {
+		const cell = { ...cellWith([curve], 'pco2'), computed_curves: [computed] };
+		expect(cellCurves(cell, '/admin').map((c) => c.computed)).toEqual([false, true]);
+	});
+
+	it('marks a computed cell apart from a corrected one', () => {
+		expect(visitCellComputedCurveMark({ computed_curves: [computed] })).toEqual({
+			text: 'f',
+			title: 'Computed with Curve 2026-03',
+		});
+		expect(visitCellComputedCurveMark({ computed_curves: [] })).toBeNull();
+		expect(visitCellCurveMark({ curves: [] })).toBeNull();
 	});
 });

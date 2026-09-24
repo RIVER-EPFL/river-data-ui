@@ -1,28 +1,33 @@
 <script lang="ts">
-	import { decommissionToolScript, getCalculationSites } from '$api/service';
+	import { decommissionToolScript, getCalculationSites, recommissionToolScript } from '$api/service';
 	import { apiMessage } from '$lib/standardCurves';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { decommissionConsequence } from '$lib/toolbox/decommission';
+	import { decommissionConsequence, recommissionOutcome } from '$lib/toolbox/decommission';
 	import Button from '$components/ui/Button.svelte';
 
-	// Decommissioning is for good (Q272), so it asks why and says where it stops before it is done.
+	// Decommissioning and recommissioning each ask why, and a decommission says where it stops,
+	// before it is done (Q272, Q279).
 	let {
 		id,
-		ondecommissioned,
+		decommissioned = false,
+		onchanged,
 	}: {
 		id: string;
-		ondecommissioned?: () => void | Promise<void>;
+		decommissioned?: boolean;
+		onchanged?: () => void | Promise<void>;
 	} = $props();
 
 	let asking = $state(false);
 	let reason = $state('');
 	let sites = $state<number | null>(null);
 	let saving = $state(false);
+	const verb = $derived(decommissioned ? 'Recommission' : 'Decommission');
 
 	async function open() {
 		asking = true;
 		reason = '';
 		sites = null;
+		if (decommissioned) return;
 		try {
 			sites = (await getCalculationSites()).find((c) => c.calculation_id === id)?.sites.length ?? 0;
 		} catch {
@@ -33,10 +38,15 @@
 	async function confirm() {
 		saving = true;
 		try {
-			await decommissionToolScript(id, reason.trim());
-			toastStore.success('Calculation decommissioned');
+			if (decommissioned) {
+				const done = await recommissionToolScript(id, reason.trim());
+				toastStore.success(recommissionOutcome(done.calculation.name, done.name_restored));
+			} else {
+				await decommissionToolScript(id, reason.trim());
+				toastStore.success('Calculation decommissioned');
+			}
 			asking = false;
-			await ondecommissioned?.();
+			await onchanged?.();
 		} catch (e) {
 			toastStore.error(apiMessage(e));
 		} finally {
@@ -46,10 +56,14 @@
 </script>
 
 {#if !asking}
-	<Button size="sm" variant="ghost" onclick={open}>Decommission</Button>
+	<Button size="sm" variant="ghost" onclick={open}>{verb}</Button>
 {:else}
-	<div role="alertdialog" aria-label="Decommission calculation" class="flex flex-col gap-2 text-xs">
-		<p class="text-brand-muted">{decommissionConsequence(sites)}</p>
+	<div role="alertdialog" aria-label="{verb} calculation" class="flex flex-col gap-2 text-xs">
+		<p class="text-brand-muted">
+			{decommissioned
+				? 'It comes back switched off, under its former name unless another calculation has taken it.'
+				: decommissionConsequence(sites)}
+		</p>
 		<label class="flex flex-col gap-1">
 			<span class="font-medium">Reason</span>
 			<input
@@ -59,8 +73,12 @@
 			/>
 		</label>
 		<div class="flex flex-wrap gap-2">
-			<Button size="sm" variant="danger" onclick={confirm} disabled={saving || !reason.trim()}
-				>{saving ? 'Decommissioning…' : 'Decommission'}</Button
+			<Button
+				size="sm"
+				variant={decommissioned ? 'primary' : 'danger'}
+				onclick={confirm}
+				disabled={saving || !reason.trim()}
+				>{saving ? `${verb}ing…` : verb}</Button
 			>
 			<Button size="sm" variant="ghost" onclick={() => (asking = false)}>Keep</Button>
 		</div>

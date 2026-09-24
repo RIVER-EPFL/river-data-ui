@@ -46,6 +46,7 @@
 	} from '$lib/provenance/decisions';
 	import { leadingToken, ledgerLine, ledgerWeight } from '$lib/provenance/ledger';
 	import { decommissionText, recordDecommission } from '$lib/provenance/decommission';
+	import { takeoverText } from '$lib/provenance/takeover';
 	import { originServiceHref } from '$lib/provenance/serviceLink';
 	import {
 		anyChanged,
@@ -950,6 +951,9 @@
 				{resp.records.length} streams serve this slot at this instant. Each record is shown.
 			</p>
 		{/if}
+		{#each resp.takeovers ?? [] as takeover (takeover.at)}
+			<p class="mt-2 text-xs text-brand-accent-dark">{takeoverText(resp.parameter_code, takeover)}</p>
+		{/each}
 		{#each resp.records as rec, i (rec.origin.stream_id)}
 			{@const serviceHref = originServiceHref(base, rec.origin, me.can('admin'))}
 			<div class={i > 0 ? 'mt-3 border-t border-brand-divider pt-3' : 'mt-2'}>
