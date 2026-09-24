@@ -41,14 +41,16 @@ export function replicateWidth(
 
 const WIDTHS = new WeakMap<VisitRow[], Map<string, number>>();
 
-/** Each parameter's widest stored replicate group over a listing, built once per listing. */
+/** Each parameter's widest stored replicate group over a listing, by the highest index held, built
+ * once per listing. */
 export function storedWidths(visits: VisitRow[]): Map<string, number> {
 	let widths = WIDTHS.get(visits);
 	if (widths) return widths;
 	widths = new Map();
 	for (const visit of visits) {
 		for (const cell of visit.cells) {
-			const width = Math.max(1, cell.replicates?.length ?? 0);
+			// Replicates are addressed by index, and two streams may hold the same one.
+			const width = (cell.replicates ?? []).reduce((w, r) => Math.max(w, r.replicate_index + 1), 1);
 			widths.set(cell.parameter_id, Math.max(widths.get(cell.parameter_id) ?? 1, width));
 		}
 	}

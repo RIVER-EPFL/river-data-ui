@@ -174,4 +174,14 @@ describe('storedWidths', () => {
 		expect(storedWidths([]).size).toBe(0);
 		expect(replicateWidth([], 'p-do')).toBe(1);
 	});
+
+	it('reaches the highest replicate index held, whatever the row count', () => {
+		const at = (indexes: number[]) =>
+			storedWidths([visit([{ parameter_id: 'p', replicates: indexes.map((i) => replicate(i, 1)) }])]).get('p');
+		expect(at([0, 1, 2])).toBe(3);
+		expect(at([1, 2])).toBe(3);
+		// Two streams holding the same indexes.
+		expect(at([0, 1, 0, 1, 2])).toBe(3);
+		expect(at([])).toBe(1);
+	});
 });

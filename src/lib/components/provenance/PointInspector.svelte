@@ -49,6 +49,7 @@
 	import { decommissionText, recordDecommission } from '$lib/provenance/decommission';
 	import { takeoverText } from '$lib/provenance/takeover';
 	import { originServiceHref } from '$lib/provenance/serviceLink';
+	import { computedOrigin, valueLabel, windowStartText } from '$lib/provenance/recordLabels';
 	import {
 		anyChanged,
 		captureLine,
@@ -458,7 +459,7 @@
 		].join(', ');
 		const window =
 			rc.window_from && rc.window_to
-				? `; window ${formatDateTime(rc.window_from)} to ${formatDateTime(rc.window_to)}`
+				? `; window ${windowStartText(rc.window_from)} to ${formatDateTime(rc.window_to)}`
 				: '';
 		return `${formatDateTime(rc.at)}: ${counts}${window}`;
 	}
@@ -612,7 +613,9 @@
 	}
 
 	function originBadge(rec: ProvenanceRecord): { label: string; variant: 'accent' | 'muted' } {
-		const label = classificationLabel(rec.origin.classification, rec.origin.source_system);
+		// A computed value names its calculation, not the channel its save came in on.
+		const label =
+			computedOrigin(rec) ?? classificationLabel(rec.origin.classification, rec.origin.source_system);
 		return { label, variant: rec.origin.classification === 'sync' ? 'accent' : 'muted' };
 	}
 </script>
@@ -709,7 +712,7 @@
 			{:else}
 				{@render inlineOptional('Computation', what, computationTip(rec), false)}
 			{/if}
-			{@render inlineOptional('Entered by', author, undefined, false)}
+			{@render inlineOptional('Run by', author, undefined, false)}
 		</div>
 		{#if retired}
 			<p class="text-xs text-brand-accent-dark">{decommissionText(retired)}</p>
@@ -854,7 +857,7 @@
 		<thead class="text-xs text-brand-muted">
 			<tr>
 				<th class="py-0.5 pr-3 font-medium">Replicate</th>
-				<th class="py-0.5 pr-3 text-right font-medium">Measured{unitSuffix}</th>
+				<th class="py-0.5 pr-3 text-right font-medium">{valueLabel(rec)}{unitSuffix}</th>
 				<th class="py-0.5 pr-3 text-right font-medium">Corrected{unitSuffix}</th>
 				{#if !sharedApplied(rec)}<th class="py-0.5 pr-3 font-medium">Applied</th>{/if}
 				<th class="py-0.5 pr-3 font-medium">State</th>
@@ -985,7 +988,7 @@
 				{#if rec.readings.length === 1}
 					{@const r = rec.readings[0]}
 					<dl class={gridClass}>
-						{@render field(`Measured${unitSuffix}`, fmt(r.raw_value), undefined, true)}
+						{@render field(`${valueLabel(rec)}${unitSuffix}`, fmt(r.raw_value), undefined, true)}
 						{@render optional(`Corrected${unitSuffix}`, fmt(r.calibrated_value), undefined, true)}
 						{@render optional('State', stateText(r), stateTip(r), false)}
 					</dl>

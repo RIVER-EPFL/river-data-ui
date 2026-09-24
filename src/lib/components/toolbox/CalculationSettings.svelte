@@ -3,7 +3,6 @@
 	import { apiMessage } from '$lib/standardCurves';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
-	import CalculationSwitch from '$components/toolbox/CalculationSwitch.svelte';
 	import DecommissionCalculation from '$components/toolbox/DecommissionCalculation.svelte';
 	import { commissionLine } from '$lib/toolbox/decommission';
 	import { formatDateTime } from '$lib/utils';
@@ -17,7 +16,6 @@
 			id: string;
 			label: string;
 			description?: string | null;
-			enabled: boolean;
 			decommissioned_at?: string | null;
 		};
 		onsaved?: () => void | Promise<void>;
@@ -60,9 +58,6 @@
 </script>
 
 <div class="space-y-3">
-	{#if !calculation.decommissioned_at}
-		<CalculationSwitch id={calculation.id} enabled={calculation.enabled} onchanged={() => onsaved?.()} />
-	{/if}
 	<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
 		<div class="flex flex-col gap-1">
 			<label for="calc-label-{calculation.id}" class="text-sm font-medium">Label</label>

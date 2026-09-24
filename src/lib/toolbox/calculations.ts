@@ -8,7 +8,7 @@ import { toolboxHref } from '$lib/toolbox/route';
 export interface CalculationEntry {
 	/** The calculation's name, as a finding and a scoped recompute name it. */
 	calculation: string;
-	/** The `tool_scripts` row its label and switch are saved to. Null for a row with no script. */
+	/** The `tool_scripts` row its label is saved to. Null for a row with no script. */
 	id: string | null;
 	label: string;
 	engine: CalculationEngine;
@@ -20,11 +20,9 @@ export interface CalculationEntry {
 	fires_on: string;
 	/** Readings stored under its outputs, summed. Null when no output has coverage. */
 	stored: number | null;
-	/** Whether it fires. Null for a row with no script to switch. */
-	enabled: boolean | null;
 	/** An R script with no active version, which is why it has no outputs. */
 	versionless: boolean;
-	/** The sites the chain fires it at, by name. Null when it is switched off. */
+	/** The sites the chain fires it at, by name. Null when it fires nowhere. */
 	sites: CalculationSites['sites'] | null;
 	/** When it was decommissioned, null while it is live. */
 	decommissioned_at: string | null;
@@ -82,7 +80,6 @@ export function calculationEntries(
 			inputs: mergedInputs(outputs),
 			fires_on: FIRES_ON[engine],
 			stored: summedStored(outputs),
-			enabled: s.enabled,
 			versionless: engine === 'script' && s.active_version_no == null,
 			sites: sitesOf.get(s.name) ?? null,
 			decommissioned_at: s.decommissioned_at ?? null,
@@ -100,7 +97,6 @@ export function calculationEntries(
 			inputs: mergedInputs(outputs),
 			fires_on: first.fires_on,
 			stored: summedStored(outputs),
-			enabled: first.enabled,
 			versionless: false,
 			sites: sitesOf.get(calculation) ?? null,
 			decommissioned_at: null,

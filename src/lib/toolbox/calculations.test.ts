@@ -20,7 +20,6 @@ const row = (over: Partial<CalculationRow>): CalculationRow => ({
 	inputs: [],
 	fires_on: 'each source reading',
 	definition: 'a + b',
-	enabled: null,
 	href: '/toolbox/sc-pco2',
 	output_reading_count: null,
 	output_sources: [],
@@ -28,15 +27,14 @@ const row = (over: Partial<CalculationRow>): CalculationRow => ({
 });
 
 const scripts = [
-	{ id: 'sc-pco2', name: 'pco2', label: 'pCO2', engine: 'formula', enabled: true, active_version_no: null },
-	{ id: 'sc-dom', name: 'dom', label: 'DOM Indices', engine: 'script', enabled: false, active_version_no: 3 },
-	{ id: 'sc-new', name: 'draft', label: 'Draft', engine: 'script', enabled: true, active_version_no: null },
+	{ id: 'sc-pco2', name: 'pco2', label: 'pCO2', engine: 'formula', active_version_no: null },
+	{ id: 'sc-dom', name: 'dom', label: 'DOM Indices', engine: 'script', active_version_no: 3 },
+	{ id: 'sc-new', name: 'draft', label: 'Draft', engine: 'script', active_version_no: null },
 	{
 		id: 'sc-old',
 		name: 'pco22',
 		label: 'pCO2 (old)',
 		engine: 'formula',
-		enabled: false,
 		active_version_no: null,
 		decommissioned_at: '2026-09-23T12:00:00Z',
 	},
@@ -51,7 +49,6 @@ const rows = [
 		engine: 'script',
 		output_code: 'SUVA',
 		inputs: [input('DOC', true)],
-		enabled: false,
 		href: '/toolbox/sc-dom',
 		fires_on: 'each write at a visit',
 	}),
@@ -89,14 +86,14 @@ describe('calculationEntries', () => {
 		expect(draft.href).toBe('/toolbox/sc-new');
 	});
 
-	it('carries the switch and the id it is saved under, whatever the engine', () => {
+	it('carries the id it is saved under, whatever the engine', () => {
 		const find = (name: string) => entries().find((e) => e.calculation === name)!;
-		expect([find('dom').id, find('dom').enabled]).toEqual(['sc-dom', false]);
-		expect([find('pco2').id, find('pco2').enabled]).toEqual(['sc-pco2', true]);
+		expect(find('dom').id).toBe('sc-dom');
+		expect(find('pco2').id).toBe('sc-pco2');
 		expect(find('pco2').versionless).toBe(false);
 	});
 
-	it('keeps a row whose calculation has no script, under its own name and with no switch', () => {
+	it('keeps a row whose calculation has no script, under its own name', () => {
 		const orphan = row({ calculation: 'lost', output_code: 'X' });
 		const listed = calculationEntries([orphan], [], '');
 		expect(listed.map((e) => [e.calculation, e.outputs.length, e.id])).toEqual([['lost', 1, null]]);
@@ -106,7 +103,7 @@ describe('calculationEntries', () => {
 		expect(calculationEntries([], [], '')).toEqual([]);
 	});
 
-	it('carries the sites the chain fires each enabled calculation at', () => {
+	it('carries the sites the chain fires each live calculation at', () => {
 		const fp1 = { id: 'fp1', name: 'FP1' };
 		const listed = calculationEntries(rows, scripts, '', [
 			{ calculation_id: 'sc-pco2', calculation: 'pco2', sites: [fp1] },
@@ -115,7 +112,7 @@ describe('calculationEntries', () => {
 		const sitesOf = (name: string) => listed.find((e) => e.calculation === name)!.sites;
 		expect(sitesOf('pco2')).toEqual([fp1]);
 		expect(sitesOf('draft')).toEqual([]);
-		// Switched off, so the chain fires it nowhere and the list does not name it.
+		// Absent from the list the chain reads, so it fires nowhere.
 		expect(sitesOf('dom')).toBeNull();
 	});
 });

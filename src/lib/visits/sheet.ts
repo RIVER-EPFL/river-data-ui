@@ -132,6 +132,11 @@ export function oncePerFrame(
 	};
 }
 
+/** Draw the grid, unless it was torn down before a queued frame reached it. */
+export function renderLive(grid: { isDestroyed: boolean; render(): void } | null): void {
+	if (grid && !grid.isDestroyed) grid.render();
+}
+
 /** What a value cell prints: what was typed, else the stored value at the slot's precision. */
 export function displayText(at: SheetSlot, edits: Edits, writable: boolean): string {
 	if (at.key in edits) return edits[at.key];

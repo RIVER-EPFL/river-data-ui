@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { VisitRow } from '$api/service';
 import { parameterColumns, slotsOf, type GridSlot } from './columns';
@@ -7,6 +7,7 @@ import {
 	applyChanges,
 	displayText,
 	oncePerFrame,
+	renderLive,
 	pasteOverflow,
 	sheetData,
 	sheetHeaders,
@@ -272,5 +273,20 @@ describe('oncePerFrame', () => {
 		request();
 		frames.shift()!();
 		expect(draws).toBe(2);
+	});
+});
+
+describe('renderLive', () => {
+	it('draws a live grid', () => {
+		const grid = { isDestroyed: false, render: vi.fn() };
+		renderLive(grid);
+		expect(grid.render).toHaveBeenCalledOnce();
+	});
+
+	it('draws nothing once the grid is destroyed or gone', () => {
+		const grid = { isDestroyed: true, render: vi.fn() };
+		renderLive(grid);
+		renderLive(null);
+		expect(grid.render).not.toHaveBeenCalled();
 	});
 });

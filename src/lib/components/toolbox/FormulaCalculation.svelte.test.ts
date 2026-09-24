@@ -35,7 +35,6 @@ vi.mock('$api/service', () => ({
 		name: 'pco2',
 		label: 'pCO2',
 		description: null,
-		enabled: true,
 		active_version_no: null,
 		versions: [],
 	})),

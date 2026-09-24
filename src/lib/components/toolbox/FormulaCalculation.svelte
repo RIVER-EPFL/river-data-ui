@@ -854,7 +854,6 @@
 					<p class="text-sm text-brand-muted">
 						{calculation.name} · formula calculation
 						{#if calculation.active_version_no}· version {calculation.active_version_no}{/if}
-						{#if !calculation.enabled && !calculation.decommissioned_at}· <Badge variant="warning">disabled</Badge>{/if}
 					</p>
 					{#if calculation.description}<p class="text-sm text-brand-muted mt-1">{calculation.description}</p>{/if}
 					<CalculationSites name={calculation.name} />

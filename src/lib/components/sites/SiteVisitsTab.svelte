@@ -113,6 +113,7 @@
 		applyChanges,
 		displayText,
 		oncePerFrame,
+		renderLive,
 		pasteOverflow,
 		sheetData,
 		sheetHeaders,
@@ -161,7 +162,7 @@
 	import { cellRole, cellWritable, columnRole, editConsequence, ROLE_CLASSES } from '$lib/visits/role';
 	import { cellCurves, visitCellComputedCurveMark, visitCellCurveMark } from '$lib/visits/curve';
 	import { cellFinding, visitRowHeader } from '$lib/visits/rowHeader';
-	import { instrumentCurves } from '$lib/visits/instrument';
+	import { instrumentCurves, rowInstrument } from '$lib/visits/instrument';
 	import { curveRefs } from '$lib/curveRefs.svelte';
 	import { seasonalFindingLabel } from '$lib/seasonal';
 	import { changedPayload, readUntilSettled, runOutputs, runReportLine } from '$lib/visits/recompute';
@@ -468,7 +469,7 @@
 	// change it makes is recorded in `edits`, which is what Check and Save read.
 	let hot: HotInstance | null = null;
 	// Every redraw asked for inside one frame is drawn once.
-	const requestRender = oncePerFrame(() => hot?.render());
+	const requestRender = oncePerFrame(() => renderLive(hot));
 	let canUndo = $state(false);
 	// Bumped where the typed cells are cleared, so the grid reloads what the store holds.
 	let dataVersion = $state(0);
@@ -1928,6 +1929,7 @@
 											size="sm"
 											variant="ghost"
 											disabled={visitBusy === v.id}
+											title="Checks this visit's calculated values without changing any. Each calculation is run again and compared with what is stored: a missing or out-of-date value is filed as a finding, and a finding that no longer applies is closed. Use it to see what a recompute would change before running one."
 											onclick={(e) => { e.stopPropagation(); runVisitJob(v.id, 'audit'); }}
 										>Audit this visit</Button>
 										{/if}
@@ -1964,6 +1966,7 @@
 									<thead class="text-brand-muted">
 										<tr>
 											<th class="py-1 pr-3 text-left font-medium">Parameter</th>
+											<th class="py-1 pr-3 text-left font-medium">Instrument</th>
 											<th class="py-1 pr-3 text-left font-medium">Served</th>
 											<th class="py-1 pr-3 text-left font-medium">Replicates</th>
 											<th class="py-1 pr-3 text-left font-medium">Curve</th>
@@ -1974,6 +1977,7 @@
 									<tbody>
 										{#each recordRows(visitDetail.cells, visitColumns) as row (row.parameterId + (row.cell?.stream_id ?? 'unmeasured'))}
 											{@const cell = row.cell}
+											{@const held = rowInstrument(cell)}
 											<tr
 												class="border-t border-brand-divider/60 {cell ? 'cursor-pointer hover:bg-brand-bg/60' : ''} {visitCell?.parameterId === row.parameterId ? 'bg-brand-bg' : ''}"
 												aria-selected={visitCell?.parameterId === row.parameterId}
@@ -1991,17 +1995,43 @@
 														<span class="text-brand-muted">{row.parameterName}</span>
 													{/if}
 													{#if unitsForParameter(row.parameterId)}<span class="text-brand-muted">({unitsForParameter(row.parameterId)})</span>{/if}
-													{#if me.can('writeData') && !cell?.written_by && instruments.length > 0}
+													{#if cell && cellRole(cell).title}
+														{@const owner = cellRole(cell).role === 'output' ? cell.written_by : (cell.read_by ?? [])[0]}
+														<button
+															type="button"
+															class="ml-1.5 cursor-pointer rounded border-none px-1 text-[10px] {cellRole(cell).role === 'output'
+																? 'bg-brand-accent/15 text-brand-accent-dark'
+																: 'bg-brand-primary/10 text-brand-primary'}"
+															title={[cellRole(cell).title, owner ? `Open ${owner} at this visit, on the curve its last run here used` : null].filter(Boolean).join('\n')}
+															onclick={(e) => { e.stopPropagation(); if (owner) void openCalculation(owner, visitDetail!); }}
+														>{cellRole(cell).role === 'output' ? cell.written_by : `→ ${(cell.read_by ?? []).join(', ')}`}</button>
+													{/if}
+												</td>
+												<td class="py-1 pr-3">
+													{#if held.kind === 'measured'}
+														{#if held.sensorId}
+															<a
+																class="text-brand-primary hover:underline"
+																href="{base}/sensors/{held.sensorId}"
+																title="The instrument this value was measured on"
+																onclick={(e) => e.stopPropagation()}
+															>{held.label}</a>
+														{:else}
+															<span class="text-brand-muted">-</span>
+														{/if}
+													{:else if held.kind === 'computed'}
+														<span class="text-brand-muted" title="Computed by this calculation, not measured">{toolLabel(held.calculation)}</span>
+													{:else if me.can('writeData') && instruments.length > 0}
 														{@const declared = declaredInstruments[instrumentKey(v.id, row.parameterId)] ?? ''}
 														<select
-															class="ml-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-[11px] hover:border-brand-divider"
-															title="What measured this parameter at this visit. It is stored on every value entered here."
-															aria-label="Instrument for {row.parameterName} at this visit"
+															class="rounded border border-transparent bg-transparent px-1 py-0.5 text-[11px] hover:border-brand-divider"
+															title="What measures the next value entered for this parameter at this visit. It is stored on every value entered here."
+															aria-label="Instrument for the next entry of {row.parameterName} at this visit"
 															value={declared}
 															onclick={(e) => e.stopPropagation()}
 															onchange={(e) => declareInstrument(v.id, row.parameterId, e.currentTarget.value)}
 														>
-															<option value="">Undeclared</option>
+															<option value="">Instrument for the next entry</option>
 															{#each pickerOptions(instruments, declared || undefined) as sensor (sensor.id)}
 																<option value={sensor.id}
 																	>{sensor.name ?? sensor.serial_number ?? sensor.id.slice(0, 8)}{retiredSuffix(sensor)}</option
@@ -2017,17 +2047,6 @@
 																onclick={(e) => e.stopPropagation()}
 															>{curves.label}</a>
 														{/if}
-													{/if}
-													{#if cell && cellRole(cell).title}
-														{@const owner = cellRole(cell).role === 'output' ? cell.written_by : (cell.read_by ?? [])[0]}
-														<button
-															type="button"
-															class="ml-1.5 cursor-pointer rounded border-none px-1 text-[10px] {cellRole(cell).role === 'output'
-																? 'bg-brand-accent/15 text-brand-accent-dark'
-																: 'bg-brand-primary/10 text-brand-primary'}"
-															title={[cellRole(cell).title, owner ? `Open ${owner} at this visit, on the curve its last run here used` : null].filter(Boolean).join('\n')}
-															onclick={(e) => { e.stopPropagation(); if (owner) void openCalculation(owner, visitDetail!); }}
-														>{cellRole(cell).role === 'output' ? cell.written_by : `→ ${(cell.read_by ?? []).join(', ')}`}</button>
 													{/if}
 												</td>
 												{#if !cell}

@@ -40,8 +40,6 @@ export interface CalculationRow {
 	fires_on: string;
 	/** The formula text, or the script's active version. */
 	definition: string;
-	/** Scripts can be switched out of the calculation set; a formula has no such switch. */
-	enabled: boolean | null;
 	/** Where the authoring for this row lives. */
 	href: string;
 	/** Readings already stored under the output, from the coverage. */
@@ -107,7 +105,6 @@ export function calculationRows(args: {
 			),
 			fires_on: 'each source reading',
 			definition: d.formula,
-			enabled: null,
 			href: toolboxHref(base, d.tool_script_id),
 			output_reading_count: null,
 			output_sources: [],
@@ -134,7 +131,6 @@ export function calculationRows(args: {
 				),
 				fires_on: 'each write at a visit',
 				definition: `${t.name} v${t.version_no}`,
-				enabled: script?.enabled ?? true,
 				href: toolboxHref(base, script?.id ?? t.name),
 				output_reading_count: cover?.reading_count ?? null,
 				output_sources: cover?.source_systems ?? [],

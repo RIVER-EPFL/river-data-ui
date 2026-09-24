@@ -45,7 +45,6 @@
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import CalculationFindings from '$components/tools/CalculationFindings.svelte';
 	import DecommissionCalculation from '$components/toolbox/DecommissionCalculation.svelte';
-	import CalculationSwitch from '$components/toolbox/CalculationSwitch.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 
 	let formulas = $state<DerivedParameter[]>([]);
@@ -431,17 +430,8 @@
 									{/if}
 									{#if entry.decommissioned_at}
 										<Badge variant="muted">decommissioned {formatDate(entry.decommissioned_at)}</Badge>
-									{:else if access.authorable && entry.id && entry.enabled !== null}
-										<CalculationSwitch id={entry.id} enabled={entry.enabled} onchanged={refreshScripts} />
-										{#if me.can('admin')}
-											<DecommissionCalculation id={entry.id} onchanged={refreshScripts} />
-										{/if}
-									{:else if entry.enabled === false}
-										<Badge variant="muted">off</Badge>
-									{:else if entry.enabled === true}
-										<Badge variant="ok">on</Badge>
-									{:else}
-										<span class="text-xs text-brand-muted">always</span>
+									{:else if access.authorable && entry.id && me.can('admin')}
+										<DecommissionCalculation id={entry.id} onchanged={refreshScripts} />
 									{/if}
 								</div>
 							</td>

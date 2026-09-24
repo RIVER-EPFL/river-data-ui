@@ -563,7 +563,6 @@
 									{#if detail.active_version_no != null}
 										<span class="text-xs text-brand-muted">Active version {detail.active_version_no}</span>
 									{/if}
-									{#if !detail.enabled && !detail.decommissioned_at}<Badge variant="warning">off</Badge>{/if}
 								</div>
 								<p class="text-xs text-brand-muted">
 									{#if selectedVersion}

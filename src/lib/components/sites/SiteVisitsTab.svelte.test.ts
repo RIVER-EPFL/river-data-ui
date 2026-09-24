@@ -401,6 +401,31 @@ describe("SiteVisitsTab", () => {
       expect(control.closest("td")).toBe(cellOf("PCO2"));
     });
 
+    it("names the instrument a synced value was measured on in the visit's parameter table", async () => {
+      const detail = consumed();
+      detail.cells[0].record.origin.classification = "sync";
+      (detail.cells[0].record.chain as Record<string, unknown>).sensor = {
+        id: "sensor-at",
+        name: "A_T",
+      };
+      // jsdom lays nothing out, and opening the record scrolls it into view.
+      Element.prototype.scrollIntoView = vi.fn();
+      open();
+      getCollectionEventDetail.mockResolvedValue(detail);
+      await screen.findAllByText("100.80");
+      await userEvent.click(cellOf("TEMP"));
+      await userEvent.click(
+        await screen.findByRole("button", { name: "Open the record of TEMP at this visit" }),
+      );
+      await userEvent.click(
+        await screen.findByRole("button", { name: /^Show all 2 parameters/ }),
+      );
+      const table = screen.getByRole("columnheader", { name: "Instrument" }).closest("table")!;
+      const link = within(table).getByRole("link", { name: "A_T" });
+      expect(link.getAttribute("href")).toContain("/sensors/sensor-at");
+      expect(within(table).queryByText("Undeclared")).toBeNull();
+    });
+
     it("lights nothing while the visit's detail cannot be read", async () => {
       listSiteVisits.mockResolvedValue({
         site_id: "site-1",

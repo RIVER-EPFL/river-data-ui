@@ -9,7 +9,7 @@
 	let { name }: { name: string } = $props();
 
 	let sites = $state<Array<{ id: string; name: string }> | null>(null);
-	let enabled = $state(true);
+	let live = $state(true);
 
 	$effect(() => {
 		void load(name);
@@ -19,7 +19,7 @@
 		sites = null;
 		try {
 			const tool = (await listTools()).find((t) => t.name === calculation);
-			enabled = tool != null;
+			live = tool != null;
 			const outputIds = [
 				...new Set((tool?.outputs ?? []).flatMap((o) => (o.parameter ? [o.parameter.id] : []))),
 			];
@@ -41,8 +41,8 @@
 <p class="text-xs text-brand-muted" data-testid="calculation-sites">
 	{#if sites === null}
 		Reading where this is applied…
-	{:else if !enabled}
-		Switched off, so the chain fires it at no site.
+	{:else if !live}
+		Decommissioned or without an active version, so the chain fires it at no site.
 	{:else if sites.length === 0}
 		Applied at no site yet. A calculation is applied from a site's Parameters tab.
 	{:else}

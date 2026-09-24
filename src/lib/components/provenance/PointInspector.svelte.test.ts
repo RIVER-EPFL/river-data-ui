@@ -660,7 +660,9 @@ describe('PointInspector', () => {
 		);
 		await screen.findByText('8.005');
 		const text = container.textContent ?? '';
-		expect(text.indexOf('pCO2 v2, now at v3')).toBeLessThan(text.indexOf('Measured'));
+		expect(text.indexOf('pCO2 v2, now at v3')).toBeLessThan(text.indexOf('Computed'));
+		// A value the calculation produced is not called measured (B659).
+		expect(text).not.toContain('Measured');
 	});
 
 	it('names the formula behind a computed value instead of calling it a hand entry', async () => {
@@ -940,7 +942,7 @@ describe('PointInspector', () => {
 			expect(details[0].open).toBe(false);
 
 			const strip = container.textContent!.slice(0, container.textContent!.indexOf('Details'));
-			for (const led of ['Replicates', 'Mean', 'Standard deviation', 'Instrument', 'Entered by']) {
+			for (const led of ['Replicates', 'Mean', 'Standard deviation', 'Instrument', 'Run by']) {
 				expect(strip).toContain(led);
 			}
 			expect(strip).not.toContain('Administrative');

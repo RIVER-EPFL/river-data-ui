@@ -1096,7 +1096,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Every enabled calculation and the sites it is active at, confined to the caller's projects. */
+        /** Every live calculation and the sites it is active at, confined to the caller's projects. */
         get: operations["get_calculation_sites"];
         put?: never;
         post?: never;
@@ -7465,8 +7465,8 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Update a calculation's label, description or enabled switch (the code lives in versions). A
-         *     decommissioned calculation is not switched back on. Requires Administrator.
+         * Update a calculation's label or description (the code lives in versions). Requires
+         *     Administrator.
          */
         patch: operations["update_script"];
         trace?: never;
@@ -9197,7 +9197,7 @@ export interface components {
             tool_script_id?: string | null;
         };
         /**
-         * @description Where one enabled calculation is active: the sites that declare every parameter it reads, or
+         * @description Where one live calculation is active: the sites that declare every parameter it reads, or
          *     already hold one of its outputs. The same test the chain applies before it runs at a visit.
          */
         CalculationSites: {
@@ -14408,7 +14408,7 @@ export interface components {
              */
             consumed?: components["schemas"]["ConsumedRef"][];
             /**
-             * @description Every enabled formula reading this parameter, one hop down the chain, with its output's
+             * @description Every live formula reading this parameter, one hop down the chain, with its output's
              *     value at this instant where one exists.
              */
             consumers?: components["schemas"]["ConsumerRef"][];
@@ -18160,18 +18160,13 @@ export interface components {
             decommission_reason: string | null;
             /**
              * Format: date-time
-             * @description When the calculation was decommissioned. Set, it is not enabled until a recommission
+             * @description When the calculation was decommissioned. Set, it runs nowhere until a recommission
              *     clears it (Q279).
              */
             decommissioned_at: string | null;
             /** @description The administrator who decommissioned it, from the authenticated caller. */
             decommissioned_by: string | null;
             description: string | null;
-            /**
-             * @description Whether the tool is part of the calculation set: fired at visits by the chain, audited,
-             *     and listed on the Tools page. Off, it can still be run by name.
-             */
-            enabled: boolean;
             /** @description `script` (R in the sandbox) or `formula` (the definitions attached to the calculation). */
             engine: string;
             /** Format: uuid */
@@ -18207,18 +18202,13 @@ export interface components {
             decommission_reason: string | null;
             /**
              * Format: date-time
-             * @description When the calculation was decommissioned. Set, it is not enabled until a recommission
+             * @description When the calculation was decommissioned. Set, it runs nowhere until a recommission
              *     clears it (Q279).
              */
             decommissioned_at: string | null;
             /** @description The administrator who decommissioned it, from the authenticated caller. */
             decommissioned_by: string | null;
             description: string | null;
-            /**
-             * @description Whether the tool is part of the calculation set: fired at visits by the chain, audited,
-             *     and listed on the Tools page. Off, it can still be run by name.
-             */
-            enabled: boolean;
             /** @description `script` (R in the sandbox) or `formula` (the definitions attached to the calculation). */
             engine: string;
             /** Format: uuid */
@@ -18445,11 +18435,6 @@ export interface components {
         };
         UpdateScriptRequest: {
             description?: string | null;
-            /**
-             * @description Switch the tool in or out of the calculation set. A disabled tool keeps its versions and
-             *     activation and fires at no visit until it is switched back on.
-             */
-            enabled?: boolean | null;
             label?: string | null;
         };
         UpdateSyncEventRequest: {
@@ -39602,13 +39587,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ToolScript"];
                 };
-            };
-            /** @description Switching on a decommissioned calculation */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
         };
     };

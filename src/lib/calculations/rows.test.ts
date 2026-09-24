@@ -59,7 +59,7 @@ const tools = [
 ] as unknown as ToolDescriptor[];
 
 const scripts = [
-	{ id: 'sc-dom', name: 'dom', enabled: false, engine: 'script' },
+	{ id: 'sc-dom', name: 'dom', engine: 'script' },
 	{ id: 'sc-pco2', name: 'pco2', engine: 'formula' },
 ] as ToolScriptSummary[];
 
@@ -80,12 +80,10 @@ describe('calculationRows', () => {
 		expect(script.fires_on).toBe('each write at a visit');
 	});
 
-	it("carries a script's active version and its enabled switch, a formula neither", () => {
+	it("carries a script's active version and a formula's text", () => {
 		const [formula, script] = rows();
 		expect(script.definition).toBe('dom v3');
-		expect(script.enabled).toBe(false);
 		expect(formula.definition).toBe('do / cap');
-		expect(formula.enabled).toBeNull();
 	});
 
 	it('resolves an input to its catalog code and its coverage', () => {

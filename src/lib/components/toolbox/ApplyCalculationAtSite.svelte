@@ -36,7 +36,7 @@
 	$effect(() => {
 		void listToolScripts()
 			.then((items) => {
-				calculations = items.filter((c) => c.enabled);
+				calculations = items.filter((c) => !c.decommissioned_at);
 				if (chosen) chosenCalculation = findCalculation(calculations, chosen)?.id ?? '';
 			})
 			.catch(() => {

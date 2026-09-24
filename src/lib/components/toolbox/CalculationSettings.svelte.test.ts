@@ -38,7 +38,6 @@ const calculation = {
 	id: 'calc-1',
 	label: 'pCO2',
 	description: null,
-	enabled: true,
 };
 
 describe('CalculationSettings', () => {
@@ -65,12 +64,9 @@ describe('CalculationSettings', () => {
 		});
 	});
 
-	it('switches the calculation off and on through the same route', async () => {
-		const onsaved = vi.fn();
-		render(CalculationSettings, { calculation, onsaved });
-		await fireEvent.click(screen.getByRole('checkbox'));
-		await waitFor(() => expect(onsaved).toHaveBeenCalled());
-		expect(updateToolScript).toHaveBeenCalledWith('calc-1', { enabled: false });
+	it('offers no on/off switch: decommission is the only global stop', () => {
+		render(CalculationSettings, { calculation });
+		expect(screen.queryByRole('checkbox')).toBeNull();
 	});
 
 	it('decommissions with a reason, having said how many sites it stops at', async () => {
@@ -98,7 +94,7 @@ describe('CalculationSettings', () => {
 			{ event: 'decommissioned', name: 'pco2', actor: 'admin', at: '2026-09-23T12:00:00Z', reason: 'a slip' },
 		]);
 		render(CalculationSettings, {
-			calculation: { ...calculation, enabled: false, decommissioned_at: '2026-09-23T12:00:00Z' },
+			calculation: { ...calculation, decommissioned_at: '2026-09-23T12:00:00Z' },
 			onsaved,
 		});
 		expect(screen.queryByRole('button', { name: 'Decommission' })).toBeNull();
@@ -117,12 +113,5 @@ describe('CalculationSettings', () => {
 		render(CalculationSettings, { calculation });
 		await fireEvent.input(screen.getByLabelText('Label'), { target: { value: '  ' } });
 		expect((screen.getByRole('button', { name: 'Save label' }) as HTMLButtonElement).disabled).toBe(true);
-	});
-
-	it('offers no switch for a decommissioned calculation', () => {
-		render(CalculationSettings, {
-			calculation: { ...calculation, enabled: false, decommissioned_at: '2026-09-23T12:00:00Z' },
-		});
-		expect(screen.queryByRole('checkbox')).toBeNull();
 	});
 });
