@@ -1415,8 +1415,7 @@ export interface paths {
         /**
          * Recompute a collection event's tool outputs on demand: the chain executor runs every active
          *     tool whose inputs resolve at this event, in dependency order, and saves the outputs through
-         *     the grab write path with fresh server-built provenance. A visit the sync created is refused
-         *     (Q41). Tracked job. Requires `write_data`.
+         *     the grab write path with fresh server-built provenance. Tracked job. Requires `write_data`.
          */
         post: operations["recompute_collection_event"];
         delete?: never;
@@ -3696,6 +3695,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/readings/edits/sets/{set_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every decision an edit set recorded, across the streams it reached, with each reading's
+         *     parameter: what rolling the set back restores. Requires `read_data`.
+         */
+        get: operations["get_edit_set"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/readings/edits/sets/{set_id}/rollback": {
         parameters: {
             query?: never;
@@ -3838,6 +3857,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/readings/override": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replace a calculated value by hand (Q263): the slot is detached from its calculation and the
+         *     one value corrected in one transaction, which the provenance record reads back as the computed
+         *     value it replaced. Return is the way back. Requires Administrator.
+         */
+        post: operations["override_output"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/readings/provenance": {
         parameters: {
             query?: never;
@@ -3891,7 +3931,8 @@ export interface paths {
         put?: never;
         /**
          * Return a detached output slot to its calculation: the value the last correction since the
-         *     detach replaced is restored and the tool owns the slot again. Requires Administrator.
+         *     detach replaced is restored, the tool owns the slot again, and the visit recomputes to catch
+         *     up with inputs that moved while it was detached. Requires Administrator.
          */
         post: operations["return_output"];
         delete?: never;
@@ -9003,6 +9044,11 @@ export interface components {
          *     visits they sit on, which is the set an "apply to the stale visits" run would cover.
          */
         CalculationHealth: {
+            /**
+             * @description The values the janitor had to fill for this calculation in the last 24 hours, by site: each
+             *     is a write that missed its recompute (Q260). Empty when there were none.
+             */
+            janitor_fills: components["schemas"]["JanitorFill"][];
             /** Format: int64 */
             missing_outputs: number;
             repair: null | components["schemas"]["CalculationRepair"];
@@ -9227,6 +9273,17 @@ export interface components {
         };
         CancelResponse: {
             status: string;
+        };
+        /** @description A `reading_decisions` row, as `GET /readings/decisions` serves it in full. */
+        CaptureDecision: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            job_id: string | null;
+            /** @description `derived_computed` for the first computation, `formula_transition` for a recompute. */
+            kind: string;
+            /** Format: int64 */
+            seq: number;
         };
         CaseResult: {
             /** @description The runner's error text when the script itself failed. */
@@ -10417,7 +10474,7 @@ export interface components {
          * @description What may be done to one row, given what produced it.
          * @enum {string}
          */
-        EditOption: "reopen_run" | "detach" | "return" | "value_correction" | "curve" | "edit_deployment" | "edit_calibration" | "flag" | "unflag" | "withdraw" | "reassert" | "verify" | "reject";
+        EditOption: "reopen_run" | "detach" | "return" | "override" | "value_correction" | "curve" | "edit_deployment" | "edit_calibration" | "flag" | "unflag" | "withdraw" | "reassert" | "verify" | "reject";
         EditRequest: {
             decision: components["schemas"]["EditDecision"];
             /**
@@ -10438,6 +10495,28 @@ export interface components {
              * Format: uuid
              * @description The set the decisions were recorded under, rolled back as one act.
              */
+            set_id: string;
+        };
+        /**
+         * @description One decision of an edit set, with the parameter its reading measures (absent on a reading
+         *     paired to no site parameter).
+         */
+        EditSetMember: {
+            decision: components["schemas"]["DecisionRow"];
+            parameter_code: string | null;
+            parameter_name: string | null;
+        };
+        /** @description Everything an edit set recorded, across every stream it reached. */
+        EditSetResponse: {
+            actor: string;
+            /** Format: date-time */
+            at: string;
+            kind: string;
+            members: components["schemas"]["EditSetMember"][];
+            reason: string | null;
+            /** Format: date-time */
+            rolled_back_at: string | null;
+            /** Format: uuid */
             set_id: string;
         };
         EnqueuedJobResponse: {
@@ -10954,6 +11033,12 @@ export interface components {
             created_sample_ids?: string[];
             /** @description True when nothing was written. */
             dry_run: boolean;
+            /**
+             * Format: uuid
+             * @description The decision set a replace recorded its corrections and withdrawals under, which
+             *     `/readings/edits/sets/{set_id}/rollback` undoes as one. `null` when nothing was replaced.
+             */
+            edit_set_id: string | null;
             /**
              * @description Replicate groups already stored at the requested (parameter, time) keys, as found before
              *     this request wrote anything.
@@ -11766,6 +11851,13 @@ export interface components {
         IssueCommandRequest: {
             command: string;
             payload: Record<string, never>;
+        };
+        /** @description The values the janitor filled for one calculation at one site. */
+        JanitorFill: {
+            /** Format: uuid */
+            site_id: string;
+            /** Format: int64 */
+            values: number;
         };
         JobLogLine: {
             context: unknown;
@@ -12595,6 +12687,35 @@ export interface components {
             parameter_id: string;
             /** Format: date-time */
             time: string;
+        };
+        /**
+         * @description A calculated value a person replaced by hand (Q263): the value the calculation had stored, and
+         *     who replaced it, when and why. Read from the ledger, so a rollback or a return clears it.
+         */
+        OverrideRef: {
+            /** Format: date-time */
+            at: string;
+            by: string;
+            /** Format: double */
+            computed_value: number | null;
+            reason: string | null;
+        };
+        /**
+         * @description One calculated value to replace by hand: the output slot at a visit, and the replicate when the
+         *     slot holds more than one.
+         */
+        OverrideRequest: {
+            /** Format: uuid */
+            parameter_id: string;
+            reason?: string | null;
+            /** Format: int32 */
+            replicate_index?: number | null;
+            /** Format: uuid */
+            site_id: string;
+            /** Format: date-time */
+            time: string;
+            /** Format: double */
+            value: number;
         };
         /**
          * @description Who owns an output slot at a visit (Q40, Q47): the calculation, or a person who detached it.
@@ -14214,6 +14335,12 @@ export interface components {
         ProvenanceRecord: {
             /** @description The formula that produced a derived value, the counterpart of a tool run's record. */
             calculation?: components["schemas"]["CalculationInfo"];
+            /**
+             * @description The ledger row behind the capture `consumed` shows (Q251): the computation that produced
+             *     the value and the run that made it. Absent where a tool run captured it, which
+             *     `computation` names.
+             */
+            captured_by?: components["schemas"]["CaptureDecision"];
             chain: components["schemas"]["ChainInfo"];
             computation?: components["schemas"]["ComputationInfo"];
             /**
@@ -14484,6 +14611,11 @@ export interface components {
             ingested_at?: string;
             is_flagged: boolean;
             measurement_type?: string;
+            /**
+             * @description The calculated value this row held before a person replaced it by hand, while its slot
+             *     stays detached. The computation below it is what produced the replaced value.
+             */
+            overridden?: components["schemas"]["OverrideRef"];
             /**
              * @description Where this value came from, one of `PROVENANCE_KINDS`. A `sync` or `derived` row's story is
              *     resolved from the stream, the receipt and the definition; the others carry a stored blob.
@@ -21863,13 +21995,6 @@ export interface operations {
                     "application/json": components["schemas"]["EnqueuedJobResponse"];
                 };
             };
-            /** @description The visit was created by the portal sync */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
             /** @description Unknown collection event */
             404: {
                 headers: {
@@ -29145,6 +29270,36 @@ export interface operations {
             };
         };
     };
+    get_edit_set: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The set the edit recorded */
+                set_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The set and its decisions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditSetResponse"];
+                };
+            };
+            /** @description No such set */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     rollback_edit_set: {
         parameters: {
             query?: never;
@@ -29406,6 +29561,51 @@ export interface operations {
             };
             /** @description No reading at that instant */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    override_output: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OverrideRequest"];
+            };
+        };
+        responses: {
+            /** @description Overridden */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditResponse"];
+                };
+            };
+            /** @description The slot holds several replicates and none was named */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No readings at the slot instant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The slot is already detached; correct its value instead */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

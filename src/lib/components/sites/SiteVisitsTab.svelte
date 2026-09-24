@@ -29,6 +29,7 @@
 		previewEdit,
 		commitEdit,
 		rollbackEditSet,
+		getEditSet,
 		getCalculationClosure,
 		listTools,
 		seasonalCheck,
@@ -76,10 +77,6 @@
 		type Previews,
 	} from '$lib/visits/preview';
 	import {
-		SYNCED_VISIT_NOTICE,
-		allSynced,
-		computedHere,
-		entryNoticeFor,
 		visitBadge,
 		visitSourceLabel,
 	} from '$lib/visits/recompute';
@@ -163,6 +160,8 @@
 	import { seasonalFindingLabel } from '$lib/seasonal';
 	import { readUntilSettled, runOutputs, runReportLine } from '$lib/visits/recompute';
 	import Dialog from '$components/ui/Dialog.svelte';
+	import RollbackDialog from '$components/provenance/RollbackDialog.svelte';
+	import { restoredLines } from '$lib/provenance/decisions';
 	import { browserLocale } from '$lib/visits/number';
 	import NewVisitDialog from '$components/visits/NewVisitDialog.svelte';
 
@@ -295,9 +294,6 @@
 	// The period the site holds visits in, read from the unfiltered listing the tab opens with, so
 	// narrowing the filter does not shrink the bar the narrowing is done on.
 	let visitsSpan = $state<Extent | null>(null);
-	// Whether the listing is entirely portal-synced, which the grid states once instead of
-	// repeating on every row.
-	const everySynced = $derived(allSynced(visits));
 	let sliderStart = $state(0);
 	let sliderEnd = $state(0);
 	// The bar and the typed dates are one filter, so each follows the other.
@@ -783,7 +779,7 @@
 		th.removeAttribute('title');
 		const visit = table.rows[row];
 		if (!visit || isSpare(visit.id)) return;
-		const header = visitRowHeader(visit, everySynced);
+		const header = visitRowHeader(visit);
 		if (header.classNames.length) th.classList.add(...header.classNames);
 		if (header.title) th.title = header.title;
 	}
@@ -909,7 +905,7 @@
 		instance.addHook('afterOnCellMouseDown', (_event: MouseEvent, coords: { row: number; col: number }) => {
 			if (coords.col !== -1 || coords.row < 0) return;
 			const visit = table.rows[coords.row];
-			if (!visit || isSpare(visit.id) || !visitRowHeader(visit, everySynced).opensFindings) return;
+			if (!visit || isSpare(visit.id) || !visitRowHeader(visit).opensFindings) return;
 			const onFinding = firstFindingParameter(visit.cells);
 			if (onFinding) void openVisitCell(visit.id, onFinding);
 			else void openVisit(visit.id, true);
@@ -1150,21 +1146,29 @@
 			// A row the stage found already standing is not written into: the lookup and the Save
 			// are not one transaction, and its values belong on that visit's own row.
 			const raced = await stageNewVisits();
+			const recorded: SavedVisit[] = [];
 			for (const write of writes) {
 				if (raced.has(write.eventId)) continue;
+				const saved: SavedVisit = {
+					eventId: write.eventId,
+					collectedAt: write.collectedAt,
+					setIds: [],
+					entered: write.entries.length > 0,
+				};
+				recorded.push(saved);
 				if (write.withdrawals.length > 0) {
 					const selection = { keys: withdrawalKeys([write]) };
 					const preview = await previewEdit(selection, WITHDRAWAL);
-					await commitEdit(selection, WITHDRAWAL, preview.preview_id);
+					saved.setIds.push((await commitEdit(selection, WITHDRAWAL, preview.preview_id)).set_id);
 				}
 				if (write.corrections.length > 0) {
 					const selection = { keys: correctionKeys([write]) };
 					const preview = await previewEdit(selection, CORRECTION);
-					await commitEdit(selection, CORRECTION, preview.preview_id);
+					saved.setIds.push((await commitEdit(selection, CORRECTION, preview.preview_id)).set_id);
 				}
 				if (write.entries.length > 0) {
 					const visit = table.rows.find((v) => v.id === write.eventId)!;
-					await saveGrabSample({
+					const entered = await saveGrabSample({
 						site_id: siteId,
 						mode: 'replace',
 						readings: write.entries.map((e) => ({
@@ -1179,8 +1183,10 @@
 							? { check_id: checks[write.eventId].id }
 							: {}),
 					});
+					if (entered.edit_set_id) saved.setIds.push(entered.edit_set_id);
 				}
 			}
+			lastSave = recorded.filter((v) => v.setIds.length > 0);
 			const kept = keptAfterSave(edits, spareDates, raced);
 			toastStore.success(savedLine(moved, newVisits.length - raced.size));
 			edits = kept.edits;
@@ -1205,6 +1211,57 @@
 			? runReportLine(runOutputs(expected, before, servedNow(), findingByCode()))
 			: 'The calculations are still running: reload the visits to see their outputs.';
 		onDataChanged();
+	}
+
+	// What the last Save changed in place, one recovery per visit: its corrections, withdrawals and
+	// entries each recorded an edit set, and rolling the visit's save back inverts them. A replicate
+	// an entry added where none was stored is not in a set, so the recovery names it.
+	interface SavedVisit {
+		eventId: string;
+		collectedAt: string;
+		setIds: string[];
+		entered: boolean;
+	}
+	let lastSave = $state<SavedVisit[]>([]);
+	let saveRecovery = $state<{ visit: SavedVisit; lines: string[]; loading: boolean; error: string } | null>(null);
+	let saveRecoveryOpen = $state(false);
+	let rollingBackSave = $state(false);
+
+	async function askToRollBackSave(visit: SavedVisit) {
+		saveRecovery = { visit, lines: [], loading: true, error: '' };
+		saveRecoveryOpen = true;
+		try {
+			const sets = await Promise.all(visit.setIds.map((id) => getEditSet(id)));
+			const lines = sets.flatMap((set) => restoredLines(set.members));
+			if (saveRecovery?.visit.eventId === visit.eventId) saveRecovery = { ...saveRecovery, lines, loading: false };
+		} catch (e) {
+			if (saveRecovery?.visit.eventId === visit.eventId)
+				saveRecovery = { ...saveRecovery, loading: false, error: e instanceof Error ? e.message : String(e) };
+		}
+	}
+
+	async function rollBackSave() {
+		if (!saveRecovery) return;
+		const { visit } = saveRecovery;
+		rollingBackSave = true;
+		try {
+			let restored = 0;
+			for (const id of visit.setIds) {
+				const set = await getEditSet(id);
+				if (set.rolled_back_at) continue;
+				restored += (await rollbackEditSet(id)).rolled_back;
+			}
+			toastStore.success(`${restored} value${restored === 1 ? '' : 's'} put back at ${formatDateTime(visit.collectedAt)}`);
+			lastSave = lastSave.filter((v) => v.eventId !== visit.eventId);
+			saveRecoveryOpen = false;
+			dataVersion += 1;
+			await loadVisits();
+			onDataChanged();
+		} catch (e) {
+			saveRecovery = { ...saveRecovery, error: e instanceof Error ? e.message : String(e) };
+		} finally {
+			rollingBackSave = false;
+		}
 	}
 
 	/**
@@ -1556,8 +1613,8 @@
 
 <svelte:window onbeforeunload={warnBeforeUnload} />
 
-{#snippet calculationBadge(source: string | undefined, state: string | undefined)}
-	{@const badge = visitBadge(source, state)}
+{#snippet calculationBadge(state: string | undefined)}
+	{@const badge = visitBadge(state)}
 	{#if badge}
 		<Badge variant={badge.variant}>{badge.label}</Badge>
 	{/if}
@@ -1720,7 +1777,13 @@
 								onclick={askToSave}
 							>{saveLabel(moved, newVisits.length)}</Button>
 							{#if moved > 0 || newVisits.length > 0}
-								<Button size="sm" variant="ghost" onclick={undoEdit} disabled={!canUndo}>Undo</Button>
+								<Button
+									size="sm"
+									variant="ghost"
+									onclick={undoEdit}
+									disabled={!canUndo}
+									title="Undo the last change you typed or pasted (Ctrl+Z). Nothing is written until Save."
+								>Undo</Button>
 								<Button size="sm" variant="ghost" onclick={discardEdits}>Discard what you typed</Button>
 							{/if}
 							{#if saveRefusal}
@@ -1739,6 +1802,17 @@
 								<span class="text-xs text-brand-muted">{runReport}</span>
 							{/if}
 						</div>
+						{#if lastSave.length > 0}
+							<div class="flex flex-wrap items-center gap-2 text-xs text-brand-muted" data-save-recovery>
+								<span>Saved over stored values. To put them back:</span>
+								{#each lastSave as visit (visit.eventId)}
+									<Button size="sm" variant="ghost" onclick={() => askToRollBackSave(visit)}
+										>Roll back the save at {formatDateTime(visit.collectedAt)}</Button
+									>
+								{/each}
+								<span>Each value's own history also rolls it back on its own.</span>
+							</div>
+						{/if}
 						{#if seasonalFindings.length > 0}
 							<div class="flex flex-col gap-0.5">
 								{#each seasonalFindings as finding (finding.parameterId + finding.text)}
@@ -1746,9 +1820,6 @@
 								{/each}
 							</div>
 						{/if}
-					{/if}
-					{#if everySynced}
-						<p class="text-xs text-brand-muted">{SYNCED_VISIT_NOTICE}</p>
 					{/if}
 					<SheetGrid data={gridData} settings={gridSettings} onready={gridReady} class="text-sm" />
 					{#if expandedVisit}
@@ -1764,10 +1835,10 @@
 										{visits.find((visit) => visit.id === expandedVisit)?.parameters_filled ?? counts.parameters}/{groupColumns.length} parameters filled · {counts.replicates} replicate{counts.replicates === 1 ? '' : 's'} · {counts.flagged} flagged · {counts.withdrawn} withdrawn · {counts.findings} finding{counts.findings === 1 ? '' : 's'}
 									</span>
 									·
-									{visitSourceLabel(visitDetail.source, visitDetail.created_by)}{#if entryNoticeFor(visitDetail.source)}. {SYNCED_VISIT_NOTICE}{/if}
+									{visitSourceLabel(visitDetail.source, visitDetail.created_by)}
 									{#if verificationNoticeFor(visitDetail.unverified, visitDetail.withdrawn_at)}. {verificationNoticeFor(visitDetail.unverified, visitDetail.withdrawn_at)}{/if}
 									{#if visitDetail.notes}· {visitDetail.notes}{/if}
-									{@render calculationBadge(visitDetail.source, visitDetail.recompute)}
+									{@render calculationBadge(visitDetail.recompute)}
 									{@render visitState(visitDetail.unverified, visitDetail.withdrawn_at)}
 								</div>
 								{#if me.can('enterFieldData')}
@@ -1793,15 +1864,12 @@
 											>Undo the withdrawal</Button>
 										{/if}
 										{#if me.can('writeData')}
-										<!-- The route refuses a recompute at a visit the sync created (Q41). -->
-										{#if computedHere(visitDetail.source)}
-											<Button
-												size="sm"
-												variant="secondary"
-												disabled={visitBusy === v.id}
-												onclick={(e) => { e.stopPropagation(); runVisitJob(v.id, 'recompute'); }}
-											>{visitBusy === v.id ? 'Working…' : 'Recompute tools'}</Button>
-										{/if}
+										<Button
+											size="sm"
+											variant="secondary"
+											disabled={visitBusy === v.id}
+											onclick={(e) => { e.stopPropagation(); runVisitJob(v.id, 'recompute'); }}
+										>{visitBusy === v.id ? 'Working…' : 'Recompute tools'}</Button>
 										<Button
 											size="sm"
 											variant="ghost"
@@ -2059,6 +2127,21 @@
 		</Button>
 	{/snippet}
 </Dialog>
+
+{#if saveRecovery}
+	<RollbackDialog
+		bind:open={saveRecoveryOpen}
+		title="Roll back the save at {formatDateTime(saveRecovery.visit.collectedAt)}"
+		lines={saveRecovery.lines}
+		loading={saveRecovery.loading}
+		busy={rollingBackSave}
+		error={saveRecovery.error}
+		note={saveRecovery.visit.entered
+			? 'A value typed into a replicate that held none is a new reading, not part of this edit: clear the cell to withdraw it.'
+			: null}
+		onconfirm={rollBackSave}
+	/>
+{/if}
 
 <Dialog bind:open={withdrawOpen} title="Withdraw this visit" maxWidth="sm">
 	{#snippet children()}

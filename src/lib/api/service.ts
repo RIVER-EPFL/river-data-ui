@@ -1025,6 +1025,7 @@ export type ProvenanceRecord = components['schemas']['ProvenanceRecord'];
 
 // One input a calculation consumed, beside what its source holds now.
 export type ConsumedInput = components['schemas']['ConsumedRef'];
+export type CaptureDecision = components['schemas']['CaptureDecision'];
 
 export type ConsumedMember = components['schemas']['ConsumedMemberRef'];
 
@@ -1742,6 +1743,7 @@ export type EditOptionKind =
 	| 'reopen_run'
 	| 'detach'
 	| 'return'
+	| 'override'
 	| 'value_correction'
 	| 'curve'
 	| 'edit_deployment'
@@ -1794,8 +1796,21 @@ export const detachOutput = (body: OutputSlotRequest) =>
 export const returnOutput = (body: OutputSlotRequest) =>
 	POST<OwnershipResponse>(`${SERVICE}/readings/return`, body);
 
+/** One calculated value to replace by hand, with the replicate when the slot holds several. */
+export type OverrideRequest = components['schemas']['OverrideRequest'];
+
+/** Replace a calculated value by hand, detaching its slot in the same act (Q263). */
+export const overrideOutput = (body: OverrideRequest) =>
+	POST<EditCommitResponse>(`${SERVICE}/readings/override`, body);
+
 export const rollbackEdit = (decisionId: string) =>
 	POST<{ rollback_id: string }>(`${SERVICE}/readings/edits/${decisionId}/rollback`, {});
+
+/** Every decision an edit set recorded, across its streams, with each reading's parameter. */
+export type EditSet = components['schemas']['EditSetResponse'];
+
+export const getEditSet = (setId: string) =>
+	GET<EditSet>(`${SERVICE}/readings/edits/sets/${setId}`);
 
 export const rollbackEditSet = (setId: string) =>
 	POST<{ set_id: string; rolled_back: number }>(

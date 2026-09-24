@@ -2854,6 +2854,13 @@
       "CalculationHealth": {
         "description": "How one calculation is standing: the open event-audit findings against its outputs, and the\nvisits they sit on, which is the set an \"apply to the stale visits\" run would cover.",
         "properties": {
+          "janitor_fills": {
+            "description": "The values the janitor had to fill for this calculation in the last 24 hours, by site: each\nis a write that missed its recompute (Q260). Empty when there were none.",
+            "items": {
+              "$ref": "#/components/schemas/JanitorFill"
+            },
+            "type": "array"
+          },
           "missing_outputs": {
             "format": "int64",
             "type": "integer"
@@ -2893,7 +2900,8 @@
           "missing_outputs",
           "stale_outputs",
           "skipped_outputs",
-          "repair"
+          "repair",
+          "janitor_fills"
         ],
         "type": "object"
       },
@@ -3382,6 +3390,37 @@
         },
         "required": [
           "status"
+        ],
+        "type": "object"
+      },
+      "CaptureDecision": {
+        "description": "A `reading_decisions` row, as `GET /readings/decisions` serves it in full.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "description": "`derived_computed` for the first computation, `formula_transition` for a recompute.",
+            "type": "string"
+          },
+          "seq": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "kind",
+          "job_id"
         ],
         "type": "object"
       },
@@ -6528,6 +6567,7 @@
           "reopen_run",
           "detach",
           "return",
+          "override",
           "value_correction",
           "curve",
           "edit_deployment",
@@ -6590,6 +6630,80 @@
           "rows_decided",
           "decision_ids",
           "set_id"
+        ],
+        "type": "object"
+      },
+      "EditSetMember": {
+        "description": "One decision of an edit set, with the parameter its reading measures (absent on a reading\npaired to no site parameter).",
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/DecisionRow"
+          },
+          "parameter_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parameter_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "decision",
+          "parameter_code",
+          "parameter_name"
+        ],
+        "type": "object"
+      },
+      "EditSetResponse": {
+        "description": "Everything an edit set recorded, across every stream it reached.",
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/EditSetMember"
+            },
+            "type": "array"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rolled_back_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "set_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "set_id",
+          "kind",
+          "actor",
+          "at",
+          "reason",
+          "rolled_back_at",
+          "members"
         ],
         "type": "object"
       },
@@ -7762,6 +7876,14 @@
             "description": "True when nothing was written.",
             "type": "boolean"
           },
+          "edit_set_id": {
+            "description": "The decision set a replace recorded its corrections and withdrawals under, which\n`/readings/edits/sets/{set_id}/rollback` undoes as one. `null` when nothing was replaced.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "existing_groups": {
             "description": "Replicate groups already stored at the requested (parameter, time) keys, as found before\nthis request wrote anything.",
             "items": {
@@ -7808,7 +7930,8 @@
           "kept_curated",
           "withdrawn",
           "preview",
-          "existing_groups"
+          "existing_groups",
+          "edit_set_id"
         ],
         "type": "object"
       },
@@ -9704,6 +9827,24 @@
         "required": [
           "command",
           "payload"
+        ],
+        "type": "object"
+      },
+      "JanitorFill": {
+        "description": "The values the janitor filled for one calculation at one site.",
+        "properties": {
+          "site_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "values": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "site_id",
+          "values"
         ],
         "type": "object"
       },
@@ -11957,6 +12098,80 @@
           "parameter_id",
           "existing",
           "incoming"
+        ],
+        "type": "object"
+      },
+      "OverrideRef": {
+        "description": "A calculated value a person replaced by hand (Q263): the value the calculation had stored, and\nwho replaced it, when and why. Read from the ledger, so a rollback or a return clears it.",
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "by": {
+            "type": "string"
+          },
+          "computed_value": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "computed_value",
+          "by",
+          "at",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "OverrideRequest": {
+        "additionalProperties": false,
+        "description": "One calculated value to replace by hand: the output slot at a visit, and the replicate when the\nslot holds more than one.",
+        "properties": {
+          "parameter_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "replicate_index": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "site_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "time": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "value": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "site_id",
+          "parameter_id",
+          "time",
+          "value"
         ],
         "type": "object"
       },
@@ -16342,6 +16557,10 @@
             "$ref": "#/components/schemas/CalculationInfo",
             "description": "The formula that produced a derived value, the counterpart of a tool run's record."
           },
+          "captured_by": {
+            "$ref": "#/components/schemas/CaptureDecision",
+            "description": "The ledger row behind the capture `consumed` shows (Q251): the computation that produced\nthe value and the run that made it. Absent where a tool run captured it, which\n`computation` names."
+          },
           "chain": {
             "$ref": "#/components/schemas/ChainInfo"
           },
@@ -17035,6 +17254,10 @@
           },
           "measurement_type": {
             "type": "string"
+          },
+          "overridden": {
+            "$ref": "#/components/schemas/OverrideRef",
+            "description": "The calculated value this row held before a person replaced it by hand, while its slot\nstays detached. The computation below it is what produced the replaced value."
           },
           "provenance_kind": {
             "description": "Where this value came from, one of `PROVENANCE_KINDS`. A `sync` or `derived` row's story is\nresolved from the stream, the receipt and the definition; the others carry a stored blob.",
@@ -31468,14 +31691,11 @@
             },
             "description": "The tracked recompute job"
           },
-          "400": {
-            "description": "The visit was created by the portal sync"
-          },
           "404": {
             "description": "Unknown collection event"
           }
         },
-        "summary": "Recompute a collection event's tool outputs on demand: the chain executor runs every active\ntool whose inputs resolve at this event, in dependency order, and saves the outputs through\nthe grab write path with fresh server-built provenance. A visit the sync created is refused\n(Q41). Tracked job. Requires `write_data`.",
+        "summary": "Recompute a collection event's tool outputs on demand: the chain executor runs every active\ntool whose inputs resolve at this event, in dependency order, and saves the outputs through\nthe grab write path with fresh server-built provenance. Tracked job. Requires `write_data`.",
         "tags": [
           "collection_events"
         ]
@@ -39516,6 +39736,42 @@
         ]
       }
     },
+    "/api/readings/edits/sets/{set_id}": {
+      "get": {
+        "operationId": "get_edit_set",
+        "parameters": [
+          {
+            "description": "The set the edit recorded",
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditSetResponse"
+                }
+              }
+            },
+            "description": "The set and its decisions"
+          },
+          "404": {
+            "description": "No such set"
+          }
+        },
+        "summary": "Every decision an edit set recorded, across the streams it reached, with each reading's\nparameter: what rolling the set back restores. Requires `read_data`.",
+        "tags": [
+          "readings"
+        ]
+      }
+    },
     "/api/readings/edits/sets/{set_id}/rollback": {
       "post": {
         "operationId": "rollback_edit_set",
@@ -39854,6 +40110,46 @@
         ]
       }
     },
+    "/api/readings/override": {
+      "post": {
+        "operationId": "override_output",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OverrideRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditResponse"
+                }
+              }
+            },
+            "description": "Overridden"
+          },
+          "400": {
+            "description": "The slot holds several replicates and none was named"
+          },
+          "404": {
+            "description": "No readings at the slot instant"
+          },
+          "409": {
+            "description": "The slot is already detached; correct its value instead"
+          }
+        },
+        "summary": "Replace a calculated value by hand (Q263): the slot is detached from its calculation and the\none value corrected in one transaction, which the provenance record reads back as the computed\nvalue it replaced. Return is the way back. Requires Administrator.",
+        "tags": [
+          "readings"
+        ]
+      }
+    },
     "/api/readings/provenance": {
       "get": {
         "operationId": "get_reading_provenance",
@@ -40035,7 +40331,7 @@
             "description": "Not detached"
           }
         },
-        "summary": "Return a detached output slot to its calculation: the value the last correction since the\ndetach replaced is restored and the tool owns the slot again. Requires Administrator.",
+        "summary": "Return a detached output slot to its calculation: the value the last correction since the\ndetach replaced is restored, the tool owns the slot again, and the visit recomputes to catch\nup with inputs that moved while it was detached. Requires Administrator.",
         "tags": [
           "readings"
         ]

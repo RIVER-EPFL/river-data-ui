@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	RECOMPUTE_BADGE,
-	SYNCED_VISIT_NOTICE,
-	computedHere,
 	computing,
-	allSynced,
-	entryNoticeFor,
 	movedOutputs,
 	runOutputs,
 	readUntilSettled,
@@ -15,16 +11,10 @@ import {
 } from './recompute';
 
 describe('visitBadge', () => {
-	it('says a portal-synced visit is not calculated, whatever its recompute state', () => {
-		for (const state of ['current', 'stale', 'queued', 'running', 'failed']) {
-			expect(visitBadge('portal_sync', state)?.label).toBe('not calculated here');
-		}
-	});
-
-	it('leaves a manual visit its own state', () => {
-		expect(visitBadge('manual', 'stale')).toEqual(RECOMPUTE_BADGE.stale);
-		expect(visitBadge('manual', 'current')).toBeNull();
-		expect(visitBadge(undefined, undefined)).toBeNull();
+	it('reads the recompute state alone', () => {
+		expect(visitBadge('stale')).toEqual(RECOMPUTE_BADGE.stale);
+		expect(visitBadge('current')).toBeNull();
+		expect(visitBadge(undefined)).toBeNull();
 	});
 });
 
@@ -34,22 +24,6 @@ describe('computing', () => {
 		expect(computing('running')).toBe(true);
 		expect(computing('stale')).toBe(false);
 		expect(computing(undefined)).toBe(false);
-	});
-});
-
-describe('entryNoticeFor', () => {
-	it('warns on a portal-synced visit and says nothing on one entered here', () => {
-		expect(entryNoticeFor('portal_sync')).toBe(SYNCED_VISIT_NOTICE);
-		expect(entryNoticeFor('manual')).toBeNull();
-		expect(entryNoticeFor(undefined)).toBeNull();
-	});
-});
-
-describe('computedHere', () => {
-	it('is false for a portal-synced visit, whose outputs came with its values', () => {
-		expect(computedHere('portal_sync')).toBe(false);
-		expect(computedHere('manual')).toBe(true);
-		expect(computedHere(undefined)).toBe(true);
 	});
 });
 
@@ -129,17 +103,6 @@ describe('readUntilSettled', () => {
 	});
 });
 
-describe('allSynced', () => {
-	it('is true only when every listed visit came from the portal', () => {
-		expect(allSynced([{ source: 'portal_sync' }, { source: 'portal_sync' }])).toBe(true);
-		expect(allSynced([{ source: 'portal_sync' }, { source: 'manual' }])).toBe(false);
-	});
-
-	it('is false for a site listing no visit, which has nothing to say it about', () => {
-		expect(allSynced([])).toBe(false);
-	});
-});
-
 describe('badge titles', () => {
 	it('says what each recompute state means and what to do about it', () => {
 		for (const state of ['queued', 'running', 'failed', 'stale']) {
@@ -147,9 +110,5 @@ describe('badge titles', () => {
 		}
 		expect(RECOMPUTE_BADGE.failed.title).toContain('Jobs');
 		expect(RECOMPUTE_BADGE.stale.title).toContain('recompute');
-	});
-
-	it('gives the portal-synced badge the notice as its hover text', () => {
-		expect(visitBadge('portal_sync', 'current')?.title).toBe(SYNCED_VISIT_NOTICE);
 	});
 });

@@ -41,6 +41,7 @@
 		curveSlots,
 		draftRunBody,
 		editableFormula,
+		receivedSteps,
 		formulaSetBody,
 		formulaVariables,
 		inputRows,
@@ -263,8 +264,9 @@
 	const previewSet = $derived(formulaSetBody(formulas).formulas);
 	// A formula added, edited, or dropped from the set: all three are the save's business.
 	const dropped = $derived(
-		stored.filter((s) => !s.declarationId && !formulas.some((f) => f.id === s.id)),
+		stored.filter((s) => !s.declarationId && !s.receivedThrough && !formulas.some((f) => f.id === s.id)),
 	);
+	const ownCount = $derived(formulas.filter((f) => !f.declarationId && !f.receivedThrough).length);
 	const unsaved = $derived(
 		formulas.some((f) => f.id === null || isDirty(f)) || dropped.length > 0,
 	);
@@ -497,9 +499,10 @@
 				}
 			}
 			const declared = await declaredSteps(steps);
+			const received = receivedSteps(declared, steps);
 			const bounded = await withBounds(rows.data.map(editableFormula), rows.data);
-			stored = [...bounded, ...declared];
-			formulas = [...bounded, ...declared].map((f) => ({ ...f, thresholds: { ...f.thresholds } }));
+			stored = [...bounded, ...declared, ...received];
+			formulas = stored.map((f) => ({ ...f, thresholds: { ...f.thresholds } }));
 			parameters = params;
 			constants = consts;
 			members = memberRows;
@@ -934,7 +937,7 @@
 				<div class="flex flex-wrap items-center gap-2 pb-0.5">
 					{#if unsaved}
 						<span class="text-xs text-brand-muted">
-							Unsaved: {formulas.filter((f) => !f.declarationId).length} formula{formulas.filter((f) => !f.declarationId).length === 1 ? '' : 's'}{dropped.length > 0 ? `, dropping ${dropped.map((f) => f.code).join(', ')}` : ''}
+							Unsaved: {ownCount} formula{ownCount === 1 ? '' : 's'}{dropped.length > 0 ? `, dropping ${dropped.map((f) => f.code).join(', ')}` : ''}
 						</span>
 						{#if holdCaveat}
 							<!-- A set holding an input between visits is not what an author assumes, so the

@@ -21,6 +21,7 @@
 	import { listAll } from '$api/paged';
 	import {
 		calculationRows,
+		janitorFillLine,
 		standingHealth,
 		unconfiguredInputs,
 	} from '$lib/calculations/rows';
@@ -141,6 +142,10 @@
 	});
 
 	const healthOf = $derived(new Map(health.map((h) => [h.tool, h])));
+	// The sites a line about the janitor names, from the sites each calculation fires at.
+	const siteNames = $derived(
+		new Map(entries.flatMap((e) => e.sites ?? []).map((s) => [s.id, s.name])),
+	);
 
 	/** The findings and the recompute standing against this calculation, if any. */
 	function standing(entry: CalculationEntry): CalculationHealth | undefined {
@@ -410,6 +415,11 @@
 											>Findings {findingsOpen === entry.calculation ? '▾' : '▸'}</Button>
 										{/if}
 									</div>
+									{#if janitorFillLine(h, siteNames)}
+										<p class="mt-1 text-xs text-severity-warning" role="status">
+											{janitorFillLine(h, siteNames)}: a write missed its recompute.
+										</p>
+									{/if}
 								{:else}
 									<span class="text-xs text-brand-muted">-</span>
 								{/if}

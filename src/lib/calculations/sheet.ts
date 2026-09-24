@@ -30,7 +30,10 @@ export interface SheetRow {
 	unused: boolean;
 	/** Holds one value per replicate: a replicated input, or a formula run per replicate. */
 	replicated: boolean;
-	/** A step this calculation reads through a declaration: its code is the owner's to change. */
+	/**
+	 * A step this calculation reads through a declaration, or receives through a declared step: its
+	 * code is the owner's to change.
+	 */
 	declared?: boolean;
 	/** On a statistic, the output whose repeats it summarises. */
 	aggregateOf?: string | null;
@@ -256,7 +259,7 @@ export function sheetBlocks(
 			code: code || null,
 			unused: band === 'step' && !readCount.has(code),
 			replicated: f.per_replicate.trim().length > 0,
-			declared: f.declarationId != null,
+			declared: f.declarationId != null || Boolean(f.receivedThrough),
 			cells,
 		};
 	};
@@ -331,18 +334,23 @@ export type RowRemoval =
  * What removing `row` does. A formula leaves the pending set, naming the formulas still reading
  * it; a shared step is no longer read here; an input brought in by hand leaves the inputs, and one
  * a formula still names is refused with the formulas naming it. A statistic, a curve coefficient
- * the run supplied and a step another calculation owns have no remove.
+ * the run supplied, a step another calculation owns and a step received through a declared one
+ * have no remove.
  */
 export function rowRemoval(
 	row: SheetRow,
 	formulas: Array<
-		Pick<EditableFormula, 'code' | 'formula' | 'per_replicate' | 'ordinal' | 'declarationId' | 'shared'>
+		Pick<
+			EditableFormula,
+			'code' | 'formula' | 'per_replicate' | 'ordinal' | 'declarationId' | 'shared' | 'receivedThrough'
+		>
 	>,
 	declared: string[],
 ): RowRemoval | null {
 	if (row.band === 'statistics') return null;
 	const formula = formulas.find((f) => rowKey(f) === row.key);
 	if (formula) {
+		if (formula.receivedThrough) return null;
 		if (formula.declarationId) return formula.shared ? { kind: 'stop-reading', key: row.key } : null;
 		const code = formula.code.trim();
 		return { kind: 'formula', key: row.key, readers: code ? linksOf(formulas, code).readBy : [] };

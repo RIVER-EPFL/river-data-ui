@@ -155,3 +155,31 @@ export function rulingHold(d: ReadingDecision): string | null {
 	if (d.rolled_back_by) return null;
 	return d.ruling_hold_id ?? null;
 }
+
+/// One decision a rollback would invert, named by the parameter its reading measures.
+export interface RestoredMember {
+	decision: ReadingDecision;
+	parameter_code: string | null;
+}
+
+function shown(v: unknown): string {
+	if (v === null || v === undefined || v === '') return 'nothing';
+	return typeof v === 'string' ? v : JSON.stringify(v);
+}
+
+/// What a rollback puts back, one line per decision still live: each field it moved, from the
+/// value it holds now to the value it held before. A decision already rolled back is left out.
+export function restoredLines(members: RestoredMember[]): string[] {
+	return members
+		.filter((m) => !m.decision.rolled_back_by)
+		.map(({ decision: d, parameter_code }) => {
+			const replicate =
+				d.replicate_index === null || d.replicate_index === undefined
+					? ''
+					: ` replicate ${d.replicate_index}`;
+			const changes = changedFields(d)
+				.map((c) => `${fieldLabel(c.field)} ${shown(c.to)} → ${shown(c.from)}`)
+				.join(', ');
+			return `${parameter_code ?? 'unpaired reading'}${replicate}: ${changes || `${decisionLabel(d.kind)}, undone`}`;
+		});
+}

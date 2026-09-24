@@ -9,6 +9,7 @@ const getReadingDecisions = vi.fn();
 const getReadingLedger = vi.fn();
 const rollbackEdit = vi.fn();
 const rollbackEditSet = vi.fn();
+const getEditSet = vi.fn();
 const reopenReplicateAudit = vi.fn();
 vi.mock('$api/service', () => ({
 	getReadingProvenance: (q: unknown) => getReadingProvenance(q),
@@ -16,6 +17,7 @@ vi.mock('$api/service', () => ({
 	getReadingLedger: (q: unknown) => getReadingLedger(q),
 	rollbackEdit: (id: string) => rollbackEdit(id),
 	rollbackEditSet: (id: string) => rollbackEditSet(id),
+	getEditSet: (id: string) => getEditSet(id),
 	reopenReplicateAudit: (id: string) => reopenReplicateAudit(id),
 }));
 
@@ -88,7 +90,56 @@ beforeEach(() => {
 	admin.value = false;
 });
 
+// A calculated value: one replicate a tool run produced, with the override the record may carry.
+function calculated(overridden?: Record<string, unknown>) {
+	return response([
+		{
+			origin: {
+				stream_id: 'stream',
+				source_system: 'grab_sample',
+				source_key: 'site:pCO2',
+				classification: 'manual',
+			},
+			readings: [reading(0, 340, overridden ? { overridden } : {})],
+			chain: {},
+			computation: { provenance: { run_id: 'run-1' }, run_source: 'chain' },
+			holds: [],
+		},
+	]);
+}
+
 describe('PointInspector', () => {
+	// Scenario: an administrator replaced a computed pCO2 by hand.
+	// Expected behaviour: the record says so beside the value, naming the computed value it
+	// replaced, who replaced it and why, and offers no second override.
+	it('says a value was overridden by hand, and what the calculation gave', async () => {
+		admin.value = true;
+		open(
+			calculated({
+				computed_value: 331.9,
+				by: 'admin',
+				at: '2026-07-15T08:00:00Z',
+				reason: 'field log',
+			}),
+		);
+		const line = await screen.findByTestId('overridden');
+		expect(line.textContent).toContain('Overridden by hand by admin');
+		expect(line.textContent).toContain('the calculation gave 331.9');
+		expect(line.textContent).toContain('field log');
+		expect(screen.queryByRole('button', { name: 'Override' })).toBeNull();
+	});
+
+	it('offers an administrator the override of a calculated value, and nobody else', async () => {
+		admin.value = true;
+		const { unmount } = open(calculated());
+		expect(await screen.findByRole('button', { name: 'Override' })).toBeTruthy();
+		unmount();
+		admin.value = false;
+		open(calculated());
+		await screen.findByText('Edit');
+		expect(screen.queryByRole('button', { name: 'Override' })).toBeNull();
+	});
+
 	it('renders a single measurement as a key-value grid rather than a one-row table', async () => {
 		const { container } = open(handEntered());
 		expect(await screen.findByText('8.005')).toBeTruthy();
@@ -174,9 +225,57 @@ describe('PointInspector', () => {
 		(await screen.findByText('Show history')).click();
 		await screen.findByText('Value corrected');
 		expect(screen.getByText('Calculated by a chain run')).toBeTruthy();
-		expect(screen.getAllByText('Roll back')).toHaveLength(1);
+		expect(screen.getAllByText('Roll back this reading')).toHaveLength(1);
 		// The change itself, which the record held and the panel used not to show.
 		expect(container.textContent).toContain('8.005 → 11');
+	});
+
+	it('rolls back this reading or the whole edit, each after naming what it puts back', async () => {
+		getReadingLedger.mockResolvedValue({
+			time: '2026-07-14T09:00:00Z',
+			entries: [decisionEntry('d1', 'value_correction', '2026-08-02T11:00:00Z')],
+			truncated: false,
+		});
+		const corrected = (id: string, stream: string, from: number, to: number) => ({
+			id,
+			stream_id: stream,
+			time: '2026-07-14T09:00:00Z',
+			replicate_index: 0,
+			kind: 'value_correction',
+			old: { raw_value: from },
+			new: { raw_value: to },
+			actor: 'lab',
+			at: '2026-08-02T11:00:00Z',
+			origin: 'manual',
+			reversible: true,
+			rolled_back_by: null,
+			set_id: 'set-1',
+		});
+		// One member here: the switch that picked the endpoint by the local member count would have
+		// rolled back this reading alone, leaving the edit's other stream as it was.
+		getReadingDecisions.mockResolvedValue([corrected('d1', 'stream', 8.005, 11)]);
+		getEditSet.mockResolvedValue({
+			set_id: 'set-1',
+			members: [
+				{ decision: corrected('d1', 'stream', 8.005, 11), parameter_code: 'pH', parameter_name: 'pH' },
+				{ decision: corrected('d2', 'other', 20, 25), parameter_code: 'temp', parameter_name: 'Temperature' },
+			],
+		});
+		rollbackEditSet.mockResolvedValue({ set_id: 'set-1', rolled_back: 2 });
+		open(handEntered());
+		await screen.findByText('8.005');
+		(await screen.findByText('Show history')).click();
+		expect(await screen.findByText('Roll back this reading')).toBeTruthy();
+		(await screen.findByText('Roll back the whole edit')).click();
+
+		const dialog = await screen.findByRole('dialog');
+		await waitFor(() => expect(dialog.textContent).toContain('temp replicate 0: Measured 25 → 20'));
+		expect(dialog.textContent).toContain('pH replicate 0: Measured 11 → 8.005');
+		expect(getEditSet).toHaveBeenCalledWith('set-1');
+		expect(rollbackEditSet).not.toHaveBeenCalled();
+		(await screen.findByRole('button', { name: 'Roll back' })).click();
+		await waitFor(() => expect(rollbackEditSet).toHaveBeenCalledWith('set-1'));
+		expect(rollbackEdit).not.toHaveBeenCalled();
 	});
 
 	it('offers the ruling reopen in place of Roll back for a standing ruling', async () => {
@@ -206,7 +305,8 @@ describe('PointInspector', () => {
 		await screen.findByText('8.005');
 		(await screen.findByText('Show history')).click();
 		await screen.findByText('Entry verified');
-		expect(screen.queryByText('Roll back')).toBeNull();
+		expect(screen.queryByText('Roll back this reading')).toBeNull();
+		expect(screen.queryByText('Roll back the whole edit')).toBeNull();
 		(await screen.findByText('Reopen ruling')).click();
 		await waitFor(() => expect(reopenReplicateAudit).toHaveBeenCalledWith('hold-1'));
 		expect(rollbackEdit).not.toHaveBeenCalled();
@@ -380,7 +480,11 @@ describe('PointInspector', () => {
 
 	// A continuous value computed by a standalone formula: no run, and the formula version the
 	// stored value names.
-	function computed(calculation: Record<string, unknown>, consumed?: unknown[]) {
+	function computed(
+		calculation: Record<string, unknown>,
+		consumed?: unknown[],
+		captured_by?: Record<string, unknown>,
+	) {
 		return response([
 			{
 				origin: {
@@ -394,6 +498,7 @@ describe('PointInspector', () => {
 				chain: {},
 				calculation,
 				consumed,
+				captured_by,
 				holds: [],
 			},
 		]);
@@ -458,6 +563,20 @@ describe('PointInspector', () => {
 		const text = container.textContent ?? '';
 		expect(text).toContain('16.01');
 		expect(text).toContain('17.2');
+	});
+
+	it('names the recompute behind the inputs it shows and opens its run', async () => {
+		open(
+			computed(formula, [consumedReading('changed')], {
+				id: 'decision-1',
+				seq: 289,
+				kind: 'formula_transition',
+				job_id: 'job-7',
+			}),
+		);
+		await screen.findByText('8.005');
+		const link = screen.getByText('Recomputed under a new formula version, ledger entry 289').closest('a')!;
+		expect(link.getAttribute('href')).toContain('/system?tab=jobs&job=job-7');
 	});
 
 	it('names a key with no slot without offering a link to it', async () => {
@@ -986,7 +1105,11 @@ describe('PointInspector', () => {
 			await screen.findByText('11');
 			expect(getReadingProvenance).not.toHaveBeenCalled();
 			(await screen.findByText('Show history')).click();
-			(await screen.findByText('Roll back')).click();
+			(await screen.findByText('Roll back this reading')).click();
+			const dialog = await screen.findByRole('dialog');
+			expect(dialog.textContent).toContain('Measured 11 → 8.005');
+			expect(rollbackEdit).not.toHaveBeenCalled();
+			(await screen.findByRole('button', { name: 'Roll back' })).click();
 
 			await waitFor(() => expect(onchange).toHaveBeenCalledTimes(1));
 			expect(rollbackEdit).toHaveBeenCalledWith('d1');

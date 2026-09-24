@@ -41,7 +41,7 @@ const settle = { timeout: 15_000 };
 const SiteVisitsTab = (await import("./SiteVisitsTab.svelte")).default;
 const { timezoneStore } = await import("$lib/stores/timezone.svelte");
 const { formatCompactInstant, zoneLabel } = await import("$lib/utils");
-const { SYNCED_VISIT_NOTICE } = await import("$lib/visits/recompute");
+const { RECOMPUTE_BADGE } = await import("$lib/visits/recompute");
 
 // A single-precision 100.8 as the portals store it, so what the grid prints is a display
 // decision rather than an artefact of the number.
@@ -191,53 +191,7 @@ describe("SiteVisitsTab", () => {
     ).toBeTruthy();
   });
 
-  it("tells a portal-synced visit that no calculation runs there", async () => {
-    listSiteVisits.mockResolvedValue({
-      site_id: "site-1",
-      page: 1,
-      page_size: 50,
-      total: 2,
-      expected_parameters: [column("declared", "DOC", 2)],
-      visits: [
-        {
-          id: "synced",
-          collected_at: "2025-06-01T08:00:00Z",
-          created_by: null,
-          source: "portal_sync",
-          notes: null,
-          parameters_filled: 1,
-          findings_open: 0,
-          recompute: "current",
-          cells: [cell("declared")],
-        },
-        {
-          id: "entered",
-          collected_at: "2025-06-02T08:00:00Z",
-          created_by: "tester",
-          source: "manual",
-          notes: null,
-          parameters_filled: 1,
-          findings_open: 0,
-          recompute: "current",
-          cells: [cell("declared")],
-        },
-      ],
-    });
-
-    render(SiteVisitsTab, props({ declared: 2 }));
-
-    // A visit whose outputs no calculation will write does not read like one that just recomputed.
-    // The row's index says so, and the date column carries the date alone.
-    await screen.findAllByText("100.80");
-    const indices = () =>
-      [...document.querySelectorAll<HTMLElement>(".ht_master tbody th")].filter((th) =>
-        th.title.includes(SYNCED_VISIT_NOTICE),
-      );
-    await waitFor(() => expect(indices()).toHaveLength(1));
-    expect(screen.queryAllByText("not calculated here")).toHaveLength(0);
-  });
-
-  it("states the synced notice once when every listed visit came from the portal", async () => {
+  it("gives a portal-synced visit its calculation state like any other", async () => {
     listSiteVisits.mockResolvedValue({
       site_id: "site-1",
       page: 1,
@@ -252,19 +206,23 @@ describe("SiteVisitsTab", () => {
         notes: null,
         parameters_filled: 1,
         findings_open: 0,
-        recompute: "current",
+        recompute: "stale",
         cells: [cell("declared")],
       })),
     });
 
     render(SiteVisitsTab, props({ declared: 2 }));
 
-    // The sentence stands once above the grid; repeating it on every row distinguishes nothing.
+    // Calculations run at a synced visit (Q259), so its row reads its recompute state.
     await screen.findAllByText("100.80");
-    expect(screen.getByText(SYNCED_VISIT_NOTICE)).toBeTruthy();
-    const grid = within(document.querySelector<HTMLElement>(".ht_master")!);
-    expect(grid.queryAllByText("not calculated here")).toHaveLength(0);
+    const indices = () =>
+      [...document.querySelectorAll<HTMLElement>(".ht_master tbody th")].filter((th) =>
+        th.title.includes(`Calculations: ${RECOMPUTE_BADGE.stale.label}`),
+      );
+    await waitFor(() => expect(indices()).toHaveLength(2));
+    expect(screen.queryAllByText(/Calculations do not run/)).toHaveLength(0);
   });
+
   it("asks for every listed visit, not only the flagged ones, when computing a new calculation", async () => {
     // Every visit is current: a calculation authored today has raised no finding anywhere, so
     // the findings arm would select nothing.

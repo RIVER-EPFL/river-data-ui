@@ -620,6 +620,13 @@ describe('removing a row', () => {
 		expect(rowRemoval(row('hs_k'), owned, [])).toBeNull();
 	});
 
+	it('has no remove on a step received through a declared one', () => {
+		const received = set.map((f) =>
+			f.code === 'hs_k' ? { ...f, shared: true, receivedThrough: 'CO2_HS_Um' } : f,
+		);
+		expect(rowRemoval(row('hs_k'), received, [])).toBeNull();
+	});
+
 	it('has no remove on a statistic', () => {
 		expect(
 			rowRemoval({ ...row('CO2_HS_Um'), key: 'CO2_HS_Um_avg', band: 'statistics', code: null }, set, []),

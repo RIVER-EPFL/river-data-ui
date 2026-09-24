@@ -5,7 +5,6 @@
 	import { newEntryRequest } from '$lib/dataEntry/entry';
 	import { stagedVisit } from '$lib/stores/visit.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { SYNCED_VISIT_NOTICE } from '$lib/visits/recompute';
 	import { apiMessage } from '$lib/standardCurves';
 	import { formatDateTime } from '$lib/utils';
 	import Badge from '$components/ui/Badge.svelte';
@@ -168,7 +167,6 @@
 							<li><button
 								type="button"
 								onclick={() => choose(e)}
-								title={e.source === 'portal_sync' ? SYNCED_VISIT_NOTICE : undefined}
 								class="px-2 py-1.5 text-xs rounded-md border border-brand-divider hover:bg-brand-bg cursor-pointer flex items-center gap-2"
 							>
 								<span>{formatDateTime(e.collected_at)}</span>
@@ -178,9 +176,6 @@
 							</button></li>
 						{/each}
 					</ul>
-					{#if recent.some((e) => e.source === 'portal_sync')}
-						<p class="text-xs text-brand-muted mt-1">{SYNCED_VISIT_NOTICE}</p>
-					{/if}
 				</div>
 			{/if}
 		</div>

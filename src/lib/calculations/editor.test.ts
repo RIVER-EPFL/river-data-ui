@@ -18,6 +18,7 @@ import {
 	draftRunBody,
 	formulaVariables,
 	inputRows,
+	receivedSteps,
 	untilLeft,
 	readOnlyThroughGuards,
 	outputRows,
@@ -609,6 +610,51 @@ describe('a step any calculation may read', () => {
 		expect(isSharedStep(output)).toBe(false);
 		expect(sharedStepWrites([output])).toEqual([]);
 		expect(formulaSetBody([output]).formulas.map((f) => f.code)).toEqual(['SUVA']);
+	});
+});
+
+describe('a step received through a declared one', () => {
+	const stored = (id: string, code: string, text: string, owner: string | null = null) =>
+		({
+			id,
+			code,
+			name: code,
+			units: '',
+			formula: text,
+			ordinal: 0,
+			tool_script_id: owner,
+			intermediate: true,
+		}) as unknown as DerivedParameter;
+	const steps = [
+		stored('f-1', 'water_k', 'WTW_Temp_degC_1 + 273.15'),
+		stored('f-2', 'kh', '0.034 * exp(c_const * (1 / water_k - 1 / 298.15))'),
+		stored('f-3', 'apart', 'Dissolved_O2'),
+		stored('f-4', 'owned', 'Dissolved_O2', 'calc-1'),
+	];
+	const declared = { ...editableFormula(steps[1]), declarationId: 'd-1', shared: true };
+
+	it('is listed with the step it comes through', () => {
+		const received = receivedSteps([declared], steps);
+		expect(received.map((f) => [f.code, f.receivedThrough, f.shared])).toEqual([
+			['water_k', 'kh', true],
+		]);
+	});
+
+	it('walks every shared step a received one reads, each once', () => {
+		const chain = [
+			stored('f-1', 'a', 'Dissolved_O2'),
+			stored('f-2', 'b', 'a + 1'),
+			stored('f-3', 'c', 'a + b'),
+		];
+		const top = { ...editableFormula(chain[2]), declarationId: 'd-1', shared: true };
+		expect(receivedSteps([top], chain).map((f) => f.code).sort()).toEqual(['a', 'b']);
+	});
+
+	it('is never written by the save, which would declare it', () => {
+		const [received] = receivedSteps([declared], steps);
+		expect(sharedStepWrites([declared, received], [declared, received])).toEqual([]);
+		expect(sharedStepWrites([received])).toEqual([]);
+		expect(formulaSetBody([declared, received]).formulas).toEqual([]);
 	});
 });
 

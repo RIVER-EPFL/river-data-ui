@@ -15,6 +15,7 @@
 		getReadingLedger,
 		rollbackEdit,
 		rollbackEditSet,
+		getEditSet,
 		reopenReplicateAudit,
 		type LedgerEntry,
 		type ReadingDecision,
@@ -32,10 +33,12 @@
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import ProvenanceCard from '$components/samples/ProvenanceCard.svelte';
 	import EditReadingDialog from '$components/dialogs/EditReadingDialog.svelte';
+	import RollbackDialog from '$components/provenance/RollbackDialog.svelte';
 	import {
 		changedFields,
 		decisionLabel,
 		fieldLabel,
+		restoredLines,
 		rulingHold,
 		timelineEntries,
 		undoable,
@@ -46,6 +49,7 @@
 	import { originServiceHref } from '$lib/provenance/serviceLink';
 	import {
 		anyChanged,
+		captureLine,
 		consumedText,
 		kindLabel,
 		markTip,
@@ -118,6 +122,7 @@
 	let rollingBack = $state<string | null>(null);
 	let editOpen = $state(false);
 	let editSelection = $state<{ keys: { stream_id: string; time: string }[] } | null>(null);
+	let editInitial = $state<'override' | null>(null);
 
 	// How many administrative entries a folded history shows before the rest are behind the count.
 	const ADMIN_SHOWN = 3;
@@ -224,25 +229,61 @@
 		}
 	}
 
-	// A set was one act, so it is undone as one: the set endpoint inverts every live decision it
-	// recorded, which is what the per-decision endpoint cannot do for its siblings.
-	async function rollBack(i: number, rec: ProvenanceRecord, e: DecisionEntry) {
-		const d = e.head;
-		rollingBack = d.id;
+	// A rollback is offered at two scopes (Q223): this reading, which inverts the entry's decisions
+	// here, and the edit that recorded it, which inverts every decision of its set on whichever
+	// streams it reached. Each names what it puts back before it runs.
+	let recovery = $state<{
+		i: number;
+		rec: ProvenanceRecord;
+		entry: DecisionEntry;
+		scope: 'reading' | 'set';
+		lines: string[];
+		loading: boolean;
+		error: string;
+	} | null>(null);
+	let recoveryOpen = $state(false);
+
+	async function askRollback(i: number, rec: ProvenanceRecord, entry: DecisionEntry, scope: 'reading' | 'set') {
+		const code = resp?.parameter_code ?? null;
+		recovery = {
+			i,
+			rec,
+			entry,
+			scope,
+			lines:
+				scope === 'reading'
+					? restoredLines(entry.members.map((decision) => ({ decision, parameter_code: code })))
+					: [],
+			loading: scope === 'set',
+			error: '',
+		};
+		recoveryOpen = true;
+		if (scope !== 'set' || !entry.set_id) return;
 		try {
-			if (e.set_id && e.members.length > 1) {
-				await rollbackEditSet(e.set_id);
+			const set = await getEditSet(entry.set_id);
+			if (recovery?.entry.head.id === entry.head.id) recovery = { ...recovery, lines: restoredLines(set.members), loading: false };
+		} catch (e) {
+			if (recovery?.entry.head.id === entry.head.id)
+				recovery = { ...recovery, loading: false, error: e instanceof Error ? e.message : String(e) };
+		}
+	}
+
+	async function rollBack() {
+		if (!recovery) return;
+		const { i, rec, entry, scope } = recovery;
+		rollingBack = entry.head.id;
+		try {
+			if (scope === 'set' && entry.set_id) {
+				await rollbackEditSet(entry.set_id);
 			} else {
-				await rollbackEdit(d.id);
+				for (const d of entry.members.filter((m) => !m.rolled_back_by)) await rollbackEdit(d.id);
 			}
-			toastStore.success(`${decisionLabel(d.kind)} rolled back`);
+			toastStore.success(`${decisionLabel(entry.head.kind)} rolled back`);
+			recoveryOpen = false;
 			await loadHistory(i, rec);
 			await changed();
 		} catch (e) {
-			historyError = {
-				...historyError,
-				[i]: e instanceof Error ? e.message : String(e),
-			};
+			recovery = { ...recovery, error: e instanceof Error ? e.message : String(e) };
 		} finally {
 			rollingBack = null;
 		}
@@ -275,9 +316,28 @@
 		onchange?.();
 	}
 
-	function openEdit(rec: ProvenanceRecord) {
+	function openEdit(rec: ProvenanceRecord, initial: 'override' | null = null) {
 		editSelection = { keys: [{ stream_id: rec.origin.stream_id, time: timeIso }] };
+		editInitial = initial;
 		editOpen = true;
+	}
+
+	// A calculated value an administrator may still replace by hand: one no override stands on.
+	function overridable(rec: ProvenanceRecord): boolean {
+		return (
+			me.can('admin') &&
+			rec.computation?.provenance != null &&
+			!rec.readings.some((r) => r.overridden)
+		);
+	}
+
+	function overrideText(r: ProvenanceReading): string {
+		const o = r.overridden;
+		if (!o) return NO_VALUE;
+		const replica = r.replicate_index > 0 ? `Replicate ${r.replicate_index} overridden` : 'Overridden';
+		const computed = o.computed_value == null ? '' : `; the calculation gave ${fmt(o.computed_value)}`;
+		const why = o.reason ? ` (${o.reason})` : '';
+		return `${replica} by hand by ${o.by} on ${formatDateTime(o.at)}${computed}${why}.`;
 	}
 
 	// The server may name a kind this build does not know, so the lookup falls back to it.
@@ -768,6 +828,17 @@
 					{/each}
 				</tbody>
 			</table>
+			{#if rec.captured_by}
+				{@const capture = captureLine(base, rec.captured_by)}
+				<p class="mt-1 text-xs text-brand-muted">
+					Read by:
+					{#if capture.href}
+						<a href={capture.href} class="text-brand-primary no-underline hover:underline">{capture.text}</a>
+					{:else}
+						{capture.text}
+					{/if}
+				</p>
+			{/if}
 		</div>
 	{:else if computed(rec)}
 		<p class="mt-2 text-xs text-brand-muted" title="Nothing recorded what this computation read, so its inputs cannot be named.">
@@ -916,6 +987,12 @@
 				{:else}
 					{@render statistics(rec)}
 				{/if}
+				{#each rec.readings.filter((r) => r.overridden) as r (r.replicate_index)}
+					<p class="mt-1 text-xs" data-testid="overridden">
+						<Badge variant="warning">overridden</Badge>
+						<span class="ml-1 text-brand-text">{overrideText(r)}</span>
+					</p>
+				{/each}
 				{@render instrument(rec)}
 				{#if cadence(rec) !== 'derived'}{@render calculation(rec)}{/if}
 				{@render consumed(rec)}
@@ -965,6 +1042,13 @@
 						title="What produced it decides what may be done to it"
 						onclick={() => openEdit(rec)}>Edit</button
 					>
+					{#if overridable(rec)}
+						<button
+							class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline"
+							title="Replace the calculated value by hand; the calculation stops writing it here"
+							onclick={() => openEdit(rec, 'override')}>Override</button
+						>
+					{/if}
 				</div>
 
 				<details class="mt-2">
@@ -1128,17 +1212,39 @@
 			<button
 				class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline disabled:opacity-50"
 				disabled={rollingBack === decision.head.id}
-				onclick={() => rollBack(i, rec, decision)}>Roll back</button
+				title="Puts back this reading's values from before this decision"
+				onclick={() => askRollback(i, rec, decision, 'reading')}>Roll back this reading</button
 			>
+			{#if decision.set_id}
+				<button
+					class="cursor-pointer border-none bg-transparent p-0 text-brand-primary hover:underline disabled:opacity-50"
+					disabled={rollingBack === decision.head.id}
+					title="Puts back every value the same edit changed, on this reading and any other"
+					onclick={() => askRollback(i, rec, decision, 'set')}>Roll back the whole edit</button
+				>
+			{/if}
 		{/if}
 	</li>
 {/snippet}
+
+{#if recovery}
+	<RollbackDialog
+		bind:open={recoveryOpen}
+		title={recovery.scope === 'set' ? 'Roll back the whole edit' : 'Roll back this reading'}
+		lines={recovery.lines}
+		loading={recovery.loading}
+		busy={rollingBack === recovery.entry.head.id}
+		error={recovery.error}
+		onconfirm={rollBack}
+	/>
+{/if}
 
 {#if editSelection}
 	<EditReadingDialog
 		bind:open={editOpen}
 		selection={editSelection}
 		title="Edit {parameterName}"
+		initial={editInitial}
 		onsuccess={() => void changed()}
 	/>
 {/if}

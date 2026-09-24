@@ -47,8 +47,7 @@ export interface RowHeaderState {
  * as the grid's key words them.
  */
 export function visitRowHeader(
-	visit: Pick<VisitRow, 'findings_open' | 'cells' | 'source' | 'recompute' | 'unverified' | 'withdrawn_at'>,
-	everySynced: boolean,
+	visit: Pick<VisitRow, 'findings_open' | 'cells' | 'recompute' | 'unverified' | 'withdrawn_at'>,
 ): RowHeaderState {
 	const classNames: string[] = [];
 	const lines: string[] = [];
@@ -56,8 +55,8 @@ export function visitRowHeader(
 		classNames.push('sheet-finding');
 		lines.push(findingsChipTitle(visit.findings_open, findingKinds(visit.cells)));
 	}
-	const calculation = visitBadge(visit.source, visit.recompute);
-	if (calculation && !(everySynced && visit.source === 'portal_sync')) {
+	const calculation = visitBadge(visit.recompute);
+	if (calculation) {
 		lines.push(`Calculations: ${calculation.label}. ${calculation.title}`);
 	}
 	const state = verificationBadge(visit.unverified, visit.withdrawn_at);

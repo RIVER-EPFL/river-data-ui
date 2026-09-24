@@ -3,6 +3,7 @@ import type { ReadingDecision } from '$api/service';
 import {
 	changedFields,
 	decisionLabel,
+	restoredLines,
 	rulingHold,
 	timelineEntries,
 	undoable,
@@ -124,5 +125,46 @@ describe('rulingHold', () => {
 		expect(
 			rulingHold(decision({ kind: 'verify', ruling_hold_id: 'h1', rolled_back_by: 'r1' })),
 		).toBeNull();
+	});
+});
+
+describe('restoredLines', () => {
+	it('puts each moved value back from what it holds now to what it held before', () => {
+		const lines = restoredLines([
+			{
+				decision: decision({ replicate_index: 0, old: { raw_value: 10 }, new: { raw_value: 15 } }),
+				parameter_code: 'temp',
+			},
+			{
+				decision: decision({ id: 'd2', replicate_index: 1, old: { raw_value: 20 }, new: { raw_value: 25 } }),
+				parameter_code: 'do',
+			},
+		]);
+		expect(lines).toEqual(['temp replicate 0: Measured 15 → 10', 'do replicate 1: Measured 25 → 20']);
+	});
+
+	it('leaves out a decision already rolled back', () => {
+		const lines = restoredLines([
+			{
+				decision: decision({ rolled_back_by: 'r1', old: { raw_value: 10 }, new: { raw_value: 15 } }),
+				parameter_code: 'temp',
+			},
+		]);
+		expect(lines).toEqual([]);
+	});
+
+	it('names a withdrawal it lifts and a reading paired to nothing', () => {
+		const lines = restoredLines([
+			{
+				decision: decision({
+					kind: 'withdraw',
+					replicate_index: null,
+					old: { withdrawn_at: null },
+					new: { withdrawn_at: '2026-07-14T10:00:00Z' },
+				}),
+				parameter_code: null,
+			},
+		]);
+		expect(lines).toEqual(['unpaired reading: Withdrawn 2026-07-14T10:00:00Z → nothing']);
 	});
 });

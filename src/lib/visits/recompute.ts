@@ -40,42 +40,9 @@ export function computing(state: string | undefined): boolean {
 	return state === 'queued' || state === 'running';
 }
 
-/**
- * The badge a visit carries for its calculations. A portal-synced visit runs none (Q41): its
- * values are the portal's answer and a correction entered here moves no output, so it reads as
- * not calculated rather than as up to date.
- */
-export function visitBadge(
-	source: string | undefined,
-	state: string | undefined
-): RecomputeBadge | null {
-	if (source === 'portal_sync')
-		return { label: 'not calculated here', variant: 'muted', title: SYNCED_VISIT_NOTICE };
+/** The badge a visit carries for its calculations, whatever its source (Q259). */
+export function visitBadge(state: string | undefined): RecomputeBadge | null {
 	return RECOMPUTE_BADGE[state ?? ''] ?? null;
-}
-
-/** Whether every visit listed came from the portal, so the grid states the notice once instead
- * of repeating it on each row. */
-export function allSynced(visits: { source?: string | undefined }[]): boolean {
-	return visits.length > 0 && visits.every((v) => v.source === 'portal_sync');
-}
-
-/** What a person entering a value at a portal-synced visit needs to know before they type it. */
-export const SYNCED_VISIT_NOTICE =
-	'Calculations do not run at a portal-synced visit: correct the value in the portal.';
-
-/** The notice the entry grid carries for a visit, or nothing when its values are entered here. */
-export function entryNoticeFor(source: string | undefined): string | null {
-	return source === 'portal_sync' ? SYNCED_VISIT_NOTICE : null;
-}
-
-/**
- * Whether a calculation here owns the visit's output rows. A portal-synced visit arrives with the
- * portal's outputs already computed, so naming a local calculation over them claims a run that
- * never happened.
- */
-export function computedHere(source: string | undefined): boolean {
-	return source !== 'portal_sync';
 }
 
 /** How a visit names where its values came from, and who typed them when somebody did. */

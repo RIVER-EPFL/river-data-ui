@@ -163,5 +163,23 @@ export function unconfiguredInputs(rows: CalculationRow[]): string[] {
  * leaves none. Undefined when there is nothing to show.
  */
 export function standingHealth(h: CalculationHealth | undefined): CalculationHealth | undefined {
-	return h && (h.stale_visits > 0 || h.repair) ? h : undefined;
+	return h && (h.stale_visits > 0 || h.repair || h.janitor_fills.length > 0) ? h : undefined;
+}
+
+/**
+ * What the janitor had to fill for a calculation, in a line: each value is a write that missed its
+ * recompute (Q260). Null when it filled nothing. A site the page cannot name is counted, not named.
+ */
+export function janitorFillLine(h: CalculationHealth, siteNames: Map<string, string>): string | null {
+	const values = h.janitor_fills.reduce((sum, f) => sum + f.values, 0);
+	if (values === 0) return null;
+	const named = h.janitor_fills.map((f) => siteNames.get(f.site_id)).filter((n): n is string => !!n);
+	const others = h.janitor_fills.length - named.length;
+	const where = [
+		...named,
+		...(others > 0 ? [`${others} ${named.length > 0 ? 'other ' : ''}site${others === 1 ? '' : 's'}`] : []),
+	];
+	const sites = where.length > 1 ? `${where.slice(0, -1).join(', ')} and ${where.at(-1)}` : where[0];
+	const was = values === 1 ? 'value was' : 'values were';
+	return `${values} ${was} missing and filled automatically at ${sites}, last 24 h`;
 }

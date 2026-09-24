@@ -11,6 +11,7 @@ import {
 	needsTarget,
 	needsValue,
 	outputSlots,
+	overrideBody,
 	previewIsEmpty,
 	selectionRoute,
 } from './edits';
@@ -131,7 +132,37 @@ describe('the options that do not go through the edits route', () => {
 	it('records a detach and a return through their own routes, never previewed as an edit', () => {
 		expect(isDirect('detach')).toBe(true);
 		expect(isDirect('return')).toBe(true);
+		expect(isDirect('override')).toBe(true);
 		expect(isDirect('flag')).toBe(false);
+	});
+});
+
+describe('overrideBody', () => {
+	const at = {
+		site_id: 's',
+		parameter_id: 'p',
+		time: '2026-07-14T09:00:00Z',
+		replicate_index: 1,
+	} as InspectedRow;
+
+	it('names the one replicate it replaces, with the typed number', () => {
+		expect(overrideBody(at, '340', 'field log')).toEqual({
+			site_id: 's',
+			parameter_id: 'p',
+			time: '2026-07-14T09:00:00Z',
+			replicate_index: 1,
+			value: 340,
+			reason: 'field log',
+		});
+	});
+
+	it('is nothing until the value is a number', () => {
+		expect(overrideBody(at, '', '')).toBeNull();
+		expect(overrideBody(at, 'abc', '')).toBeNull();
+	});
+
+	it('is nothing for a row paired to no slot', () => {
+		expect(overrideBody({ ...at, site_id: undefined }, '1', '')).toBeNull();
 	});
 });
 

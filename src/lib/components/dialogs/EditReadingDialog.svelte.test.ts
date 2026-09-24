@@ -9,6 +9,7 @@ const commitEdit = vi.fn();
 const reloadToolRun = vi.fn();
 const detachOutput = vi.fn();
 const returnOutput = vi.fn();
+const overrideOutput = vi.fn();
 const goto = vi.fn();
 
 vi.mock('$app/navigation', () => ({
@@ -22,6 +23,7 @@ vi.mock('$api/service', () => ({
 	reloadToolRun: (id: string) => reloadToolRun(id),
 	detachOutput: (b: unknown) => detachOutput(b),
 	returnOutput: (b: unknown) => returnOutput(b),
+	overrideOutput: (b: unknown) => overrideOutput(b),
 }));
 
 const EditReadingDialog = (await import('./EditReadingDialog.svelte')).default;
@@ -60,6 +62,7 @@ beforeEach(() => {
 	goto.mockReset();
 	detachOutput.mockReset();
 	returnOutput.mockReset();
+	overrideOutput.mockReset();
 });
 
 describe('the edit dialog', () => {
@@ -109,6 +112,21 @@ describe('the edit dialog', () => {
 		expect(screen.queryByText('Reopen the calculation')).toBeNull();
 	});
 
+	it('previews a typed corrected value', async () => {
+		inspectEdits.mockResolvedValue({ rows: [row(['value_correction', 'flag'])] });
+		previewEdit.mockResolvedValue({ rows: [] });
+		render(EditReadingDialog, { open: true, selection });
+		await fireEvent.click(await screen.findByLabelText(/Correct the value/));
+		await fireEvent.input(screen.getByLabelText('Corrected value'), { target: { value: '40' } });
+		await waitFor(() =>
+			expect(previewEdit).toHaveBeenCalledWith(selection, {
+				kind: 'value_correction',
+				value: 40,
+				reason: undefined,
+			}),
+		);
+	});
+
 	// Scenario: an administrator takes a tool-run output away from its calculation.
 	// Expected behaviour: the detach route is called for the row's slot and instant, with the
 	// reason, and the edits preview is never asked about an ownership change it refuses.
@@ -139,6 +157,32 @@ describe('the edit dialog', () => {
 		await fireEvent.click(await screen.findByLabelText(/Return to the calculation/));
 		await fireEvent.click(screen.getByRole('button', { name: 'Return' }));
 		await waitFor(() => expect(returnOutput).toHaveBeenCalled());
+		expect(previewEdit).not.toHaveBeenCalled();
+	});
+
+	// Scenario: an administrator replaces one calculated value by hand, opened from the record's
+	// Override action.
+	// Expected behaviour: the dialog opens on the override, and the override route receives the
+	// value and the replicate picked, never the edits preview.
+	it('overrides a calculated value through its own route, opened on the override', async () => {
+		const options: EditOptionKind[] = ['reopen_run', 'detach', 'override'];
+		const second = { ...row(options, true, 'run-1'), replicate_index: 1, raw_value: 12 };
+		inspectEdits.mockResolvedValue({ rows: [row(options, true, 'run-1'), second] });
+		overrideOutput.mockResolvedValue({ rows_decided: 1, decision_ids: [], set_id: 'set' });
+		render(EditReadingDialog, { open: true, selection, initial: 'override' });
+		await fireEvent.change(await screen.findByLabelText('Replicate'), { target: { value: '1' } });
+		await fireEvent.input(screen.getByLabelText('Value'), { target: { value: '340' } });
+		await fireEvent.click(screen.getByRole('button', { name: 'Override' }));
+		await waitFor(() =>
+			expect(overrideOutput).toHaveBeenCalledWith({
+				site_id: 'site',
+				parameter_id: 'param',
+				time: '2026-07-14T09:00:00Z',
+				replicate_index: 1,
+				value: 340,
+				reason: undefined,
+			}),
+		);
 		expect(previewEdit).not.toHaveBeenCalled();
 	});
 

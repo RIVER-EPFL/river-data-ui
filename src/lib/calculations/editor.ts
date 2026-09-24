@@ -30,6 +30,11 @@ export interface EditableFormula extends FormulaDraft {
 	 */
 	shared: boolean;
 	/**
+	 * The declared step this calculation receives the step through (Q254): a shared step a declared
+	 * one reads. Read-only here, and never written by the save, which would declare it.
+	 */
+	receivedThrough?: string | null;
+	/**
 	 * The bounds of the output parameter's own `alarm_thresholds` row, the row with no site. Blank
 	 * on a step, which publishes nothing, and on an output nothing has bounded yet.
 	 */
@@ -105,11 +110,39 @@ export function sharedStepWrites(
 	stored: EditableFormula[] = [],
 ): EditableFormula[] {
 	return formulas.filter((f) => {
-		if (!isSharedStep(f)) return false;
+		if (!isSharedStep(f) || f.receivedThrough) return false;
 		if (!f.declarationId) return true;
 		const was = stored.find((s) => s.id === f.id);
 		return !was || STEP_FIELDS.some((field) => was[field] !== f[field]);
 	});
+}
+
+/**
+ * The shared steps a calculation receives without declaring them: every shared step one of
+ * `declared` reads, and the ones those read, each once, named by the declared step it is
+ * reached through.
+ */
+export function receivedSteps(declared: EditableFormula[], steps: DerivedParameter[]): EditableFormula[] {
+	const shared = new Map(
+		steps.filter((s) => !s.tool_script_id && s.intermediate).map((s) => [s.code, s]),
+	);
+	const reached = new Set(declared.map((f) => f.code.trim()));
+	const received: EditableFormula[] = [];
+	const pending: Array<{ text: string; through: string }> = declared.map((f) => ({
+		text: f.formula,
+		through: f.code.trim(),
+	}));
+	while (pending.length > 0) {
+		const { text, through } = pending.shift()!;
+		for (const { name } of identifiers(text)) {
+			const step = shared.get(name);
+			if (!step || reached.has(name)) continue;
+			reached.add(name);
+			received.push({ ...editableFormula(step), shared: true, receivedThrough: through });
+			pending.push({ text: step.formula, through });
+		}
+	}
+	return received;
 }
 
 /** A blank formula placed after the last one. */

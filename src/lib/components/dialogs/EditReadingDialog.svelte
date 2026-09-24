@@ -3,6 +3,7 @@
 		commitEdit,
 		detachOutput,
 		inspectEdits,
+		overrideOutput,
 		previewEdit,
 		reloadToolRun,
 		returnOutput,
@@ -24,6 +25,7 @@
 		needsTarget,
 		needsValue,
 		outputSlots,
+		overrideBody,
 		previewIsEmpty,
 		selectionRoute,
 	} from '$lib/provenance/edits';
@@ -39,12 +41,15 @@
 		open = $bindable(false),
 		selection,
 		title = 'Edit reading',
+		initial = null,
 		onsuccess,
 	}: {
 		open: boolean;
 		/** The readings this edit covers: a stream, a slot and window, or explicit keys. */
 		selection: EditSelection;
 		title?: string;
+		/** The option to open on, when the rows offer it. */
+		initial?: EditOptionKind | null;
 		onsuccess?: () => void;
 	} = $props();
 
@@ -52,9 +57,10 @@
 	let error = $state('');
 	let rows = $state<InspectedRow[]>([]);
 	let chosen = $state<EditOptionKind | null>(null);
-	let value = $state('');
+	let value = $state<number | string | null>('');
 	let targetId = $state('');
 	let reason = $state('');
+	let overrideReplicate = $state(0);
 	let preview = $state<EditPreviewResponse | null>(null);
 	let previewError = $state('');
 	let previewing = $state(false);
@@ -65,6 +71,10 @@
 	const options = $derived(commonOptions(rows));
 	const method = $derived(chosen ? EDIT_METHODS[chosen] : null);
 	const toolRunId = $derived(rows.find((r) => r.tool_run_id)?.tool_run_id ?? null);
+	const overridden = $derived(rows.find((r) => r.replicate_index === overrideReplicate) ?? rows[0]);
+	const overrideRequest = $derived(
+		chosen === 'override' && overridden ? overrideBody(overridden, value, reason) : null,
+	);
 
 	$effect(() => {
 		if (!open) return;
@@ -82,6 +92,8 @@
 		error = '';
 		try {
 			rows = (await inspectEdits(selection)).rows;
+			overrideReplicate = rows[0]?.replicate_index ?? 0;
+			if (initial && commonOptions(rows).includes(initial)) chosen = initial;
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 			rows = [];
@@ -94,8 +106,10 @@
 	function decision(): EditDecisionBody | null {
 		if (!chosen || isRoute(chosen) || isDirect(chosen)) return null;
 		if (needsValue(chosen)) {
-			const parsed = Number(value);
-			if (value.trim() === '' || Number.isNaN(parsed)) return null;
+			// A number input binds a number, and an empty one binds null.
+			const text = String(value ?? '').trim();
+			const parsed = Number(text);
+			if (text === '' || Number.isNaN(parsed)) return null;
 			return { kind: chosen, value: parsed, reason: reason || undefined };
 		}
 		if (needsTarget(chosen)) {
@@ -150,16 +164,35 @@
 		}
 	}
 
-	/** A detach or a return, recorded by its own route for every slot instant selected. */
+	const DIRECT_DONE: Record<string, string> = {
+		detach: 'Detached from the calculation',
+		return: 'Returned to the calculation',
+		override: 'Calculated value overridden',
+	};
+	const DIRECT_ACTION: Record<string, string> = {
+		detach: 'Detach',
+		return: 'Return',
+		override: 'Override',
+	};
+
+	/**
+	 * A detach or a return, recorded by its own route for every slot instant selected; an override,
+	 * for the one value picked.
+	 */
 	async function applyDirect() {
 		if (!chosen || !isDirect(chosen)) return;
-		const call = chosen === 'detach' ? detachOutput : returnOutput;
 		committing = true;
 		try {
-			for (const slot of outputSlots(rows)) {
-				await call({ ...slot, reason: reason || undefined });
+			if (chosen === 'override') {
+				if (!overrideRequest) return;
+				await overrideOutput(overrideRequest);
+			} else {
+				const call = chosen === 'detach' ? detachOutput : returnOutput;
+				for (const slot of outputSlots(rows)) {
+					await call({ ...slot, reason: reason || undefined });
+				}
 			}
-			toastStore.success(chosen === 'detach' ? 'Detached from the calculation' : 'Returned to the calculation');
+			toastStore.success(DIRECT_DONE[chosen]);
 			open = false;
 			onsuccess?.();
 		} catch (e) {
@@ -230,6 +263,29 @@
 			{:else if chosen === 'edit_deployment' || chosen === 'edit_calibration'}
 				<p class="text-sm text-brand-muted">{method?.leaves}</p>
 			{:else if chosen && isDirect(chosen)}
+				{#if chosen === 'override'}
+					{#if rows.length > 1}
+						<label class="block text-sm">
+							Replicate
+							<select class="mt-1 w-full rounded border px-2 py-1" bind:value={overrideReplicate}>
+								{#each rows as r (r.stream_id + r.replicate_index)}
+									<option value={r.replicate_index}>{r.replicate_index} · computed {r.raw_value}</option>
+								{/each}
+							</select>
+						</label>
+					{:else if overridden}
+						<p class="text-sm text-brand-muted">The calculation gave {overridden.raw_value}.</p>
+					{/if}
+					<label class="block text-sm">
+						Value
+						<input
+							class="mt-1 w-full rounded border px-2 py-1"
+							type="number"
+							step="any"
+							bind:value
+						/>
+					</label>
+				{/if}
 				<label class="block text-sm">
 					Reason
 					<input class="mt-1 w-full rounded border px-2 py-1" bind:value={reason} />
@@ -309,8 +365,11 @@
 	{#snippet actions()}
 		<Button onclick={() => (open = false)}>Cancel</Button>
 		{#if chosen && isDirect(chosen)}
-			<Button variant="primary" loading={committing} disabled={committing} onclick={applyDirect}
-				>{chosen === 'detach' ? 'Detach' : 'Return'}</Button
+			<Button
+				variant="primary"
+				loading={committing}
+				disabled={committing || (chosen === 'override' && !overrideRequest)}
+				onclick={applyDirect}>{DIRECT_ACTION[chosen]}</Button
 			>
 		{:else if chosen && !isRoute(chosen)}
 			<Button

@@ -1,5 +1,6 @@
-import type { ConsumedInput, ConsumedMember } from '$api/service';
+import type { CaptureDecision, ConsumedInput, ConsumedMember } from '$api/service';
 import { NO_VALUE } from '$lib/format';
+import { decisionLabel } from '$lib/provenance/decisions';
 import { writePointParams } from '$lib/provenance/pointLink';
 
 /** What a consumed input is bound to, in words a reader of the record recognises. */
@@ -76,4 +77,18 @@ export function orderedInputs(consumed: ConsumedInput[]): ConsumedInput[] {
 /** Whether any input of the set has moved since the calculation read it. */
 export function anyChanged(consumed: ConsumedInput[]): boolean {
 	return consumed.some((c) => c.state === 'changed');
+}
+
+/**
+ * The ledger row behind the capture a record shows, as a line under its consumed set: which
+ * computation read the inputs, and the run that made it where one did.
+ */
+export function captureLine(
+	basePath: string,
+	decision: CaptureDecision,
+): { text: string; href: string | null } {
+	return {
+		text: `${decisionLabel(decision.kind)}, ledger entry ${decision.seq}`,
+		href: decision.job_id ? `${basePath}/system?tab=jobs&job=${decision.job_id}` : null,
+	};
 }

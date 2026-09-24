@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { ConsumedInput, ConsumedMember } from '$api/service';
 import {
 	anyChanged,
+	captureLine,
 	consumedText,
 	markTip,
 	markVariant,
@@ -90,5 +91,23 @@ describe('consumed ordering', () => {
 			input('alkalinity', 'mean'),
 		]).map((c) => c.variable);
 		expect(order).toEqual(['alkalinity', 'temp', 'pco2_step']);
+	});
+});
+
+describe('captureLine', () => {
+	const decision = { id: 'd1', seq: 289, kind: 'formula_transition', job_id: 'j1' };
+
+	it('names the computation and opens the run that made it', () => {
+		expect(captureLine('/admin', decision)).toEqual({
+			text: 'Recomputed under a new formula version, ledger entry 289',
+			href: '/admin/system?tab=jobs&job=j1',
+		});
+	});
+
+	it('opens nothing for a computation no run made', () => {
+		expect(captureLine('/admin', { ...decision, kind: 'derived_computed', job_id: null })).toEqual({
+			text: 'Computed where nothing was stored, ledger entry 289',
+			href: null,
+		});
 	});
 });

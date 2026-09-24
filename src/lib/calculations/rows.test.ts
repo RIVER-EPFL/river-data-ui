@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculationRows, standingHealth, unconfiguredInputs } from './rows';
+import { calculationRows, janitorFillLine, standingHealth, unconfiguredInputs } from './rows';
 import type { DerivedParameter, Parameter } from '$api/crud';
 import type {
 	CalculationHealth,
@@ -179,6 +179,7 @@ describe('what a calculation row says about its health', () => {
 		stale_outputs: 0,
 		skipped_outputs: 0,
 		repair: null,
+		janitor_fills: [],
 		...over,
 	});
 
@@ -190,6 +191,25 @@ describe('what a calculation row says about its health', () => {
 	it('shows a failed recompute even when it left no finding standing', () => {
 		const failed = health({ repair: { job_id: 'j-1', state: 'failed' } });
 		expect(standingHealth(failed)).toBe(failed);
+	});
+
+	it('shows values the janitor had to fill, naming the sites', () => {
+		const filled = health({
+			tool: 'pCO2',
+			janitor_fills: [
+				{ site_id: 's-saxon', values: 12 },
+				{ site_id: 's-sion', values: 2 },
+			],
+		});
+		expect(standingHealth(filled)).toBe(filled);
+		const names = new Map([['s-saxon', 'Saxon']]);
+		expect(janitorFillLine(filled, names)).toBe(
+			'14 values were missing and filled automatically at Saxon and 1 other site, last 24 h',
+		);
+		expect(janitorFillLine(health({ janitor_fills: [{ site_id: 's-saxon', values: 1 }] }), names)).toBe(
+			'1 value was missing and filled automatically at Saxon, last 24 h',
+		);
+		expect(janitorFillLine(health({}), names)).toBeNull();
 	});
 
 	it('shows the open findings', () => {

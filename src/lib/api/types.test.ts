@@ -53,6 +53,7 @@ const grabSave = {
 	preview: [],
 	existing_groups: [],
 	calculations: [],
+	edit_set_id: null,
 } satisfies GrabSampleResponse;
 
 function assertKeys(recorded: object, required: string[]) {

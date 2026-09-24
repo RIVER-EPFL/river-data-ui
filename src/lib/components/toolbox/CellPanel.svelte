@@ -161,6 +161,17 @@
 	{/if}
 {/snippet}
 
+{#snippet readers(feeds: StepDependents)}
+	<ul class="text-xs">
+		{#each feeds.calculations as reader (reader.tool_script_id)}
+			<li>
+				<a href="{base}/toolbox/{reader.tool_script_id}" class="text-brand-primary no-underline hover:underline">{reader.label || reader.name}</a>
+				<span class="text-brand-muted">{reader.formulas.map((r) => r.code).join(', ') || 'no formula names it yet'}</span>
+			</li>
+		{/each}
+	</ul>
+{/snippet}
+
 {#snippet whose(step: EditableFormula)}
 	<!-- Whose the step is. A shared one belongs to no calculation, so the save writes it on its
 	     own and declares it here rather than into the set. -->
@@ -183,14 +194,14 @@
 	<div class="px-3 py-2 border-b border-brand-divider">
 		<h3 class="text-sm font-semibold">
 			{row?.label ?? (formula ? formula.code || 'New formula' : 'No cell selected')}
-			{#if shared}<Badge variant="accent">shared</Badge>{/if}
+			{#if shared || formula?.receivedThrough}<Badge variant="accent">shared</Badge>{/if}
 			{#if row?.unused}<Badge variant="warning">read by nothing</Badge>{/if}
 		</h3>
 		<p class="text-xs text-brand-muted">
 			{#if !row && !formula}
 				Select a cell to see what made it and to edit the formula behind it.
 			{:else if formula}
-				{shared ? 'A step belonging to no calculation, read here.' : 'The formula this row computes.'}
+				{shared || formula.receivedThrough ? 'A step belonging to no calculation, read here.' : 'The formula this row computes.'}
 			{:else}
 				{row?.note ?? 'A value the run was given.'}
 			{/if}
@@ -199,7 +210,20 @@
 
 	{#if row || formula}
 		<div class="px-3 py-3 space-y-3">
-			{#if formula}
+			{#if formula?.receivedThrough}
+				<!-- A shared step a declared step reads, computed here and corrected where it is declared. -->
+				<p class="text-xs text-brand-muted">
+					A shared step read by {formula.receivedThrough}, which this calculation declares. It is
+					computed here and corrected where it is declared.
+				</p>
+				<p class="font-mono text-sm break-all">{formula.formula}</p>
+				<div class="flex flex-wrap gap-2">
+					<Button size="sm" variant="ghost" disabled={busy} onclick={() => onshowdependents?.(formula!)}>What it feeds</Button>
+				</div>
+				{#if dependents}
+					{@render readers(dependents)}
+				{/if}
+			{:else if formula}
 				<!-- The row's own fields beside its formula where the panel is wide enough, and above it
 				     in the pane beside the sheet. -->
 				<div class="grid grid-cols-1 @3xl:grid-cols-[24rem_minmax(0,1fr)] gap-3 items-start">
@@ -317,14 +341,7 @@
 					</div>
 				</div>
 				{#if shared && dependents}
-					<ul class="text-xs">
-						{#each dependents.calculations as reader (reader.tool_script_id)}
-							<li>
-								<a href="{base}/toolbox/{reader.tool_script_id}" class="text-brand-primary no-underline hover:underline">{reader.label || reader.name}</a>
-								<span class="text-brand-muted">{reader.formulas.map((r) => r.code).join(', ') || 'no formula names it yet'}</span>
-							</li>
-						{/each}
-					</ul>
+					{@render readers(dependents)}
 				{/if}
 			{/if}
 
