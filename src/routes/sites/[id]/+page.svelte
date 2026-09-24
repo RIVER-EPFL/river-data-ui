@@ -53,6 +53,7 @@
 	import PaginationControls from '$components/ui/PaginationControls.svelte';
 	import SensorVsGrabPanel from '$components/sites/SensorVsGrabPanel.svelte';
 	import SiteVisitsTab from '$components/sites/SiteVisitsTab.svelte';
+	import { periodExtent, type Extent } from '$lib/sites/visitsExtent';
 	import SiteExportDialog from '$components/sites/SiteExportDialog.svelte';
 	import SiteStatusTab from '$components/sites/SiteStatusTab.svelte';
 	import { buildReadingsExportParams, exportColumns } from '$lib/sites/exportParams';
@@ -423,6 +424,8 @@
 	}
 
 	let paramExtents = $state<Map<string, SiteDetailParameter>>(new Map());
+	// The period the site holds data in, for the Visits tab's bar.
+	let sitePeriod = $state<Extent | null>(null);
 
 	// Which cadences the site actually holds, over its whole record. Drives the Frequency chips so
 	// a cadence with nothing behind it is not offered.
@@ -674,6 +677,7 @@
 				const detailRes = await GET<SiteDetailResponse>(`/api/sites/${id}/detail`);
 				if (detailRes.data_start) sliderMin = new Date(detailRes.data_start).getTime();
 				if (detailRes.data_end) sliderMax = new Date(detailRes.data_end).getTime();
+				sitePeriod = periodExtent(detailRes.data_start, detailRes.data_end);
 				// A site holding one cadence opens on it, whatever its slots declare; one holding
 				// both keeps the All default. A spot-only site opens on its visits: every value it
 				// holds is a visit value, and the charts would be one per parameter of a few dozen
@@ -2070,6 +2074,7 @@
 				onFlag={(t) => { flagTarget = t; flagOpen = true; }}
 				onDataChanged={scheduleFetch}
 				onUnsaved={(u) => (visitsUnsaved = u)}
+				{sitePeriod}
 			/>
 
 		<!-- Status tab (admin-only) -->

@@ -6,11 +6,13 @@ import {
 	FROZEN_COLUMNS,
 	applyChanges,
 	displayText,
+	oncePerFrame,
 	pasteOverflow,
 	sheetData,
 	sheetHeaders,
 	sheetSlot,
 	storedValue,
+	visitDates,
 	type SheetTable,
 } from './sheet';
 import { gridRows, spareVisits, standingInstants } from './spareRows';
@@ -234,5 +236,41 @@ describe('the visits sheet', () => {
 		expect(pasteOverflow(block, 2, 3)).toBe(1);
 		expect(pasteOverflow(block, 0, 3)).toBe(0);
 		expect(pasteOverflow([['1']], 0, 3)).toBe(0);
+	});
+});
+
+describe('visitDates', () => {
+	it('formats each stored visit once and leaves the spare rows out', () => {
+		const rows = gridRows([visit('v1', {}), visit('v2', {})], spareVisits({}, 1, new Set()));
+		let calls = 0;
+		const dates = visitDates(rows, (at) => {
+			calls += 1;
+			return at.slice(0, 10);
+		});
+		expect(dates).toEqual({ v1: '2026-06-01', v2: '2026-06-01' });
+		expect(calls).toBe(2);
+	});
+
+	it('is empty for no rows', () => {
+		expect(visitDates([], () => 'x')).toEqual({});
+	});
+});
+
+describe('oncePerFrame', () => {
+	it('draws once for every request made inside one frame', () => {
+		const frames: (() => void)[] = [];
+		let draws = 0;
+		const request = oncePerFrame(
+			() => (draws += 1),
+			(run) => frames.push(run),
+		);
+		for (let i = 0; i < 6; i += 1) request();
+		expect(frames).toHaveLength(1);
+		expect(draws).toBe(0);
+		frames.shift()!();
+		expect(draws).toBe(1);
+		request();
+		frames.shift()!();
+		expect(draws).toBe(2);
 	});
 });

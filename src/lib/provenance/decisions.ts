@@ -1,4 +1,4 @@
-import type { ReadingDecision } from '$api/service';
+import type { LedgerEntry, ReadingDecision } from '$api/service';
 
 /// Every kind `reading_decisions` records, mirroring `Kind::as_str` in
 /// `river-data-api/src/routes/private/readings/models.rs`. Declared so a kind with no label fails
@@ -137,6 +137,14 @@ export function timelineEntries(decisions: ReadingDecision[]): DecisionEntry[] {
 		entries.push(entry);
 	}
 	return entries;
+}
+
+/// The ledger with each set's decisions reduced to its head, which renders for the whole set.
+export function withoutSetMembers(entries: LedgerEntry[], decisions: ReadingDecision[]): LedgerEntry[] {
+	const members = new Set(
+		timelineEntries(decisions).flatMap((e) => e.members.slice(1).map((m) => m.id)),
+	);
+	return entries.filter((e) => e.source !== 'decision' || !members.has(e.id));
 }
 
 /// Whether the timeline offers to undo an entry. The API says which kinds `rollback` accepts

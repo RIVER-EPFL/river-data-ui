@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { ReadingDecision } from '$api/service';
+import type { LedgerEntry, ReadingDecision } from '$api/service';
 import {
 	changedFields,
 	decisionLabel,
@@ -7,6 +7,7 @@ import {
 	rulingHold,
 	timelineEntries,
 	undoable,
+	withoutSetMembers,
 } from './decisions';
 
 const KINDS = [
@@ -90,6 +91,27 @@ describe('timelineEntries', () => {
 		expect(entries.map((e) => e.head.id)).toEqual(['a', 'c']);
 		expect(entries[0].members.map((m) => m.id)).toEqual(['a', 'b']);
 		expect(entries[1].members).toHaveLength(1);
+	});
+});
+
+describe('withoutSetMembers', () => {
+	function entry(id: string, source = 'decision'): LedgerEntry {
+		return { at: '2026-08-02T11:00:00Z', source, severity: 'info', what: 'verify', id } as LedgerEntry;
+	}
+
+	it('keeps one history line for a three-member set', () => {
+		const decisions = [
+			decision({ id: 'a', set_id: 'set-1', replicate_index: 0 }),
+			decision({ id: 'b', set_id: 'set-1', replicate_index: 1 }),
+			decision({ id: 'c', set_id: 'set-1', replicate_index: 2 }),
+			decision({ id: 'd', kind: 'flag' }),
+		];
+		const ledger = [entry('a'), entry('b'), entry('c'), entry('d'), entry('b', 'job')];
+		expect(withoutSetMembers(ledger, decisions).map((e) => `${e.source}:${e.id}`)).toEqual([
+			'decision:a',
+			'decision:d',
+			'job:b',
+		]);
 	});
 });
 

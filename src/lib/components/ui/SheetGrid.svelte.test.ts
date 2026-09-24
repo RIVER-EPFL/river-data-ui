@@ -37,4 +37,30 @@ describe('SheetGrid', () => {
 		view.unmount();
 		expect(hot!.isDestroyed).toBe(true);
 	});
+
+	// Scenario: a cell of the grid was clicked, and the person then types into a field outside it
+	// whose every keystroke hands the grid new rows (B604). Expected behaviour: loading the rows
+	// leaves the keyboard where the person put it.
+	it('keeps the focus of a field outside the grid while new rows load', async () => {
+		let hot: HotInstance | null = null;
+		const field = document.createElement('input');
+		document.body.append(field);
+		const view = render(SheetGrid, {
+			data: [[1], [2]],
+			settings: { outsideClickDeselects: false },
+			onready: (h: HotInstance) => (hot = h),
+		});
+		await waitFor(() => expect(hot).not.toBeNull());
+		hot!.selectCell(0, 0);
+		field.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+		field.focus();
+		expect(document.activeElement).toBe(field);
+		expect(hot!.isListening()).toBe(false);
+
+		await view.rerender({ data: [[1], [2], [3]], settings: { outsideClickDeselects: false } });
+		await waitFor(() => expect(hot!.getDataAtCell(2, 0)).toBe(3));
+		expect(document.activeElement).toBe(field);
+		expect(hot!.isListening()).toBe(false);
+		field.remove();
+	});
 });

@@ -120,6 +120,15 @@ export function runReportLine(outputs: RunOutput[]): string | null {
 }
 
 /**
+ * The served payload as text when it differs from the one held, else null: a poll that brings back
+ * what is already on screen reloads nothing.
+ */
+export function changedPayload(held: string | null, served: unknown): string | null {
+	const text = JSON.stringify(served);
+	return text === held ? null : text;
+}
+
+/**
  * Reads the visits until none is queued or running, so a report after a save is of the run and
  * not of the moment before it. Returns whether the run settled inside the timeout.
  */

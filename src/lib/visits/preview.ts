@@ -133,7 +133,8 @@ export function unanswered(previews: Previews, asks: PreviewAsk[]): PreviewAsk[]
 /**
  * The previews as they stand once these asks are in flight: a visit nobody is typing into any more
  * keeps no previewed value, and a visit whose ask has changed goes back to pending rather than
- * leaving the last answer standing as though it were about what is on the screen now.
+ * leaving the last answer standing as though it were about what is on the screen now. Asks that
+ * change nothing return the same previews, so the grid is not redrawn for them.
  */
 export function asking(previews: Previews, asks: PreviewAsk[]): Previews {
 	const next: Previews = {};
@@ -144,7 +145,10 @@ export function asking(previews: Previews, asks: PreviewAsk[]): Previews {
 				? standing
 				: { signature: ask.signature, state: 'pending', values: {}, skipped: [], message: null };
 	}
-	return next;
+	const unchanged =
+		Object.keys(next).length === Object.keys(previews).length &&
+		Object.entries(next).every(([id, p]) => previews[id] === p);
+	return unchanged ? previews : next;
 }
 
 /**
@@ -179,6 +183,29 @@ export function failed(previews: Previews, ask: PreviewAsk, message: string): Pr
 			message,
 		},
 	};
+}
+
+/** The key a preview is held under once saved: a stored visit by its id, a spare row by its instant. */
+function awaitedKey(visit: VisitRow): string {
+	return isSpare(visit.id) ? `at:${Date.parse(visit.collected_at)}` : visit.id;
+}
+
+/**
+ * The previews a Save leaves on screen until the run it queued lands: the answered ones. A spare
+ * row has no visit until the Save stages one, so its preview is found again by its instant.
+ */
+export function awaitingRun(previews: Previews, visits: VisitRow[]): Previews {
+	const awaiting: Previews = {};
+	for (const visit of visits) {
+		const preview = previews[visit.id];
+		if (preview?.state === 'ready') awaiting[awaitedKey(visit)] = preview;
+	}
+	return awaiting;
+}
+
+/** The saved preview standing at a visit while its run is queued or running. */
+export function awaitedAt(awaiting: Previews, visit: VisitRow): VisitPreview | undefined {
+	return awaiting[visit.id] ?? awaiting[`at:${Date.parse(visit.collected_at)}`];
 }
 
 /**

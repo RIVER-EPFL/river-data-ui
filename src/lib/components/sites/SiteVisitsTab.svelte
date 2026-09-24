@@ -67,6 +67,8 @@
 	import { connectionsOf, covers, type Connections } from '$lib/visits/connections';
 	import {
 		asking,
+		awaitedAt,
+		awaitingRun,
 		failed,
 		previewAsks,
 		previewNotice,
@@ -85,7 +87,7 @@
 	import InfoTip from '$components/ui/InfoTip.svelte';
 	import TimestampInput from '$components/ui/TimestampInput.svelte';
 	import TimeRangeSlider from '$components/charts/TimeRangeSlider.svelte';
-	import { visitsExtent, isDraggableExtent, type Extent } from '$lib/sites/visitsExtent';
+	import { barExtent, visitsExtent, type Extent } from '$lib/sites/visitsExtent';
 	import { allParameterGroups, parameterGroupMembers } from '$lib/sites/siteCatalogs';
 	import Badge from '$components/ui/Badge.svelte';
 	import { BADGE_BASE, BADGE_VARIANTS, type BadgeVariant } from '$components/ui/badge';
@@ -110,10 +112,12 @@
 		FROZEN_COLUMNS,
 		applyChanges,
 		displayText,
+		oncePerFrame,
 		pasteOverflow,
 		sheetData,
 		sheetHeaders,
 		sheetSlot,
+		visitDates,
 		type SheetTable,
 	} from '$lib/visits/sheet';
 	import {
@@ -160,7 +164,7 @@
 	import { instrumentCurves } from '$lib/visits/instrument';
 	import { curveRefs } from '$lib/curveRefs.svelte';
 	import { seasonalFindingLabel } from '$lib/seasonal';
-	import { readUntilSettled, runOutputs, runReportLine } from '$lib/visits/recompute';
+	import { changedPayload, readUntilSettled, runOutputs, runReportLine } from '$lib/visits/recompute';
 	import Dialog from '$components/ui/Dialog.svelte';
 	import RollbackDialog from '$components/provenance/RollbackDialog.svelte';
 	import { restoredLines } from '$lib/provenance/decisions';
@@ -187,6 +191,7 @@
 		onFlag,
 		onDataChanged,
 		onUnsaved = () => {},
+		sitePeriod = null,
 	}: {
 		siteId: string;
 		siteName: string | null;
@@ -203,6 +208,8 @@
 		/// Whether the grid holds something typed and not saved, so the page can ask before its
 		/// tab is left.
 		onUnsaved?: (unsaved: boolean) => void;
+		/// The period the site holds data in, which the bar spans where its visits do not.
+		sitePeriod?: Extent | null;
 	} = $props();
 
 	function openVisitFlag(visitId: string, replicates: SampleReplicate[]) {
@@ -218,8 +225,10 @@
 	}
 
 	// --- Visits: the portal's wide data row, one per (site, date) ---
-	let visits = $state<VisitRow[]>([]);
-	let visitColumns = $state<VisitsResponse['expected_parameters']>([]);
+	let visits = $state.raw<VisitRow[]>([]);
+	let visitColumns = $state.raw<VisitsResponse['expected_parameters']>([]);
+	// The last listing drawn, as text, so a poll serving the same one leaves the grid alone.
+	let heldListing: string | null = null;
 	let visitsLoading = $state(false);
 	let visitsLoadedKey = '';
 	let expandedVisit = $state<string | null>(null);
@@ -255,13 +264,15 @@
 		}
 		selected = next;
 		connections = { reads: [], readBy: [] };
-		hot?.render();
+		requestRender();
 		if (!next) return;
 		const detail = details.get(next.visitId) ?? (await loadConnections(next.visitId));
 		// The selection may have moved on while the detail was in flight.
 		if (!detail || selected?.visitId !== next.visitId) return;
-		connections = connectionsOf(detail, next.parameterId);
-		hot?.render();
+		const found = connectionsOf(detail, next.parameterId);
+		if (found.reads.length === 0 && found.readBy.length === 0) return;
+		connections = found;
+		requestRender();
 	}
 
 	async function loadConnections(id: string): Promise<EventDetailResponse | null> {
@@ -296,11 +307,14 @@
 	// The period the site holds visits in, read from the unfiltered listing the tab opens with, so
 	// narrowing the filter does not shrink the bar the narrowing is done on.
 	let visitsSpan = $state<Extent | null>(null);
+	// A site with fewer than two visit instants, or a tab opened on a filtered range, spans the
+	// period the site holds data in, so the bar is there wherever the dates are.
+	const barSpan = $derived(barExtent(visitsSpan, sitePeriod));
 	let sliderStart = $state(0);
 	let sliderEnd = $state(0);
 	// The bar and the typed dates are one filter, so each follows the other.
 	$effect(() => {
-		const span = visitsSpan;
+		const span = barSpan;
 		if (!span) return;
 		sliderStart = visitsStart ? Date.parse(visitsStart) : span.min;
 		sliderEnd = visitsEnd ? Date.parse(visitsEnd) : span.max;
@@ -434,6 +448,8 @@
 		stored: visits.length,
 		slots,
 	});
+	// Each visit's date as its cells name it, formatted once per row and again when the zone changes.
+	const dates = $derived(visitDates(table.rows, formatDateTime));
 	// What a Save writes: a refused spare row's cells stay on screen and are written by nothing.
 	const written = $derived(writableEdits(edits, spares));
 	const writes = $derived(pendingWrites(table.rows, written, locale, declaredInstruments));
@@ -441,6 +457,8 @@
 	let pasteRefusal = $state<string | null>(null);
 	// What the calculations would say about each visit typed into, asked as the typing settles.
 	let previews = $state<Previews>({});
+	// What the previews said at the last Save, shown until the run it queued lands.
+	let awaiting = $state<Previews>({});
 	let previewTimer: ReturnType<typeof setTimeout> | null = null;
 	/** How long the typing must settle before the calculations are asked. */
 	const PREVIEW_DELAY_MS = 350;
@@ -449,6 +467,8 @@
 	// Handsontable owns selection, the keyboard, the clipboard, the fill handle and undo. Every
 	// change it makes is recorded in `edits`, which is what Check and Save read.
 	let hot: HotInstance | null = null;
+	// Every redraw asked for inside one frame is drawn once.
+	const requestRender = oncePerFrame(() => hot?.render());
 	let canUndo = $state(false);
 	// Bumped where the typed cells are cleared, so the grid reloads what the store holds.
 	let dataVersion = $state(0);
@@ -662,7 +682,7 @@
 		const open = slot.column.expanded;
 		const writable = !cellProperties.readOnly;
 		const spareDate = isSpare(visit.id) ? (spareDates[visit.id]?.trim() ?? '') : null;
-		const when = spareDate === null ? formatDateTime(visit.collected_at) : spareDate;
+		const when = spareDate === null ? (dates[visit.id] ?? formatDateTime(visit.collected_at)) : spareDate;
 		td.classList.add('htRight', 'htNumeric');
 		if (!writable) td.classList.add('htDimmed');
 		// What the column is to the calculations, on every cell of it, so a value says what it
@@ -714,6 +734,14 @@
 			} else if (preview.state === 'error') {
 				td.classList.add('sheet-preview-pending');
 				td.title = `What ${slot.column.writtenBy} would give could not be worked out: ${preview.message ?? 'the preview did not run'}. The value shown is the one stored.`;
+			}
+		} else if (slot.column.writtenBy) {
+			const awaited = previewedAt(awaitedAt(awaiting, visit), slot);
+			if (awaited !== undefined) {
+				td.classList.add('sheet-preview-pending');
+				td.title = `${slot.column.writtenBy} is running on the saved values. This is what it gave before Save; the stored value replaces it once the run lands.`;
+				td.append(awaited === null ? mark('clears', 'sheet-mark') : document.createTextNode(formatMeasurement(awaited, slot.column.decimals)));
+				return td;
 			}
 		}
 		const state = open ? replicate : cell;
@@ -966,8 +994,11 @@
 	function schedulePreviews(asks: PreviewAsk[]) {
 		if (previewTimer) clearTimeout(previewTimer);
 		const sending = unanswered(previews, asks);
-		previews = asking(previews, asks);
-		hot?.render();
+		const next = asking(previews, asks);
+		if (next !== previews) {
+			previews = next;
+			requestRender();
+		}
 		if (sending.length === 0) return;
 		previewTimer = setTimeout(() => void runPreviews(sending), PREVIEW_DELAY_MS);
 	}
@@ -983,7 +1014,7 @@
 				previews = failed(previews, ask, e instanceof Error ? e.message : String(e));
 			}
 		}
-		hot?.render();
+		requestRender();
 	}
 
 	const previewLine = $derived(previewNotice(previews));
@@ -993,7 +1024,7 @@
 	$effect(() => {
 		void expandedVisit;
 		void readZone;
-		untrack(() => hot?.render());
+		untrack(() => requestRender());
 	});
 
 	const screened = $derived(checkSatisfied(writes, checks));
@@ -1212,6 +1243,7 @@
 			dataVersion += 1;
 			checks = {};
 			seasonalFindings = [];
+			awaiting = awaitingRun(previews, table.rows);
 			previews = {};
 			confirmOpen = false;
 		} catch (e) {
@@ -1220,10 +1252,11 @@
 		} finally {
 			saving = false;
 		}
-		const settled = await readUntilSettled(async () => {
-			await loadVisits();
-			return visits;
-		});
+		const settled = await readUntilSettled(async () => (await loadVisits()) ?? visits);
+		if (settled) {
+			awaiting = {};
+			requestRender();
+		}
 		runReport = settled
 			? runReportLine(runOutputs(expected, before, servedNow(), findingByCode()))
 			: 'The calculations are still running: reload the visits to see their outputs.';
@@ -1326,9 +1359,13 @@
 		visitsLoading = true;
 		try {
 			const r = await listSiteVisits(siteId, visitsRange());
+			const changed = changedPayload(heldListing, r);
+			if (changed === null) return r.visits;
+			heldListing = changed;
 			visits = r.visits;
 			if (!visitsStart && !visitsEnd) visitsSpan = visitsExtent(r.visits);
 			visitColumns = r.expected_parameters;
+			return r.visits;
 		} catch (e) {
 			toastStore.error(e instanceof Error ? `Failed to load visits: ${e.message}` : 'Failed to load visits');
 		} finally {
@@ -1645,10 +1682,10 @@
 {/snippet}
 
 			<div class="space-y-3">
-				{#if isDraggableExtent(visitsSpan) && visitsSpan}
+				{#if barSpan}
 					<TimeRangeSlider
-						min={visitsSpan.min}
-						max={visitsSpan.max}
+						min={barSpan.min}
+						max={barSpan.max}
 						bind:start={sliderStart}
 						bind:end={sliderEnd}
 						onchange={onVisitsRangeDragged}

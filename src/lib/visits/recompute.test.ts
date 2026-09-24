@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	RECOMPUTE_BADGE,
+	changedPayload,
 	computing,
 	movedOutputs,
 	runOutputs,
@@ -110,5 +111,15 @@ describe('badge titles', () => {
 		}
 		expect(RECOMPUTE_BADGE.failed.title).toContain('Jobs');
 		expect(RECOMPUTE_BADGE.stale.title).toContain('recompute');
+	});
+});
+
+describe('changedPayload', () => {
+	it('is null for a listing equal to the one held and its text otherwise', () => {
+		const listing = { visits: [{ id: 'v1', recompute: 'queued' }] };
+		const held = changedPayload(null, listing);
+		expect(held).toBe(JSON.stringify(listing));
+		expect(changedPayload(held, { visits: [{ id: 'v1', recompute: 'queued' }] })).toBeNull();
+		expect(changedPayload(held, { visits: [{ id: 'v1', recompute: 'current' }] })).not.toBeNull();
 	});
 });

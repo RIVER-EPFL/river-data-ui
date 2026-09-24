@@ -8,7 +8,7 @@ import { frozenCell, sheetCell, typeInto } from './sheet';
 //
 // Expected behaviour: the calculated cell shows what the typed value would make it, marked as
 // unsaved, while the store still holds the old number. Undo puts the old number back. Save is what
-// writes the previewed one.
+// writes the previewed one, and the cell keeps it until the run lands.
 
 const ENTERED = 10;
 const CORRECTED = 15;
@@ -49,9 +49,13 @@ test('a typed correction previews its calculated value, and only Save writes it'
 	await dialog.getByRole('button', { name: 'Save', exact: true }).click();
 	await expect(dialog).toBeHidden();
 
-	await expect(output).toHaveText(new RegExp(`^${CORRECTED * 2}\\b`), { timeout: 30_000 });
+	// Until the run lands the cell keeps the previewed number rather than falling back to the
+	// stored one, read once rather than waited for.
+	expect(await output.textContent()).toMatch(new RegExp(`^${CORRECTED * 2}\\b`));
 	await expect(output).not.toHaveAttribute('title', /not saved yet/);
 	await expect.poll(visit.served, { timeout: 30_000 }).toBe(CORRECTED * 2);
+	await expect(output).not.toHaveAttribute('title', /running on the saved values/, { timeout: 30_000 });
+	await expect(output).toHaveText(new RegExp(`^${CORRECTED * 2}\\b`));
 });
 
 // Scenario: someone types into the visits table and then leaves it before saving.

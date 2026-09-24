@@ -4,6 +4,8 @@ import type { EventPreview, VisitRow } from '$api/service';
 import type { GridSlot } from './columns';
 import {
 	asking,
+	awaitedAt,
+	awaitingRun,
 	failed,
 	previewAsks,
 	previewNotice,
@@ -229,6 +231,14 @@ describe('which ask is still the latest', () => {
 		expect(asking(standing, [ask('v1', 'a')]).v1).toBe(standing.v1);
 	});
 
+	it('returns the same previews when the asks change nothing', () => {
+		const standing = { v1: ready({ 'p-out|0': 8 }) };
+		standing.v1.signature = 'a';
+		expect(asking(standing, [ask('v1', 'a')])).toBe(standing);
+		expect(asking({}, [])).not.toBe(standing);
+		expect(asking(standing, [])).not.toBe(standing);
+	});
+
 	it('takes the answer to the ask it made and drops one the operator has typed past', () => {
 		const pending = asking({}, [ask('v1', 'b')]);
 		expect(settled(pending, ask('v1', 'b'), answer).v1.values).toEqual({ 'p-out|0': 8 });
@@ -272,5 +282,28 @@ describe('what the grid says about its previewed cells', () => {
 		);
 		expect(previewNotice({})).toBeNull();
 		expect(previewNotice({ v1: ready({}) })).toBeNull();
+	});
+});
+
+describe('what a Save leaves on screen until its run lands', () => {
+	const saved = visit('v1', { 'p-do': [replicate(0, 10)] });
+
+	it('keeps a ready preview under its visit', () => {
+		const awaiting = awaitingRun({ v1: ready({ 'p-out|0': 8 }) }, [saved]);
+		expect(previewedAt(awaitedAt(awaiting, saved), slot('p-out', 0, false))).toBe(8);
+	});
+
+	it('keeps nothing that had no answer yet', () => {
+		const pending: VisitPreview = { ...ready({}), state: 'pending' };
+		const errored: VisitPreview = { ...ready({}), state: 'error', message: 'down' };
+		expect(awaitingRun({ v1: pending, v2: errored }, visits)).toEqual({});
+	});
+
+	it('finds a spare row\'s preview on the visit the Save staged at its instant', () => {
+		const spare = spareRow(spareId(0), '2026-06-01T10:00:00.000Z');
+		const awaiting = awaitingRun({ [spare.id]: ready({ 'p-out|0': 3 }) }, [spare]);
+		const staged = { ...visit('v9', {}), collected_at: '2026-06-01T10:00:00+00:00' } as VisitRow;
+		expect(previewedAt(awaitedAt(awaiting, staged), slot('p-out', 0, false))).toBe(3);
+		expect(awaitedAt(awaiting, saved)).toBeUndefined();
 	});
 });

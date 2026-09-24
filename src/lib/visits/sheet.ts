@@ -4,7 +4,7 @@ import { formatCompactInstant, zoneLabel } from '$lib/utils';
 import type { GridSlot, ParameterColumn } from './columns';
 import { readNumber, writeNumber } from './number';
 import { spareRow } from './spareRows';
-import { isSpare, setCell, slotKey, spareId, storedAt, type Edits } from './tableEdit';
+import { cellOf, isSpare, setCell, slotKey, spareId, storedAt, type Edits } from './tableEdit';
 
 // The visit's date stays frozen beside the measurement slots.
 export const FROZEN_COLUMNS = 1;
@@ -66,7 +66,7 @@ export function sheetSlot(table: SheetTable, row: number, column: number): Sheet
 	return {
 		visit,
 		slot,
-		cell: visit.cells.find((c) => c.parameter_id === slot.parameterId),
+		cell: cellOf(visit, slot.parameterId),
 		replicate: storedAt(visit, slot.parameterId, slot.replicateIndex),
 		key: slotKey({ eventId: visit.id, parameterId: slot.parameterId, replicateIndex: slot.replicateIndex }),
 	};
@@ -80,7 +80,7 @@ export function storedValue(visit: VisitRow, slot: GridSlot, writable: boolean):
 	if (writable || slot.column.expanded) {
 		return storedAt(visit, slot.parameterId, slot.replicateIndex)?.value ?? null;
 	}
-	return visit.cells.find((c) => c.parameter_id === slot.parameterId)?.value ?? null;
+	return cellOf(visit, slot.parameterId)?.value ?? null;
 }
 
 /**
@@ -104,6 +104,32 @@ export function sheetData(
 			return value === null ? '' : writeNumber(value, locale);
 		}),
 	]);
+}
+
+/** Each stored visit's date as a value cell names it, formatted once per row rather than per cell. */
+export function visitDates(rows: VisitRow[], format: (at: string) => string): Record<string, string> {
+	const dates: Record<string, string> = {};
+	for (const visit of rows) if (!isSpare(visit.id)) dates[visit.id] = format(visit.collected_at);
+	return dates;
+}
+
+/**
+ * A redraw that runs at most once per frame: every request made before the frame is drawn is
+ * served by the one redraw.
+ */
+export function oncePerFrame(
+	draw: () => void,
+	schedule: (run: () => void) => unknown = (run) => requestAnimationFrame(run),
+): () => void {
+	let queued = false;
+	return () => {
+		if (queued) return;
+		queued = true;
+		schedule(() => {
+			queued = false;
+			draw();
+		});
+	};
 }
 
 /** What a value cell prints: what was typed, else the stored value at the slot's precision. */

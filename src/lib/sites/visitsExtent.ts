@@ -20,3 +20,17 @@ export function visitsExtent(visits: VisitInstant[]): Extent | null {
 export function isDraggableExtent(extent: Extent | null): boolean {
 	return extent != null && extent.max > extent.min;
 }
+
+/// The period a site holds data in, from its first and last reading. Null when it holds none.
+export function periodExtent(start: string | null | undefined, end: string | null | undefined): Extent | null {
+	const min = start ? Date.parse(start) : NaN;
+	const max = end ? Date.parse(end) : NaN;
+	return Number.isFinite(min) && Number.isFinite(max) ? { min, max } : null;
+}
+
+/// What the Visits tab's bar spans: the site's visits where they span a period, otherwise the
+/// whole period the site holds data in. Null when neither has anywhere to drag.
+export function barExtent(visits: Extent | null, site: Extent | null): Extent | null {
+	if (isDraggableExtent(visits)) return visits;
+	return isDraggableExtent(site) ? site : null;
+}

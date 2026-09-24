@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { VisitRow } from '$api/service';
 import {
+	cellOf,
 	editable,
 	pendingCount,
 	pendingWrites,
@@ -336,5 +337,19 @@ describe('a replicate a curve corrects', () => {
 		expect(typeableReplicate(calibrated).writable).toBe(false);
 		expect(typeableReplicate(replicate(0, 10)).writable).toBe(true);
 		expect(typeableReplicate(null).writable).toBe(true);
+	});
+});
+
+describe('cellOf', () => {
+	it('finds a visit cell by parameter and nothing for one the visit never held', () => {
+		expect(cellOf(visits[0], 'p-temp')?.replicates[0].value).toBe(4.2);
+		expect(cellOf(visits[0], 'p-do')).toBe(visits[0].cells[0]);
+		expect(cellOf(visits[1], 'p-temp')).toBeUndefined();
+	});
+
+	it('indexes a replaced visit afresh', () => {
+		const reloaded = visit('v2', { 'p-temp': [replicate(0, 5)] });
+		expect(cellOf(reloaded, 'p-temp')?.replicates[0].value).toBe(5);
+		expect(cellOf(visits[1], 'p-temp')).toBeUndefined();
 	});
 });

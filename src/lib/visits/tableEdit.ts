@@ -1,4 +1,4 @@
-import type { VisitReplicate, VisitRow } from '$api/service';
+import type { VisitCell, VisitReplicate, VisitRow } from '$api/service';
 import type { ParameterColumn } from './columns';
 import { readNumber } from './number';
 
@@ -34,12 +34,24 @@ export function isSpare(eventId: string): boolean {
 	return eventId.startsWith(SPARE_PREFIX);
 }
 
+const CELL_INDEX = new WeakMap<VisitRow, Map<string, VisitCell>>();
+
+/** A visit's cell for one parameter, from an index built once per visit object. */
+export function cellOf(visit: VisitRow, parameterId: string): VisitCell | undefined {
+	let index = CELL_INDEX.get(visit);
+	if (!index) {
+		index = new Map(visit.cells.map((c) => [c.parameter_id, c]));
+		CELL_INDEX.set(visit, index);
+	}
+	return index.get(parameterId);
+}
+
 export function storedAt(
 	visit: VisitRow,
 	parameterId: string,
 	replicateIndex: number,
 ): VisitReplicate | null {
-	const cell = visit.cells.find((c) => c.parameter_id === parameterId);
+	const cell = cellOf(visit, parameterId);
 	return cell?.replicates?.find((r) => r.replicate_index === replicateIndex) ?? null;
 }
 
@@ -206,7 +218,7 @@ function groupsOf(
 	const entries: Entry[] = [];
 	for (const parameterId of parameters) {
 		const sensorId = instruments[`${visit.id}|${parameterId}`] ?? null;
-		const cell = visit.cells.find((c) => c.parameter_id === parameterId);
+		const cell = cellOf(visit, parameterId);
 		const indexes = new Set<number>((cell?.replicates ?? []).map((r) => r.replicate_index));
 		for (const key of Object.keys(edits)) {
 			const [eventId, parameter, index] = key.split('|');
@@ -280,7 +292,7 @@ export function expectedReplicates(
 		parameter_id: parameterId,
 		time: visit.collected_at,
 		replicate_indices: (
-			visit.cells.find((c) => c.parameter_id === parameterId)?.replicates ?? []
+			cellOf(visit, parameterId)?.replicates ?? []
 		).map((r) => r.replicate_index),
 	}));
 }

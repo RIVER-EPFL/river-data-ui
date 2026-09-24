@@ -35,11 +35,25 @@ export function replicateWidth(
 	parameterId: string,
 	asked: ReadonlyMap<string, number> = new Map(),
 ): number {
-	const stored = visits.reduce((widest, visit) => {
-		const cell = visit.cells.find((c) => c.parameter_id === parameterId);
-		return Math.max(widest, cell?.replicates?.length ?? 0);
-	}, 1);
+	const stored = storedWidths(visits).get(parameterId) ?? 1;
 	return Math.max(stored, asked.get(parameterId) ?? 0);
+}
+
+const WIDTHS = new WeakMap<VisitRow[], Map<string, number>>();
+
+/** Each parameter's widest stored replicate group over a listing, built once per listing. */
+export function storedWidths(visits: VisitRow[]): Map<string, number> {
+	let widths = WIDTHS.get(visits);
+	if (widths) return widths;
+	widths = new Map();
+	for (const visit of visits) {
+		for (const cell of visit.cells) {
+			const width = Math.max(1, cell.replicates?.length ?? 0);
+			widths.set(cell.parameter_id, Math.max(widths.get(cell.parameter_id) ?? 1, width));
+		}
+	}
+	WIDTHS.set(visits, widths);
+	return widths;
 }
 
 /**

@@ -42,6 +42,7 @@
 		rulingHold,
 		timelineEntries,
 		undoable,
+		withoutSetMembers,
 		type DecisionEntry,
 	} from '$lib/provenance/decisions';
 	import { leadingToken, ledgerLine, ledgerWeight } from '$lib/provenance/ledger';
@@ -129,7 +130,7 @@
 	const ADMIN_SHOWN = 3;
 
 	function valueEntries(i: number): LedgerEntry[] {
-		return (history[i] ?? []).filter((e) => ledgerWeight(e) === 'value');
+		return withoutSetMembers(history[i] ?? [], decisions[i] ?? []).filter((e) => ledgerWeight(e) === 'value');
 	}
 
 	function adminEntries(i: number): LedgerEntry[] {

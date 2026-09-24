@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
-import { API_URL, BASE_PATH, postGrab, signIn, token } from './portal';
+import { API_URL, BASE_PATH, postGrab, SEEDED_SITE, signIn, token } from './portal';
 
 // Scenario: a station visited over several years. Expected behaviour: the Visits tab carries a
 // bar spanning the period the site holds visits, and dragging it narrows the listing the way the
@@ -69,4 +69,23 @@ test('dragging the visits bar narrows the listing, and All dates puts it back', 
 
 	await page.getByRole('button', { name: 'All dates' }).click();
 	await expect(page.getByText('3 visits', { exact: true })).toBeVisible();
+});
+
+// Scenario: a station holding weeks of logger readings and fewer than two visits (M316).
+// Expected behaviour: the bar is still over the Visits tab, spanning the period the site holds
+// data in, so the dates can be dragged wherever they can be typed.
+test('a site holding readings and fewer than two visits still carries the bar', async ({
+	page,
+	request,
+}) => {
+	const headers = { Authorization: `Bearer ${await token(request)}` };
+	const filter = encodeURIComponent(JSON.stringify({ name: SEEDED_SITE }));
+	const sites = await request.get(`${API_URL}/api/sites?filter=${filter}`, { headers });
+	const [site] = (await sites.json()) as { id: string }[];
+	const visits = await request.get(`${API_URL}/api/sites/${site.id}/visits`, { headers });
+	expect(((await visits.json()) as { visits: unknown[] }).visits.length).toBeLessThan(2);
+
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/sites/${site.id}?tab=visits`);
+	await expect(page.locator('.noUi-target').first()).toBeVisible();
 });

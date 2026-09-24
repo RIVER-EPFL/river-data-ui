@@ -10,6 +10,7 @@ import {
 	parameterColumns,
 	replicateWidth,
 	slotsOf,
+	storedWidths,
 	toggled,
 } from './columns';
 
@@ -161,5 +162,16 @@ describe('narrowing the table to one calculation', () => {
 
 	it('lists each calculation the columns name once', () => {
 		expect(calculationsOf(columns)).toEqual(['evan', 'other']);
+	});
+});
+
+describe('storedWidths', () => {
+	it('holds each parameter at its widest stored group, one for a lone value', () => {
+		expect(Object.fromEntries(storedWidths(visits))).toEqual({ 'p-do': 3, 'p-temp': 1 });
+	});
+
+	it('is empty for no visits, which leaves every group one column wide', () => {
+		expect(storedWidths([]).size).toBe(0);
+		expect(replicateWidth([], 'p-do')).toBe(1);
 	});
 });

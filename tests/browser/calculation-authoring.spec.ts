@@ -822,5 +822,20 @@ test('a step and an output typed at a person\'s pace are not run until they are 
 	await expect(calculationCell(page, 'typed_output')).toContainText(String((ENTERED_INPUT + 3) * 2));
 	await expect(page.getByText('Invalid formula')).toHaveCount(0);
 	expect(await top()).toBe(typing);
+
+	// Once a table cell has been clicked, the grid keeps its selection and redraws with every
+	// keystroke, and still leaves the keyboard to the field being typed into.
+	await calculationCell(page, 'typed_output', 0).click();
+	await formula.click();
+	await formula.press('End');
+	for (const ch of ' + 1') {
+		await page.keyboard.type(ch);
+		await page.waitForTimeout(450);
+		await expect(formula).toBeFocused();
+	}
+	await expect(formula).toHaveValue('typed_step * 2 + 1');
+	await expect(calculationCell(page, 'typed_output')).toContainText(
+		String((ENTERED_INPUT + 3) * 2 + 1),
+	);
 	expect(ownership).toEqual([]);
 });
