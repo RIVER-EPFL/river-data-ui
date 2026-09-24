@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
-import { API_URL, BASE_PATH, saveFormulaSet, signIn, token } from './portal';
+import { API_URL, BASE_PATH, postGrab, saveFormulaSet, signIn, token } from './portal';
 import { frozenButton, sheetCell, typeInto } from './sheet';
 
 // Scenario: a computed row in the entry grid. Q44 requires the tool form and the grid to write the
@@ -86,7 +86,7 @@ async function seedComputedVisit(request: APIRequestContext): Promise<Fixture> {
 	await declare(derived.output_parameter_id, outputName, 'output', 1);
 
 	const collectedAt = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
-	await post('/grab_samples', {
+	await postGrab(post, {
 		site_id: site.id,
 		mode: 'replace',
 		readings: [
@@ -127,8 +127,9 @@ test('the save says what each output holds before it moves it', async ({ page, r
 
 	await typeInto(page, new RegExp(`^${inputName} at`), '12');
 
-	// Typing over a stored value is a correction, not an entry, so no seasonal check gates it, and
-	// the save says what it will rewrite before it does.
+	// Typing over a stored value is a correction, screened like an entry (Q262), and the save says
+	// what it will rewrite before it does.
+	await page.getByRole('button', { name: 'Check against site history' }).click();
 	await page.getByRole('button', { name: /^Save \d+ value/ }).click();
 	const dialog = page.getByRole('dialog');
 	await expect(dialog).toContainText('1 value will be written');
@@ -326,7 +327,7 @@ async function seedCurveRun(request: APIRequestContext) {
 	await declare(derived.output_parameter_id, outputName, 'output', 1);
 
 	const collectedAt = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
-	await post('/grab_samples', {
+	await postGrab(post, {
 		site_id: site.id,
 		mode: 'replace',
 		readings: [
@@ -349,7 +350,7 @@ async function seedCurveRun(request: APIRequestContext) {
 		[inputName]: ENTERED,
 		[CURVE_SLOT]: { standard_curve_id: curve.id },
 	});
-	await post('/grab_samples', {
+	await postGrab(post, {
 		site_id: site.id,
 		mode: 'replace',
 		tool_run_id: run.run_id,
@@ -428,7 +429,7 @@ async function seedCorrectedVisit(request: APIRequestContext) {
 		intercept: 1,
 	});
 	const collectedAt = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
-	await post('/grab_samples', {
+	await postGrab(post, {
 		site_id: site.id,
 		mode: 'replace',
 		readings: [

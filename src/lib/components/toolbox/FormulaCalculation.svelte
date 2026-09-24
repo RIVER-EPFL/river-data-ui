@@ -67,7 +67,6 @@
 		replicatedCodes,
 	} from '$lib/calculations/members';
 	import { fullReach, offeredSites, rankByReach, type VisitCount } from '$lib/calculations/siteReach';
-	import { heldInSet, holdWarning, holdable } from '$lib/calculations/heldInputs';
 	import { visitToOpen } from '$lib/visits/opening';
 	import { fromNum } from '$lib/derivedParameters';
 	import { curveField } from '$lib/tools/form';
@@ -90,7 +89,6 @@
 	import Badge from '$components/ui/Badge.svelte';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
 	import Button from '$components/ui/Button.svelte';
-	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import Tabs from '$components/ui/Tabs.svelte';
 	import SiteSelect from '$components/SiteSelect.svelte';
@@ -187,9 +185,6 @@
 	let allSites = $state<Site[]>([]);
 	let allSiteParams = $state<SiteParameter[]>([]);
 
-	// The stored source rows of the set, by the variable each binds: a variable two formulas read
-	// has a row in each, and the rule is the input's, so a change writes them all (Q230).
-	let sourceIds = $state<Record<string, string[]>>({});
 	// Steps this calculation reads but does not own (Q156), and the ones it could bring in.
 	let shareable = $state<DerivedParameter[]>([]);
 	let declaring = $state('');
@@ -263,9 +258,6 @@
 		),
 	);
 	const noteById = $derived(new Map(siteChoices.map((c) => [c.id, c.note])));
-	// What the set holds between visits, and the caveat the author passes before saving it (Q230).
-	const held = $derived(heldInSet(formulas));
-	const holdCaveat = $derived(holdWarning(held));
 	const previewSet = $derived(formulaSetBody(formulas).formulas);
 	// A formula added, edited, or dropped from the set: all three are the save's business.
 	const dropped = $derived(
@@ -340,11 +332,6 @@
 					(r) => r.key === selected!.key,
 				) ?? null)
 			: null,
-	);
-
-	/** Whether the selected row is an input the set may hold, and whether it holds it. */
-	const heldInput = $derived(
-		holdable(selectedRow) && sourceIds[selectedRow!.key] ? held.includes(selectedRow!.key) : null,
 	);
 
 	// The codes this set names: what its formulas read, and what they publish.
@@ -494,15 +481,6 @@
 			publishedOutputs = rows.data
 				.filter((f) => f.output_parameter_id)
 				.map((f) => ({ parameterId: f.output_parameter_id!, code: f.code }));
-			sourceIds = {};
-			for (const row of rows.data) {
-				for (const source of row.sources ?? []) {
-					sourceIds[source.variable_name] = [
-						...(sourceIds[source.variable_name] ?? []),
-						source.id,
-					];
-				}
-			}
 			const declared = await declaredSteps(steps);
 			const received = receivedSteps(declared, steps);
 			const bounded = await withBounds(rows.data.map(editableFormula), rows.data);
@@ -660,27 +638,6 @@
 			const offered = formulaTakeovers(e);
 			if (offered) takingOver = offered;
 			else toastStore.error(e instanceof Error ? e.message : 'Save failed');
-		} finally {
-			busy = false;
-		}
-	}
-
-	/**
-	 * Hold this input between visits, or read it at the instant again. The rule is the input's, so
-	 * every source row binding the variable takes it, and the reload is what the sheet reads back.
-	 */
-	async function setHold(variable: string, hold: boolean) {
-		busy = true;
-		try {
-			for (const id of sourceIds[variable] ?? []) {
-				await api.derivedParameterSources.update(id, { alignment: hold ? 'hold' : 'exact' });
-			}
-			await load();
-			toastStore.success(
-				hold ? `${variable} is held between visits` : `${variable} is read at the instant`,
-			);
-		} catch (e) {
-			toastStore.error(e instanceof Error ? e.message : 'Could not change how the input is read');
 		} finally {
 			busy = false;
 		}
@@ -950,15 +907,7 @@
 						<span class="text-xs text-brand-muted">
 							Unsaved: {ownCount} formula{ownCount === 1 ? '' : 's'}{dropped.length > 0 ? `, dropping ${dropped.map((f) => f.code).join(', ')}` : ''}
 						</span>
-						{#if holdCaveat}
-							<!-- A set holding an input between visits is not what an author assumes, so the
-							     caveat is passed before the save rather than found afterwards. -->
-							<ConfirmPopover message={holdCaveat} confirmLabel="Save as a new version" onconfirm={() => saveSet()}>
-								<Button size="sm" variant="primary" loading={busy} disabled={busy || diagnostics.length > 0} title={saveBlocked}>Save as a new version</Button>
-							</ConfirmPopover>
-						{:else}
-							<Button size="sm" variant="primary" loading={busy} disabled={busy || diagnostics.length > 0} title={saveBlocked} onclick={() => saveSet()}>Save as a new version</Button>
-						{/if}
+						<Button size="sm" variant="primary" loading={busy} disabled={busy || diagnostics.length > 0} title={saveBlocked} onclick={() => saveSet()}>Save as a new version</Button>
 					{:else}
 						<span class="text-xs text-brand-muted">Saved. The calculation runs as its active version.</span>
 					{/if}
@@ -971,9 +920,6 @@
 			</p>
 			{#if unsaved}
 				<p class="text-xs text-brand-muted">Saving writes the whole set as one version, whatever it changed.{supersedes ? ` ${versionConsequence(activeUsage)}` : ''}</p>
-			{/if}
-			{#if holdCaveat}
-				<p class="text-xs text-severity-warning">{holdCaveat}</p>
 			{/if}
 		</div>
 
@@ -1102,9 +1048,7 @@
 				consequence={supersedes ? versionConsequence(activeUsage) : null}
 				dependents={picked?.id ? (dependents[picked.id] ?? null) : null}
 				{busy}
-				held={heldInput}
 				onselect={choose}
-				onhold={(hold) => selectedRow && setHold(selectedRow.key, hold)}
 				onedited={() => visit && runAtVisit()}
 				ondrop={remove}
 				onstopreading={stopReading}

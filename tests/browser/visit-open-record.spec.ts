@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
-import { API_URL, BASE_PATH, signIn, token } from './portal';
+import { API_URL, BASE_PATH, postGrab, signIn, token } from './portal';
 import { frozenButton, frozenDate, sheetCell } from './sheet';
 
 // Scenario: a site with a long list of visits, one of them open, and the reader scrolled down it.
@@ -37,7 +37,7 @@ async function seedVisits(request: APIRequestContext) {
 	await post('/site_parameters', { site_id: site.id, parameter_id: parameter.id, name: code });
 	for (let i = 0; i < VISITS; i += 1) {
 		const collectedAt = visitAt(i + 1).toISOString().replace(/\.\d+Z$/, 'Z');
-		await post('/grab_samples', {
+		await postGrab(post, {
 			site_id: site.id,
 			mode: 'replace',
 			readings: [
@@ -110,7 +110,7 @@ async function seedWideVisit(request: APIRequestContext, slots = 40) {
 		await post('/site_parameters', { site_id: site.id, parameter_id: parameter.id, name: `${code}_${i}` });
 	}
 	const collectedAt = visitAt(1).toISOString().replace(/\.\d+Z$/, 'Z');
-	await post('/grab_samples', {
+	await postGrab(post, {
 		site_id: site.id,
 		mode: 'replace',
 		readings: [{ parameter_id: measured.id, value: 42, time: collectedAt, replicate_index: 0 }],

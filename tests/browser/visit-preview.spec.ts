@@ -43,6 +43,7 @@ test('a typed correction previews its calculated value, and only Save writes it'
 	// Typed again and saved: the previewed number is the one the store ends up holding.
 	await typeInto(page, input, String(CORRECTED));
 	await expect(output).toHaveText(new RegExp(`^${CORRECTED * 2}\\b`));
+	await page.getByRole('button', { name: 'Check against site history' }).click();
 	await page.getByRole('button', { name: /^Save \d+ value/ }).click();
 	const dialog = page.getByRole('dialog');
 	await dialog.getByRole('button', { name: 'Save', exact: true }).click();

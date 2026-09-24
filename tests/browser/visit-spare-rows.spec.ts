@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
-import { API_URL, BASE_PATH, signIn, token } from './portal';
+import { API_URL, BASE_PATH, postGrab, signIn, token } from './portal';
 import { frozenCell, sheetCell, typeInto } from './sheet';
 
 // Scenario: a field day is pasted into the Visits table from a spreadsheet, under the last visit
@@ -36,7 +36,7 @@ async function seedSite(
 	});
 
 	const standing = new Date(Date.now() - 30 * 86_400_000).toISOString().replace(/\.\d+Z$/, 'Z');
-	await post('/grab_samples', {
+	await postGrab(post, {
 		site_id: site.id,
 		mode: 'replace',
 		readings: [{ parameter_id: parameter.id, value: 4.2, time: standing, replicate_index: 0 }],

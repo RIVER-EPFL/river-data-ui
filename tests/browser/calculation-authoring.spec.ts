@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
-import { API_URL, BASE_PATH, signIn, token } from './portal';
+import { API_URL, BASE_PATH, postGrab, signIn, token } from './portal';
 import { calculationCell, typeInto } from './sheet';
 
 // Scenario: the lab authors a CNET calculator by hand, which Q149 made the only path a deployment
@@ -101,7 +101,7 @@ async function seedCatalog(request: APIRequestContext): Promise<Fixture> {
 			replicate_index: 0,
 		});
 	}
-	await post('/grab_samples', { site_id: site.id, mode: 'replace', readings });
+	await postGrab(post, { site_id: site.id, mode: 'replace', readings });
 
 	// The pressure guard belongs to no calculation: `field_data` and `pco2` both read it, so it is
 	// authored once and declared as a dependency by each (Q156).
@@ -131,12 +131,12 @@ async function addFormula(
 	await expect(code).toHaveValue(formula.code);
 	await page.getByRole('textbox', { name: 'Name', exact: true }).fill(formula.name);
 	await page.getByRole('textbox', { name: 'Units' }).fill(formula.units);
-	// The slot is declared before the formula is typed: the two coefficients it binds are unknown
-	// identifiers until it is, and the lint holds Save while one stands.
+	await page.getByPlaceholder('Type formula directly').fill(formula.text);
+	// The slot field appears once the formula names a coefficient, and the lint holds Save until
+	// it is filled.
 	if (formula.curveSlot) {
 		await page.getByRole('textbox', { name: 'Curve slot' }).fill(formula.curveSlot);
 	}
-	await page.getByPlaceholder('Type formula directly').fill(formula.text);
 	// The panel writes into the set as it is typed; the row is in the tables once it has a code.
 	await expect(page.locator(`td[data-sheet-row="${formula.code}"]`).first()).toBeVisible();
 }
@@ -322,7 +322,7 @@ async function seedVisitCalculation(request: APIRequestContext) {
 	});
 
 	const collectedAt = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
-	await post('/grab_samples', {
+	await postGrab(post, {
 		site_id: site.id,
 		mode: 'replace',
 		readings: [
@@ -367,27 +367,16 @@ test('a calculation opened at a visit shows the visit\'s numbers in the portal\'
 	await expect(page.getByRole('heading', { name: 'No cell selected' })).toBeVisible();
 	await calculationCell(page, stepCode, 0).click();
 	await expect(page.getByRole('heading', { name: 'Step', exact: true })).toBeVisible();
-
-	// How the set reaches an input is declared on the input itself (Q230), and the page then says
-	// what it does between visits, before the next save rather than after it.
-	await calculationCell(page, inputCode, 0).click();
-	const reach = page.getByRole('combobox', { name: 'Between visits' });
-	await expect(reach).toHaveValue('exact');
-	await reach.selectOption('hold');
-	// The toast says it too, so the page carries the line twice for a moment.
-	await expect(
-		page.getByText(new RegExp(`${inputCode} is held between visits`)).first(),
-	).toBeVisible();
-	await page.reload();
-	await calculationCell(page, inputCode, 0).click();
-	await expect(page.getByRole('combobox', { name: 'Between visits' })).toHaveValue('hold');
+	// A step publishes no parameter, so it has no catalog name, and it names no curve coefficient.
+	await expect(page.getByRole('textbox', { name: 'Name', exact: true })).toHaveCount(0);
+	await expect(page.getByRole('textbox', { name: 'Curve slot' })).toHaveCount(0);
 
 	// Opening the output puts its own fields on screen with the tables: they sit beside the formula
 	// rather than a screen below the sheet.
 	await calculationCell(page, outputCode, 0).click();
 	for (const control of [
 		page.getByRole('textbox', { name: 'Units' }),
-		page.getByRole('textbox', { name: 'Curve slot' }),
+		page.getByRole('textbox', { name: 'Name', exact: true }),
 		page.getByRole('combobox', { name: 'Per replicate over' }),
 		page.getByRole('columnheader', { name: 'Outputs', exact: true }),
 	]) {
@@ -469,7 +458,7 @@ async function seedPco2(request: APIRequestContext): Promise<Pco2Fixture> {
 			readings.push({ parameter_id: parameter.id, value, time: collectedAt, replicate_index }),
 		);
 	}
-	await post('/grab_samples', { site_id: site.id, mode: 'replace', readings });
+	await postGrab(post, { site_id: site.id, mode: 'replace', readings });
 	await post('/collection_events/stage', { site_id: site.id, collected_at: collectedAt });
 	return { stamp, siteId: site.id, codes };
 }
@@ -483,7 +472,9 @@ async function addCell(
 		.getByRole('button', { name: cell.block === 'step' ? 'Add step' : 'Add output', exact: true })
 		.click();
 	await page.getByRole('textbox', { name: 'Code' }).fill(cell.code);
-	await page.getByRole('textbox', { name: 'Name', exact: true }).fill(cell.name);
+	if (cell.block === 'output') {
+		await page.getByRole('textbox', { name: 'Name', exact: true }).fill(cell.name);
+	}
 	await page.getByRole('textbox', { name: 'Units' }).fill(cell.units);
 	await page.getByPlaceholder('Type formula directly').fill(cell.text);
 	if (cell.family) {
@@ -707,7 +698,7 @@ async function seedVisitValue(request: APIRequestContext, value: number) {
 	});
 	await post('/site_parameters', { site_id: site.id, parameter_id: parameter.id, name: code });
 	const collectedAt = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
-	await post('/grab_samples', {
+	await postGrab(post, {
 		site_id: site.id,
 		mode: 'replace',
 		readings: [{ parameter_id: parameter.id, value, time: collectedAt, replicate_index: 0 }],

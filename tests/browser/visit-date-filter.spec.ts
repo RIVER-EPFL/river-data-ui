@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
-import { API_URL, BASE_PATH, signIn, token } from './portal';
+import { API_URL, BASE_PATH, postGrab, signIn, token } from './portal';
 
 // Scenario: a station visited over several years. Expected behaviour: the Visits tab carries a
 // bar spanning the period the site holds visits, and dragging it narrows the listing the way the
@@ -31,7 +31,7 @@ async function seedVisits(request: APIRequestContext): Promise<{ siteId: string 
 		name: 'Visit range parameter',
 	});
 	for (const [index, time] of ['2019-05-02T06:30:00Z', '2022-06-14T07:00:00Z', '2025-07-21T08:00:00Z'].entries()) {
-		await post('/grab_samples', {
+		await postGrab(post, {
 			site_id: site.id,
 			mode: 'replace',
 			readings: [{ parameter_id: parameter.id, value: 10 + index, time, replicate_index: 0 }],

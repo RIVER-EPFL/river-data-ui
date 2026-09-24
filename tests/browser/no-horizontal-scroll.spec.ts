@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { API_URL, BASE_PATH, signIn, token } from './portal';
+import { API_URL, BASE_PATH, postGrab, signIn, token } from './portal';
 import { frozenButton } from './sheet';
 
 // Scenario: a section opened inside a page that has room to spare. Expected behaviour: nothing on
@@ -39,7 +39,7 @@ async function seedVisit(request: APIRequestContext): Promise<{ siteId: string }
 			{ parameter_id: parameter.id, value: 12 + i, time: collectedAt, replicate_index: 1 },
 		);
 	}
-	await post('/grab_samples', { site_id: site.id, mode: 'replace', readings });
+	await postGrab(post, { site_id: site.id, mode: 'replace', readings });
 	await post('/collection_events/stage', { site_id: site.id, collected_at: collectedAt });
 	return { siteId: site.id };
 }

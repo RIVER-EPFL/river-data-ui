@@ -1,5 +1,5 @@
 import { expect, type APIRequestContext } from '@playwright/test';
-import { API_URL, saveFormulaSet, token } from './portal';
+import { API_URL, postGrab, saveFormulaSet, token } from './portal';
 
 // A site of its own holding one visit: one entered value and one output a formula calculation
 // writes from it. Two stories start here, the one that corrects the input and the one that previews
@@ -82,7 +82,7 @@ export async function seedComputedVisit(
 	await declare(derived.output_parameter_id, outputName, 'output', 1);
 
 	const collectedAt = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
-	await post('/grab_samples', {
+	await postGrab(post, {
 		site_id: site.id,
 		mode: 'replace',
 		readings: [{ parameter_id: input.id, value: entered, time: collectedAt, replicate_index: 0 }],

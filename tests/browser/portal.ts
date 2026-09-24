@@ -72,3 +72,21 @@ export async function saveFormulaSet(
 	expect(written, 'the save wrote the calculation its formula').toBeTruthy();
 	return written;
 }
+
+type GrabReading = { parameter_id: string; value: number; time: string } & Record<string, unknown>;
+
+/**
+ * Save grab values the way every client must (Q262): screen them with a seasonal check first and
+ * name it on the save.
+ */
+export async function postGrab(
+	post: (path: string, data: unknown) => Promise<unknown>,
+	body: { site_id: string; readings: GrabReading[] } & Record<string, unknown>,
+) {
+	const check = (await post('/readings/seasonal_check', {
+		site_id: body.site_id,
+		time: body.readings[0].time,
+		values: body.readings.map((r) => ({ parameter_id: r.parameter_id, value: r.value })),
+	})) as { check_id: string };
+	return post('/grab_samples', { ...body, check_id: check.check_id });
+}

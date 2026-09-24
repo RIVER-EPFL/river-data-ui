@@ -152,6 +152,7 @@
 		isSpare,
 		pasteNotice,
 		type Edits,
+		type VisitWrite,
 	} from '$lib/visits/tableEdit';
 	import { cellRole, cellWritable, columnRole, editConsequence, ROLE_CLASSES } from '$lib/visits/role';
 	import { cellCurves, visitCellComputedCurveMark, visitCellCurveMark } from '$lib/visits/curve';
@@ -1023,6 +1024,26 @@
 
 	// The site history each visit's entered and corrected values are screened against, one call
 	// per visit typing a value.
+	async function screen(write: VisitWrite) {
+		const response = await seasonalCheck({
+			site_id: siteId,
+			time: write.collectedAt,
+			values: screenedValues(write),
+		});
+		checks = {
+			...checks,
+			[write.eventId]: { id: response.check_id, signature: checkSignature(write) },
+		};
+		return response;
+	}
+
+	/** The check a visit's save names: the current one, or a fresh one where its values moved. */
+	async function checkFor(write: VisitWrite): Promise<string> {
+		const current = checks[write.eventId];
+		if (current?.signature === checkSignature(write)) return current.id;
+		return (await screen(write)).check_id;
+	}
+
 	async function runChecks() {
 		checking = true;
 		seasonalFindings = [];
@@ -1030,15 +1051,7 @@
 			const found: { parameterId: string; text: string }[] = [];
 			for (const write of writes) {
 				if (!needsCheck(write)) continue;
-				const response = await seasonalCheck({
-					site_id: siteId,
-					time: write.collectedAt,
-					values: screenedValues(write),
-				});
-				checks = {
-					...checks,
-					[write.eventId]: { id: response.check_id, signature: checkSignature(write) },
-				};
+				const response = await screen(write);
 				for (const finding of response.findings) {
 					found.push({
 						parameterId: finding.parameter_id,
@@ -1168,12 +1181,7 @@
 				}
 				if (write.corrections.length > 0) {
 					const selection = { keys: correctionKeys([write]) };
-					const decision = {
-						...CORRECTION,
-						...(checks[write.eventId]?.signature === checkSignature(write)
-							? { check_id: checks[write.eventId].id }
-							: {}),
-					};
+					const decision = { ...CORRECTION, check_id: await checkFor(write) };
 					const preview = await previewEdit(selection, decision);
 					saved.setIds.push((await commitEdit(selection, decision, preview.preview_id)).set_id);
 				}
@@ -1190,9 +1198,7 @@
 							...(e.sensorId ? { sensor_id: e.sensorId } : {}),
 						})),
 						expected_replicates: expectedReplicates(visit, write.entries),
-						...(checks[write.eventId]?.signature === checkSignature(write)
-							? { check_id: checks[write.eventId].id }
-							: {}),
+						check_id: await checkFor(write),
 					});
 					if (entered.edit_set_id) saved.setIds.push(entered.edit_set_id);
 				}

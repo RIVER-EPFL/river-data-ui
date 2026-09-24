@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { API_URL, BASE_PATH, KEYCLOAK_URL, saveFormulaSet, signIn, token } from './portal';
+import { API_URL, BASE_PATH, KEYCLOAK_URL, postGrab, saveFormulaSet, signIn, token } from './portal';
 import { sheetCell, typeInto } from './sheet';
 
 // Scenario: an intern opens a field day, which stands pending until a manager rules on it (Q177).
@@ -304,7 +304,7 @@ async function seedEnteredVisit(request: APIRequestContext, label: string) {
 		site_id: site.id,
 		collected_at: collectedAt,
 	});
-	await call(request, 'post', '/grab_samples', intern, {
+	await postGrab((path, data) => call(request, 'post', path, intern, data), {
 		site_id: site.id,
 		readings: [
 			{ parameter_id: inputs[aName], value: 3, time: collectedAt },

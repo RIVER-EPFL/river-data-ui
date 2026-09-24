@@ -9,7 +9,8 @@
 	import { readVaisalaFile, type VaisalaFile } from '$lib/upload/vaisalaHeader';
 	import { buildXlsx } from '$lib/upload/xlsx';
 	import { POST } from '$api/client';
-	import { grabConflictGroups, type GrabExistingGroup } from '$api/service';
+	import { grabConflictGroups, seasonalCheck, type GrabExistingGroup } from '$api/service';
+	import { seasonalFindingLabel } from '$lib/seasonal';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import ParameterSelect from '$components/ParameterSelect.svelte';
@@ -152,6 +153,9 @@
 	let uploadError = $state<{ message: string; insertedBefore: number } | null>(null);
 	// Replicate groups already stored at the uploaded timestamps; confirming re-runs with replace.
 	let grabConflict = $state<GrabExistingGroup[] | null>(null);
+	// Grab values outside the site's seasonal range, read before anything is sent (Q262). Uploading
+	// anyway sends them under the checks that reported them.
+	let seasonalWarnings = $state<{ lines: string[]; replace: boolean } | null>(null);
 
 	// --- Derived ---
 	const siteMap = $derived(new Map(sites.map((s) => [s.name.toLowerCase(), s])));
@@ -389,8 +393,9 @@
 		rows: number;
 	}
 
-	// Grab samples go to a per-site endpoint, and a replicate group (same parameter and time) must
-	// land in one request so the API can form its sample and number the replicates consistently.
+	// Grab samples go to a per-site endpoint, one request per instant: a replicate group (same
+	// parameter and time) must land in one request so the API can form its sample and number the
+	// replicates consistently, and the seasonal check a save names is anchored at one instant.
 	function buildGrabSampleRequests(
 		allRows: Array<Record<string, unknown>>,
 		replace: boolean,
@@ -418,8 +423,12 @@
 				});
 				chunk = [];
 			};
-			for (const group of groups.values()) {
-				if (chunk.length > 0 && chunk.length + group.length > CHUNK_SIZE) flush();
+			const byTime = [...groups.values()].sort((a, b) =>
+				String(a[0].time).localeCompare(String(b[0].time)),
+			);
+			for (const group of byTime) {
+				const instant = chunk.length > 0 && chunk[0].time !== group[0].time;
+				if (instant || (chunk.length > 0 && chunk.length + group.length > CHUNK_SIZE)) flush();
 				chunk.push(...group);
 			}
 			flush();
@@ -455,18 +464,53 @@
 		return raw || 'Upload failed';
 	}
 
-	async function handleUpload(replace = false) {
+	/**
+	 * Screen each grab request against the site's seasonal history and name the check on it, which
+	 * every grab save must. Returns a line per value outside the range.
+	 */
+	async function screenGrabRequests(requests: UploadRequest[]): Promise<string[]> {
+		const lines: string[] = [];
+		for (const req of requests) {
+			const body = req.body as {
+				site_id: string;
+				readings: { parameter_id: string; value: number; time: string }[];
+				check_id?: string;
+			};
+			const time = body.readings[0].time;
+			const check = await seasonalCheck({
+				site_id: body.site_id,
+				time,
+				values: body.readings.map((r) => ({ parameter_id: r.parameter_id, value: r.value })),
+			});
+			body.check_id = check.check_id;
+			for (const finding of check.findings.filter((f) => f.warning)) {
+				const name = params.find((p) => p.id === finding.parameter_id)?.name ?? finding.parameter_id;
+				lines.push(`${seasonalFindingLabel(finding, name)} at ${time}`);
+			}
+		}
+		return lines;
+	}
+
+	async function handleUpload(replace = false, outsideSeasonConfirmed = false) {
 		uploading = true;
 		uploadProgress = 0;
 		uploadResult = null;
 		uploadError = null;
 		grabConflict = null;
+		seasonalWarnings = null;
 
 		const allRows = buildPayload();
 		const requests = buildRequests(allRows, replace);
 		let totalInserted = 0;
 
 		try {
+			if (entityType === 'grab_samples') {
+				const lines = await screenGrabRequests(requests);
+				if (lines.length > 0 && !outsideSeasonConfirmed) {
+					seasonalWarnings = { lines, replace };
+					return;
+				}
+			}
 			for (let i = 0; i < requests.length; i++) {
 				const req = requests[i];
 				const result = await POST<{ inserted: number; samples_created?: number }>(req.endpoint, req.body);
@@ -531,6 +575,7 @@
 		uploadResult = null;
 		uploadError = null;
 		grabConflict = null;
+		seasonalWarnings = null;
 	}
 
 	function resolvedSiteName(row: Record<string, string>): string {
@@ -947,6 +992,29 @@
 				{#if uploading}
 					<div class="w-full bg-brand-bg rounded-full h-2 overflow-hidden">
 						<div class="bg-brand-primary h-full rounded-full transition-[width] duration-300" style:width="{uploadProgress}%"></div>
+					</div>
+				{/if}
+
+				{#if seasonalWarnings}
+					<div class="rounded-md border border-severity-warning-border bg-severity-warning-soft px-4 py-3 space-y-2 text-sm">
+						<p class="font-medium text-severity-warning-text">
+							{seasonalWarnings.lines.length} value{seasonalWarnings.lines.length === 1 ? '' : 's'} outside
+							this site's seasonal range. Look for mistakes before uploading. Nothing was sent.
+						</p>
+						{#each seasonalWarnings.lines.slice(0, 10) as line}
+							<div class="text-xs">{line}</div>
+						{/each}
+						{#if seasonalWarnings.lines.length > 10}
+							<p class="text-xs text-brand-muted">…and {seasonalWarnings.lines.length - 10} more</p>
+						{/if}
+						<Button
+							variant="danger"
+							size="sm"
+							disabled={uploading}
+							onclick={() => handleUpload(seasonalWarnings?.replace ?? false, true)}
+						>
+							Upload anyway
+						</Button>
 					</div>
 				{/if}
 

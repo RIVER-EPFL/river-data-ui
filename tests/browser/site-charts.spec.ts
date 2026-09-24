@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { API_URL, BASE_PATH, SEEDED_SITE, signIn, token } from './portal';
+import { API_URL, BASE_PATH, postGrab, SEEDED_SITE, signIn, token } from './portal';
 
 /** The seeded site's charts, reached in one navigation after signing in. */
 async function openSeededSite(page: Page, request: APIRequestContext) {
@@ -91,7 +91,7 @@ async function seedSpotSite(request: APIRequestContext) {
 		const code = `m254_${stamp}_${c}`;
 		const parameter = await post('/parameters', { code, name: code, category: 'measurement', aliases: [] });
 		await post('/site_parameters', { site_id: site.id, parameter_id: parameter.id, name: code });
-		await post('/grab_samples', {
+		await postGrab(post, {
 			site_id: site.id,
 			mode: 'replace',
 			readings: REPLICATES.map((value, replicate_index) => ({

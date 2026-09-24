@@ -4,7 +4,6 @@ import type { FormulaDraft, FormulaDraftRunRequest, FormulaSetSave, ToolOutput }
 import { toNum, type ThresholdForm, type ThresholdPatch } from '$lib/derivedParameters';
 import { CURVE_VARIABLES, FORMULA_CONSTANTS, FORMULA_FUNCTIONS, identifiers } from '$lib/formula/lint';
 import { hasGap, parseFromMeval, unparsed } from '$components/formula/ast';
-import { heldOf } from '$lib/calculations/heldInputs';
 
 // A calculation as one page holds it: the formulas in order, what they read, what they publish,
 // and the request that runs them as they stand.
@@ -40,12 +39,6 @@ export interface EditableFormula extends FormulaDraft {
 	 */
 	thresholds: ThresholdForm;
 	/**
-	 * The variables this formula holds between visits rather than reading at the instant computed
-	 * (Q230), as the stored sources declare them. Read-only here: the save writes the formulas,
-	 * and the declaration is the source row's.
-	 */
-	held: string[];
-	/**
 	 * Why the code can no longer be changed, from the server. Null while it is still free: the
 	 * catalog code is the CSV column header and the public API's identifier, so a rename is
 	 * refused once readings are stored under the output parameter or a project publishes it.
@@ -74,7 +67,6 @@ export function editableFormula(stored: DerivedParameter): EditableFormula {
 		intermediate: stored.intermediate ?? false,
 		shared: false,
 		thresholds: blankThresholds(),
-		held: heldOf(stored.sources),
 		codeLocked: stored.code_locked ?? null,
 	};
 }
@@ -87,6 +79,17 @@ export function editableFormula(stored: DerivedParameter): EditableFormula {
  */
 export function isSharedStep(f: EditableFormula): boolean {
 	return f.shared && f.intermediate;
+}
+
+/**
+ * What the cell panel shows for a formula. A step publishes under no parameter, so it has no
+ * catalog name and no bounds; the curve slot shows once the formula names a coefficient or a slot
+ * is already set.
+ */
+export function cellFields(f: EditableFormula): { name: boolean; bounds: boolean; curveSlot: boolean } {
+	const output = !f.intermediate;
+	const curve = identifiers(f.formula).some((i) => (CURVE_VARIABLES as readonly string[]).includes(i.name));
+	return { name: output, bounds: output, curveSlot: curve || f.curve_slot.trim().length > 0 };
 }
 
 /** The fields of a step the calculation that declares it may correct. */
@@ -161,7 +164,6 @@ export function blankFormula(existing: EditableFormula[]): EditableFormula {
 		intermediate: false,
 		shared: false,
 		thresholds: blankThresholds(),
-		held: [],
 		codeLocked: null,
 	};
 }

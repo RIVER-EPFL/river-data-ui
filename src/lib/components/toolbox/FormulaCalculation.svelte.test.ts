@@ -83,7 +83,6 @@ vi.mock('$api/crud', () => ({
 						derived_definition_id: 'f1',
 						parameter_id: 'p1',
 						variable_name: 'lab_temp',
-						alignment: 'hold',
 						created_at: '',
 					},
 				],
@@ -165,19 +164,6 @@ describe('two runs in flight', () => {
 		await new Promise((resolve) => setTimeout(resolve, 20));
 		expect(view.container.textContent).toContain('20');
 		expect(view.container.textContent).not.toContain('10');
-	});
-});
-
-// Scenario: the set reads a value the lab measures at a visit, declared held (Q230), and the
-// author is about to save it.
-//
-// Expected behaviour: the save arm names the input and what it does between visits before the
-// save, rather than leaving it to be found in the values afterwards.
-describe('a set holding an input between visits', () => {
-	it('names it and what it does, before the save', async () => {
-		render(FormulaCalculation, { calculationId: 'calc-1' });
-		const caveat = await screen.findByText(/lab_temp is held between visits/);
-		expect(caveat.textContent).toContain('until the next visit measures a new one');
 	});
 });
 

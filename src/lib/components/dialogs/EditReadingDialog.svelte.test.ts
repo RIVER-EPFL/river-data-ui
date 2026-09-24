@@ -9,6 +9,7 @@ const commitEdit = vi.fn();
 const reloadToolRun = vi.fn();
 const detachOutput = vi.fn();
 const returnOutput = vi.fn();
+const seasonalCheck = vi.fn();
 const overrideOutput = vi.fn();
 const goto = vi.fn();
 
@@ -23,6 +24,7 @@ vi.mock('$api/service', () => ({
 	reloadToolRun: (id: string) => reloadToolRun(id),
 	detachOutput: (b: unknown) => detachOutput(b),
 	returnOutput: (b: unknown) => returnOutput(b),
+	seasonalCheck: (r: unknown) => seasonalCheck(r),
 	overrideOutput: (b: unknown) => overrideOutput(b),
 }));
 
@@ -34,6 +36,7 @@ function row(options: EditOptionKind[], hasToolRun = false, runId?: string): Ins
 		time: '2026-07-14T09:00:00Z',
 		replicate_index: 0,
 		raw_value: 10,
+		spot: false,
 		provenance: {
 			has_tool_run: hasToolRun,
 			slot_detached: false,
@@ -62,10 +65,44 @@ beforeEach(() => {
 	goto.mockReset();
 	detachOutput.mockReset();
 	returnOutput.mockReset();
+	seasonalCheck.mockReset();
 	overrideOutput.mockReset();
 });
 
 describe('the edit dialog', () => {
+	// Scenario: a stored grab value is corrected to a number outside the site's seasonal range.
+	// Expected behaviour: the dialog screens the corrected value first, shows the warning, and
+	// names that check in the decision it previews and commits (Q262).
+	it('screens a grab correction and names its check on the preview and the commit', async () => {
+		const grab = { ...row(['value_correction', 'flag']), spot: true };
+		inspectEdits.mockResolvedValue({ rows: [grab] });
+		seasonalCheck.mockResolvedValue({
+			check_id: 'check-1',
+			warnings: 1,
+			findings: [
+				{ parameter_id: 'param', value: 400, class: 'above_max', warning: true, n: 6, min: 8, q10: 9, q90: 12, max: 13, distribution: [] },
+			],
+		});
+		previewEdit.mockResolvedValue({ preview_id: 'preview-1', rows: [], samples: [], calculations: [], not_previewed: [] });
+		commitEdit.mockResolvedValue({ rows_decided: 1, decision_ids: [], set_id: 'set-1' });
+		render(EditReadingDialog, { props: { open: true, selection } });
+
+		await fireEvent.click(await screen.findByLabelText(/Correct the value/));
+		await fireEvent.input(screen.getByLabelText('Corrected value'), { target: { value: '400' } });
+		await waitFor(() => expect(previewEdit).toHaveBeenCalled());
+		expect(seasonalCheck).toHaveBeenCalledWith({
+			site_id: 'site',
+			time: '2026-07-14T09:00:00Z',
+			values: [{ parameter_id: 'param', value: 400 }],
+		});
+		expect(previewEdit.mock.calls.at(-1)?.[1]).toMatchObject({ value: 400, check_id: 'check-1' });
+		expect(await screen.findByText(/above recorded maximum/)).toBeTruthy();
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+		await waitFor(() => expect(commitEdit).toHaveBeenCalled());
+		expect(commitEdit.mock.calls[0][1]).toMatchObject({ check_id: 'check-1' });
+	});
+
 	it('offers the in-place correction for a value nothing computed', async () => {
 		inspectEdits.mockResolvedValue({
 			rows: [row(['value_correction', 'flag', 'withdraw'])],

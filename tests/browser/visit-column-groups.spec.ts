@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
-import { API_URL, BASE_PATH, signIn, token } from './portal';
+import { API_URL, BASE_PATH, postGrab, signIn, token } from './portal';
 import { frozenButton, headerButton, sheetCell, typeInto } from './sheet';
 
 // Scenario: a site whose parameter is measured in triplicate. Expected behaviour: the Visits table
@@ -53,7 +53,7 @@ async function seedVisit(
 	}
 
 	const collectedAt = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
-	if (!unmeasured) await post('/grab_samples', {
+	if (!unmeasured) await postGrab(post, {
 		site_id: site.id,
 		mode: 'replace',
 		readings: [
@@ -70,7 +70,7 @@ async function seedVisit(
 		const earlier = new Date(Date.parse(collectedAt) - day * 86_400_000)
 			.toISOString()
 			.replace(/\.\d+Z$/, 'Z');
-		await post('/grab_samples', {
+		await postGrab(post, {
 			site_id: site.id,
 			mode: 'replace',
 			readings: [
@@ -129,13 +129,13 @@ test('a cell is typed in place and one Save writes every visit it touched', asyn
 	// A correction on a stored value, and an entry in a slot the visit never held.
 	await typeInto(page, /^groups_one_\w* at/, '4.8');
 	await expect(save).toContainText('Save 1 value');
-	// A correction moves a value the site already holds, so nothing is screened for it.
-	await expect(save).toBeEnabled();
+	// A correction is screened against the site's history like an entry (Q262).
+	await expect(save).toBeDisabled();
 
 	await typeInto(page, new RegExp(`^${emptyCode} at`), '7.5');
 	await expect(save).toContainText('Save 2 values');
 
-	// An entry is screened against the site's history before the save will open.
+	// The entry and the correction are screened together before the save will open.
 	await expect(save).toBeDisabled();
 	await page.getByRole('button', { name: 'Check against site history' }).click();
 	await expect(save).toBeEnabled();

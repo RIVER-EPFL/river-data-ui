@@ -21,13 +21,10 @@ describe('a param bound to what a visit holds', () => {
 		expect(visitBinding(m, 'doc')).toBe('DOC');
 	});
 
-	it('replaces a scalar binding rather than adding a second, and keeps its alignment', () => {
-		const held = {
-			...manifest(),
-			event_inputs: [{ param: 'x', parameter_code: 'A', alignment: 'hold' }],
-		};
-		const m = withVisitBinding(held, 'x', 'B');
-		expect(m.event_inputs).toEqual([{ param: 'x', parameter_code: 'B', alignment: 'hold' }]);
+	it('replaces a scalar binding rather than adding a second', () => {
+		const bound = withVisitBinding(manifest(), 'x', 'A');
+		const m = withVisitBinding(bound, 'x', 'B');
+		expect(m.event_inputs).toEqual([{ param: 'x', parameter_code: 'B' }]);
 	});
 
 	it('unbinds on an empty code', () => {

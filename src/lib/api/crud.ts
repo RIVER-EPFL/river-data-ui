@@ -381,10 +381,6 @@ export interface DerivedParameterSource {
 	derived_definition_id: string;
 	parameter_id: string;
 	variable_name: string;
-	/** How the binder reaches a reading for this variable: 'exact' at the instant being computed,
-	 *  'hold' for the last value measured at or before it, which a calculation on a stream does
-	 *  for an input the lab measures at a visit. */
-	alignment: string;
 	created_at: string;
 }
 

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { API_URL, BASE_PATH, signIn, token } from './portal';
+import { API_URL, BASE_PATH, postGrab, signIn, token } from './portal';
 import { seedComputedVisit } from './computedVisit';
 import { frozenButton, frozenDate, sheetCell, typeInto } from './sheet';
 
@@ -29,6 +29,7 @@ test('a corrected input shows its recomputed output without a reload', async ({ 
 	await expect(cell).toHaveText(String(ENTERED));
 	await typeInto(page, new RegExp(`^${inputName} at`), String(CORRECTED));
 
+	await page.getByRole('button', { name: 'Check against site history' }).click();
 	const save = page.getByRole('button', { name: /^Save \d+ value/ });
 	await save.click();
 	const dialog = page.getByRole('dialog');
@@ -63,7 +64,7 @@ test('a mistaken save over two visits is rolled back one visit at a time', async
 	const earlierAt = new Date(Date.parse(seeded.collectedAt) - 86_400_000)
 		.toISOString()
 		.replace(/\.\d+Z$/, 'Z');
-	await call('post', '/grab_samples', {
+	await postGrab((path, data) => call('post', path, data), {
 		site_id: siteId,
 		mode: 'replace',
 		readings: [{ parameter_id: inputId, value: EARLIER, time: earlierAt, replicate_index: 0 }],
@@ -98,6 +99,7 @@ test('a mistaken save over two visits is rolled back one visit at a time', async
 			new ClipboardEvent('paste', { clipboardData: data, bubbles: true }),
 		);
 	}, '15\n25');
+	await page.getByRole('button', { name: 'Check against site history' }).click();
 	await page.getByRole('button', { name: /^Save 2 values/ }).click();
 	const dialog = page.getByRole('dialog');
 	await dialog.getByRole('button', { name: 'Save', exact: true }).click();

@@ -3,7 +3,7 @@
 	import { base } from '$app/paths';
 	import type { Constant } from '$api/crud';
 	import type { RunTraceStep, StepDependents } from '$api/service';
-	import { carryRename, type EditableFormula, type FocusedFormula } from '$lib/calculations/editor';
+	import { carryRename, cellFields, type EditableFormula, type FocusedFormula } from '$lib/calculations/editor';
 	import { linksOf, type SheetRow, type SheetSelection } from '$lib/calculations/sheet';
 	import { perReplicateChoices } from '$lib/derivedParameters';
 	import { identifiers, type Diagnostic } from '$lib/formula/lint';
@@ -31,13 +31,11 @@
 		consequence = null,
 		dependents = null,
 		busy = false,
-		held = null,
 		onselect,
 		onedited,
 		ondrop,
 		onstopreading,
 		onshowdependents,
-		onhold,
 	}: {
 		row?: SheetRow | null;
 		selection?: SheetSelection | null;
@@ -54,15 +52,8 @@
 		consequence?: string | null;
 		dependents?: StepDependents | null;
 		busy?: boolean;
-		/**
-		 * For an input the set may hold between visits (Q230), whether it holds it. Null where the
-		 * rule does not apply to the selected row, and the panel says nothing about it.
-		 */
-		held?: boolean | null;
 		/** Select the row a link names. */
 		onselect?: (key: string) => void;
-		/** Hold this input between visits, or read it at the instant again. */
-		onhold?: (held: boolean) => void;
 		/** A field changed, so the run is stale. */
 		onedited?: () => void;
 		ondrop?: (formula: EditableFormula) => void;
@@ -123,6 +114,7 @@
 	}
 
 	const shared = $derived(Boolean(formula?.declarationId) && Boolean(formula?.shared));
+	const fields = $derived(formula ? cellFields(formula) : null);
 	const readBy = $derived(linksOf(formulas, formula?.code ?? row?.key ?? '').readBy);
 	const reads = $derived(
 		formula ? [...new Set(identifiers(formula.formula).map((i) => i.name))] : [],
@@ -175,7 +167,7 @@
 {#snippet whose(step: EditableFormula)}
 	<!-- Whose the step is. A shared one belongs to no calculation, so the save writes it on its
 	     own and declares it here rather than into the set. -->
-	<label class="col-span-2 block text-xs text-brand-muted">Read by
+	<label class="col-span-2 block text-xs text-brand-muted" title="Which calculations may read this step under its code">Read by
 		<select bind:value={step.shared} class={inputCls}>
 			<option value={false}>This calculation only</option>
 			<option value={true}>Any calculation that declares it</option>
@@ -228,7 +220,7 @@
 				     in the pane beside the sheet. -->
 				<div class="grid grid-cols-1 @3xl:grid-cols-[24rem_minmax(0,1fr)] gap-3 items-start">
 					<div class="grid min-w-0 grid-cols-2 gap-2">
-						<label class="block text-xs text-brand-muted">Code
+						<label class="block text-xs text-brand-muted" title="The name later formulas read it by, and the CSV column header of an output">Code
 							<input
 								bind:value={formula.code}
 								onfocus={() => (codeBefore = formula!.code.trim())}
@@ -242,19 +234,20 @@
 								<span class="mt-1 block text-[11px] text-brand-muted">Published: {formula.codeLocked}. The code is the CSV column header and the public identifier.</span>
 							{/if}
 						</label>
-						<label class="block text-xs text-brand-muted">Name
-							<input bind:value={formula.name} placeholder="CO2 headspace" class={inputCls} />
-						</label>
-						<label class="block text-xs text-brand-muted">Units
+						{#if fields?.name}
+							<label class="block text-xs text-brand-muted" title="The name the output parameter carries in the catalog">Name
+								<input bind:value={formula.name} placeholder="CO2 headspace" class={inputCls} />
+							</label>
+						{/if}
+						<label class="block text-xs text-brand-muted" title="The units the value is computed in">Units
 							<input bind:value={formula.units} placeholder="uM" class={inputCls} />
 						</label>
-						<label class="block text-xs text-brand-muted">Curve slot
-							<input bind:value={formula.curve_slot} placeholder="doc" class={inputCls} />
-						</label>
-						<label class="col-span-2 block text-xs text-brand-muted">Description
-							<input bind:value={formula.description} placeholder="The portal function this transcribes, and what it assumes" class={inputCls} />
-						</label>
-						<label class="col-span-2 block text-xs text-brand-muted">Per replicate over
+						{#if fields?.curveSlot}
+							<label class="block text-xs text-brand-muted" title="The curve whose coefficients reach the formula as curve_slope and curve_intercept">Curve slot
+								<input bind:value={formula.curve_slot} placeholder="doc" class={inputCls} />
+							</label>
+						{/if}
+						<label class="col-span-2 block text-xs text-brand-muted" title="The replicate family the formula runs once per member of">Per replicate over
 							<select bind:value={formula.per_replicate} class={inputCls}>
 								<option value="">Not per replicate, one value per visit</option>
 								{#each perReplicateChoices([...new Set(identifiers(formula.formula).map((i) => i.name))]) as variable (variable)}
@@ -265,6 +258,10 @@
 								{/if}
 							</select>
 						</label>
+						<details class="col-span-2 text-xs text-brand-muted">
+							<summary class="cursor-pointer">Description{formula.description.trim() ? `: ${formula.description.trim()}` : ''}</summary>
+							<input bind:value={formula.description} placeholder="The portal function this transcribes, and what it assumes" title="What the formula transcribes and what it assumes" class="{inputCls} mt-1" />
+						</details>
 						{#if shared}
 							<p class="col-span-2 text-xs text-brand-muted">
 								Stored once and read by every calculation that declares it, so a change saved here
@@ -272,7 +269,7 @@
 							</p>
 							{@render whose(formula)}
 						{:else}
-							<label class="col-span-2 flex items-start gap-2 text-sm">
+							<label class="col-span-2 flex items-start gap-2 text-sm" title="A step publishes no parameter; later formulas read it by its code">
 								<input type="checkbox" bind:checked={formula.intermediate} class="mt-1" />
 								<span>A step of the calculation
 									<span class="block text-xs text-brand-muted">Handed to the formulas after it under its code, stored nowhere.</span>
@@ -281,7 +278,7 @@
 							</label>
 							{#if formula.intermediate}
 								{@render whose(formula)}
-							{:else}
+							{:else if fields?.bounds}
 								<!-- The output parameter's own bounds: its `alarm_thresholds` row with no site, which
 								     a site-specific row overrides. -->
 								<fieldset class="col-span-2 border border-brand-divider rounded px-2 py-2">
@@ -343,29 +340,6 @@
 				{#if shared && dependents}
 					{@render readers(dependents)}
 				{/if}
-			{/if}
-
-			{#if held !== null}
-				<!-- How the set reaches this input (Q230). A calculation on a stream reading a value the
-				     lab measures at a visit has nothing at most of its instants, unless it holds the
-				     last one. -->
-				<label class="block text-xs text-brand-muted">Between visits
-					<select
-						aria-label="Between visits"
-						value={held ? 'hold' : 'exact'}
-						onchange={(e) => onhold?.((e.currentTarget as HTMLSelectElement).value === 'hold')}
-						disabled={busy}
-						class={inputCls}
-					>
-						<option value="exact">Read at the instant computed</option>
-						<option value="hold">Hold the last value measured</option>
-					</select>
-					<span class="mt-1 block text-[11px] text-brand-muted">
-						{held
-							? 'Every value computed between visits carries the number last measured, until the next visit measures a new one.'
-							: 'An instant with no reading of it computes nothing.'}
-					</span>
-				</label>
 			{/if}
 
 			{@render chips('Reads', reads)}

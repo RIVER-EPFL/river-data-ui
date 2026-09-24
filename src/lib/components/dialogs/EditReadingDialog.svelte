@@ -7,6 +7,7 @@
 		previewEdit,
 		reloadToolRun,
 		returnOutput,
+		seasonalCheck,
 		type EditDecisionBody,
 		type EditOptionKind,
 		type EditPreviewResponse,
@@ -18,6 +19,7 @@
 	import {
 		EDIT_METHODS,
 		commonOptions,
+		correctionCheck,
 		fieldLabel,
 		isDirect,
 		isRoute,
@@ -30,6 +32,7 @@
 		selectionRoute,
 	} from '$lib/provenance/edits';
 	import { formatDateTime } from '$lib/utils';
+	import { seasonalFindingLabel } from '$lib/seasonal';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
@@ -65,6 +68,10 @@
 	let previewError = $state('');
 	let previewing = $state(false);
 	let committing = $state(false);
+	// The decision as it was screened and previewed: a correction of grab values carries the
+	// seasonal check that screened it (Q262), and the commit is held to the same one.
+	let screened = $state<EditDecisionBody | null>(null);
+	let seasonalWarnings = $state<string[]>([]);
 	let previewSeq = 0;
 
 	const route = $derived(selectionRoute(rows));
@@ -130,9 +137,14 @@
 		}
 		const seq = ++previewSeq;
 		previewing = true;
-		previewEdit(selection, body)
+		screen(body)
+			.then((checked) => {
+				if (seq !== previewSeq) return null;
+				screened = checked;
+				return previewEdit(selection, checked);
+			})
 			.then((r) => {
-				if (seq !== previewSeq) return;
+				if (seq !== previewSeq || !r) return;
 				preview = r;
 				previewError = '';
 			})
@@ -146,8 +158,20 @@
 			});
 	});
 
+	/** The decision with the check that screened the grab values it corrects, where it corrects any. */
+	async function screen(body: EditDecisionBody): Promise<EditDecisionBody> {
+		seasonalWarnings = [];
+		const request = body.value == null ? null : correctionCheck(rows, body.value);
+		if (!request) return body;
+		const response = await seasonalCheck(request);
+		seasonalWarnings = response.findings
+			.filter((f) => f.warning)
+			.map((f) => seasonalFindingLabel(f, 'Corrected value'));
+		return { ...body, check_id: response.check_id };
+	}
+
 	async function commit() {
-		const body = decision();
+		const body = screened;
 		if (!body || !preview) return;
 		committing = true;
 		try {
@@ -314,6 +338,16 @@
 					<input class="mt-1 w-full rounded border px-2 py-1" bind:value={reason} />
 				</label>
 
+				{#if seasonalWarnings.length > 0 && !previewing}
+					<div class="rounded border border-severity-warning-border bg-severity-warning-soft p-3 text-sm">
+						<p class="font-medium text-severity-warning-text">
+							Outside this site's seasonal range. Look for a mistake before applying.
+						</p>
+						{#each seasonalWarnings as line (line)}
+							<p class="text-xs">{line}</p>
+						{/each}
+					</div>
+				{/if}
 				{#if previewing}
 					<p class="text-sm text-brand-muted">Working out what this changes…</p>
 				{:else if previewError}

@@ -4,6 +4,7 @@ import type { EditOptionKind, InspectedRow } from '$api/service';
 import {
 	EDIT_METHODS,
 	commonOptions,
+	correctionCheck,
 	fieldLabel,
 	isDirect,
 	isRoute,
@@ -22,6 +23,7 @@ function row(options: EditOptionKind[], hasToolRun = false, detached = false): I
 		time: '2026-07-14T09:00:00Z',
 		replicate_index: 0,
 		raw_value: 1,
+		spot: true,
 		provenance: {
 			has_tool_run: hasToolRun,
 			slot_detached: detached,
@@ -185,5 +187,34 @@ describe('outputSlots', () => {
 
 	it('leaves out a row paired to no slot', () => {
 		expect(outputSlots([at(undefined, undefined, '2026-07-14T09:00:00Z')])).toEqual([]);
+	});
+});
+
+describe('the check a correction names', () => {
+	it('screens the corrected value of every grab parameter at the first grab', () => {
+		const grab = (parameter: string, time: string): InspectedRow => ({
+			...row(['value_correction']),
+			site_id: 'site',
+			parameter_id: parameter,
+			time,
+		});
+		expect(
+			correctionCheck(
+				[grab('p-do', '2026-07-14T09:00:00Z'), grab('p-do', '2026-07-15T09:00:00Z'), grab('p-t', '2026-07-15T09:00:00Z')],
+				4.2,
+			),
+		).toEqual({
+			site_id: 'site',
+			time: '2026-07-14T09:00:00Z',
+			values: [
+				{ parameter_id: 'p-do', value: 4.2 },
+				{ parameter_id: 'p-t', value: 4.2 },
+			],
+		});
+	});
+
+	it('asks for none where the correction types no grab value', () => {
+		const sensor = { ...row(['value_correction']), spot: false, site_id: 'site', parameter_id: 'p' };
+		expect(correctionCheck([sensor], 4.2)).toBeNull();
 	});
 });

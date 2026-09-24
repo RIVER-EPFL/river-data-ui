@@ -5,6 +5,7 @@ import { lintFormula } from '$lib/formula/lint';
 import type { Constant, DerivedParameter, Parameter } from '$api/crud';
 import {
 	blankFormula,
+	cellFields,
 	editableFormula,
 	blankThresholds,
 	carryRename,
@@ -43,7 +44,6 @@ const formula = (over: Partial<EditableFormula>): EditableFormula => ({
 	intermediate: false,
 	shared: false,
 	thresholds: blankThresholds(),
-	held: [],
 	codeLocked: null,
 	...over,
 });
@@ -691,6 +691,35 @@ describe("an output's own bounds", () => {
 	it('leaves an output the save minted no parameter for alone', () => {
 		const edited = suva({ thresholds: bounds({ warningMin: '2' }) });
 		expect(thresholdWrites([edited], [], [{ code: 'SUVA', output_parameter_id: null }])).toEqual([]);
+	});
+});
+
+describe('the fields a cell panel shows', () => {
+	it('gives an output its name and bounds', () => {
+		expect(cellFields(formula({ code: 'SUVA', formula: 'a254 / DOC' }))).toEqual({ name: true, bounds: true, curveSlot: false });
+	});
+
+	it('gives a step neither: it publishes under no parameter', () => {
+		const step = formula({ code: 'bp', formula: 'Field_BP * 2', intermediate: true });
+		expect(cellFields(step)).toEqual({ name: false, bounds: false, curveSlot: false });
+	});
+
+	it('gives a shared step neither', () => {
+		const step = formula({ code: 'bp', formula: 'Field_BP * 2', intermediate: true, shared: true });
+		expect(cellFields(step)).toEqual({ name: false, bounds: false, curveSlot: false });
+	});
+
+	it('gives an output its name back once the step switch is off, whatever it was shared as', () => {
+		expect(cellFields(formula({ code: 'SUVA', formula: 'a254 / DOC', shared: true })).name).toBe(true);
+	});
+
+	it('shows the curve slot once the formula names a coefficient', () => {
+		expect(cellFields(formula({ formula: 'lab_doc * curve_slope' })).curveSlot).toBe(true);
+		expect(cellFields(formula({ formula: 'lab_doc + curve_intercept', intermediate: true })).curveSlot).toBe(true);
+	});
+
+	it('keeps a slot already set in view, so it can be cleared', () => {
+		expect(cellFields(formula({ formula: 'lab_doc * 2', curve_slot: 'doc' })).curveSlot).toBe(true);
 	});
 });
 

@@ -1669,8 +1669,7 @@ export interface paths {
          *     Additional filterable columns:
          *     - derived_definition_id
          *     - parameter_id
-         *     - site_property
-         *     - alignment.
+         *     - site_property.
          */
         get: operations["get_all_derived_parameter_sources"];
         put?: never;
@@ -9724,13 +9723,6 @@ export interface components {
          *     the newest `seq` for it.
          */
         ConsumedInput: {
-            /**
-             * @description How the reading it names was reached (Q230): absent where it was read at the instant the
-             *     run computed, `hold` where it is the last value measured at or before it, which a
-             *     calculation on a stream does for an input the lab measures at a visit. Without it a held
-             *     value reads as a mis-stamped one, and a replay cannot tell which rule bound it.
-             */
-            alignment?: string;
             kind: string;
             members?: components["schemas"]["ConsumedReading"][];
             property?: string;
@@ -9783,12 +9775,6 @@ export interface components {
          *     stands now (Q215). `kind`, `subject` and `property` are the captured binding.
          */
         ConsumedRef: {
-            /**
-             * @description How the reading it names was reached (Q230), as the capture recorded it: absent where it
-             *     was read at the instant computed, `hold` where it is the last value measured at or before
-             *     it. Without it a held member reads as one stamped at the wrong instant.
-             */
-            alignment?: string;
             /** Format: int64 */
             current_revision: number | null;
             /**
@@ -10324,12 +10310,6 @@ export interface components {
             site_name?: string;
         };
         DerivedParameterSource: {
-            /**
-             * @description How the binder reaches a reading for this variable (Q230): `exact` at the instant being
-             *     computed, `hold` for the last value measured at or before it, which is what a
-             *     visit-measured input read by a calculation on a stream needs. DB CHECK over the two.
-             */
-            alignment: string;
             /** Format: date-time */
             created_at: string | null;
             /** Format: uuid */
@@ -10350,7 +10330,6 @@ export interface components {
             variable_name: string;
         };
         DerivedParameterSourceCreate: {
-            alignment?: string | null;
             /** Format: uuid */
             derived_definition_id: string;
             /** Format: uuid */
@@ -10359,12 +10338,6 @@ export interface components {
             variable_name: string;
         };
         DerivedParameterSourceList: {
-            /**
-             * @description How the binder reaches a reading for this variable (Q230): `exact` at the instant being
-             *     computed, `hold` for the last value measured at or before it, which is what a
-             *     visit-measured input read by a calculation on a stream needs. DB CHECK over the two.
-             */
-            alignment: string;
             /** Format: date-time */
             created_at: string | null;
             /** Format: uuid */
@@ -10385,12 +10358,6 @@ export interface components {
             variable_name: string;
         };
         DerivedParameterSourceResponse: {
-            /**
-             * @description How the binder reaches a reading for this variable (Q230): `exact` at the instant being
-             *     computed, `hold` for the last value measured at or before it, which is what a
-             *     visit-measured input read by a calculation on a stream needs. DB CHECK over the two.
-             */
-            alignment: string;
             /** Format: date-time */
             created_at: string | null;
             /** Format: uuid */
@@ -10411,7 +10378,6 @@ export interface components {
             variable_name: string;
         };
         DerivedParameterSourceUpdate: {
-            alignment?: string | null;
             /** Format: uuid */
             derived_definition_id?: string | null;
             /** Format: uuid */
@@ -11067,10 +11033,11 @@ export interface components {
         GrabSampleRequest: {
             /**
              * Format: uuid
-             * @description A `seasonal_checks` row (from `/readings/seasonal_check`) covering this save's values.
-             *     When present, every reading's (parameter, value) must have been screened by that check:
-             *     the portal's "any edit resets Check", enforced server-side. The check itself is advisory;
-             *     naming a check that does not cover the values is refused.
+             * @description The `seasonal_checks` row (from `/readings/seasonal_check`) that screened this save's
+             *     values, required on every save that is not a dry run. Every reading's (parameter, value)
+             *     must have been screened by that check: the portal's "any edit resets Check", enforced
+             *     server-side. A warning the check reported does not block the save; a check that does not
+             *     cover the values does.
              */
             check_id?: string | null;
             /** @description Compute the preview and report existing groups without writing anything. */
@@ -11861,6 +11828,8 @@ export interface components {
              *     Absent on an unpaired row.
              */
             site_id?: string;
+            /** @description A grab value (a spot reading), whose correction names a seasonal check (Q262). */
+            spot: boolean;
             /** Format: uuid */
             stream_id: string;
             /** Format: date-time */
@@ -12100,12 +12069,6 @@ export interface components {
          *     temperature, DOM pulling the DOC average) as a declaration instead of R code.
          */
         ManifestEventInput: {
-            /**
-             * @description How the value is reached (Q230): `exact` at the instant being computed, `hold` for the
-             *     last value measured at or before it. Absent is `exact`, which is what every manifest
-             *     written before this meant.
-             */
-            alignment?: string;
             /** @description The manifest param this fills. */
             param: string;
             /** @description Catalog parameter code (`parameters.code`) read at the event. */

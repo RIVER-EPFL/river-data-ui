@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
-import { API_URL, BASE_PATH, signIn, token } from './portal';
+import { API_URL, BASE_PATH, postGrab, signIn, token } from './portal';
 
 // Scenario: an alarm is open and the person on call has only a phone. Expected behaviour: the
 // alarm log scrolls sideways inside its box and the Acknowledge action stays on screen.
@@ -26,7 +26,7 @@ async function seedOpenAlarm(request: APIRequestContext): Promise<string> {
 	await post('/site_parameters', { site_id: site.id, parameter_id: parameter.id, name: parameter.name });
 	await post('/alarm_thresholds', { parameter_id: parameter.id, site_id: site.id, alarm_max: 10 });
 	const time = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
-	await post('/grab_samples', {
+	await postGrab(post, {
 		site_id: site.id,
 		mode: 'replace',
 		readings: [{ parameter_id: parameter.id, value: 99, time, replicate_index: 0 }],

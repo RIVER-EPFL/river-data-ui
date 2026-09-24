@@ -250,3 +250,21 @@ export function previewIsEmpty(rows: MovedRow[], samples: MovedSample[]): boolea
 	const sampleMoved = samples.some((s) => movedFields(s.before, s.after).length > 0);
 	return !rowMoved && !sampleMoved;
 }
+
+/**
+ * The seasonal check a correction to `value` must name (Q262): the grab values it types, at the
+ * first corrected grab's site and instant. Null where it corrects no grab value.
+ */
+export function correctionCheck(
+	rows: InspectedRow[],
+	value: number,
+): { site_id: string; time: string; values: { parameter_id: string; value: number }[] } | null {
+	const grabs = rows.filter((r) => r.spot && r.site_id && r.parameter_id);
+	if (grabs.length === 0) return null;
+	const parameters = [...new Set(grabs.map((r) => r.parameter_id!))];
+	return {
+		site_id: grabs[0].site_id!,
+		time: grabs[0].time,
+		values: parameters.map((parameter_id) => ({ parameter_id, value })),
+	};
+}
