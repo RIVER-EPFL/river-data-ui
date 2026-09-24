@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { VisitRow } from '$api/service';
-import { parameterColumns, slotsOf, type GridSlot } from './columns';
+import { columnBands, parameterColumns, slotsOf, type GridSlot } from './columns';
 import {
 	FROZEN_COLUMNS,
 	applyChanges,
+	copiesOf,
 	displayText,
 	oncePerFrame,
 	renderLive,
@@ -19,6 +20,7 @@ import {
 } from './sheet';
 import { BROWSER_ZONE } from '$lib/time/zones';
 import { gridRows, spareVisits, standingInstants } from './spareRows';
+import { pendingWrites } from './tableEdit';
 
 const LOCALE = 'en-GB';
 
@@ -305,5 +307,52 @@ describe('renderLive', () => {
 		renderLive(grid);
 		renderLive(null);
 		expect(grid.render).not.toHaveBeenCalled();
+	});
+});
+
+describe('a column standing under several calculations', () => {
+	const shared = [
+		{ parameter_id: 'p-temp', code: 'TEMP', name: 'Temp', read_by: ['dosat', 'pco2'] },
+		{ parameter_id: 'p-do', code: 'DO', name: 'DO', read_by: ['dosat'] },
+		{ parameter_id: 'p-sat', code: 'SAT', name: 'Saturation', written_by: 'dosat' },
+		{ parameter_id: 'p-pco2', code: 'PCO2', name: 'pCO2', written_by: 'pco2' },
+	] as never;
+	const columns = parameterColumns(shared, visits, new Set());
+	const bands = columnBands(columns, 'calculation', {}, {});
+	const shown = bands.flatMap((b) => b.columns);
+	const slots = slotsOf(shown);
+
+	it('heads each calculation over its own columns, above the parameters', () => {
+		const headers = sheetHeaders(shown, 'UTC', bands);
+		expect(headers[0]).toEqual([
+			'',
+			{ label: 'dosat', colspan: 3 },
+			{ label: 'pco2', colspan: 2 },
+		]);
+		expect(headers[1].slice(FROZEN_COLUMNS).map((h) => (h as { label: string }).label)).toEqual([
+			'SAT',
+			'DO',
+			'TEMP',
+			'PCO2',
+			'TEMP',
+		]);
+		expect(sheetHeaders(shown, 'UTC', columnBands(columns, 'alphabetical', {}, {}))).toHaveLength(2);
+	});
+
+	it('names every other copy of a slot', () => {
+		// Date, then SAT, DO, TEMP under dosat, then PCO2, TEMP under pco2.
+		expect(copiesOf(slots, 3)).toEqual([5]);
+		expect(copiesOf(slots, 5)).toEqual([3]);
+		expect(copiesOf(slots, 2)).toEqual([]);
+	});
+
+	it('shows a value typed in one copy in every copy, and saves it once', () => {
+		const grid = table(visits, slots);
+		const applied = applyChanges(grid, {}, {}, [{ row: 1, column: 3, raw: '5.5' }], LOCALE, false);
+		expect(Object.keys(applied.edits)).toEqual(['v2|p-temp|0']);
+		const rows = sheetData(grid, applied.edits, {}, LOCALE, 'UTC', always);
+		expect([rows[1][3], rows[1][5]]).toEqual(['5.5', '5.5']);
+		const writes = pendingWrites(visits, applied.edits, LOCALE);
+		expect(writes.flatMap((w) => w.entries)).toHaveLength(1);
 	});
 });

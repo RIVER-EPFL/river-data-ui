@@ -245,3 +245,55 @@
 		box-shadow: inset 0 0 0 100vmax transparent;
 	}
 }
+.sheet-grid .sheet-sort {
+	position: absolute;
+	top: 50%;
+	right: 2px;
+	transform: translateY(-50%);
+	margin: 0;
+	border-color: transparent;
+	background-color: inherit;
+	color: var(--color-brand-muted);
+}
+.sheet-grid .sheet-sort.sheet-sorted {
+	color: var(--color-brand-primary);
+}
+.sheet-grid .handsontable th:has(.sheet-sort) .colHeader {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	padding-right: 14px;
+}
+.sheet-grid .handsontable th:has(.sheet-sort) .sheet-link {
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	vertical-align: bottom;
+}
+/* A grid of fixed row and header heights: what does not fit is cut short, the full text in its title. */
+.sheet-grid.sheet-fixed-rows .handsontable td,
+.sheet-grid.sheet-fixed-rows .handsontable th .colHeader {
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+.sheet-grid.sheet-fixed-rows .handsontable th .relative {
+	overflow: hidden;
+}
+.sheet-grid.sheet-fixed-rows .handsontable th .colHeader {
+	display: block;
+}
+/* Marks and chips sit inside the line rather than raising it. */
+.sheet-grid.sheet-fixed-rows .sheet-mark {
+	vertical-align: top;
+	line-height: 1;
+}
+.sheet-grid.sheet-fixed-rows .handsontable td .rounded-full {
+	padding-block: 0;
+	line-height: 16px;
+	vertical-align: middle;
+}
+/* The selected slot in every column that draws it, the grid's own selection included. */
+.sheet-grid .handsontable td.sheet-selected-slot {
+	box-shadow: inset 0 0 0 2px var(--color-brand-primary);
+}

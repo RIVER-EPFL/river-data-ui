@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
-import { API_URL, BASE_PATH, postGrab, signIn, token } from './portal';
+import { API_URL, BASE_PATH, postGrab, saveFormulaSet, signIn, token } from './portal';
 import { frozenButton, headerButton, sheetCell, typeInto } from './sheet';
 
 // Scenario: a site whose parameter is measured in triplicate. Expected behaviour: the Visits table
@@ -429,4 +429,181 @@ test('leaving the visits tab with a typed value asks first', async ({ page, requ
 	page.once('dialog', (dialog) => void dialog.accept());
 	await page.getByRole('button', { name: 'Charts', exact: true }).click();
 	await expect(save).toBeHidden();
+});
+
+/** A site of two parameters, one of them in a parameter group of its own. */
+async function seedGrouped(request: APIRequestContext) {
+	const stamp = `${Date.now()}_${(seeded += 1)}`;
+	const headers = { Authorization: `Bearer ${await token(request)}` };
+	const post = async (path: string, data: unknown) => {
+		const response = await request.post(`${API_URL}/api${path}`, { headers, data });
+		expect(response.ok(), `${path} -> ${response.status()} ${await response.text()}`).toBeTruthy();
+		return response.json();
+	};
+	const project = await post('/projects', { name: `Bands ${stamp}` });
+	const site = await post('/sites', { name: `Bands ${stamp}`, project_id: project.id });
+	const group = await post('/parameter_groups', { code: `bands_${stamp}`, label: `Bands ${stamp}`, ordinal: 1 });
+	const inGroup = `bands_in_${stamp}`;
+	const outside = `bands_out_${stamp}`;
+	for (const [code, member] of [[inGroup, true], [outside, false]] as const) {
+		const parameter = await post('/parameters', { code, name: code, category: 'measurement', aliases: [] });
+		if (member) {
+			await post('/parameter_group_members', {
+				group_id: group.id,
+				parameter_id: parameter.id,
+				role: 'measured',
+				ordinal: 0,
+			});
+		}
+		await post('/site_parameters', { site_id: site.id, parameter_id: parameter.id, name: code });
+	}
+	const collectedAt = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+	await post('/collection_events/stage', { site_id: site.id, collected_at: collectedAt });
+	return { siteId: site.id, groupLabel: group.label as string, inGroup, outside };
+}
+
+/** A visit holding one entered value that two formula calculations each read. */
+async function seedSharedInput(request: APIRequestContext) {
+	const stamp = `${Date.now()}_${(seeded += 1)}`;
+	const headers = { Authorization: `Bearer ${await token(request)}` };
+	const post = async (path: string, data: unknown) => {
+		const response = await request.post(`${API_URL}/api${path}`, { headers, data });
+		expect(response.ok(), `${path} -> ${response.status()} ${await response.text()}`).toBeTruthy();
+		return response.json();
+	};
+	const project = await post('/projects', { name: `Shared ${stamp}` });
+	const site = await post('/sites', { name: `Shared ${stamp}`, project_id: project.id });
+	const input = `shared_in_${stamp}`;
+	const parameter = await post('/parameters', { code: input, name: input, category: 'measurement', aliases: [] });
+	await post('/site_parameters', { site_id: site.id, parameter_id: parameter.id, name: input, cadence: 'low' });
+	for (const factor of [2, 3]) {
+		const name = `shared_x${factor}_${stamp}`;
+		const group = await post('/parameter_groups', { code: name, label: name, ordinal: factor });
+		const calculation = await post('/tool_scripts', {
+			name,
+			label: name,
+			engine: 'formula',
+			parameter_group_id: group.id,
+		});
+		const derived = await saveFormulaSet(request, headers, calculation.id, {
+			code: `${name}_out`,
+			name: `${name}_out`,
+			units: '',
+			formula: `${input} * ${factor}`,
+			ordinal: 1,
+		});
+		await post('/parameter_group_members', {
+			group_id: group.id,
+			parameter_id: derived.output_parameter_id,
+			role: 'output',
+			ordinal: 1,
+		});
+		await post('/site_parameters', {
+			site_id: site.id,
+			parameter_id: derived.output_parameter_id,
+			name: `${name}_out`,
+			cadence: 'low',
+		});
+	}
+	const collectedAt = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+	await postGrab(post, {
+		site_id: site.id,
+		mode: 'replace',
+		readings: [{ parameter_id: parameter.id, value: 4, time: collectedAt, replicate_index: 0 }],
+	});
+	await post('/collection_events/stage', { site_id: site.id, collected_at: collectedAt });
+	return { siteId: site.id, input };
+}
+
+test("a parameter group's heading narrows the table to its columns", async ({ page, request }) => {
+	const { siteId, groupLabel, inGroup, outside } = await seedGrouped(request);
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
+	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
+
+	await page.getByRole('button', { name: 'Parameter group', exact: true }).click();
+	const band = headerButton(page, { name: groupLabel, exact: true });
+	await expect(band).toBeVisible();
+	await expect(headerButton(page, { name: 'Ungrouped', exact: true })).toBeVisible();
+
+	await band.click();
+	await expect(sheetCell(page, new RegExp(`^${inGroup} at`))).toHaveCount(1);
+	await expect(sheetCell(page, new RegExp(`^${outside} at`))).toHaveCount(0);
+	await expect(page.locator('#visits-group')).toHaveValue(/./);
+
+	// A second click lets every column back.
+	await headerButton(page, { name: groupLabel, exact: true }).click();
+	await expect(sheetCell(page, new RegExp(`^${outside} at`))).toHaveCount(1);
+
+	// The choice holds across a reload, and A to Z drops the heading row.
+	await page.reload();
+	await expect(headerButton(page, { name: groupLabel, exact: true })).toBeVisible();
+	await page.getByRole('button', { name: 'A to Z', exact: true }).click();
+	await expect(headerButton(page, { name: groupLabel, exact: true })).toHaveCount(0);
+});
+
+test('a column two calculations read stands under each, and both copies hold one value', async ({
+	page,
+	request,
+}) => {
+	const { siteId, input } = await seedSharedInput(request);
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
+	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
+
+	await page.getByRole('button', { name: 'Calculation', exact: true }).click();
+	const copies = sheetCell(page, new RegExp(`^${input} at`));
+	await expect(copies).toHaveCount(2);
+
+	// Selecting one copy marks the same slot in the other.
+	await copies.nth(0).click();
+	await expect(copies.nth(1)).toHaveClass(/sheet-selected-slot/);
+
+	// The cell is selected already; a second click would read as a double-click and edit.
+	await page.keyboard.type('4.5');
+	await page.keyboard.press('Enter');
+	await expect(copies.nth(0)).toHaveText('4.5');
+	await expect(copies.nth(1)).toHaveText('4.5');
+	await expect(page.getByRole('button', { name: /^Save \d+ value/ })).toContainText('Save 1 value');
+
+	// Undo in either copy takes the value back from both.
+	await page.keyboard.press('Control+z');
+	await expect(copies.nth(1)).toHaveText('4');
+	await expect(copies.nth(0)).toHaveText('4');
+});
+
+// Scenario: the visits are sorted by a parameter's value and a cell is typed into. Expected
+// behaviour: the value lands on the visit it was typed at, whatever the order on screen.
+test("a parameter's header sorts the visits, and a typed value stays on its visit", async ({
+	page,
+	request,
+}) => {
+	const { siteId, emptyCode } = await seedVisit(request, 3);
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
+	await expect(page.getByText('3 visits', { exact: true })).toBeVisible();
+
+	const single = sheetCell(page, /^groups_one_\w* at/);
+	await expect(single.nth(0)).toHaveText('4.2');
+	const sort = headerButton(page, { name: /^Sort by groups_one_/ });
+	await sort.click();
+	await expect(sort).toHaveText('▲');
+	await sort.click();
+	await expect(sort).toHaveText('▼');
+	await expect(single.nth(0)).toHaveText('4.4');
+	await expect(single.nth(2)).toHaveText('4.2');
+
+	// Descending, the newest of the two 4.4 visits leads, which is the second on the listing.
+	await typeInto(page, sheetCell(page, new RegExp(`^${emptyCode} at`)).nth(0), '9.1');
+	await sort.click();
+	await expect(sort).toHaveText('⇅');
+	await expect(single.nth(0)).toHaveText('4.2');
+	const empty = sheetCell(page, new RegExp(`^${emptyCode} at`));
+	await expect(empty.nth(0)).toHaveText('');
+	await expect(empty.nth(1)).toHaveText('9.1');
+
+	// The date sorts oldest first on its own header.
+	await page.locator('.ht_clone_top_inline_start_corner').getByRole('button', { name: 'Sort by date' }).click();
+	await expect(empty.nth(1)).toHaveText('9.1');
+	await expect(single.nth(2)).toHaveText('4.2');
 });

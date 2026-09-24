@@ -50,7 +50,7 @@
 	import type { SampleReplicate } from '$lib/api/types';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { timezoneStore } from '$lib/stores/timezone.svelte';
-	import { formatDateTime } from '$lib/utils';
+	import { formatDateTime, recomputeSummary } from '$lib/utils';
 	import { formatMeasurement } from '$lib/format';
 	import {
 		cellRecord,
@@ -84,7 +84,10 @@
 		type Previews,
 	} from '$lib/visits/preview';
 	import {
-		visitBadge,
+		calculationFindings,
+		inputsWithoutValue,
+		recomputeFixable,
+		visitCalculationBadge,
 		visitSourceLabel,
 	} from '$lib/visits/recompute';
 	import { verificationBadge, verificationNoticeFor } from '$lib/visits/verification';
@@ -104,19 +107,26 @@
 	import { inputOrigin } from '$lib/tools/equation';
 	import {
 		CALCULATION_FILTER,
+		COLUMN_GROUPINGS,
+		NOT_CALCULATED,
 		askedWidth,
 		calculationsOf,
-		columnsInGroup,
 		expandable,
 		parameterColumns,
+		shownBands,
 		slotsOf,
 		toggled,
+		type ColumnBand,
+		type ColumnGrouping,
 		type GridSlot,
 		type ParameterColumn,
 	} from '$lib/visits/columns';
 	import {
 		FROZEN_COLUMNS,
+		groupLabel,
 		applyChanges,
+		banded,
+		copiesOf,
 		displayText,
 		oncePerFrame,
 		renderLive,
@@ -128,6 +138,7 @@
 		visitDates,
 		type SheetTable,
 	} from '$lib/visits/sheet';
+	import { DATE_SORT, nextSort, sortArrow, sortVisits, type VisitSort } from '$lib/visits/sort';
 	import {
 		gridRows,
 		keptAfterSave,
@@ -380,7 +391,30 @@
 		parameterColumns(visitColumns, visits, expandedColumns, askedColumns),
 	);
 	const siteCalculations = $derived(calculationsOf(allColumns));
-	const groupColumns = $derived(columnsInGroup(allColumns, groupOf, groupFilter));
+	// How the header gathers the columns, remembered per viewer.
+	const GROUPING_KEY = 'visits-column-grouping';
+	let grouping = $state<ColumnGrouping>(storedGrouping());
+	function storedGrouping(): ColumnGrouping {
+		try {
+			const stored = localStorage.getItem(GROUPING_KEY);
+			if (COLUMN_GROUPINGS.some((g) => g.value === stored)) return stored as ColumnGrouping;
+		} catch {
+			// Without storage the grid opens A to Z.
+		}
+		return 'alphabetical';
+	}
+	function setGrouping(next: ColumnGrouping) {
+		grouping = next;
+		try {
+			localStorage.setItem(GROUPING_KEY, next);
+		} catch {
+			// The choice holds for this visit to the page.
+		}
+	}
+	const groupLabels = $derived(Object.fromEntries(groups.map((g) => [g.id, g.label])));
+	const bands = $derived(shownBands(allColumns, grouping, groupOf, groupLabels, groupFilter, toolLabel));
+	// A column several calculations read stands under each of them, as a copy of the same slots.
+	const groupColumns = $derived(bands.flatMap((b) => b.columns));
 
 
 	// Typing into the table. One Save writes every visit it touched; the model that decides what a
@@ -455,8 +489,14 @@
 	});
 	// A visit down, a (parameter, replicate) slot across, after the frozen date, source and fill.
 	const slots = $derived(slotsOf(groupColumns));
+	// The column a header click sorts by, kept across reloads of the listing and reset per site.
+	let visitSort = $state<VisitSort | null>(null);
+	$effect(() => {
+		void siteId;
+		untrack(() => (visitSort = null));
+	});
 	const table = $derived<SheetTable>({
-		rows: gridRows(visits, spares),
+		rows: gridRows(sortVisits(visits, visitSort), spares),
 		stored: visits.length,
 		slots,
 	});
@@ -500,6 +540,7 @@
 		void dataVersion;
 		void askedSpares;
 		void visits;
+		void visitSort;
 		void slots;
 		void me.level;
 		void readZone;
@@ -510,14 +551,21 @@
 
 	type SheetSettings = Omit<GridSettings, 'data' | 'licenseKey' | 'themeName'>;
 
+	// One height for every row and header level, so a taller cell scrolling into view moves nothing.
+	const ROW_HEIGHT = 26;
+	const HEADER_HEIGHT = 28;
+
 	const gridSettings = $derived.by((): SheetSettings => {
 		void me.level;
 		void visits;
 		return {
-			nestedHeaders: sheetHeaders(groupColumns, readZone),
+			nestedHeaders: sheetHeaders(groupColumns, readZone, bands),
 			rowHeaders: true,
 			rowHeaderWidth: 72,
 			wordWrap: false,
+			rowHeights: ROW_HEIGHT,
+			columnHeaderHeight: HEADER_HEIGHT,
+			autoRowSize: false,
 			fixedColumnsStart: FROZEN_COLUMNS,
 			colWidths: (index: number) => (index === 0 ? 180 : 100),
 			width: '100%',
@@ -585,6 +633,7 @@
 		'sheet-open-row',
 		'sheet-reads',
 		'sheet-read-by',
+		'sheet-selected-slot',
 		'sheet-landed',
 		...ROLE_CLASSES,
 	];
@@ -766,6 +815,7 @@
 				slot.parameterId === selected.parameterId &&
 				(!open || slot.replicateIndex === selected.replicateIndex);
 			if (own) {
+				td.classList.add('sheet-selected-slot');
 				if (!isSpare(visit.id)) td.append(recordingControl(visit.id, slot.parameterId, slot.column.name));
 			} else if (covers(connections.reads, slot.parameterId, slot.replicateIndex, open)) {
 				td.classList.add('sheet-reads');
@@ -912,18 +962,45 @@
 		th.append(controls);
 	}
 
+	/**
+	 * A band over the parameters narrows the table to its columns on a click, and a second click
+	 * lets every column back.
+	 */
+	function renderBandHeader(column: number, th: HTMLTableCellElement) {
+		const band = bandStartingAt(column);
+		const label = th.querySelector('.colHeader');
+		if (!band || !label) return;
+		label.replaceChildren();
+		const narrowed = groupFilter === band.filter;
+		const b = document.createElement('button');
+		b.type = 'button';
+		b.className = 'sheet-link';
+		b.textContent = band.label;
+		b.setAttribute('aria-pressed', String(narrowed));
+		b.title = narrowed ? `Show every column again` : `Show only the columns under ${band.label}`;
+		b.addEventListener('mousedown', (e) => e.stopPropagation());
+		b.addEventListener('click', (e) => {
+			e.stopPropagation();
+			groupFilter = narrowed ? '' : band.filter;
+		});
+		label.append(b);
+	}
+
+	function bandStartingAt(column: number): ColumnBand | null {
+		let offset = FROZEN_COLUMNS;
+		for (const band of bands) {
+			if (offset === column) return band;
+			offset += band.columns.reduce((width, c) => width + c.width, 0);
+		}
+		return null;
+	}
+
 	/** The group header's own controls: open to the repeats, and one repeat fewer or more. */
 	function renderGroupHeader(column: number, th: HTMLTableCellElement, level: number) {
 		if (column < 0) {
 			if (level === 0) renderSpareControls(th);
 			return;
 		}
-		if (level !== 0 || column < FROZEN_COLUMNS) return;
-		const col = groupStartingAt(column);
-		const label = th.querySelector('.colHeader');
-		if (!col || !label) return;
-		label.replaceChildren();
-		th.title = col.name;
 		const button = (text: string, aria: string, title: string, onclick: () => void) => {
 			const b = document.createElement('button');
 			b.type = 'button';
@@ -938,6 +1015,32 @@
 			});
 			return b;
 		};
+		const sortButton = (by: string, name: string) => {
+			const arrow = sortArrow(visitSort, by);
+			const b = button(arrow || '⇅', `Sort by ${name}`, `Sort by ${name}`, () => (visitSort = nextSort(visitSort, by)));
+			b.classList.add('sheet-sort');
+			b.classList.toggle('sheet-sorted', arrow !== '');
+			return b;
+		};
+		const parameterLevel = banded(bands) ? 1 : 0;
+		if (level === parameterLevel + 1 && column === 0) {
+			const label = th.querySelector('.colHeader');
+			if (!label) return;
+			label.querySelector('.sheet-sort')?.remove();
+			label.append(sortButton(DATE_SORT, 'date'));
+			return;
+		}
+		if (column < FROZEN_COLUMNS) return;
+		if (level === 0 && parameterLevel === 1) {
+			renderBandHeader(column, th);
+			return;
+		}
+		if (level !== parameterLevel) return;
+		const col = groupStartingAt(column);
+		const label = th.querySelector('.colHeader');
+		if (!col || !label) return;
+		label.replaceChildren();
+		th.title = `${groupLabel(col)}: ${col.name}`;
 		if (expandable(visits, col.parameterId)) {
 			const toggle = button(
 				`${col.code}${col.expanded ? ' −' : ' +'}`,
@@ -954,7 +1057,7 @@
 		if (col.units) label.append(mark(` (${col.units})`, 'sheet-mark'));
 		if (col.writtenBy) {
 			const calculated = mark(` = ${toolLabel(col.writtenBy)}`, 'sheet-mark');
-			th.title = `${col.name}, calculated by ${toolLabel(col.writtenBy)}`;
+			th.title = `${groupLabel(col)}: ${col.name}, calculated by ${toolLabel(col.writtenBy)}`;
 			calculated.title = th.title;
 			label.append(calculated);
 		}
@@ -971,6 +1074,7 @@
 				),
 			);
 		}
+		label.append(sortButton(col.parameterId, col.code));
 	}
 
 	function groupStartingAt(column: number): ParameterColumn | null {
@@ -1027,6 +1131,18 @@
 		instance.addHook('afterPaste', () => {
 			pasteRefusal = pasteNotice({ edits, unreadable: pasteUnreadable, overflow: pasteOverflowCount });
 			dataVersion += 1;
+		});
+		// Every copy of a slot holds what was typed into one of them, so a copy or a fill read from
+		// the other copy reads the same value.
+		instance.addHook('afterChange', (changes, source) => {
+			if (!changes || source === 'loadData') return;
+			const mirrored: [number, number, unknown][] = [];
+			for (const [row, prop, , value] of changes) {
+				for (const copy of copiesOf(slots, Number(prop))) mirrored.push([row, copy, value]);
+			}
+			if (mirrored.length === 0) return;
+			instance.setSourceDataAtCell(mirrored, undefined, undefined, 'mirror');
+			requestRender();
 		});
 		instance.addHook('afterGetColHeader', renderGroupHeader);
 		// The index of a row with findings opens the visit on the first of them, so one standing in
@@ -1665,8 +1781,8 @@
 
 	/** The record behind a grid position: the visit on a frozen column, the value on a slot. */
 	async function openRecordAt(row: number, column: number) {
-		const visit = visits[row];
-		if (!visit) return;
+		const visit = table.rows[row];
+		if (!visit || isSpare(visit.id)) return;
 		const at = sheetSlot(table, row, column);
 		if (at) await openVisitCell(visit.id, at.slot.parameterId);
 		else await openVisit(visit.id);
@@ -1712,7 +1828,7 @@
 				if (job.status === 'completed') {
 					const counts = (job.detail?.counts ?? {}) as Record<string, number>;
 					toastStore.success(
-						`Recomputed ${counts.events_recomputed ?? 0} visit${(counts.events_recomputed ?? 0) === 1 ? '' : 's'}: ${counts.tools_run ?? 0} run, ${counts.tools_unchanged ?? 0} unchanged, ${counts.findings_closed ?? 0} finding${(counts.findings_closed ?? 0) === 1 ? '' : 's'} closed`,
+						`Recomputed ${counts.events_recomputed ?? 0} visit${(counts.events_recomputed ?? 0) === 1 ? '' : 's'}: ${recomputeSummary(counts)}`,
 					);
 				} else {
 					toastStore.error(job.error_message ?? 'The recompute job did not complete');
@@ -1794,11 +1910,23 @@
 
 <svelte:window onbeforeunload={warnBeforeUnload} />
 
-{#snippet calculationBadge(state: string | undefined)}
-	{@const badge = visitBadge(state)}
+{#snippet calculationBadge(detail: EventDetailResponse)}
+	{@const badge = visitCalculationBadge(detail.recompute, recomputeFixable(detail.cells))}
 	{#if badge}
-		<Badge variant={badge.variant}>{badge.label}</Badge>
+		<Badge variant={badge.variant} title={badge.title}>{badge.label}</Badge>
 	{/if}
+	{#each calculationFindings(detail.cells, (calculation) => inputsWithoutValue(groupColumns, detail.cells, calculation)) as chip (chip.calculation + chip.kind)}
+		<button
+			type="button"
+			class="cursor-pointer border-none bg-transparent p-0"
+			title={chip.title}
+			onclick={(e) => {
+				e.stopPropagation();
+				const cell = detail.cells.find((c) => c.parameter_id === chip.parameterIds[0]);
+				if (cell) visitCell = { parameterId: cell.parameter_id, parameterName: cell.parameter_name };
+			}}
+		><Badge variant={chip.variant}>{chip.label}</Badge></button>
+	{/each}
 {/snippet}
 
 {#snippet visitState(unverified: boolean | undefined, withdrawnAt: string | null | undefined)}
@@ -1839,32 +1967,6 @@
 					</div>
 					{#if visitsStart || visitsEnd}
 						<Button size="sm" onclick={() => { visitsStart = null; visitsEnd = null; }}>All dates</Button>
-					{/if}
-					{#if groups.length > 0 || siteCalculations.length > 0}
-						<div>
-							<label for="visits-group" class="text-xs text-brand-muted block mb-1">Parameter group</label>
-							<select
-								id="visits-group"
-								bind:value={groupFilter}
-								class="px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm"
-								title="Narrow the table to one group, or to the inputs and outputs of one calculation. Every parameter the site is assigned keeps its column either way."
-							>
-								<option value="">All groups</option>
-								{#each groups as group (group.id)}
-									<option value={group.id}>{group.label}</option>
-								{/each}
-								{#if groups.length > 0}
-									<option value="none">Ungrouped</option>
-								{/if}
-								{#if siteCalculations.length > 0}
-									<optgroup label="Calculations">
-										{#each siteCalculations as tool (tool)}
-											<option value={`${CALCULATION_FILTER}${tool}`}>{toolLabel(tool)}</option>
-										{/each}
-									</optgroup>
-								{/if}
-							</select>
-						</div>
 					{/if}
 					{#if me.can('enterFieldData')}
 						<Button size="sm" variant="primary" onclick={() => (newVisitOpen = true)}>New visit</Button>
@@ -1971,7 +2073,51 @@
 							</div>
 						</div>
 					{/if}
-					<SheetGrid data={gridData} settings={gridSettings} onready={gridReady} class="text-sm" />
+					<div class="flex flex-wrap items-end gap-3">
+						{#if groups.length > 0 || siteCalculations.length > 0}
+							<div>
+								<label for="visits-group" class="text-xs text-brand-muted block mb-1">Parameter group</label>
+								<select
+									id="visits-group"
+									bind:value={groupFilter}
+									class="px-2 py-1 border border-brand-divider rounded-md bg-brand-surface text-sm"
+									title="Narrow the table to one group, or to the inputs and outputs of one calculation. Every parameter the site is assigned keeps its column either way."
+								>
+									<option value="">All groups</option>
+									{#each groups as group (group.id)}
+										<option value={group.id}>{group.label}</option>
+									{/each}
+									{#if groups.length > 0}
+										<option value="none">Ungrouped</option>
+									{/if}
+									{#if siteCalculations.length > 0}
+										<optgroup label="Calculations">
+											{#each siteCalculations as tool (tool)}
+												<option value={`${CALCULATION_FILTER}${tool}`}>{toolLabel(tool)}</option>
+											{/each}
+											<option value={NOT_CALCULATED}>Not calculated</option>
+										</optgroup>
+									{/if}
+								</select>
+							</div>
+						{/if}
+						<div>
+							<span class="text-xs text-brand-muted block mb-1">Columns</span>
+							<div class="flex gap-0.5" role="group" aria-label="Gather the columns">
+								{#each COLUMN_GROUPINGS as option (option.value)}
+									<button
+										type="button"
+										onclick={() => setGrouping(option.value)}
+										aria-pressed={grouping === option.value}
+										class="px-2.5 py-1 text-xs rounded cursor-pointer border-none {grouping === option.value
+											? 'bg-brand-primary text-white'
+											: 'bg-brand-bg text-brand-muted hover:text-brand-text'}">{option.label}</button
+									>
+								{/each}
+							</div>
+						</div>
+					</div>
+					<SheetGrid data={gridData} settings={gridSettings} onready={gridReady} class="sheet-fixed-rows text-sm" />
 					{#if me.can('enterFieldData')}
 					{#if saveRefusal || pasteRefusal || spareRefusal || previewLine || runReport}
 						<div class="flex flex-col gap-0.5 text-xs">
@@ -2060,7 +2206,7 @@
 									·
 									{visitSourceLabel(visitDetail.source, visitDetail.created_by)}
 									{#if verificationNoticeFor(visitDetail.unverified, visitDetail.withdrawn_at)}. {verificationNoticeFor(visitDetail.unverified, visitDetail.withdrawn_at)}{/if}
-									{@render calculationBadge(visitDetail.recompute)}
+									{@render calculationBadge(visitDetail)}
 									{@render visitState(visitDetail.unverified, visitDetail.withdrawn_at)}
 								</div>
 								{#if me.can('enterFieldData')}

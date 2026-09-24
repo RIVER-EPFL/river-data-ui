@@ -137,24 +137,28 @@ export function slotsOf(columns: ParameterColumn[]): GridSlot[] {
 /** The filter value that narrows to one calculation: this prefix and the calculation's tool name. */
 export const CALCULATION_FILTER = 'calculation:';
 
-/** Every calculation the columns read or write, once each, in the order the columns first name it. */
+/**
+ * Every calculation applied at the site, once each, in the order the columns first name it. A
+ * calculation is applied where the site holds one of its outputs; one that only reads a column
+ * here computes nothing here.
+ */
 export function calculationsOf(columns: ParameterColumn[]): string[] {
-	const names = columns.flatMap((c) => [...c.readBy, ...(c.writtenBy ? [c.writtenBy] : [])]);
-	return [...new Set(names)];
+	return [...new Set(columns.flatMap((c) => (c.writtenBy ? [c.writtenBy] : [])))];
 }
 
-/** One calculation's columns: the inputs it reads, then the outputs it writes. */
+/** One calculation's columns: the outputs it writes, then the inputs it reads. */
 export function columnsOfCalculation(columns: ParameterColumn[], tool: string): ParameterColumn[] {
 	return [
-		...columns.filter((c) => c.readBy.includes(tool)),
-		...columns.filter((c) => c.writtenBy === tool && !c.readBy.includes(tool)),
+		...columns.filter((c) => c.writtenBy === tool),
+		...columns.filter((c) => c.readBy.includes(tool) && c.writtenBy !== tool),
 	];
 }
 
 /**
  * The columns of one parameter group. `""` is every column; `"none"` is the columns no group
  * claims, which keeps a parameter belonging to nothing reachable rather than filtered out of
- * existence; a `CALCULATION_FILTER` value is one calculation's columns.
+ * existence; a `CALCULATION_FILTER` value is one calculation's columns, and `NOT_CALCULATED` the
+ * columns none touches.
  */
 export function columnsInGroup(
 	columns: ParameterColumn[],
@@ -165,6 +169,99 @@ export function columnsInGroup(
 	if (groupId.startsWith(CALCULATION_FILTER)) {
 		return columnsOfCalculation(columns, groupId.slice(CALCULATION_FILTER.length));
 	}
+	if (groupId === NOT_CALCULATED) return uncalculated(columns);
 	if (groupId === 'none') return columns.filter((c) => !groupOf[c.parameterId]);
 	return columns.filter((c) => groupOf[c.parameterId] === groupId);
+}
+
+/** The filter value for the columns no calculation applied at the site reads or writes. */
+export const NOT_CALCULATED = 'uncalculated';
+
+/** How the header gathers the columns: in code order, under their parameter group, or under each calculation. */
+export type ColumnGrouping = 'alphabetical' | 'group' | 'calculation';
+
+export const COLUMN_GROUPINGS: { value: ColumnGrouping; label: string }[] = [
+	{ value: 'alphabetical', label: 'A to Z' },
+	{ value: 'group', label: 'Parameter group' },
+	{ value: 'calculation', label: 'Calculation' },
+];
+
+/** One cell of the header row over the parameters: its label, the filter a click sets, and its columns. */
+export interface ColumnBand {
+	label: string;
+	filter: string;
+	columns: ParameterColumn[];
+}
+
+const byCode = (a: ParameterColumn, b: ParameterColumn) => a.code.localeCompare(b.code);
+
+/**
+ * The columns gathered under the header row. A to Z is one unlabelled band in code order. By
+ * parameter group, each group in its label order, then "Ungrouped". By calculation, each
+ * calculation applied at the site with its outputs then its inputs, so a column several of them
+ * read stands under each, then "Not calculated".
+ */
+export function columnBands(
+	columns: ParameterColumn[],
+	grouping: ColumnGrouping,
+	groupOf: Record<string, string>,
+	groupLabels: Record<string, string>,
+	calculationLabel: (tool: string) => string = (tool) => tool,
+): ColumnBand[] {
+	if (grouping === 'alphabetical') return [{ label: '', filter: '', columns: [...columns].sort(byCode) }];
+	const bands: ColumnBand[] = [];
+	if (grouping === 'group') {
+		const ids = [...new Set(columns.map((c) => groupOf[c.parameterId]).filter(Boolean))];
+		const label = (id: string) => groupLabels[id] ?? id;
+		for (const id of ids.sort((a, b) => label(a).localeCompare(label(b)))) {
+			bands.push({
+				label: label(id),
+				filter: id,
+				columns: columns.filter((c) => groupOf[c.parameterId] === id).sort(byCode),
+			});
+		}
+		const rest = columns.filter((c) => !groupOf[c.parameterId]).sort(byCode);
+		if (rest.length > 0) bands.push({ label: 'Ungrouped', filter: 'none', columns: rest });
+		return bands;
+	}
+	const tools = calculationsOf(columns).sort((a, b) =>
+		calculationLabel(a).localeCompare(calculationLabel(b)),
+	);
+	for (const tool of tools) {
+		bands.push({
+			label: calculationLabel(tool),
+			filter: `${CALCULATION_FILTER}${tool}`,
+			columns: [
+				...columns.filter((c) => c.writtenBy === tool).sort(byCode),
+				...columns.filter((c) => c.readBy.includes(tool) && c.writtenBy !== tool).sort(byCode),
+			],
+		});
+	}
+	const rest = uncalculated(columns).sort(byCode);
+	if (rest.length > 0) bands.push({ label: 'Not calculated', filter: NOT_CALCULATED, columns: rest });
+	return bands;
+}
+
+function uncalculated(columns: ParameterColumn[]): ParameterColumn[] {
+	const applied = new Set(calculationsOf(columns));
+	return columns.filter((c) => !c.writtenBy && !c.readBy.some((tool) => applied.has(tool)));
+}
+
+/**
+ * The bands the grid draws under a filter. A filter naming one of the bands draws that band alone;
+ * any other narrows the columns and gathers what is left.
+ */
+export function shownBands(
+	columns: ParameterColumn[],
+	grouping: ColumnGrouping,
+	groupOf: Record<string, string>,
+	groupLabels: Record<string, string>,
+	filter: string,
+	calculationLabel?: (tool: string) => string,
+): ColumnBand[] {
+	const all = columnBands(columns, grouping, groupOf, groupLabels, calculationLabel);
+	if (filter === '') return all;
+	const named = all.find((b) => b.filter === filter);
+	if (named) return [named];
+	return columnBands(columnsInGroup(columns, groupOf, filter), grouping, groupOf, groupLabels, calculationLabel);
 }

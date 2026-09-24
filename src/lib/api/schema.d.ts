@@ -9331,12 +9331,18 @@ export interface components {
             passed: boolean;
         };
         CellFinding: {
+            /** @description What a skipped step lacks: `inputs`, `upstream`, `error` or `unknown`. */
+            cause?: string;
             /** Format: uuid */
             id: string;
             /** @description `missing_output`, `stale_output` or `skipped_output`. */
             kind: string;
+            /** @description Why a skipped step did not run, as the chain recorded it. */
+            reason?: string;
             status: string;
             tool?: string;
+            /** @description The step a skipped one waits on, when that step failed. */
+            waits_on?: string;
         };
         CellReplicate: {
             /** Format: double */

@@ -3457,6 +3457,10 @@
       },
       "CellFinding": {
         "properties": {
+          "cause": {
+            "description": "What a skipped step lacks: `inputs`, `upstream`, `error` or `unknown`.",
+            "type": "string"
+          },
           "id": {
             "format": "uuid",
             "type": "string"
@@ -3465,10 +3469,18 @@
             "description": "`missing_output`, `stale_output` or `skipped_output`.",
             "type": "string"
           },
+          "reason": {
+            "description": "Why a skipped step did not run, as the chain recorded it.",
+            "type": "string"
+          },
           "status": {
             "type": "string"
           },
           "tool": {
+            "type": "string"
+          },
+          "waits_on": {
+            "description": "The step a skipped one waits on, when that step failed.",
             "type": "string"
           }
         },

@@ -2,7 +2,7 @@ import type { VisitCell, VisitReplicate, VisitRow } from '$api/service';
 import { formatMeasurement } from '$lib/format';
 import { BROWSER_ZONE } from '$lib/time/zones';
 import { formatCompactInstant, zoneLabel } from '$lib/utils';
-import type { GridSlot, ParameterColumn } from './columns';
+import type { ColumnBand, GridSlot, ParameterColumn } from './columns';
 import { readNumber, writeNumber } from './number';
 import { spareRow } from './spareRows';
 import { cellOf, isSpare, setCell, slotKey, spareId, storedAt, type Edits } from './tableEdit';
@@ -21,11 +21,16 @@ export function sheetZone(display: string | undefined): string {
 export type HeaderCell = string | { label: string; colspan: number };
 
 /**
- * Two header rows: the parameter groups across their repeats, then each repeat's number. The date
- * column names the zone its instants are printed in, so the cells stay numeric.
+ * The header rows: the bands `columns` are gathered under when there is more than an unlabelled
+ * one, the parameters across their repeats, then each repeat's number. The date column names the
+ * zone its instants are printed in, so the cells stay numeric.
  */
-export function sheetHeaders(columns: ParameterColumn[], zone?: string): HeaderCell[][] {
-	return [
+export function sheetHeaders(
+	columns: ParameterColumn[],
+	zone?: string,
+	bands: ColumnBand[] = [],
+): HeaderCell[][] {
+	const rows: HeaderCell[][] = [
 		['', ...columns.map((c) => ({ label: groupLabel(c), colspan: c.width }))],
 		[
 			`Date (${zoneLabel(zone)})`,
@@ -34,6 +39,17 @@ export function sheetHeaders(columns: ParameterColumn[], zone?: string): HeaderC
 			),
 		],
 	];
+	if (!banded(bands)) return rows;
+	const spans = bands.map((b) => ({
+		label: b.label,
+		colspan: b.columns.reduce((width, c) => width + c.width, 0),
+	}));
+	return [['', ...spans], ...rows];
+}
+
+/** Whether the header draws a row of bands over the parameters. */
+export function banded(bands: ColumnBand[]): boolean {
+	return bands.some((b) => b.label !== '');
 }
 
 export function groupLabel(column: ParameterColumn): string {
@@ -79,6 +95,23 @@ export function sheetSlot(table: SheetTable, row: number, column: number): Sheet
 		replicate: storedAt(visit, slot.parameterId, slot.replicateIndex),
 		key: slotKey({ eventId: visit.id, parameterId: slot.parameterId, replicateIndex: slot.replicateIndex }),
 	};
+}
+
+/**
+ * The other grid columns drawing the same slot as `column`: a column several calculations read
+ * stands under each of them, and every copy is one value.
+ */
+export function copiesOf(slots: GridSlot[], column: number): number[] {
+	const slot = slots[column - FROZEN_COLUMNS];
+	if (!slot) return [];
+	const copies: number[] = [];
+	slots.forEach((s, index) => {
+		const at = index + FROZEN_COLUMNS;
+		if (at !== column && s.parameterId === slot.parameterId && s.replicateIndex === slot.replicateIndex) {
+			copies.push(at);
+		}
+	});
+	return copies;
 }
 
 /**

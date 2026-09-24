@@ -49,9 +49,14 @@ describe('the row index of a visit', () => {
 
 	it("reads a synced visit's calculation state as it reads any other", () => {
 		expect(visitRowHeader(visit({ source: 'portal_sync' })).title).toBeNull();
-		expect(visitRowHeader(visit({ source: 'portal_sync', recompute: 'stale' })).title).toContain(
-			RECOMPUTE_BADGE.stale.label,
-		);
+		const stale = visit({ source: 'portal_sync', recompute: 'stale', findings_open: 1, cells: [{ finding: 'stale_output' }] });
+		expect(visitRowHeader(stale).title).toContain('Calculations: Recompute would fix 1.');
+		expect(visitRowHeader(visit({ recompute: 'failed' })).title).toContain(RECOMPUTE_BADGE.failed.label);
+	});
+
+	it('says nothing of a recompute at a visit whose only findings are skips', () => {
+		const skipped = visit({ recompute: 'stale', findings_open: 2, cells: [{ finding: 'skipped_output', finding_count: 2 }] });
+		expect(visitRowHeader(skipped).title).not.toContain('Calculations:');
 	});
 
 	it('marks a pending field day and strikes a rejected one', () => {

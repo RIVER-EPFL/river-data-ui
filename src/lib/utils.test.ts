@@ -10,6 +10,7 @@ import {
 	fromDatetimeLocal,
 	isJobActive,
 	jobDetailPath,
+	recomputeSummary,
 	toDatetimeLocal,
 	triggerLabel,
 	zoneLabel,
@@ -198,5 +199,19 @@ describe('fromDatetimeLocal', () => {
 		for (const zone of ['Europe/Zurich', 'UTC', 'America/Santiago', 'Pacific/Auckland']) {
 			expect(fromDatetimeLocal(toDatetimeLocal(instant, zone), zone)).toBe(instant);
 		}
+	});
+});
+
+describe('recomputeSummary', () => {
+	it('reports the findings a rerun raised again beside those it closed', () => {
+		expect(
+			recomputeSummary({ tools_run: 0, tools_unchanged: 1, findings_raised: 2, findings_closed: 0 }),
+		).toBe('0 run, 1 unchanged, 2 findings raised, 0 findings closed');
+	});
+
+	it('reads an absent count as zero', () => {
+		expect(recomputeSummary({ findings_closed: 1 })).toBe(
+			'0 run, 0 unchanged, 0 findings raised, 1 finding closed',
+		);
 	});
 });

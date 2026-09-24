@@ -41,7 +41,6 @@ const settle = { timeout: 15_000 };
 const SiteVisitsTab = (await import("./SiteVisitsTab.svelte")).default;
 const { timezoneStore } = await import("$lib/stores/timezone.svelte");
 const { formatCompactInstant, zoneLabel } = await import("$lib/utils");
-const { RECOMPUTE_BADGE } = await import("$lib/visits/recompute");
 
 // A single-precision 100.8 as the portals store it, so what the grid prints is a display
 // decision rather than an artefact of the number.
@@ -207,19 +206,19 @@ describe("SiteVisitsTab", () => {
         source: "portal_sync",
         notes: null,
         parameters_filled: 1,
-        findings_open: 0,
+        findings_open: 1,
         recompute: "stale",
-        cells: [cell("declared")],
+        cells: [{ ...cell("declared"), finding: "stale_output", finding_count: 1 }],
       })),
     });
 
     render(SiteVisitsTab, props({ declared: 2 }));
 
-    // Calculations run at a synced visit (Q259), so its row reads its recompute state.
+    // Calculations run at a synced visit (Q259), so its row reads what a recompute would fix.
     await screen.findAllByText("100.80");
     const indices = () =>
       [...document.querySelectorAll<HTMLElement>(".ht_master tbody th")].filter((th) =>
-        th.title.includes(`Calculations: ${RECOMPUTE_BADGE.stale.label}`),
+        th.title.includes("Calculations: Recompute would fix 1."),
       );
     await waitFor(() => expect(indices()).toHaveLength(2));
     expect(screen.queryAllByText(/Calculations do not run/)).toHaveLength(0);

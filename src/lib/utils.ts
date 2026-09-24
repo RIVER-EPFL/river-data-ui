@@ -286,6 +286,7 @@ export function countLabel(key: string): string {
 		case 'commands_queued': return 'Commands queued';
 		case 'sync_events_pruned': return 'Sync events pruned';
 		case 'ingest_receipts_pruned': return 'Ingest receipts pruned';
+		case 'findings_raised': return 'Findings raised';
 		case 'findings_closed': return 'Findings closed';
 		case 'events_recomputed': return 'Visits recomputed';
 		case 'events_in_scope': return 'Visits in scope';
@@ -312,6 +313,20 @@ export function countLabel(key: string): string {
 			return words.charAt(0).toUpperCase() + words.slice(1);
 		}
 	}
+}
+
+/**
+ * A recompute job's counts in one line: what ran, what was unchanged, and the findings it raised
+ * and closed, so a rerun that files its findings again says so.
+ */
+export function recomputeSummary(counts: Record<string, number>): string {
+	const findings = (n: number) => `${n} finding${n === 1 ? '' : 's'}`;
+	return [
+		`${counts.tools_run ?? 0} run`,
+		`${counts.tools_unchanged ?? 0} unchanged`,
+		`${findings(counts.findings_raised ?? 0)} raised`,
+		`${findings(counts.findings_closed ?? 0)} closed`,
+	].join(', ');
 }
 
 /** The System page's Jobs tab, opened on one job: where a notification about a job leads. */

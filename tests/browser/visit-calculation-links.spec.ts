@@ -216,7 +216,7 @@ test('a computed row opens its calculation at this visit, and its point record i
 
 	// The record opens below the grid rather than navigating away.
 	const outputRow = page.getByRole('row').filter({ hasText: outputName });
-	await outputRow.getByRole('button', { name: outputName }).click();
+	await outputRow.getByRole('button', { name: outputName, exact: true }).click();
 	const record = page.getByRole('button', { name: 'Close' });
 	await expect(record).toBeVisible();
 	await expect(page).toHaveURL(new RegExp(`tab=visits`));

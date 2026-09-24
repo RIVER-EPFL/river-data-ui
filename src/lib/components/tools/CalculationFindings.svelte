@@ -10,7 +10,7 @@
 		type ReplicateAuditHold,
 	} from '$api/service';
 	import { toastStore } from '$lib/stores/toast.svelte';
-	import { formatDateTime } from '$lib/utils';
+	import { formatDateTime, recomputeSummary } from '$lib/utils';
 	import { CALCULATION_FINDING_KINDS, KIND_LABEL, KIND_STYLE, KIND_TIP } from '$lib/holds';
 	import { apiMessage } from '$lib/standardCurves';
 	import Button from '$components/ui/Button.svelte';
@@ -60,10 +60,7 @@
 					return;
 				}
 				const counts = (job.detail?.counts ?? {}) as Record<string, number>;
-				const closed = counts.findings_closed ?? 0;
-				toastStore.success(
-					`Recomputed: ${counts.tools_run ?? 0} run, ${counts.tools_unchanged ?? 0} unchanged, ${closed} finding${closed === 1 ? '' : 's'} closed`,
-				);
+				toastStore.success(`Recomputed: ${recomputeSummary(counts)}`);
 			}
 			await load();
 			onchange?.();

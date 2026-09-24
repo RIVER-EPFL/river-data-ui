@@ -176,7 +176,7 @@ test('a CNET formula set is authored on the page and reproduces its golden visit
 	// The step is not retyped: the calculation declares that it reads the one already written.
 	await page
 		.getByLabel('A step written elsewhere')
-		.selectOption({ label: `${codes.step} · Pressure used` });
+		.selectOption({ label: `${codes.step} · shared` });
 	await page.getByRole('button', { name: 'Bring in' }).click();
 	await expect(rowOf(block(page, 'Steps'), codes.step)).toBeVisible();
 

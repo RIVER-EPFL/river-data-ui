@@ -113,7 +113,7 @@
 			<td class="px-4 py-2 text-xs whitespace-nowrap">
 				{formatDateTime(item.collected_at)}
 				{#if RECOMPUTE_BADGE[item.recompute]}
-					<Badge variant={RECOMPUTE_BADGE[item.recompute].variant}>{RECOMPUTE_BADGE[item.recompute].label}</Badge>
+					<Badge variant={RECOMPUTE_BADGE[item.recompute].variant} title={RECOMPUTE_BADGE[item.recompute].title}>{RECOMPUTE_BADGE[item.recompute].label}</Badge>
 				{/if}
 			</td>
 			<td class="px-4 py-2 text-xs">{item.site_name}</td>

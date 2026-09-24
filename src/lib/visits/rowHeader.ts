@@ -3,7 +3,7 @@
 
 import type { VisitCell, VisitRow } from '$api/service';
 import { findingKinds, findingsChipTitle } from '$lib/visits/cell';
-import { visitBadge } from '$lib/visits/recompute';
+import { recomputeFixable, visitCalculationBadge } from '$lib/visits/recompute';
 import { verificationBadge, verificationNoticeFor } from '$lib/visits/verification';
 
 /** What each kind of review-queue hold means on the cell it stands on. */
@@ -55,7 +55,7 @@ export function visitRowHeader(
 		classNames.push('sheet-finding');
 		lines.push(findingsChipTitle(visit.findings_open, findingKinds(visit.cells)));
 	}
-	const calculation = visitBadge(visit.recompute);
+	const calculation = visitCalculationBadge(visit.recompute, recomputeFixable(visit.cells));
 	if (calculation) {
 		lines.push(`Calculations: ${calculation.label}. ${calculation.title}`);
 	}

@@ -61,7 +61,9 @@
 	// Rows first: new settings may describe the columns the new rows carry.
 	$effect(() => {
 		const rows = data;
-		redraw((instance) => instance.loadData(rows));
+		// What the renderers read while the rows load is not what the grid is loaded from, and a
+		// reload empties the undo stack.
+		redraw((instance) => untrack(() => instance.loadData(rows)));
 	});
 
 	$effect(() => {

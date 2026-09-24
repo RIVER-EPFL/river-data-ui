@@ -3,12 +3,15 @@ import { describe, expect, it } from 'vitest';
 import type { ExpectedParameter, VisitRow } from '$api/service';
 import {
 	CALCULATION_FILTER,
+	NOT_CALCULATED,
 	askedWidth,
 	calculationsOf,
+	columnBands,
 	columnsInGroup,
 	expandable,
 	parameterColumns,
 	replicateWidth,
+	shownBands,
 	slotsOf,
 	storedWidths,
 	toggled,
@@ -154,14 +157,14 @@ describe('narrowing the table to one calculation', () => {
 	const columns = parameterColumns(withCalculation, visits, new Set());
 	const groupOf = { 'p-ffff': 'g-carbon', 'p-co2': 'g-carbon' };
 
-	it('shows the inputs it reads, then the outputs it writes, whatever their group', () => {
+	it('shows the outputs it writes, then the inputs it reads, whatever their group', () => {
 		expect(
 			columnsInGroup(columns, groupOf, `${CALCULATION_FILTER}evan`).map((c) => c.code),
-		).toEqual(['B', 'A', 'ffff']);
+		).toEqual(['ffff', 'B', 'A']);
 	});
 
-	it('lists each calculation the columns name once', () => {
-		expect(calculationsOf(columns)).toEqual(['evan', 'other']);
+	it('lists each calculation applied at the site once, not one that only reads a column here', () => {
+		expect(calculationsOf(columns)).toEqual(['evan']);
 	});
 });
 
@@ -183,5 +186,79 @@ describe('storedWidths', () => {
 		// Two streams holding the same indexes.
 		expect(at([0, 1, 0, 1, 2])).toBe(3);
 		expect(at([])).toBe(1);
+	});
+});
+
+describe('gathering the columns under a header row', () => {
+	const shared: ExpectedParameter[] = [
+		{ parameter_id: 'p-sat', code: 'DO_sat', name: 'DO saturation', written_by: 'dosat' },
+		{ parameter_id: 'p-pco2', code: 'pCO2', name: 'pCO2', written_by: 'pco2' },
+		{ parameter_id: 'p-cond', code: 'Cond', name: 'Conductivity' },
+		{ parameter_id: 'p-temp', code: 'Temp', name: 'Temperature', read_by: ['pco2', 'dosat'] },
+		{ parameter_id: 'p-do', code: 'DO', name: 'Dissolved oxygen', read_by: ['dosat'] },
+	];
+	const columns = parameterColumns(shared, visits, new Set());
+	const groupOf = { 'p-temp': 'g-phys', 'p-cond': 'g-phys', 'p-do': 'g-gas', 'p-pco2': 'g-gas' };
+	const labels = { 'g-phys': 'Physics', 'g-gas': 'Gases' };
+	const label = (tool: string) => ({ dosat: 'DO saturation', pco2: 'pCO2 real' })[tool] ?? tool;
+	const codes = (bands: ReturnType<typeof columnBands>) =>
+		bands.map((b) => [b.label, b.filter, b.columns.map((c) => c.code)]);
+
+	it('draws A to Z as one unlabelled band in code order', () => {
+		expect(codes(columnBands(columns, 'alphabetical', groupOf, labels))).toEqual([
+			['', '', ['Cond', 'DO', 'DO_sat', 'pCO2', 'Temp']],
+		]);
+	});
+
+	it('orders by parameter group, then code, with the ungrouped last', () => {
+		expect(codes(columnBands(columns, 'group', groupOf, labels))).toEqual([
+			['Gases', 'g-gas', ['DO', 'pCO2']],
+			['Physics', 'g-phys', ['Cond', 'Temp']],
+			['Ungrouped', 'none', ['DO_sat']],
+		]);
+	});
+
+	it('repeats a column under every calculation that reads it, with the untouched last', () => {
+		expect(codes(columnBands(columns, 'calculation', groupOf, labels, label))).toEqual([
+			['DO saturation', `${CALCULATION_FILTER}dosat`, ['DO_sat', 'DO', 'Temp']],
+			['pCO2 real', `${CALCULATION_FILTER}pco2`, ['pCO2', 'Temp']],
+			['Not calculated', NOT_CALCULATED, ['Cond']],
+		]);
+	});
+
+	it('draws only the band a click on its heading filtered to', () => {
+		const shown = shownBands(columns, 'calculation', groupOf, labels, `${CALCULATION_FILTER}pco2`, label);
+		expect(codes(shown)).toEqual([['pCO2 real', `${CALCULATION_FILTER}pco2`, ['pCO2', 'Temp']]]);
+		expect(codes(shownBands(columns, 'group', groupOf, labels, NOT_CALCULATED))).toEqual([
+			['Physics', 'g-phys', ['Cond']],
+		]);
+		expect(shownBands(columns, 'group', groupOf, labels, '')).toHaveLength(3);
+	});
+});
+
+describe('a calculation not applied at the site', () => {
+	const bands = (expected: ExpectedParameter[]) =>
+		columnBands(parameterColumns(expected, visits, new Set()), 'calculation', {}, {}).map((b) => [
+			b.label,
+			b.columns.map((c) => c.code),
+		]);
+
+	it('draws no band where the site holds its inputs and not its output', () => {
+		expect(
+			bands([
+				{ parameter_id: 'p-a', code: 'A', name: 'A', read_by: ['abstar'] },
+				{ parameter_id: 'p-b', code: 'B', name: 'B', read_by: ['abstar'] },
+			]),
+		).toEqual([['Not calculated', ['A', 'B']]]);
+	});
+
+	it('draws its output first where the site holds it', () => {
+		expect(
+			bands([
+				{ parameter_id: 'p-a', code: 'A', name: 'A', read_by: ['abstar'] },
+				{ parameter_id: 'p-b', code: 'B', name: 'B', read_by: ['abstar'] },
+				{ parameter_id: 'p-ab', code: 'ABstar', name: 'ABstar', written_by: 'abstar' },
+			]),
+		).toEqual([['abstar', ['ABstar', 'A', 'B']]]);
 	});
 });
