@@ -1090,8 +1090,31 @@ export const listVisits = (
 		page_size?: number;
 		sort?: VisitListSort;
 		order?: 'asc' | 'desc';
+		/** Comma-separated parameter ids: only visits holding a live value of every one. */
+		holding?: string;
 	} = {},
 ) => GET<Page<VisitListRow>>(`${SERVICE}/visits`, { ...opts });
+
+/** Every visit of a site holding a live value of each parameter named, newest first. */
+export async function listVisitsHolding(siteId: string, parameterIds: string[]): Promise<VisitListRow[]> {
+	const rows: VisitListRow[] = [];
+	for (let page = 1; ; page++) {
+		const res = await listVisits({
+			site_id: siteId,
+			holding: parameterIds.join(',') || undefined,
+			page,
+			page_size: 200,
+		});
+		rows.push(...res.items);
+		if (res.items.length === 0 || rows.length >= res.total) return rows;
+	}
+}
+
+export type SiteVisitCount = components['schemas']['SiteVisitCount'];
+
+/** Each site with a visit holding a live value of every parameter named, and how many. */
+export const listVisitSites = (parameterIds: string[]) =>
+	GET<SiteVisitCount[]>(`${SERVICE}/visits/sites`, { holding: parameterIds.join(',') });
 
 export type EventCellReplicate = components['schemas']['CellReplicate'];
 
@@ -1381,20 +1404,9 @@ export const getToolVersion = (id: string, versionId: string) =>
 export const validateToolVersion = (id: string, versionId: string) =>
 	POST<ToolValidateResponse>(`${ADMIN}/tool_scripts/${id}/versions/${versionId}/validate`, {});
 
-/**
- * Activate a version. `migrateStored` is the arm: `false` leaves the values the superseded version
- * produced where they are, `true` recomputes them under this one.
- */
-export const activateToolVersion = (
-	id: string,
-	versionId: string,
-	migrateStored = false,
-	activatedBy?: string,
-) =>
-	POST<ToolScriptSummary>(`${ADMIN}/tool_scripts/${id}/versions/${versionId}/activate`, {
-		migrate_stored: migrateStored,
-		...(activatedBy ? { activated_by: activatedBy } : {}),
-	});
+/** Activate a version. The values the superseded version produced are recomputed under this one. */
+export const activateToolVersion = (id: string, versionId: string) =>
+	POST<ToolScriptSummary>(`${ADMIN}/tool_scripts/${id}/versions/${versionId}/activate`, {});
 
 export const listToolActivations = (id: string) =>
 	GET<ToolActivationRecord[]>(`${ADMIN}/tool_scripts/${id}/activations`);
@@ -1545,11 +1557,6 @@ export interface FormulaSetSave {
 	formulas: SavedFormula[];
 	/** Written in the same transaction as the set, so the save's one version holds them. */
 	shared_steps: SavedSharedStep[];
-	/**
-	 * What happens to the values the version being replaced produced. `false` leaves them on that
-	 * version; `true` recomputes every visit it produced values at under the new one.
-	 */
-	migrate_stored: boolean;
 }
 
 /** A catalog parameter a formula published until the save ticked it as a step. */

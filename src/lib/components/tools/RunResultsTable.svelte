@@ -2,6 +2,7 @@
 	import type { RunTraceStep } from '$api/service';
 	import CellEquation from './CellEquation.svelte';
 	import type { RunCell, RunInputTables, RunRow, RunTables } from '$lib/tools/runTable';
+	import { replicateStatistics, STATISTIC_COLUMNS } from '$lib/calculations/sheet';
 
 	// A run as the portal reads it: parameters down, replicates across. Four tables in the order the
 	// portal draws them: what the visit held, the numbers that are the same at every visit, the
@@ -18,6 +19,13 @@
 	function fmt(value: number | null): string {
 		if (value === null) return '--';
 		return Number.isInteger(value) ? String(value) : value.toPrecision(6);
+	}
+
+	/** A replicated row's avg and sd, which lead its letters; blank on a row with one number. */
+	function statisticsOf(row: RunRow): string[] {
+		if (!row.replicated) return STATISTIC_COLUMNS.map(() => '');
+		const stats = replicateStatistics(row.cells);
+		return [fmt(stats.mean), fmt(stats.sd)];
 	}
 
 	const hasRows = $derived(
@@ -55,7 +63,7 @@
 				<tr class="border-b border-brand-divider">
 					<th class="text-left px-2 py-1 text-xs font-semibold text-brand-muted">{title}</th>
 					{#if columns.length > 0}
-						{#each columns as column (column)}
+						{#each [...STATISTIC_COLUMNS, ...columns] as column (column)}
 							<th class="text-right px-2 py-1 text-xs font-semibold text-brand-muted">{column}</th>
 						{/each}
 					{:else}
@@ -69,6 +77,9 @@
 						<td class="px-2 py-1 text-sm">
 							{row.label}{#if row.note}&nbsp;<span class="text-xs text-brand-muted">({row.note})</span>{/if}
 						</td>
+						{#if columns.length > 0}
+							{@render statistics(row)}
+						{/if}
 						{#each row.cells as cell, i (i)}
 							<td class="px-2 py-1 text-right font-mono text-sm whitespace-nowrap">{fmt(cell.value)}</td>
 						{/each}
@@ -79,12 +90,21 @@
 	{/if}
 {/snippet}
 
+{#snippet statistics(row: RunRow)}
+	{#each statisticsOf(row) as value, i (i)}
+		<td
+			class="px-2 py-1 text-right font-mono text-sm font-semibold whitespace-nowrap bg-brand-bg"
+			data-run-statistic={STATISTIC_COLUMNS[i]}>{value}</td
+		>
+	{/each}
+{/snippet}
+
 {#snippet band(title: string | null, rows: RunRow[], muted: boolean)}
 	{#if rows.length > 0}
 		{#if title}
 			<tr>
 				<th
-					colspan={tables.columns.length + 1}
+					colspan={tables.columns.length + (tables.columns.length > 0 ? STATISTIC_COLUMNS.length : 0) + 1}
 					class="text-left px-2 py-1 text-[11px] uppercase tracking-wide text-brand-muted bg-brand-bg"
 					>{title}</th
 				>
@@ -101,6 +121,9 @@
 					{row.label}{#if row.units}&nbsp;<span class="text-xs text-brand-muted">({row.units})</span
 						>{/if}
 				</td>
+				{#if tables.columns.length > 0}
+					{@render statistics(row)}
+				{/if}
 				{#each row.cells as cell, i (i)}
 					<td class="px-2 py-1 text-right font-mono text-sm whitespace-nowrap relative">
 						{#if cell.skipped}
@@ -137,7 +160,7 @@
 			<tr class="border-b border-brand-divider">
 				<th class="text-left px-2 py-1 text-xs font-semibold text-brand-muted">Parameter</th>
 				{#if tables.columns.length > 0}
-					{#each tables.columns as column (column)}
+					{#each [...STATISTIC_COLUMNS, ...tables.columns] as column (column)}
 						<th class="text-right px-2 py-1 text-xs font-semibold text-brand-muted">{column}</th>
 					{/each}
 				{:else}

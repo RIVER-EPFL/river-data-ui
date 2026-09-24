@@ -139,6 +139,34 @@ describe('CellPanel', () => {
 		expect(step.formula).toBe('exp(lab_temp / 100)');
 	});
 
+	it('holds the formula as it stood at focus until its field is left', async () => {
+		const output = $state(formula({ ...formulas[1] }));
+		let focused: { formula: EditableFormula; text: string } | null = null;
+		const { component } = render(CellPanel, {
+			row: rowFor('CO2_HS_Um'),
+			formula: output,
+			formulas,
+			variables,
+			get focused() {
+				return focused;
+			},
+			set focused(value) {
+				focused = value;
+			},
+		});
+		await component.editFormula();
+		expect(focused).toMatchObject({ text: 'lab_co2 * hs_k' });
+		output.formula = 'lab_co2 * hs_k * l';
+		expect(focused).toMatchObject({ text: 'lab_co2 * hs_k' });
+		// Held while the press that left the field is down, so nothing moves under the pointer.
+		const user = userEvent.setup();
+		await user.pointer({ keys: '[MouseLeft>]', target: screen.getByLabelText('Code') });
+		expect(document.activeElement).toBe(screen.getByLabelText('Code'));
+		expect(focused).toMatchObject({ text: 'lab_co2 * hs_k' });
+		await user.pointer({ keys: '[/MouseLeft]', target: screen.getByLabelText('Code') });
+		await vi.waitFor(() => expect(focused).toBeNull());
+	});
+
 	it('takes no palette pick on an input, which has no formula', () => {
 		const { component } = render(CellPanel, { row: rowFor('lab_temp'), formulas, variables });
 		expect(component.pick({ kind: 'variable', name: 'lab_co2' })).toBe(false);

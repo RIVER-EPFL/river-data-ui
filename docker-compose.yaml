@@ -67,11 +67,9 @@ services:
       retries: 30
       start_period: 120s
     volumes:
-      - ../river-data-api/src:/app/src
-      - ../river-data-api/migration:/app/migration
-      - ../river-data-api/Cargo.toml:/app/Cargo.toml
-      - ../river-data-api/Cargo.lock:/app/Cargo.lock
-      - ../river-data-api/bacon.toml:/app/bacon.toml
+      # The repo as a directory: a file bind pins the inode, and git writes a changed manifest as
+      # a new file, so a single-file mount keeps the old one.
+      - ../river-data-api:/app
       - river-db-rust-data:/app/target
     labels:
       - "traefik.enable=true"
@@ -478,11 +476,9 @@ services:
       retries: 30
       start_period: 120s
     volumes:
-      - ../river-data-api/src:/app/src
-      - ../river-data-api/migration:/app/migration
-      - ../river-data-api/Cargo.toml:/app/Cargo.toml
-      - ../river-data-api/Cargo.lock:/app/Cargo.lock
-      - ../river-data-api/bacon.toml:/app/bacon.toml
+      # The repo as a directory: a file bind pins the inode, and git writes a changed manifest as
+      # a new file, so a single-file mount keeps the old one.
+      - ../river-data-api:/app
       - river-db-rust-data:/app/target
 
   river-db-test-watcher:
@@ -519,14 +515,9 @@ services:
         restart: true
     entrypoint: ["bacon", "--headless", "test-integration"]
     volumes:
-      - ../river-data-api/src:/app/src
-      - ../river-data-api/tests:/app/tests
-      - ../river-data-api/migration:/app/migration
-      # The openapi guard tests include docs/openapi.json at compile time
-      - ../river-data-api/docs:/app/docs:ro
-      - ../river-data-api/Cargo.toml:/app/Cargo.toml
-      - ../river-data-api/Cargo.lock:/app/Cargo.lock
-      - ../river-data-api/bacon.toml:/app/bacon.toml
+      # The repo as a directory: a file bind pins the inode, and git writes a changed manifest as
+      # a new file, so a single-file mount keeps the old one.
+      - ../river-data-api:/app
       - river-db-test-rust-data:/app/target
 
 volumes:

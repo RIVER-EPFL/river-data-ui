@@ -19,7 +19,8 @@
 		getStepDependents,
 		getToolRunTrace,
 		getToolScript,
-		listSiteVisits,
+		listVisitSites,
+		listVisitsHolding,
 		listToolVersionUsage,
 		listVersionLedger,
 		saveFormulaSet,
@@ -30,7 +31,7 @@
 		type ToolScriptDetail,
 		type ToolVersionUsage,
 		type VersionLedgerRow,
-		type VisitRow,
+		type VisitListRow,
 	} from '$api/service';
 	import { listAll } from '$api/paged';
 	import {
@@ -43,17 +44,25 @@
 		formulaSetBody,
 		formulaVariables,
 		inputRows,
+		untilLeft,
+		type FocusedFormula,
 		scalarOverrides,
 		seriesBlocker,
 		setOutputs,
 		thresholdWrites,
 		type EditableFormula,
 	} from '$lib/calculations/editor';
-	import { armConsequence, storedLabel } from '$lib/calculations/consequence';
+	import { storedLabel, versionConsequence } from '$lib/calculations/consequence';
 	import { ledgerLines, type LedgerOutput } from '$lib/calculations/versionLedger';
 	import { historyPanes, openPane, type HistoryKey } from '$lib/calculations/historyPanes';
-	import { portalReference, replicatedCodes } from '$lib/calculations/members';
-	import { fullReach, rankByReach, reachNote, visitsHoldingAll } from '$lib/calculations/siteReach';
+	import {
+		isReplicateStatistic,
+		portalReference,
+		referenceOrigin,
+		referenceText,
+		replicatedCodes,
+	} from '$lib/calculations/members';
+	import { fullReach, offeredSites, rankByReach, type VisitCount } from '$lib/calculations/siteReach';
 	import { heldInSet, holdWarning, holdable } from '$lib/calculations/heldInputs';
 	import { visitToOpen } from '$lib/visits/opening';
 	import { fromNum } from '$lib/derivedParameters';
@@ -116,6 +125,7 @@
 	// added, which the tables cannot show until it has a code.
 	let selected = $state<SheetSelection | null>(null);
 	let picked = $state<EditableFormula | null>(null);
+	let focused = $state<FocusedFormula<EditableFormula> | null>(null);
 	let cellPanel = $state<CellPanel | null>(null);
 	// Inputs brought in from the palette before a formula names one. They are rows of the table and
 	// nothing else: the save does not keep them.
@@ -145,7 +155,7 @@
 	let publishedOutputs = $state<LedgerOutput[]>([]);
 
 	let siteId = $state(page.url.searchParams.get('site') ?? '');
-	let visits = $state<VisitRow[]>([]);
+	let visits = $state<VisitListRow[]>([]);
 	let visitId = $state(page.url.searchParams.get('visit') ?? '');
 	let visitsLoading = $state(false);
 	let replicateText = $state<Record<string, string>>({});
@@ -188,7 +198,8 @@
 	// A source of a replicated parameter that a per-replicate formula walks is the family, not its
 	// mean (Q155); replicate-ness is the parameter's, in whichever group holds it.
 	const replicated = $derived(replicatedCodes(members, parameters));
-	const inputs = $derived(inputRows(formulas, parameters, constants, replicated));
+	// A name the formula under the cursor reads becomes an input once its field is left (Q304).
+	const inputs = $derived(inputRows(untilLeft(formulas, focused), parameters, constants, replicated));
 	const slots = $derived(curveSlots(formulas));
 	// Why the set cannot be read as a series, or null when it can. A set with no blocker draws over
 	// a site's streams; one with a blocker runs at field visits and the page says which input.
@@ -213,19 +224,43 @@
 			.filter((i) => !i.optional && (i.kind === 'parameter' || i.kind === 'replicates'))
 			.map((i) => i.name),
 	);
-	// The sites to offer: only those measuring everything the set requires, since a run anywhere
-	// else has an input missing.
-	const siteChoices = $derived(fullReach(rankByReach(sitesWithAvailability, requiredAtSite)));
 	const readIds = $derived(
 		requiredAtSite
 			.map((code) => parameters.find((p) => p.code === code)?.id)
 			.filter((id): id is string => !!id),
 	);
-	const reachById = $derived(new Map(siteChoices.map((r) => [r.id, r])));
+	// Each site's count of the visits holding every required input, fetched once per input set.
+	let visitCounts = $state<VisitCount[] | null>(null);
+	const readKey = $derived(readIds.join(','));
+	$effect(() => {
+		const ids = readKey ? readKey.split(',') : [];
+		visitCounts = null;
+		if (ids.length === 0) return;
+		let current = true;
+		listVisitSites(ids)
+			.then((counts) => {
+				if (current) visitCounts = counts;
+			})
+			.catch(() => {});
+		return () => {
+			current = false;
+		};
+	});
+	// The sites to offer: those with a visit the set runs at, and for a set that also draws over
+	// streams, the other sites measuring everything it requires.
+	const siteChoices = $derived(
+		offeredSites(
+			sitesWithAvailability,
+			fullReach(rankByReach(sitesWithAvailability, requiredAtSite)),
+			visitCounts,
+			!blocker,
+		),
+	);
+	const noteById = $derived(new Map(siteChoices.map((c) => [c.id, c.note])));
 	// What the set holds between visits, and the caveat the author passes before saving it (Q230).
 	const held = $derived(heldInSet(formulas));
 	const holdCaveat = $derived(holdWarning(held));
-	const previewSet = $derived(formulaSetBody(formulas, false).formulas);
+	const previewSet = $derived(formulaSetBody(formulas).formulas);
 	// A formula added, edited, or dropped from the set: all three are the save's business.
 	const dropped = $derived(
 		stored.filter((s) => !s.declarationId && !formulas.some((f) => f.id === s.id)),
@@ -312,8 +347,8 @@
 			...formulas.map((f) => f.code.trim()).filter(Boolean),
 		]),
 	]);
-	// What the source computed each of those with, as its pairing plan recorded it (Q149). It is
-	// the reference the formulas are written against, not something this page edits.
+	// How the portal produced each of those, as its pairing plan recorded it (Q149): what this
+	// calculation is checked against, not something this page edits.
 	const reference = $derived(portalReference(members, parameters, namedCodes));
 
 	function isDirty(f: EditableFormula): boolean {
@@ -590,16 +625,15 @@
 
 	/**
 	 * Write the whole formula set as one version, with the shared steps the author marked or
-	 * corrected. The arm says what happens to the values the version being replaced produced: left
-	 * where they are, or recomputed under the new one.
+	 * corrected. The values the version being replaced produced are recomputed under the new one.
 	 */
-	async function saveSet(migrate: boolean) {
+	async function saveSet() {
 		if (diagnostics.length > 0 || !unsaved) return;
 		busy = true;
 		try {
 			const edited = formulas;
 			const before = stored;
-			const res = await saveFormulaSet(calculationId, formulaSetBody(formulas, migrate, stored));
+			const res = await saveFormulaSet(calculationId, formulaSetBody(formulas, stored));
 			givenUp = res.given_up ?? [];
 			await writeBounds(edited, before);
 			await load();
@@ -681,9 +715,7 @@
 		}
 		visitsLoading = true;
 		try {
-			// Every visit, unpaged: the ones holding the set's inputs may be anywhere in the list.
-			const res = await listSiteVisits(site);
-			visits = visitsHoldingAll(res.visits, readIds);
+			visits = await listVisitsHolding(site, readIds);
 			visitId = visitToOpen(visits, keep);
 			if (visitId) await runAtVisit();
 		} catch (e) {
@@ -884,10 +916,7 @@
 					<SiteSelect
 						bind:value={siteId}
 						sites={siteChoices}
-						note={(s) => {
-							const reach = reachById.get(s.id);
-							return reach ? reachNote(reach) : '';
-						}}
+						note={(s) => noteById.get(s.id) ?? ''}
 						class="block mt-0.5 {inputCls}"
 						onchange={(s) => loadVisits(s)}
 					/>
@@ -910,19 +939,11 @@
 						{#if holdCaveat}
 							<!-- A set holding an input between visits is not what an author assumes, so the
 							     caveat is passed before the save rather than found afterwards. -->
-							<ConfirmPopover message={holdCaveat} confirmLabel="Save as a new version" onconfirm={() => saveSet(false)}>
+							<ConfirmPopover message={holdCaveat} confirmLabel="Save as a new version" onconfirm={saveSet}>
 								<Button size="sm" variant="primary" loading={busy} disabled={busy || diagnostics.length > 0} title={saveBlocked}>Save as a new version</Button>
 							</ConfirmPopover>
-							{#if supersedes}
-								<ConfirmPopover message={holdCaveat} confirmLabel="Save and recompute" onconfirm={() => saveSet(true)}>
-									<Button size="sm" loading={busy} disabled={busy || diagnostics.length > 0} title={saveBlocked}>Save and recompute</Button>
-								</ConfirmPopover>
-							{/if}
 						{:else}
-							<Button size="sm" variant="primary" loading={busy} disabled={busy || diagnostics.length > 0} title={saveBlocked} onclick={() => saveSet(false)}>Save as a new version</Button>
-							{#if supersedes}
-								<Button size="sm" loading={busy} disabled={busy || diagnostics.length > 0} title={saveBlocked} onclick={() => saveSet(true)}>Save and recompute</Button>
-							{/if}
+							<Button size="sm" variant="primary" loading={busy} disabled={busy || diagnostics.length > 0} title={saveBlocked} onclick={saveSet}>Save as a new version</Button>
 						{/if}
 					{:else}
 						<span class="text-xs text-brand-muted">Saved. The calculation runs as its active version.</span>
@@ -935,7 +956,7 @@
 				chosen the run is on the typed numbers alone.
 			</p>
 			{#if unsaved}
-				<p class="text-xs text-brand-muted">Saving writes the whole set as one version, whatever it changed.{supersedes ? ` ${armConsequence(activeUsage)}` : ''}</p>
+				<p class="text-xs text-brand-muted">Saving writes the whole set as one version, whatever it changed.{supersedes ? ` ${versionConsequence(activeUsage)}` : ''}</p>
 			{/if}
 			{#if holdCaveat}
 				<p class="text-xs text-severity-warning">{holdCaveat}</p>
@@ -1047,12 +1068,13 @@
 				row={selectedRow}
 				selection={selected}
 				bind:formula={picked}
+				bind:focused
 				{formulas}
 				variables={paramVars}
 				{constants}
 				trace={run?.trace ?? []}
 				bind:diagnostics
-				consequence={supersedes ? armConsequence(activeUsage) : null}
+				consequence={supersedes ? versionConsequence(activeUsage) : null}
 				dependents={picked?.id ? (dependents[picked.id] ?? null) : null}
 				{busy}
 				held={heldInput}
@@ -1150,14 +1172,22 @@
 					{/each}
 				</ul>
 				{:else if historyKey === 'reference'}
-				<!-- What the source computed these columns with, carried by the plan that paired them. -->
-				<p class="px-3 pt-2 text-xs text-brand-muted">What the source computed each column with, as its pairing plan recorded it.</p>
+				<!-- How the portal produced these codes, carried by the plan that paired them. -->
+				<p class="px-3 pt-2 text-sm font-medium">How the portal produced these codes</p>
+				<p class="px-3 text-xs text-brand-muted">Check this calculation's results against these, as the pairing plan recorded them.</p>
 				<ul class="divide-y divide-brand-divider">
 					{#each reference as recorded (recorded.code)}
 						<li class="px-3 py-2 text-sm">
 							<span class="font-mono">{recorded.code}</span>
-							<span class="text-brand-muted"> = </span>
-							<span class="font-mono">{recorded.function}({recorded.inputs.join(', ')})</span>
+							{#if isReplicateStatistic(recorded)}
+								<span class="text-brand-muted"> is {referenceText(recorded)}</span>
+							{:else}
+								<span class="text-brand-muted"> = </span>
+								<span class="font-mono">{referenceText(recorded)}</span>
+							{/if}
+							{#if referenceOrigin(recorded)}
+								<p class="text-xs text-brand-muted">From {referenceOrigin(recorded)}</p>
+							{/if}
 						</li>
 					{/each}
 				</ul>

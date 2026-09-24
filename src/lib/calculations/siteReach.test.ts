@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fullReach, rankByReach, reachNote, readSpan, visitsHoldingAll } from './siteReach';
+import { fullReach, rankByReach, reachNote, readSpan, offeredSites } from './siteReach';
 
 const sites = [
 	{ id: 'a', name: 'Aproz', availableParamNames: ['temp'] },
@@ -48,25 +48,34 @@ describe('fullReach', () => {
 	});
 });
 
-describe('visitsHoldingAll', () => {
-	const cell = (parameter_id: string, value: number | null, withdrawn = false) => ({
-		parameter_id,
-		value,
-		withdrawn,
-	});
-	const visits = [
-		{ id: 'both', cells: [cell('a', 1), cell('b', 2)] },
-		{ id: 'one', cells: [cell('a', 1)] },
-		{ id: 'empty', cells: [cell('a', 1), cell('b', null)] },
-		{ id: 'withdrawn', cells: [cell('a', 1), cell('b', 2, true)] },
+describe('offeredSites', () => {
+	const declaring = fullReach(rankByReach(sites, ['temp']));
+	const counts = [
+		{ site_id: 'v', visits: 2 },
+		{ site_id: 'a', visits: 5 },
 	];
 
-	it('keeps only the visits holding a live value of every read parameter', () => {
-		expect(visitsHoldingAll(visits, ['a', 'b']).map((v) => v.id)).toEqual(['both']);
+	it('offers only the sites with a visit the set runs at, most visits first', () => {
+		expect(offeredSites(sites, declaring, counts, false)).toEqual([
+			{ id: 'a', name: 'Aproz', note: '5 visits' },
+			{ id: 'v', name: 'Verbier', note: '2 visits' },
+		]);
 	});
 
-	it('keeps every visit when the set reads nothing from a site', () => {
-		expect(visitsHoldingAll(visits, [])).toHaveLength(4);
+	it('follows them with the other declaring sites for a set that also draws over streams', () => {
+		expect(offeredSites(sites, declaring, counts, true).map((c) => [c.id, c.note])).toEqual([
+			['a', '5 visits'],
+			['v', '2 visits'],
+			['m', 'no visit holds every input'],
+		]);
+	});
+
+	it('offers the declaring sites when there are no counts', () => {
+		expect(offeredSites(sites, declaring, null, false).map((c) => [c.id, c.note])).toEqual([
+			['a', 'measures all 1'],
+			['m', 'measures all 1'],
+			['v', 'measures all 1'],
+		]);
 	});
 });
 

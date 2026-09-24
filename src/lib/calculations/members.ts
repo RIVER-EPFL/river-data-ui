@@ -8,6 +8,8 @@ export interface PortalReference {
 	code: string;
 	function: string;
 	inputs: string[];
+	sourceSystem: string | null;
+	column: string | null;
 }
 
 function codesById(parameters: Parameter[]): Map<string, string> {
@@ -38,9 +40,48 @@ export function portalReference(
 		.flatMap((m) => {
 			const code = codes.get(m.parameter_id);
 			if (!code || !wanted.has(code.toLowerCase())) return [];
-			const declared = m.source_calculation as { function?: string; inputs?: string[] } | null;
+			const declared = m.source_calculation;
 			if (!declared?.function) return [];
-			return [{ code, function: declared.function, inputs: declared.inputs ?? [] }];
+			return [
+				{
+					code,
+					function: declared.function,
+					inputs: declared.inputs ?? [],
+					sourceSystem: declared.source_system ?? null,
+					column: declared.column ?? null,
+				},
+			];
 		})
 		.sort((a, b) => a.code.localeCompare(b.code));
+}
+
+const REPLICATE_STATISTICS: Record<string, string> = {
+	calcMean: 'mean',
+	calcSd: 'standard deviation',
+};
+
+function listed(columns: string[]): string {
+	if (columns.length < 2) return columns.join('');
+	return `${columns.slice(0, -1).join(', ')} and ${columns.at(-1)}`;
+}
+
+/** Whether the recorded function is only the portal's statistic over its replicate columns. */
+export function isReplicateStatistic(recorded: PortalReference): boolean {
+	return recorded.function in REPLICATE_STATISTICS;
+}
+
+/** A recorded portal calculation as it reads in the reference pane: the portal's replicate
+ *  statistics said as such, anything else as the call the portal made. */
+export function referenceText(recorded: PortalReference): string {
+	const statistic = REPLICATE_STATISTICS[recorded.function];
+	if (statistic) return `the portal's ${statistic} of its ${listed(recorded.inputs)} columns`;
+	return `${recorded.function}(${recorded.inputs.join(', ')})`;
+}
+
+/** Where the portal stored the value: its system and its own column, as far as the plan recorded
+ *  them. */
+export function referenceOrigin(recorded: PortalReference): string | null {
+	const system = recorded.sourceSystem?.toUpperCase();
+	const column = recorded.column ? `column ${recorded.column}` : null;
+	return [system, column].filter(Boolean).join(' ') || null;
 }

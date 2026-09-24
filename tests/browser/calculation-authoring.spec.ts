@@ -199,6 +199,10 @@ test('a CNET formula set is authored on the page and reproduces its golden visit
 		text: 'altitude_m',
 	});
 
+	// A name the formula under the cursor reads becomes an input once its field is left (Q304).
+	await expect(rowOf(inputs, 'altitude_m')).toHaveCount(0);
+	await page.getByPlaceholder('Type formula directly').blur();
+
 	// What the set reads is the inputs table: the parameters read from the visit, the site's own
 	// column, and the coefficients the declared slot binds. A step is not an input; it is computed.
 	for (const name of [codes.temp, codes.fieldBp, 'altitude_m', 'curve_slope']) {
@@ -244,12 +248,10 @@ test('a CNET formula set is authored on the page and reproduces its golden visit
 
 	// The same numbers read from the visit the catalog was seeded with. One site and visit choice
 	// serves the whole page, and choosing it fills the tables: there is nothing to press.
-	// The picker says how much of what the set reads each site measures, so a site that cannot draw
-	// it is readable before it is chosen.
+	// The picker says how many of each site's visits hold what the set reads, so a site the set
+	// cannot run at is not offered.
 	const sitePicker = page.getByRole('combobox', { name: 'Site' });
-	await expect(sitePicker.locator(`option[value="${siteId}"]`)).toHaveText(
-		/ · measures (all )?\d+/,
-	);
+	await expect(sitePicker.locator(`option[value="${siteId}"]`)).toHaveText(/ · 1 visit$/);
 	await sitePicker.selectOption(siteId);
 	await expect(page.getByRole('combobox', { name: 'Visit' })).not.toHaveValue('');
 
@@ -494,6 +496,8 @@ test('pCO2 is typed on the page with its constants, fallback and families, and r
 	page,
 	request,
 }) => {
+	// The typing at a person's pace at the end takes half a minute on its own.
+	test.setTimeout(150_000);
 	const { stamp, siteId, codes } = await seedPco2(request);
 	await signIn(page);
 
@@ -579,6 +583,45 @@ test('pCO2 is typed on the page with its constants, fallback and families, and r
 	for (const [index, expected] of PCO2_UATM.entries()) {
 		await expect(calculationCell(page, `pCO2_HS_uatm_avg_${stamp}`, index + 1)).toContainText(expected);
 	}
+
+	// One more output per replicate over the family, typed at a person's pace at the visit (B604):
+	// every pause past the page's 400 ms settle is a draft run, and none is refused or moves the
+	// tables under the author.
+	const refused: string[] = [];
+	page.on('response', (response) => {
+		if (response.url().includes('/formulas/draft_run') && !response.ok()) {
+			refused.push(`${response.status()} ${response.url()}`);
+		}
+	});
+	const outputs = page.getByRole('region', { name: 'Outputs', exact: true });
+	const top = async () => (await outputs.boundingBox())?.y;
+	const doubled = `ppm_doubled_${stamp}`;
+	await page.getByRole('button', { name: 'Add output', exact: true }).click();
+	const code = page.getByRole('textbox', { name: 'Code' });
+	await code.click();
+	const settled = await top();
+	await code.pressSequentially(doubled, { delay: 450 });
+	await expect(code).toBeFocused();
+	await expect(code).toHaveValue(doubled);
+	expect(await top()).toBe(settled);
+	const formula = page.getByPlaceholder('Type formula directly');
+	await formula.click();
+	const typing = await top();
+	for (const ch of `${codes.ppm} *`) {
+		await page.keyboard.type(ch);
+		await page.waitForTimeout(450);
+		expect(await top()).toBe(typing);
+	}
+	await expect(formula).toBeFocused();
+	await expect(page.getByText('Invalid formula')).toHaveCount(0);
+	await formula.pressSequentially(' 2');
+	await page.getByLabel('Per replicate over').selectOption(codes.ppm);
+	// 2 * 242.5 and 2 * 241.7
+	await expect(calculationCell(page, doubled, 1)).toContainText('485');
+	await expect(calculationCell(page, doubled, 2)).toContainText('483.4');
+	await expect(page.getByText('Invalid formula')).toHaveCount(0);
+	expect(await top()).toBe(typing);
+	expect(refused).toEqual([]);
 });
 
 // Scenario: the simplest calculation there is, one input and one formula (M342). The page carries

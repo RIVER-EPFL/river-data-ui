@@ -33,6 +33,8 @@ export interface RunRow {
 	aggregateOf?: string | null;
 	/** On a number that is the same at every visit, what supplied it. */
 	source?: FixedSource;
+	/** Holds one value per replicate, so it has a mean and an sd. */
+	replicated?: boolean;
 	/** One cell per replicate column, in column order. */
 	cells: RunCell[];
 }
@@ -176,6 +178,7 @@ export function runInputTables(
 			cells: cells(),
 		};
 		if (Array.isArray(input.value)) {
+			row.replicated = true;
 			input.value.forEach((value, index) => {
 				if (index < row.cells.length) row.cells[index] = { value: asNumber(value), skipped: null };
 			});
@@ -293,6 +296,9 @@ export function runTables(
 			const t = step ? cellTrace(step, index) : null;
 			return t ? { ...cell, trace: t } : cell;
 		};
+		if (declared?.output.per_replicate || step?.per_replicate || Array.isArray(results[key])) {
+			row.replicated = true;
+		}
 		const list = results[key];
 		if (Array.isArray(list)) {
 			list.forEach((value, index) => {

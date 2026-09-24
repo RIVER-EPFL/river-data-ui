@@ -26,6 +26,7 @@ const KINDS = [
 	'return',
 	'reprocess',
 	'retag',
+	'attribution',
 	'rollback',
 ];
 

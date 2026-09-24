@@ -9,7 +9,10 @@ import {
 	edgeColumn,
 	emptyBlockLine,
 	formulaOf,
+	gridColumnOf,
+	gridColumnRole,
 	insertIdentifier,
+	replicateStatistics,
 	linksOf,
 	rowKey,
 	rowRemoval,
@@ -237,6 +240,13 @@ describe('links', () => {
 	it('names what a formula reads of the set and what reads it', () => {
 		expect(linksOf(set, 'hs_k')).toEqual({ reads: [], readBy: ['CO2_HS_Um'] });
 		expect(linksOf(set, 'CO2_HS_Um')).toEqual({ reads: ['hs_k'], readBy: [] });
+	});
+
+	it('names the formulas reading an input, by name or by the family they run over', () => {
+		expect(linksOf(set, 'lab_temp')).toEqual({ reads: [], readBy: ['hs_k'] });
+		expect(linksOf(set, 'lab_co2')).toEqual({ reads: [], readBy: ['CO2_HS_Um'] });
+		const family = [formula({ code: 'mean_co2', formula: 'mean(x)', per_replicate: 'lab_co2' })];
+		expect(linksOf(family, 'lab_co2').readBy).toEqual(['mean_co2']);
 	});
 
 	it('is empty for a code the set does not hold', () => {
@@ -475,6 +485,56 @@ describe('the steps block', () => {
 		expect(stepsOffRefusal(two)).toBe(
 			'Steps stay on while the calculation has steps: hs_k, an unnamed step.',
 		);
+	});
+});
+
+describe('replicateStatistics', () => {
+	const cells = (values: Array<number | null>) => values.map((value) => ({ value, skipped: null }));
+
+	it('leaves a gap out of the mean and the sample sd', () => {
+		const stats = replicateStatistics(cells([410, null, 415]));
+		expect(stats.n).toBe(2);
+		// (410 + 415) / 2
+		expect(stats.mean).toBe(412.5);
+		// sqrt((2.5^2 + 2.5^2) / (2 - 1))
+		expect(stats.sd).toBeCloseTo(3.5355339, 6);
+	});
+
+	it('divides by n - 1', () => {
+		// mean 4, squares 4 + 0 + 4, over 2
+		expect(replicateStatistics(cells([2, 4, 6])).sd).toBe(2);
+	});
+
+	it('gives one number a mean and no sd', () => {
+		expect(replicateStatistics(cells([7]))).toEqual({ mean: 7, sd: null, n: 1 });
+	});
+
+	it('gives no numbers neither', () => {
+		expect(replicateStatistics(cells([null, null]))).toEqual({ mean: null, sd: null, n: 0 });
+		expect(replicateStatistics([])).toEqual({ mean: null, sd: null, n: 0 });
+	});
+});
+
+describe('gridColumnRole', () => {
+	const replicated = { columns: ['A', 'B'] };
+	const single = { columns: [] };
+
+	it('puts avg then sd between the label and replicate A', () => {
+		expect(gridColumnRole(replicated, 0)).toEqual({ kind: 'label' });
+		expect(gridColumnRole(replicated, 1)).toEqual({ kind: 'statistic', statistic: 'avg' });
+		expect(gridColumnRole(replicated, 2)).toEqual({ kind: 'statistic', statistic: 'sd' });
+		expect(gridColumnRole(replicated, 3)).toEqual({ kind: 'value', column: 1 });
+		expect(gridColumnRole(replicated, 4)).toEqual({ kind: 'value', column: 2 });
+	});
+
+	it('shows no statistic on a block that ran once', () => {
+		expect(gridColumnRole(single, 1)).toEqual({ kind: 'value', column: 1 });
+	});
+
+	it('maps a selection column back to the grid', () => {
+		expect(gridColumnOf(replicated, 0)).toBe(0);
+		expect(gridColumnOf(replicated, 1)).toBe(3);
+		expect(gridColumnOf(single, 1)).toBe(1);
 	});
 });
 

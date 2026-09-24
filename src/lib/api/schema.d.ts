@@ -1076,7 +1076,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The open event-audit findings each calculation is carrying, and how many visits they sit on. */
+        /**
+         * The open event-audit findings each calculation is carrying at the caller's projects' sites, and
+         *     how many visits they sit on.
+         */
         get: operations["get_calculation_health"];
         put?: never;
         post?: never;
@@ -7478,10 +7481,11 @@ export interface paths {
         /**
          * Save a formula calculation's whole formula set as one version.
          * @description The set is the request: a formula carrying an `id` updates that row, one without an id is
-         *     created, and a stored formula the set leaves out is deleted. One version is minted from the
+         *     created, and a stored formula the set leaves out is deleted. The shared steps it carries are
+         *     written first, in the same transaction, and are not the set's to delete. One version is minted from the
          *     resulting set and activated, whatever the save touched, so an author's version history reads as
-         *     their decisions rather than as their keystrokes (Q186). `migrate_stored` chooses what happens to
-         *     the values the superseded version produced (Q170). Requires Administrator, or a token with
+         *     their decisions rather than as their keystrokes (Q186). The values the superseded version produced
+         *     are queued for recompute with the activation (Q256). Requires Administrator, or a token with
          *     `write_metadata`, which is what a formula row is written under.
          */
         post: operations["save_formula_set"];
@@ -7617,7 +7621,8 @@ export interface paths {
         put?: never;
         /**
          * Make a version the one `GET /tools` serves. Activating an older version is the rollback; every
-         *     flip lands in the activation audit under the authenticated caller.
+         *     flip lands in the activation audit under the authenticated caller, and the values the version it
+         *     replaces produced are queued for recompute in the same transaction (Q256).
          * @description A version has to have been validated by hand, **and its cases are run again here** rather than
          *     read off `validated_at`. The stamp says the cases passed at a time, and what a case runs
          *     against outlives it: the constants table and the standard curves a case resolves are shared,
@@ -7861,6 +7866,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/visits/sites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The sites with a visit holding a live value of every parameter named, each with how many such
+         *     visits it has: where a calculation reading those parameters can run. Requires `read_data`; a
+         *     project-scoped caller sees its projects' sites.
+         */
+        get: operations["list_visit_sites"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz": {
         parameters: {
             query?: never;
@@ -7900,15 +7926,6 @@ export interface components {
             acknowledged_by: string;
             /** Format: uuid */
             event_id: string;
-        };
-        ActivateRequest: {
-            /**
-             * @description What happens to the values the version being replaced produced (Q170). `false`, the
-             *     default, leaves them on that version: this activation is a new method, and the history
-             *     stands as it was computed. `true` is a correction: every visit the superseded version
-             *     produced values at is recomputed under the new one.
-             */
-            migrate_stored?: boolean;
         };
         ActivateResponse: components["schemas"]["ToolScript"] & {
             /**
@@ -11780,7 +11797,7 @@ export interface components {
             username: string | null;
         };
         /** @enum {string} */
-        Kind: "flag" | "unflag" | "withdraw" | "reassert" | "curve" | "calibration_pin" | "instrument_pin" | "slot_move" | "value_correction" | "unverified_entry" | "verify" | "reject" | "chain" | "detach" | "return" | "curve_retire" | "formula_transition" | "curve_recompose" | "derived_computed" | "reprocess" | "retag" | "rollback";
+        Kind: "flag" | "unflag" | "withdraw" | "reassert" | "curve" | "calibration_pin" | "instrument_pin" | "slot_move" | "value_correction" | "unverified_entry" | "verify" | "reject" | "chain" | "detach" | "return" | "curve_retire" | "formula_transition" | "curve_recompose" | "derived_computed" | "reprocess" | "retag" | "attribution" | "rollback";
         /**
          * @description The instrument and standard curve the newest grab at a site and parameter recorded. Every
          *     field but `method` is null when no grab there names either.
@@ -13354,10 +13371,14 @@ export interface components {
          *     one is missing.
          */
         PlanCalculationRef: {
+            /** @description The source's own column the function writes (`CO2_HS_Um_avg`). */
+            column: string | null;
             /** @description The source's own function name, verbatim (`calcPCO2`). */
             function: string;
             /** @description The columns it reads, in the order the source lists them. */
             inputs: string[];
+            /** @description The source system the column belongs to (`cnet`). */
+            source_system: string | null;
         };
         /**
          * @description One standard curve the source has replicated, and the instrument it is currently fitted on.
@@ -15636,11 +15657,10 @@ export interface components {
         SaveFormulaSetRequest: {
             formulas: components["schemas"]["SavedFormula"][];
             /**
-             * @description What happens to the values the version being replaced produced (Q170). `false`, the
-             *     default, leaves them on that version. `true` is a correction: every visit the superseded
-             *     version produced values at is recomputed under the new one.
+             * @description The shared steps written with the set, in the same transaction, so the one version the save
+             *     mints holds them and the version they supersede is the one the page was editing.
              */
-            migrate_stored?: boolean;
+            shared_steps?: components["schemas"]["SavedSharedStep"][];
         };
         /** @description What one set-level save wrote. */
         SaveFormulaSetResponse: {
@@ -15678,6 +15698,23 @@ export interface components {
             name?: string | null;
             /** Format: int32 */
             ordinal: number;
+            per_replicate?: string | null;
+            units?: string | null;
+        };
+        /**
+         * @description A shared step a set save writes: one this calculation declares and corrects, or one of its own
+         *     it marks shared. An `id` names a stored formula, which is written in place and keeps every
+         *     calculation reading it; a step without one is created. Either way it is owned by no calculation
+         *     afterwards and this calculation declares it.
+         */
+        SavedSharedStep: {
+            code: string;
+            curve_slot?: string | null;
+            description?: string | null;
+            formula: string;
+            /** Format: uuid */
+            id?: string | null;
+            name?: string | null;
             per_replicate?: string | null;
             units?: string | null;
         };
@@ -16846,6 +16883,13 @@ export interface components {
             public_code?: string | null;
             /** Format: uuid */
             subproject_id?: string | null;
+        };
+        /** @description A site with visits holding every parameter asked for, and how many. */
+        SiteVisitCount: {
+            /** Format: uuid */
+            site_id: string;
+            /** Format: int64 */
+            visits: number;
         };
         /**
          * @description What the store holds for one parameter of a calculation: whether anyone configured the slot,
@@ -20973,6 +21017,13 @@ export interface operations {
             };
             /** @description Invalid query parameters */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A site outside the caller's projects */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -34061,7 +34112,10 @@ export interface operations {
     get_site_readings: {
         parameters: {
             query?: {
-                /** @description Start time (optional, ISO 8601). If omitted, returns from earliest data. */
+                /**
+                 * @description Start time (optional, ISO 8601). If omitted, the window opens
+                 *     `DEFAULT_READINGS_LOOKBACK_DAYS` before now (7 days unless the deployment sets it).
+                 */
                 start?: string | null;
                 /** @description End time (optional, ISO 8601). If omitted, returns to latest data. */
                 end?: string | null;
@@ -39510,11 +39564,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ActivateRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {
@@ -39984,6 +40034,8 @@ export interface operations {
                 sort?: string | null;
                 /** @description `asc` or `desc` (default). */
                 order?: string | null;
+                /** @description Comma-separated parameter ids: only visits holding a live value of every one. */
+                holding?: string | null;
             };
             header?: never;
             path?: never;
@@ -40001,6 +40053,36 @@ export interface operations {
                 };
             };
             /** @description Unknown sort or order */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_visit_sites: {
+        parameters: {
+            query: {
+                /** @description Comma-separated parameter ids a visit must hold a live value of every one of. */
+                holding: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Sites and their visit counts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteVisitCount"][];
+                };
+            };
+            /** @description A parameter id is not a UUID */
             400: {
                 headers: {
                     [name: string]: unknown;

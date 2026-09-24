@@ -25,6 +25,7 @@ export const DECISION_KINDS = [
 	'derived_computed',
 	'reprocess',
 	'retag',
+	'attribution',
 	'rollback',
 ] as const;
 
@@ -55,6 +56,7 @@ const LABELS: Record<DecisionKind, string> = {
 	derived_computed: 'Computed where nothing was stored',
 	reprocess: 'Re-derived by a reprocess',
 	retag: 'Reclassified by a retag',
+	attribution: 'Attributed by a pairing, an adoption or a rollback',
 	rollback: 'Rolled back',
 };
 
@@ -84,6 +86,7 @@ const FIELD_LABELS: Record<string, string> = {
 	run_id: 'Tool run',
 	derived_version_id: 'Formula version',
 	measurement_type: 'Measurement type',
+	deployment_id: 'Deployment',
 };
 
 export function fieldLabel(field: string): string {

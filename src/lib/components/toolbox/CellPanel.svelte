@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { tick } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import { base } from '$app/paths';
 	import type { Constant } from '$api/crud';
 	import type { RunTraceStep, StepDependents } from '$api/service';
-	import type { EditableFormula } from '$lib/calculations/editor';
+	import { carryRename, type EditableFormula, type FocusedFormula } from '$lib/calculations/editor';
 	import { linksOf, type SheetRow, type SheetSelection } from '$lib/calculations/sheet';
 	import { perReplicateChoices } from '$lib/derivedParameters';
 	import { identifiers, type Diagnostic } from '$lib/formula/lint';
@@ -22,6 +22,7 @@
 		row = null,
 		selection = null,
 		formula = $bindable(null),
+		focused = $bindable(null),
 		formulas,
 		variables,
 		constants = [],
@@ -42,6 +43,8 @@
 		selection?: SheetSelection | null;
 		/** The formula the selected row computes, edited in place. Null on an input row. */
 		formula?: EditableFormula | null;
+		/** The formula whose field has focus, as it stood when the field took focus. */
+		focused?: FocusedFormula<EditableFormula> | null;
 		formulas: EditableFormula[];
 		variables: Array<{ name: string; label: string; category?: string }>;
 		constants?: Constant[];
@@ -68,6 +71,9 @@
 	} = $props();
 
 	let builder = $state<VisualFormulaBuilder | null>(null);
+	// The code as it stood when the field took focus, so a rename is carried once it is committed
+	// rather than through every half-typed name on the way.
+	let codeBefore = '';
 
 	/** Open the formula of the row just selected for typing, once the panel has drawn it. */
 	export async function editFormula() {
@@ -82,17 +88,42 @@
 		return true;
 	}
 
+	// A row opened while the last one's field had focus: that field is gone without a focusout.
+	$effect(() => {
+		const open = formula;
+		untrack(() => {
+			if (focused && focused.formula !== open) focused = null;
+		});
+	});
+
+	// A press that takes focus from the field releases it once the press ends, so the tables do not
+	// move under the pointer before the click lands.
+	let pressed = false;
+	let releasing = false;
+	let release: ReturnType<typeof setTimeout> | undefined;
+
+	function focusin() {
+		releasing = false;
+		clearTimeout(release);
+		if (formula && focused?.formula !== formula) focused = { formula, text: formula.formula };
+	}
+
+	function focusout(event: FocusEvent) {
+		const inside = event.relatedTarget instanceof Node && (event.currentTarget as HTMLElement).contains(event.relatedTarget);
+		if (inside) return;
+		if (pressed) releasing = true;
+		else focused = null;
+	}
+
+	function pressEnded() {
+		pressed = false;
+		if (!releasing) return;
+		releasing = false;
+		release = setTimeout(() => (focused = null));
+	}
+
 	const shared = $derived(Boolean(formula?.declarationId) && Boolean(formula?.shared));
-	const links = $derived(formula ? linksOf(formulas, formula.code) : { reads: [], readBy: [] });
-	// An input's readers are the formulas naming it; a formula's are what `linksOf` gives.
-	const readBy = $derived(
-		formula
-			? links.readBy
-			: formulas
-					.filter((f) => identifiers(f.formula).some((i) => i.name === row?.key))
-					.map((f) => f.code.trim())
-					.filter(Boolean),
-	);
+	const readBy = $derived(linksOf(formulas, formula?.code ?? row?.key ?? '').readBy);
 	const reads = $derived(
 		formula ? [...new Set(identifiers(formula.formula).map((i) => i.name))] : [],
 	);
@@ -109,6 +140,12 @@
 	const inputCls =
 		'w-full px-2 py-1 text-sm border border-brand-divider rounded bg-brand-surface text-brand-text';
 </script>
+
+<svelte:window
+	onpointerdowncapture={() => (pressed = true)}
+	onpointerupcapture={pressEnded}
+	onpointercancelcapture={pressEnded}
+/>
 
 {#snippet chips(title: string, codes: string[])}
 	{#if codes.length > 0}
@@ -168,7 +205,15 @@
 				<div class="grid grid-cols-1 @3xl:grid-cols-[24rem_minmax(0,1fr)] gap-3 items-start">
 					<div class="grid min-w-0 grid-cols-2 gap-2">
 						<label class="block text-xs text-brand-muted">Code
-							<input bind:value={formula.code} placeholder="CO2_HS_Um" class={inputCls} disabled={!!formula.codeLocked} title={formula.codeLocked ?? ''} />
+							<input
+								bind:value={formula.code}
+								onfocus={() => (codeBefore = formula!.code.trim())}
+								onchange={() => {
+									carryRename(formulas, formula!, codeBefore);
+									codeBefore = formula!.code.trim();
+								}}
+								placeholder="CO2_HS_Um"
+								class={inputCls} disabled={!!formula.codeLocked} title={formula.codeLocked ?? ''} />
 							{#if formula.codeLocked}
 								<span class="mt-1 block text-[11px] text-brand-muted">Published: {formula.codeLocked}. The code is the CSV column header and the public identifier.</span>
 							{/if}
@@ -252,6 +297,7 @@
 					<div class="min-w-0 space-y-2">
 						<!-- The builder holds its formula as a tree, so another row opens a fresh one. -->
 						{#key formula}
+						<div onfocusin={focusin} onfocusout={focusout}>
 						<VisualFormulaBuilder
 							bind:this={builder}
 							bind:value={formula.formula}
@@ -263,6 +309,7 @@
 							ownCode={formula.code || undefined}
 							palette={false}
 						/>
+						</div>
 						{/key}
 						{#each diagnostics as diagnostic, i (i)}
 							<p class="text-xs text-severity-alarm">{diagnostic.message}</p>

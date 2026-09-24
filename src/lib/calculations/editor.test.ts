@@ -7,6 +7,7 @@ import {
 	blankFormula,
 	editableFormula,
 	blankThresholds,
+	carryRename,
 	formulaSetBody,
 	isSharedStep,
 	seriesBlocker,
@@ -17,6 +18,7 @@ import {
 	draftRunBody,
 	formulaVariables,
 	inputRows,
+	untilLeft,
 	readOnlyThroughGuards,
 	outputRows,
 	parseReplicates,
@@ -156,6 +158,22 @@ describe('inputs of a formula set', () => {
 		const scalar = [formula({ id: 's', code: 'ratio', formula: 'NUT_NO2_avg / 2', ordinal: 1 })];
 		const rows = inputRows(scalar, nutrientCatalog, [], ['NUT_NO2_avg']);
 		expect(rows.find((r) => r.name === 'NUT_NO2_avg')?.kind).toBe('parameter');
+	});
+
+	it('keeps a half-typed name out of the inputs until the field is left', () => {
+		const typed = formula({ id: 'o', code: 'CO2_HS_Um2', formula: 'l', ordinal: 2 });
+		const formulas = [...pco2, typed];
+		const names = (f: EditableFormula[]) => inputRows(f, pco2Catalog, []).map((r) => r.name);
+		// Focused on an empty formula, nothing it types reaches the table.
+		expect(names(untilLeft(formulas, { formula: typed, text: '' }))).not.toContain('l');
+		expect(names(untilLeft(formulas, { formula: typed, text: '' }))).toEqual(names(pco2));
+		// A name it read at focus stays while it is edited away.
+		expect(names(untilLeft(formulas, { formula: typed, text: 'vol_sa' }))).toContain('vol_sa');
+		// Left, the typed text goes through.
+		expect(names(untilLeft(formulas, null))).toContain('l');
+		// A name another formula reads is still there.
+		const other = formula({ id: 'q', code: 'q', formula: 'l * 2', ordinal: 3 });
+		expect(names(untilLeft([...formulas, other], { formula: typed, text: '' }))).toContain('l');
 	});
 
 	it('lists the outputs in order without the steps', () => {
@@ -417,14 +435,14 @@ describe('a formula as the page holds it', () => {
 		} as unknown as DerivedParameter;
 		const held = editableFormula(stored);
 		expect(held.description).toBe('calcAlt2BP: bigleaf 0.8.2 pressure.from.elevation(elev, Tair)');
-		expect(formulaSetBody([held], false).formulas[0].description).toBe(
+		expect(formulaSetBody([held]).formulas[0].description).toBe(
 			'calcAlt2BP: bigleaf 0.8.2 pressure.from.elevation(elev, Tair)'
 		);
 	});
 
 	it('sends no description for a formula that carries none', () => {
 		expect(
-			formulaSetBody([formula({ code: 'X', formula: '1' })], false).formulas[0].description,
+			formulaSetBody([formula({ code: 'X', formula: '1' })]).formulas[0].description,
 		).toBeNull();
 	});
 
@@ -462,7 +480,7 @@ describe('the set a save posts', () => {
 	];
 
 	it('carries every own formula, trimmed, with its id', () => {
-		const body = formulaSetBody(edited, false);
+		const body = formulaSetBody(edited);
 		expect(body.formulas).toEqual([
 			{
 				id: 'a',
@@ -493,20 +511,15 @@ describe('the set a save posts', () => {
 
 	it('leaves out a step read through a declaration', () => {
 		const shared = formula({ id: 'z', code: 'bp', formula: '1', ordinal: 3, intermediate: true, shared: true, declarationId: 'd-1' });
-		expect(formulaSetBody([...edited, shared], false).formulas.map((f) => f.code)).toEqual([
+		expect(formulaSetBody([...edited, shared]).formulas.map((f) => f.code)).toEqual([
 			'CO2_HS_Um',
 			'pCO2_HS_uatm',
 		]);
 	});
 
-	it('carries the arm the author chose', () => {
-		expect(formulaSetBody(edited, false).migrate_stored).toBe(false);
-		expect(formulaSetBody(edited, true).migrate_stored).toBe(true);
-	});
-
 	it('drops a formula the author removed, by leaving it out of the set', () => {
 		const removed = edited.filter((f) => f.id !== 'a');
-		expect(formulaSetBody(removed, false).formulas.map((f) => f.id)).toEqual([null]);
+		expect(formulaSetBody(removed).formulas.map((f) => f.id)).toEqual([null]);
 	});
 });
 
@@ -529,14 +542,14 @@ describe('a step any calculation may read', () => {
 
 	it('belongs to the calculation until the author says otherwise', () => {
 		expect(isSharedStep(step())).toBe(false);
-		expect(formulaSetBody([step()], false).formulas.map((f) => f.code)).toEqual(['water_k']);
+		expect(formulaSetBody([step()]).formulas.map((f) => f.code)).toEqual(['water_k']);
 		expect(sharedStepWrites([step()])).toEqual([]);
 	});
 
 	it('leaves the set body once it is shared, so the save neither rewrites nor deletes it', () => {
 		const shared = step({ shared: true });
 		expect(isSharedStep(shared)).toBe(true);
-		expect(formulaSetBody([shared, formula({ code: 'SUVA', formula: 'water_k * 2' })], false)
+		expect(formulaSetBody([shared, formula({ code: 'SUVA', formula: 'water_k * 2' })])
 			.formulas.map((f) => f.code)).toEqual(['SUVA']);
 	});
 
@@ -547,7 +560,7 @@ describe('a step any calculation may read', () => {
 	it('is written once: a step already declared here is left alone', () => {
 		const declared = step({ id: 'f-1', shared: true, declarationId: 'd-1' });
 		expect(sharedStepWrites([declared], [declared])).toEqual([]);
-		expect(formulaSetBody([declared], false).formulas).toEqual([]);
+		expect(formulaSetBody([declared]).formulas).toEqual([]);
 	});
 
 	it('is written again when the author corrects it where it is declared', () => {
@@ -556,13 +569,13 @@ describe('a step any calculation may read', () => {
 		expect(sharedStepWrites([corrected], [declared]).map((f) => f.formula)).toEqual([
 			'WTW_Temp_degC_1 + 273.16',
 		]);
-		expect(formulaSetBody([corrected], false).formulas).toEqual([]);
+		expect(formulaSetBody([corrected]).formulas).toEqual([]);
 	});
 
 	it('travels in the set save, so the correction and the version are one act', () => {
 		const declared = step({ id: 'f-1', shared: true, declarationId: 'd-1' });
 		const corrected = { ...declared, formula: 'WTW_Temp_degC_1 + 273.16', units: ' K ' };
-		expect(formulaSetBody([corrected], true, [declared]).shared_steps).toEqual([
+		expect(formulaSetBody([corrected], [declared]).shared_steps).toEqual([
 			{
 				id: 'f-1',
 				code: 'water_k',
@@ -574,8 +587,8 @@ describe('a step any calculation may read', () => {
 				curve_slot: null,
 			},
 		]);
-		expect(formulaSetBody([declared], true, [declared]).shared_steps).toEqual([]);
-		expect(formulaSetBody([step({ shared: true })], false).shared_steps.map((s) => s.id)).toEqual([null]);
+		expect(formulaSetBody([declared], [declared]).shared_steps).toEqual([]);
+		expect(formulaSetBody([step({ shared: true })]).shared_steps.map((s) => s.id)).toEqual([null]);
 	});
 
 	it('returns to the set, under its id, when the author stops sharing a declared step', () => {
@@ -583,7 +596,7 @@ describe('a step any calculation may read', () => {
 		const unshared = { ...declared, shared: false };
 		expect(isSharedStep(unshared)).toBe(false);
 		expect(sharedStepWrites([unshared], [declared])).toEqual([]);
-		expect(formulaSetBody([unshared], false).formulas.map((f) => f.id)).toEqual(['f-1']);
+		expect(formulaSetBody([unshared]).formulas.map((f) => f.id)).toEqual(['f-1']);
 	});
 
 	it('keeps its identity when a stored step of this calculation is shared', () => {
@@ -595,7 +608,7 @@ describe('a step any calculation may read', () => {
 		const output = formula({ code: 'SUVA', formula: 'a254', shared: true });
 		expect(isSharedStep(output)).toBe(false);
 		expect(sharedStepWrites([output])).toEqual([]);
-		expect(formulaSetBody([output], false).formulas.map((f) => f.code)).toEqual(['SUVA']);
+		expect(formulaSetBody([output]).formulas.map((f) => f.code)).toEqual(['SUVA']);
 	});
 });
 
@@ -650,5 +663,57 @@ describe('whether a set can be read as a series', () => {
 	it('cannot, when a formula runs per replicate', () => {
 		expect(blockerOf([formula({ code: 'SUVA', formula: 'a254 / DOC', per_replicate: 'DOC' })]))
 			.toBe('SUVA, which runs per replicate of DOC');
+	});
+});
+
+describe('renaming a formula', () => {
+	// Scenario: an author renames output CO2_HS_Um while pCO2 reads it per replicate.
+	// Expected behaviour: every whole-identifier use of the old code follows the rename, so the
+	// reader keeps reading the formula rather than a catalog parameter of the old name.
+	const renamed = () => [
+		formula({ id: 'a', code: 'CO2_HS_Um2', formula: 'x * 2', ordinal: 1 }),
+		formula({ id: 'b', code: 'pCO2', formula: 'CO2_HS_Um / kh + CO2_HS_Um_sd + xCO2_HS_Um', ordinal: 2, per_replicate: 'CO2_HS_Um' }),
+		formula({ id: 'c', code: 'avg', formula: 'mean(CO2_HS_Um)*2', ordinal: 3 }),
+	];
+
+	it('rewrites every reader of the old code, expression and per-replicate field alike', () => {
+		const set = renamed();
+		carryRename(set, set[0]!, 'CO2_HS_Um');
+		expect(set[1]!.formula).toBe('CO2_HS_Um2 / kh + CO2_HS_Um_sd + xCO2_HS_Um');
+		expect(set[1]!.per_replicate).toBe('CO2_HS_Um2');
+		expect(set[2]!.formula).toBe('mean(CO2_HS_Um2)*2');
+	});
+
+	it('carries a swap of two codes one rename at a time', () => {
+		const set = [
+			formula({ id: 'a', code: 'tmp', formula: '1', ordinal: 1 }),
+			formula({ id: 'b', code: 'b', formula: '2', ordinal: 2 }),
+			formula({ id: 'c', code: 'c', formula: 'a - b', ordinal: 3 }),
+		];
+		carryRename(set, set[0]!, 'a');
+		set[1]!.code = 'a';
+		carryRename(set, set[1]!, 'b');
+		set[0]!.code = 'b';
+		carryRename(set, set[0]!, 'tmp');
+		expect(set[2]!.formula).toBe('b - a');
+	});
+
+	it('carries nothing to an empty code, a code that is not a name, or one another formula holds', () => {
+		for (const code of ['', ' ', '2x', 'a b', 'pCO2']) {
+			const set = renamed();
+			set[0]!.code = code;
+			carryRename(set, set[0]!, 'CO2_HS_Um');
+			expect(set[1]!.formula).toBe('CO2_HS_Um / kh + CO2_HS_Um_sd + xCO2_HS_Um');
+			expect(set[1]!.per_replicate).toBe('CO2_HS_Um');
+		}
+	});
+
+	it('leaves a number with an exponent alone', () => {
+		const set = [
+			formula({ id: 'a', code: 'e6', formula: '1', ordinal: 1 }),
+			formula({ id: 'b', code: 'b', formula: '2e5 * e5', ordinal: 2 }),
+		];
+		carryRename(set, set[0]!, 'e5');
+		expect(set[1]!.formula).toBe('2e5 * e6');
 	});
 });

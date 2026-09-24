@@ -141,6 +141,11 @@
 	font-style: italic;
 	color: var(--color-brand-primary) !important;
 }
+/* A replicated row's avg and sd, ahead of its replicate letters. */
+.sheet-grid .handsontable td.sheet-statistic {
+	font-weight: 600;
+	background-color: var(--color-brand-bg);
+}
 /* The remove control on a row, kept at the right of its label cell. */
 .sheet-grid .handsontable td.sheet-removable {
 	position: relative;
@@ -196,4 +201,10 @@
 	stroke-width: 1.5;
 	stroke-dasharray: 4 3;
 	opacity: 0.7;
+}
+
+/* The link between a selected cell and a cell that reads it. */
+.sheet-edge-read-by {
+	stroke: var(--color-brand-accent);
+	stroke-dasharray: none;
 }

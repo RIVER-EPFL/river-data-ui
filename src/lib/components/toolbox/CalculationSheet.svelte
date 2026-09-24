@@ -9,7 +9,11 @@
 		edgeColumn,
 		emptyBlockLine,
 		formulaOf,
+		gridColumnOf,
+		gridColumnRole,
 		linksOf,
+		replicateStatistics,
+		STATISTIC_COLUMNS,
 		rowRemoval,
 		stepsOffRefusal,
 		type RowRemoval,
@@ -144,10 +148,19 @@
 		return Number.isInteger(value) ? String(value) : value.toPrecision(6);
 	}
 
+	/** A replicated row's avg and sd, ahead of its letters; blank on a row with one number. */
+	function statisticsOf(block: SheetBlock, row: SheetRow): string[] {
+		if (block.columns.length === 0) return [];
+		if (!row.replicated) return STATISTIC_COLUMNS.map(() => '');
+		const stats = replicateStatistics(row.cells.slice(0, block.columns.length));
+		return [fmt(stats.mean), fmt(stats.sd)];
+	}
+
 	function dataOf(block: SheetBlock): string[][] {
 		const width = Math.max(1, block.columns.length);
 		return block.rows.map((row) => [
 			row.label,
+			...statisticsOf(block, row),
 			...row.cells.slice(0, width).map((c) => (c.skipped ? '—' : fmt(c.value))),
 		]);
 	}
@@ -172,8 +185,13 @@
 					: [],
 		),
 	);
+	// What reads the selected row: the formulas naming its code, or naming the input it holds.
 	const readBy = $derived(
-		new Set(selectedRow?.code ? linksOf(formulas, selectedRow.code).readBy : []),
+		new Set(
+			selectedRow && selectedRow.band !== 'statistics'
+				? linksOf(formulas, selectedRow.code ?? selectedRow.key).readBy
+				: [],
+		),
 	);
 
 	const CLASSES = [
@@ -185,17 +203,33 @@
 		'sheet-stale',
 		'sheet-removable',
 		'sheet-typed',
+		'sheet-statistic',
 	];
 
+	/** The selection's column for a grid column: the label, a replicate, or null on a statistic. */
+	function columnOf(block: SheetBlock, gridColumn: number): number | null {
+		const role = gridColumnRole(block, gridColumn);
+		return role.kind === 'label' ? 0 : role.kind === 'value' ? role.column : null;
+	}
+
 	/** What a cell would do if it were typed into, which is also what makes it writable. */
-	function editOf(row: SheetRow | null, column: number, text: string): SheetEdit | null {
-		return row && onedit ? cellEdit(row, column, text) : null;
+	function editOf(
+		block: SheetBlock,
+		row: SheetRow | null,
+		gridColumn: number,
+		text: string,
+	): SheetEdit | null {
+		const column = columnOf(block, gridColumn);
+		return row && onedit && column !== null ? cellEdit(row, column, text) : null;
 	}
 
 	function settingsOf(block: SheetBlock): Omit<GridSettings, 'data' | 'licenseKey' | 'themeName'> {
 		const rows = block.rows;
 		return {
-			colHeaders: [block.title, ...(block.columns.length > 0 ? block.columns : ['Value'])],
+			colHeaders: [
+				block.title,
+				...(block.columns.length > 0 ? [...STATISTIC_COLUMNS, ...block.columns] : ['Value']),
+			],
 			rowHeaders: false,
 			wordWrap: false,
 			width: '100%',
@@ -207,7 +241,7 @@
 			fillHandle: false,
 			outsideClickDeselects: false,
 			cells: (row: number, column: number) => ({
-				readOnly: !editOf(rows[row] ?? null, column, ''),
+				readOnly: !editOf(block, rows[row] ?? null, column, ''),
 				renderer: (
 					_hot: unknown,
 					td: HTMLTableCellElement,
@@ -223,6 +257,7 @@
 					if (!change) continue;
 					const [row, prop, , next] = change;
 					const edit = editOf(
+						block,
 						rows[row] ?? null,
 						Number(prop),
 						next == null ? '' : String(next),
@@ -232,13 +267,13 @@
 			},
 			// A repaint re-emits each grid's own selection, which is not written back, or the table
 			// last clicked would take the selection from the new one.
-			afterSelection: (row: number, column: number) => {
+			afterSelection: (row: number, gridColumn: number) => {
 				// Only the table the person is working in speaks: the others re-emit what they still
 				// hold whenever they are drawn.
 				if (repainting || grids.get(block.key)?.isListening() === false) return;
 				const entry = rows[row];
 				if (!entry) return;
-				const next = { block: block.key, key: entry.key, column };
+				const next = { block: block.key, key: entry.key, column: columnOf(block, gridColumn) ?? 0 };
 				if (
 					next.block === selected?.block &&
 					next.key === selected?.key &&
@@ -257,7 +292,7 @@
 		rows: SheetRow[],
 		td: HTMLTableCellElement,
 		gridRow: number,
-		column: number,
+		gridColumn: number,
 		value: unknown,
 	) {
 		td.classList.remove(...CLASSES);
@@ -265,11 +300,25 @@
 		td.removeAttribute('title');
 		td.removeAttribute('data-sheet-row');
 		td.removeAttribute('data-sheet-column');
+		td.removeAttribute('data-sheet-statistic');
 		const row = rows[gridRow];
 		const text = value == null ? '' : String(value);
 		td.textContent = text;
 		if (!row) return td;
 		td.setAttribute('data-sheet-row', row.key);
+		const role = gridColumnRole(block, gridColumn);
+		if (role.kind === 'statistic') {
+			td.setAttribute('data-sheet-statistic', role.statistic);
+			td.classList.add('htRight', 'htNumeric', 'sheet-statistic');
+			if (row.replicated) {
+				td.title =
+					role.statistic === 'avg'
+						? 'mean of the replicates'
+						: 'sample standard deviation (n - 1) of the replicates';
+			}
+			return td;
+		}
+		const column = role.kind === 'label' ? 0 : role.column;
 		td.setAttribute('data-sheet-column', String(column));
 		if (column > 0) td.classList.add('htRight', 'htNumeric');
 		if (row.unused) {
@@ -388,7 +437,7 @@
 
 	const gridSettings = $derived(new Map(blocks.map((b) => [b.key, settingsOf(b)])));
 
-	// --- Lines from the selected cell to the cells it reads ---
+	// --- Lines from the selected cell to the cells it reads and the cells reading it ---
 	// The tables are three grids of their own, so a link between them is drawn over the lot rather
 	// than inside one. Handsontable draws only the rows in view, so a source that is scrolled out
 	// has no cell to draw to and is named instead.
@@ -396,6 +445,7 @@
 	/** One line, in the coordinates of the surface the tables are laid out on. */
 	interface Edge {
 		key: string;
+		direction: 'reads' | 'read-by';
 		x1: number;
 		y1: number;
 		x2: number;
@@ -418,11 +468,18 @@
 			let cell: HTMLElement | null = null;
 			// A column scrolled out of the table has no cell, so fall back to the last one drawn.
 			for (let column = edgeColumn(end, block.columns.length); column >= 0 && !cell; column--) {
-				if (grid && !grid.isDestroyed) cell = (grid.getCell(index, column) as HTMLElement | null) ?? null;
+				if (grid && !grid.isDestroyed) {
+					cell = (grid.getCell(index, gridColumnOf(block, column)) as HTMLElement | null) ?? null;
+				}
 			}
 			return { cell, block: block.key, row: index };
 		}
 		return null;
+	}
+
+	/** The selected row's cell a line to its readers leaves from. */
+	function selectedSource(): HTMLElement | null {
+		return selected ? (anchorOf(selected.key, 'source')?.cell ?? null) : null;
 	}
 
 	function redraw() {
@@ -433,26 +490,32 @@
 			offscreen = [];
 			return;
 		}
-		const to = target.getBoundingClientRect();
 		const drawn: Edge[] = [];
 		const missing: string[] = [];
-		for (const key of reads) {
-			if (key === selected?.key) continue;
-			const anchor = anchorOf(key, 'source');
-			if (!anchor) continue;
+		const link = (key: string, direction: Edge['direction']) => {
+			if (key === selected?.key) return;
+			const anchor = anchorOf(key, direction === 'reads' ? 'source' : 'reader');
+			if (!anchor) return;
 			if (!anchor.cell) {
-				missing.push(key);
-				continue;
+				if (!missing.includes(key)) missing.push(key);
+				return;
 			}
-			const from = anchor.cell.getBoundingClientRect();
+			// A line runs from what is read, on its right, to what reads it, on its left.
+			const [from, to] =
+				direction === 'reads'
+					? [anchor.cell.getBoundingClientRect(), target.getBoundingClientRect()]
+					: [selectedSource()!.getBoundingClientRect(), anchor.cell.getBoundingClientRect()];
 			drawn.push({
 				key,
+				direction,
 				x1: from.right - box.left,
 				y1: from.top + from.height / 2 - box.top,
 				x2: to.left - box.left,
 				y2: to.top + to.height / 2 - box.top,
 			});
-		}
+		};
+		for (const key of reads) link(key, 'reads');
+		if (readBy.size > 0 && selectedSource()) for (const key of readBy) link(key, 'read-by');
 		edges = drawn;
 		offscreen = missing;
 	}
@@ -471,14 +534,16 @@
 <div class="@container relative" bind:this={surface}>
 	{#if edges.length > 0}
 		<svg class="pointer-events-none absolute inset-0 h-full w-full z-10" aria-hidden="true">
-			{#each edges as edge (edge.key)}
+			{#each edges as edge (`${edge.direction}:${edge.key}`)}
 				<line
 					x1={edge.x1}
 					y1={edge.y1}
 					x2={edge.x2}
 					y2={edge.y2}
 					class="sheet-edge"
+					class:sheet-edge-read-by={edge.direction === 'read-by'}
 					data-sheet-edge={edge.key}
+					data-sheet-edge-direction={edge.direction}
 				/>
 			{/each}
 		</svg>

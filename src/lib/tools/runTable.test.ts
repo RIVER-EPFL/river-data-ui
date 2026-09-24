@@ -57,6 +57,8 @@ describe('run tables', () => {
 		expect(tables.columns).toEqual(['A', 'B', 'C']);
 		expect(tables.outputs[0]?.cells.map((c) => c.value)).toEqual([2, null, 6]);
 		expect(tables.outputs[1]?.cells[0]?.value).toBe(5);
+		// Only the list has a mean and an sd to show.
+		expect(tables.outputs.map((r) => r.replicated ?? false)).toEqual([true, false]);
 	});
 
 	it('bands from the trace and points each cell at the step and index that produced it', () => {
@@ -138,6 +140,7 @@ describe('the tables of what a run was given', () => {
 		// A scalar the visit holds once sits under the first column and leaves the rest empty.
 		expect(tables.visit[1]?.cells.map((c) => c.value)).toEqual([21.4, null]);
 		expect(tables.visit[1]?.note).toBe('Lab_Temperature');
+		expect(tables.visit.map((r) => r.replicated ?? false)).toEqual([true, false]);
 	});
 
 	it('gathers the site properties, the constants and each curve slot into one table', () => {

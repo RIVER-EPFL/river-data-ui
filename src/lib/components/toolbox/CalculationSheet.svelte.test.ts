@@ -82,11 +82,25 @@ describe('CalculationSheet', () => {
 		await waitFor(() => expect(view.container.textContent).toContain('CO2 headspace'));
 		expect(view.container.querySelectorAll('.sheet-grid')).toHaveLength(3);
 		const text = view.container.textContent ?? '';
-		// The grid renders the columns its viewport holds, which under jsdom is the first; the
-		// pivot across every letter is `sheet.test.ts`.
-		for (const wanted of ['lab_co2', '410', 'lab_temp', '21', 'hs_k', '1.23', '504.300']) {
+		// The grid renders the columns its viewport holds, which under jsdom is the first, the avg
+		// ahead of the letters; the pivot across every letter is `sheet.test.ts`.
+		for (const wanted of ['lab_co2', '420', 'lab_temp', 'hs_k', '516.600']) {
 			expect(text).toContain(wanted);
 		}
+	});
+
+	it('leads a replicated row with its avg and sample sd, and leaves a single number blank', async () => {
+		const view = render(CalculationSheet, { blocks: blocks(), formulas });
+		await waitFor(() => expect(view.container.textContent).toContain('CO2 headspace'));
+		const avg = (row: string) =>
+			view.container.querySelector(`td[data-sheet-row="${row}"][data-sheet-statistic="avg"]`)
+				?.textContent;
+		// (410 + 430) / 2 and (504.3 + 528.9) / 2
+		expect(avg('lab_co2')).toBe('420');
+		expect(avg('CO2_HS_Um')).toBe('516.600');
+		expect(avg('lab_temp')).toBe('');
+		const headers = [...view.container.querySelectorAll('th')].map((th) => th.textContent);
+		expect(headers).toContain('avg');
 	});
 
 	it('draws a row per input, step and output with no heading rows between them', async () => {
@@ -256,6 +270,23 @@ describe('links drawn between the tables', () => {
 		expect(drawn).toContain('hs_k');
 		expect(drawn).toContain('lab_co2');
 		expect(drawn).not.toContain('CO2_HS_Um');
+	});
+
+	it('draws a line from the selected step and the selected input to the cells reading them', async () => {
+		const view = render(CalculationSheet, { blocks: blocks(), formulas });
+		await waitFor(() => expect(view.container.textContent).toContain('CO2 headspace'));
+		const readers = () =>
+			[...view.container.querySelectorAll('line[data-sheet-edge-direction="read-by"]')].map((l) =>
+				l.getAttribute('data-sheet-edge'),
+			);
+
+		await view.rerender({ selected: { block: 'steps' as const, key: 'hs_k', column: 0 } });
+		await waitFor(() => expect(readers()).toEqual(['CO2_HS_Um']));
+
+		await view.rerender({ selected: { block: 'inputs' as const, key: 'lab_co2', column: 0 } });
+		await waitFor(() => expect(readers()).toEqual(['CO2_HS_Um']));
+		const tinted = [...view.container.querySelectorAll('td.sheet-read-by')].map(labelOf);
+		expect(tinted).toContain('CO2 headspace');
 	});
 
 	it('draws nothing once the selection is gone', async () => {

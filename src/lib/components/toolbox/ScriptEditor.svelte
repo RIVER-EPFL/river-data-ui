@@ -23,7 +23,7 @@
 		type ToolTestCases,
 	} from '$api/service';
 	import { api, type Constant, type Parameter } from '$api/crud';
-	import { armConsequence } from '$lib/calculations/consequence';
+	import { versionConsequence } from '$lib/calculations/consequence';
 	import { listAll } from '$api/paged';
 	import { me } from '$auth/me.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
@@ -511,13 +511,14 @@
 		return detail?.active_version_no != null && v.version_no < detail.active_version_no;
 	}
 
-	async function doActivate(migrateStored: boolean) {
+	async function doActivate() {
 		if (!detail || !confirmActivate) return;
 		activating = true;
 		try {
-			await activateToolVersion(detail.id, confirmActivate.id, migrateStored);
+			const recomputes = supersedes;
+			await activateToolVersion(detail.id, confirmActivate.id);
 			toastStore.success(
-				migrateStored
+				recomputes
 					? `Version ${confirmActivate.version_no} is now active for ${detail.name}; the values it replaces are being recomputed`
 					: `Version ${confirmActivate.version_no} is now active for ${detail.name}`,
 			);
@@ -969,20 +970,15 @@
 				{/if}
 			</p>
 			{#if supersedes}
-				<p class="mt-2 text-xs text-brand-muted">{armConsequence(activeUsage)}</p>
+				<p class="mt-2 text-xs text-brand-muted">{versionConsequence(activeUsage)}</p>
 			{/if}
 		{/if}
 	{/snippet}
 	{#snippet actions()}
 		<Button onclick={() => (activateDialogOpen = false)}>Cancel</Button>
-		{#if supersedes}
-			<Button onclick={() => doActivate(true)} disabled={activating}>
-				{activating ? 'Activating…' : 'Activate and recompute'}
-			</Button>
-		{/if}
 		<Button
 			variant={confirmActivate && isRollback(confirmActivate) ? 'danger' : 'primary'}
-			onclick={() => doActivate(false)}
+			onclick={doActivate}
 			disabled={activating}
 		>{activating ? 'Activating…' : confirmActivate && isRollback(confirmActivate) ? 'Rollback' : 'Activate'}</Button>
 	{/snippet}

@@ -177,15 +177,13 @@ export function dependencyOrder<T extends { ordinal: number; code: string; formu
 }
 
 /**
- * The set-level save's body: this calculation's own formulas, trimmed, and what happens to the
- * values the version being replaced produced. A shared step belongs to no calculation, so it is
+ * The set-level save's body: this calculation's own formulas, trimmed. A shared step belongs to no calculation, so it is
  * left out of the set and the save neither rewrites nor deletes it; the steps the author marked
  * shared or corrected against `stored` travel beside it and are written in the same save. A formula
  * the author removed is left out too, which is how the save deletes it.
  */
 export function formulaSetBody(
 	formulas: EditableFormula[],
-	migrate: boolean,
 	stored: EditableFormula[] = [],
 ): FormulaSetSave {
 	return {
@@ -213,8 +211,34 @@ export function formulaSetBody(
 				curve_slot: f.curve_slot.trim() || null,
 				intermediate: f.intermediate,
 			})),
-		migrate_stored: migrate,
 	};
+}
+
+const NAME = /^[A-Za-z_]\w*$/;
+
+/**
+ * `text` with every whole identifier `from` replaced by `to`. A token is a run of word characters,
+ * as the server reads one, so the exponent of `2e5` is part of its number and never a name.
+ */
+function renameIdentifier(text: string, from: string, to: string): string {
+	return text.replace(/\w+/g, (token) => (token === from ? to : token));
+}
+
+/**
+ * Carry a formula's rename from `from` into every other formula of the set: a formula reads
+ * another by its code, in its expression and in its per-replicate field, so each whole use of the
+ * old code becomes the new one. A code that is not a name yet, or one another formula holds,
+ * carries nothing: the rename is not finished.
+ */
+export function carryRename(formulas: EditableFormula[], renamed: EditableFormula, from: string): void {
+	const to = renamed.code.trim();
+	if (from === to || !NAME.test(to) || !NAME.test(from)) return;
+	if (formulas.some((f) => f !== renamed && f.code.trim() === to)) return;
+	for (const f of formulas) {
+		if (f === renamed) continue;
+		f.formula = renameIdentifier(f.formula, from, to);
+		if (f.per_replicate.trim() === from) f.per_replicate = to;
+	}
 }
 
 /**
@@ -343,6 +367,24 @@ export function readOnlyThroughGuards(formula: string, variable: string): boolea
 	}
 	if (pending === variable) return false;
 	return read;
+}
+
+/** A formula whose field has focus, with its text as it stood when the field took focus. */
+export interface FocusedFormula<F> {
+	formula: F;
+	text: string;
+}
+
+/**
+ * The set with the formula being typed held at its text from when its field took focus, so a
+ * half-typed name reaches the inputs only once the field is left.
+ */
+export function untilLeft<F extends Pick<EditableFormula, 'formula'>>(
+	formulas: F[],
+	focused: FocusedFormula<F> | null,
+): F[] {
+	if (!focused) return formulas;
+	return formulas.map((f) => (f === focused.formula ? { ...f, formula: focused.text } : f));
 }
 
 /**

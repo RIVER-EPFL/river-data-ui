@@ -43,17 +43,49 @@ export function fullReach(reaches: Reach[]): Reach[] {
 	return reaches.filter((r) => r.measured === r.total);
 }
 
-/** A visit as the filter reads it: the parameters it holds a cell for. */
-interface VisitCells {
-	cells: Array<{ parameter_id: string; value?: number | null; withdrawn: boolean }>;
+/** A site's count of the visits holding every input the set requires. */
+export interface VisitCount {
+	site_id: string;
+	visits: number;
 }
 
-/** The visits holding a live value of every parameter the set reads, in the order given. */
-export function visitsHoldingAll<V extends VisitCells>(visits: V[], readIds: string[]): V[] {
-	const wanted = [...new Set(readIds)];
-	return visits.filter((v) =>
-		wanted.every((id) => v.cells.some((c) => c.parameter_id === id && c.value != null && !c.withdrawn)),
-	);
+/** A site as the picker offers it, with what it says after the name. */
+export interface SiteChoice {
+	id: string;
+	name: string;
+	note: string;
+}
+
+/**
+ * The sites to offer a calculation: those with a visit it can run at, most such visits first. A set
+ * that also draws over a site's streams (`series`) can run where no visit holds its inputs, so the
+ * other sites declaring them follow. Without `counts` (the set requires nothing of a visit, or the
+ * counts have not arrived) it is the declaring sites.
+ */
+export function offeredSites(
+	sites: Array<{ id: string; name: string }>,
+	declaring: Reach[],
+	counts: VisitCount[] | null,
+	series: boolean,
+): SiteChoice[] {
+	if (!counts) return declaring.map((r) => ({ id: r.id, name: r.name, note: reachNote(r) }));
+	const names = new Map(sites.map((s) => [s.id, s.name]));
+	const withVisits = counts
+		.filter((c) => names.has(c.site_id))
+		.sort((a, b) => b.visits - a.visits || names.get(a.site_id)!.localeCompare(names.get(b.site_id)!))
+		.map((c) => ({
+			id: c.site_id,
+			name: names.get(c.site_id)!,
+			note: c.visits === 1 ? '1 visit' : `${c.visits} visits`,
+		}));
+	if (!series) return withVisits;
+	const listed = new Set(withVisits.map((c) => c.id));
+	return [
+		...withVisits,
+		...declaring
+			.filter((r) => !listed.has(r.id))
+			.map((r) => ({ id: r.id, name: r.name, note: 'no visit holds every input' })),
+	];
 }
 
 /** A parameter at a site as the span reads it. */

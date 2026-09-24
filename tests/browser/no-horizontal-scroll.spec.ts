@@ -123,7 +123,6 @@ async function seedCalculation(request: APIRequestContext): Promise<{ calculatio
 				intermediate: false,
 			},
 		],
-		migrate_stored: false,
 	});
 	return { calculationId: calculation.id };
 }

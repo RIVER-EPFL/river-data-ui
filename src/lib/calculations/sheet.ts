@@ -118,19 +118,27 @@ function readsOf(formula: Pick<EditableFormula, 'code' | 'formula'>, codes: Set<
 	];
 }
 
-/** What a formula reads of the set, and which of the set's formulas read it. */
+/**
+ * What a formula reads of the set, and which of the set's formulas read a variable: a formula, or
+ * an input a formula names or runs over as its replicate family.
+ */
 export function linksOf(
-	formulas: Array<Pick<EditableFormula, 'code' | 'formula'>>,
+	formulas: Array<Pick<EditableFormula, 'code' | 'formula' | 'per_replicate'>>,
 	code: string,
 ): { reads: string[]; readBy: string[] } {
 	const codes = new Set(formulas.map((f) => f.code.trim()).filter(Boolean));
 	const wanted = code.trim();
 	const self = formulas.find((f) => f.code.trim() === wanted);
+	const reads = (f: (typeof formulas)[number]) =>
+		f.per_replicate.trim() === wanted || identifiers(f.formula).some((i) => i.name === wanted);
 	return {
 		reads: self ? readsOf(self, codes) : [],
-		readBy: formulas
-			.filter((f) => f.code.trim() !== wanted && readsOf(f, codes).includes(wanted))
-			.map((f) => f.code.trim()),
+		readBy: wanted
+			? formulas
+					.filter((f) => f.code.trim() !== wanted && reads(f))
+					.map((f) => f.code.trim())
+					.filter(Boolean)
+			: [],
 	};
 }
 
@@ -327,7 +335,9 @@ export type RowRemoval =
  */
 export function rowRemoval(
 	row: SheetRow,
-	formulas: Array<Pick<EditableFormula, 'code' | 'formula' | 'ordinal' | 'declarationId' | 'shared'>>,
+	formulas: Array<
+		Pick<EditableFormula, 'code' | 'formula' | 'per_replicate' | 'ordinal' | 'declarationId' | 'shared'>
+	>,
 	declared: string[],
 ): RowRemoval | null {
 	if (row.band === 'statistics') return null;
@@ -473,6 +483,63 @@ export interface SheetSelection {
 	key: string;
 	/** 0 is the label column; 1 is the first replicate. */
 	column: number;
+}
+
+/** A replicated row's statistics: the mean and the sample sd (n - 1) of its numbers. */
+export interface ReplicateStatistics {
+	mean: number | null;
+	sd: number | null;
+	n: number;
+}
+
+/**
+ * The mean and sample sd of the replicates a row holds, as the `samples` trigger derives them from
+ * the saved repeats: a replicate with no number is left out, and one number has no sd.
+ */
+export function replicateStatistics(cells: RunCell[]): ReplicateStatistics {
+	const values = cells
+		.map((c) => c.value)
+		.filter((v): v is number => v !== null && Number.isFinite(v));
+	const n = values.length;
+	if (n === 0) return { mean: null, sd: null, n };
+	const mean = values.reduce((sum, v) => sum + v, 0) / n;
+	if (n < 2) return { mean, sd: null, n };
+	const squares = values.reduce((sum, v) => sum + (v - mean) ** 2, 0);
+	return { mean, sd: Math.sqrt(squares / (n - 1)), n };
+}
+
+/** The statistics a block over replicates shows ahead of its letters, the mean leading. */
+export const STATISTIC_COLUMNS = ['avg', 'sd'] as const;
+
+export type StatisticColumn = (typeof STATISTIC_COLUMNS)[number];
+
+/** How many statistic columns sit between a block's labels and its replicate letters. */
+function statisticWidth(block: Pick<SheetBlock, 'columns'>): number {
+	return block.columns.length > 0 ? STATISTIC_COLUMNS.length : 0;
+}
+
+/** What a column of a block's grid holds: the label, a statistic, or a replicate (1 is A). */
+export type GridColumnRole =
+	| { kind: 'label' }
+	| { kind: 'statistic'; statistic: StatisticColumn }
+	| { kind: 'value'; column: number };
+
+/** The role of a grid column: column 0 is the label, then the statistics, then the letters. */
+export function gridColumnRole(
+	block: Pick<SheetBlock, 'columns'>,
+	gridColumn: number,
+): GridColumnRole {
+	if (gridColumn === 0) return { kind: 'label' };
+	const width = statisticWidth(block);
+	if (gridColumn <= width) {
+		return { kind: 'statistic', statistic: STATISTIC_COLUMNS[gridColumn - 1]! };
+	}
+	return { kind: 'value', column: gridColumn - width };
+}
+
+/** The grid column a selection column (0 the label, 1 replicate A) is drawn at. */
+export function gridColumnOf(block: Pick<SheetBlock, 'columns'>, column: number): number {
+	return column === 0 ? 0 : column + statisticWidth(block);
 }
 
 /**
