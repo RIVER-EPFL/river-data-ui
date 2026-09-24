@@ -106,8 +106,9 @@
 
 <div class="space-y-2">
 	<p class="text-xs text-brand-muted">
-		A calculation applies where the site measures everything it reads. Applying it adds the output
-		columns it publishes; nothing else at the site changes.
+		A calculation runs only at the sites it was added to. Adding it here needs every parameter it
+		reads measured at the site, and adds the output columns it publishes; nothing else at the site
+		changes.
 	</p>
 	<div class="flex items-end gap-3">
 		<div class="flex-1">

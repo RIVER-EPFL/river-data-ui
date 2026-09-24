@@ -228,7 +228,7 @@ export interface SiteParameter {
 	instrument_sensor_id: string | null;
 	is_active: boolean | null;
 	is_public: boolean;
-	/** Slot minted by a verified tool save; a manager confirms it from the site's Parameters tab. */
+	/** Slot the chain minted needing review; confirming it adds the calculation that writes it here. */
 	needs_review: boolean;
 	created_at: string;
 	/** Stamped when a sync minted the slot; null means it was entered by hand. */

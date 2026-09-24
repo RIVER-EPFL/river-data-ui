@@ -5441,11 +5441,11 @@ export interface paths {
         put?: never;
         /**
          * Apply a calculation at a site: check the site declares everything the calculation reads, and
-         *     mint the output slots it lacks.
-         * @description Refused while an input is undeclared, naming each one: the calculation would be
-         *     `not_applicable` there, learned after the fact from a job log. The outputs a successful apply
-         *     mints are the site's declaration of the calculation, so they carry no review flag; the ones the
-         *     chain mints on its own still do (Q193). Applying twice creates nothing the second time.
+         *     create the output slots it lacks.
+         * @description Refused while an input is undeclared, naming each one. The output slots are the site's
+         *     declaration of the calculation, the only thing that makes it run there (Q325), so they carry no
+         *     review flag, and an output slot still waiting on review is confirmed. Applying twice creates
+         *     nothing the second time.
          */
         post: operations["apply_calculation"];
         delete?: never;
@@ -16966,9 +16966,9 @@ export interface components {
             is_public: boolean | null;
             name: string;
             /**
-             * @description Carried by a slot the chain minted where the site declared the calculation's inputs and
-             *     not its output (Q193); cleared by a manager confirming the slot from the site's Parameters
-             *     tab.
+             * @description Carried by a slot the chain minted before Q325 made adding a calculation the only thing that
+             *     runs it; cleared by a manager confirming the slot or applying the calculation at the site.
+             *     A slot carrying it does not make a calculation run there (Q317).
              */
             needs_review: boolean;
             parameter: components["schemas"]["ParameterList"][];
@@ -17029,9 +17029,9 @@ export interface components {
             is_public: boolean | null;
             name: string;
             /**
-             * @description Carried by a slot the chain minted where the site declared the calculation's inputs and
-             *     not its output (Q193); cleared by a manager confirming the slot from the site's Parameters
-             *     tab.
+             * @description Carried by a slot the chain minted before Q325 made adding a calculation the only thing that
+             *     runs it; cleared by a manager confirming the slot or applying the calculation at the site.
+             *     A slot carrying it does not make a calculation run there (Q317).
              */
             needs_review: boolean;
             parameter: components["schemas"]["Parameter"][];

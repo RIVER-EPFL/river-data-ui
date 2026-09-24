@@ -4,7 +4,7 @@
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Button from '$components/ui/Button.svelte';
 
-	// Clears `needs_review` on a site parameter that a verified tool save minted. Sits beside the
+	// Clears `needs_review` on a site parameter the chain minted. Sits beside the
 	// flag wherever the slot is shown, mirroring ConfirmParameterButton for the catalog entry.
 	let {
 		siteParameter,
