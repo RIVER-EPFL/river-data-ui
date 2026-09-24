@@ -12,7 +12,7 @@
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { rowProvenanceLabel } from '$lib/origin';
 	import { lastRunOfCalculation } from '$lib/tools/visitPrefill';
-	import { deepLinkParameter } from '$lib/visits/link';
+	import { deepLinkParameter, writeVisitParams } from '$lib/visits/link';
 	import { pickerOptions, retiredSuffix } from '$lib/instruments/kind';
 	import {
 		api,
@@ -63,7 +63,13 @@
 		visitCellStatistics,
 		visitCounts,
 	} from '$lib/visits/cell';
-	import { connectionsOf, covers, type Connections } from '$lib/visits/connections';
+	import {
+		connectionsOf,
+		covers,
+		declaredConnections,
+		mergedConnections,
+		type Connections,
+	} from '$lib/visits/connections';
 	import {
 		asking,
 		awaitedAt,
@@ -82,6 +88,7 @@
 		visitSourceLabel,
 	} from '$lib/visits/recompute';
 	import { verificationBadge, verificationNoticeFor } from '$lib/visits/verification';
+	import { notesChanged, visitFacts } from '$lib/visits/metadata';
 	import Button from '$components/ui/Button.svelte';
 	import InfoTip from '$components/ui/InfoTip.svelte';
 	import TimestampInput from '$components/ui/TimestampInput.svelte';
@@ -124,6 +131,7 @@
 	import {
 		gridRows,
 		keptAfterSave,
+		landedRow,
 		namedInstants,
 		racedRows,
 		saveCounts,
@@ -236,12 +244,15 @@
 	let expandedVisit = $state<string | null>(null);
 	let visitDetail = $state<EventDetailResponse | null>(null);
 	let visitDetailLoading = $state(false);
+	let notesDraft = $state('');
+	let notesSaving = $state(false);
 	let visitBusy = $state<string | null>(null);
 	let visitCell = $state<{ parameterId: string; parameterName: string } | null>(null);
 
-	// The selected grid position, and what a calculation connects it to at its own visit. The
-	// detail carrying the consumed keys is fetched once per visit and kept: selection moves cell
-	// by cell, and the grid repaints on every move.
+	// The selected grid position, and what a calculation connects it to at its own visit: the
+	// site's declared calculations at once, narrowed by the stored readings once the visit's
+	// detail is in. The detail is fetched once per visit and kept: selection moves cell by cell,
+	// and the grid repaints on every move.
 	let selected = $state<{ visitId: string; parameterId: string; replicateIndex: number } | null>(
 		null,
 	);
@@ -249,7 +260,7 @@
 	const details = new SvelteMap<string, EventDetailResponse>();
 
 	async function selectSlot(row: number, column: number) {
-		const at = spareAt(row) ? null : sheetSlot(table, row, column);
+		const at = sheetSlot(table, row, column);
 		const next = at
 			? {
 					visitId: at.visit.id,
@@ -265,15 +276,19 @@
 			return;
 		}
 		selected = next;
-		connections = { reads: [], readBy: [] };
+		const declared = next ? declaredConnections(allColumns, next.parameterId) : { reads: [], readBy: [] };
+		connections = declared;
 		requestRender();
-		if (!next) return;
+		// A new row has no stored readings to narrow the declaration with.
+		if (!next || spareAt(row)) return;
 		const detail = details.get(next.visitId) ?? (await loadConnections(next.visitId));
 		// The selection may have moved on while the detail was in flight.
-		if (!detail || selected?.visitId !== next.visitId) return;
-		const found = connectionsOf(detail, next.parameterId);
-		if (found.reads.length === 0 && found.readBy.length === 0) return;
-		connections = found;
+		if (!detail || selected?.visitId !== next.visitId || selected.parameterId !== next.parameterId) {
+			return;
+		}
+		const stored = connectionsOf(detail, next.parameterId);
+		if (stored.reads.length === 0 && stored.readBy.length === 0) return;
+		connections = mergedConnections(declared, stored);
 		requestRender();
 	}
 
@@ -570,6 +585,7 @@
 		'sheet-open-row',
 		'sheet-reads',
 		'sheet-read-by',
+		'sheet-landed',
 		...ROLE_CLASSES,
 	];
 
@@ -580,6 +596,34 @@
 		td.removeAttribute('title');
 		td.removeAttribute('aria-label');
 		if (table.rows[row] && table.rows[row].id === expandedVisit) td.classList.add('sheet-open-row');
+	}
+
+	// The visits a save or the New visit dialog just opened: the grid scrolls to the first once the
+	// listing carries it, and flashes each row's index and date.
+	const landing = new Set<string>();
+	let landed = new Set<string>();
+	let landedTimer: ReturnType<typeof setTimeout> | undefined;
+
+	$effect(() => {
+		const row = landedRow(table.rows, landing);
+		if (row < 0) return;
+		landed = new Set(landing);
+		landing.clear();
+		clearTimeout(landedTimer);
+		landedTimer = setTimeout(() => {
+			landed = new Set();
+			requestRender();
+		}, 2500);
+		void tick().then(() => {
+			// The grid draws every row and the page scrolls it, so the page is brought to the cell.
+			hot?.scrollViewportTo({ row });
+			hot?.getCell(row, 0, true)?.scrollIntoView({ block: 'center' });
+			requestRender();
+		});
+	});
+
+	function landAt(ids: Iterable<string>) {
+		for (const id of ids) landing.add(id);
 	}
 
 	function chip(label: string, variant: BadgeVariant, title: string): HTMLSpanElement {
@@ -623,6 +667,7 @@
 		if (!visit) return td;
 		if (isSpare(visit.id)) return renderSpare(td, visit.id);
 		td.classList.add('htDimmed');
+		if (landed.has(visit.id)) td.classList.add('sheet-landed');
 		const open = expandedVisit === visit.id;
 		const button = document.createElement('button');
 		button.type = 'button';
@@ -636,6 +681,25 @@
 		button.addEventListener('click', () => void openVisit(visit.id));
 		td.append(button);
 		return td;
+	}
+
+	const CALENDAR_ICON =
+		'<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3"/></svg>';
+
+	/** The calendar on an empty new row's date, opening the New visit dialog for this site. */
+	function newVisitButton(): HTMLButtonElement {
+		const button = document.createElement('button');
+		button.type = 'button';
+		button.className = 'sheet-date-picker';
+		button.setAttribute('aria-label', 'Pick the date of a new visit');
+		button.title = 'Pick the date of a new visit';
+		button.innerHTML = CALENDAR_ICON;
+		button.addEventListener('mousedown', (e) => e.stopPropagation());
+		button.addEventListener('click', (e) => {
+			e.stopPropagation();
+			newVisitOpen = true;
+		});
+		return button;
 	}
 
 	/**
@@ -659,6 +723,7 @@
 			);
 		} else {
 			td.title = 'Type or paste a date here to open a new visit at this site';
+			if (me.can('enterFieldData')) td.append(newVisitButton());
 		}
 		return td;
 	}
@@ -683,7 +748,7 @@
 		td.classList.add('htRight', 'htNumeric');
 		if (!writable) td.classList.add('htDimmed');
 		// What the column is to the calculations, on every cell of it, so a value says what it
-		// feeds while it is typed. The selection below narrows this to the stored connections.
+		// feeds while it is typed. The selection below narrows this to its connections at one visit.
 		const role = columnRole(slot.column);
 		if (role.className) td.classList.add(...role.className.split(' '));
 		if (role.title) td.title = role.title;
@@ -700,8 +765,9 @@
 			const own =
 				slot.parameterId === selected.parameterId &&
 				(!open || slot.replicateIndex === selected.replicateIndex);
-			if (own) td.append(recordingControl(visit.id, slot.parameterId, slot.column.name));
-			else if (covers(connections.reads, slot.parameterId, slot.replicateIndex, open)) {
+			if (own) {
+				if (!isSpare(visit.id)) td.append(recordingControl(visit.id, slot.parameterId, slot.column.name));
+			} else if (covers(connections.reads, slot.parameterId, slot.replicateIndex, open)) {
 				td.classList.add('sheet-reads');
 			} else if (covers(connections.readBy, slot.parameterId, slot.replicateIndex, open)) {
 				td.classList.add('sheet-read-by');
@@ -807,10 +873,11 @@
 
 	/** A row's index, toned by its findings and its field day's verification. */
 	function renderRowHeader(row: number, th: HTMLTableCellElement) {
-		th.classList.remove(...ROW_HEADER_CLASSES);
+		th.classList.remove(...ROW_HEADER_CLASSES, 'sheet-landed');
 		th.removeAttribute('title');
 		const visit = table.rows[row];
 		if (!visit || isSpare(visit.id)) return;
+		if (landed.has(visit.id)) th.classList.add('sheet-landed');
 		const header = visitRowHeader(visit);
 		if (header.classNames.length) th.classList.add(...header.classNames);
 		if (header.title) th.title = header.title;
@@ -1355,6 +1422,7 @@
 			visits: newVisits.map((v) => ({ site_id: siteId, collected_at: v.collectedAt })),
 		});
 		const raced = racedRows(spares, staged);
+		landAt(staged.filter((e) => e.created).map((e) => e.id));
 		if (raced.size > 0) {
 			standingElsewhere = [
 				...standingElsewhere,
@@ -1529,6 +1597,21 @@
 		}
 	}
 
+	async function saveVisitNotes(id: string) {
+		if (!visitDetail || visitDetail.id !== id || !notesChanged(notesDraft, visitDetail.notes)) return;
+		const notes = notesDraft.trim();
+		notesSaving = true;
+		try {
+			await api.collectionEvents.update(id, { notes: notes === '' ? null : notes });
+			if (visitDetail?.id === id) visitDetail = { ...visitDetail, notes: notes === '' ? undefined : notes };
+			toastStore.success('Notes saved');
+		} catch (e) {
+			toastStore.error(e instanceof Error ? `Notes not saved: ${e.message}` : 'Notes not saved');
+		} finally {
+			notesSaving = false;
+		}
+	}
+
 	async function openVisit(id: string, forceOpen = false, selectParameterId: string | null = null) {
 		if (expandedVisit === id && !forceOpen) {
 			expandedVisit = null;
@@ -1542,6 +1625,7 @@
 		visitDetailLoading = true;
 		try {
 			visitDetail = await getCollectionEventDetail(id);
+			notesDraft = visitDetail.notes ?? '';
 			const selected = selectParameterId
 				? visitDetail.cells.find((c) => c.parameter_id === selectParameterId)
 				: null;
@@ -1690,6 +1774,22 @@
 		const selectParam = deepLinkParameter(page.url.searchParams, siteParameters);
 		untrack(() => void openVisit(ev, true, selectParam));
 	});
+
+	// The open visit and its record live in the URL, so Back from anywhere returns to them.
+	$effect(() => {
+		if (!active) return;
+		const eventId = expandedVisit;
+		const parameterId = visitCell?.parameterId ?? null;
+		untrack(() => {
+			const asked = page.url.searchParams.get('event');
+			if (asked && asked !== consumedEventParam) return;
+			const url = new URL(page.url.href);
+			writeVisitParams(url.searchParams, eventId, parameterId);
+			if (url.search === page.url.search) return;
+			consumedEventParam = eventId ?? '';
+			goto(url, { replaceState: true, noScroll: true, keepFocus: true });
+		});
+	});
 </script>
 
 <svelte:window onbeforeunload={warnBeforeUnload} />
@@ -1768,7 +1868,14 @@
 					{/if}
 					{#if me.can('enterFieldData')}
 						<Button size="sm" variant="primary" onclick={() => (newVisitOpen = true)}>New visit</Button>
-						<NewVisitDialog bind:open={newVisitOpen} {siteId} onadded={() => loadVisits()} />
+						<NewVisitDialog
+							bind:open={newVisitOpen}
+							{siteId}
+							onadded={(event) => {
+								landAt([event.id]);
+								void loadVisits();
+							}}
+						/>
 					{/if}
 					<span class="text-sm text-brand-muted">{visits.length} visit{visits.length === 1 ? '' : 's'}{visitsStart || visitsEnd ? ' in range' : ''}</span>
 					<span class="ml-auto flex items-center gap-1">
@@ -1911,6 +2018,40 @@
 							<p class="text-xs text-brand-muted">Loading…</p>
 						{:else if visitDetail}
 							{@const counts = visitCounts(visitDetail.cells)}
+							{@const detailId = visitDetail.id}
+							<div class="mb-3 grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] gap-x-6 gap-y-2 text-sm" data-visit-metadata>
+								<dl class="contents">
+									{#each visitFacts(visitDetail, formatDateTime) as fact (fact.label)}
+										<div class="flex min-w-0 flex-col">
+											<dt class="text-xs text-brand-muted">{fact.label}</dt>
+											<dd class="text-brand-text">{fact.value}</dd>
+										</div>
+									{/each}
+								</dl>
+								<div class="col-span-full flex min-w-0 flex-col gap-1">
+									<label class="text-xs text-brand-muted" for="visit-notes-{detailId}">Notes</label>
+									{#if me.can('writeFieldMetadata')}
+										<textarea
+											id="visit-notes-{detailId}"
+											class="w-full rounded-md border border-brand-divider bg-brand-surface px-3 py-1.5 text-sm text-brand-text"
+											rows="2"
+											placeholder="Conditions, who sampled, anything the values do not say"
+											disabled={notesSaving}
+											bind:value={notesDraft}
+											onblur={() => void saveVisitNotes(detailId)}
+										></textarea>
+										{#if notesChanged(notesDraft, visitDetail.notes)}
+											<div>
+												<Button size="sm" variant="secondary" disabled={notesSaving} onclick={() => void saveVisitNotes(detailId)}
+													>{notesSaving ? 'Saving…' : 'Save notes'}</Button
+												>
+											</div>
+										{/if}
+									{:else}
+										<p id="visit-notes-{detailId}" class="text-brand-text">{visitDetail.notes || '—'}</p>
+									{/if}
+								</div>
+							</div>
 							<div class="mb-2 flex items-center justify-between gap-2">
 								<div class="text-xs text-brand-muted">
 									<span class="font-mono text-brand-text">
@@ -1919,7 +2060,6 @@
 									·
 									{visitSourceLabel(visitDetail.source, visitDetail.created_by)}
 									{#if verificationNoticeFor(visitDetail.unverified, visitDetail.withdrawn_at)}. {verificationNoticeFor(visitDetail.unverified, visitDetail.withdrawn_at)}{/if}
-									{#if visitDetail.notes}· {visitDetail.notes}{/if}
 									{@render calculationBadge(visitDetail.recompute)}
 									{@render visitState(visitDetail.unverified, visitDetail.withdrawn_at)}
 								</div>

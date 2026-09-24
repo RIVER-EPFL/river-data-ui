@@ -2,9 +2,10 @@ import { render, screen, waitFor } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 
 const listJobs = vi.fn();
+const getJob = vi.fn();
 vi.mock('$api/crud', () => ({
 	api: {
-		reprocessingJobs: { list: (q: unknown) => listJobs(q) },
+		reprocessingJobs: { list: (q: unknown) => listJobs(q), get: (id: string) => getJob(id) },
 		sensors: { list: () => Promise.resolve({ data: [] }) },
 		derivedParameters: { list: () => Promise.resolve({ data: [] }) },
 	},
@@ -33,6 +34,7 @@ const queued = {
 describe('JobsPanel', () => {
 	it('offers Cancel on a queued job, which the API honours outright', async () => {
 		listJobs.mockResolvedValue({ data: [queued], total: 1 });
+		getJob.mockResolvedValue(queued);
 		render(JobsPanel, { openJobId: 'job-1' });
 		await waitFor(() => expect(screen.getByText('Cancel')).toBeTruthy());
 	});
@@ -42,5 +44,22 @@ describe('JobsPanel', () => {
 		render(JobsPanel, {});
 		await waitFor(() => expect(screen.getByText('queued')).toBeTruthy());
 		expect(screen.queryByText('pending')).toBeNull();
+	});
+
+	it('opens a linked job that is not on the page the list shows', async () => {
+		listJobs.mockResolvedValue({ data: [], total: 250 });
+		getJob.mockResolvedValue({ ...queued, id: 'job-old' });
+		render(JobsPanel, { openJobId: 'job-old' });
+		await waitFor(() => expect(screen.getByText('Job Detail')).toBeTruthy());
+		expect(getJob).toHaveBeenCalledWith('job-old');
+	});
+
+	it('says so when the linked job cannot be read', async () => {
+		listJobs.mockResolvedValue({ data: [], total: 0 });
+		getJob.mockRejectedValue(new Error('Not found'));
+		render(JobsPanel, { openJobId: 'job-gone' });
+		await waitFor(() =>
+			expect(screen.getByText('The linked job could not be read: Not found')).toBeTruthy(),
+		);
 	});
 });

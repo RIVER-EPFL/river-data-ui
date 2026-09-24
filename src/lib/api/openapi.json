@@ -15979,6 +15979,11 @@
           "point": {
             "$ref": "#/components/schemas/SlotRef",
             "description": "The record it opens, where a stream of the same source at the same site holds it at the\nsame instant."
+          },
+          "stream_id": {
+            "description": "The stream of the same source at the same site that carries the column.",
+            "format": "uuid",
+            "type": "string"
           }
         },
         "required": [

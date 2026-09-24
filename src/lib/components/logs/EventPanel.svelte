@@ -27,6 +27,7 @@
 		detailActions,
 		rowClass,
 		openOnLoad,
+		openOnLoadError = 'The linked entry could not be read',
 	}: {
 		load: (args: { page: number; perPage: number }) => Promise<{ data: T[]; total: number }>;
 		perPage?: number;
@@ -45,14 +46,17 @@
 		detailMaxWidth?: 'sm' | 'md' | 'lg';
 		detail?: Snippet<[T, DetailCtx]>;
 		detailActions?: Snippet<[T, DetailCtx]>;
-		/** The row a deep link asks for, opened once when the page it is on first arrives. */
-		openOnLoad?: (item: T) => boolean;
+		/** The row a deep link asks for, read on its own and opened whatever page or filter is showing. */
+		openOnLoad?: () => Promise<T>;
+		/** What the notice says when the linked row cannot be read. */
+		openOnLoadError?: string;
 	} = $props();
 
 	let items = $state<T[]>([]);
 	let total = $state(0);
 	let loading = $state(true);
 	let error = $state('');
+	let linkError = $state('');
 	let currentPage = $state(1);
 
 	let selected = $state<T | null>(null);
@@ -97,12 +101,17 @@
 		void onOpenDetail?.(item);
 	}
 
-	onMount(async () => {
-		await fetchPage();
-		if (openOnLoad) {
-			const asked = items.find(openOnLoad);
-			if (asked) handleRow(asked);
+	async function openLinked() {
+		if (!openOnLoad) return;
+		try {
+			handleRow(await openOnLoad());
+		} catch (e: unknown) {
+			linkError = `${openOnLoadError}: ${e instanceof Error ? e.message : 'unknown error'}`;
 		}
+	}
+
+	onMount(async () => {
+		await Promise.all([fetchPage(), openLinked()]);
 		if (pollWhile) {
 			pollTimer = setInterval(() => {
 				if (pollWhile(items)) fetchPage();
@@ -122,6 +131,9 @@
 		</div>
 	{/if}
 
+	{#if linkError}
+		<ErrorNotice message={linkError} />
+	{/if}
 	{#if error}
 		<ErrorNotice message={error} />
 	{/if}

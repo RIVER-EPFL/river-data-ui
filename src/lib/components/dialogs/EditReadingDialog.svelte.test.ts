@@ -151,7 +151,13 @@ describe('the edit dialog', () => {
 
 	it('previews a typed corrected value', async () => {
 		inspectEdits.mockResolvedValue({ rows: [row(['value_correction', 'flag'])] });
-		previewEdit.mockResolvedValue({ rows: [] });
+		previewEdit.mockResolvedValue({
+			preview_id: 'preview-1',
+			rows: [],
+			samples: [],
+			calculations: [],
+			not_previewed: [],
+		});
 		render(EditReadingDialog, { open: true, selection });
 		await fireEvent.click(await screen.findByLabelText(/Correct the value/));
 		await fireEvent.input(screen.getByLabelText('Corrected value'), { target: { value: '40' } });
@@ -162,6 +168,7 @@ describe('the edit dialog', () => {
 				reason: undefined,
 			}),
 		);
+		expect(await screen.findByText('Nothing: the readings already stand this way.')).toBeTruthy();
 	});
 
 	// Scenario: an administrator takes a tool-run output away from its calculation.

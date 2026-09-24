@@ -140,7 +140,10 @@
 	// A visit and a chart point belong to their own tab, so leaving it drops them from the URL.
 	function leaveTab(key: string) {
 		return (url: URL) => {
-			if (key !== 'visits') url.searchParams.delete('event');
+			if (key !== 'visits') {
+				url.searchParams.delete('event');
+				url.searchParams.delete('parameter');
+			}
 			if (key !== 'charts') writePointParams(url.searchParams, null);
 		};
 	}

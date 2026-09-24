@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Button from '$components/ui/Button.svelte';
 	import Dialog from '$components/ui/Dialog.svelte';
+	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 
 	// A rollback names what it puts back before it runs: one line per value, from what it holds
 	// now to what it held before.
@@ -45,7 +46,7 @@
 				<p class="text-brand-muted">{note}</p>
 			{/if}
 			{#if error}
-				<p class="text-severity-alarm">{error}</p>
+				<ErrorNotice message={error} />
 			{/if}
 		</div>
 	{/snippet}

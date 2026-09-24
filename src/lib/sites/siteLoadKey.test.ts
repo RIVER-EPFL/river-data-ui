@@ -19,6 +19,12 @@ describe('siteLoadKey', () => {
 		expect(siteLoadKey(SITE, '?tab=visits&event=ev-1')).toBe(siteLoadKey(SITE, '?tab=status'));
 	});
 
+	it('is unchanged when a record opens inside the expanded visit', () => {
+		expect(siteLoadKey(SITE, '?tab=visits&event=ev-1&parameter=doc')).toBe(
+			siteLoadKey(SITE, '?tab=visits&event=ev-1'),
+		);
+	});
+
 	it('changes with the site', () => {
 		expect(siteLoadKey(SITE, POINT)).not.toBe(siteLoadKey('site-2', POINT));
 	});

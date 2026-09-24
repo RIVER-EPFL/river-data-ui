@@ -14212,6 +14212,11 @@ export interface components {
              *     same instant.
              */
             point?: components["schemas"]["SlotRef"];
+            /**
+             * Format: uuid
+             * @description The stream of the same source at the same site that carries the column.
+             */
+            stream_id?: string;
         };
         PreviewDelta: {
             /** Format: double */

@@ -118,7 +118,8 @@ test('a mistaken save over two visits is rolled back one visit at a time', async
 	await expect(inputs.nth(0)).toHaveText(String(ENTERED));
 	await expect(inputs.nth(1)).toHaveText('25');
 	await expect.poll(() => servedAt(seeded.eventId), { timeout: 30_000 }).toBe(ENTERED * 2);
-	expect(await servedAt(earlier.id)).toBe(50);
+	// The earlier visit's own recompute from the save may land after the rollback's.
+	await expect.poll(() => servedAt(earlier.id), { timeout: 30_000 }).toBe(50);
 
 	// After a reload the save's own recovery is gone; the earlier visit's value still carries its
 	// edit on its history, and rolls back from there.

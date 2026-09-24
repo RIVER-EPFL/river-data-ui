@@ -166,7 +166,8 @@
 	emptyText="No jobs"
 	pollWhile={(jobs) => jobs.some((j) => isJobActive(j.status))}
 	onOpenDetail={loadLogs}
-	openOnLoad={openJobId ? (job) => job.id === openJobId : undefined}
+	openOnLoad={openJobId ? () => api.reprocessingJobs.get(openJobId) : undefined}
+	openOnLoadError="The linked job could not be read"
 	detailTitle="Job Detail"
 	detailMaxWidth="sm"
 >

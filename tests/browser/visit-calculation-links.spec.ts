@@ -516,3 +516,33 @@ test('the grid draws its cell states and the brand colours over its own read-onl
 	]);
 	expect(accent).toBe(primary);
 });
+
+// Scenario: a cell selected on the Visits grid, on a visit whose calculation has run and on the new
+// row where nothing has.
+//
+// Expected behaviour: selecting an output lights the inputs its calculation reads, and selecting an
+// input lights the outputs of the calculations that read it, from the site's declared
+// calculations whether or not a stored run recorded what it read.
+test('selecting a cell lights the inputs and outputs its calculation connects it to', async ({
+	page,
+	request,
+}) => {
+	const { siteId, inputName, outputName } = await seedComputedVisit(request);
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
+	await expect(page.getByText('1 visit', { exact: true })).toBeVisible();
+
+	const input = sheetCell(page, new RegExp(`^${inputName} at`));
+	const output = sheetCell(page, new RegExp(`^${outputName} at`));
+	await output.click();
+	await expect(input).toHaveClass(/sheet-reads/);
+	await input.click();
+	await expect(output).toHaveClass(/sheet-read-by/);
+	await expect(input).not.toHaveClass(/sheet-reads/);
+
+	const newInput = sheetCell(page, new RegExp(`^${inputName} on the new row`)).first();
+	const newOutput = sheetCell(page, new RegExp(`^${outputName} on the new row`)).first();
+	await newOutput.click();
+	await expect(newInput).toHaveClass(/sheet-reads/);
+	await expect(input).not.toHaveClass(/sheet-reads/);
+});

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { VisitRow } from '$api/service';
 import {
 	gridRows,
+	landedRow,
 	saveLabel,
 	keptAfterSave,
 	namedInstants,
@@ -16,6 +17,7 @@ import {
 	staging,
 	writableEdits,
 } from './spareRows';
+import { spareId } from './tableEdit';
 
 function visit(id: string, collectedAt: string): VisitRow {
 	return {
@@ -152,5 +154,18 @@ describe('the spare rows under the last visit', () => {
 		expect(saveLabel(0, 1)).toBe('Save 0 values and 1 new visit');
 		expect(saveLabel(0, 0)).toBe('Save 0 values');
 		expect(savedLine(3, 1)).toBe('3 values and 1 new visit saved');
+	});
+});
+
+describe('landedRow', () => {
+	const rows = [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: spareId(0) }];
+
+	it('finds the first listed row among the visits just opened', () => {
+		expect(landedRow(rows, new Set(['c', 'b']))).toBe(1);
+	});
+
+	it('finds nothing while the listing has not caught up', () => {
+		expect(landedRow(rows, new Set(['z']))).toBe(-1);
+		expect(landedRow(rows, new Set())).toBe(-1);
 	});
 });

@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
 import { API_URL, BASE_PATH, postGrab, signIn, token } from './portal';
-import { frozenCell, sheetCell, typeInto } from './sheet';
+import { frozenButton, frozenCell, frozenDate, sheetCell, typeInto } from './sheet';
 
 // Scenario: a field day is pasted into the Visits table from a spreadsheet, under the last visit
 // the site holds. Expected behaviour: the dated rows stage their own visits, say so before Save,
@@ -152,7 +152,8 @@ test('a row added by hand opens a visit at the date typed into it', async ({ pag
 	const before = await more.boundingBox();
 	await more.click();
 	await more.click();
-	expect(await more.boundingBox()).toEqual(before);
+	// The corner is redrawn on each add, so the box is read once the new plus is in place.
+	await expect.poll(() => more.boundingBox()).toEqual(before);
 	await typeInto(page, frozenCell(page, 2), when);
 
 	const save = page.getByRole('button', { name: /^Save / });
@@ -162,6 +163,17 @@ test('a row added by hand opens a visit at the date typed into it', async ({ pag
 	await dialog.getByRole('button', { name: 'Save', exact: true }).click();
 	await expect(dialog).toBeHidden();
 	await expect(page.getByText('2 visits', { exact: true })).toBeVisible();
+
+	// The visit it opened takes notes in its panel, as one made from the New visit dialog does.
+	await frozenButton(page, { name: frozenDate(new Date(`${when}T00:00:00`)) }).click();
+	const notes = page.getByLabel('Notes', { exact: true });
+	await notes.fill('Snow on the bank');
+	await notes.blur();
+	await expect(page.getByText('Notes saved')).toBeVisible();
+
+	// The open visit is in the URL, so the reload opens it again.
+	await page.reload();
+	await expect(page.getByLabel('Notes', { exact: true })).toHaveValue('Snow on the bank');
 });
 
 test.describe('a browser in Tokyo', () => {

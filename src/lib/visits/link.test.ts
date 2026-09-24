@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { deepLinkParameter, visitHref } from "./link";
+import { deepLinkParameter, visitHref, writeVisitParams } from "./link";
 
 const siteParameters = [
   { id: "sp-doc", parameter_id: "doc" },
@@ -47,5 +47,37 @@ describe("deepLinkParameter", () => {
     expect(
       deepLinkParameter(new URLSearchParams("event=e"), siteParameters),
     ).toBeNull();
+  });
+});
+
+describe("writeVisitParams", () => {
+  function written(search: string, event: string | null, parameter: string | null) {
+    const params = new URLSearchParams(search);
+    writeVisitParams(params, event, parameter);
+    return params.toString();
+  }
+
+  it("names the open visit and its record beside the tab", () => {
+    expect(written("tab=visits", "e1", "doc")).toBe(
+      "tab=visits&event=e1&parameter=doc",
+    );
+  });
+
+  it("names the visit alone when no record is open", () => {
+    expect(written("tab=visits&event=e0&parameter=doc", "e1", null)).toBe(
+      "tab=visits&event=e1",
+    );
+  });
+
+  it("drops the visit and its record when the visit closes", () => {
+    expect(written("tab=visits&event=e1&parameter=doc", null, null)).toBe(
+      "tab=visits",
+    );
+  });
+
+  it("replaces a site-parameter link with the parameter it resolved to", () => {
+    expect(written("tab=visits&event=e1&point=sp-doc", "e1", "doc")).toBe(
+      "tab=visits&event=e1&parameter=doc",
+    );
   });
 });

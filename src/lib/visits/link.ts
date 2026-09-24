@@ -26,3 +26,16 @@ export function deepLinkParameter(
   const point = params.get("point");
   return siteParameters.find((s) => s.id === point)?.parameter_id ?? null;
 }
+
+/** The open visit and the record open in it, written into the Visits tab's URL. */
+export function writeVisitParams(
+  params: URLSearchParams,
+  eventId: string | null,
+  parameterId: string | null,
+): void {
+  params.delete("point");
+  if (eventId) params.set("event", eventId);
+  else params.delete("event");
+  if (eventId && parameterId) params.set("parameter", parameterId);
+  else params.delete("parameter");
+}

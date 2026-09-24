@@ -199,3 +199,8 @@ export function racedRows(
 		spares.filter((s) => s.collectedAt !== null && stood.has(s.collectedAt)).map((s) => s.id),
 	);
 }
+
+/** The first grid row holding one of the visits a save or the New visit dialog just opened, or -1. */
+export function landedRow(rows: readonly { id: string }[], opened: ReadonlySet<string>): number {
+	return rows.findIndex((row) => opened.has(row.id));
+}

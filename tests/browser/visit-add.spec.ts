@@ -118,3 +118,51 @@ test('a visit typed in an overridden zone is stored at the instant that zone nam
 	expect(stored.ok()).toBeTruthy();
 	expect(new Date((await stored.json()).collected_at).toISOString()).toBe(`${wall}:00.000Z`);
 });
+
+test('a visit picked from a new row lands on its own row, scrolled to and flashed', async ({
+	page,
+	request,
+}) => {
+	const { siteId } = await seedSite(request);
+	const headers = { Authorization: `Bearer ${await token(request)}` };
+	const daysAgo = (n: number, hour: number) => {
+		const d = new Date();
+		d.setDate(d.getDate() - n);
+		d.setHours(hour, 0, 0, 0);
+		return d;
+	};
+	const staged = await request.post(`${API_URL}/api/collection_events/stage_many`, {
+		headers,
+		data: {
+			visits: Array.from({ length: 40 }, (_, n) => ({
+				site_id: siteId,
+				collected_at: daysAgo(n + 1, 9).toISOString(),
+			})),
+		},
+	});
+	expect(staged.ok(), `stage_many -> ${staged.status()}`).toBeTruthy();
+
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/sites/${siteId}?tab=visits`);
+	await expect(page.getByText('40 visits', { exact: true })).toBeVisible();
+
+	// The empty new row under the listing carries the calendar, at the foot of the table.
+	await frozenButton(page, { name: 'Pick the date of a new visit' }).first().click();
+
+	// A date older than the newest, so the visit lands mid-table rather than at the top.
+	const picked = daysAgo(20, 15);
+	const dialog = page.getByRole('dialog');
+	const pad = (n: number) => String(n).padStart(2, '0');
+	await dialog
+		.getByLabel('Date and time, row 1')
+		.fill(`${picked.getFullYear()}-${pad(picked.getMonth() + 1)}-${pad(picked.getDate())}T15:00`);
+	await dialog.getByRole('button', { name: 'Add visit' }).click();
+	await expect(dialog.getByRole('link', { name: 'Open the visit' })).toHaveCount(1);
+	await dialog.getByRole('button', { name: 'Done' }).click();
+
+	await expect(page.getByText('41 visits', { exact: true })).toBeVisible();
+	const landed = frozenButton(page, { name: frozenDate(picked) });
+	await expect(landed).toBeInViewport();
+	await expect(page.locator('.ht_clone_inline_start td.sheet-landed')).toHaveCount(1);
+	await expect(page.locator('.ht_clone_inline_start td.sheet-landed')).toContainText(frozenDate(picked));
+});
