@@ -36,6 +36,8 @@ export interface SheetRow {
 	aggregateOf?: string | null;
 	/** On an input that is not typed at a visit, what supplies it. */
 	tag?: FixedSource;
+	/** On an input, every formula reads it through a guard, so a visit without it still runs. */
+	optional?: boolean;
 	cells: RunCell[];
 }
 
@@ -188,6 +190,7 @@ export function sheetBlocks(
 			unused,
 			replicated: band === 'replicated',
 			...(TAG_OF_KIND[kind] ? { tag: TAG_OF_KIND[kind] } : {}),
+			...(input?.optional && band !== 'fixed' ? { optional: true } : {}),
 			cells: input ? withTyped(input, cells, typed) : cells,
 		} satisfies SheetRow;
 	};

@@ -24,6 +24,7 @@ export const DECISION_KINDS = [
 	'curve_recompose',
 	'derived_computed',
 	'reprocess',
+	'retag',
 	'rollback',
 ] as const;
 
@@ -53,6 +54,7 @@ const LABELS: Record<DecisionKind, string> = {
 	curve_recompose: 'Recomposed from the curves it names',
 	derived_computed: 'Computed where nothing was stored',
 	reprocess: 'Re-derived by a reprocess',
+	retag: 'Reclassified by a retag',
 	rollback: 'Rolled back',
 };
 
@@ -81,6 +83,7 @@ const FIELD_LABELS: Record<string, string> = {
 	parameter_id: 'Parameter',
 	run_id: 'Tool run',
 	derived_version_id: 'Formula version',
+	measurement_type: 'Measurement type',
 };
 
 export function fieldLabel(field: string): string {

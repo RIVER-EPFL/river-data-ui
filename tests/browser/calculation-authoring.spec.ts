@@ -123,7 +123,12 @@ async function addFormula(
 	formula: { code: string; name: string; units: string; text: string; curveSlot?: string },
 ) {
 	await page.getByRole('button', { name: 'Add output', exact: true }).click();
-	await page.getByRole('textbox', { name: 'Code' }).fill(formula.code);
+	// Key by key: each keystroke renames the row, which is what a single fill() never shows.
+	const code = page.getByRole('textbox', { name: 'Code' });
+	await code.click();
+	await code.pressSequentially(formula.code);
+	await expect(code).toBeFocused();
+	await expect(code).toHaveValue(formula.code);
 	await page.getByRole('textbox', { name: 'Name', exact: true }).fill(formula.name);
 	await page.getByRole('textbox', { name: 'Units' }).fill(formula.units);
 	// The slot is declared before the formula is typed: the two coefficients it binds are unknown
@@ -726,4 +731,62 @@ test('an R tool is authored on the page and run at a visit and on a typed value'
 	await x.fill('3');
 	await preview.getByRole('button', { name: 'Run', exact: true }).click();
 	await expect(preview.getByRole('row', { name: 'y 6', exact: true })).toBeVisible();
+});
+
+// Scenario: an author adds a step to a calculation open at a visit and types its code, then its
+// formula, at the pace a person types, so the page's rerun fires between keystrokes.
+//
+// Expected behaviour: the half-written row is not sent to the run, so no refusal appears over the
+// tables and the field keeps the keyboard.
+test('a step and an output typed at a person\'s pace are not run until they are written', async ({ page, request }) => {
+	const { calculationId, siteId, visitId, inputCode } = await seedVisitCalculation(request);
+	const ownership: string[] = [];
+	page.on('console', (message) => {
+		if (message.text().includes('ownership_invalid_mutation')) ownership.push(message.text());
+	});
+	await page.setViewportSize({ width: 1600, height: 1080 });
+	await signIn(page);
+	await page.goto(`${BASE_PATH}/toolbox/${calculationId}?site=${siteId}&visit=${visitId}`);
+	await expect(calculationCell(page, inputCode)).toContainText(String(ENTERED_INPUT));
+
+	await page.getByRole('button', { name: 'Add step', exact: true }).first().click();
+	const code = page.getByRole('textbox', { name: 'Code' });
+	await code.click();
+	// Past the page's 400 ms settle, so every pause is a run.
+	await code.pressSequentially('typed_step', { delay: 500 });
+	await expect(code).toBeFocused();
+	await expect(code).toHaveValue('typed_step');
+	await page.getByPlaceholder('Type formula directly').pressSequentially(`${inputCode} +`, { delay: 50 });
+	await page.waitForTimeout(1000);
+	await expect(page.getByText('Invalid formula')).toHaveCount(0);
+	await page.getByPlaceholder('Type formula directly').pressSequentially(' 3');
+	await expect(calculationCell(page, 'typed_step')).toContainText(String(ENTERED_INPUT + 3));
+	await expect(page.getByText('Invalid formula')).toHaveCount(0);
+
+	// An output goes the same way, and nothing above the tables moves under the author while a
+	// name is half typed and the formula does not yet parse.
+	const outputs = page.getByRole('region', { name: 'Outputs', exact: true });
+	const top = async () => (await outputs.boundingBox())?.y;
+	await page.getByRole('button', { name: 'Add output', exact: true }).click();
+	await code.click();
+	const settled = await top();
+	await code.pressSequentially('typed_output', { delay: 500 });
+	await expect(code).toBeFocused();
+	await expect(code).toHaveValue('typed_output');
+	expect(await top()).toBe(settled);
+	const formula = page.getByPlaceholder('Type formula directly');
+	// Reaching the formula field scrolls the page to it, as it would for a person.
+	await formula.click();
+	const typing = await top();
+	for (const ch of 'typed_step *') {
+		await page.keyboard.type(ch);
+		await page.waitForTimeout(450);
+		expect(await top()).toBe(typing);
+	}
+	await expect(page.getByText('Invalid formula')).toHaveCount(0);
+	await formula.pressSequentially(' 2');
+	await expect(calculationCell(page, 'typed_output')).toContainText(String((ENTERED_INPUT + 3) * 2));
+	await expect(page.getByText('Invalid formula')).toHaveCount(0);
+	expect(await top()).toBe(typing);
+	expect(ownership).toEqual([]);
 });

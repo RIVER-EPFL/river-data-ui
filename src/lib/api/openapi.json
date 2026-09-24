@@ -9845,6 +9845,7 @@
           "curve_recompose",
           "derived_computed",
           "reprocess",
+          "retag",
           "rollback"
         ],
         "type": "string"
@@ -25007,7 +25008,15 @@
               "null"
             ]
           },
-          "errors": {},
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "event_type": {
             "type": "string"
           },
@@ -25015,7 +25024,15 @@
             "format": "uuid",
             "type": "string"
           },
-          "log": {},
+          "log": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "readings_skipped": {
             "description": "Readings the cycle sent that ingest admission dropped.",
             "format": "int64",
@@ -25081,7 +25098,15 @@
               "null"
             ]
           },
-          "errors": {},
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "event_type": {
             "type": "string"
           },
@@ -25089,7 +25114,15 @@
             "format": "uuid",
             "type": "string"
           },
-          "log": {},
+          "log": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "readings_skipped": {
             "description": "Readings the cycle sent that ingest admission dropped.",
             "format": "int64",

@@ -289,6 +289,13 @@
 			tag.textContent = row.tag;
 			td.append(tag);
 		}
+		if (column === 0 && row.optional) {
+			const tag = document.createElement('span');
+			tag.className = 'sheet-tag';
+			tag.textContent = 'optional';
+			tag.title = 'read only through a guard such as coalesce; a visit without it still runs';
+			td.append(tag);
+		}
 		if (column === 0 && row.replicated) {
 			const mark = document.createElement('span');
 			mark.className = 'sheet-replicated';

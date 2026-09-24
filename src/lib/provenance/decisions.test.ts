@@ -24,6 +24,8 @@ const KINDS = [
 	'chain',
 	'detach',
 	'return',
+	'reprocess',
+	'retag',
 	'rollback',
 ];
 

@@ -54,6 +54,15 @@ describe('formula lint', () => {
 		expect(lintFormula('round(Dissolved_O2) * Field_BP', known)).toEqual([]);
 	});
 
+	it('names an operator left without its operand, which the server refuses as a missing argument', () => {
+		const missing = { kind: 'missing_operand', message: 'an operator or a comma has nothing after it' };
+		expect(lintFormula('Dissolved_O2 +', known)).toEqual([missing]);
+		expect(lintFormula('(Field_BP * ) / 2', known)).toEqual([missing]);
+		expect(lintFormula('max(Field_BP, )', known)).toEqual([missing]);
+		// A formula not yet begun is not a malformed one.
+		expect(lintFormula('', known)).toEqual([]);
+	});
+
 	it('counts a function\'s arguments, and leaves the variadic ones alone', () => {
 		expect(lintFormula('if(gt(Dissolved_O2, 1), 2)', known)).toEqual([
 			{

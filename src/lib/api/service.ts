@@ -585,13 +585,7 @@ export interface SourceAuditReport {
 	};
 }
 
-// `errors` and `log` are jsonb arrays of lines. The generated schema types them `{}`, because
-// EntityToModels drops the `#[schema(value_type = ...)]` that would say so (C271); until that
-// lands, the two fields are declared here.
-export type SyncEvent = Omit<components['schemas']['SyncEventResponse'], 'errors' | 'log'> & {
-	errors?: string[] | null;
-	log?: string[] | null;
-};
+export type SyncEvent = components['schemas']['SyncEventResponse'];
 
 export type SyncServiceCredential = components['schemas']['SyncServiceCredentialResponse'];
 
@@ -1532,8 +1526,25 @@ export interface SavedFormula {
 	intermediate: boolean;
 }
 
+/**
+ * A shared step written with the set: one declared here and corrected, or one of this
+ * calculation's own marked shared. No `id` is a step the save creates.
+ */
+export interface SavedSharedStep {
+	id: string | null;
+	code: string;
+	name: string;
+	units: string;
+	description: string | null;
+	formula: string;
+	per_replicate: string | null;
+	curve_slot: string | null;
+}
+
 export interface FormulaSetSave {
 	formulas: SavedFormula[];
+	/** Written in the same transaction as the set, so the save's one version holds them. */
+	shared_steps: SavedSharedStep[];
 	/**
 	 * What happens to the values the version being replaced produced. `false` leaves them on that
 	 * version; `true` recomputes every visit it produced values at under the new one.

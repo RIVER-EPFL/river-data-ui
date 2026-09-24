@@ -17,6 +17,7 @@ import {
 	draftRunBody,
 	formulaVariables,
 	inputRows,
+	readOnlyThroughGuards,
 	outputRows,
 	parseReplicates,
 	drawable,
@@ -58,6 +59,55 @@ const set = [
 ];
 
 describe('inputs of a formula set', () => {
+	// pco2real reads the lab's temperature and pressure only through coalesce, falling back to the
+	// lab averages, so a visit without them still computes.
+	const pco2 = [
+		formula({
+			id: 'p',
+			code: 'pCO2_real',
+			formula:
+				'lab_co2_co2ppm * coalesce(lab_co2_lab_press / 1013.25, lab_press_avg_atm) / (coalesce(lab_co2_lab_temp, lab_temp_avg_degC) + WTW_Temp_degC_1)',
+			ordinal: 1,
+		}),
+	];
+	const pco2Catalog = [
+		parameter('lab_co2_co2ppm', 'CO2 ppm'),
+		parameter('lab_co2_lab_press', 'Lab pressure'),
+		parameter('lab_co2_lab_temp', 'Lab temperature'),
+		parameter('WTW_Temp_degC_1', 'Water temperature'),
+	];
+
+	it('marks an input read only through coalesce optional and the rest required', () => {
+		const rows = inputRows(pco2, pco2Catalog, [constant('lab_press_avg_atm', 0.94), constant('lab_temp_avg_degC', 21)]);
+		const optional = Object.fromEntries(rows.map((r) => [r.name, r.optional]));
+		expect(optional).toMatchObject({
+			lab_co2_co2ppm: false,
+			WTW_Temp_degC_1: false,
+			lab_co2_lab_press: true,
+			lab_co2_lab_temp: true,
+		});
+	});
+
+	it('requires an input a second formula reads outside a guard', () => {
+		const rows = inputRows(
+			[...pco2, formula({ id: 'q', code: 'press_atm', formula: 'lab_co2_lab_press / 1013.25', ordinal: 2 })],
+			pco2Catalog,
+			[],
+		);
+		expect(rows.find((r) => r.name === 'lab_co2_lab_press')?.optional).toBe(false);
+		expect(rows.find((r) => r.name === 'lab_co2_lab_temp')?.optional).toBe(true);
+	});
+
+	it('reads a guard the way the server does', () => {
+		expect(readOnlyThroughGuards('coalesce(x, 1)', 'x')).toBe(true);
+		expect(readOnlyThroughGuards('if(is_missing(x), 0, x * 2)', 'x')).toBe(true);
+		expect(readOnlyThroughGuards('coalesce(x, 1) + x', 'x')).toBe(false);
+		expect(readOnlyThroughGuards('sqrt(x)', 'x')).toBe(false);
+		expect(readOnlyThroughGuards('x', 'x')).toBe(false);
+		// Not read at all is not a guarded read.
+		expect(readOnlyThroughGuards('coalesce(y, 1)', 'x')).toBe(false);
+	});
+
 	it('classifies what the set reads and who reads it', () => {
 		const rows = inputRows(
 			set,
@@ -176,10 +226,14 @@ describe('what the chart draws, being a guide', () => {
 		const rows = [
 			formula({ code: 'good', formula: 'a + b', ordinal: 1 }),
 			formula({ code: 'typing', formula: 'a a', ordinal: 2 }),
+			formula({ code: 'operand', formula: 'a +', ordinal: 3 }),
 		];
 		const { draw, skipped } = drawable(rows, site);
 		expect(draw.map((f) => f.code)).toEqual(['good']);
-		expect(skipped).toEqual([{ code: 'typing', reason: 'still being written' }]);
+		expect(skipped).toEqual([
+			{ code: 'typing', reason: 'still being written' },
+			{ code: 'operand', reason: 'still being written' },
+		]);
 	});
 
 	it('leaves out a formula reading what the site does not measure, and names it', () => {
@@ -232,6 +286,16 @@ describe('a run at a visit', () => {
 			vaisala: { standard_curve_id: 'curve-1' },
 		});
 		expect(body.inputs).toMatchObject({ vaisala: { standard_curve_id: 'curve-1' } });
+	});
+
+	it('leaves out a row whose code or formula is still being typed', () => {
+		const rows = [
+			...set,
+			formula({ id: null, code: 'lab_e', formula: '', ordinal: 3 }),
+			formula({ id: null, code: '', formula: 'a + 1', ordinal: 4 }),
+		];
+		const visit = { siteId: 's1', collectedAt: '2025-07-02T09:00:00Z' };
+		expect(draftRunBody(rows, visit, {}).formulas).toEqual(draftRunBody(set, visit, {}).formulas);
 	});
 
 	it('sends nothing for a slot no curve was chosen for', () => {
@@ -493,6 +557,25 @@ describe('a step any calculation may read', () => {
 			'WTW_Temp_degC_1 + 273.16',
 		]);
 		expect(formulaSetBody([corrected], false).formulas).toEqual([]);
+	});
+
+	it('travels in the set save, so the correction and the version are one act', () => {
+		const declared = step({ id: 'f-1', shared: true, declarationId: 'd-1' });
+		const corrected = { ...declared, formula: 'WTW_Temp_degC_1 + 273.16', units: ' K ' };
+		expect(formulaSetBody([corrected], true, [declared]).shared_steps).toEqual([
+			{
+				id: 'f-1',
+				code: 'water_k',
+				name: 'water_k',
+				units: 'K',
+				description: null,
+				formula: 'WTW_Temp_degC_1 + 273.16',
+				per_replicate: null,
+				curve_slot: null,
+			},
+		]);
+		expect(formulaSetBody([declared], true, [declared]).shared_steps).toEqual([]);
+		expect(formulaSetBody([step({ shared: true })], false).shared_steps.map((s) => s.id)).toEqual([null]);
 	});
 
 	it('returns to the set, under its id, when the author stops sharing a declared step', () => {

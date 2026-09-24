@@ -52,6 +52,11 @@
 	);
 	const ready = $derived(guide.draw);
 	const notDrawn = $derived(guide.skipped);
+	const notDrawnText = $derived(
+		notDrawn.length > 0
+			? `Not drawing ${notDrawn.map((row) => `${row.code} (${row.reason})`).join(', ')}.`
+			: ''
+	);
 
 	// The span the read parameters cover at the site: every range ends where the data does, so a
 	// grab-sampled site draws its visits rather than an empty recent window.
@@ -176,6 +181,8 @@
 <div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
 	<div class="flex items-center justify-between gap-3 px-3 py-2 border-b border-brand-divider bg-brand-bg flex-wrap">
 		<span class="text-xs font-semibold text-brand-muted uppercase tracking-wider">Live preview</span>
+		<!-- One line in the header, so a row coming and going from the draw does not move the page. -->
+		<span class="min-w-0 flex-1 truncate text-xs text-brand-muted" title={notDrawnText}>{notDrawnText}</span>
 
 		<div class="flex gap-0.5">
 			{#each RANGES as r (r)}
@@ -211,12 +218,6 @@
 					<p class="text-xs text-severity-warning mt-2">{errorCount} of {sampleCount} samples produced errors.</p>
 				{/if}
 			{/if}
-		{/if}
-		{#if notDrawn.length > 0}
-			<p class="text-xs text-brand-muted mt-2">
-				Not drawing
-				{#each notDrawn as row, i (row.code)}{i > 0 ? ', ' : ''}<span class="font-mono">{row.code}</span> ({row.reason}){/each}.
-			</p>
 		{/if}
 	</div>
 </div>

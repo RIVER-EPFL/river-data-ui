@@ -46,7 +46,6 @@
 		scalarOverrides,
 		seriesBlocker,
 		setOutputs,
-		sharedStepWrites,
 		thresholdWrites,
 		type EditableFormula,
 	} from '$lib/calculations/editor';
@@ -208,11 +207,17 @@
 	const readsAtSite = $derived(
 		inputs.filter((i) => i.kind === 'parameter' || i.kind === 'replicates').map((i) => i.name),
 	);
-	// The sites to offer: only those measuring everything the set reads, since a run anywhere else
-	// has an input missing.
-	const siteChoices = $derived(fullReach(rankByReach(sitesWithAvailability, readsAtSite)));
+	/** What a site or visit must hold for the set to run: an optional input has its fallback. */
+	const requiredAtSite = $derived(
+		inputs
+			.filter((i) => !i.optional && (i.kind === 'parameter' || i.kind === 'replicates'))
+			.map((i) => i.name),
+	);
+	// The sites to offer: only those measuring everything the set requires, since a run anywhere
+	// else has an input missing.
+	const siteChoices = $derived(fullReach(rankByReach(sitesWithAvailability, requiredAtSite)));
 	const readIds = $derived(
-		readsAtSite
+		requiredAtSite
 			.map((code) => parameters.find((p) => p.code === code)?.id)
 			.filter((id): id is string => !!id),
 	);
@@ -284,6 +289,8 @@
 		}),
 	);
 	const stale = $derived(recorded === null && run !== null && ranAt < scheduled);
+	// Said on the disabled save rather than in the bar, whose height the sheet sits under.
+	const saveBlocked = $derived(diagnostics.length > 0 ? 'Put right what the formula says wrong first' : undefined);
 
 	const selectedRow = $derived(
 		selected
@@ -561,39 +568,6 @@
 	}
 
 	/**
-	 * Write the whole formula set as one version. The arm says what happens to the values the
-	 * version being replaced produced: left where they are, or recomputed under the new one.
-	 */
-	/**
-	 * Write the steps the author marked shared or corrected, before the set save leaves them out. A
-	 * step with an id is written in place, so what already reads it goes on reading it; one without
-	 * is created. Either way this calculation reads it through a declaration afterwards.
-	 */
-	async function writeSharedSteps() {
-		for (const step of sharedStepWrites(formulas, stored)) {
-			const values = {
-				code: step.code.trim(),
-				name: step.name.trim() || step.code.trim(),
-				units: step.units.trim(),
-				description: step.description.trim() || undefined,
-				formula: step.formula,
-				per_replicate: step.per_replicate.trim() || null,
-				curve_slot: step.curve_slot.trim() || null,
-				intermediate: true,
-				tool_script_id: null,
-			};
-			const written = step.id
-				? await api.derivedParameters.update(step.id, values)
-				: await api.derivedParameters.create(values);
-			if (step.declarationId) continue;
-			await api.calculationSharedSteps.create({
-				tool_script_id: calculationId,
-				formula_id: written.id,
-			});
-		}
-	}
-
-	/**
 	 * The bounds the author typed, onto the output parameters the saved set gives them. A create
 	 * only learns its parameter from the after-create hook, so this runs on the set the save wrote.
 	 */
@@ -614,14 +588,18 @@
 		}
 	}
 
+	/**
+	 * Write the whole formula set as one version, with the shared steps the author marked or
+	 * corrected. The arm says what happens to the values the version being replaced produced: left
+	 * where they are, or recomputed under the new one.
+	 */
 	async function saveSet(migrate: boolean) {
 		if (diagnostics.length > 0 || !unsaved) return;
 		busy = true;
 		try {
-			await writeSharedSteps();
 			const edited = formulas;
 			const before = stored;
-			const res = await saveFormulaSet(calculationId, formulaSetBody(formulas, migrate));
+			const res = await saveFormulaSet(calculationId, formulaSetBody(formulas, migrate, stored));
 			givenUp = res.given_up ?? [];
 			await writeBounds(edited, before);
 			await load();
@@ -823,9 +801,17 @@
 		]),
 	);
 	let lastSignature = '';
-	// A change reruns the draft once it has settled, rather than on every keystroke.
+	// A change reruns the draft once it has settled, rather than on every keystroke, and waits while
+	// the formula being typed does not parse.
 	$effect(() => {
 		const next = runSignature;
+		if (diagnostics.length > 0) {
+			// A run already waiting was scheduled for text that has since stopped parsing.
+			if (rerunTimer) clearTimeout(rerunTimer);
+			rerunTimer = null;
+			lastSignature = '';
+			return;
+		}
 		if (loading || next === lastSignature) return;
 		lastSignature = next;
 		if (ordered.length === 0) return;
@@ -925,17 +911,17 @@
 							<!-- A set holding an input between visits is not what an author assumes, so the
 							     caveat is passed before the save rather than found afterwards. -->
 							<ConfirmPopover message={holdCaveat} confirmLabel="Save as a new version" onconfirm={() => saveSet(false)}>
-								<Button size="sm" variant="primary" loading={busy} disabled={busy || diagnostics.length > 0}>Save as a new version</Button>
+								<Button size="sm" variant="primary" loading={busy} disabled={busy || diagnostics.length > 0} title={saveBlocked}>Save as a new version</Button>
 							</ConfirmPopover>
 							{#if supersedes}
 								<ConfirmPopover message={holdCaveat} confirmLabel="Save and recompute" onconfirm={() => saveSet(true)}>
-									<Button size="sm" loading={busy} disabled={busy || diagnostics.length > 0}>Save and recompute</Button>
+									<Button size="sm" loading={busy} disabled={busy || diagnostics.length > 0} title={saveBlocked}>Save and recompute</Button>
 								</ConfirmPopover>
 							{/if}
 						{:else}
-							<Button size="sm" variant="primary" loading={busy} disabled={busy || diagnostics.length > 0} onclick={() => saveSet(false)}>Save as a new version</Button>
+							<Button size="sm" variant="primary" loading={busy} disabled={busy || diagnostics.length > 0} title={saveBlocked} onclick={() => saveSet(false)}>Save as a new version</Button>
 							{#if supersedes}
-								<Button size="sm" loading={busy} disabled={busy || diagnostics.length > 0} onclick={() => saveSet(true)}>Save and recompute</Button>
+								<Button size="sm" loading={busy} disabled={busy || diagnostics.length > 0} title={saveBlocked} onclick={() => saveSet(true)}>Save and recompute</Button>
 							{/if}
 						{/if}
 					{:else}
@@ -953,9 +939,6 @@
 			{/if}
 			{#if holdCaveat}
 				<p class="text-xs text-severity-warning">{holdCaveat}</p>
-			{/if}
-			{#if diagnostics.length > 0}
-				<p class="text-xs text-brand-muted">Put right what the formula says wrong first.</p>
 			{/if}
 		</div>
 
@@ -1063,7 +1046,7 @@
 				bind:this={cellPanel}
 				row={selectedRow}
 				selection={selected}
-				formula={picked}
+				bind:formula={picked}
 				{formulas}
 				variables={paramVars}
 				{constants}

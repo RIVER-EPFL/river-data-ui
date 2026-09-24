@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 	import noUiSlider, { PipsMode, type API, type Options } from 'nouislider';
 	import 'nouislider/dist/nouislider.css';
 	import { tokens } from '$lib/charts/tokens';
@@ -111,6 +111,11 @@
 		});
 
 		slider = (el as any).noUiSlider!;
+		// The step snaps an instant off it, and a range that disagrees with the slider is set again
+		// by the sync below, which locks the handles for the animation.
+		const [snappedStart, snappedEnd] = (slider!.get() as string[]).map(Number);
+		if (snappedStart !== start) start = snappedStart;
+		if (snappedEnd !== end) end = snappedEnd;
 		slider!.on('change', (values: (string | number)[]) => {
 			if (suppressUpdate) return;
 			start = Number(values[0]);
@@ -135,8 +140,12 @@
 		});
 	}
 
-	// Re-init on a timezone-preference toggle so the pip labels and tooltips (baked in at create) refresh.
-	$effect(() => { void timezoneStore.zone; if (el && min < max) initSlider(); });
+	// Re-init on new bounds or a timezone-preference toggle, so the range, pip labels and tooltips
+	// (baked in at create) refresh. The range the slider reports is not a reason to rebuild it.
+	$effect(() => {
+		void timezoneStore.zone;
+		if (el && min < max) untrack(initSlider);
+	});
 
 	$effect(() => {
 		if (slider && start && end) {

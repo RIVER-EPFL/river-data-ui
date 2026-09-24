@@ -3,7 +3,7 @@ import type { Constant, DerivedParameter, Parameter } from '$api/crud';
 import type { FormulaDraft, FormulaDraftRunRequest, FormulaSetSave, ToolOutput } from '$api/service';
 import { toNum, type ThresholdForm, type ThresholdPatch } from '$lib/derivedParameters';
 import { CURVE_VARIABLES, FORMULA_CONSTANTS, FORMULA_FUNCTIONS, identifiers } from '$lib/formula/lint';
-import { unparsed } from '$components/formula/ast';
+import { hasGap, parseFromMeval, unparsed } from '$components/formula/ast';
 import { heldOf } from '$lib/calculations/heldInputs';
 
 // A calculation as one page holds it: the formulas in order, what they read, what they publish,
@@ -179,12 +179,26 @@ export function dependencyOrder<T extends { ordinal: number; code: string; formu
 /**
  * The set-level save's body: this calculation's own formulas, trimmed, and what happens to the
  * values the version being replaced produced. A shared step belongs to no calculation, so it is
- * left out and the save neither rewrites nor deletes it, whether it was already declared here or
- * the author has just marked it shared. A formula the author removed is left out too, which is how
- * the save deletes it.
+ * left out of the set and the save neither rewrites nor deletes it; the steps the author marked
+ * shared or corrected against `stored` travel beside it and are written in the same save. A formula
+ * the author removed is left out too, which is how the save deletes it.
  */
-export function formulaSetBody(formulas: EditableFormula[], migrate: boolean): FormulaSetSave {
+export function formulaSetBody(
+	formulas: EditableFormula[],
+	migrate: boolean,
+	stored: EditableFormula[] = [],
+): FormulaSetSave {
 	return {
+		shared_steps: sharedStepWrites(formulas, stored).map((f) => ({
+			id: f.id,
+			code: f.code.trim(),
+			name: f.name.trim() || f.code.trim(),
+			units: f.units.trim(),
+			description: f.description.trim() || null,
+			formula: f.formula,
+			per_replicate: f.per_replicate.trim() || null,
+			curve_slot: f.curve_slot.trim() || null,
+		})),
 		formulas: formulas
 			.filter((f) => !isSharedStep(f))
 			.map((f) => ({
@@ -240,7 +254,7 @@ export function drawable<T extends { code: string; formula: string }>(
 	]);
 	for (const formula of previewable(formulas)) {
 		const code = formula.code.trim();
-		if (unparsed(formula.formula) !== '') {
+		if (unparsed(formula.formula) !== '' || hasGap(parseFromMeval(formula.formula))) {
 			skipped.push({ code, reason: 'still being written' });
 			continue;
 		}
@@ -272,9 +286,64 @@ export interface InputRow {
 	detail: string;
 	/** The formulas naming it, by code. */
 	readBy: string[];
+	/** Every formula reads it only through a guard, so a visit without it still runs. */
+	optional: boolean;
 }
 
 const LANGUAGE = new Set<string>([...Object.keys(FORMULA_FUNCTIONS), ...FORMULA_CONSTANTS]);
+
+/** The functions a missing value may pass through, as the server's `NAN_TOLERANT_GUARDS`. */
+const NAN_TOLERANT_GUARDS = new Set([
+	'if',
+	'and',
+	'or',
+	'not',
+	'lt',
+	'le',
+	'gt',
+	'ge',
+	'eq',
+	'ne',
+	'coalesce',
+	'is_missing',
+]);
+
+/**
+ * Whether every read of `variable` in `formula` sits inside the arguments of a guard function, as
+ * the server's `read_only_through_guards` decides it: a visit without the value binds it as NaN
+ * and the formula still runs, where any other read skips the formula.
+ */
+export function readOnlyThroughGuards(formula: string, variable: string): boolean {
+	const guarded: boolean[] = [];
+	let pending: string | null = null;
+	let read = false;
+	let i = 0;
+	while (i < formula.length) {
+		const c = formula[i]!;
+		if (/[\p{L}\p{N}_]/u.test(c)) {
+			const start = i;
+			while (i < formula.length && /[\p{L}\p{N}_]/u.test(formula[i]!)) i++;
+			pending = formula.slice(start, i);
+			continue;
+		}
+		if (c === '(') {
+			// The identifier before a parenthesis names the call, not a value read.
+			const call = pending;
+			pending = null;
+			guarded.push((guarded.at(-1) ?? false) || (call !== null && NAN_TOLERANT_GUARDS.has(call)));
+		} else {
+			if (pending === variable) {
+				if (!(guarded.at(-1) ?? false)) return false;
+				read = true;
+			}
+			pending = null;
+			if (c === ')') guarded.pop();
+		}
+		i++;
+	}
+	if (pending === variable) return false;
+	return read;
+}
 
 /**
  * Everything the formula set reads, classified: a family the run takes as a list, a catalog
@@ -310,9 +379,11 @@ export function inputRows(
 		const own = f.code.trim();
 		for (const { name } of identifiers(f.formula)) {
 			if (LANGUAGE.has(name) || name === own) continue;
+			const guarded = readOnlyThroughGuards(f.formula, name);
 			const row = rows.get(name);
 			if (row) {
 				if (!row.readBy.includes(own)) row.readBy.push(own);
+				row.optional &&= guarded;
 				continue;
 			}
 			let kind: InputKind = 'other';
@@ -332,7 +403,7 @@ export function inputRows(
 				kind = isFamily(name) ? 'replicates' : 'parameter';
 				detail = p.default_units ? `${p.name} (${p.default_units})` : p.name;
 			}
-			rows.set(name, { name, kind, detail, readBy: own ? [own] : [] });
+			rows.set(name, { name, kind, detail, readBy: own ? [own] : [], optional: guarded });
 		}
 	}
 	return [...rows.values()];
@@ -411,7 +482,8 @@ export function curveSlots(formulas: Array<Pick<EditableFormula, 'curve_slot'>>)
  * The request a run carries: the set as it stands, the visit if one is chosen, each family's list, the
  * curve each declared slot is bound to, and any value typed in place of what the visit or the
  * catalog holds. A slot left unbound is sent nothing, and its formulas are skipped for want of
- * coefficients rather than refused.
+ * coefficients rather than refused. A row still missing its code or its formula is being typed and
+ * is not sent, since the server refuses the whole set over it.
  */
 export function draftRunBody(
 	formulas: EditableFormula[],
@@ -437,7 +509,7 @@ export function draftRunBody(
 	return {
 		constants,
 		formulas: dependencyOrder(formulas)
-			.filter((f) => f.code.trim().length > 0)
+			.filter((f) => f.code.trim().length > 0 && f.formula.trim().length > 0)
 			.map((f) => ({
 				code: f.code.trim(),
 				name: f.name.trim() || undefined,

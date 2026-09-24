@@ -60,6 +60,18 @@ const parameters = [
 const constants: Constant[] = [];
 
 describe('sheet blocks', () => {
+	it('marks a visit input read only through a guard optional', () => {
+		const guarded = [
+			formula({ code: 'out', formula: 'lab_co2 * coalesce(lab_temp, 20) + coalesce(altitude, 0)', ordinal: 1 }),
+		];
+		const [inputs] = sheetBlocks(guarded, inputRows(guarded, parameters, constants));
+		expect(inputs!.rows.map((r) => [r.key, r.optional ?? false])).toEqual([
+			['lab_co2', false],
+			['lab_temp', true],
+			['altitude', false],
+		]);
+	});
+
 	it('tags a constant, a curve coefficient and a site property with what supplies it', () => {
 		const tagged = [
 			formula({ code: 'out', formula: 'lab_co2 * R_gas + curve_slope + altitude', ordinal: 1 }),

@@ -11780,7 +11780,7 @@ export interface components {
             username: string | null;
         };
         /** @enum {string} */
-        Kind: "flag" | "unflag" | "withdraw" | "reassert" | "curve" | "calibration_pin" | "instrument_pin" | "slot_move" | "value_correction" | "unverified_entry" | "verify" | "reject" | "chain" | "detach" | "return" | "curve_retire" | "formula_transition" | "curve_recompose" | "derived_computed" | "reprocess" | "rollback";
+        Kind: "flag" | "unflag" | "withdraw" | "reassert" | "curve" | "calibration_pin" | "instrument_pin" | "slot_move" | "value_correction" | "unverified_entry" | "verify" | "reject" | "chain" | "detach" | "return" | "curve_retire" | "formula_transition" | "curve_recompose" | "derived_computed" | "reprocess" | "retag" | "rollback";
         /**
          * @description The instrument and standard curve the newest grab at a site and parameter recorded. Every
          *     field but `method` is null when no grab there names either.
@@ -17480,11 +17480,11 @@ export interface components {
             completed_at: string | null;
             /** Format: int64 */
             duration_ms: number | null;
-            errors: unknown;
+            errors: string[] | null;
             event_type: string;
             /** Format: uuid */
             id: string;
-            log: unknown;
+            log: string[] | null;
             /**
              * Format: int64
              * @description Readings the cycle sent that ingest admission dropped.
@@ -17507,11 +17507,11 @@ export interface components {
             completed_at: string | null;
             /** Format: int64 */
             duration_ms: number | null;
-            errors: unknown;
+            errors: string[] | null;
             event_type: string;
             /** Format: uuid */
             id: string;
-            log: unknown;
+            log: string[] | null;
             /**
              * Format: int64
              * @description Readings the cycle sent that ingest admission dropped.

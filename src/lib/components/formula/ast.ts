@@ -42,6 +42,16 @@ export function unparsed(expr: string): string {
 	return parseExpr(s, 0).rest.trim();
 }
 
+/** Whether the parse left a place with nothing in it: an operand or an argument not yet typed. */
+export function hasGap(node: FormulaNode): boolean {
+	switch (node.type) {
+		case 'empty': return true;
+		case 'binary': return hasGap(node.left) || hasGap(node.right);
+		case 'function': return node.args.some(hasGap);
+		default: return false;
+	}
+}
+
 function parseExpr(s: string, minPrec: number): { node: FormulaNode; rest: string } {
 	let { node, rest } = parseAtom(s);
 	rest = rest.trimStart();

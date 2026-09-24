@@ -1,4 +1,4 @@
-import { unparsed } from '$components/formula/ast';
+import { hasGap, parseFromMeval, unparsed } from '$components/formula/ast';
 
 /// What the formula language defines, and what a formula naming something else is told.
 ///
@@ -105,7 +105,8 @@ export type DiagnosticKind =
 	| 'unbalanced_parenthesis'
 	| 'wrong_argument_count'
 	| 'self_reference'
-	| 'trailing_text';
+	| 'trailing_text'
+	| 'missing_operand';
 
 export interface Diagnostic {
 	kind: DiagnosticKind;
@@ -366,6 +367,14 @@ export function lintFormula(text: string, known: KnownNames): Diagnostic[] {
 		diagnostics.push({
 			kind: 'trailing_text',
 			message: `the expression ends before '${left}': an operator is missing between them`,
+		});
+		return diagnostics;
+	}
+
+	if (text.trim() !== '' && hasGap(parseFromMeval(text))) {
+		diagnostics.push({
+			kind: 'missing_operand',
+			message: 'an operator or a comma has nothing after it',
 		});
 		return diagnostics;
 	}
