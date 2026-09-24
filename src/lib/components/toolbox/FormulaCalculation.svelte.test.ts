@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Scenario: a calculation is read over dummy values before it is saved (M294).
@@ -117,6 +117,11 @@ vi.mock('$app/paths', () => ({ base: '' }));
 vi.mock('$app/navigation', () => ({ goto: vi.fn() }));
 vi.mock('$app/state', () => ({ page: { url: new URL('http://localhost/toolbox/calc-1') } }));
 
+// Grid rendering and interaction are covered by the CalculationSheet and SheetGrid tests.
+vi.mock('$components/ui/SheetGrid.svelte', async () => ({
+	default: (await import('../../../tests/stubs/SheetGridStub.svelte')).default,
+}));
+
 const FormulaCalculation = (await import('./FormulaCalculation.svelte')).default;
 
 beforeEach(() => {
@@ -150,7 +155,7 @@ describe('reading a calculation over its values', () => {
 
 describe('two runs in flight', () => {
 	it('keeps the later run`s numbers when an earlier one answers after it', async () => {
-		const view = render(FormulaCalculation, { calculationId: 'calc-1' });
+		render(FormulaCalculation, { calculationId: 'calc-1' });
 		await waitFor(() => expect(draftRunFormulas).toHaveBeenCalledTimes(1));
 		// Editing the set is what reruns it: there is no Run button, the site and the visit are the
 		// page's own, and a change reads the set again once it has settled.
@@ -158,12 +163,11 @@ describe('two runs in flight', () => {
 		await waitFor(() => expect(draftRunFormulas).toHaveBeenCalledTimes(2));
 
 		const [first, second] = pending.splice(0, 2);
-		second!(result(20));
-		await waitFor(() => expect(view.container.textContent).toContain('20'));
-		first!(result(10));
-		await new Promise((resolve) => setTimeout(resolve, 20));
-		expect(view.container.textContent).toContain('20');
-		expect(view.container.textContent).not.toContain('10');
+		await act(() => second!(result(20)));
+		expect(screen.getByRole('cell', { name: '20' })).toBeTruthy();
+		await act(() => first!(result(10)));
+		expect(screen.getByRole('cell', { name: '20' })).toBeTruthy();
+		expect(screen.queryByRole('cell', { name: '10' })).toBeNull();
 	});
 });
 
