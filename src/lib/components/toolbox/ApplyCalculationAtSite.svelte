@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { api, type Parameter } from '$api/crud';
+	import { api, type Parameter, type Site } from '$api/crud';
+	import { listAll } from '$api/paged';
 	import { listToolScripts, applyCalculationAtSite, type ToolScriptSummary } from '$api/service';
 	import { calculationApplyPreview, type CalculationApplyPreview } from '$lib/calculations/apply';
 	import { apiMessage } from '$lib/standardCurves';
@@ -9,31 +10,47 @@
 
 	// Applying a calculation is checked before it is written: the panel reads the dry run and shows
 	// the reads the site declares, the ones it does not, and the output columns the apply adds.
-	// The site's Parameters tab is the one place a calculation is applied: the site is fixed and the
-	// calculation is picked.
+	// On a site's Parameters tab the site is fixed and the calculation is picked; on a calculation's
+	// page the calculation is fixed and the site is picked (Q274).
 	let {
-		siteId,
+		siteId = null,
+		calculationId = null,
 		chosen = null,
 		onapplied = null,
 	}: {
-		siteId: string;
+		siteId?: string | null;
+		calculationId?: string | null;
 		/** A calculation to open on, by id or name, as a link from the Toolbox names it. */
 		chosen?: string | null;
 		onapplied?: (() => void) | null;
 	} = $props();
 
 	let chosenCalculation = $state('');
+	let chosenSite = $state('');
 	let calculations = $state<ToolScriptSummary[]>([]);
+	let sites = $state<Site[]>([]);
 	let parameters = $state<Parameter[]>([]);
 	let preview = $state<CalculationApplyPreview | null>(null);
 	let refusal = $state('');
 	let reading = $state(false);
 	let applying = $state(false);
 
-	const site = $derived(siteId);
-	const calculation = $derived(chosenCalculation);
+	const site = $derived(siteId ?? chosenSite);
+	const calculation = $derived(calculationId ?? chosenCalculation);
 
 	$effect(() => {
+		if (siteId) return;
+		void listAll<Site>(api.sites)
+			.then((items) => {
+				sites = [...items].sort((a, b) => a.name.localeCompare(b.name));
+			})
+			.catch(() => {
+				sites = [];
+			});
+	});
+
+	$effect(() => {
+		if (calculationId) return;
 		void listToolScripts()
 			.then((items) => {
 				calculations = items.filter((c) => !c.decommissioned_at);
@@ -111,19 +128,36 @@
 		changes.
 	</p>
 	<div class="flex items-end gap-3">
-		<div class="flex-1">
-			<label for="apply-calculation-select" class="text-xs font-medium block mb-1">Calculation</label>
-			<select
-				id="apply-calculation-select"
-				bind:value={chosenCalculation}
-				class="w-full px-3 py-1.5 text-sm border border-brand-divider rounded bg-brand-surface"
-			>
-				<option value="">Select a calculation…</option>
-				{#each calculations as c (c.id)}
-					<option value={c.id}>{c.label || c.name}</option>
-				{/each}
-			</select>
-		</div>
+		{#if !calculationId}
+			<div class="flex-1">
+				<label for="apply-calculation-select" class="text-xs font-medium block mb-1">Calculation</label>
+				<select
+					id="apply-calculation-select"
+					bind:value={chosenCalculation}
+					class="w-full px-3 py-1.5 text-sm border border-brand-divider rounded bg-brand-surface"
+				>
+					<option value="">Select a calculation…</option>
+					{#each calculations as c (c.id)}
+						<option value={c.id}>{c.label || c.name}</option>
+					{/each}
+				</select>
+			</div>
+		{/if}
+		{#if !siteId}
+			<div class="flex-1">
+				<label for="apply-site-select" class="text-xs font-medium block mb-1">Site</label>
+				<select
+					id="apply-site-select"
+					bind:value={chosenSite}
+					class="w-full px-3 py-1.5 text-sm border border-brand-divider rounded bg-brand-surface"
+				>
+					<option value="">Select a site…</option>
+					{#each sites as s (s.id)}
+						<option value={s.id}>{s.name}</option>
+					{/each}
+				</select>
+			</div>
+		{/if}
 		<Button
 			variant="primary"
 			size="sm"

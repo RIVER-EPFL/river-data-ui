@@ -867,7 +867,7 @@
 						{#if calculation.active_version_no}· version {calculation.active_version_no}{/if}
 					</p>
 					{#if calculation.description}<p class="text-sm text-brand-muted mt-1">{calculation.description}</p>{/if}
-					<CalculationSites name={calculation.name} />
+					<CalculationSites id={calculation.id} name={calculation.name} />
 					<div class="mt-2"><DecommissionBanner {calculation} /></div>
 				{/if}
 			</div>

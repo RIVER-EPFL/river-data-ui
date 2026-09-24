@@ -51,26 +51,3 @@ export function calculationApplyPreview(
 		complete: inputsMissing.length === 0 && outputsAdding.length === 0,
 	};
 }
-
-/**
- * The sites a calculation is applied at: those declaring every output it publishes, by name. A
- * calculation publishing nothing is applied nowhere, since applying it adds nothing.
- */
-export function sitesApplied(
-	outputIds: string[],
-	slots: Array<{ site_id: string; parameter_id: string }>,
-	sites: Array<{ id: string; name: string }>,
-): Array<{ id: string; name: string }> {
-	const wanted = new Set(outputIds);
-	if (wanted.size === 0) return [];
-	const held = new Map<string, Set<string>>();
-	for (const slot of slots) {
-		if (!wanted.has(slot.parameter_id)) continue;
-		held.set(slot.site_id, (held.get(slot.site_id) ?? new Set()).add(slot.parameter_id));
-	}
-	const nameOf = new Map(sites.map((s) => [s.id, s.name]));
-	return [...held]
-		.filter(([, outputs]) => outputs.size === wanted.size)
-		.map(([id]) => ({ id, name: nameOf.get(id) ?? id }))
-		.sort((a, b) => a.name.localeCompare(b.name));
-}

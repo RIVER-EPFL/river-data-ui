@@ -125,13 +125,12 @@ test('applying a group shows its columns together and names the calculation decl
 	await expect(page.getByRole('row', { name: new RegExp(`^${fixture.inputName}`) })).toBeHidden();
 });
 
-// Scenario: a calculation is applied at a site from the site's Parameters tab, the one place it is
-// applied, and the calculation's own page and the Toolbox only say where it is.
+// Scenario: a calculation is applied at a site from its own page, by choosing the site (Q274).
 //
-// Expected behaviour: the dry run names the output to add, Apply adds it, the calculation page
-// links the site read-only with no apply control of its own, and the Toolbox counts the site and
-// links it back to the Parameters tab opened on this calculation.
-test('a calculation applied from the Parameters tab is listed on its page as applied there', async ({
+// Expected behaviour: the dry run names the output to add, Apply adds it, the page names the site,
+// the Toolbox counts the same site and links it back to the Parameters tab opened on this
+// calculation, which reads it as already applied there.
+test('a calculation applied from its own page is listed there, on the Toolbox and on the site', async ({
 	page,
 	request,
 }) => {
@@ -147,16 +146,11 @@ test('a calculation applied from the Parameters tab is listed on its page as app
 	await page.goto(`${BASE_PATH}/toolbox/${fixture.calculationId}`);
 	const line = page.getByTestId('calculation-sites');
 	await expect(line).toContainText('Applied at no site yet');
-	await expect(page.getByText('Apply at a site')).toHaveCount(0);
-
-	await page.goto(`${BASE_PATH}/sites/${fixture.siteId}?tab=parameters`);
-	await page.getByRole('button', { name: 'Apply calculation', exact: true }).click();
-	await page.getByLabel('Calculation').selectOption({ label: fixture.calculation });
-	await expect(page.getByText('Outputs to add (1)')).toBeVisible();
-	await page.getByRole('button', { name: 'Apply', exact: true }).click();
-	await expect(page.getByText('Already applied here.')).toBeVisible();
-
-	await page.goto(`${BASE_PATH}/toolbox/${fixture.calculationId}`);
+	await line.getByText('Apply at a site').click();
+	await line.getByLabel('Site').selectOption({ label: fixture.groupLabel });
+	await expect(line.getByText('Outputs to add (1)')).toBeVisible();
+	await line.getByRole('button', { name: 'Apply', exact: true }).click();
+	await expect(line.getByText('Already applied here.')).toBeVisible();
 	await expect(line.getByRole('link', { name: fixture.groupLabel })).toHaveAttribute(
 		'href',
 		`${BASE_PATH}/sites/${fixture.siteId}?tab=parameters`,

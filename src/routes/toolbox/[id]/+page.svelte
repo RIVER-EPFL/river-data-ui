@@ -53,6 +53,6 @@
 		{#key calculation.id}
 			<ScriptEditor scriptId={calculation.id} />
 		{/key}
-		<CalculationSites name={calculation.name} />
+		<CalculationSites id={calculation.id} name={calculation.name} />
 	</div>
 {/if}
