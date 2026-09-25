@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
-	import { listToolScripts, type ToolScriptSummary } from '$api/service';
+	import { findToolScriptByName, getToolScript, type ToolScriptSummary } from '$api/service';
 	import { AUTHORING_REFUSED, loadCatalog } from '$lib/toolbox/authoring';
-	import { findCalculation } from '$lib/toolbox/route';
+	import { resolveCalculation } from '$lib/toolbox/route';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
 	import CalculationSites from '$components/toolbox/CalculationSites.svelte';
@@ -21,11 +21,15 @@
 	$effect(() => {
 		const wanted = key;
 		loading = true;
-		void loadCatalog(listToolScripts).then((load) => {
+		const found = async () => {
+			const calculation = await resolveCalculation(wanted, getToolScript, findToolScriptByName);
+			return calculation ? [calculation] : [];
+		};
+		void loadCatalog(found).then((load) => {
 			if (load.status === 'refused') error = AUTHORING_REFUSED;
 			else if (load.status === 'failed') error = load.message;
 			else {
-				calculation = findCalculation(load.items, wanted);
+				calculation = load.items[0] ?? null;
 				error = calculation ? '' : `No calculation named ${wanted}.`;
 			}
 			loading = false;

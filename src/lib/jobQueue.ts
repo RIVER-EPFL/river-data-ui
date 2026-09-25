@@ -71,3 +71,26 @@ export function jobProgressLabel(
 	if (ahead == null) return `${job.status}, over ${queue.read} ahead`;
 	return ahead === 0 ? `${job.status}, next` : `${job.status}, ${ahead} ahead`;
 }
+
+/** What a `job_progress` event says about a job. */
+export interface JobProgressUpdate {
+	status: string;
+	progress: number | null;
+	total: number | null;
+}
+
+/**
+ * A job as a `job_progress` event leaves it. A count the event leaves out keeps the one already
+ * held: a retry announces no counts, and the work its earlier run committed is still done.
+ */
+export function withJobProgress<T extends { status: string; progress?: number | null; total?: number | null }>(
+	held: T,
+	update: JobProgressUpdate,
+): T {
+	return {
+		...held,
+		status: update.status,
+		progress: update.progress ?? held.progress ?? null,
+		total: update.total ?? held.total ?? null,
+	};
+}

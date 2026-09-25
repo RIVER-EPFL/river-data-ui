@@ -52,6 +52,7 @@
 	import { createDraftQueue } from '$lib/pairing/draftQueue';
 	import { movesPlanInstruments, splitPlanUpdates, type PlanUpdate } from '$lib/pairing/planUpdates';
 	import { NO_PLAN_RUNS, planRunLabel, runsAfterJob, type PlanRuns, type PlanRunProgress } from '$lib/pairing/planRuns';
+	import { withJobProgress } from '$lib/jobQueue';
 	import { eventBus } from '$lib/stores/events.svelte';
 	import { objectDecisions, type ObjectDecision } from '$lib/pairing/objectDecisions';
 	import { curveReviewBlocked, curveRows, type CurveRow } from '$lib/pairing/curveRows';
@@ -78,6 +79,7 @@
 	import { formatCount } from '$lib/format';
 	import ConfirmStep from '$components/pairing/ConfirmStep.svelte';
 	import ApplyResults from '$components/pairing/ApplyResults.svelte';
+	import ApplyingPlans from '$components/pairing/ApplyingPlans.svelte';
 	import CurvesTab from '$components/pairing/CurvesTab.svelte';
 	import ProjectsTab from '$components/pairing/ProjectsTab.svelte';
 	import InstrumentsTab from '$components/pairing/InstrumentsTab.svelte';
@@ -1361,6 +1363,8 @@
 	// ── Wizard navigation ──
 	// Drafts still open per source: the way back into a review someone left half done.
 	let openDrafts = $state<PairingPlanListing[]>([]);
+	// Plans whose pairing committed and whose history is still being attributed, or stopped short.
+	let applyingPlans = $state<PairingPlanListing[]>([]);
 	let sourceSelectLoaded = $state(false);
 	const draftFor = (sourceSystem: string) =>
 		openDrafts.find((d) => d.source_system === sourceSystem);
@@ -1379,14 +1383,16 @@
 	async function loadSourceSelect() {
 		planLoading = true;
 		try {
-			const [summary, drafts, applied] = await Promise.all([
+			const [summary, drafts, applied, stalled] = await Promise.all([
 				getUnpairedSummary(),
 				listPairingPlans({ status: 'draft' }).catch(() => [] as PairingPlanListing[]),
 				listPairingPlans({ status: 'applied' }).catch(() => [] as PairingPlanListing[]),
+				listPairingPlans({ status: 'applying' }).catch(() => [] as PairingPlanListing[]),
 			]);
 			unpairedSummary = summary;
 			openDrafts = drafts;
 			appliedPlans = applied;
+			applyingPlans = stalled;
 		}
 		catch (e) { toastStore.error(`Failed to load unpaired summary: ${e instanceof Error ? e.message : e}`); setMode('list'); }
 		finally { planLoading = false; sourceSelectLoaded = true; }
@@ -1525,6 +1531,16 @@
 		finally { applying = false; }
 	}
 
+	// Applying an `applying` plan again resumes its history backfill from the last committed batch.
+	async function resumeApply(stalled: PairingPlanListing) {
+		try {
+			const { job_id } = await applyPairingPlan(stalled.id, stalled.version);
+			planRuns = { ...planRuns, applyJobId: job_id, applyingPlanId: stalled.id };
+			planRunProgress = null;
+			toastStore.success('Resuming the apply from its last committed batch. Its progress is in the operations panel.');
+		} catch (e) { toastStore.error(e instanceof Error ? e.message : 'Failed to resume the apply'); }
+	}
+
 	/// The results of an apply that has already run, read from the plan the job wrote them to.
 	async function openResults(planId: string) {
 		planLoading = true;
@@ -1583,12 +1599,12 @@
 			if (after === planRuns) return;
 			planRuns = after;
 			planRunProgress = null;
-			if (mode === 'source-select') void loadSourceSelect();
+			if (mode === 'list' && tab.key === 'pair') void loadSourceSelect();
 		});
 		unsubJobProgress = eventBus.subscribe('job_progress', (event) => {
 			const update = event as { job_id: string; status: string; progress: number | null; total: number | null };
 			if (update.job_id !== planRuns.applyJobId && update.job_id !== planRuns.revertJobId) return;
-			planRunProgress = { status: update.status, progress: update.progress, total: update.total };
+			planRunProgress = withJobProgress(planRunProgress ?? { status: update.status, progress: null, total: null }, update);
 		});
 	});
 
@@ -1809,6 +1825,8 @@
 			{:else}
 				{@const withUnpaired = unpairedSummary.filter((s) => s.unpaired > 0).sort((a, b) => b.unpaired - a.unpaired)}
 				{@const fullyPaired = unpairedSummary.filter((s) => s.unpaired === 0)}
+
+				<ApplyingPlans plans={applyingPlans} resumingId={applyingPlanId} onresume={resumeApply} />
 
 				{#if withUnpaired.length > 0}
 					<p class="text-sm text-brand-muted">Select a source to create a pairing plan:</p>

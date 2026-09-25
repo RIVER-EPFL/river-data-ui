@@ -144,6 +144,29 @@ async function addFormula(
 /** One of the three tables, by the heading its first column carries. */
 const block = (page: Page, name: string) => page.getByRole('region', { name, exact: true });
 
+/** A palette entry dragged onto `target`, the page scrolled to the target while the entry is held,
+ *  since the tables sit below the cell panel and the palette beside it. The palette is searched
+ *  for the entry first, so the list holds it alone whatever the catalog's size. */
+async function dropFromPalette(page: Page, name: string, target: Locator) {
+	const palette = page.getByRole('region', { name: 'Palette' });
+	await palette.getByRole('textbox', { name: 'Search the palette' }).fill(name);
+	const entry = palette.getByRole('button', { name, exact: true });
+	// The entry holds still first: the visit bar above the palette grows while the last edit settles.
+	await expect(async () => {
+		const before = await entry.boundingBox();
+		await page.waitForTimeout(200);
+		expect(await entry.boundingBox()).toEqual(before);
+	}).toPass();
+	await entry.hover();
+	await page.mouse.down();
+	const from = (await entry.boundingBox())!;
+	await page.mouse.move(from.x + from.width / 2 + 10, from.y + from.height / 2);
+	await target.scrollIntoViewIfNeeded();
+	const to = (await target.boundingBox())!;
+	await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 5 });
+	await page.mouse.up();
+}
+
 /** A row of one table, found by its label cell: every row has one, computed or not. */
 const rowOf = (table: Locator, code: string) =>
 	table.locator(`td[data-sheet-row="${code}"][data-sheet-column="0"]`);
@@ -167,10 +190,9 @@ test('a CNET formula set is authored on the page and reproduces its golden visit
 
 	// A calculation with no formulas has no rows to drop onto, and the first input goes in before
 	// anything names it: the inputs block itself takes the drop, outlined until a formula reads it.
-	const palette = page.getByRole('region', { name: 'Palette' });
 	const inputs = block(page, 'Inputs');
 	await expect(inputs).toContainText('Drop a parameter or constant here');
-	await palette.getByRole('button', { name: codes.fieldBp, exact: true }).dragTo(inputs);
+	await dropFromPalette(page, codes.fieldBp, inputs);
 	await expect(rowOf(inputs, codes.fieldBp)).toHaveClass(/sheet-unused/);
 
 	// The step is not retyped: the calculation declares that it reads the one already written.
@@ -218,9 +240,7 @@ test('a CNET formula set is authored on the page and reproduces its golden visit
 
 	// A parameter no formula names yet is brought in from the palette: it is a row of the inputs
 	// table, outlined, and the save does not keep it.
-	await palette
-		.getByRole('button', { name: codes.spare, exact: true })
-		.dragTo(rowOf(inputs, codes.temp));
+	await dropFromPalette(page, codes.spare, rowOf(inputs, codes.temp));
 	await expect(rowOf(inputs, codes.spare)).toHaveClass(/sheet-unused/);
 	await expect(page.getByText('the save does not keep it')).toBeVisible();
 
@@ -333,6 +353,23 @@ async function seedVisitCalculation(request: APIRequestContext) {
 		site_id: site.id,
 		collected_at: collectedAt,
 	});
+	// A reading stored under the output a day before publishes it, so its code is locked.
+	const filter = encodeURIComponent(JSON.stringify({ code: outputCode }));
+	const found = await request.get(`${API_URL}/api/parameters?filter=${filter}`, { headers });
+	const [output] = await found.json();
+	await post('/site_parameters', { site_id: site.id, parameter_id: output.id, name: outputCode });
+	await postGrab(post, {
+		site_id: site.id,
+		mode: 'replace',
+		readings: [
+			{
+				parameter_id: output.id,
+				value: 1,
+				time: new Date(Date.parse(collectedAt) - 86_400_000).toISOString().replace(/\.\d+Z$/, 'Z'),
+				replicate_index: 0,
+			},
+		],
+	});
 	return { calculationId: calculation.id, siteId: site.id, visitId: visit.id, inputCode, stepCode, outputCode };
 }
 
@@ -363,7 +400,7 @@ test('a calculation opened at a visit shows the visit\'s numbers in the portal\'
 	await expect(page.getByRole('columnheader', { name: 'Outputs', exact: true })).toBeVisible();
 	await expect(cell(outputCode)).toContainText(String((ENTERED_INPUT + 1) * 2));
 
-	// The cell panel sits under the tables and opens on nothing until a cell is chosen.
+	// The cell panel sits above the tables and opens on nothing until a cell is chosen.
 	await expect(page.getByRole('heading', { name: 'No cell selected' })).toBeVisible();
 	await calculationCell(page, stepCode, 0).click();
 	await expect(page.getByRole('heading', { name: 'Step', exact: true })).toBeVisible();
@@ -371,13 +408,22 @@ test('a calculation opened at a visit shows the visit\'s numbers in the portal\'
 	await expect(page.getByRole('textbox', { name: 'Name', exact: true })).toHaveCount(0);
 	await expect(page.getByRole('textbox', { name: 'Curve slot' })).toHaveCount(0);
 
-	// Opening the output puts its own fields on screen with the tables: they sit beside the formula
-	// rather than a screen below the sheet.
+	// Opening the output once it has published puts all of its fields on screen with the tables,
+	// its bounds and Drop one click away under Advanced, since the panel has the page's width.
+	// Scrolled only as far as the Outputs table, as a person reaching for its cell would.
+	await page
+		.getByRole('region', { name: 'Outputs', exact: true })
+		.evaluate((table) => table.scrollIntoView({ block: 'end' }));
 	await calculationCell(page, outputCode, 0).click();
+	await expect(page.getByText(/^Published:/)).toBeVisible();
+	await expect(page.getByLabel('Warning min')).toBeHidden();
+	await page.getByText('Advanced', { exact: true }).click();
 	for (const control of [
 		page.getByRole('textbox', { name: 'Units' }),
 		page.getByRole('textbox', { name: 'Name', exact: true }),
 		page.getByRole('combobox', { name: 'Per replicate over' }),
+		page.getByLabel('Warning min'),
+		page.getByRole('button', { name: 'Drop', exact: true }).last(),
 		page.getByRole('columnheader', { name: 'Outputs', exact: true }),
 	]) {
 		await expect(control).toBeInViewport();
@@ -490,6 +536,7 @@ test('pCO2 is typed on the page with its constants, fallback and families, and r
 	// The typing at a person's pace at the end takes half a minute on its own.
 	test.setTimeout(150_000);
 	const { stamp, siteId, codes } = await seedPco2(request);
+	await page.setViewportSize({ width: 1600, height: 1080 });
 	await signIn(page);
 
 	await page.goto(`${BASE_PATH}/toolbox`);
@@ -567,7 +614,13 @@ test('pCO2 is typed on the page with its constants, fallback and families, and r
 	await expect(visitPicker).toBeEnabled();
 	await expect(visitPicker).not.toHaveValue('');
 
-	// Both letters, against what the portal stored for them.
+	// Outputs opens folded to the mean and sd; its header opens the replicates.
+	const outputs = block(page, 'Outputs');
+	await expect(calculationCell(page, `CO2_HS_Um_avg_${stamp}`, 0)).toBeVisible();
+	await expect(outputs.locator('td[data-sheet-column="1"]')).toHaveCount(0);
+	await outputs.locator('.ht_clone_top').getByRole('button', { name: 'Open the Outputs replicates' }).click();
+
+	// Both replicates, against what the portal stored for them.
 	for (const [index, expected] of PCO2_CO2_HS.entries()) {
 		await expect(calculationCell(page, `CO2_HS_Um_avg_${stamp}`, index + 1)).toContainText(expected);
 	}
@@ -575,33 +628,151 @@ test('pCO2 is typed on the page with its constants, fallback and families, and r
 		await expect(calculationCell(page, `pCO2_HS_uatm_avg_${stamp}`, index + 1)).toContainText(expected);
 	}
 
+	// The longest formula of the set open in the panel takes no more height than it shows: no
+	// room held under the text for messages while there are none, the tokens flowing as text that
+	// wraps at any of them rather than one operation per line, and no room under the tokens.
+	await calculationCell(page, `CO2_HS_Um_avg_${stamp}`, 0).click();
+	const formulaText = page.getByPlaceholder('Type formula directly');
+	await expect(formulaText).toHaveValue(/vol_water/);
+	const heights = await page.getByRole('group', { name: 'Formula builder' }).evaluate((builder) => {
+		const height = (el: Element | null | undefined) => el?.getBoundingClientRect().height ?? NaN;
+		const input = builder.querySelector('input[placeholder^="Type formula"]')!;
+		const tokens = builder.querySelector('[role="button"][draggable]')!.closest('.leading-7')!;
+		// Each token as laid out: a chip, which cannot break, or a run of operator text.
+		const box = tokens.getBoundingClientRect();
+		const chip = (el: Element) => el.matches('[role="button"][draggable]') && !el.querySelector('[role="button"]');
+		const units = [...tokens.querySelectorAll('[role="button"][draggable]')].filter(chip).map((el) => el.getBoundingClientRect());
+		const walker = document.createTreeWalker(tokens, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+			acceptNode: (node) => {
+				if (node instanceof Element) return chip(node) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_SKIP;
+				return node.textContent?.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+			},
+		});
+		for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+			const range = document.createRange();
+			range.selectNodeContents(text);
+			units.push(...[...range.getClientRects()].filter((r) => r.width > 0));
+		}
+		// Per 28px line, where it ends and how wide its first token is.
+		const lines = new Map<number, { end: number; left: number; first: number }>();
+		for (const r of units) {
+			const at = Math.floor((r.top + r.height / 2 - box.top) / 28);
+			const seen = lines.get(at) ?? { end: -Infinity, left: Infinity, first: 0 };
+			lines.set(at, {
+				end: Math.max(seen.end, r.right),
+				left: Math.min(seen.left, r.left),
+				first: r.left < seen.left ? r.width : seen.first,
+			});
+		}
+		// The room a line leaves beyond the token that wrapped onto the next one.
+		const order = [...lines.keys()].sort((x, y) => x - y);
+		const slack = Math.max(
+			...order.slice(1).map((at, i) => box.right - lines.get(order[i])!.end - lines.get(at)!.first),
+		);
+		return {
+			builder: height(builder),
+			strip: height(input.closest('.border-b')),
+			input: height(input),
+			tokens: height(tokens),
+			slack,
+		};
+	});
+	expect(heights.strip).toBeLessThan(heights.input + 24);
+	// Every line but the last is filled until the next token no longer fits: one operation per
+	// line left room for several. A space and a bracket's padding are the margin.
+	expect(heights.slack).toBeLessThan(24);
+	// Under the tokens, only the row of number and clear buttons.
+	expect(heights.builder).toBeLessThan(heights.strip + heights.tokens + 60);
+	// The builder has the panel's full width, where the formula takes three 28px lines at 1600px.
+	expect(heights.tokens).toBeLessThanOrEqual(4 * 28);
+
+	// With that output open and nothing scrolled, the formula, the panel's fields and every
+	// table's header are on the one screen, but for the room its links over the tables take
+	// above them (Q346).
+	// A table with replicate columns carries its fold button in its title header's name.
+	await page.locator('main').evaluate((main) => main.scrollTo(0, 0));
+	for (const control of [formulaText, page.getByRole('textbox', { name: 'Units' })]) {
+		await expect(control).toBeInViewport({ ratio: 1 });
+	}
+	const headroom = Number(
+		await page.locator('[data-sheet-headroom]').getAttribute('data-sheet-headroom'),
+	);
+	expect(headroom).toBeGreaterThan(0);
+	for (const name of ['Inputs', 'Steps', 'Outputs']) {
+		const header = block(page, name).getByRole('columnheader', {
+			name: new RegExp(`^${name}( |$)`),
+		});
+		const box = (await header.boundingBox())!;
+		expect(box.y + box.height - headroom).toBeLessThanOrEqual(page.viewportSize()!.height);
+	}
+
+	// The author moves Outputs to the front (M433): the links follow the tables to their new
+	// places, around the tables rather than across them, and the order is kept for the next
+	// calculation opened in this browser.
+	await calculationCell(page, `pCO2_HS_uatm_avg_${stamp}`, 0).click();
+	const links = page.locator('path[data-sheet-edge]');
+	await expect(links).not.toHaveCount(0);
+	const drawn = await links.count();
+	const order = () => page.locator('section[data-block]').evaluateAll((all) => all.map((s) => s.getAttribute('data-block')));
+	const grip = (table: Locator, title: string) =>
+		table.locator('.ht_clone_top').getByRole('button', { name: `Move the ${title} table` });
+	// Tall enough that every end of a link is in the window, where it can be hit-tested, and the
+	// tables clear of the sticky cell panel above them, where a drop would land on the panel.
+	const viewport = page.viewportSize()!;
+	await page.setViewportSize({ width: viewport.width, height: 1600 });
+	await inputs.evaluate((table) => table.scrollIntoView({ block: 'center' }));
+	await grip(outputs, 'Outputs').dragTo(grip(inputs, 'Inputs'));
+	await expect.poll(order).toEqual(['outputs', 'inputs', 'steps']);
+	await expect(links).toHaveCount(drawn);
+	await expect.poll(() => detachedLinks(page)).toEqual([]);
+	expect(await crossingLinks(page)).toEqual([]);
+	expect(await page.evaluate(() => localStorage.getItem('calculation-sheet-order'))).toBe(
+		'["outputs","inputs","steps"]',
+	);
+	await grip(outputs, 'Outputs').press('ArrowRight');
+	await grip(outputs, 'Outputs').press('ArrowRight');
+	await expect.poll(order).toEqual(['inputs', 'steps', 'outputs']);
+	await expect(links).toHaveCount(drawn);
+	await expect.poll(() => detachedLinks(page)).toEqual([]);
+	expect(await crossingLinks(page)).toEqual([]);
+	await page.setViewportSize(viewport);
+
+	// At 1280px the three tables share the page's width and Outputs' opened replicates scroll
+	// sideways inside it, so a link leaves a row from its last cell in view, never from one past
+	// the table's edge (B712). Tall enough that every end of a link is in the window.
+	await page.setViewportSize({ width: 1280, height: 1600 });
+	await calculationCell(page, `pCO2_HS_uatm_avg_${stamp}`, 0).click();
+	await expect(page.locator(`path[data-sheet-edge="CO2_HS_Um_avg_${stamp}"]`)).toHaveCount(1);
+	await expect
+		.poll(() => outputs.locator('.ht_master .wtHolder').evaluate((h) => h.scrollWidth > h.clientWidth))
+		.toBe(true);
+	await outputs.evaluate((table) => table.scrollIntoView({ block: 'center' }));
+	await expect.poll(() => detachedLinks(page)).toEqual([]);
+	await page.setViewportSize({ width: 1600, height: 1080 });
+
 	// One more output per replicate over the family, typed at a person's pace at the visit (B604):
-	// every pause past the page's 400 ms settle is a draft run, and none is refused or moves the
-	// tables under the author.
+	// every pause past the page's 400 ms settle is a draft run, none is refused, and the links
+	// between the tables follow them wherever the panel's growth moves them.
 	const refused: string[] = [];
 	page.on('response', (response) => {
 		if (response.url().includes('/formulas/draft_run') && !response.ok()) {
 			refused.push(`${response.status()} ${response.url()}`);
 		}
 	});
-	const outputs = page.getByRole('region', { name: 'Outputs', exact: true });
-	const top = async () => (await outputs.boundingBox())?.y;
 	const doubled = `ppm_doubled_${stamp}`;
 	await page.getByRole('button', { name: 'Add output', exact: true }).click();
 	const code = page.getByRole('textbox', { name: 'Code' });
 	await code.click();
-	const settled = await top();
 	await code.pressSequentially(doubled, { delay: 450 });
 	await expect(code).toBeFocused();
 	await expect(code).toHaveValue(doubled);
-	expect(await top()).toBe(settled);
+	expect(await detachedLinks(page)).toEqual([]);
 	const formula = page.getByPlaceholder('Type formula directly');
 	await formula.click();
-	const typing = await top();
 	for (const ch of `${codes.ppm} *`) {
 		await page.keyboard.type(ch);
 		await page.waitForTimeout(450);
-		expect(await top()).toBe(typing);
+		expect(await detachedLinks(page)).toEqual([]);
 	}
 	await expect(formula).toBeFocused();
 	await expect(page.getByText('Invalid formula')).toHaveCount(0);
@@ -611,20 +782,33 @@ test('pCO2 is typed on the page with its constants, fallback and families, and r
 	await expect(calculationCell(page, doubled, 1)).toContainText('485');
 	await expect(calculationCell(page, doubled, 2)).toContainText('483.4');
 	await expect(page.getByText('Invalid formula')).toHaveCount(0);
-	expect(await top()).toBe(typing);
+	expect(await detachedLinks(page)).toEqual([]);
 	expect(refused).toEqual([]);
+
+	// A per-replicate set runs at field visits only, so it is drawn over the site's visits (M375):
+	// every visit in one request, and moving along the plot fills the tables with that visit's run.
+	await expect(page.getByText('Visit plot', { exact: true })).toBeVisible();
+	const plot = page.locator('.uplot').last();
+	await expect(plot).toBeVisible();
+	const over = page.locator('.u-over').last();
+	await over.scrollIntoViewIfNeeded();
+	const box = await over.boundingBox();
+	if (!box) throw new Error('the visit plot has no drawing area');
+	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+	await expect(page.getByText('read from the visit plot below')).toBeVisible();
 });
 
-// Scenario: the simplest calculation there is, one input and one formula (M342). The page carries
-// pCO2's intermediate table only when one is asked for.
+// Scenario: the simplest calculation there is, one input and one formula (M342).
 //
-// Expected behaviour: the page opens on Inputs and Outputs alone; Add output opens the formula
-// for typing on the row it adds, and the one-input set computes with no Steps table drawn.
-test('a one-input calculation is authored on two tables, never meeting Steps', async ({
+// Expected behaviour: the Steps table stands empty between Inputs and Outputs, with no switch to
+// hide it; Add output opens the formula for typing on the row it adds without moving the page,
+// and the one-input set computes with no step.
+test('a one-input calculation is authored beside an empty Steps table', async ({
 	page,
 	request,
 }) => {
 	const { stamp, codes } = await seedCatalog(request);
+	await page.setViewportSize({ width: 1600, height: 1080 });
 	await signIn(page);
 
 	await page.goto(`${BASE_PATH}/toolbox`);
@@ -635,15 +819,18 @@ test('a one-input calculation is authored on two tables, never meeting Steps', a
 	await expect(page).toHaveURL(/\/toolbox\/[0-9a-f-]{36}/);
 
 	const inputs = block(page, 'Inputs');
-	await page
-		.getByRole('region', { name: 'Palette' })
-		.getByRole('button', { name: codes.temp, exact: true })
-		.dragTo(inputs);
-	await expect(block(page, 'Steps')).toHaveCount(0);
+	await dropFromPalette(page, codes.temp, inputs);
+	await expect(block(page, 'Steps')).toHaveCount(1);
+	await expect(page.getByRole('checkbox', { name: 'Intermediate steps' })).toHaveCount(0);
 
+	// The new row's formula is in the panel above the tables, so focusing it scrolls nothing.
+	const scrollTop = () => page.locator('main').evaluate((main) => main.scrollTop);
+	const before = await scrollTop();
 	await page.getByRole('button', { name: 'Add output', exact: true }).click();
 	const formula = page.getByPlaceholder('Type formula directly');
 	await expect(formula).toBeFocused();
+	await expect(formula).toBeInViewport();
+	expect(await scrollTop()).toBe(before);
 	await formula.fill(`${codes.temp} + 273.15`);
 	await page.getByRole('textbox', { name: 'Code' }).fill(`temp_k_${stamp}`);
 
@@ -652,8 +839,7 @@ test('a one-input calculation is authored on two tables, never meeting Steps', a
 	await typeInto(page, calculationCell(page, codes.temp), String(WTW_TEMP));
 	await expect(calculationCell(page, codes.temp)).toContainText(String(WTW_TEMP));
 	await expect(calculationCell(page, `temp_k_${stamp}`)).toContainText('280.75');
-	await expect(block(page, 'Steps')).toHaveCount(0);
-	await expect(page.getByRole('checkbox', { name: 'Intermediate steps' })).not.toBeChecked();
+	await expect(rowOf(block(page, 'Steps'), `temp_k_${stamp}`)).toHaveCount(0);
 });
 
 // Scenario: an author checks a calculation against numbers of their own at a visit that already
@@ -678,6 +864,55 @@ test('a value typed in place of the visit\'s moves the output', async ({ page, r
 });
 
 /** A site with one visit holding `value` for a fresh parameter, for a tool to be tried on. */
+/** The links whose ends do not land beside a row of a table, as `key: end`. */
+async function detachedLinks(page: Page): Promise<string[]> {
+	return page.evaluate(() => {
+		// An end meets a table's edge, so the cell it concerns is just inside one side of it.
+		const onCell = ({ x, y }: { x: number; y: number }) =>
+			[x - 3, x + 3].some((at) =>
+				Boolean(document.elementFromPoint(at, y)?.closest('section[data-block] td')),
+			);
+		const detached: string[] = [];
+		for (const link of document.querySelectorAll<SVGPathElement>('path[data-sheet-edge]')) {
+			const box = link.ownerSVGElement!.getBoundingClientRect();
+			const at = (length: number) => {
+				const p = link.getPointAtLength(length);
+				return { x: box.left + p.x, y: box.top + p.y };
+			};
+			const key = link.dataset.sheetEdge;
+			if (!onCell(at(0))) detached.push(`${key}: from`);
+			if (!onCell(at(link.getTotalLength()))) detached.push(`${key}: to`);
+		}
+		return detached;
+	});
+}
+
+/** The links that pass over a table between their ends, as `key: table`. */
+async function crossingLinks(page: Page): Promise<string[]> {
+	return page.evaluate(() => {
+		const tables = [...document.querySelectorAll<HTMLElement>('section[data-block]')].map((t) => ({
+			key: t.dataset.block,
+			r: t.getBoundingClientRect(),
+		}));
+		const crossing = new Set<string>();
+		for (const link of document.querySelectorAll<SVGPathElement>('path[data-sheet-edge]')) {
+			const box = link.ownerSVGElement!.getBoundingClientRect();
+			const length = link.getTotalLength();
+			// Clear of the ends, which meet a table's edge.
+			for (let along = 4; along < length - 4; along += 4) {
+				const p = link.getPointAtLength(along);
+				const [x, y] = [box.left + p.x, box.top + p.y];
+				for (const { key, r } of tables) {
+					if (x > r.left + 1 && x < r.right - 1 && y > r.top + 1 && y < r.bottom - 1) {
+						crossing.add(`${link.dataset.sheetEdge}: ${key}`);
+					}
+				}
+			}
+		}
+		return [...crossing];
+	});
+}
+
 async function seedVisitValue(request: APIRequestContext, value: number) {
 	const stamp = `${Date.now()}`;
 	const bearer = await token(request);
@@ -771,7 +1006,8 @@ test('an R tool is authored on the page and run at a visit and on a typed value'
 // formula, at the pace a person types, so the page's rerun fires between keystrokes.
 //
 // Expected behaviour: the half-written row is not sent to the run, so no refusal appears over the
-// tables and the field keeps the keyboard.
+// tables and the field keeps the keyboard. The tables may move as the panel above them grows, and
+// the links between their cells follow them.
 test('a step and an output typed at a person\'s pace are not run until they are written', async ({ page, request }) => {
 	const { calculationId, siteId, visitId, inputCode } = await seedVisitCalculation(request);
 	const ownership: string[] = [];
@@ -797,31 +1033,32 @@ test('a step and an output typed at a person\'s pace are not run until they are 
 	await expect(calculationCell(page, 'typed_step')).toContainText(String(ENTERED_INPUT + 3));
 	await expect(page.getByText('Invalid formula')).toHaveCount(0);
 
-	// An output goes the same way, and nothing above the tables moves under the author while a
-	// name is half typed and the formula does not yet parse.
-	const outputs = page.getByRole('region', { name: 'Outputs', exact: true });
-	const top = async () => (await outputs.boundingBox())?.y;
+	// An output goes the same way while a name is half typed and the formula does not yet parse,
+	// and whatever the panel's growth does to the tables, every link still meets its cells.
 	await page.getByRole('button', { name: 'Add output', exact: true }).click();
 	await code.click();
-	const settled = await top();
 	await code.pressSequentially('typed_output', { delay: 500 });
 	await expect(code).toBeFocused();
 	await expect(code).toHaveValue('typed_output');
-	expect(await top()).toBe(settled);
+	expect(await detachedLinks(page)).toEqual([]);
 	const formula = page.getByPlaceholder('Type formula directly');
-	// Reaching the formula field scrolls the page to it, as it would for a person.
 	await formula.click();
-	const typing = await top();
 	for (const ch of 'typed_step *') {
 		await page.keyboard.type(ch);
 		await page.waitForTimeout(450);
-		expect(await top()).toBe(typing);
+		expect(await detachedLinks(page)).toEqual([]);
 	}
 	await expect(page.getByText('Invalid formula')).toHaveCount(0);
 	await formula.pressSequentially(' 2');
 	await expect(calculationCell(page, 'typed_output')).toContainText(String((ENTERED_INPUT + 3) * 2));
 	await expect(page.getByText('Invalid formula')).toHaveCount(0);
-	expect(await top()).toBe(typing);
+	await calculationCell(page, 'typed_output', 0).click();
+	await expect(page.locator('[data-sheet-edge="typed_step"]')).toHaveCount(1);
+	// The equation drawn under the formula moves the tables down, and the links follow them.
+	await page
+		.getByRole('region', { name: 'Outputs', exact: true })
+		.evaluate((table) => table.scrollIntoView({ block: 'end' }));
+	await expect.poll(() => detachedLinks(page)).toEqual([]);
 
 	// Once a table cell has been clicked, the grid keeps its selection and redraws with every
 	// keystroke, and still leaves the keyboard to the field being typed into.

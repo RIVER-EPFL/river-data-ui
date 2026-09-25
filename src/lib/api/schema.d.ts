@@ -6351,8 +6351,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Apply a pairing plan: execute all its pairings and backfills atomically. Marks the
-         *     plan as `applied`. Requires `write_metadata`.
+         * Apply a pairing plan, or resume one left `applying`: pair its streams, attribute their history
+         *     in committed batches, and mark the plan `applied`. Requires `write_metadata`.
          */
         post: operations["apply_pairing_plan"];
         delete?: never;
@@ -7373,8 +7373,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List every calculation with its live version and how many versions it has. Requires
-         *     Administrator.
+         * The calculations with their live version and how many versions each has, a page at a time,
+         *     filtered and sorted as crudcrate's list is. Requires Administrator.
          */
         get: operations["list_scripts"];
         put?: never;
@@ -7571,6 +7571,27 @@ export interface paths {
          *     200, as the script draft run does.
          */
         post: operations["draft_run_formulas"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tool_scripts/{id}/formulas/draft_runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run an unsaved formula set at several visits in one request, as `formulas/draft_run` runs it
+         *     at one. The set is resolved once; each entry of `inputs` is one run, answered in its order.
+         *     Nothing is stored.
+         */
+        post: operations["draft_run_formulas_batch"];
         delete?: never;
         options?: never;
         head?: never;
@@ -10916,6 +10937,11 @@ export interface components {
              */
             standard_curve_id: string;
         };
+        /** @description One run of a batched draft: its results, or why it ended. */
+        FormulaDraftRun: (null | components["schemas"]["FormulaDraftRunResults"]) & {
+            failure: null | components["schemas"]["DraftRunFailure"];
+            ran: boolean;
+        };
         /**
          * @description Run a formula calculation's unsaved formula set at a visit. The formulas replace the stored
          *     set for this run only; nothing is written.
@@ -10963,6 +10989,23 @@ export interface components {
             skipped: unknown[];
             /** @description Each formula as it was evaluated, with the values it read per cell. */
             trace: components["schemas"]["TraceStep"][];
+        };
+        FormulaDraftRunsRequest: {
+            /** @description Constant values in place of the catalog, for every run; omit to read the catalog. */
+            constants?: {
+                [key: string]: number;
+            } | null;
+            formulas: components["schemas"]["DraftFormula"][];
+            /** @description One calculate request body per run, each as `FormulaDraftRunRequest.inputs` takes it. */
+            inputs: {
+                [key: string]: unknown;
+            }[];
+        };
+        FormulaDraftRunsResponse: {
+            /** @description The manifest the formula set implies, as `FormulaDraftRunResponse.manifest`. */
+            manifest: Record<string, never>;
+            /** @description One per entry of the request's `inputs`, in its order. */
+            runs: components["schemas"]["FormulaDraftRun"][];
         };
         /** @description A catalog parameter a formula published until this save ticked it as a step. */
         GivenUpOutput: {
@@ -12220,7 +12263,6 @@ export interface components {
             layout: components["schemas"]["StructLayout"];
             /** Format: int32 */
             max_rows: number | null;
-            row_labels: components["schemas"]["RowLabels"];
             /**
              * Format: int32
              * @description `rows` layout: rows offered before anything is entered.
@@ -13016,11 +13058,21 @@ export interface components {
         PairingPlanSummary: {
             /** Format: date-time */
             applied_at?: string | null;
+            /**
+             * @description Whether an apply job for an `applying` plan is still queued or running. False means the job
+             *     gave up and the plan waits to be resumed; null on any other status.
+             */
+            apply_in_flight?: boolean | null;
             /** Format: date-time */
             created_at: string;
             created_by?: string | null;
             /** Format: uuid */
             id: string;
+            /**
+             * Format: int64
+             * @description Readings an `applying` plan has attributed in committed batches; null on any other status.
+             */
+            readings_backfilled?: number | null;
             source_system: string;
             status: string;
             summary: components["schemas"]["PlanSummary"];
@@ -13031,6 +13083,11 @@ export interface components {
              *     a draft only; a plan that has been applied or superseded is history.
              */
             uncovered_streams?: number | null;
+            /**
+             * Format: int32
+             * @description The version an apply or an edit names as the one it read.
+             */
+            version: number;
         };
         PairingPlanUpdate: {
             created_by?: string | null;
@@ -15667,11 +15724,6 @@ export interface components {
             /** @description 1-based CSV line number (the header is line 1). */
             row: number;
         };
-        /**
-         * @description How the rows of a `rows` layout are labelled in the entry form.
-         * @enum {string}
-         */
-        RowLabels: "letters" | "numbers";
         /** @description What one row's record says, reduced to what the routing turns on. */
         RowProvenance: {
             /** @description The stream's classification: `sync` | `manual` | `csv` | `api`. */
@@ -39452,7 +39504,65 @@ export interface operations {
     };
     list_scripts: {
         parameters: {
-            query?: never;
+            query?: {
+                /**
+                 * @description JSON-encoded filter for querying resources.
+                 *
+                 *     This parameter supports various filtering options:
+                 *     - Free text search: `{"q": "search text"}`
+                 *     - Filtering by a single ID: `{"id": "550e8400-e29b-41d4-a716-446655440000"}`
+                 *     - Filtering by multiple IDs: `{"id": ["550e8400-e29b-41d4-a716-446655440000", "550e8400-e29b-41d4-a716-446655440001"]}`
+                 *     - Filtering on other columns: `{"name": "example"}`
+                 * @example {
+                 *       "id": "550e8400-e29b-41d4-a716-446655440000",
+                 *       "name": "example",
+                 *       "q": "search text"
+                 *     }
+                 */
+                filter?: string;
+                /**
+                 * @description Range for pagination in the format "[start, end]".
+                 *
+                 *     Example: `[0,9]`
+                 * @example [0,9]
+                 */
+                range?: string;
+                /**
+                 * @description Page number for standard REST pagination (1-based).
+                 *
+                 *     Example: `1`
+                 * @example 1
+                 */
+                page?: number;
+                /**
+                 * @description Number of items per page for standard REST pagination.
+                 *
+                 *     Example: `10`
+                 * @example 10
+                 */
+                per_page?: number;
+                /**
+                 * @description Sort order for the results in the format `["column", "order"]`.
+                 *
+                 *     Example: `["id", "ASC"]`
+                 * @example ["id", "ASC"]
+                 */
+                sort?: string;
+                /**
+                 * @description Sort column for standard REST format.
+                 *
+                 *     Example: `title`
+                 * @example title
+                 */
+                sort_by?: string;
+                /**
+                 * @description Sort order for standard REST format (ASC or DESC).
+                 *
+                 *     Example: `ASC`
+                 * @example ASC
+                 */
+                order?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -39770,6 +39880,47 @@ export interface operations {
                 };
             };
             /** @description A formula the set refuses, or a calculation that is not formula-engined */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such calculation */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    draft_run_formulas_batch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The formula calculation */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FormulaDraftRunsRequest"];
+            };
+        };
+        responses: {
+            /** @description One run per entry of inputs, and the manifest the set implies */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FormulaDraftRunsResponse"];
+                };
+            };
+            /** @description A formula the set refuses, a calculation that is not formula-engined, or more runs than one request takes */
             400: {
                 headers: {
                     [name: string]: unknown;

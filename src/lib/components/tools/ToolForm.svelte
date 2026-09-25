@@ -15,7 +15,8 @@
 		type FormState,
 		type ToolFormSpec,
 	} from '$lib/tools/form';
-	import { listCell, rowLabelFor, slotCell, withAddedField, type StructShape } from '$lib/tools/shapes';
+	import { listCell, slotCell, withAddedField, type StructShape } from '$lib/tools/shapes';
+	import { replicateHeader } from '$lib/tools/runTable';
 
 	let {
 		spec,
@@ -246,7 +247,7 @@
 										{/each}
 									{:else}
 										{#if shape.form === 'rows'}
-											<td class="px-1 py-0.5 text-brand-muted font-medium">{rowLabelFor(shape, idx)}</td>
+											<td class="px-1 py-0.5 text-brand-muted font-medium">{replicateHeader(idx)}</td>
 										{/if}
 										{#each shape.fields as field}
 											<td class="px-1 py-0.5">
@@ -257,7 +258,7 @@
 																type="number"
 																step="any"
 																bind:value={form.structs[p.name][idx][slotCell(field.name, slot)]}
-																aria-label="{p.label} {rowLabelFor(shape, idx)} {field.label} {slot + 1}"
+																aria-label="{p.label} {replicateHeader(idx)} {field.label} {slot + 1}"
 																class="w-14 px-1 py-0.5 border border-brand-divider rounded bg-brand-surface text-xs"
 															/>
 														{/each}
@@ -267,7 +268,7 @@
 														type="number"
 														step="any"
 														bind:value={form.structs[p.name][idx][field.name]}
-														aria-label="{p.label} {rowLabelFor(shape, idx)} {field.label}"
+														aria-label="{p.label} {replicateHeader(idx)} {field.label}"
 														class="w-full min-w-16 px-1 py-0.5 border border-brand-divider rounded bg-brand-surface text-xs"
 													/>
 												{/if}
@@ -279,7 +280,7 @@
 													type="number"
 													step="any"
 													bind:value={form.structs[p.name][idx][column.name]}
-													aria-label="{p.label} {rowLabelFor(shape, idx)} {column.label}"
+													aria-label="{p.label} {replicateHeader(idx)} {column.label}"
 													class="w-full min-w-16 px-1 py-0.5 border border-brand-divider rounded bg-brand-surface text-xs"
 												/>
 											</td>

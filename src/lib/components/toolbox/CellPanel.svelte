@@ -13,6 +13,7 @@
 	import ConfirmPopover from '$components/ui/ConfirmPopover.svelte';
 	import VisualFormulaBuilder from '$components/formula/VisualFormulaBuilder.svelte';
 	import CellEquation from '$components/tools/CellEquation.svelte';
+	import { equationChain } from '$lib/tools/equation';
 
 	// The selected cell in full: what its row is, the formula behind it where there is one, and
 	// the arithmetic that produced the number. The links are the way around the calculation: a
@@ -32,7 +33,6 @@
 		dependents = null,
 		busy = false,
 		onselect,
-		onedited,
 		ondrop,
 		onstopreading,
 		onshowdependents,
@@ -54,8 +54,6 @@
 		busy?: boolean;
 		/** Select the row a link names. */
 		onselect?: (key: string) => void;
-		/** A field changed, so the run is stale. */
-		onedited?: () => void;
 		ondrop?: (formula: EditableFormula) => void;
 		onstopreading?: (formula: EditableFormula) => void;
 		onshowdependents?: (formula: EditableFormula) => void;
@@ -115,6 +113,7 @@
 
 	const shared = $derived(Boolean(formula?.declarationId) && Boolean(formula?.shared));
 	const fields = $derived(formula ? cellFields(formula) : null);
+	const bounded = $derived(Boolean(fields?.bounds) && !shared && !formula?.intermediate);
 	const readBy = $derived(linksOf(formulas, formula?.code ?? row?.key ?? '').readBy);
 	const reads = $derived(
 		formula ? [...new Set(identifiers(formula.formula).map((i) => i.name))] : [],
@@ -128,6 +127,7 @@
 			? selection.column - 1
 			: null,
 	);
+	const computed = $derived(row?.code ? equationChain(trace, row.code, index, false).length > 0 : false);
 
 	const inputCls =
 		'w-full px-2 py-1 text-sm border border-brand-divider rounded bg-brand-surface text-brand-text';
@@ -167,7 +167,7 @@
 {#snippet whose(step: EditableFormula)}
 	<!-- Whose the step is. A shared one belongs to no calculation, so the save writes it on its
 	     own and declares it here rather than into the set. -->
-	<label class="col-span-2 block text-xs text-brand-muted" title="Which calculations may read this step under its code">Read by
+	<label class="block flex-[2_1_18rem] text-xs text-brand-muted" title="Which calculations may read this step under its code">Read by
 		<select bind:value={step.shared} class={inputCls}>
 			<option value={false}>This calculation only</option>
 			<option value={true}>Any calculation that declares it</option>
@@ -185,13 +185,15 @@
 <section class="@container rounded-md border border-brand-divider bg-brand-surface">
 	<div class="px-3 py-2 border-b border-brand-divider">
 		<h3 class="text-sm font-semibold">
-			{row?.label ?? (formula ? formula.code || 'New formula' : 'No cell selected')}
+			{row?.label || (formula ? formula.code || 'New formula' : formulas.length === 0 ? 'No formula yet' : 'No cell selected')}
 			{#if shared || formula?.receivedThrough}<Badge variant="accent">shared</Badge>{/if}
 			{#if row?.unused}<Badge variant="warning">read by nothing</Badge>{/if}
 		</h3>
 		<p class="text-xs text-brand-muted">
-			{#if !row && !formula}
-				Select a cell to see what made it and to edit the formula behind it.
+			{#if !row && !formula && formulas.length === 0}
+				Pick from the palette or Add output to start the first formula.
+			{:else if !row && !formula}
+				Select a cell to see what made it and to edit the formula behind it, or pick from the palette to start a new output.
 			{:else if formula}
 				{shared || formula.receivedThrough ? 'A step belonging to no calculation, read here.' : 'The formula this row computes.'}
 			{:else}
@@ -216,106 +218,9 @@
 					{@render readers(dependents)}
 				{/if}
 			{:else if formula}
-				<!-- The row's own fields beside its formula where the panel is wide enough, and above it
-				     in the pane beside the sheet. -->
-				<div class="grid grid-cols-1 @3xl:grid-cols-[24rem_minmax(0,1fr)] gap-3 items-start">
-					<div class="grid min-w-0 grid-cols-2 gap-2">
-						<label class="block text-xs text-brand-muted" title="The name later formulas read it by, and the CSV column header of an output">Code
-							<input
-								bind:value={formula.code}
-								onfocus={() => (codeBefore = formula!.code.trim())}
-								onchange={() => {
-									carryRename(formulas, formula!, codeBefore);
-									codeBefore = formula!.code.trim();
-								}}
-								placeholder="CO2_HS_Um"
-								class={inputCls} disabled={!!formula.codeLocked} title={formula.codeLocked ?? ''} />
-							{#if formula.codeLocked}
-								<span class="mt-1 block text-[11px] text-brand-muted">Published: {formula.codeLocked}. The code is the CSV column header and the public identifier.</span>
-							{/if}
-						</label>
-						{#if fields?.name}
-							<label class="block text-xs text-brand-muted" title="The name the output parameter carries in the catalog">Name
-								<input bind:value={formula.name} placeholder="CO2 headspace" class={inputCls} />
-							</label>
-						{/if}
-						<label class="block text-xs text-brand-muted" title="The units the value is computed in">Units
-							<input bind:value={formula.units} placeholder="uM" class={inputCls} />
-						</label>
-						{#if fields?.curveSlot}
-							<label class="block text-xs text-brand-muted" title="The curve whose coefficients reach the formula as curve_slope and curve_intercept">Curve slot
-								<input bind:value={formula.curve_slot} placeholder="doc" class={inputCls} />
-							</label>
-						{/if}
-						<label class="col-span-2 block text-xs text-brand-muted" title="The replicate family the formula runs once per member of">Per replicate over
-							<select bind:value={formula.per_replicate} class={inputCls}>
-								<option value="">Not per replicate, one value per visit</option>
-								{#each perReplicateChoices([...new Set(identifiers(formula.formula).map((i) => i.name))]) as variable (variable)}
-									<option value={variable}>{variable}</option>
-								{/each}
-								{#if formula.per_replicate && !identifiers(formula.formula).some((i) => i.name === formula!.per_replicate)}
-									<option value={formula.per_replicate}>{formula.per_replicate} (not in the formula)</option>
-								{/if}
-							</select>
-						</label>
-						<details class="col-span-2 text-xs text-brand-muted">
-							<summary class="cursor-pointer">Description{formula.description.trim() ? `: ${formula.description.trim()}` : ''}</summary>
-							<input bind:value={formula.description} placeholder="The portal function this transcribes, and what it assumes" title="What the formula transcribes and what it assumes" class="{inputCls} mt-1" />
-						</details>
-						{#if shared}
-							<p class="col-span-2 text-xs text-brand-muted">
-								Stored once and read by every calculation that declares it, so a change saved here
-								is what each of them computes.
-							</p>
-							{@render whose(formula)}
-						{:else}
-							<label class="col-span-2 flex items-start gap-2 text-sm" title="A step publishes no parameter; later formulas read it by its code">
-								<input type="checkbox" bind:checked={formula.intermediate} class="mt-1" />
-								<span>A step of the calculation
-									<span class="block text-xs text-brand-muted">Handed to the formulas after it under its code, stored nowhere.</span>
-									{#if consequence}<span class="block text-xs text-brand-muted">{consequence}</span>{/if}
-								</span>
-							</label>
-							{#if formula.intermediate}
-								{@render whose(formula)}
-							{:else if fields?.bounds}
-								<!-- The output parameter's own bounds: its `alarm_thresholds` row with no site, which
-								     a site-specific row overrides. -->
-								<fieldset class="col-span-2 border border-brand-divider rounded px-2 py-2">
-									<legend class="text-xs text-brand-muted px-1">Bounds on {formula.code || 'the output'}</legend>
-									<div class="grid grid-cols-4 gap-2">
-										<label class="text-xs text-brand-muted">Warning min
-											<input type="number" step="any" bind:value={formula.thresholds.warningMin} class={inputCls} />
-										</label>
-										<label class="text-xs text-brand-muted">Warning max
-											<input type="number" step="any" bind:value={formula.thresholds.warningMax} class={inputCls} />
-										</label>
-										<label class="text-xs text-brand-muted">Alarm min
-											<input type="number" step="any" bind:value={formula.thresholds.alarmMin} class={inputCls} />
-										</label>
-										<label class="text-xs text-brand-muted">Alarm max
-											<input type="number" step="any" bind:value={formula.thresholds.alarmMax} class={inputCls} />
-										</label>
-									</div>
-									<p class="mt-1 text-[11px] text-brand-muted">Written when the set is saved. A site with bounds of its own keeps them.</p>
-								</fieldset>
-							{/if}
-						{/if}
-						<div class="col-span-2 flex flex-wrap gap-2">
-							<Button size="sm" disabled={busy} onclick={() => onedited?.()}>Read it at the visit again</Button>
-							{#if shared}
-								<Button size="sm" variant="ghost" disabled={busy} onclick={() => onshowdependents?.(formula!)}>What it feeds</Button>
-								<ConfirmPopover message="Stop reading {formula.code} in this calculation? The step itself stays." confirmLabel="Stop reading" onconfirm={() => onstopreading?.(formula!)}>
-									<Button size="sm" variant="ghost" disabled={busy}>Stop reading</Button>
-								</ConfirmPopover>
-							{:else if !formula.declarationId}
-								<ConfirmPopover message="Drop {formula.code || 'this formula'} from the calculation? The save deletes it." confirmLabel="Drop" onconfirm={() => ondrop?.(formula!)}>
-									<Button size="sm" variant="ghost" disabled={busy}>Drop</Button>
-								</ConfirmPopover>
-							{/if}
-						</div>
-					</div>
-					<div class="min-w-0 space-y-2">
+				<!-- The formula first at the panel's width, the row's own fields wrapping beneath it. -->
+				<div class="space-y-3">
+					<div class="min-w-0">
 						<!-- The builder holds its formula as a tree, so another row opens a fresh one. -->
 						{#key formula}
 						<div onfocusin={focusin} onfocusout={focusout}>
@@ -332,20 +237,120 @@
 						/>
 						</div>
 						{/key}
-						{#each diagnostics as diagnostic, i (i)}
-							<p class="text-xs text-severity-alarm">{diagnostic.message}</p>
-						{/each}
+					</div>
+					<div class="flex min-w-0 flex-wrap gap-2">
+						<label class="block flex-[1_1_9rem] text-xs text-brand-muted" title="The name later formulas read it by, and the CSV column header of an output">Code
+							<input
+								bind:value={formula.code}
+								onfocus={() => (codeBefore = formula!.code.trim())}
+								onchange={() => {
+									carryRename(formulas, formula!, codeBefore);
+									codeBefore = formula!.code.trim();
+								}}
+								placeholder="CO2_HS_Um"
+								class={inputCls} disabled={!!formula.codeLocked} title={formula.codeLocked ?? ''} />
+						</label>
+						{#if fields?.name}
+							<label class="block flex-[1_1_9rem] text-xs text-brand-muted" title="The name the output parameter carries in the catalog">Name
+								<input bind:value={formula.name} placeholder="CO2 headspace" class={inputCls} />
+							</label>
+						{/if}
+						<label class="block flex-[1_1_9rem] text-xs text-brand-muted" title="The units the value is computed in">Units
+							<input bind:value={formula.units} placeholder="uM" class={inputCls} />
+						</label>
+						{#if fields?.curveSlot}
+							<label class="block flex-[1_1_9rem] text-xs text-brand-muted" title="The curve whose coefficients reach the formula as curve_slope and curve_intercept">Curve slot
+								<input bind:value={formula.curve_slot} placeholder="doc" class={inputCls} />
+							</label>
+						{/if}
+						{#if formula.codeLocked}
+							<p class="basis-full text-[11px] text-brand-muted">Published: {formula.codeLocked}. The code is the CSV column header and the public identifier.</p>
+						{/if}
+						<label class="block flex-[2_1_18rem] text-xs text-brand-muted" title="The replicate family the formula runs once per member of">Per replicate over
+							<select bind:value={formula.per_replicate} class={inputCls}>
+								<option value="">Not per replicate, one value per visit</option>
+								{#each perReplicateChoices([...new Set(identifiers(formula.formula).map((i) => i.name))]) as variable (variable)}
+									<option value={variable}>{variable}</option>
+								{/each}
+								{#if formula.per_replicate && !identifiers(formula.formula).some((i) => i.name === formula!.per_replicate)}
+									<option value={formula.per_replicate}>{formula.per_replicate} (not in the formula)</option>
+								{/if}
+							</select>
+						</label>
+						<label class="block flex-[2_1_18rem] text-xs text-brand-muted" title="What the formula transcribes and what it assumes">Description
+							<input bind:value={formula.description} placeholder="The portal function this transcribes, and what it assumes" class={inputCls} />
+						</label>
+						{#if shared}
+							<p class="basis-full text-xs text-brand-muted">
+								Stored once and read by every calculation that declares it, so a change saved here
+								is what each of them computes.
+							</p>
+							{@render whose(formula)}
+						{:else}
+							<label class="basis-full flex items-start gap-2 text-sm" title="A step publishes no parameter; later formulas read it by its code">
+								<input type="checkbox" bind:checked={formula.intermediate} class="mt-1" />
+								<span>A step of the calculation
+									<span class="block text-xs text-brand-muted">Handed to the formulas after it under its code, stored nowhere.</span>
+									{#if consequence}<span class="block text-xs text-brand-muted">{consequence}</span>{/if}
+								</span>
+							</label>
+							{#if formula.intermediate}
+								{@render whose(formula)}
+							{/if}
+						{/if}
+						{#if shared || !formula.declarationId || bounded}
+							<!-- What an author reaches for rarely, closed so the tables stay on screen. -->
+							<details class="basis-full text-xs text-brand-muted">
+								<summary class="cursor-pointer">Advanced</summary>
+								<div class="mt-2 space-y-2">
+									{#if bounded}
+										<!-- The output parameter's own bounds: its `alarm_thresholds` row with no site, which
+										     a site-specific row overrides. -->
+										<fieldset class="border border-brand-divider rounded px-2 py-2">
+											<legend class="text-xs text-brand-muted px-1">Bounds on {formula.code || 'the output'}</legend>
+											<div class="grid grid-cols-4 gap-2">
+												<label class="text-xs text-brand-muted">Warning min
+													<input type="number" step="any" bind:value={formula.thresholds.warningMin} class={inputCls} />
+												</label>
+												<label class="text-xs text-brand-muted">Warning max
+													<input type="number" step="any" bind:value={formula.thresholds.warningMax} class={inputCls} />
+												</label>
+												<label class="text-xs text-brand-muted">Alarm min
+													<input type="number" step="any" bind:value={formula.thresholds.alarmMin} class={inputCls} />
+												</label>
+												<label class="text-xs text-brand-muted">Alarm max
+													<input type="number" step="any" bind:value={formula.thresholds.alarmMax} class={inputCls} />
+												</label>
+											</div>
+											<p class="mt-1 text-[11px] text-brand-muted">Written when the set is saved. A site with bounds of its own keeps them.</p>
+										</fieldset>
+									{/if}
+									<div class="flex flex-wrap gap-2">
+										{#if shared}
+											<Button size="sm" variant="ghost" disabled={busy} onclick={() => onshowdependents?.(formula!)}>What it feeds</Button>
+											<ConfirmPopover message="Stop reading {formula.code} in this calculation? The step itself stays." confirmLabel="Stop reading" onconfirm={() => onstopreading?.(formula!)}>
+												<Button size="sm" variant="ghost" disabled={busy}>Stop reading</Button>
+											</ConfirmPopover>
+										{:else if !formula.declarationId}
+											<ConfirmPopover message="Drop {formula.code || 'this formula'} from the calculation? The save deletes it." confirmLabel="Drop" onconfirm={() => ondrop?.(formula!)}>
+												<Button size="sm" variant="ghost" disabled={busy}>Drop</Button>
+											</ConfirmPopover>
+										{/if}
+									</div>
+									{#if shared && dependents}
+										{@render readers(dependents)}
+									{/if}
+								</div>
+							</details>
+						{/if}
 					</div>
 				</div>
-				{#if shared && dependents}
-					{@render readers(dependents)}
-				{/if}
 			{/if}
 
 			{@render chips('Reads', reads)}
 			{@render chips('Read by', readBy)}
 
-			{#if row?.code && trace.length > 0}
+			{#if computed && row?.code}
 				<div class="rounded-md border border-brand-divider bg-brand-bg px-2 py-2">
 					<CellEquation steps={trace} code={row.code} {index} />
 				</div>

@@ -1,5 +1,6 @@
 import type { VisitCell, VisitReplicate, VisitRow } from '$api/service';
 import { formatMeasurement } from '$lib/format';
+import { replicateHeader } from '$lib/tools/runTable';
 import { BROWSER_ZONE } from '$lib/time/zones';
 import { formatCompactInstant, zoneLabel } from '$lib/utils';
 import type { ColumnBand, GridSlot, ParameterColumn } from './columns';
@@ -35,7 +36,7 @@ export function sheetHeaders(
 		[
 			`Date (${zoneLabel(zone)})`,
 			...columns.flatMap((c) =>
-				c.expanded ? Array.from({ length: c.width }, (_, i) => String(i + 1)) : [''],
+				c.expanded ? Array.from({ length: c.width }, (_, i) => replicateHeader(i)) : [''],
 			),
 		],
 	];

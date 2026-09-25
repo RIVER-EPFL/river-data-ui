@@ -153,6 +153,15 @@ describe('reading a calculation over its values', () => {
 	});
 });
 
+describe('a calculation with no step', () => {
+	it('draws the Steps table anyway, with no switch to hide it', async () => {
+		const view = render(FormulaCalculation, { calculationId: 'calc-1' });
+		await waitFor(() => expect(view.container.querySelector('section[aria-label="Outputs"]')).not.toBeNull());
+		expect(view.container.querySelector('section[aria-label="Steps"]')).not.toBeNull();
+		expect(screen.queryByRole('checkbox', { name: 'Intermediate steps' })).toBeNull();
+	});
+});
+
 describe('two runs in flight', () => {
 	it('keeps the later run`s numbers when an earlier one answers after it', async () => {
 		render(FormulaCalculation, { calculationId: 'calc-1' });
@@ -202,7 +211,7 @@ describe('a calculation that corrects with a curve', () => {
 describe('reading a calculation over a site series', () => {
 	it('offers the series when every input is a parameter a site streams', async () => {
 		render(FormulaCalculation, { calculationId: 'calc-1' });
-		await waitFor(() => expect(screen.getByText('Live preview')).toBeTruthy());
+		expect(await screen.findByText('Live preview')).toBeTruthy();
 	});
 });
 

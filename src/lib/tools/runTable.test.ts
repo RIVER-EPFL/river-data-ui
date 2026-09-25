@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ToolOutput } from '$api/service';
-import { previewInstant, runInputTables, runTables } from './runTable';
+import { previewInstant, replicateHeader, runInputTables, runTables } from './runTable';
 
 const output = (over: Partial<ToolOutput>): ToolOutput =>
 	({ label: over.key, units: null, per_replicate: false, aggregate_of: null, ...over }) as ToolOutput;
@@ -19,7 +19,7 @@ describe('run tables', () => {
 			{ bp: 950, CO2_HS_Um_A: 12.5, CO2_HS_Um_B: 13.5, CO2_HS_Um_avg: 13, CO2_HS_Um_sd: 0.7 },
 			outputs,
 		);
-		expect(tables.columns).toEqual(['A', 'B']);
+		expect(tables.columns).toEqual(['1', '2']);
 		// A key the manifest does not declare is a step: an intermediate saves nowhere, so no
 		// output is declared for it.
 		expect(tables.steps.map((r) => r.key)).toEqual(['bp']);
@@ -33,7 +33,7 @@ describe('run tables', () => {
 		const tables = runTables({ CO2_HS_Um_A: 12.5 }, outputs, [
 			{ output: 'CO2_HS_Um_B', reason: 'no value for co2ppm (lab_co2_co2ppm_B)' },
 		]);
-		expect(tables.columns).toEqual(['A', 'B']);
+		expect(tables.columns).toEqual(['1', '2']);
 		expect(tables.outputs[0]?.cells[1]).toEqual({
 			value: null,
 			skipped: 'no value for co2ppm (lab_co2_co2ppm_B)',
@@ -54,7 +54,7 @@ describe('run tables', () => {
 				output({ key: 'S2', label: 'S2' }),
 			],
 		);
-		expect(tables.columns).toEqual(['A', 'B', 'C']);
+		expect(tables.columns).toEqual(['1', '2', '3']);
 		expect(tables.outputs[0]?.cells.map((c) => c.value)).toEqual([2, null, 6]);
 		expect(tables.outputs[1]?.cells[0]?.value).toBe(5);
 		// Only the list has a mean and an sd to show.
@@ -134,7 +134,7 @@ describe('the tables of what a run was given', () => {
 			{},
 			[],
 		);
-		expect(tables.columns).toEqual(['A', 'B']);
+		expect(tables.columns).toEqual(['1', '2']);
 		expect(tables.visit.map((r) => r.key)).toEqual(['lab_co2_co2ppm', 'lab_temp']);
 		expect(tables.visit[0]?.cells.map((c) => c.value)).toEqual([410, 415]);
 		// A scalar the visit holds once sits under the first column and leaves the rest empty.
@@ -204,5 +204,21 @@ describe('one instant of a series preview', () => {
 
 	it('has nothing at an instant the window does not hold', () => {
 		expect(previewInstant(preview, 2)).toBeNull();
+	});
+});
+
+describe('replicateHeader', () => {
+	it('heads a replicate by its index counted from 1, past the 26 letters too', () => {
+		expect(replicateHeader(0)).toBe('1');
+		expect(replicateHeader(25)).toBe('26');
+		expect(replicateHeader(26)).toBe('27');
+	});
+
+	it('orders ten or more replicate columns by number, not as text', () => {
+		const tables = runTables({ S1: Array.from({ length: 11 }, (_, i) => i) }, [
+			output({ key: 'S1', label: 'S1', per_replicate: true }),
+		]);
+		expect(tables.columns.slice(8)).toEqual(['9', '10', '11']);
+		expect(tables.outputs[0]?.cells.at(-1)?.value).toBe(10);
 	});
 });

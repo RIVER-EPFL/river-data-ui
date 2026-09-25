@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -19,6 +19,7 @@
 		getStepDependents,
 		getToolRunTrace,
 		getToolScript,
+		updateToolScript,
 		listVisitSites,
 		listVisitsHolding,
 		listToolScripts,
@@ -76,6 +77,7 @@
 	import { curveField } from '$lib/tools/form';
 	import { runInputTables, runTables, type PreviewInstant } from '$lib/tools/runTable';
 	import LivePreview from '$components/derived/LivePreview.svelte';
+	import VisitSeriesPreview from './VisitSeriesPreview.svelte';
 	import {
 		insertIdentifier,
 		rowKey,
@@ -91,6 +93,7 @@
 	import { formatDate, formatDateTime } from '$lib/utils';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import Badge from '$components/ui/Badge.svelte';
+	import InfoTip from '$components/ui/InfoTip.svelte';
 	import Breadcrumbs from '$components/ui/Breadcrumbs.svelte';
 	import Button from '$components/ui/Button.svelte';
 	import ErrorNotice from '$components/ui/ErrorNotice.svelte';
@@ -98,13 +101,13 @@
 	import SiteSelect from '$components/SiteSelect.svelte';
 	import FormulaPalette from '$components/formula/FormulaPalette.svelte';
 	import CalculationSites from '$components/toolbox/CalculationSites.svelte';
-	import CalculationSettings from '$components/toolbox/CalculationSettings.svelte';
-	import DecommissionBanner from '$components/toolbox/DecommissionBanner.svelte';
+	import InlineEdit from '$components/ui/InlineEdit.svelte';
 	import CalculationSheet from '$components/toolbox/CalculationSheet.svelte';
 	import CellPanel from '$components/toolbox/CellPanel.svelte';
 	import CurvePicker, { emptyCurveSelection, type CurveSelection } from '$components/tools/CurvePicker.svelte';
 	import type { Diagnostic } from '$lib/formula/lint';
 	import { AUTHORING_REFUSED } from '$lib/toolbox/authoring';
+	import { decommissionTip } from '$lib/toolbox/decommission';
 	import { ApiError } from '$api/client';
 
 	// A calculation whole: what it reads on the left, its formulas in order in the middle, what
@@ -177,6 +180,8 @@
 	// The instant the reader is on in the series preview. While one is chosen the tables show the
 	// set's numbers there, in place of the visit's.
 	let hovered = $state<PreviewInstant | null>(null);
+	// A visit under the cursor of the visit plot, whose run the tables show while it is there.
+	let hoveredVisit = $state<{ time: string; run: FormulaDraftRunResponse } | null>(null);
 	let run = $state<FormulaDraftRunResponse | null>(null);
 	let runError = $state('');
 
@@ -201,11 +206,10 @@
 	// supersedes none.
 	const supersedes = $derived(calculation?.active_version_no != null);
 	const ordered = $derived(dependencyOrder(formulas));
-	// A source of a replicated parameter that a per-replicate formula walks is the family, not its
-	// mean (Q155); replicate-ness is the parameter's, in whichever group holds it.
+	// What the builder marks as entered per replicate: the parameter's, in whichever group holds it.
 	const replicated = $derived(replicatedCodes(members, parameters));
 	// A name the formula under the cursor reads becomes an input once its field is left (Q304).
-	const inputs = $derived(inputRows(untilLeft(formulas, focused), parameters, constants, replicated));
+	const inputs = $derived(inputRows(untilLeft(formulas, focused), parameters, constants));
 	const slots = $derived(curveSlots(formulas));
 	// Why the set cannot be read as a series, or null when it can. A set with no blocker draws over
 	// a site's streams; one with a blocker runs at field visits and the page says which input.
@@ -289,7 +293,7 @@
 					constants: recorded.constants,
 					curves: recorded.curves,
 				}
-			: run,
+			: (hoveredVisit?.run ?? run),
 	);
 	const tables = $derived(
 		hovered
@@ -318,17 +322,18 @@
 			: undefined,
 	);
 
-	// The tables the page is: the set's inputs, its steps when it has any or the author turned
-	// them on, and its outputs, filled by the run.
-	let showSteps = $state(false);
+	// The tables the page is: the set's inputs, its steps and its outputs, filled by the run.
 	const blocks = $derived(
-		sheetBlocks(formulas, inputs, declared, given, tables ?? undefined, showSteps, {
+		sheetBlocks(formulas, inputs, declared, given, tables ?? undefined, {
 			scalars: scalarText,
 			replicates: replicateText,
 		}),
 	);
 	const stale = $derived(recorded === null && run !== null && ranAt < scheduled);
 	// Said on the disabled save rather than in the bar, whose height the sheet sits under.
+	const RUN_TIP =
+		'Pick a visit to run the formulas over its stored values, unsaved edits included. Nothing is written. A number typed into an input cell overrides the stored one.';
+	const statusTip = (c: ToolScriptDetail) => decommissionTip(c, formatDateTime(c.decommissioned_at ?? ''));
 	const saveBlocked = $derived(diagnostics.length > 0 ? 'Put right what the formula says wrong first' : undefined);
 
 	const selectedRow = $derived(
@@ -441,6 +446,17 @@
 	}
 
 	/** Reread the calculation's own fields without discarding the formulas being edited. */
+	async function saveHeading(field: 'label' | 'description', value: string) {
+		if (!calculation) return;
+		try {
+			await updateToolScript(calculation.id, { label: calculation.label, description: calculation.description ?? undefined, [field]: value || undefined });
+			await refreshCalculation();
+		} catch (e) {
+			toastStore.error(apiMessage(e));
+			throw e;
+		}
+	}
+
 	async function refreshCalculation() {
 		try {
 			calculation = await getToolScript(calculationId);
@@ -526,7 +542,6 @@
 	function addRow(block: 'steps' | 'outputs') {
 		const blank = blankFormula(formulas);
 		blank.intermediate = block === 'steps';
-		if (block === 'steps') showSteps = true;
 		formulas = [...formulas, blank];
 		const added = formulas[formulas.length - 1]!;
 		picked = added;
@@ -588,13 +603,26 @@
 				? { block: 'outputs', key: next, column: 0 }
 				: next;
 		picked = selected
-			? (formulas.find((f) => f.code.trim() === selected!.key) ?? null)
+			? (formulas.find((f) => rowKey(f) === selected!.key) ?? null)
 			: null;
 	}
 
-	/** A palette pick goes to the formula open in the panel, or at the end of the picked one. */
-	function insert(payload: DragPayload) {
+	// A row's key is its code, so the selection follows the open formula through a rename made in
+	// either the tables or the panel.
+	$effect(() => {
+		if (!picked || !selected) return;
+		const key = rowKey(picked);
+		if (selected.key !== key) selected = { ...selected, key };
+	});
+
+	/** A palette pick goes to the formula open in the panel, or starts a new output when none is open. */
+	async function insert(payload: DragPayload) {
 		if (cellPanel?.pick(payload)) return;
+		if (!picked) {
+			addRow('outputs');
+			await tick();
+			if (cellPanel?.pick(payload)) return;
+		}
 		if (!picked) return;
 		picked.formula = insertIdentifier(picked.formula, payloadName(payload)).formula;
 	}
@@ -799,7 +827,6 @@
 		}),
 	);
 	let historyTab = $state<HistoryKey | null>(null);
-	let barHeight = $state(0);
 	const historyKey = $derived(openPane(history, historyTab));
 	const historyIndex = $derived(Math.max(0, history.findIndex((h) => h.key === historyKey)));
 
@@ -849,6 +876,7 @@
 
 	const inputCls =
 		'w-full px-2 py-1 text-sm border border-brand-divider rounded bg-brand-surface text-brand-text';
+	const pickCls = 'px-2 py-1 text-sm border border-brand-divider rounded bg-brand-surface text-brand-text';
 </script>
 
 <svelte:head>
@@ -856,31 +884,49 @@
 </svelte:head>
 
 <div class="space-y-4">
-	<div>
-		<Breadcrumbs items={[{ label: 'Toolbox', href: `${base}/toolbox` }, { label: calculation?.label || calculation?.name || 'Calculation' }]} />
-		<div class="flex items-start justify-between gap-3 flex-wrap">
-			<div>
-				<h2 class="text-xl font-semibold">{calculation?.label || calculation?.name || 'Calculation'}</h2>
-				{#if calculation}
-					<p class="text-sm text-brand-muted">
-						{calculation.name} · formula calculation
-						{#if calculation.active_version_no}· version {calculation.active_version_no}{/if}
-					</p>
-					{#if calculation.description}<p class="text-sm text-brand-muted mt-1">{calculation.description}</p>{/if}
-					<CalculationSites id={calculation.id} name={calculation.name} />
-					<div class="mt-2"><DecommissionBanner {calculation} /></div>
+	<Breadcrumbs items={[{ label: 'Toolbox', href: `${base}/toolbox` }, { label: calculation?.label || calculation?.name || 'Calculation' }]} />
+	<!-- Kept in view: what the calculation is, where it is applied, and the save, from wherever the
+	     author is on it. -->
+	<div class="sticky top-0 z-20 rounded-md border border-brand-divider bg-brand-surface px-3 py-2 space-y-1">
+		<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+			{#if calculation}
+				<InlineEdit value={calculation.label || calculation.name} label="Label" required onsave={(v) => saveHeading('label', v)} inputClass="text-base font-semibold">
+					<h2 class="text-lg font-semibold">{calculation.label || calculation.name}</h2>
+				</InlineEdit>
+				<span class="font-mono text-xs text-brand-muted">{calculation.name}</span>
+				{#if calculation.decommissioned_at}
+					<Badge variant="warning" title={statusTip(calculation)}>Decommissioned</Badge>
+				{:else if calculation.active_version_no}
+					<Badge variant="muted">version {calculation.active_version_no}</Badge>
+				{:else}
+					<Badge variant="muted" title="No version is active, so it fires at no site.">no active version</Badge>
 				{/if}
-			</div>
+			{:else}
+				<h2 class="text-lg font-semibold">Calculation</h2>
+			{/if}
+			{#if !error && !loading}
+				<div class="ml-auto flex flex-wrap items-center gap-2">
+					{#if unsaved}
+						<span class="text-xs text-brand-muted">
+							Unsaved: {ownCount} formula{ownCount === 1 ? '' : 's'}{dropped.length > 0 ? `, dropping ${dropped.map((f) => f.code).join(', ')}` : ''}
+						</span>
+						<Button size="sm" variant="primary" loading={busy} disabled={busy || diagnostics.length > 0} title={saveBlocked} onclick={() => saveSet()}>Save as a new version</Button>
+						<InfoTip text={`Saving writes the whole set as one version, whatever it changed.${supersedes ? ` ${versionConsequence(activeUsage)}` : ''}`} />
+					{:else}
+						<span class="text-xs text-brand-muted">Saved. The calculation runs as its active version.</span>
+					{/if}
+				</div>
+			{/if}
 		</div>
 		{#if calculation}
-			<details class="mt-2 rounded-md border border-brand-divider bg-brand-surface">
-				<summary class="px-3 py-2 text-sm font-medium cursor-pointer">
-					Calculation: label, description, on or off
-				</summary>
-				<div class="p-3">
-					<CalculationSettings {calculation} onsaved={refreshCalculation} />
+			<div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+				<div class="min-w-0 flex-1 truncate text-sm text-brand-muted">
+					<InlineEdit value={calculation.description ?? ''} label="Description" placeholder="No description" onsave={(v) => saveHeading('description', v)} inputClass="w-[min(40rem,70vw)]">
+						<span title={calculation.description ?? ''}>{calculation.description}</span>
+					</InlineEdit>
 				</div>
-			</details>
+				<CalculationSites id={calculation.id} name={calculation.name} />
+			</div>
 		{/if}
 	</div>
 
@@ -889,50 +935,6 @@
 	{:else if loading}
 		<p class="text-sm text-brand-muted">Loading…</p>
 	{:else}
-		<!-- Kept in view: the site and the visit the whole page reads, and the save, from wherever
-		     the author is on it. -->
-		<div bind:clientHeight={barHeight} class="sticky top-0 z-20 rounded-md border border-brand-divider bg-brand-surface px-3 py-2 space-y-1">
-			<div class="flex flex-wrap items-end gap-3">
-				<label class="text-xs text-brand-muted">Site
-					<SiteSelect
-						bind:value={siteId}
-						sites={siteChoices}
-						note={(s) => noteById.get(s.id) ?? ''}
-						class="block mt-0.5 {inputCls}"
-						onchange={(s) => loadVisits(s)}
-					/>
-				</label>
-				<label class="text-xs text-brand-muted">Visit
-					<select bind:value={visitId} onchange={chooseVisit} disabled={!siteId || visitsLoading} class="block mt-0.5 {inputCls} min-w-56">
-						<option value="">{visitsLoading ? 'Loading…' : visits.length === 0 ? 'No visit holds every input' : 'Choose a visit…'}</option>
-						{#each visits as v (v.id)}
-							<option value={v.id}>{formatDateTime(v.collected_at)} · {v.parameters_filled} filled</option>
-						{/each}
-					</select>
-				</label>
-				{#if running}<span class="text-xs text-brand-muted pb-1">Reading…</span>{/if}
-				<div class="flex-1"></div>
-				<div class="flex flex-wrap items-center gap-2 pb-0.5">
-					{#if unsaved}
-						<span class="text-xs text-brand-muted">
-							Unsaved: {ownCount} formula{ownCount === 1 ? '' : 's'}{dropped.length > 0 ? `, dropping ${dropped.map((f) => f.code).join(', ')}` : ''}
-						</span>
-						<Button size="sm" variant="primary" loading={busy} disabled={busy || diagnostics.length > 0} title={saveBlocked} onclick={() => saveSet()}>Save as a new version</Button>
-					{:else}
-						<span class="text-xs text-brand-muted">Saved. The calculation runs as its active version.</span>
-					{/if}
-				</div>
-			</div>
-			<p class="text-xs text-brand-muted">
-				The set runs over the visit's stored values as the formulas stand, unsaved edits included, and
-				writes nothing. Type a number into an input cell to read it over that instead; with no visit
-				chosen the run is on the typed numbers alone.
-			</p>
-			{#if unsaved}
-				<p class="text-xs text-brand-muted">Saving writes the whole set as one version, whatever it changed.{supersedes ? ` ${versionConsequence(activeUsage)}` : ''}</p>
-			{/if}
-		</div>
-
 		{#if takingOver.length > 0}
 			<div role="alertdialog" aria-label="Take over a column" class="rounded-md border border-severity-warning bg-brand-surface px-3 py-2 space-y-2">
 				{#each takingOver as take (take.code)}
@@ -975,107 +977,9 @@
 			</div>
 		{/if}
 
-		<!-- The set over the chosen site's streams, a compact strip above the sheet; moving along the
-		     chart fills the tables at that instant. -->
-		{#if blocker}
-			<p class="text-xs text-brand-muted">This runs at field visits only: it reads {blocker}.</p>
-		{:else}
-			<LivePreview
-				formulas={previewSet}
-				{siteId}
-				sites={sitesWithAvailability}
-				constantNames={constants.map((c) => c.name)}
-				reads={readsAtSite}
-				onhover={(at) => (hovered = at)}
-			/>
-		{/if}
-
-		<!-- The calculation as tables of the visit's data, with the selected cell and the palette in a
-		     pane beside them, so opening a cell leaves the sheet where it is. -->
-		<div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_24rem] gap-4 items-start">
-			<div class="min-w-0 space-y-4">
-			<section class="min-w-0 rounded-md border border-brand-divider bg-brand-surface">
-				<div class="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-brand-divider">
-					<div>
-						<h3 class="text-sm font-semibold">{hovered ? 'At this instant' : 'At this visit'}</h3>
-						{#if hovered}
-							<p class="text-xs text-brand-muted">{formatDateTime(hovered.time)}, read from the series above.</p>
-						{/if}
-					</div>
-					<div class="flex flex-wrap items-center gap-2">
-						{#if shareable.length > 0}
-							<select bind:value={declaring} class={inputCls} aria-label="A step written elsewhere">
-								<option value="">Bring in a step…</option>
-								{#each shareable as offer (offer.id)}
-									<option value={offer.id} title="{offer.code} = {offer.formula}">{offer.label}</option>
-								{/each}
-							</select>
-							<Button size="sm" disabled={busy || !declaring} onclick={declare}>Bring in</Button>
-						{/if}
-					</div>
-				</div>
-				{#if offered}
-					<div class="px-3 py-2 border-b border-brand-divider text-xs" aria-label="What bringing in {offered.code} shares">
-						<p class="text-brand-muted">
-							{offered.owner ? `Written by ${offered.owner}; bringing it in shares it` : 'Already shared'}{offered.chain.length > 0 ? ' with the steps it reads:' : '.'}
-						</p>
-						<ul class="mt-1 space-y-0.5 font-mono">
-							{#each [...offered.chain, offered] as step (step.code)}
-								<li><span class="font-semibold">{step.code}</span> = {step.formula}</li>
-							{/each}
-						</ul>
-					</div>
-				{/if}
-				<div class="px-3 py-3 space-y-3">
-					<CalculationSheet
-						{blocks}
-						{formulas}
-						trace={run?.trace ?? []}
-						{stale}
-						bind:selected
-						onselect={choose}
-						onedit={applyEdit}
-						ondrop={dropPayload}
-						onadd={addRow}
-						onsteps={(on) => (showSteps = on)}
-						onremove={removeRow}
-						declared={declared.map((d) => d.name)}
-					/>
-					{#if (run?.skipped?.length ?? 0) > 0}
-						<ul class="text-xs text-brand-muted">
-							{#each run?.skipped ?? [] as s, i (i)}
-								<li><span class="font-mono">{s.output}</span> not run: {s.reason}</li>
-							{/each}
-						</ul>
-					{/if}
-				</div>
-			</section>
-			</div>
-			<!-- Held under the site and visit bar, which is sticky too. -->
-			<div
-				class="min-w-0 space-y-4 xl:sticky xl:top-(--pane-top) xl:max-h-[calc(100vh-var(--pane-top)-4rem)] xl:overflow-y-auto"
-				style="--pane-top: {barHeight + 16}px"
-			>
-			<CellPanel
-				bind:this={cellPanel}
-				row={selectedRow}
-				selection={selected}
-				bind:formula={picked}
-				bind:focused
-				{formulas}
-				variables={paramVars}
-				{constants}
-				trace={run?.trace ?? []}
-				bind:diagnostics
-				consequence={supersedes ? versionConsequence(activeUsage) : null}
-				dependents={picked?.id ? (dependents[picked.id] ?? null) : null}
-				{busy}
-				onselect={choose}
-				onedited={() => visit && runAtVisit()}
-				ondrop={remove}
-				onstopreading={stopReading}
-				onshowdependents={showDependents}
-			/>
+		<!-- The palette beside the selected cell, where the work happens; the tables of the visit's
+		     data follow at the page's full width, so the sheet's links have room for their gutters. -->
+		<div class="grid grid-cols-1 xl:grid-cols-[20rem_minmax(0,1fr)] gap-4 items-start">
 			<section aria-label="Palette" class="rounded-md border border-brand-divider bg-brand-surface">
 				<FormulaPalette
 					variables={paramVars}
@@ -1084,8 +988,103 @@
 					class="p-2 max-h-[460px] overflow-y-auto"
 				/>
 			</section>
+			<div class="min-w-0">
+				<CellPanel
+					bind:this={cellPanel}
+					row={selectedRow}
+					selection={selected}
+					bind:formula={picked}
+					bind:focused
+					{formulas}
+					variables={paramVars}
+					{constants}
+					trace={run?.trace ?? []}
+					bind:diagnostics
+					consequence={supersedes ? versionConsequence(activeUsage) : null}
+					dependents={picked?.id ? (dependents[picked.id] ?? null) : null}
+					{busy}
+					onselect={choose}
+					ondrop={remove}
+					onstopreading={stopReading}
+					onshowdependents={showDependents}
+				/>
 			</div>
 		</div>
+
+		<section class="min-w-0 rounded-md border border-brand-divider bg-brand-surface">
+			<div class="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-brand-divider">
+				<div class="min-w-0">
+					<h3 class="text-sm font-semibold">Values</h3>
+					{#if hovered}
+						<p class="text-xs text-brand-muted">{formatDateTime(hovered.time)}, read from the series below.</p>
+					{:else if hoveredVisit}
+						<p class="text-xs text-brand-muted">{formatDateTime(hoveredVisit.time)}, read from the visit plot below.</p>
+					{:else if visit}
+						<p class="text-xs text-brand-muted">{formatDateTime(visit.collected_at)}, the chosen visit.</p>
+					{/if}
+				</div>
+				<div class="flex flex-wrap items-center gap-2">
+					{#if running}<span class="text-xs text-brand-muted">Reading…</span>{/if}
+					<span class="text-xs text-brand-muted" title={RUN_TIP}>Fill values with:</span>
+					<SiteSelect
+						bind:value={siteId}
+						sites={siteChoices}
+						note={(s) => noteById.get(s.id) ?? ''}
+						class={pickCls}
+						onchange={(s) => loadVisits(s)}
+					/>
+					<select bind:value={visitId} onchange={chooseVisit} disabled={!siteId || visitsLoading} aria-label="Visit" class="{pickCls} min-w-56">
+						<option value="">{visitsLoading ? 'Loading…' : visits.length === 0 ? 'No visit holds every input' : 'Choose a visit…'}</option>
+						{#each visits as v (v.id)}
+							<option value={v.id}>{formatDateTime(v.collected_at)} · {v.parameters_filled} filled</option>
+						{/each}
+					</select>
+					{#if shareable.length > 0}
+						<select bind:value={declaring} class={pickCls} aria-label="A step written elsewhere">
+							<option value="">Bring in a step…</option>
+							{#each shareable as offer (offer.id)}
+								<option value={offer.id} title="{offer.code} = {offer.formula}">{offer.label}</option>
+							{/each}
+						</select>
+						<Button size="sm" disabled={busy || !declaring} onclick={declare}>Bring in</Button>
+					{/if}
+				</div>
+			</div>
+			{#if offered}
+				<div class="px-3 py-2 border-b border-brand-divider text-xs" aria-label="What bringing in {offered.code} shares">
+					<p class="text-brand-muted">
+						{offered.owner ? `Written by ${offered.owner}; bringing it in shares it` : 'Already shared'}{offered.chain.length > 0 ? ' with the steps it reads:' : '.'}
+					</p>
+					<ul class="mt-1 space-y-0.5 font-mono">
+						{#each [...offered.chain, offered] as step (step.code)}
+							<li><span class="font-semibold">{step.code}</span> = {step.formula}</li>
+						{/each}
+					</ul>
+				</div>
+			{/if}
+			<div class="px-3 py-3 space-y-3">
+				<CalculationSheet
+					{blocks}
+					{formulas}
+					trace={run?.trace ?? []}
+					{stale}
+					bind:selected
+					onselect={choose}
+					onedit={applyEdit}
+					ondrop={dropPayload}
+					onadd={addRow}
+					onremove={removeRow}
+					declared={declared.map((d) => d.name)}
+				/>
+				{#if (run?.skipped?.length ?? 0) > 0}
+					<ul class="text-xs text-brand-muted">
+						{#each run?.skipped ?? [] as s, i (i)}
+							<li><span class="font-mono">{s.output}</span> not run: {s.reason}</li>
+						{/each}
+					</ul>
+				{/if}
+			</div>
+		</section>
 
 		{#if slots.length > 0}
 			<!-- What binds `curve_slope` and `curve_intercept` for the run. Unbound, the slot's
@@ -1200,6 +1199,37 @@
 				</ul>
 				{/if}
 			</section>
+		{/if}
+
+		<!-- The set over the chosen site's streams; moving along the chart fills the tables at that
+		     instant. -->
+		{#if blocker}
+			<!-- A set that runs at field visits only is drawn over the chosen site's visits, one point
+			     per visit; moving along it fills the tables with that visit's run. -->
+			<section class="rounded-md border border-brand-divider bg-brand-surface">
+				<h3 class="px-3 py-2 text-sm font-semibold">Visit plot</h3>
+				<div class="px-3 pb-3">
+					<p class="text-xs text-brand-muted mb-2">This runs at field visits only: it reads {blocker}.</p>
+					<VisitSeriesPreview
+						{calculationId}
+						{formulas}
+						{siteId}
+						{visits}
+						curves={Object.fromEntries(slots.map((slot) => [slot, curveField(curveChoice[slot])]))}
+						paused={diagnostics.length > 0}
+						onhover={(at) => (hoveredVisit = at)}
+					/>
+				</div>
+			</section>
+		{:else}
+			<LivePreview
+				formulas={previewSet}
+				{siteId}
+				sites={sitesWithAvailability}
+				constantNames={constants.map((c) => c.name)}
+				reads={readsAtSite}
+				onhover={(at) => (hovered = at)}
+			/>
 		{/if}
 	{/if}
 </div>

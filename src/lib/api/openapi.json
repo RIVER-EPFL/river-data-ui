@@ -7531,6 +7531,43 @@
         ],
         "type": "object"
       },
+      "FormulaDraftRun": {
+        "allOf": [
+          {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FormulaDraftRunResults"
+              }
+            ]
+          },
+          {
+            "properties": {
+              "failure": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DraftRunFailure"
+                  }
+                ]
+              },
+              "ran": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "ran",
+              "failure"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "One run of a batched draft: its results, or why it ended."
+      },
       "FormulaDraftRunRequest": {
         "description": "Run a formula calculation's unsaved formula set at a visit. The formulas replace the stored\nset for this run only; nothing is written.",
         "properties": {
@@ -7681,6 +7718,66 @@
           "site_inputs",
           "event_inputs",
           "trace"
+        ],
+        "type": "object"
+      },
+      "FormulaDraftRunsRequest": {
+        "properties": {
+          "constants": {
+            "additionalProperties": {
+              "format": "double",
+              "type": "number"
+            },
+            "description": "Constant values in place of the catalog, for every run; omit to read the catalog.",
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "formulas": {
+            "items": {
+              "$ref": "#/components/schemas/DraftFormula"
+            },
+            "type": "array"
+          },
+          "inputs": {
+            "description": "One calculate request body per run, each as `FormulaDraftRunRequest.inputs` takes it.",
+            "items": {
+              "additionalProperties": {},
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "formulas",
+          "inputs"
+        ],
+        "type": "object"
+      },
+      "FormulaDraftRunsResponse": {
+        "properties": {
+          "manifest": {
+            "description": "The manifest the formula set implies, as `FormulaDraftRunResponse.manifest`.",
+            "type": "object"
+          },
+          "runs": {
+            "description": "One per entry of the request's `inputs`, in its order.",
+            "items": {
+              "$ref": "#/components/schemas/FormulaDraftRun"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "runs",
+          "manifest"
         ],
         "type": "object"
       },
@@ -10739,9 +10836,6 @@
               "null"
             ]
           },
-          "row_labels": {
-            "$ref": "#/components/schemas/RowLabels"
-          },
           "rows": {
             "description": "`rows` layout: rows offered before anything is entered.",
             "format": "int32",
@@ -10766,7 +10860,6 @@
           "fields",
           "rows",
           "max_rows",
-          "row_labels",
           "values",
           "value_labels",
           "additional_fields"
@@ -12769,6 +12862,13 @@
               "null"
             ]
           },
+          "apply_in_flight": {
+            "description": "Whether an apply job for an `applying` plan is still queued or running. False means the job\ngave up and the plan waits to be resumed; null on any other status.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "created_at": {
             "format": "date-time",
             "type": "string"
@@ -12782,6 +12882,15 @@
           "id": {
             "format": "uuid",
             "type": "string"
+          },
+          "readings_backfilled": {
+            "description": "Readings an `applying` plan has attributed in committed batches; null on any other status.",
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "source_system": {
             "type": "string"
@@ -12799,6 +12908,11 @@
               "integer",
               "null"
             ]
+          },
+          "version": {
+            "description": "The version an apply or an edit names as the one it read.",
+            "format": "int32",
+            "type": "integer"
           }
         },
         "required": [
@@ -12806,7 +12920,8 @@
           "source_system",
           "status",
           "summary",
-          "created_at"
+          "created_at",
+          "version"
         ],
         "type": "object"
       },
@@ -19858,14 +19973,6 @@
           "message"
         ],
         "type": "object"
-      },
-      "RowLabels": {
-        "description": "How the rows of a `rows` layout are labelled in the entry form.",
-        "enum": [
-          "letters",
-          "numbers"
-        ],
-        "type": "string"
       },
       "RowProvenance": {
         "description": "What one row's record says, reduced to what the routing turns on.",
@@ -48646,7 +48753,7 @@
             "description": "Plan already applied or reverted, or edited since the client read it"
           }
         },
-        "summary": "Apply a pairing plan: execute all its pairings and backfills atomically. Marks the\nplan as `applied`. Requires `write_metadata`.",
+        "summary": "Apply a pairing plan, or resume one left `applying`: pair its streams, attribute their history\nin committed batches, and mark the plan `applied`. Requires `write_metadata`.",
         "tags": [
           "sync"
         ]
@@ -52100,6 +52207,86 @@
     "/api/tool_scripts": {
       "get": {
         "operationId": "list_scripts",
+        "parameters": [
+          {
+            "description": "JSON-encoded filter for querying resources.\n\nThis parameter supports various filtering options:\n- Free text search: `{\"q\": \"search text\"}`\n- Filtering by a single ID: `{\"id\": \"550e8400-e29b-41d4-a716-446655440000\"}`\n- Filtering by multiple IDs: `{\"id\": [\"550e8400-e29b-41d4-a716-446655440000\", \"550e8400-e29b-41d4-a716-446655440001\"]}`\n- Filtering on other columns: `{\"name\": \"example\"}`",
+            "example": {
+              "id": "550e8400-e29b-41d4-a716-446655440000",
+              "name": "example",
+              "q": "search text"
+            },
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Range for pagination in the format \"[start, end]\".\n\nExample: `[0,9]`",
+            "example": "[0,9]",
+            "in": "query",
+            "name": "range",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page number for standard REST pagination (1-based).\n\nExample: `1`",
+            "example": 1,
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of items per page for standard REST pagination.\n\nExample: `10`",
+            "example": 10,
+            "in": "query",
+            "name": "per_page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Sort order for the results in the format `[\"column\", \"order\"]`.\n\nExample: `[\"id\", \"ASC\"]`",
+            "example": "[\"id\", \"ASC\"]",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort column for standard REST format.\n\nExample: `title`",
+            "example": "title",
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort order for standard REST format (ASC or DESC).\n\nExample: `ASC`",
+            "example": "ASC",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -52115,7 +52302,7 @@
             "description": ""
           }
         },
-        "summary": "List every calculation with its live version and how many versions it has. Requires\nAdministrator.",
+        "summary": "The calculations with their live version and how many versions each has, a page at a time,\nfiltered and sorted as crudcrate's list is. Requires Administrator.",
         "tags": [
           "tool_scripts"
         ]
@@ -52521,6 +52708,55 @@
           }
         },
         "summary": "Run an unsaved formula set at a visit, in place of the calculation's stored formulas.",
+        "tags": [
+          "tool_scripts"
+        ]
+      }
+    },
+    "/api/tool_scripts/{id}/formulas/draft_runs": {
+      "post": {
+        "operationId": "draft_run_formulas_batch",
+        "parameters": [
+          {
+            "description": "The formula calculation",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FormulaDraftRunsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormulaDraftRunsResponse"
+                }
+              }
+            },
+            "description": "One run per entry of inputs, and the manifest the set implies"
+          },
+          "400": {
+            "description": "A formula the set refuses, a calculation that is not formula-engined, or more runs than one request takes"
+          },
+          "404": {
+            "description": "No such calculation"
+          }
+        },
+        "summary": "Run an unsaved formula set at several visits in one request, as `formulas/draft_run` runs it\nat one. The set is resolved once; each entry of `inputs` is one run, answered in its order.\nNothing is stored.",
         "tags": [
           "tool_scripts"
         ]

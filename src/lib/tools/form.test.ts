@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { openingFromRun } from './form';
+import type { ToolParam } from '$api/service';
+import { buildPlan, initFormState, openingFromRun } from './form';
 
 // Scenario: a form reopened on a stored run. Expected behaviour: it opens on everything the run
 // used, which is its inputs and the curves that filled its slots (Q192).
@@ -36,5 +37,19 @@ describe('the prefill a reopened run supplies', () => {
 			curves: [{ curve: { slope: 1, intercept: 0 } }, { name: 'corr' }],
 		});
 		expect(opening).toEqual({});
+	});
+});
+
+describe('the replicate grid of a tool form', () => {
+	it('heads its columns by index, not by the letters the params are named with', () => {
+		const param = (name: string) =>
+			({ name, label: name, kind: 'number', required: false }) as ToolParam;
+		const tool = {
+			name: 'doc',
+			params: [param('doc_rep_A'), param('doc_rep_B'), param('doc_rep_C')],
+			curves: [],
+		};
+		const matrix = buildPlan(tool, initFormState(tool)).find((i) => i.type === 'matrix');
+		expect(matrix?.type === 'matrix' && matrix.group.reps).toEqual(['1', '2', '3']);
 	});
 });

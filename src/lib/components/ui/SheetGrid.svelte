@@ -7,6 +7,7 @@
 
 	/** The lab's use is research under the Non-Commercial License Agreement 4.0, section 2.2(a) (Q206). */
 	const LICENSE_KEY = 'non-commercial-and-evaluation';
+	const LEAVING = ['focusin', 'input', 'change'] as const;
 
 	interface Props {
 		data: unknown[][] | Record<string, unknown>[];
@@ -31,11 +32,14 @@
 		});
 		hot = instance;
 		onready?.(instance);
-		document.addEventListener('focusin', leave);
+		for (const type of LEAVING) document.addEventListener(type, leave);
 	});
 
-	/** A field outside the grid taking the focus takes the keyboard from the grid with it. */
-	function leave(event: FocusEvent) {
+	/**
+	 * A field outside the grid taking the focus, or changed without taking it, takes the keyboard
+	 * from the grid with it.
+	 */
+	function leave(event: Event) {
 		const instance = untrack(() => hot);
 		if (!instance || instance.isDestroyed) return;
 		if (event.target instanceof Node && !el.contains(event.target)) instance.unlisten();
@@ -72,7 +76,7 @@
 	});
 
 	onDestroy(() => {
-		document.removeEventListener('focusin', leave);
+		for (const type of LEAVING) document.removeEventListener(type, leave);
 		if (hot && !hot.isDestroyed) hot.destroy();
 		hot = null;
 	});

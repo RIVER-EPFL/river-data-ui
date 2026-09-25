@@ -63,4 +63,28 @@ describe('SheetGrid', () => {
 		expect(hot!.isListening()).toBe(false);
 		field.remove();
 	});
+
+	// Scenario: a cell of the grid is selected and a dropdown outside it is changed without taking
+	// the focus, as an automation or assistive tool sets a value (B709). Expected behaviour: the
+	// grid stops taking keys, so what is typed next does not open its editor on the selected cell.
+	it('stops taking keys when a field outside the grid is changed', async () => {
+		let hot: HotInstance | null = null;
+		const select = document.createElement('select');
+		select.append(new Option('none', ''), new Option('lab_a', 'lab_a'));
+		document.body.append(select);
+		render(SheetGrid, {
+			data: [['CO2_HS_Um']],
+			settings: { outsideClickDeselects: false },
+			onready: (h: HotInstance) => (hot = h),
+		});
+		await waitFor(() => expect(hot).not.toBeNull());
+		hot!.selectCell(0, 0);
+		hot!.listen();
+		expect(hot!.isListening()).toBe(true);
+
+		select.value = 'lab_a';
+		select.dispatchEvent(new Event('change', { bubbles: true }));
+		expect(hot!.isListening()).toBe(false);
+		select.remove();
+	});
 });

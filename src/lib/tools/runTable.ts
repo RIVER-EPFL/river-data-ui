@@ -4,7 +4,7 @@ import type { RunTraceStep, ToolOutput } from '$api/service';
 ///
 /// The flat `{key: value}` map a run returns is one row per output *and* per replicate index, so a
 /// six-formula calculation over two repeats reads as twelve unrelated numbers. The portal pivots
-/// that into a table of outputs against replicate letters, with the steps of the calculation above
+/// that into a table of outputs against replicates, with the steps of the calculation above
 /// the values it publishes, and the mean and standard deviation in a table of their own.
 
 /** Which step of the run's trace produced a cell, for the equation behind it. */
@@ -43,8 +43,8 @@ export interface RunRow {
 export type FixedSource = 'site' | 'constant' | 'curve';
 
 export interface RunTables {
-	/** The replicate suffixes the run produced, in the order they appear ('A', 'B', …). Empty for
-	 *  a calculation that ran once. */
+	/** The replicate headers the run produced, in order ('1', '2', …). Empty for a calculation that
+	 *  ran once. */
 	columns: string[];
 	/** Steps of the calculation: computed, handed on, stored nowhere (M180). */
 	steps: RunRow[];
@@ -80,9 +80,16 @@ function declarationFor(outputs: ToolOutput[]): (key: string) => Declared | null
 	};
 }
 
-/** The portal's replicate letters: index 0 is A. */
-export function indexLetter(index: number): string {
-	return String.fromCharCode(65 + (index % 26));
+/** The header of a replicate column: its index counted from 1. */
+export function replicateHeader(index: number): string {
+	return String(index + 1);
+}
+
+/** The header of an output key's replicate suffix: a portal letter heads its index, anything else
+ *  itself. */
+function suffixHeader(suffix: string): string {
+	if (!/^[A-Za-z]$/.test(suffix)) return suffix;
+	return replicateHeader(suffix.toUpperCase().charCodeAt(0) - 65);
 }
 
 function asNumber(value: unknown): number | null {
@@ -123,7 +130,7 @@ export interface RunCurveSlot {
 /** The two tables of what a run was given, in the portal's order: the visit's own values first,
  *  then the numbers that are the same at every visit. */
 export interface RunInputTables {
-	/** The replicate letters the visit's values span. Empty when every value is a single number. */
+	/** The replicate headers the visit's values span. Empty when every value is a single number. */
 	columns: string[];
 	visit: RunRow[];
 	fixed: RunRow[];
@@ -150,7 +157,7 @@ function valueRow(
  * Shape what a run was given into the tables above its results.
  *
  * The visit's values are pivoted the same way the outputs are, so a family entered as repeats
- * reads across the same letters its outputs are computed under. Everything else is one number per
+ * reads across the same columns its outputs are computed under. Everything else is one number per
  * row: a site property, a constant of the catalog, and the slope and intercept of each curve slot.
  */
 export function runInputTables(
@@ -163,7 +170,7 @@ export function runInputTables(
 		(widest, i) => (Array.isArray(i.value) ? Math.max(widest, i.value.length) : widest),
 		0,
 	);
-	const columns = Array.from({ length: width }, (_, i) => indexLetter(i));
+	const columns = Array.from({ length: width }, (_, i) => replicateHeader(i));
 	const cells = () =>
 		Array.from({ length: Math.max(1, columns.length) }, () => ({ value: null, skipped: null }));
 
@@ -230,21 +237,21 @@ export function runTables(
 
 	// Columns are the suffixes actually produced, in first-seen order, so a calculation over three
 	// repeats grows a column rather than needing to declare one. The formula engine returns a
-	// per-replicate output as one list, index by index; its columns are the letters of those
+	// per-replicate output as one list, index by index; its columns are the headers of those
 	// positions.
 	const columns: string[] = [];
 	const keys = [...new Set([...Object.keys(results), ...reasons.keys()])];
 	for (const key of keys) {
 		const suffix = declaration(key)?.suffix;
-		if (suffix && !columns.includes(suffix)) columns.push(suffix);
+		if (suffix && !columns.includes(suffixHeader(suffix))) columns.push(suffixHeader(suffix));
 		const list = results[key];
 		if (Array.isArray(list)) {
-			for (const letter of list.map((_, i) => indexLetter(i))) {
-				if (!columns.includes(letter)) columns.push(letter);
+			for (const header of list.map((_, i) => replicateHeader(i))) {
+				if (!columns.includes(header)) columns.push(header);
 			}
 		}
 	}
-	columns.sort((a, b) => a.localeCompare(b));
+	columns.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
 	const rows = new Map<string, RunRow>();
 	const order: { key: string; band: 'step' | 'output' | 'statistic' }[] = [];
@@ -302,14 +309,14 @@ export function runTables(
 		const list = results[key];
 		if (Array.isArray(list)) {
 			list.forEach((value, index) => {
-				const at = columns.indexOf(indexLetter(index));
+				const at = columns.indexOf(replicateHeader(index));
 				if (at >= 0 && at < row.cells.length) {
 					row.cells[at] = withTrace({ value: asNumber(value), skipped: null }, index);
 				}
 			});
 			continue;
 		}
-		const at = declared?.suffix ? columns.indexOf(declared.suffix) : 0;
+		const at = declared?.suffix ? columns.indexOf(suffixHeader(declared.suffix)) : 0;
 		if (at >= 0 && at < row.cells.length) {
 			row.cells[at] = withTrace(
 				{ value: asNumber(results[key]), skipped: reasons.get(key) ?? null },

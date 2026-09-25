@@ -481,28 +481,22 @@ export function untilLeft<F extends Pick<EditableFormula, 'formula'>>(
  * parameter read from the visit, a constant, an earlier formula's value, a curve coefficient, or
  * a name the server resolves as a site property (or refuses).
  *
- * `replicated` names the catalog codes the calculation's parameter group holds several values of
- * per visit. A source of one of those, read by a formula that walks the replicates, is the family
- * at the same letter rather than a number; one only ever read by a scalar formula stays a number
- * and resolves to the group's served value, which is its mean (Q155). This mirrors the manifest
- * the server builds.
+ * A parameter a per-replicate formula reads is the family at the same index: the run binds the
+ * list the visit holds, or its one value when it holds one. One only ever read by a scalar formula
+ * stays a number and resolves to the group's served value, which is its mean (Q155). This mirrors
+ * the manifest the server builds.
  */
 export function inputRows(
 	formulas: Array<Pick<EditableFormula, 'code' | 'formula' | 'per_replicate' | 'curve_slot'>>,
 	parameters: Parameter[],
 	constants: Constant[],
-	replicated: string[] = [],
 ): InputRow[] {
 	const codes = new Set(formulas.map((f) => f.code.trim()).filter(Boolean));
-	const families = new Set(formulas.map((f) => f.per_replicate.trim()).filter(Boolean));
-	const declared = new Set(replicated.map((c) => c.toLowerCase()));
 	const walked = new Set(
 		formulas
 			.filter((f) => f.per_replicate.trim())
-			.flatMap((f) => identifiers(f.formula).map((i) => i.name)),
+			.flatMap((f) => [f.per_replicate.trim(), ...identifiers(f.formula).map((i) => i.name)]),
 	);
-	const isFamily = (name: string) =>
-		families.has(name) || (walked.has(name) && declared.has(name.toLowerCase()));
 	const byCode = new Map(parameters.map((p) => [p.code, p]));
 	const constantByName = new Map(constants.map((c) => [c.name, c]));
 	const rows = new Map<string, InputRow>();
@@ -531,7 +525,7 @@ export function inputRows(
 				detail = c.units ? `${c.value} ${c.units}` : String(c.value);
 			} else if (byCode.has(name)) {
 				const p = byCode.get(name)!;
-				kind = isFamily(name) ? 'replicates' : 'parameter';
+				kind = walked.has(name) ? 'replicates' : 'parameter';
 				detail = p.default_units ? `${p.name} (${p.default_units})` : p.name;
 			}
 			rows.set(name, { name, kind, detail, readBy: own ? [own] : [], optional: guarded });

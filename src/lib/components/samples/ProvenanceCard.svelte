@@ -8,7 +8,7 @@
 	import { markTip, markVariant, memberHref } from '$lib/provenance/consumed';
 	import { decommissionText } from '$lib/provenance/decommission';
 	import { formatEquation } from '$lib/standardCurves';
-	import { indexLetter } from '$lib/tools/runTable';
+	import { replicateHeader } from '$lib/tools/runTable';
 	import { equationChain, inputOrigin } from '$lib/tools/equation';
 	import { formatDateTime } from '$lib/utils';
 	import { toolboxHref } from '$lib/toolbox/route';
@@ -234,7 +234,7 @@
 			{#each focusIndexes as index (index)}
 				<div class="py-1.5 border-t border-brand-divider">
 					{#if index !== null}
-						<p class="text-[11px] text-brand-muted mb-1">Replicate {indexLetter(index)}</p>
+						<p class="text-[11px] text-brand-muted mb-1">Replicate {replicateHeader(index)}</p>
 					{/if}
 					<CellEquation
 						steps={trace.trace}

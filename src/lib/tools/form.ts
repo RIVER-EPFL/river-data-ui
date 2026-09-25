@@ -12,13 +12,13 @@ import type { CurveSelection } from '$components/tools/CurvePicker.svelte';
 import {
 	listCell,
 	resolveStructShape,
-	rowLabelFor,
 	seriesGroupsFor,
 	slotCell,
 	type SeriesGroup,
 	type StructShape,
 } from './shapes';
 import { replicateFamilies } from './replicates';
+import { replicateHeader } from './runTable';
 
 export const num = (s: string | undefined): number | null =>
 	s !== undefined && s !== '' && Number.isFinite(Number(s)) ? Number(s) : null;
@@ -83,7 +83,7 @@ function matrixGroups(params: ToolParam[]): MatrixGroup[] {
 		units: f.units,
 		cells: letters.map((letter) => f.byLetter.get(letter)?.param ?? null),
 	}));
-	return [{ title: 'Replicates', reps: letters, rows }];
+	return [{ title: 'Replicates', reps: letters.map((_, i) => replicateHeader(i)), rows }];
 }
 
 function conditionHolds(
@@ -353,7 +353,7 @@ function buildStruct(shape: StructShape, rows: Record<string, string>[], label: 
 	const out: Record<string, unknown>[] = [];
 	for (const [i, row] of rows.entries()) {
 		if (rowIsBlank(row)) continue;
-		const built = buildStructRow(shape, row, `${label} ${rowLabelFor(shape, i)}`);
+		const built = buildStructRow(shape, row, `${label} ${replicateHeader(i)}`);
 		if ('error' in built) return built;
 		out.push(built.row);
 	}

@@ -26,28 +26,26 @@
 	}
 </script>
 
-<div class="text-xs text-brand-muted" data-testid="calculation-sites">
-	<p>
-		{#if sites === null}
-			Reading where this is applied…
-		{:else if !enabled}
-			Decommissioned or without an active version, so the chain fires it at no site.
-		{:else if sites.length === 0}
-			Applied at no site yet.
-		{:else}
-			Applied at
-			{#each sites as site, i (site.id)}
-				{#if i > 0}<span> · </span>{/if}
-				<a class="text-brand-primary hover:underline" href="{base}/sites/{site.id}?tab=parameters">{site.name}</a>
-			{/each}.
-		{/if}
-	</p>
-	{#if enabled}
-		<details class="mt-1">
+{#if enabled}
+	<div class="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-brand-muted" data-testid="calculation-sites">
+		<p>
+			{#if sites === null}
+				Reading where this is applied…
+			{:else if sites.length === 0}
+				Applied at no site yet.
+			{:else}
+				Applied at
+				{#each sites as site, i (site.id)}
+					{#if i > 0}<span> · </span>{/if}
+					<a class="text-brand-primary hover:underline" href="{base}/sites/{site.id}?tab=parameters">{site.name}</a>
+				{/each}.
+			{/if}
+		</p>
+		<details class="relative">
 			<summary class="cursor-pointer text-brand-primary">Apply at a site</summary>
-			<div class="mt-2 max-w-2xl text-brand-text">
+			<div class="absolute right-0 top-full z-30 mt-1 w-[min(42rem,90vw)] rounded-md border border-brand-divider bg-brand-surface p-3 text-brand-text shadow-lg">
 				<ApplyCalculationAtSite calculationId={id} onapplied={() => load(name)} />
 			</div>
 		</details>
-	{/if}
-</div>
+	</div>
+{/if}

@@ -15,7 +15,7 @@
 		isJobActive,
 		jobDetailPath,
 	} from '$lib/utils';
-	import { EMPTY_JOB_QUEUE, jobProgressLabel, loadJobQueue, type JobQueue } from '$lib/jobQueue';
+	import { EMPTY_JOB_QUEUE, jobProgressLabel, loadJobQueue, withJobProgress, type JobProgressUpdate, type JobQueue } from '$lib/jobQueue';
 
 	const POLL_MS = 10_000;
 	const RECENT_LINGER_MS = 5000;
@@ -144,8 +144,8 @@
 		unsubCreated = eventBus.subscribe('job_created', () => { load(); });
 		unsubCompleted = eventBus.subscribe('job_completed', () => { load(); });
 		unsubProgress = eventBus.subscribe('job_progress', (event) => {
-			const e = event as { job_id: string; status: string; progress: number | null; total: number | null };
-			jobs = jobs.map(j => j.id === e.job_id ? { ...j, status: e.status, progress: e.progress, total: e.total } : j);
+			const e = event as JobProgressUpdate & { job_id: string };
+			jobs = jobs.map(j => j.id === e.job_id ? withJobProgress(j, e) : j);
 		});
 	});
 

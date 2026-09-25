@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { commissionLine, decommissionConsequence, recommissionOutcome } from './decommission';
+import { commissionLine, decommissionConsequence, decommissionTip, recommissionOutcome } from './decommission';
 
 describe('decommissionConsequence', () => {
 	it('names the number of sites it stops at', () => {
@@ -43,5 +43,17 @@ describe('commissionLine', () => {
 		expect(
 			commissionLine({ event: 'decommissioned', name: 'pco2', actor: 'admin', reason: 'false start' }),
 		).toBe('Decommissioned by admin, as pco2: false start');
+	});
+});
+
+describe('decommissionTip', () => {
+	it('says when, by whom and why', () => {
+		expect(decommissionTip({ decommissioned_by: 'admin', decommission_reason: 'false start' }, '2026-09-25 07:00')).toMatch(
+			/^Decommissioned 2026-09-25 07:00 by admin: false start\. It fires at no site\./,
+		);
+	});
+
+	it('leaves out what it was not given', () => {
+		expect(decommissionTip({}, '2026-09-25 07:00')).toMatch(/^Decommissioned 2026-09-25 07:00\. It fires/);
 	});
 });

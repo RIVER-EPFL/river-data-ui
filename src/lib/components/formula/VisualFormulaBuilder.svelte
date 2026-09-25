@@ -225,6 +225,7 @@
 		});
 	});
 	const signature = $derived(callAt(value, caret));
+	const emptySlots = $derived(hasEmptySlots(root) && root.type !== 'empty');
 
 	// What the caret is on, offered while it is being typed: the list is what teaches the names,
 	// so the palette does not have to be read top to bottom.
@@ -307,8 +308,8 @@
 	}
 </script>
 
-<div class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
-	<div class="px-4 py-3 border-b border-brand-divider bg-brand-bg">
+<div role="group" aria-label="Formula builder" class="rounded-md border border-brand-divider bg-brand-surface overflow-hidden">
+	<div class="px-3 py-2 border-b border-brand-divider bg-brand-bg">
 		<div class="relative">
 			<input
 				bind:this={textInput}
@@ -322,7 +323,7 @@
 				aria-expanded={completions.length > 0}
 				aria-controls="formula-completions"
 				aria-autocomplete="list"
-				class="w-full px-3 py-2 border border-brand-divider rounded bg-brand-surface text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+				class="w-full px-3 py-1.5 border border-brand-divider rounded bg-brand-surface text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
 			/>
 			{#if completions.length > 0}
 				<ul
@@ -349,26 +350,30 @@
 				</ul>
 			{/if}
 		</div>
-		{#if signature}
-			<span class="text-xs text-brand-muted mt-1 block font-mono">
-				{signature.name}({#if signature.arity === null}…{:else}{#each Array(signature.arity) as _, i (i)}<span
-							class={i === signature.argument ? 'text-brand-primary font-semibold' : ''}
-							>{i > 0 ? ', ' : ''}arg{i + 1}</span
-						>{/each}{/if})
-			</span>
-		{/if}
-		{#each diagnostics as diagnostic, i (i)}
-			<span class="text-xs text-severity-alarm mt-1 block">
-				{diagnostic.message}{#if diagnostic.suggestion}. Did you mean
-					<span class="font-mono">{diagnostic.suggestion}</span>?{/if}
-			</span>
-		{/each}
-		{#if hasEmptySlots(root) && root.type !== 'empty'}
-			<span class="text-xs text-severity-warning mt-1 block">Formula has empty slots (shown as ?)</span>
+		{#if signature || diagnostics.length > 0 || emptySlots}
+		<div>
+			{#if signature}
+				<span class="text-xs text-brand-muted mt-1 block font-mono">
+					{signature.name}({#if signature.arity === null}…{:else}{#each Array(signature.arity) as _, i (i)}<span
+								class={i === signature.argument ? 'text-brand-primary font-semibold' : ''}
+								>{i > 0 ? ', ' : ''}arg{i + 1}</span
+							>{/each}{/if})
+				</span>
+			{/if}
+			{#each diagnostics as diagnostic, i (i)}
+				<span class="text-xs text-severity-alarm mt-1 block">
+					{diagnostic.message}{#if diagnostic.suggestion}. Did you mean
+						<span class="font-mono">{diagnostic.suggestion}</span>?{/if}
+				</span>
+			{/each}
+			{#if emptySlots}
+				<span class="text-xs text-severity-warning mt-1 block">Formula has empty slots (shown as ?)</span>
+			{/if}
+		</div>
 		{/if}
 	</div>
 
-	<div class="flex min-h-[260px]">
+	<div class="flex" class:min-h-[260px]={palette}>
 		{#if palette}
 			<FormulaPalette
 				{variables}
@@ -379,12 +384,13 @@
 			/>
 		{/if}
 
-		<div class="flex-1 p-4 overflow-auto flex flex-col items-start gap-3">
+		<!-- The formula flows as one line of text that wraps at any token, with its two buttons at its end. -->
+		<div class="flex-1 px-2 py-1.5 overflow-auto flex flex-wrap items-center gap-x-2 gap-y-1">
 			{#if root.type === 'empty'}
 				<div
 					role="region"
 					aria-label="Formula drop zone"
-					class="w-full border-2 border-dashed rounded-md p-8 text-center text-sm text-brand-muted transition-colors {dragOverPath === 'root' ? 'border-brand-primary bg-brand-primary/5' : 'border-brand-divider'}"
+					class="flex-1 border-2 border-dashed rounded-md px-3 py-1.5 text-center text-sm text-brand-muted transition-colors {dragOverPath === 'root' ? 'border-brand-primary bg-brand-primary/5' : 'border-brand-divider'}"
 					ondragover={(e) => onDragOver(e, 'root')}
 					ondragleave={onDragLeave}
 					ondrop={onDropEmpty}
@@ -392,7 +398,7 @@
 					Drag a variable, function, or constant here to start
 				</div>
 			{:else}
-				<div class="text-sm leading-relaxed">
+				<div class="min-w-0 text-sm leading-7">
 					{@render nodeView(root, 'root')}
 				</div>
 			{/if}
@@ -411,7 +417,7 @@
 		{@const cdef = constantByName.get(node.name)}
 		{@const label = isConstant ? node.name : (variables.find((v) => v.name === node.name)?.label ?? node.name)}
 		<span
-			class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs cursor-grab active:cursor-grabbing transition-shadow {selectedPath === path ? 'ring-2 ring-brand-accent shadow-md' : 'hover:shadow-sm'} {dragOverPath === path ? 'ring-2 ring-brand-primary' : ''}"
+			class="inline-flex items-center align-middle gap-1 px-2 py-0.5 rounded-md text-xs cursor-grab active:cursor-grabbing transition-shadow {selectedPath === path ? 'ring-2 ring-brand-accent shadow-md' : 'hover:shadow-sm'} {dragOverPath === path ? 'ring-2 ring-brand-primary' : ''}"
 			class:text-white={!isConstant}
 			class:bg-brand-surface={isConstant}
 			class:border={isConstant}
@@ -440,13 +446,13 @@
 				type="number"
 				step="any"
 				value={node.value}
-				class="w-24 px-1.5 py-0.5 text-xs font-mono border border-brand-primary rounded bg-brand-surface focus:outline-none focus:ring-1 focus:ring-brand-primary"
+				class="w-24 align-middle px-1.5 py-0.5 text-xs font-mono border border-brand-primary rounded bg-brand-surface focus:outline-none focus:ring-1 focus:ring-brand-primary"
 				onblur={(e) => { const v = parseFloat((e.target as HTMLInputElement).value); if (!isNaN(v)) updateConstant(path, v); else editingConstantPath = null; }}
 				onkeydown={(e) => { if (e.key === 'Enter') { const v = parseFloat((e.target as HTMLInputElement).value); if (!isNaN(v)) updateConstant(path, v); } if (e.key === 'Escape') editingConstantPath = null; }}
 			/>
 		{:else}
 			<span
-				class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-mono bg-brand-surface border border-brand-divider cursor-pointer transition-shadow {selectedPath === path ? 'ring-2 ring-brand-accent shadow-md' : 'hover:shadow-sm'} {dragOverPath === path ? 'ring-2 ring-brand-primary' : ''}"
+				class="inline-flex items-center align-middle gap-1 px-2 py-0.5 rounded-md text-xs font-mono bg-brand-surface border border-brand-divider cursor-pointer transition-shadow {selectedPath === path ? 'ring-2 ring-brand-accent shadow-md' : 'hover:shadow-sm'} {dragOverPath === path ? 'ring-2 ring-brand-primary' : ''}"
 				role="button" tabindex="0"
 				ondragover={(e) => onDragOver(e, path)}
 				ondragleave={onDragLeave}
@@ -460,36 +466,36 @@
 			</span>
 		{/if}
 	{:else if node.type === 'binary'}
-		<span class="inline-flex items-center gap-1.5 flex-wrap">
+		<span class="inline">
 			{@render nodeView(node.left, `${path}.left`)}
-			<span class="font-mono text-base font-bold text-brand-primary">{node.op}</span>
+			<span class="mx-1 font-mono text-base font-bold text-brand-primary align-middle">{node.op}</span>
 			{@render nodeView(node.right, `${path}.right`)}
 		</span>
 	{:else if node.type === 'function'}
-		<span class="inline-flex items-center gap-0.5 flex-wrap"
+		<span class="inline"
 			ondragover={(e) => onDragOver(e, path)}
 			ondragleave={onDragLeave}
 			ondrop={(e) => onDrop(e, path)}
 			role="group"
 		>
-			<span class="text-xs font-bold text-brand-primary">{node.name}(</span>
+			<span class="text-xs font-bold text-brand-primary align-middle">{node.name}(</span>
 			{#each node.args as arg, i}
-				{#if i > 0}<span class="text-xs text-brand-muted">,&nbsp;</span>{/if}
+				{#if i > 0}<span class="text-xs text-brand-muted align-middle">,&nbsp;</span>{/if}
 				{@render nodeView(arg, `${path}.args.${i}`)}
 			{/each}
 			{#if MULTI_ARG_FUNCTIONS.has(node.name)}
 				<button
 					onclick={(e) => { e.stopPropagation(); addFunctionArg(path); }}
-					class="w-4 h-4 text-xs rounded-full bg-brand-bg border border-brand-divider text-brand-muted cursor-pointer hover:text-brand-primary hover:border-brand-primary flex items-center justify-center ml-0.5"
+					class="w-4 h-4 text-xs rounded-full bg-brand-bg border border-brand-divider text-brand-muted cursor-pointer hover:text-brand-primary hover:border-brand-primary inline-flex align-middle items-center justify-center ml-0.5"
 					title="Add argument"
 					aria-label="Add argument"
 				>+</button>
 			{/if}
-			<span class="text-xs font-bold text-brand-primary">)</span>
+			<span class="text-xs font-bold text-brand-primary align-middle">)</span>
 		</span>
 	{:else}
 		<span
-			class="inline-block px-3 py-1 border-2 border-dashed rounded-md text-xs text-brand-muted cursor-pointer transition-colors {dragOverPath === path ? 'border-brand-primary bg-brand-primary/10' : selectedPath === path ? 'border-brand-accent bg-brand-accent/10' : 'border-brand-divider hover:border-brand-primary'}"
+			class="inline-block align-middle px-2.5 py-0.5 border-2 border-dashed rounded-md text-xs text-brand-muted cursor-pointer transition-colors {dragOverPath === path ? 'border-brand-primary bg-brand-primary/10' : selectedPath === path ? 'border-brand-accent bg-brand-accent/10' : 'border-brand-divider hover:border-brand-primary'}"
 			role="button" tabindex="0"
 			ondragover={(e) => onDragOver(e, path)}
 			ondragleave={onDragLeave}

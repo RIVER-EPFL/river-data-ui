@@ -49,7 +49,6 @@ export interface StructShape {
 	/** `lists` only: values per field, entered as this many columns. */
 	slots: number;
 	slotLabels: string[];
-	rowLabel: 'letters' | 'numbers';
 	/** Nothing declared the columns, so the operator adds them by name. */
 	dynamic: boolean;
 }
@@ -64,16 +63,9 @@ function shape(spec: ShapeInput): StructShape {
 		maxRows: null,
 		slots: 1,
 		slotLabels: [],
-		rowLabel: 'letters',
 		dynamic: false,
 		...spec,
 	};
-}
-
-export const letterLabel = (i: number) => String.fromCharCode(65 + i);
-
-export function rowLabelFor(shapeOf: StructShape, i: number): string {
-	return shapeOf.rowLabel === 'letters' ? letterLabel(i) : String(i + 1);
 }
 
 export const slotCell = (field: string, i: number) => `${field}#${i}`;
@@ -142,7 +134,6 @@ function shapeFromStructure(declared: ToolStructure): StructShape {
 		maxRows: declared.max_rows ?? null,
 		slots: Math.max(1, declared.values ?? 1),
 		slotLabels: declared.value_labels ?? [],
-		rowLabel: declared.row_labels === 'numbers' ? 'numbers' : 'letters',
 	});
 }
 

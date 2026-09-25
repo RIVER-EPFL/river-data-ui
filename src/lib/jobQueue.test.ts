@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { jobProgressLabel, jobQueue, type WaitingJob } from './jobQueue';
+import { jobProgressLabel, jobQueue, withJobProgress, type WaitingJob } from './jobQueue';
 
 const waiting = (id: string, createdAt: string, nextAttemptAt?: string): WaitingJob => ({
 	id,
@@ -66,5 +66,34 @@ describe('jobProgressLabel', () => {
 
 	it('says only that a job is further back than the queue that was read', () => {
 		expect(jobProgressLabel(waiting('z', '2026-09-22T10:00:00Z'), queue)).toBe('queued, over 2 ahead');
+	});
+});
+
+describe('withJobProgress', () => {
+	const running = { id: 'j', status: 'running', progress: 0, total: 22 };
+
+	it('keeps the total a count-only update leaves out', () => {
+		expect(withJobProgress(running, { status: 'running', progress: 10, total: null })).toEqual({
+			id: 'j',
+			status: 'running',
+			progress: 10,
+			total: 22,
+		});
+	});
+
+	it('keeps the committed count through a retry that announces none', () => {
+		const at = withJobProgress(running, { status: 'running', progress: 10, total: null });
+		expect(withJobProgress(at, { status: 'retrying', progress: null, total: null })).toMatchObject({
+			status: 'retrying',
+			progress: 10,
+			total: 22,
+		});
+	});
+
+	it('takes a new total when the update carries one', () => {
+		expect(withJobProgress(running, { status: 'running', progress: 3, total: 40 })).toMatchObject({
+			progress: 3,
+			total: 40,
+		});
 	});
 });

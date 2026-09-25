@@ -1,5 +1,6 @@
 import { ApiError, GET, POST, PATCH, PUT, DELETE, getList, download } from './client';
-import type { ApiToken, DataStream, JobLogLine, ReprocessingJob } from './crud';
+import { crudClient, type ApiToken, type DataStream, type JobLogLine, type ReprocessingJob } from './crud';
+import { listAll } from './paged';
 import type { components } from './schema';
 
 // Single unified API tier. The `ADMIN` and `SERVICE` constants alias the same path,
@@ -787,6 +788,10 @@ export async function pollJob(
 export type PairingPlanListing = Omit<PairingPlan, 'entries' | 'apply_result'> & {
 	/** Streams unpaired now that the plan does not name; null on anything but a draft. */
 	uncovered_streams: number | null;
+	/** Readings an applying plan has attributed in committed batches; null on any other status. */
+	readings_backfilled?: number | null;
+	/** Whether an apply job for an applying plan is queued or running; null on any other status. */
+	apply_in_flight?: boolean | null;
 };
 
 export const listPairingPlans = (params: { source_system?: string; status?: string } = {}) => {
@@ -1360,7 +1365,14 @@ export type StepDependents = components['schemas']['StepDependents'];
 export const getStepDependents = (formulaId: string) =>
 	GET<StepDependents>(`${ADMIN}/derived_parameters/${formulaId}/dependents`);
 
-export const listToolScripts = () => GET<ToolScriptSummary[]>(`${ADMIN}/tool_scripts`);
+const toolScripts = crudClient<ToolScriptSummary>('tool_scripts', ADMIN);
+
+/** Every calculation and tool, by name, a page at a time. */
+export const listToolScripts = () => listAll(toolScripts, { sort: ['name', 'ASC'] });
+
+/** The calculation or tool of that name, or null. */
+export const findToolScriptByName = async (name: string) =>
+	(await toolScripts.list({ filter: { name }, perPage: 1 })).data[0] ?? null;
 
 export const getToolScript = (id: string) => GET<ToolScriptDetail>(`${ADMIN}/tool_scripts/${id}`);
 
@@ -1536,6 +1548,23 @@ export interface FormulaDraftRunResponse {
 
 export const draftRunFormulas = (calculationId: string, body: FormulaDraftRunRequest) =>
 	POST<FormulaDraftRunResponse>(`${ADMIN}/tool_scripts/${calculationId}/formulas/draft_run`, body);
+
+/** The same set run at several visits in one request, one run per entry of `inputs`. */
+export interface FormulaDraftRunsRequest {
+	formulas: FormulaDraft[];
+	inputs: Record<string, unknown>[];
+	constants?: Record<string, number>;
+}
+
+export type FormulaDraftRun = Omit<FormulaDraftRunResponse, 'manifest'>;
+
+export interface FormulaDraftRunsResponse {
+	runs: FormulaDraftRun[];
+	manifest: ToolManifest;
+}
+
+export const draftRunFormulasAtVisits = (calculationId: string, body: FormulaDraftRunsRequest) =>
+	POST<FormulaDraftRunsResponse>(`${ADMIN}/tool_scripts/${calculationId}/formulas/draft_runs`, body);
 
 /** One formula of a set-level save. No `id` is a formula the save creates. */
 export interface SavedFormula {

@@ -54,7 +54,7 @@ const parameters = [
 	},
 ] as Parameter[];
 
-function blocks() {
+function blocks(of: EditableFormula[] = formulas) {
 	const given = runInputTables(
 		[
 			{ param: 'lab_co2', value: [410, 430] },
@@ -73,7 +73,7 @@ function blocks() {
 			aggregate_of: null,
 		},
 	] as Parameters<typeof runTables>[1]);
-	return sheetBlocks(formulas, inputRows(formulas, parameters, [], ['lab_co2']), [], given, tables);
+	return sheetBlocks(of, inputRows(of, parameters, []), [], given, tables);
 }
 
 describe('CalculationSheet', () => {
@@ -89,7 +89,7 @@ describe('CalculationSheet', () => {
 		}
 	});
 
-	it('leads a replicated row with its avg and sample sd, and leaves a single number blank', async () => {
+	it('opens folded to the avg and sample sd, a single number kept under avg', async () => {
 		const view = render(CalculationSheet, { blocks: blocks(), formulas });
 		await waitFor(() => expect(view.container.textContent).toContain('CO2 headspace'));
 		const avg = (row: string) =>
@@ -98,9 +98,30 @@ describe('CalculationSheet', () => {
 		// (410 + 430) / 2 and (504.3 + 528.9) / 2
 		expect(avg('lab_co2')).toBe('420');
 		expect(avg('CO2_HS_Um')).toBe('516.600');
-		expect(avg('lab_temp')).toBe('');
-		const headers = [...view.container.querySelectorAll('th')].map((th) => th.textContent);
+		expect(
+			view.container.querySelector('td[data-sheet-row="lab_temp"][data-sheet-column="1"]')
+				?.textContent,
+		).toBe('21');
+		expect(view.container.querySelector('td[data-sheet-row="lab_co2"][data-sheet-column="2"]')).toBeNull();
+		const headers = [...view.container.querySelectorAll('th')].map((th) => th.textContent ?? '');
 		expect(headers).toContain('avg');
+		expect(headers).not.toContain('2');
+	});
+
+	it('opens a table from its header, a single number then blank under avg', async () => {
+		const view = render(CalculationSheet, { blocks: blocks(), formulas });
+		await waitFor(() => expect(view.container.textContent).toContain('CO2 headspace'));
+		const cell = (row: string, attribute: string) =>
+			view.container.querySelector(`section[data-block="inputs"] .ht_master td[data-sheet-row="${row}"][${attribute}]`);
+		view.container
+			.querySelector<HTMLButtonElement>('button[aria-label="Open the Inputs replicates"]')!
+			.click();
+		await waitFor(() => expect(cell('lab_temp', 'data-sheet-statistic="avg"')?.textContent).toBe(''));
+		expect(cell('lab_temp', 'data-sheet-column="1"')).toBeNull();
+		const fold = view.container.querySelector('button[aria-label="Fold the Inputs replicates"]');
+		expect(fold?.getAttribute('aria-expanded')).toBe('true');
+		// The other tables stay folded.
+		expect(view.container.querySelector('button[aria-label="Open the Outputs replicates"]')).not.toBeNull();
 	});
 
 	it('draws a row per input, step and output with no heading rows between them', async () => {
@@ -178,7 +199,7 @@ describe('the tables as they are worked on', () => {
 		const inputs = view.container.querySelector('section[aria-label="Inputs"]')!;
 		const payload = { name: 'Field_BP', kind: 'parameter' };
 		fireEvent.drop(inputs, {
-			dataTransfer: { getData: () => JSON.stringify(payload) },
+			dataTransfer: { types: ['text/plain'], getData: () => JSON.stringify(payload) },
 		});
 		expect(ondrop).toHaveBeenCalledWith('inputs', null, payload);
 		expect(inputs.textContent).toContain('Drop a parameter or constant here');
@@ -189,7 +210,7 @@ describe('the tables as they are worked on', () => {
 		const view = render(CalculationSheet, { blocks: sheetBlocks([], []), formulas: [], ondrop });
 		for (const title of ['Steps', 'Outputs']) {
 			fireEvent.drop(view.container.querySelector(`section[aria-label="${title}"]`)!, {
-				dataTransfer: { getData: () => JSON.stringify({ name: 'Field_BP', kind: 'parameter' }) },
+				dataTransfer: { types: ['text/plain'], getData: () => JSON.stringify({ name: 'Field_BP', kind: 'parameter' }) },
 			});
 		}
 		expect(ondrop).not.toHaveBeenCalled();
@@ -207,7 +228,7 @@ describe('the tables as they are worked on', () => {
 	it('says what an outlined input row is, once, under the table', async () => {
 		const declared = [{ name: 'lab_pressure', kind: 'parameter' as const, detail: 'Lab pressure' }];
 		const view = render(CalculationSheet, {
-			blocks: sheetBlocks(formulas, inputRows(formulas, parameters, [], ['lab_co2']), declared),
+			blocks: sheetBlocks(formulas, inputRows(formulas, parameters, []), declared),
 			formulas,
 		});
 		await waitFor(() => expect(view.container.textContent).toContain('read by no formula yet'));
@@ -215,56 +236,33 @@ describe('the tables as they are worked on', () => {
 	});
 });
 
-describe('the steps switch', () => {
+describe('the steps table', () => {
 	const single = [formula({ code: 'out', formula: 'lab_co2 * 2' })];
 
-	it('draws a calculation with no step as two tables, with Add step beside Add output', async () => {
+	it('draws a calculation with no step as three tables, the steps one empty, with no switch', async () => {
 		const onadd = vi.fn();
 		const view = render(CalculationSheet, {
-			blocks: sheetBlocks(single, [], [], undefined, undefined, false),
+			blocks: sheetBlocks(single, []),
 			formulas: single,
 			onadd,
-			onsteps: vi.fn(),
 		});
-		expect(view.container.querySelector('section[aria-label="Steps"]')).toBeNull();
-		expect(view.container.querySelector('.\\@md\\:grid-cols-2')).not.toBeNull();
-		expect(view.container.querySelector('.\\@2xl\\:grid-cols-3')).toBeNull();
-		expect((screen.getByRole('checkbox', { name: 'Intermediate steps' }) as HTMLInputElement).checked).toBe(false);
+		expect(view.container.querySelector('section[aria-label="Steps"]')).not.toBeNull();
+		expect(view.container.querySelector('.\\@2xl\\:grid-cols-3')).not.toBeNull();
+		expect(screen.queryByRole('checkbox', { name: 'Intermediate steps' })).toBeNull();
 		await userEvent.click(screen.getByRole('button', { name: 'Add step' }));
 		expect(onadd).toHaveBeenCalledWith('steps');
-	});
-
-	it('turns the steps on', async () => {
-		const onsteps = vi.fn();
-		render(CalculationSheet, {
-			blocks: sheetBlocks(single, [], [], undefined, undefined, false),
-			formulas: single,
-			onsteps,
-		});
-		await userEvent.click(screen.getByRole('checkbox', { name: 'Intermediate steps' }));
-		expect(onsteps).toHaveBeenCalledWith(true);
-	});
-
-	it('refuses to turn the steps off while one stands, and says which', async () => {
-		const onsteps = vi.fn();
-		render(CalculationSheet, { blocks: blocks(), formulas, onsteps });
-		const box = screen.getByRole('checkbox', { name: 'Intermediate steps' });
-		await userEvent.click(box);
-		expect(onsteps).not.toHaveBeenCalled();
-		expect((box as HTMLInputElement).checked).toBe(true);
-		expect(screen.getByText(/^Steps stay on/).textContent).toContain('hs_k');
 	});
 });
 
 describe('links drawn between the tables', () => {
-	it('draws one line from the selected cell to each cell it reads', async () => {
+	it('draws one link from the selected cell to each cell it reads', async () => {
 		const view = render(CalculationSheet, { blocks: blocks(), formulas });
 		await waitFor(() => expect(view.container.textContent).toContain('CO2 headspace'));
-		expect(view.container.querySelectorAll('line')).toHaveLength(0);
+		expect(view.container.querySelectorAll('path[data-sheet-edge]')).toHaveLength(0);
 
 		await view.rerender({ selected: { block: 'outputs' as const, key: 'CO2_HS_Um', column: 0 } });
-		await waitFor(() => expect(view.container.querySelectorAll('line').length).toBeGreaterThan(0));
-		const drawn = [...view.container.querySelectorAll('line')].map((l) =>
+		await waitFor(() => expect(view.container.querySelectorAll('path[data-sheet-edge]').length).toBeGreaterThan(0));
+		const drawn = [...view.container.querySelectorAll('path[data-sheet-edge]')].map((l) =>
 			l.getAttribute('data-sheet-edge'),
 		);
 		expect(drawn).toContain('hs_k');
@@ -272,11 +270,11 @@ describe('links drawn between the tables', () => {
 		expect(drawn).not.toContain('CO2_HS_Um');
 	});
 
-	it('draws a line from the selected step and the selected input to the cells reading them', async () => {
+	it('draws a link from the selected step and the selected input to the cells reading them', async () => {
 		const view = render(CalculationSheet, { blocks: blocks(), formulas });
 		await waitFor(() => expect(view.container.textContent).toContain('CO2 headspace'));
 		const readers = () =>
-			[...view.container.querySelectorAll('line[data-sheet-edge-direction="read-by"]')].map((l) =>
+			[...view.container.querySelectorAll('path[data-sheet-edge-direction="read-by"]')].map((l) =>
 				l.getAttribute('data-sheet-edge'),
 			);
 
@@ -289,15 +287,58 @@ describe('links drawn between the tables', () => {
 		expect(tinted).toContain('CO2 headspace');
 	});
 
+	it('joins two rows of one table on one side of it, clear of its cells', async () => {
+		const chained = [
+			formula({ code: 'water_k', formula: 'exp(lab_temp / 100)', intermediate: true, ordinal: 1 }),
+			formula({ code: 'kh', formula: 'water_k * 2', intermediate: true, ordinal: 2 }),
+			formula({ code: 'CO2_HS_Um', formula: 'lab_co2 * kh', ordinal: 3 }),
+		];
+		const tables: Record<string, [number, number]> = { inputs: [0, 300], steps: [396, 696], outputs: [792, 1092] };
+		const rect = (left: number, right: number, top: number, bottom: number) =>
+			({ left, right, top, bottom, x: left, y: top, width: right - left, height: bottom - top }) as DOMRect;
+		const layout = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+			this: HTMLElement,
+		) {
+			const section = this.closest<HTMLElement>('section[data-block]');
+			const [left, right] = section ? tables[section.dataset.block!]! : [0, 1200];
+			const row = this.closest('tr');
+			if (this.tagName === 'TD' && row) {
+				const top = 40 + row.rowIndex * 24;
+				return rect(left + 10, left + 20, top, top + 24);
+			}
+			return rect(left, right, 0, 400);
+		});
+		try {
+			const view = render(CalculationSheet, { blocks: blocks(chained), formulas: chained });
+			await waitFor(() => expect(view.container.textContent).toContain('kh'));
+			await view.rerender({ selected: { block: 'steps' as const, key: 'kh', column: 0 } });
+			const bracket = () => view.container.querySelector('path[data-sheet-edge="water_k"]');
+			await waitFor(() => expect(bracket()).not.toBeNull());
+			const points = [...bracket()!.getAttribute('d')!.matchAll(/(-?[\d.]+) (-?[\d.]+)/g)].map((m) => [
+				Number(m[1]),
+				Number(m[2]),
+			]);
+			const [first, last] = [points[0]!, points.at(-1)!];
+			// Out of the steps table and back into it at the same edge, the rows apart.
+			expect(first[0]).toBe(last[0]);
+			expect([396, 696]).toContain(first[0]);
+			expect(first[1]).not.toBe(last[1]);
+			const outside = first[0] === 696 ? ([x]: number[]) => x! >= 696 : ([x]: number[]) => x! <= 396;
+			expect(points.every(outside)).toBe(true);
+		} finally {
+			layout.mockRestore();
+		}
+	});
+
 	it('draws nothing once the selection is gone', async () => {
 		const view = render(CalculationSheet, {
 			blocks: blocks(),
 			formulas,
 			selected: { block: 'outputs' as const, key: 'CO2_HS_Um', column: 0 },
 		});
-		await waitFor(() => expect(view.container.querySelectorAll('line').length).toBeGreaterThan(0));
+		await waitFor(() => expect(view.container.querySelectorAll('path[data-sheet-edge]').length).toBeGreaterThan(0));
 		await view.rerender({ selected: null });
-		await waitFor(() => expect(view.container.querySelectorAll('line')).toHaveLength(0));
+		await waitFor(() => expect(view.container.querySelectorAll('path[data-sheet-edge]')).toHaveLength(0));
 	});
 });
 
@@ -339,11 +380,10 @@ describe('a typed input value', () => {
 	it('is drawn marked as typed', async () => {
 		const typed = sheetBlocks(
 			formulas,
-			inputRows(formulas, parameters, [], ['lab_co2']),
+			inputRows(formulas, parameters, []),
 			[],
 			undefined,
 			undefined,
-			true,
 			{ scalars: { lab_temp: '25' }, replicates: {} },
 		);
 		const view = render(CalculationSheet, { blocks: typed, formulas });

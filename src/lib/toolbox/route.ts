@@ -1,4 +1,7 @@
+import { ApiError } from '$api/client';
 import type { ToolScriptSummary } from '$api/service';
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /// One calculation's page, whatever engine it runs on. `key` is its id or its name: a stored
 /// provenance blob and a tool descriptor name a calculation, they do not carry its id.
@@ -13,6 +16,21 @@ export function findCalculation(
 	key: string,
 ): ToolScriptSummary | null {
 	return scripts.find((s) => s.id === key) ?? scripts.find((s) => s.name === key) ?? null;
+}
+
+/// The calculation a `/toolbox/[id]` segment names: fetched by id, or by name.
+export async function resolveCalculation(
+	key: string,
+	byId: (id: string) => Promise<ToolScriptSummary>,
+	byName: (name: string) => Promise<ToolScriptSummary | null>,
+): Promise<ToolScriptSummary | null> {
+	if (!UUID.test(key)) return byName(key);
+	try {
+		return await byId(key);
+	} catch (e) {
+		if (e instanceof ApiError && e.status === 404) return null;
+		throw e;
+	}
 }
 
 /// Which computation a link opens, and on which cell of it. `cell` is the formula's code, `run`

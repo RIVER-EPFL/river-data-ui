@@ -120,7 +120,7 @@ describe('inputs of a formula set', () => {
 		);
 		const byName = Object.fromEntries(rows.map((r) => [r.name, r]));
 		expect(byName['lab_co2_co2ppm']).toMatchObject({ kind: 'replicates', detail: 'CO2 ppm (ppm)', readBy: ['CO2_HS_Um'] });
-		expect(byName['lab_co2_lab_temp']?.kind).toBe('parameter');
+		expect(byName['lab_co2_lab_temp']?.kind).toBe('replicates');
 		expect(byName['R']).toMatchObject({ kind: 'constant', detail: '0.082 L atm / mol K' });
 		expect(byName['kh']?.detail).toBe('0.033');
 		expect(byName['CO2_HS_Um']).toMatchObject({ kind: 'step', readBy: ['pCO2_HS_uatm'] });
@@ -130,8 +130,8 @@ describe('inputs of a formula set', () => {
 		expect(byName['sqrt']).toBeUndefined();
 	});
 
-	// nutrients: NUT_NO3_avg = NUT_NOx_avg - NUT_NO2_avg, walked at the same letter. NO2 drives
-	// nothing, so only the group's declaration says it is a family rather than a mean.
+	// nutrients: NUT_NO3_avg = NUT_NOx_avg - NUT_NO2_avg, walked at the same index. NO2 drives
+	// nothing, and is a family all the same: a visit holding one value of it binds that value.
 	const nutrients = [
 		formula({
 			id: 'n',
@@ -143,22 +143,16 @@ describe('inputs of a formula set', () => {
 	];
 	const nutrientCatalog = [parameter('NUT_NOx_avg', 'NOx'), parameter('NUT_NO2_avg', 'NO2')];
 
-	it('reads a second family walked at the same letter as the family the group declares', () => {
-		const rows = inputRows(nutrients, nutrientCatalog, [], ['NUT_NOx_avg', 'NUT_NO2_avg']);
+	it('reads every source a per-replicate formula walks as a family, whatever the group declares', () => {
+		const rows = inputRows(nutrients, nutrientCatalog, []);
 		const byName = Object.fromEntries(rows.map((r) => [r.name, r]));
 		expect(byName['NUT_NOx_avg']?.kind).toBe('replicates');
 		expect(byName['NUT_NO2_avg']?.kind).toBe('replicates');
 	});
 
-	it('leaves an undeclared source a number, which resolves to the mean', () => {
-		const rows = inputRows(nutrients, nutrientCatalog, [], ['NUT_NOx_avg']);
-		const byName = Object.fromEntries(rows.map((r) => [r.name, r]));
-		expect(byName['NUT_NO2_avg']?.kind).toBe('parameter');
-	});
-
-	it('leaves a declared family a scalar formula reads a number', () => {
+	it('leaves a source a scalar formula reads a number', () => {
 		const scalar = [formula({ id: 's', code: 'ratio', formula: 'NUT_NO2_avg / 2', ordinal: 1 })];
-		const rows = inputRows(scalar, nutrientCatalog, [], ['NUT_NO2_avg']);
+		const rows = inputRows(scalar, nutrientCatalog, []);
 		expect(rows.find((r) => r.name === 'NUT_NO2_avg')?.kind).toBe('parameter');
 	});
 
@@ -329,12 +323,14 @@ describe('a run at a visit', () => {
 	});
 
 	it('carries a typed scalar, and a typed constant in place of the catalog', () => {
+		const scalar = set.map((f) => ({ ...f, per_replicate: '' }));
 		const rows = inputRows(
-			set,
+			scalar,
 			[parameter('lab_co2_co2ppm'), parameter('lab_co2_lab_temp')],
 			[constant('R', 0.082), constant('kh', 0.033)],
 		);
 		expect(scalarInputs(rows).map((r) => r.name)).toEqual([
+			'lab_co2_co2ppm',
 			'R',
 			'lab_co2_lab_temp',
 			'kh',

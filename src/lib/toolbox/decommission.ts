@@ -21,3 +21,13 @@ export function commissionLine(c: { event: string; name: string; actor: string; 
 	const what = c.event === 'decommissioned' ? 'Decommissioned' : 'Recommissioned';
 	return `${what} by ${c.actor}, as ${c.name}: ${c.reason}`;
 }
+
+/** The status badge's tip for a decommissioned calculation: when, by whom, why, and what stays. */
+export function decommissionTip(
+	c: { decommissioned_by?: string | null; decommission_reason?: string | null },
+	when: string,
+): string {
+	const by = c.decommissioned_by ? ` by ${c.decommissioned_by}` : '';
+	const why = c.decommission_reason ? `: ${c.decommission_reason}` : '';
+	return `Decommissioned ${when}${by}${why}. It fires at no site. What it computed stays served, and its versions and runs stay readable here.`;
+}

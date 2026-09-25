@@ -146,8 +146,7 @@ export function linksOf(
 }
 
 /**
- * The blocks, from the set and from a run of it: inputs, steps and outputs, or inputs and outputs
- * when `showSteps` is off and the set holds no step.
+ * The blocks, from the set and from a run of it: inputs, steps and outputs.
  *
  * `run` is what the run was given and `tables` what it computed; without either the blocks still
  * carry a row per input, step and output, with empty cells. Every block is drawn against the same
@@ -160,7 +159,6 @@ export function sheetBlocks(
 	declared: DeclaredInput[] = [],
 	run?: RunInputTables,
 	tables?: RunTables,
-	showSteps = true,
 	typed?: TypedInputs,
 ): SheetBlock[] {
 	const columns = [...new Set([...(run?.columns ?? []), ...(tables?.columns ?? [])])].sort((a, b) =>
@@ -283,9 +281,7 @@ export function sheetBlocks(
 
 	return [
 		{ key: 'inputs', title: 'Inputs', columns, rows: inputRows },
-		...(showSteps || steps.length > 0
-			? [{ key: 'steps' as const, title: 'Steps', columns, rows: steps }]
-			: []),
+		{ key: 'steps', title: 'Steps', columns, rows: steps },
 		{
 			key: 'outputs',
 			title: 'Outputs',
@@ -293,16 +289,6 @@ export function sheetBlocks(
 			rows: [...outputs, ...statistics],
 		},
 	];
-}
-
-/**
- * Why the steps block cannot be turned off, or null when it can: a step is a formula of the set,
- * and hiding its block would hide the formula.
- */
-export function stepsOffRefusal(formulas: Array<Pick<EditableFormula, 'code' | 'intermediate'>>): string | null {
-	const steps = formulas.filter((f) => f.intermediate).map((f) => f.code.trim() || 'an unnamed step');
-	if (steps.length === 0) return null;
-	return `Steps stay on while the calculation has ${steps.length === 1 ? 'a step' : 'steps'}: ${steps.join(', ')}.`;
 }
 
 /**
@@ -521,23 +507,47 @@ export const STATISTIC_COLUMNS = ['avg', 'sd'] as const;
 
 export type StatisticColumn = (typeof STATISTIC_COLUMNS)[number];
 
-/** How many statistic columns sit between a block's labels and its replicate letters. */
-function statisticWidth(block: Pick<SheetBlock, 'columns'>): number {
+/**
+ * A block as drawn: its replicate columns opened, or folded to the label, the mean and the sd. A
+ * block that ran once has nothing to fold.
+ */
+export interface BlockView extends Pick<SheetBlock, 'columns'> {
+	folded?: boolean;
+}
+
+/** How many statistic columns sit between a block's labels and its replicate columns. */
+function statisticWidth(block: BlockView): number {
 	return block.columns.length > 0 ? STATISTIC_COLUMNS.length : 0;
 }
 
-/** What a column of a block's grid holds: the label, a statistic, or a replicate (1 is A). */
+/** Whether the block is drawn folded, which only a block with replicate columns can be. */
+export function isFolded(block: BlockView): boolean {
+	return Boolean(block.folded) && block.columns.length > 0;
+}
+
+/** The grid's column headers after the title: the statistics, then the replicate columns. */
+export function gridHeaders(block: BlockView): string[] {
+	if (block.columns.length === 0) return ['Value'];
+	return isFolded(block) ? [...STATISTIC_COLUMNS] : [...STATISTIC_COLUMNS, ...block.columns];
+}
+
+/** What a column of a block's grid holds: the label, a statistic, or a replicate (1 the first). */
 export type GridColumnRole =
 	| { kind: 'label' }
 	| { kind: 'statistic'; statistic: StatisticColumn }
 	| { kind: 'value'; column: number };
 
-/** The role of a grid column: column 0 is the label, then the statistics, then the letters. */
+/**
+ * The role of a grid column: column 0 is the label, then the statistics, then the replicates. On a
+ * folded block a row holding one number keeps it under avg, where it is still its value.
+ */
 export function gridColumnRole(
-	block: Pick<SheetBlock, 'columns'>,
+	block: BlockView,
 	gridColumn: number,
+	replicated = true,
 ): GridColumnRole {
 	if (gridColumn === 0) return { kind: 'label' };
+	if (isFolded(block) && gridColumn === 1 && !replicated) return { kind: 'value', column: 1 };
 	const width = statisticWidth(block);
 	if (gridColumn <= width) {
 		return { kind: 'statistic', statistic: STATISTIC_COLUMNS[gridColumn - 1]! };
@@ -545,9 +555,13 @@ export function gridColumnRole(
 	return { kind: 'value', column: gridColumn - width };
 }
 
-/** The grid column a selection column (0 the label, 1 replicate A) is drawn at. */
-export function gridColumnOf(block: Pick<SheetBlock, 'columns'>, column: number): number {
-	return column === 0 ? 0 : column + statisticWidth(block);
+/**
+ * The grid column a selection column (0 the label, 1 the first replicate) is drawn at. On a folded
+ * block every replicate is drawn at avg.
+ */
+export function gridColumnOf(block: BlockView, column: number): number {
+	if (column === 0) return 0;
+	return isFolded(block) ? 1 : column + statisticWidth(block);
 }
 
 /**
@@ -556,4 +570,67 @@ export function gridColumnOf(block: Pick<SheetBlock, 'columns'>, column: number)
  */
 export function edgeColumn(end: 'source' | 'reader', columnCount: number): number {
 	return end === 'source' ? Math.max(1, columnCount) : 0;
+}
+
+/** A horizontal extent on the page, as a cell's or a table's bounding rectangle gives it. */
+export interface Span {
+	left: number;
+	right: number;
+}
+
+/**
+ * The column a line meets a row at: from `start` back to the label, the first whose cell is drawn
+ * and lies within the table's visible width. Null when none does.
+ */
+export function visibleColumn(start: number, spanOf: (column: number) => Span | null, clip: Span): number | null {
+	for (let column = start; column >= 0; column--) {
+		const span = spanOf(column);
+		if (span && span.left >= clip.left - 0.5 && span.right <= clip.right + 0.5) return column;
+	}
+	return null;
+}
+
+// --- Arranging the tables ---
+
+/** The order the tables are laid out in until the author moves one. */
+export const BLOCK_ORDER: readonly SheetBlockKey[] = ['inputs', 'steps', 'outputs'];
+
+/** A stored arrangement, or the default when it is missing or not an order of the three tables. */
+export function blockOrder(stored: string | null): SheetBlockKey[] {
+	try {
+		const order = JSON.parse(stored ?? '');
+		if (
+			Array.isArray(order) &&
+			order.length === BLOCK_ORDER.length &&
+			BLOCK_ORDER.every((key) => order.includes(key))
+		) {
+			return order;
+		}
+	} catch {
+		// An unreadable arrangement lays the tables out in the default order.
+	}
+	return [...BLOCK_ORDER];
+}
+
+/** The blocks in the author's order. */
+export function arrangedBlocks<T extends Pick<SheetBlock, 'key'>>(blocks: T[], order: SheetBlockKey[]): T[] {
+	return [...blocks].sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
+}
+
+/** The order with `key` taken out and put in the place `onto` held. */
+export function movedBlock(order: SheetBlockKey[], key: SheetBlockKey, onto: SheetBlockKey): SheetBlockKey[] {
+	const at = order.indexOf(onto);
+	if (key === onto || at < 0 || !order.includes(key)) return order;
+	const rest = order.filter((k) => k !== key);
+	return [...rest.slice(0, at), key, ...rest.slice(at)];
+}
+
+/** The table a step left (-1) or right (1) moves `key` onto, among those drawn; null at an end. */
+export function neighbourBlock(
+	shown: SheetBlockKey[],
+	key: SheetBlockKey,
+	step: -1 | 1,
+): SheetBlockKey | null {
+	const at = shown.indexOf(key);
+	return at < 0 ? null : (shown[at + step] ?? null);
 }

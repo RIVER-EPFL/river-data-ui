@@ -913,7 +913,7 @@
 
 					<details bind:open={showMeta} class="rounded-md border border-brand-divider bg-brand-surface">
 						<summary class="px-3 py-2 text-sm font-medium cursor-pointer">
-							Calculation: label, description, on or off
+							Calculation: label and description
 						</summary>
 						<div class="p-3">
 							<CalculationSettings calculation={detail} onsaved={refreshDetail} />

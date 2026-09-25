@@ -72,7 +72,7 @@ test('nothing on an expanded visit scrolls sideways in a window with room', asyn
 	await expect.poll(() => sideScrollers(page)).toHaveLength(1);
 
 	await frozenButton(page, { name: /./ }).first().click();
-	await expect(page.getByText('Scroll parameter 0')).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Scroll parameter 0', exact: true })).toBeVisible();
 	expect(await sideScrollers(page), 'the opened record adds no scroller').toHaveLength(1);
 
 	// The record opens below the grid, inside the window, whichever way the grid is scrolled.

@@ -3,6 +3,10 @@ import { describe, expect, it } from 'vitest';
 import type { RunTraceStep } from '$api/service';
 import { blankFormula, inputRows, type EditableFormula } from './editor';
 import {
+	arrangedBlocks,
+	blockOrder,
+	movedBlock,
+	neighbourBlock,
 	cellEdit,
 	contributors,
 	dropOn,
@@ -10,6 +14,7 @@ import {
 	emptyBlockLine,
 	formulaOf,
 	gridColumnOf,
+	gridHeaders,
 	gridColumnRole,
 	insertIdentifier,
 	replicateStatistics,
@@ -17,7 +22,7 @@ import {
 	rowKey,
 	rowRemoval,
 	sheetBlocks,
-	stepsOffRefusal,
+	visibleColumn,
 	withReplicate,
 } from './sheet';
 import { runInputTables, runTables } from '$lib/tools/runTable';
@@ -101,7 +106,7 @@ describe('sheet blocks', () => {
 	});
 
 	it('bands the inputs, holds the steps apart and marks an output another formula reads', () => {
-		const blocks = sheetBlocks(set, inputRows(set, parameters, constants, ['lab_co2']));
+		const blocks = sheetBlocks(set, inputRows(set, parameters, constants));
 		expect(blocks.map((b) => b.key)).toEqual(['inputs', 'steps', 'outputs']);
 		const [inputs, steps, outputs] = blocks;
 		expect(inputs!.rows.map((r) => [r.key, r.band])).toEqual([
@@ -115,7 +120,7 @@ describe('sheet blocks', () => {
 	it('marks the rows that hold one value per replicate', () => {
 		const [inputs, steps, outputs] = sheetBlocks(
 			set,
-			inputRows(set, parameters, constants, ['lab_co2']),
+			inputRows(set, parameters, constants),
 		);
 		expect(inputs!.rows.map((r) => [r.key, r.replicated])).toEqual([
 			['lab_temp', false],
@@ -142,7 +147,7 @@ describe('sheet blocks', () => {
 		expect(blocks[2]!.rows[0]!.cells).toEqual([{ value: null, skipped: null }]);
 	});
 
-	it('draws every block against the replicate letters of the run', () => {
+	it('draws every block against the replicate columns of the run', () => {
 		const given = runInputTables(
 			[
 				{ param: 'lab_co2', value: [410, 430] },
@@ -163,15 +168,15 @@ describe('sheet blocks', () => {
 		] as Parameters<typeof runTables>[1]);
 		const blocks = sheetBlocks(
 			set,
-			inputRows(set, parameters, constants, ['lab_co2']),
+			inputRows(set, parameters, constants),
 			[],
 			given,
 			tables,
 		);
 		expect(blocks.map((b) => b.columns)).toEqual([
-			['A', 'B'],
-			['A', 'B'],
-			['A', 'B'],
+			['1', '2'],
+			['1', '2'],
+			['1', '2'],
 		]);
 		const co2 = blocks[0]!.rows.find((r) => r.key === 'lab_co2');
 		expect(co2!.cells.map((c) => c.value)).toEqual([410, 430]);
@@ -255,7 +260,7 @@ describe('links', () => {
 });
 
 describe('the formula in a row', () => {
-	const blocks = sheetBlocks(set, inputRows(set, parameters, constants, ['lab_co2']));
+	const blocks = sheetBlocks(set, inputRows(set, parameters, constants));
 	const row = (block: number, key: string) => blocks[block]!.rows.find((r) => r.key === key)!;
 
 	it('shows what a step and an output compute', () => {
@@ -271,7 +276,7 @@ describe('the formula in a row', () => {
 });
 
 describe('cell edits', () => {
-	const blocks = sheetBlocks(set, inputRows(set, parameters, constants, ['lab_co2']));
+	const blocks = sheetBlocks(set, inputRows(set, parameters, constants));
 	const row = (block: number, key: string) => blocks[block]!.rows.find((r) => r.key === key)!;
 
 	it('types a value per replicate into a replicated input', () => {
@@ -418,7 +423,7 @@ describe('typed replicate lists', () => {
 });
 
 describe('a palette entry dropped on a block', () => {
-	const blocks = sheetBlocks(set, inputRows(set, parameters, constants, ['lab_co2']));
+	const blocks = sheetBlocks(set, inputRows(set, parameters, constants));
 	const row = (block: number, key: string) => blocks[block]!.rows.find((r) => r.key === key)!;
 
 	it('brings an input in on the inputs block, wherever it lands', () => {
@@ -459,32 +464,10 @@ describe('emptyBlockLine', () => {
 describe('the steps block', () => {
 	const single = [formula({ code: 'out', formula: 'lab_co2 * 2', ordinal: 1 })];
 
-	it('is left out of a set with no step when steps are off', () => {
-		const blocks = sheetBlocks(single, inputRows(single, parameters, constants), [], undefined, undefined, false);
-		expect(blocks.map((b) => b.key)).toEqual(['inputs', 'outputs']);
-	});
-
-	it('stands between the inputs and the outputs when steps are on', () => {
-		const blocks = sheetBlocks(single, inputRows(single, parameters, constants), [], undefined, undefined, true);
+	it('stands empty between the inputs and the outputs of a set with no step', () => {
+		const blocks = sheetBlocks(single, inputRows(single, parameters, constants));
 		expect(blocks.map((b) => b.key)).toEqual(['inputs', 'steps', 'outputs']);
 		expect(blocks[1]!.rows).toEqual([]);
-	});
-
-	it('stays while the set holds a step, whatever the switch says', () => {
-		const blocks = sheetBlocks(set, inputRows(set, parameters, constants), [], undefined, undefined, false);
-		expect(blocks.map((b) => b.key)).toEqual(['inputs', 'steps', 'outputs']);
-	});
-
-	it('may be turned off when the set holds no step', () => {
-		expect(stepsOffRefusal(single)).toBeNull();
-	});
-
-	it('refuses to be turned off while a step stands, naming it', () => {
-		expect(stepsOffRefusal(set)).toBe('Steps stay on while the calculation has a step: hs_k.');
-		const two = [...set, formula({ code: '', intermediate: true, ordinal: 3 })];
-		expect(stepsOffRefusal(two)).toBe(
-			'Steps stay on while the calculation has steps: hs_k, an unnamed step.',
-		);
 	});
 });
 
@@ -516,10 +499,10 @@ describe('replicateStatistics', () => {
 });
 
 describe('gridColumnRole', () => {
-	const replicated = { columns: ['A', 'B'] };
+	const replicated = { columns: ['1', '2'] };
 	const single = { columns: [] };
 
-	it('puts avg then sd between the label and replicate A', () => {
+	it('puts avg then sd between the label and the first replicate', () => {
 		expect(gridColumnRole(replicated, 0)).toEqual({ kind: 'label' });
 		expect(gridColumnRole(replicated, 1)).toEqual({ kind: 'statistic', statistic: 'avg' });
 		expect(gridColumnRole(replicated, 2)).toEqual({ kind: 'statistic', statistic: 'sd' });
@@ -538,6 +521,34 @@ describe('gridColumnRole', () => {
 	});
 });
 
+describe('a folded block', () => {
+	const folded = { columns: ['1', '2', '3'], folded: true };
+
+	it('draws the label, avg and sd, and no replicate column', () => {
+		expect(gridHeaders(folded)).toEqual(['avg', 'sd']);
+		expect(gridHeaders({ ...folded, folded: false })).toEqual(['avg', 'sd', '1', '2', '3']);
+	});
+
+	it('keeps a single number under avg, where it stays its value', () => {
+		expect(gridColumnRole(folded, 1, false)).toEqual({ kind: 'value', column: 1 });
+		expect(gridColumnRole(folded, 1, true)).toEqual({ kind: 'statistic', statistic: 'avg' });
+		expect(gridColumnRole(folded, 2, false)).toEqual({ kind: 'statistic', statistic: 'sd' });
+	});
+
+	it('draws every replicate at avg', () => {
+		expect(gridColumnOf(folded, 0)).toBe(0);
+		expect(gridColumnOf(folded, 1)).toBe(1);
+		expect(gridColumnOf(folded, 3)).toBe(1);
+	});
+
+	it('has nothing to fold when it ran once', () => {
+		const single = { columns: [], folded: true };
+		expect(gridHeaders(single)).toEqual(['Value']);
+		expect(gridColumnRole(single, 1)).toEqual({ kind: 'value', column: 1 });
+		expect(gridColumnOf(single, 1)).toBe(1);
+	});
+});
+
 describe('edgeColumn', () => {
 	it('leaves a source row from its last cell', () => {
 		// label plus three replicate columns
@@ -550,6 +561,38 @@ describe('edgeColumn', () => {
 
 	it('meets the reader at its label cell', () => {
 		expect(edgeColumn('reader', 3)).toBe(0);
+	});
+});
+
+describe('visibleColumn', () => {
+	// label 0-100, replicates 100-200, 200-300, 300-400
+	const spans = [
+		{ left: 0, right: 100 },
+		{ left: 100, right: 200 },
+		{ left: 200, right: 300 },
+		{ left: 300, right: 400 },
+	];
+	const drawn = (column: number) => spans[column] ?? null;
+
+	it('takes the start column when the whole row is in view', () => {
+		expect(visibleColumn(3, drawn, { left: 0, right: 400 })).toBe(3);
+	});
+
+	it('falls back past columns drawn beyond the table edge', () => {
+		// the table is 250 wide: column 2 straddles its edge, column 3 lies past it
+		expect(visibleColumn(3, drawn, { left: 0, right: 250 })).toBe(1);
+	});
+
+	it('falls back past columns the grid did not draw', () => {
+		expect(visibleColumn(3, (c) => (c >= 2 ? null : spans[c]), { left: 0, right: 400 })).toBe(1);
+	});
+
+	it('takes a column meeting the table edge to within a subpixel', () => {
+		expect(visibleColumn(3, drawn, { left: 0, right: 399.6 })).toBe(3);
+	});
+
+	it('finds none when no cell of the row is in view', () => {
+		expect(visibleColumn(3, drawn, { left: 500, right: 900 })).toBeNull();
 	});
 });
 
@@ -635,14 +678,14 @@ describe('removing a row', () => {
 });
 
 describe('typed input values', () => {
-	const rows = inputRows(set, parameters, constants, ['lab_co2']);
+	const rows = inputRows(set, parameters, constants);
 	// The run's echo carries only what it resolved from storage: a typed input is absent from it.
 	const echo = runInputTables([{ param: 'lab_co2', value: [410, 430] }], [], {}, []);
 	const inputCells = (blocks: ReturnType<typeof sheetBlocks>, key: string) =>
 		blocks[0]!.rows.find((r) => r.key === key)!.cells;
 
 	it('keeps a typed scalar in its cell, marked, when the echo omits it', () => {
-		const blocks = sheetBlocks(set, rows, [], echo, undefined, true, {
+		const blocks = sheetBlocks(set, rows, [], echo, undefined, {
 			scalars: { lab_temp: '21.5' },
 			replicates: {},
 		});
@@ -654,7 +697,7 @@ describe('typed input values', () => {
 			{ param: 'lab_co2', value: [1, 2] },
 			{ param: 'lab_temp', value: 3 },
 		]);
-		const blocks = sheetBlocks(set, rows, [], hovered, undefined, true, {
+		const blocks = sheetBlocks(set, rows, [], hovered, undefined, {
 			scalars: {},
 			replicates: { lab_co2: ', 999' },
 		});
@@ -667,7 +710,7 @@ describe('typed input values', () => {
 
 	it('falls back to the echo when the typed entry is empty or not a number', () => {
 		for (const text of ['', '  ', 'abc']) {
-			const blocks = sheetBlocks(set, rows, [], echo, undefined, true, {
+			const blocks = sheetBlocks(set, rows, [], echo, undefined, {
 				scalars: { lab_temp: text },
 				replicates: { lab_co2: text },
 			});
@@ -675,5 +718,37 @@ describe('typed input values', () => {
 			expect(inputCells(blocks, 'lab_co2')[0]!.typed).toBeFalsy();
 			expect(inputCells(blocks, 'lab_temp')[0]).toEqual({ value: null, skipped: null });
 		}
+	});
+});
+
+describe('arranging the tables', () => {
+	it('reads a stored order of the three tables', () => {
+		expect(blockOrder('["outputs","inputs","steps"]')).toEqual(['outputs', 'inputs', 'steps']);
+	});
+
+	it('falls back to the default on nothing, garbage, a missing table or a repeated one', () => {
+		for (const stored of [null, '', 'not json', '{}', '["inputs","outputs"]', '["inputs","inputs","outputs"]']) {
+			expect(blockOrder(stored)).toEqual(['inputs', 'steps', 'outputs']);
+		}
+	});
+
+	it('lays the blocks out in the order, with Steps absent', () => {
+		const blocks = [{ key: 'inputs' as const }, { key: 'outputs' as const }];
+		expect(arrangedBlocks(blocks, ['outputs', 'steps', 'inputs']).map((b) => b.key)).toEqual(['outputs', 'inputs']);
+	});
+
+	it('puts a table moved right or left in the place of the one it lands on', () => {
+		const order = [...blockOrder(null)];
+		expect(movedBlock(order, 'inputs', 'outputs')).toEqual(['steps', 'outputs', 'inputs']);
+		expect(movedBlock(order, 'outputs', 'inputs')).toEqual(['outputs', 'inputs', 'steps']);
+		expect(movedBlock(order, 'steps', 'outputs')).toEqual(['inputs', 'outputs', 'steps']);
+		expect(movedBlock(order, 'steps', 'steps')).toEqual(order);
+	});
+
+	it('steps a table over its drawn neighbour and stops at the ends', () => {
+		expect(neighbourBlock(['inputs', 'outputs'], 'outputs', -1)).toBe('inputs');
+		expect(neighbourBlock(['inputs', 'outputs'], 'outputs', 1)).toBeNull();
+		expect(neighbourBlock(['inputs', 'outputs'], 'inputs', -1)).toBeNull();
+		expect(movedBlock(['inputs', 'steps', 'outputs'], 'outputs', 'inputs')).toEqual(['outputs', 'inputs', 'steps']);
 	});
 });

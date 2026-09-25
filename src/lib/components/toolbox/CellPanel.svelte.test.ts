@@ -55,6 +55,12 @@ describe('CellPanel', () => {
 		expect(screen.getByRole('heading', { name: 'No cell selected' })).toBeTruthy();
 	});
 
+	it('points a calculation with no formula at the palette and Add output', () => {
+		render(CellPanel, { formulas: [], variables });
+		expect(screen.getByRole('heading', { name: 'No formula yet' })).toBeTruthy();
+		expect(screen.getByText(/Pick from the palette or Add output/)).toBeTruthy();
+	});
+
 	it('edits the selected formula and names what it reads and what reads it', async () => {
 		const onselect = vi.fn();
 		render(CellPanel, {
@@ -112,6 +118,33 @@ describe('CellPanel', () => {
 		render(CellPanel, { row: rowFor('CO2_HS_Um'), formula: output, formulas, variables });
 		await userEvent.type(screen.getByLabelText('Warning max'), '42');
 		expect(output.thresholds.warningMax).toBe(42);
+	});
+
+	it('folds the bounds and Drop into a closed Advanced disclosure', () => {
+		render(CellPanel, { row: rowFor('CO2_HS_Um'), formula: formulas[1], formulas, variables });
+		const advanced = screen.getByText('Advanced').closest('details')!;
+		expect(advanced.open).toBe(false);
+		expect(advanced.contains(screen.getByLabelText('Warning min'))).toBe(true);
+		expect(advanced.contains(screen.getAllByRole('button', { name: 'Drop' })[0])).toBe(true);
+	});
+
+	it('folds what a shared step feeds and Stop reading into the Advanced disclosure', () => {
+		const shared = formula({ ...formulas[0], declarationId: 'decl-1', shared: true });
+		render(CellPanel, { row: rowFor('hs_k'), formula: shared, formulas, variables });
+		const advanced = screen.getByText('Advanced').closest('details')!;
+		expect(advanced.contains(screen.getByRole('button', { name: 'What it feeds' }))).toBe(true);
+		expect(advanced.contains(screen.getAllByRole('button', { name: 'Stop reading' })[0])).toBe(true);
+	});
+
+	it('offers no rerun of its own, an edit rerunning the set', () => {
+		render(CellPanel, { row: rowFor('CO2_HS_Um'), formula: formulas[1], formulas, variables });
+		expect(screen.queryByRole('button', { name: 'Read it at the visit again' })).toBeNull();
+	});
+
+	it('draws no Reads line and no equation box for a formula with nothing in them yet', () => {
+		render(CellPanel, { row: null, formula: formula({ code: 'fresh' }), formulas, variables });
+		expect(screen.queryByText('Reads nothing yet')).toBeNull();
+		expect(screen.queryByText('Computed at the next run of the visit.')).toBeNull();
 	});
 
 	it('offers no bounds on a step, which publishes under no parameter', () => {

@@ -2,7 +2,10 @@
 	import type { CellProperties, GridSettings, HotInstance } from 'handsontable';
 	import type { RunTraceStep } from '$api/service';
 	import type { EditableFormula } from '$lib/calculations/editor';
+	import { tick } from 'svelte';
 	import {
+		arrangedBlocks,
+		blockOrder,
 		cellEdit,
 		contributors,
 		dropOn,
@@ -11,11 +14,16 @@
 		formulaOf,
 		gridColumnOf,
 		gridColumnRole,
+		gridHeaders,
+		isFolded,
 		linksOf,
+		movedBlock,
+		neighbourBlock,
 		replicateStatistics,
 		STATISTIC_COLUMNS,
 		rowRemoval,
-		stepsOffRefusal,
+		visibleColumn,
+		type BlockView,
 		type RowRemoval,
 		type SheetBlock,
 		type SheetEdit,
@@ -27,12 +35,15 @@
 	import { identifiers } from '$lib/formula/lint';
 	import { REPLICATE_MARK_SVG, REPLICATE_MARK_TITLE } from '$lib/calculations/replicateMark';
 	import SheetGrid from '$components/ui/SheetGrid.svelte';
+	import { headroom, routeLinks, type LinkEnds, type Rect, type Route } from '$lib/calculations/route';
 
 	// The portal's tables, side by side: what the visit and the catalog supplied, the steps of the
 	// calculation where it has any, and what it publishes with the statistics of the repeats.
-	// Parameters go down and replicate letters across, so a set reads the way the lab writes it down.
+	// Parameters go down and replicates across, so a set reads the way the lab writes it down. Each
+	// table opens folded to the label, mean and sd; its header opens the replicate columns.
 	//
-	// Selecting a cell lights what its row reads and what reads it, across all three tables.
+	// Selecting a cell lights what its row reads and what reads it, across all three tables. The
+	// author may move a table by the grip in its header; the order is kept per browser.
 
 	interface Props {
 		blocks: SheetBlock[];
@@ -48,8 +59,6 @@
 		ondrop?: (block: SheetBlock['key'], row: SheetRow | null, payload: DragPayload) => void;
 		/** Append a row to the steps or the outputs. */
 		onadd?: (block: 'steps' | 'outputs') => void;
-		/** Turn the steps block on or off. Without it the sheet carries no switch. */
-		onsteps?: (on: boolean) => void;
 		/** Remove a row. Without it the rows carry no remove control. */
 		onremove?: (removal: RowRemoval) => void;
 		/** The inputs brought in by hand, which are the only inputs a remove takes out. */
@@ -66,28 +75,9 @@
 		onedit,
 		ondrop,
 		onadd,
-		onsteps,
 		onremove,
 		declared = [],
 	}: Props = $props();
-
-	const showingSteps = $derived(blocks.some((b) => b.key === 'steps'));
-	let stepsRefused = $state<string | null>(null);
-
-	function toggleSteps(event: Event) {
-		const box = event.currentTarget as HTMLInputElement;
-		if (box.checked) {
-			stepsRefused = null;
-			onsteps?.(true);
-			return;
-		}
-		stepsRefused = stepsOffRefusal(formulas);
-		if (stepsRefused) {
-			box.checked = true;
-			return;
-		}
-		onsteps?.(false);
-	}
 
 	// --- Removing a row ---
 	// A removal the author may regret waits on a confirm under the tables; one that only takes out
@@ -148,7 +138,109 @@
 		return Number.isInteger(value) ? String(value) : value.toPrecision(6);
 	}
 
-	/** A replicated row's avg and sd, ahead of its letters; blank on a row with one number. */
+	// --- Arranging the tables ---
+
+	const ORDER_KEY = 'calculation-sheet-order';
+	const BLOCK_TYPE = 'application/x-sheet-block';
+	let order = $state(storedOrder());
+	const arranged = $derived(arrangedBlocks(blocks, order));
+
+	function storedOrder() {
+		try {
+			return blockOrder(localStorage.getItem(ORDER_KEY));
+		} catch {
+			return blockOrder(null);
+		}
+	}
+
+	async function move(key: SheetBlock['key'], onto: SheetBlock['key'] | null) {
+		if (!onto) return;
+		order = movedBlock(order, key, onto);
+		try {
+			localStorage.setItem(ORDER_KEY, JSON.stringify(order));
+		} catch {
+			// The order holds for this visit to the page.
+		}
+		await tick();
+		redraw();
+	}
+
+	/** The handle a table is dragged by, or stepped along with the arrow keys. */
+	function grip(block: SheetBlock): HTMLElement {
+		const handle = document.createElement('span');
+		handle.className = 'sheet-grip';
+		handle.textContent = '⠿';
+		handle.draggable = true;
+		handle.tabIndex = 0;
+		handle.setAttribute('role', 'button');
+		handle.setAttribute('aria-label', `Move the ${block.title} table`);
+		handle.title = 'Drag to move the table, or use the arrow keys';
+		handle.addEventListener('mousedown', (event) => event.stopPropagation());
+		handle.addEventListener('dragstart', (event) => startMove(block, event));
+		handle.addEventListener('keydown', (event) => stepMove(block, event));
+		return handle;
+	}
+
+	function startMove(block: SheetBlock, event: DragEvent) {
+		event.stopPropagation();
+		event.dataTransfer?.setData(BLOCK_TYPE, block.key);
+		if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+	}
+
+	function stepMove(block: SheetBlock, event: KeyboardEvent) {
+		const step = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : null;
+		if (!step) return;
+		event.preventDefault();
+		event.stopPropagation();
+		const shown = arranged.map((b) => b.key);
+		move(block.key, neighbourBlock(shown, block.key, step));
+	}
+
+	function isMove(event: DragEvent): boolean {
+		return event.dataTransfer?.types.includes(BLOCK_TYPE) ?? false;
+	}
+
+	// --- Folding the replicate columns ---
+
+	let opened = $state<Set<string>>(new Set());
+
+	function viewOf(block: SheetBlock): BlockView {
+		return { columns: block.columns, folded: !opened.has(block.key) };
+	}
+
+	function toggleOpened(key: string) {
+		const next = new Set(opened);
+		if (!next.delete(key)) next.add(key);
+		opened = next;
+	}
+
+	/** The title header's grip that moves the table, and the control that folds its replicates. */
+	function titleHeader(block: SheetBlock, column: number, th: HTMLTableCellElement) {
+		if (column !== 0) return;
+		const label = th.querySelector('.colHeader');
+		if (!label) return;
+		th.setAttribute('aria-label', block.title);
+		if (!label.querySelector('.sheet-grip')) label.prepend(grip(block));
+		label.querySelector('.sheet-header-button')?.remove();
+		if (block.columns.length === 0) return;
+		const folded = isFolded(viewOf(block));
+		const button = document.createElement('button');
+		button.type = 'button';
+		button.className = 'sheet-header-button';
+		const action = folded ? `Open the ${block.title} replicates` : `Fold the ${block.title} replicates`;
+		button.textContent = folded ? '+' : '−';
+		button.title = action;
+		button.setAttribute('aria-expanded', String(!folded));
+		button.setAttribute('aria-label', action);
+		button.addEventListener('mousedown', (event) => event.stopPropagation());
+		button.addEventListener('click', (event) => {
+			event.stopPropagation();
+			toggleOpened(block.key);
+		});
+		label.append(' ', button);
+	}
+
+	/** A replicated row's avg and sd, ahead of its replicates; blank on a row with one number. */
 	function statisticsOf(block: SheetBlock, row: SheetRow): string[] {
 		if (block.columns.length === 0) return [];
 		if (!row.replicated) return STATISTIC_COLUMNS.map(() => '');
@@ -158,11 +250,13 @@
 
 	function dataOf(block: SheetBlock): string[][] {
 		const width = Math.max(1, block.columns.length);
-		return block.rows.map((row) => [
-			row.label,
-			...statisticsOf(block, row),
-			...row.cells.slice(0, width).map((c) => (c.skipped ? '—' : fmt(c.value))),
-		]);
+		const folded = isFolded(viewOf(block));
+		return block.rows.map((row) => {
+			const values = row.cells.slice(0, width).map((c) => (c.skipped ? '—' : fmt(c.value)));
+			if (folded && !row.replicated) return [row.label, values[0] ?? '', ''];
+			if (folded) return [row.label, ...statisticsOf(block, row)];
+			return [row.label, ...statisticsOf(block, row), ...values];
+		});
 	}
 
 	const selectedRow = $derived(
@@ -207,8 +301,8 @@
 	];
 
 	/** The selection's column for a grid column: the label, a replicate, or null on a statistic. */
-	function columnOf(block: SheetBlock, gridColumn: number): number | null {
-		const role = gridColumnRole(block, gridColumn);
+	function columnOf(block: SheetBlock, gridColumn: number, row: SheetRow | null): number | null {
+		const role = gridColumnRole(viewOf(block), gridColumn, row?.replicated ?? true);
 		return role.kind === 'label' ? 0 : role.kind === 'value' ? role.column : null;
 	}
 
@@ -219,17 +313,15 @@
 		gridColumn: number,
 		text: string,
 	): SheetEdit | null {
-		const column = columnOf(block, gridColumn);
+		const column = columnOf(block, gridColumn, row);
 		return row && onedit && column !== null ? cellEdit(row, column, text) : null;
 	}
 
 	function settingsOf(block: SheetBlock): Omit<GridSettings, 'data' | 'licenseKey' | 'themeName'> {
 		const rows = block.rows;
 		return {
-			colHeaders: [
-				block.title,
-				...(block.columns.length > 0 ? [...STATISTIC_COLUMNS, ...block.columns] : ['Value']),
-			],
+			colHeaders: [block.title, ...gridHeaders(viewOf(block))],
+			afterGetColHeader: (column: number, th: HTMLTableCellElement) => titleHeader(block, column, th),
 			rowHeaders: false,
 			wordWrap: false,
 			width: '100%',
@@ -266,14 +358,16 @@
 				}
 			},
 			// A repaint re-emits each grid's own selection, which is not written back, or the table
-			// last clicked would take the selection from the new one.
-			afterSelection: (row: number, gridColumn: number) => {
+			// last clicked would take the selection from the new one. It is taken once the press is
+			// released: the panel above the tables reshapes on a new selection, and a table moved
+			// under a press reads its release as a click outside and stops taking keys.
+			afterSelectionEnd: (row: number, gridColumn: number) => {
 				// Only the table the person is working in speaks: the others re-emit what they still
 				// hold whenever they are drawn.
 				if (repainting || grids.get(block.key)?.isListening() === false) return;
 				const entry = rows[row];
 				if (!entry) return;
-				const next = { block: block.key, key: entry.key, column: columnOf(block, gridColumn) ?? 0 };
+				const next = { block: block.key, key: entry.key, column: columnOf(block, gridColumn, entry) ?? 0 };
 				if (
 					next.block === selected?.block &&
 					next.key === selected?.key &&
@@ -306,7 +400,7 @@
 		td.textContent = text;
 		if (!row) return td;
 		td.setAttribute('data-sheet-row', row.key);
-		const role = gridColumnRole(block, gridColumn);
+		const role = gridColumnRole(viewOf(block), gridColumn, row.replicated);
 		if (role.kind === 'statistic') {
 			td.setAttribute('data-sheet-statistic', role.statistic);
 			td.classList.add('htRight', 'htNumeric', 'sheet-statistic');
@@ -402,8 +496,9 @@
 	// is where the first input is expected to go.
 
 	function dragover(event: DragEvent) {
+		if (!isMove(event) && !ondrop) return;
 		event.preventDefault();
-		if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+		if (event.dataTransfer) event.dataTransfer.dropEffect = isMove(event) ? 'move' : 'copy';
 	}
 
 	/** The row the pointer is over, or null when it is over the block but not a row. */
@@ -416,6 +511,11 @@
 	}
 
 	function dropped(block: SheetBlock, event: DragEvent) {
+		if (isMove(event)) {
+			event.preventDefault();
+			move(event.dataTransfer!.getData(BLOCK_TYPE) as SheetBlock['key'], block.key);
+			return;
+		}
 		if (!ondrop) return;
 		const payload = readPayload(event.dataTransfer);
 		if (!payload) return;
@@ -439,22 +539,21 @@
 
 	// --- Lines from the selected cell to the cells it reads and the cells reading it ---
 	// The tables are three grids of their own, so a link between them is drawn over the lot rather
-	// than inside one. Handsontable draws only the rows in view, so a source that is scrolled out
-	// has no cell to draw to and is named instead.
+	// than inside one, routed through the gutters around them. Handsontable draws only the rows in
+	// view, so a row that is scrolled out has no cell to draw to and is named instead.
 
-	/** One line, in the coordinates of the surface the tables are laid out on. */
-	interface Edge {
-		key: string;
-		direction: 'reads' | 'read-by';
-		x1: number;
-		y1: number;
-		x2: number;
-		y2: number;
+	type Direction = 'reads' | 'read-by';
+
+	/** A routed link, and which way it runs from the selected row. */
+	interface Edge extends Route {
+		direction: Direction;
+		name: string;
 	}
 
 	let surface = $state<HTMLDivElement | null>(null);
 	let edges = $state<Edge[]>([]);
 	let offscreen = $state<string[]>([]);
+	const lanesAbove = $derived(headroom(edges));
 
 	/** Where a row sits: the cell a line meets it at, and the table holding it. */
 	function anchorOf(
@@ -465,60 +564,88 @@
 			const index = block.rows.findIndex((r) => r.key === key);
 			if (index < 0) continue;
 			const grid = grids.get(block.key);
-			let cell: HTMLElement | null = null;
-			// A column scrolled out of the table has no cell, so fall back to the last one drawn.
-			for (let column = edgeColumn(end, block.columns.length); column >= 0 && !cell; column--) {
-				if (grid && !grid.isDestroyed) {
-					cell = (grid.getCell(index, gridColumnOf(block, column)) as HTMLElement | null) ?? null;
-				}
-			}
-			return { cell, block: block.key, row: index };
+			if (!grid || grid.isDestroyed) return { cell: null, block: block.key, row: index };
+			const cellAt = (column: number) =>
+				(grid.getCell(index, gridColumnOf(viewOf(block), column)) as HTMLElement | null) ?? null;
+			// A column scrolled out of the table's width is not the row's edge, so fall back to one in view.
+			const column = visibleColumn(
+				edgeColumn(end, block.columns.length),
+				(c) => cellAt(c)?.getBoundingClientRect() ?? null,
+				grid.rootElement.getBoundingClientRect(),
+			);
+			return { cell: column === null ? null : cellAt(column), block: block.key, row: index };
 		}
 		return null;
 	}
 
-	/** The selected row's cell a line to its readers leaves from. */
-	function selectedSource(): HTMLElement | null {
-		return selected ? (anchorOf(selected.key, 'source')?.cell ?? null) : null;
-	}
-
 	function redraw() {
 		const box = surface?.getBoundingClientRect();
-		const target = selected ? anchorOf(selected.key, 'reader')?.cell : null;
-		if (!box || !target) {
+		const target = selected ? anchorOf(selected.key, 'reader') : null;
+		if (!box || !target?.cell) {
 			edges = [];
 			offscreen = [];
 			return;
 		}
-		const drawn: Edge[] = [];
+		const middle = (cell: HTMLElement) => {
+			const r = cell.getBoundingClientRect();
+			return r.top + r.height / 2 - box.top;
+		};
+		const tables = blocks.map((b): Rect => {
+			const r = surface!.querySelector(`section[data-block="${b.key}"]`)?.getBoundingClientRect();
+			return r
+				? { left: r.left - box.left, top: r.top - box.top, right: r.right - box.left, bottom: r.bottom - box.top }
+				: { left: 0, top: 0, right: 0, bottom: 0 };
+		});
+		const tableOf = (block: string) => blocks.findIndex((b) => b.key === block);
+		const own = selected ? anchorOf(selected.key, 'source') : null;
+		const links: LinkEnds[] = [];
+		const directions: Direction[] = [];
+		const names: string[] = [];
 		const missing: string[] = [];
-		const link = (key: string, direction: Edge['direction']) => {
+		const link = (key: string, direction: Direction) => {
 			if (key === selected?.key) return;
 			const anchor = anchorOf(key, direction === 'reads' ? 'source' : 'reader');
-			if (!anchor) return;
-			if (!anchor.cell) {
+			const from = direction === 'reads' ? anchor : own;
+			const to = direction === 'reads' ? target : anchor;
+			if (!anchor || !from || !to) return;
+			if (!anchor.cell || !from.cell || !to.cell) {
 				if (!missing.includes(key)) missing.push(key);
 				return;
 			}
-			// A line runs from what is read, on its right, to what reads it, on its left.
-			const [from, to] =
-				direction === 'reads'
-					? [anchor.cell.getBoundingClientRect(), target.getBoundingClientRect()]
-					: [selectedSource()!.getBoundingClientRect(), anchor.cell.getBoundingClientRect()];
-			drawn.push({
-				key,
-				direction,
-				x1: from.right - box.left,
-				y1: from.top + from.height / 2 - box.top,
-				x2: to.left - box.left,
-				y2: to.top + to.height / 2 - box.top,
+			// A link runs from what is read to what reads it, and names what is read, beside the
+			// row it concerns so the labels of one selection never share a row.
+			links.push({
+				key: `${direction}:${key}`,
+				label: from === own ? selected!.key : key,
+				from: { table: tableOf(from.block), y: middle(from.cell) },
+				to: { table: tableOf(to.block), y: middle(to.cell) },
+				labelAt: direction === 'reads' ? 'from' : 'to',
 			});
+			directions.push(direction);
+			names.push(key);
 		};
 		for (const key of reads) link(key, 'reads');
-		if (readBy.size > 0 && selectedSource()) for (const key of readBy) link(key, 'read-by');
-		edges = drawn;
+		for (const key of readBy) link(key, 'read-by');
+		edges = routeLinks(tables, box.width, links).map((route, i) => ({
+			...route,
+			direction: directions[i]!,
+			name: names[i]!,
+		}));
 		offscreen = missing;
 	}
+
+	// The tables move with whatever is laid out around them, and wrap as the page narrows, so a
+	// line is measured again whenever the surface or a table changes size.
+	$effect(() => {
+		if (!surface) return;
+		const observer = new ResizeObserver(() => redraw());
+		observer.observe(surface);
+		for (const key of blocks.map((b) => b.key)) {
+			const table = surface.querySelector(`section[data-block="${key}"]`);
+			if (table) observer.observe(table);
+		}
+		return () => observer.disconnect();
+	});
 
 	/** Bring a source that is scrolled out of its table into view. */
 	function reveal(key: string) {
@@ -534,41 +661,67 @@
 <div class="@container relative" bind:this={surface}>
 	{#if edges.length > 0}
 		<svg class="pointer-events-none absolute inset-0 h-full w-full z-10" aria-hidden="true">
-			{#each edges as edge (`${edge.direction}:${edge.key}`)}
-				<line
-					x1={edge.x1}
-					y1={edge.y1}
-					x2={edge.x2}
-					y2={edge.y2}
+			<defs>
+				{#each ['reads', 'read-by'] as direction (direction)}
+					<marker
+						id="sheet-arrow-{direction}"
+						viewBox="0 0 10 10"
+						refX="9"
+						refY="5"
+						markerWidth="5"
+						markerHeight="5"
+						orient="auto-start-reverse"
+					>
+						<path d="M 0 0 L 10 5 L 0 10 z" class="sheet-edge-arrow" class:sheet-edge-read-by={direction === 'read-by'} />
+					</marker>
+				{/each}
+			</defs>
+			{#each edges as edge (edge.key)}
+				<path
+					d={edge.path}
 					class="sheet-edge"
 					class:sheet-edge-read-by={edge.direction === 'read-by'}
-					data-sheet-edge={edge.key}
+					marker-end="url(#sheet-arrow-{edge.direction})"
+					data-sheet-edge={edge.name}
 					data-sheet-edge-direction={edge.direction}
 				/>
+				<text
+					x={edge.label.x}
+					y={edge.label.y}
+					text-anchor={edge.label.anchor}
+					class="sheet-edge-label"
+					class:sheet-edge-read-by={edge.direction === 'read-by'}>{edge.label.text}</text
+				>
 			{/each}
 		</svg>
 	{/if}
-	{#if onsteps}
-		<div class="mb-2 flex flex-wrap items-center gap-3 text-xs text-brand-muted">
-			<label class="inline-flex items-center gap-1.5">
-				<input type="checkbox" checked={showingSteps} onchange={toggleSteps} />
-				Intermediate steps
-			</label>
-			{#if stepsRefused}
-				<span role="status" class="text-severity-alarm">{stepsRefused}</span>
-			{/if}
-		</div>
-	{/if}
-	<div class="grid gap-3 items-start @md:grid-cols-2 {blocks.length === 3 ? '@2xl:grid-cols-3' : ''}">
-	{#each blocks as block (block.key)}
+	<!-- The gutters, and the room above the tables while a link goes over them, hold its lanes. -->
+	<div
+		class="grid gap-3 @6xl:gap-x-24 items-start @md:grid-cols-2 @2xl:grid-cols-3"
+		style="padding-top: {lanesAbove}px"
+		data-sheet-headroom={lanesAbove}
+	>
+	{#each arranged as block (block.key)}
 		<section
 			aria-label={block.title}
+			data-block={block.key}
 			class="min-w-0 rounded-md border border-brand-divider bg-brand-surface"
-			ondragover={ondrop ? dragover : undefined}
-			ondrop={ondrop ? (event) => dropped(block, event) : undefined}
+			ondragover={dragover}
+			ondrop={(event) => dropped(block, event)}
 		>
 			{#if block.rows.length === 0}
-				<h4 class="px-3 py-2 text-sm font-semibold border-b border-brand-divider">{block.title}</h4>
+				<h4 class="px-3 py-2 text-sm font-semibold border-b border-brand-divider">
+					<span
+						class="sheet-grip"
+						role="button"
+						tabindex="0"
+						draggable="true"
+						aria-label="Move the {block.title} table"
+						title="Drag to move the table, or use the arrow keys"
+						ondragstart={(event) => startMove(block, event)}
+						onkeydown={(event) => stepMove(block, event)}>⠿</span>
+					{block.title}
+				</h4>
 				<p class="px-3 py-3 text-sm text-brand-muted">{emptyBlockLine(block.key, Boolean(ondrop))}</p>
 			{:else}
 				<SheetGrid
@@ -588,9 +741,6 @@
 					<Button size="sm" variant="ghost" onclick={() => onadd(block.key as 'steps' | 'outputs')}>
 						{block.key === 'steps' ? 'Add step' : 'Add output'}
 					</Button>
-					{#if block.key === 'outputs' && !showingSteps}
-						<Button size="sm" variant="ghost" onclick={() => onadd('steps')}>Add step</Button>
-					{/if}
 				</div>
 			{/if}
 		</section>
